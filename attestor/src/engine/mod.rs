@@ -430,6 +430,25 @@ impl AttestorService {
         debug!("Evaluating voting position...");
 
         let last_voted_for_block = self.voted_for.last().copied().unwrap_or_default().0;
+        if last_voted_for_block == self.start_block {
+            // Pause until we have an event that indicates we attested to "genesis" correctly
+            info!("At starting (genesis) block, waiting for attestation events to proceed");
+            self.state = State::PausedBackoff {
+                since: std::time::Instant::now(),
+                attempt: 0,
+                total_paused: std::time::Duration::ZERO,
+                reason: "at_genesis_block",
+            };
+
+            info!(
+                "⏸️ Pausing (backoff) at genesis block; epoch={}",
+                self.current_epoch
+            );
+            self.next_backoff_deadline = Some(Instant::now() + std::time::Duration::from_secs(12));
+
+            return Ok(());
+        }
+
         let last_finalized = self.sync_state.current();
         debug!(
             "Last voted for: {:}, last finalized attestation: {:}",

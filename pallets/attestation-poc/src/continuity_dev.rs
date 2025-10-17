@@ -10,8 +10,9 @@ pub fn construct_fragment(
     if range.end().is_zero() {
         return AttestationFragment::default();
     }
+
     // Create a dummy fragment from start to end and use provided digest if we can
-    let mut fragment = AttestationFragment::new((range.end() - range.start() + 1) as usize);
+    let mut fragment = AttestationFragment::new(range.clone().count());
     let mut current_prev_digest =
         Felt::from_bytes_be(&prev_digest.map(|d| d.0).unwrap_or_default());
 

@@ -146,7 +146,6 @@ pub enum AttestationFragmentError {
     Other,
 }
 
-#[cfg(feature = "std")]
 impl core::fmt::Display for AttestationFragmentError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -160,7 +159,6 @@ impl core::fmt::Display for AttestationFragmentError {
     }
 }
 
-#[cfg(feature = "std")]
 impl core::error::Error for AttestationFragmentError {}
 
 impl From<BlockError> for AttestationFragmentError {

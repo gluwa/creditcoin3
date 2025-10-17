@@ -2028,7 +2028,7 @@ fn commit_attestation_should_error_on_invalid_continuity_proof() {
                 RuntimeOrigin::none(),
                 vec![attestation_1.clone()].try_into().unwrap()
             ),
-            Error::<Test>::InvalidAttestationBlockNumber
+            Error::<Test>::InvalidAttestationContinuityProofTail
         );
     })
 }
@@ -2080,7 +2080,7 @@ fn commit_attestation_should_error_on_invalid_continuity_proof_tail() {
                 RuntimeOrigin::none(),
                 vec![attestation_2.clone()].try_into().unwrap()
             ),
-            Error::<Test>::InvalidAttestationContinuityProofBlockGenesis
+            Error::<Test>::InvalidAttestationContinuityProofTail
         );
     })
 }
@@ -2374,7 +2374,7 @@ fn commit_attestation_should_error_on_invalid_continuity_genesis_block() {
             create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
 
         // Create a correct continuity proof fragment
-        let correct_fragment = construct_fragment(None, RangeInclusive::new(2, 9));
+        let correct_fragment = construct_fragment(Some(H256::random()), RangeInclusive::new(0, 9));
         let attestation = AttestationPrimitive {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 10,
@@ -2419,7 +2419,7 @@ fn commit_attestation_should_error_on_invalid_continuity_genesis_block() {
                     .try_into()
                     .unwrap()
             ),
-            Error::<Test>::InvalidAttestationContinuityProofBlockGenesis
+            Error::<Test>::InvalidAttestationContinuityProofTail
         );
     })
 }
