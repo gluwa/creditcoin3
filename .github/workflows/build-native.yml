@@ -64,6 +64,7 @@ jobs:
           path: |
             target/release/attestor
             target/release/attestor_zombienet
+            target/release/compute-prover-contract-bytecode-hash
             target/release/creditcoin3-node
             target/release/prover
             target/release/query-cli
