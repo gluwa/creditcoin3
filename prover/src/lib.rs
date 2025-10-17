@@ -4,6 +4,7 @@ use either::Either;
 use eth::Client as EthClient;
 use futures::stream::{FuturesUnordered, StreamExt};
 use query::external::Error as LightProvingError;
+use query::precheck::{pre_check_query, Error as PreCheckError};
 use sp_core::H256;
 use std::collections::{BTreeMap, HashSet};
 use std::str::FromStr;
@@ -417,6 +418,28 @@ impl Server {
             self.chain_name,
             self.config.chain_key
         );
+
+        // Check if the query is clearly invalid
+        let precheck_result = pre_check_query(&query, &self.source_chain_eth_client).await;
+        if let Err(e) = precheck_result {
+            match e {
+                PreCheckError::EmptyQuery
+                | PreCheckError::EmptyTxRx
+                | PreCheckError::NoSuchBlock(_, _)
+                | PreCheckError::NoSuchTxInBlock(_, _)
+                | PreCheckError::NoSuchDataInTxRx(_, _) => {
+                    warn!("⚠️ Received invalid query {:?}, ignoring.", query_id);
+                    self.mark_query_as_invalid(query_id, e.to_string()).await?;
+                    return Ok(());
+                }
+                PreCheckError::EthError(e) => {
+                    let reason = format!("Eth client error during pre-checking: {}", e.to_string());
+                    warn!(reason);
+                    self.mark_query_processing_failed(query_id, reason).await?;
+                    return Ok(());
+                }
+            }
+        }
 
         // Check if the query is ready to be processed
         // This is a synchronous check, the async version is in handle_block_attested
