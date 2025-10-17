@@ -73,6 +73,7 @@ declare module '@polkadot/api-base/types/errors' {
              * The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
              **/
             MaxInvulnerablesCannotBeChanged: AugmentedError<ApiType>;
+            NoFinalizedAttestation: AugmentedError<ApiType>;
             NoMoreChunks: AugmentedError<ApiType>;
             NoPreviousDigest: AugmentedError<ApiType>;
             NoSupportedChains: AugmentedError<ApiType>;

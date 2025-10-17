@@ -3100,6 +3100,7 @@ export default {
             'DuplicateAttestor',
             'AttestorAlreadyAuthorized',
             'AttestorNotAuthorized',
+            'NoFinalizedAttestation',
             'EmptyContinuityProof',
             'InvalidAttestationContinuityProof',
             'InvalidAttestationContinuityProofTail',
