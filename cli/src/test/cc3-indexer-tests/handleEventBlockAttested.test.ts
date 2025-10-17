@@ -72,7 +72,11 @@ describe('handleEventBlockAttested()', () => {
 
                 expect(node.signature.startsWith('0x')).toEqual(true);
                 expect(node.digest.startsWith('0x')).toEqual(true);
-                expect(node.prevDigest.startsWith('0x')).toEqual(true);
+                if (node.headerNumber.isZero()) {
+                    expect(node.prevDigest).toEqual('');
+                } else {
+                    expect(node.prevDigest.startsWith('0x')).toEqual(true);
+                }
 
                 // 0 means that the block timestamp wasn't present, and it defaulted to 0, which is a problem
                 expect(BigInt(node.timestamp)).toBeGreaterThan(0);
