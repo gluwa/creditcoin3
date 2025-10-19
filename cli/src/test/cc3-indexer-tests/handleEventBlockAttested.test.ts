@@ -72,7 +72,7 @@ describe('handleEventBlockAttested()', () => {
 
                 expect(node.signature.startsWith('0x')).toEqual(true);
                 expect(node.digest.startsWith('0x')).toEqual(true);
-                if (node.headerNumber === 0) {
+                if (lastHeaderNumber === 0n) {
                     expect(node.prevDigest).toEqual('');
                 } else {
                     expect(node.prevDigest.startsWith('0x')).toEqual(true);
