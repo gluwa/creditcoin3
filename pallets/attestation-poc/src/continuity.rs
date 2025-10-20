@@ -31,23 +31,46 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // NON-GENESIS: must have a continuity proof
-        ensure!(
-            !attestation.continuity_proof.is_empty(),
-            Error::<T>::EmptyContinuityProof
-        );
-
         // NON-GENESIS: prev_digest must exist and be non-zero
-        let prev = attestation
+        let attestation_prev_digest = attestation
             .prev_digest()
             .ok_or(Error::<T>::InvalidAttestationPrevDigest)?;
-        ensure!(!prev.is_zero(), Error::<T>::InvalidAttestationPrevDigest);
+        ensure!(
+            !attestation_prev_digest.is_zero(),
+            Error::<T>::InvalidAttestationPrevDigest
+        );
 
         // Get last digest, either checkpoint or last attestation
         let mut last_finalized_digest = Self::last_digest(chain_key).ok_or_else(|| {
             error!("❌ No finalized attestation found for chain_key {chain_key:?}");
             Error::<T>::NoFinalizedAttestation
         })?;
+
+        // If the attestation's prev digest matches the last finalized digest
+        // We need no continuity proof, the attestation links directly.
+        // We still need to check the header number continuity
+        if attestation_prev_digest == last_finalized_digest
+            && attestation.continuity_proof.is_empty()
+        {
+            let attestation = Self::get(chain_key, attestation_prev_digest).ok_or_else(|| {
+                error!("❌ Previous attestation with digest {attestation_prev_digest:?} not found in storage");
+                Error::<T>::InvalidAttestationPrevDigest
+            })?;
+
+            ensure!(
+                attestation_header_number == attestation.header_number() + 1,
+                Error::<T>::InvalidAttestationPrevDigest
+            );
+
+            info!("✅ Attestation continuity proof is valid (prev digest matches last finalized digest).");
+            return Ok(());
+        }
+
+        // NON-GENESIS: must have a continuity proof
+        ensure!(
+            !attestation.continuity_proof.is_empty(),
+            Error::<T>::EmptyContinuityProof
+        );
 
         debug!(
             "📝 Checking Continuity proof, length: {:?}, round: {:?}, last_finalized_digest: {:?}",
@@ -61,7 +84,7 @@ impl<T: Config> Pallet<T> {
             let block: Block = (*attestation_head).clone().into();
             let block_digest = H256::from_slice(&block.digest.to_bytes_be());
             ensure!(
-                block_digest == prev,
+                block_digest == attestation_prev_digest,
                 Error::<T>::InvalidAttestationContinuityProofHead
             );
         }

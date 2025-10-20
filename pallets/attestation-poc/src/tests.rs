@@ -89,6 +89,14 @@ pub fn create_signed_attestation(
         }),
     };
 
+    self::bls_sign_attestation(attestors, attestation, &fragment)
+}
+
+pub fn bls_sign_attestation(
+    attestors: Vec<Attestor>,
+    attestation: AttestationPrimitive<H256>,
+    fragment: &AttestationFragment,
+) -> SignedAttestation<H256, mock::AccountId> {
     let mut signatures = Vec::new();
     for attestor in attestors.iter() {
         let signature = attestor.sign(&attestation.serialize());
@@ -100,7 +108,7 @@ pub fn create_signed_attestation(
     // sign
     let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
-    let continuity_proof = AttestationFragmentSerializable::from(&fragment);
+    let continuity_proof = AttestationFragmentSerializable::from(fragment);
     let attestation = SignedAttestation {
         attestation,
         signature: aggregated_signature.as_bytes()[..]
@@ -1919,7 +1927,7 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
 }
 
 #[test]
-fn commit_attestation_works() {
+fn commit_attestation_interval_10_works() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         assert_eq!(
@@ -1985,6 +1993,157 @@ fn commit_attestation_works() {
         assert_eq!(
             Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()),
             Some(attestation)
+        );
+    })
+}
+
+#[test]
+fn commit_attestation_interval_1_works() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_eq!(
+            Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
+            0
+        );
+        assert_eq!(Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY), None);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation_1 =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        log::info!("Attestation 1: {:?}", attestation_1.digest());
+
+        assert_ok!(Attestation::commit_attestation(
+            RuntimeOrigin::none(),
+            vec![attestation_1.clone()].try_into().unwrap()
+        ));
+
+        // The first attestation for a chain immediately creates a corresponding checkpoint
+        // rather than adding to the checkpointing queue.
+        let expected_checkpoint = AttestationCheckpoint {
+            block_number: attestation_1.header_number(),
+            digest: attestation_1.digest(),
+        };
+        assert_eq!(
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.digest),
+            Some(expected_checkpoint.block_number)
+        );
+        // assert last checkpoint
+        assert_eq!(
+            Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
+            Some(expected_checkpoint)
+        );
+
+        // Create a second attestation since first became a checkpoint and was removed from attestations
+        let attestation = AttestationPrimitive {
+            chain_key: SUPPORTED_CHAIN_KEY,
+            header_number: 1,
+            header_hash: H256::random(),
+            root: [0; 32],
+            prev_digest: Some(attestation_1.digest()),
+        };
+        let attestation = self::bls_sign_attestation(
+            vec![attestor.clone()],
+            attestation,
+            &AttestationFragment::default(),
+        );
+
+        assert_ok!(Attestation::commit_attestation(
+            RuntimeOrigin::none(),
+            vec![attestation.clone()].try_into().unwrap()
+        ));
+
+        assert_eq!(
+            Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()),
+            Some(attestation)
+        );
+    })
+}
+
+#[test]
+fn commit_attestation_interval_1_fails_with_wrong_prev_digest() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_eq!(
+            Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
+            0
+        );
+        assert_eq!(Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY), None);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation_1 =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        log::info!("Attestation 1: {:?}", attestation_1.digest());
+
+        assert_ok!(Attestation::commit_attestation(
+            RuntimeOrigin::none(),
+            vec![attestation_1.clone()].try_into().unwrap()
+        ));
+
+        // The first attestation for a chain immediately creates a corresponding checkpoint
+        // rather than adding to the checkpointing queue.
+        let expected_checkpoint = AttestationCheckpoint {
+            block_number: attestation_1.header_number(),
+            digest: attestation_1.digest(),
+        };
+        assert_eq!(
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.digest),
+            Some(expected_checkpoint.block_number)
+        );
+        // assert last checkpoint
+        assert_eq!(
+            Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
+            Some(expected_checkpoint)
+        );
+
+        // Create a second attestation since first became a checkpoint and was removed from attestations
+        let attestation = AttestationPrimitive {
+            chain_key: SUPPORTED_CHAIN_KEY,
+            header_number: 1,
+            header_hash: H256::random(),
+            root: [0; 32],
+            prev_digest: Some(H256::random()), // wrong prev digest
+        };
+        let attestation = self::bls_sign_attestation(
+            vec![attestor.clone()],
+            attestation,
+            &AttestationFragment::default(),
+        );
+
+        // Will error with EmptyContinuityProof because the prev digest does not match
+        assert_err!(
+            Attestation::commit_attestation(
+                RuntimeOrigin::none(),
+                vec![attestation.clone()].try_into().unwrap()
+            ),
+            Error::<Test>::EmptyContinuityProof
         );
     })
 }
@@ -3843,7 +4002,7 @@ fn commit_attestation_should_fail_when_genesis_block_number_is_not_correct() {
                 RuntimeOrigin::none(),
                 vec![attestation.clone()].try_into().unwrap()
             ),
-            Error::<Test>::EmptyContinuityProof
+            Error::<Test>::InvalidAttestationPrevDigest
         );
     });
 }
