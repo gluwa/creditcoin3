@@ -269,7 +269,9 @@ jobs:
           path: |
             common/eth/contracts/sol/*.sol
             common/eth/contracts/prover.json
+            common/eth/contracts/.bytecode.hash
           if-no-files-found: warn
+          include-hidden-files: true
 
   build-native-runtime:
     needs:
@@ -339,10 +341,11 @@ jobs:
           pattern: smart-contracts
           merge-multiple: true
 
-      - name: Rename ABI file to be more visible
+      - name: Rename files to improve visibility
         shell: bash
         run: |
           mv artifact/prover.json artifact/Prover-ABI.json
+          mv artifact/.bytecode.hash artifact/Prover-bytecode-hash.txt
 
       - name: Compress native binaries
         shell: bash
@@ -365,6 +368,7 @@ jobs:
             artifact/gluwa-creditcoin-public-prover-${{ needs.sanity-check.outputs.TAG_NAME }}.tgz
             artifact/sol/*.sol
             artifact/Prover-ABI.json
+            artifact/Prover-bytecode-hash.txt
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
           body_path: changelog.md
