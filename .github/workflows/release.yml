@@ -145,6 +145,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: setup
     steps:
+      - uses: actions/checkout@v5
+
       - name: Install Node.js
         uses: actions/setup-node@v5
         with:
@@ -165,6 +167,33 @@ jobs:
           echo "===== DEBUG ====="
           cat /var/tmp/changelog.md
           echo "===== END ====="
+
+      - name: Download smart-contract artifact(s) for release ${{ needs.setup.outputs.previous_release }}
+        uses: i3h/download-release-asset@v1
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          tag: ${{ needs.setup.outputs.previous_release }}
+          file: /(.*)\.sol/
+          path: common/eth/contracts/sol/
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compare current Prover.sol with previously released artifact(s)
+        working-directory: ./common/eth/contracts/sol/
+        run: |
+          sudo apt-get install colordiff
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short --untracked-files=no
+          git diff -R | colordiff
+          echo "======================================="
+
+          echo "**Changes to Prover.sol:**" >> /var/tmp/changelog.md
+          echo "" >> /var/tmp/changelog.md
+          echo "\`\`\`diff" >> /var/tmp/changelog.md
+
+          git diff -R >> /var/tmp/changelog.md
+
+          echo "\`\`\`" >> /var/tmp/changelog.md
 
       - name: Upload changelog
         uses: actions/upload-artifact@v4
