@@ -52,13 +52,13 @@ impl<T: Config> Pallet<T> {
         if attestation_prev_digest == last_finalized_digest
             && attestation.continuity_proof.is_empty()
         {
-            let attestation = Self::get(chain_key, attestation_prev_digest).ok_or_else(|| {
+            let prev_attestation = Self::get(chain_key, attestation_prev_digest).ok_or_else(|| {
                 error!("❌ Previous attestation with digest {attestation_prev_digest:?} not found in storage");
                 Error::<T>::InvalidAttestationPrevDigest
             })?;
 
             ensure!(
-                attestation_header_number == attestation.header_number() + 1,
+                attestation_header_number == prev_attestation.header_number() + 1,
                 Error::<T>::InvalidAttestationPrevDigest
             );
 
