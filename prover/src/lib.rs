@@ -479,7 +479,7 @@ impl Server {
                     .await?;
                 return Ok(());
             } else {
-                let reason = format!("Error during pre-checking: {}", e.to_string());
+                let reason = format!("Error during pre-checking: {e}");
                 warn!(reason);
                 self.mark_query_processing_failed(query.id(), reason)
                     .await?;
