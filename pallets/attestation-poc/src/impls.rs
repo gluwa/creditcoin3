@@ -870,10 +870,10 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint.block_number);
             if checkpoint.block_number >= last_checkpoint.block_number {
                 last_checkpoint = checkpoint.clone();
             }
+            Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint.block_number);
 
             Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint));
         }
