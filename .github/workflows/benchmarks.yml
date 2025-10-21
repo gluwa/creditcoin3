@@ -206,6 +206,21 @@ jobs:
       - name: PR number against dev
         run: echo ${{ steps.open_pr.outputs.pull_number }}
 
+      - name: Update PR ${{ steps.open_pr.outputs.pull_number }} description and instructions
+        uses: actions/github-script@v8
+        env:
+          TARGET_PR: ${{ steps.open_pr.outputs.pull_number }}
+          SOURCE_PR: ${{ github.event.pull_request.number }}
+          SOURCE_PR_URL: ${{ github.event.pull_request.html_url }}
+        with:
+          script: |
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: process.env.TARGET_PR,
+              body: `Created from PR #${process.env.SOURCE_PR}`
+            });
+
   remove-github-runner:
     runs-on: ubuntu-24.04
     needs:
