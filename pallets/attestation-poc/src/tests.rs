@@ -4634,3 +4634,145 @@ fn gather_attestor_public_keys_should_error_when_bls_pubkey_is_none() {
             .unwrap();
     })
 }
+
+#[test]
+fn import_checkpoints_works() {
+    ExtBuilder.build_and_execute(|| {
+        let checkpoints: Vec<AttestationCheckpoint> = vec![
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: [1u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 200,
+                digest: [2u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 300,
+                digest: [3u8; 32].into(),
+            },
+        ];
+
+        assert_ok!(Attestation::import_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            checkpoints.clone().try_into().unwrap()
+        ));
+
+        for checkpoint in checkpoints {
+            let stored_block_number =
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, checkpoint.digest).unwrap();
+            assert_eq!(stored_block_number, checkpoint.block_number);
+        }
+    });
+}
+
+#[test]
+fn import_checkpoints_should_fail_when_not_root() {
+    ExtBuilder.build_and_execute(|| {
+        let checkpoints: Vec<AttestationCheckpoint> = vec![
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: [1u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 200,
+                digest: [2u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 300,
+                digest: [3u8; 32].into(),
+            },
+        ];
+
+        assert_noop!(
+            Attestation::import_checkpoints(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                checkpoints.clone().try_into().unwrap()
+            ),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn import_checkpoints_ignores_duplicate_digests() {
+    ExtBuilder.build_and_execute(|| {
+        let checkpoints: Vec<AttestationCheckpoint> = vec![
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: [1u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: [1u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 200,
+                digest: [2u8; 32].into(),
+            },
+        ];
+
+        assert_ok!(Attestation::import_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            checkpoints.clone().try_into().unwrap()
+        ));
+
+        for checkpoint in checkpoints {
+            let stored_block_number =
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, checkpoint.digest).unwrap();
+            assert_eq!(stored_block_number, checkpoint.block_number);
+        }
+
+        // Assert checkpoint total lengths
+        let total_checkpoints = Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count();
+        assert_eq!(total_checkpoints, 2); // Only two unique digests
+    });
+}
+
+#[test]
+fn import_checkpoints_called_twice_works() {
+    ExtBuilder.build_and_execute(|| {
+        let checkpoints1: Vec<AttestationCheckpoint> = vec![
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: [1u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 200,
+                digest: [2u8; 32].into(),
+            },
+        ];
+
+        let checkpoints2: Vec<AttestationCheckpoint> = vec![
+            AttestationCheckpoint {
+                block_number: 300,
+                digest: [3u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 400,
+                digest: [4u8; 32].into(),
+            },
+        ];
+
+        assert_ok!(Attestation::import_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            checkpoints1.clone().try_into().unwrap()
+        ));
+
+        assert_ok!(Attestation::import_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            checkpoints2.clone().try_into().unwrap()
+        ));
+
+        for checkpoint in checkpoints1.into_iter().chain(checkpoints2.into_iter()) {
+            let stored_block_number =
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, checkpoint.digest).unwrap();
+            assert_eq!(stored_block_number, checkpoint.block_number);
+        }
+    });
+}

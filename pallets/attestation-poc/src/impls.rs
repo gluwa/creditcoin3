@@ -4,7 +4,6 @@ use frame_support::{
     transactional,
 };
 use log::debug;
-use sp_core::H256;
 use sp_runtime::{
     traits::{CheckedAdd, CheckedSub, SaturatedConversion, Saturating, Zero},
     ArithmeticError,
@@ -864,24 +863,19 @@ impl<T: Config> Pallet<T> {
         );
 
         // Create last_checkpoint tracker
-        let mut last_checkpoint = if let Some(last_checkpoint) = LastCheckpoint::<T>::get(chain_key)
-        {
-            last_checkpoint
-        } else {
-            // Avoid checks for existance in loop by populating with value that will be replaced
-            AttestationCheckpoint {
-                block_number: 0,
-                digest: H256::zero(),
-            }
-        };
+        let mut last_checkpoint = LastCheckpoint::<T>::get(chain_key).unwrap_or_default();
 
         for checkpoint in checkpoints {
+            if Checkpoints::<T>::contains_key(chain_key, checkpoint.digest) {
+                continue;
+            }
+
+            Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint.block_number);
             if checkpoint.block_number >= last_checkpoint.block_number {
                 last_checkpoint = checkpoint.clone();
             }
-            Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint.block_number);
 
-            Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
+            Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint));
         }
 
         LastCheckpoint::<T>::insert(chain_key, last_checkpoint);
