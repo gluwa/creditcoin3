@@ -1495,6 +1495,7 @@ dependencies = [
  "scale-info",
  "serde",
  "serde_bytes",
+ "serde_json",
  "sp-api",
  "sp-core",
  "sp-io",
