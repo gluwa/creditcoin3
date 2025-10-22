@@ -1,133 +1,175 @@
+//! Starknet Pedersen hash implementation for MMR usage.
+//!
+//! This module provides an implementation of the `HashT` trait from the MMR crate
+//! using Starknet's Pedersen hash function, enabling its use in Merkle trees and
+//! MMR structures.
+
 use crate::utils::felts_from_bytes;
 use core::fmt::Debug;
 use starknet_crypto::{pedersen_hash, Felt};
 
-#[derive(core::hash::Hash, Debug, PartialEq, Eq, Clone, Copy, Default)]
-pub struct StarknetFeltWrapped(pub Felt);
-
-impl From<Felt> for StarknetFeltWrapped {
-    fn from(felt: Felt) -> Self {
-        Self(felt)
-    }
-}
-
-impl From<u8> for StarknetFeltWrapped {
-    fn from(n: u8) -> Self {
-        Self(Felt::from(n))
-    }
-}
-
-impl AsRef<Felt> for StarknetFeltWrapped {
-    fn as_ref(&self) -> &Felt {
-        &self.0
-    }
-}
-
+/// Starknet Pedersen hash implementation that can be used with MMR structures.
+///
+/// This struct implements the `HashT` trait from the MMR crate, allowing
+/// Starknet's Pedersen hash to be used as the hashing function in Merkle
+/// trees and MMR data structures.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StarknetPedersenHash;
 
 impl mmr::traits::HashT for StarknetPedersenHash {
-    type Output = StarknetFeltWrapped;
+    type Output = Felt;
 
+    /// Hashes arbitrary byte data using Starknet Pedersen hash.
+    ///
+    /// The input bytes are first converted to Felt elements using 31-byte chunks,
+    /// then hashed using the Pedersen array hash function.
+    ///
+    /// # Arguments
+    /// * `data` - The byte data to hash
+    ///
+    /// # Returns
+    /// * `Self::Output` - The resulting hash as a Felt
     fn hash(data: &[u8]) -> Self::Output {
         let felts = felts_from_bytes(data);
-
-        pedersen_array(&felts[..]).into()
+        pedersen_array(&felts)
     }
 
+    /// Hashes an array of pre-computed hash values.
+    ///
+    /// This method is used internally by MMR structures to combine
+    /// multiple hash values into a single hash.
+    ///
+    /// # Arguments
+    /// * `felt_hashes` - Array of Felt hash values
+    ///
+    /// # Returns
+    /// * `Self::Output` - The combined hash as a Felt
     fn concat_then_hash(felt_hashes: &[Self::Output]) -> Self::Output {
-        pedersen_array(felt_hashes).into()
+        pedersen_array(felt_hashes)
     }
 }
 
+/// Computes Pedersen hash of an array of Felt values.
+///
+/// This function implements a specific array hashing scheme:
+/// 1. Start with the first element as the accumulator
+/// 2. For each subsequent element, compute `pedersen_hash(accumulator, element)`
+/// 3. Finally, hash the result with the array length
+///
+/// # Arguments
+/// * `felts` - Array of values that can be converted to Felt references
+///
+/// # Returns
+/// * `Felt` - The final hash value
+///
+/// # Examples
+/// ```
+/// use utils::pedersen_hash::pedersen_array;
+/// use utils::Felt;
+///
+/// let elements = [Felt::from(1u64), Felt::from(2u64)];
+/// let hash = pedersen_array(&elements);
+/// ```
 pub fn pedersen_array<T: AsRef<Felt>>(felts: &[T]) -> Felt {
-    let maybe_zero_prefix = *felts[0].as_ref();
-    let mut prev = maybe_zero_prefix;
-
-    for felt in &felts[1..] {
-        prev = pedersen_hash(&prev, felt.as_ref());
+    if felts.is_empty() {
+        return Felt::ZERO;
     }
 
-    let len_felt = Felt::from_bytes_be_slice(&u64_to_bytes_be((felts.len()) as u64));
+    let mut accumulator = *felts[0].as_ref();
 
-    pedersen_hash(prev.as_ref(), &len_felt)
-}
+    // Hash each subsequent element with the accumulator
+    for felt in &felts[1..] {
+        accumulator = pedersen_hash(&accumulator, felt.as_ref());
+    }
 
-fn u64_to_bytes_be(x: u64) -> [u8; 8] {
-    let mut buf = [0u8; 8];
-
-    buf[7] = (x & 0x00000000000000ff) as u8;
-    buf[6] = ((x & 0x000000000000ff00) >> 8) as u8;
-    buf[5] = ((x & 0x0000000000ff0000) >> 16) as u8;
-    buf[4] = ((x & 0x00000000ff000000) >> 24) as u8;
-    buf[3] = ((x & 0x000000ff00000000) >> 32) as u8;
-    buf[2] = ((x & 0x0000ff0000000000) >> 40) as u8;
-    buf[1] = ((x & 0x00ff000000000000) >> 48) as u8;
-    buf[0] = ((x & 0xff00000000000000) >> 56) as u8;
-    buf
+    // Include array length in the final hash
+    let length_felt = Felt::from(felts.len());
+    pedersen_hash(&accumulator, &length_felt)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::pedersen_hash::{pedersen_array, u64_to_bytes_be, Felt};
-    use crate::utils::felt_from_dec_str;
-
-    use starknet_crypto::pedersen_hash;
+    use super::*;
+    use mmr::traits::HashT;
 
     #[test]
-    fn pedersen2_test() {
-        let bytes_be = u64_to_bytes_be(0x0000000000000001);
-        let a = Felt::from_bytes_be_slice(&bytes_be);
+    fn test_pedersen_hash_two_elements() {
+        let a = Felt::from(1u64);
+        let b = Felt::from(2u64);
 
-        let bytes_be = u64_to_bytes_be(0x0000000000000002);
-        let b = Felt::from_bytes_be_slice(&bytes_be);
+        let result = pedersen_hash(&a, &b);
 
-        let h = pedersen_hash(&a, &b);
+        // Expected result from reference implementation
         assert_eq!(
-            h.to_bytes_be(),
-            // taken from Golang's pedersen(a, b)
-            &hex::decode("05bb9440e27889a364bcb678b1f679ecd1347acdedcbf36e83494f857cc58026")
-                .unwrap()[..]
+            result.to_bytes_be(),
+            hex::decode("05bb9440e27889a364bcb678b1f679ecd1347acdedcbf36e83494f857cc58026")
+                .unwrap()
+                .as_slice()
         );
     }
 
     #[test]
-    fn pedersen2_test1() {
-        let bytes_be = u64_to_bytes_be(0x0807060504030201);
-        let a = Felt::from_bytes_be_slice(&bytes_be);
+    fn test_pedersen_hash_different_values() {
+        let a = Felt::from_bytes_be_slice(&0x0807060504030201u64.to_be_bytes());
+        let b = Felt::from_bytes_be_slice(&0x8070605040302010u64.to_be_bytes());
 
-        let bytes_be = u64_to_bytes_be(0x8070605040302010);
-        let b = Felt::from_bytes_be_slice(&bytes_be);
+        let result = pedersen_hash(&a, &b);
 
-        let h = pedersen_hash(&a, &b);
+        // Expected result from reference implementation
         assert_eq!(
-            h.to_bytes_be(),
-            // taken from Golang's pedersen(a, b)
-            &hex::decode("05bbe990671c3e539518346a7513a60df1697e850540feb72f4377c061801be1")
-                .unwrap()[..]
+            result.to_bytes_be(),
+            hex::decode("05bbe990671c3e539518346a7513a60df1697e850540feb72f4377c061801be1")
+                .unwrap()
+                .as_slice()
         );
     }
 
     #[test]
-    fn pedersen_array_3_elements_test() {
-        let bytes_be = u64_to_bytes_be(0xa);
-        let a = Felt::from_bytes_be_slice(&bytes_be);
+    fn test_pedersen_array_three_elements() {
+        let elements = [Felt::from(0xau64), Felt::from(0xbu64), Felt::from(0xcu64)];
 
-        let bytes_be = u64_to_bytes_be(0xb);
-        let b = Felt::from_bytes_be_slice(&bytes_be);
+        let result = pedersen_array(&elements);
 
-        let bytes_be = u64_to_bytes_be(0xc);
-        let c = Felt::from_bytes_be_slice(&bytes_be);
+        // Expected result from our implementation
+        let expected =
+            Felt::from_hex("0x5a9477f4c8e6d9bfb0908996294fb65a2a9224ef9696c5584fdcce1190dcb9e")
+                .unwrap();
 
-        let h = pedersen_array(&[a, b, c]);
+        assert_eq!(result, expected);
+    }
 
-        assert_eq!(
-            h,
-            // output taken from running ../cairo-scripts/test_pedersen_array.cairo
-            felt_from_dec_str(
-                "-1057847935836077748022753357540565488967807821699195068499127579478649353315"
-            )
-            .unwrap()
-        );
+    #[test]
+    fn test_pedersen_array_empty() {
+        let empty: &[Felt] = &[];
+        let result = pedersen_array(empty);
+        assert_eq!(result, Felt::ZERO);
+    }
+
+    #[test]
+    fn test_pedersen_array_single_element() {
+        let single = [Felt::from(42u64)];
+        let result = pedersen_array(&single);
+
+        // Should hash 42 with length 1
+        let expected = pedersen_hash(&Felt::from(42u64), &Felt::from(1u64));
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_starknet_pedersen_hash_trait() {
+        let data = b"hello world";
+        let hash1 = StarknetPedersenHash::hash(data);
+        let hash2 = StarknetPedersenHash::hash(data);
+
+        // Same input should produce same hash
+        assert_eq!(hash1, hash2);
+
+        // Test concat_then_hash
+        let hashes = [hash1, hash2];
+        let combined = StarknetPedersenHash::concat_then_hash(&hashes);
+
+        // Should be deterministic
+        let combined2 = StarknetPedersenHash::concat_then_hash(&hashes);
+        assert_eq!(combined, combined2);
     }
 }

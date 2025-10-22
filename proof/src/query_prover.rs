@@ -229,7 +229,7 @@ pub async fn build_prover(
         mt.generate_proof(subject_index),
     );
 
-    let digest_root = QueryDigestRoot::new(&mt.root().0);
+    let digest_root = QueryDigestRoot::new(&mt.root());
 
     let instance = QueryProver::new(
         query_block_number,

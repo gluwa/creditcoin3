@@ -125,17 +125,13 @@ impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
         Self {
             height: proof.height(),
             arity: StarknetPedersenMerkleProof::arity(),
-            root: proof.root().0.to_string(),
+            root: proof.root().to_string(),
             path: proof
                 .path()
                 .as_ref()
                 .iter()
                 .map(|item| {
-                    let mut v: Vec<_> = item
-                        .hashes()
-                        .iter()
-                        .map(|felt_wrapped| felt_wrapped.0.to_string())
-                        .collect();
+                    let mut v: Vec<_> = item.hashes().iter().map(|felt| felt.to_string()).collect();
                     v.push(item.offset().to_string());
                     v
                 })

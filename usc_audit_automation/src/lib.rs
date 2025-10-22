@@ -296,7 +296,7 @@ pub(crate) async fn calculate_merkle_root(
         .await?
         .context("Failed to get block")?;
     let merkle_tree = eth::starknet_pedersen_mmr(&ordered_block);
-    Ok(merkle_tree.root().0.to_bytes_be())
+    Ok(merkle_tree.root().to_bytes_be())
 }
 
 #[derive(Debug, Deserialize)]
@@ -376,7 +376,7 @@ pub async fn get_graphql_attestation_check_result(
         r#"
     query AttestationData {{
       attestations(
-          orderBy: HEADER_NUMBER_ASC, 
+          orderBy: HEADER_NUMBER_ASC,
           last: 1,
           filter: {{ chainKey: {{ equalTo: "{chain_key}" }}, headerNumber: {{ equalTo: "{last_attested_header_number}" }} }}
       ) {{

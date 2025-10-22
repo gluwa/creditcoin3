@@ -36,6 +36,9 @@ sp-std = { workspace = true, default-features = false }
 starknet-crypto = { workspace = true }
 starknet-types-core = { workspace = true }
 
+[dev-dependencies]
+tempfile = "3.8"
+
 [features]
 default = ["std"]
 std = [

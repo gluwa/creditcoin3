@@ -95,12 +95,12 @@ impl<'a> Manager<'a> {
         for block_with_root in blocks_with_roots {
             let (block, merkle_root) = block_with_root?;
 
-            let fragment_block = FragmentBlock::new(block.number(), merkle_root.root().0);
+            let fragment_block = FragmentBlock::new(block.number(), merkle_root.root());
             let fragment_block = if fragment.is_empty() {
                 debug!("Constructing first block from start block");
                 FragmentBlock::new_from_prev_digest(
                     block.number(),
-                    merkle_root.root().0,
+                    merkle_root.root(),
                     Felt::from_bytes_be(&prev_digest.0),
                 )
             } else {

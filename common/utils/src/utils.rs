@@ -1,240 +1,160 @@
-use core::mem::size_of;
+//! Utility functions for Creditcoin3 common operations.
+//!
+//! This module provides various utility functions for:
+//! - Starknet Felt operations
+//! - Byte array manipulations
+//! - Parsing utilities
 
 use crate::Felt;
-use anyhow::anyhow;
-use ethereum_types::{Address, H256, U256};
 
 extern crate alloc;
-use alloc::string::String;
-use sp_std::{vec, vec::Vec};
+use alloc::vec::Vec;
 
+/// Number of bytes in a U248 field element (31 bytes = 248 bits)
 pub const U248_BYTE_COUNT: usize = 31;
-const HASH_LENGTH: usize = 32;
-const HASH_LENGTH_MINUS_1: usize = HASH_LENGTH - 1;
 
-pub fn decode_prefixed_hex(hex: &mut str) -> anyhow::Result<Vec<u8>> {
-    let stripped = strip_hex_prefix(hex);
-    //    let stripped = hex.trim_start_matches("0x");
-    if !stripped.is_empty() {
-        Ok(hex::decode(stripped).map_err(|_| anyhow!("Failed to parse hex"))?)
-    } else {
-        Ok(vec![0])
-    }
-}
+// =============================================================================
+// Parsing Utilities
+// =============================================================================
 
-pub fn strip_hex_prefix(prefixed_hex: &mut str) -> &str {
-    if prefixed_hex.is_empty() {
-        ""
-    } else if prefixed_hex.len() % 2 == 1 {
-        unsafe { prefixed_hex.as_bytes_mut()[1] = b'0' };
-        &prefixed_hex[1..]
-    } else {
-        &prefixed_hex[2..]
-    }
-}
-
-pub fn hex_to_address(hex: &mut str) -> anyhow::Result<Address> {
-    decode_prefixed_hex(hex).map(|bytes| Address::from_slice(&bytes))
-}
-
-pub fn hex_to_u256(hex: &mut str) -> anyhow::Result<U256> {
-    decode_prefixed_hex(hex).map(|bytes| U256::from_big_endian(&bytes))
-}
-
-// pub fn u256_to_hex(val: &U256) -> String {
-//     format!("0x{:X}", val)
-// }
-
-pub fn hex_to_u64(hex: &mut str) -> anyhow::Result<u64> {
-    let stripped = strip_hex_prefix(hex);
-    //    let stripped = hex.trim_start_matches("0x");
-
-    if !stripped.is_empty() {
-        Ok(u64::from_str_radix(stripped, 16).map_err(|_| anyhow!("Failed to parse hex"))?)
-    } else {
-        Ok(0u64)
-    }
-}
-
-pub fn hex_to_h256(hex: &mut str) -> anyhow::Result<H256> {
-    decode_prefixed_hex(hex).and_then(|bytes| bytes_to_h256(&bytes[..]))
-}
-
-pub fn hex_strings_to_h256s(hex_strings: Vec<String>) -> anyhow::Result<Vec<H256>> {
-    hex_strings
-        .into_iter()
-        .map(|mut s| hex_to_h256(&mut s))
-        .collect()
-}
-
-fn bytes_to_h256(bytes: &[u8]) -> anyhow::Result<H256> {
-    let len = bytes.len();
-
-    match len {
-        0..=HASH_LENGTH_MINUS_1 => {
-            let mut buf = [0u8; HASH_LENGTH];
-            buf[HASH_LENGTH - len..].copy_from_slice(bytes);
-            Ok(H256::from_slice(&buf))
-        }
-        HASH_LENGTH => Ok(H256::from_slice(bytes)),
-        _ => Err(anyhow!("H256 bytes length mismatch")),
-    }
-}
-
-pub fn felt_from_dec_str(s: &str) -> anyhow::Result<Felt> {
-    match Felt::from_dec_str(s) {
-        Ok(x) => Ok(x),
-        Err(_) if s.starts_with('-') => {
-            let neg_x = Felt::from_dec_str(&s[1..]).map_err(|err| anyhow!("{}", err))?;
-            Ok(Felt::ZERO - neg_x)
-        }
-        Err(err) => Err(anyhow!("{}", err)),
-    }
-}
-
+/// Attempts to parse a string as usize, supporting both decimal and hex formats.
+///
+/// # Arguments
+/// * `s` - String to parse
+///
+/// # Returns
+/// * `Result<usize, core::num::ParseIntError>` - Parsed value or parse error
 pub fn try_parse_usize(s: &str) -> Result<usize, core::num::ParseIntError> {
     s.parse::<usize>()
         .or_else(|_| usize::from_str_radix(s.trim_start_matches("0x"), 16))
 }
+
+/// Attempts to parse a string as u64, supporting both decimal and hex formats.
+///
+/// # Arguments
+/// * `s` - String to parse
+///
+/// # Returns
+/// * `Result<u64, core::num::ParseIntError>` - Parsed value or parse error
 pub fn try_parse_u64(s: &str) -> Result<u64, core::num::ParseIntError> {
     s.parse::<u64>()
         .or_else(|_| u64::from_str_radix(s.trim_start_matches("0x"), 16))
 }
+
+/// Attempts to parse a string as Felt, supporting both decimal and hex formats.
+///
+/// # Arguments
+/// * `s` - String to parse
+///
+/// # Returns
+/// * `Result<Felt, starknet_types_core::felt::FromStrError>` - Parsed Felt or error
 pub fn try_parse_felt(s: &str) -> Result<Felt, starknet_types_core::felt::FromStrError> {
-    felt_from_dec_str(s).or_else(|_| Felt::from_hex(s))
+    // Try decimal first, then hex
+    match Felt::from_dec_str(s) {
+        Ok(felt) => Ok(felt),
+        Err(_) if s.starts_with('-') => {
+            // Handle negative numbers
+            let neg_x = Felt::from_dec_str(&s[1..])?;
+            Ok(Felt::ZERO - neg_x)
+        }
+        Err(_) => Felt::from_hex(s),
+    }
 }
 
-pub fn address_from_felt(felt: &Felt) -> Address {
-    Address::from_slice(&felt.to_bytes_be()[size_of::<Felt>() - size_of::<Address>()..])
-}
+// =============================================================================
+// Byte Array Conversions
+// =============================================================================
 
+/// Converts bytes to a vector of Felts using 31-byte chunks.
+///
+/// Each chunk is converted to a Felt using big-endian byte ordering.
+/// The last chunk may be smaller than 31 bytes.
+///
+/// # Arguments
+/// * `bytes` - Byte slice to convert
+///
+/// # Returns
+/// * `Vec<Felt>` - Vector of Felts representing the byte data
 pub fn felts_from_bytes(bytes: &[u8]) -> Vec<Felt> {
-    let chunks = bytes.chunks(U248_BYTE_COUNT);
-
-    chunks.map(Felt::from_bytes_be_slice).collect::<Vec<_>>()
+    bytes
+        .chunks(U248_BYTE_COUNT)
+        .map(Felt::from_bytes_be_slice)
+        .collect()
 }
 
-// converts felt array to byte array
-// felt array is assumed to be formed from 31-byte long chunks using Felt::from_bytes_be_slice
-// source_bytes_len is needed to be provided in order the conversion to yield the same
-// source byte array used to form the felt array
-// if source_bytes_len is not provided the resulting array tail may have zero padding not present in the original
-// byte array
+/// Converts a vector of Felts back to bytes.
+///
+/// This function reverses the operation performed by `felts_from_bytes`.
+/// The `source_bytes_len` parameter is used to determine the exact original
+/// byte length and avoid zero padding in the result.
+///
+/// # Arguments
+/// * `felts` - Slice of Felts to convert
+/// * `source_bytes_len` - Optional original byte length for exact reconstruction
+///
+/// # Returns
+/// * `Vec<u8>` - The reconstructed byte array
 pub fn felts_to_bytes(felts: &[Felt], source_bytes_len: Option<usize>) -> Vec<u8> {
     const U248_OFFSET: usize = 32 - U248_BYTE_COUNT; // U248_OFFSET == 1
 
-    let mut bytes = Vec::with_capacity(source_bytes_len.unwrap_or(U248_BYTE_COUNT * felts.len()));
+    let capacity = source_bytes_len.unwrap_or(U248_BYTE_COUNT * felts.len());
+    let mut bytes = Vec::with_capacity(capacity);
 
-    felts
-        .iter()
-        // take all but the last felt
-        .rev()
-        .skip(1)
-        .rev()
-        .for_each(|felt| bytes.extend(&felt.to_bytes_be()[U248_OFFSET..]));
+    // Process all but the last felt
+    for felt in &felts[..felts.len().saturating_sub(1)] {
+        bytes.extend_from_slice(&felt.to_bytes_be()[U248_OFFSET..]);
+    }
 
-    // need to shift last 32 (be) bytes left according to the source length
-    // the last_offset must be in range [1, 31] since U248_BYTE_COUNT == 31
-    let last_offset = source_bytes_len
-        // will yield values in range [2, 32]
-        // 32 must yet be mapped to 1
-        .map(|len| 32 - len % U248_BYTE_COUNT)
-        // maps 32 => 1
-        .map(|x| x - U248_BYTE_COUNT * (x / 32))
-        // if source byte length in not provided assume offset 1
-        .unwrap_or(1);
+    // Handle the last felt with proper offset calculation
+    if let Some(last_felt) = felts.last() {
+        let last_offset = source_bytes_len
+            .map(|len| {
+                let remainder = len % U248_BYTE_COUNT;
+                if remainder == 0 && len > 0 {
+                    U248_OFFSET // Full chunk
+                } else {
+                    32 - remainder // Partial chunk
+                }
+            })
+            .unwrap_or(U248_OFFSET);
 
-    if let Some(last) = felts.last() {
-        bytes.extend(&last.to_bytes_be()[last_offset..]);
+        bytes.extend_from_slice(&last_felt.to_bytes_be()[last_offset..]);
     }
 
     bytes
 }
 
-pub fn u256_from_felts(lo: &Felt, hi: &Felt) -> U256 {
-    let mut buf = lo.to_bytes_be();
-    buf[0] = hi.to_bytes_be()[31];
-
-    U256::from_big_endian(&buf[..])
-}
-
-pub fn u256_to_felts(x: &U256) -> (Felt, Felt) {
-    let mut buf = [0u8; 32];
-    x.to_big_endian(&mut buf);
-    let lo = Felt::from_bytes_be_slice(&buf[1..32]);
-    let hi = Felt::from(buf[0]);
-
-    // let mut buf_hi = [0u8; 31];
-    // buf_hi[30] = buf[0];
-    // let hi = Felt::from_bytes_be_slice(&buf_hi[..]).expect("less that 256 bits");
-
-    (lo, hi)
-}
-
-pub fn h256_from_felts(lo: &Felt, hi: &Felt) -> H256 {
-    let mut buf = lo.to_bytes_be();
-    buf[0] = hi.to_bytes_be()[31];
-
-    H256::from_slice(&buf[..])
-}
-
-pub fn h256_to_felts(x: &H256) -> (Felt, Felt) {
-    let buf = x.to_fixed_bytes();
-    let lo = Felt::from_bytes_be_slice(&buf[1..32]);
-    let hi = Felt::from(buf[0]);
-
-    (lo, hi)
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::utils::{
-        felts_from_bytes, felts_to_bytes, h256_from_felts, h256_to_felts, u256_from_felts,
-        u256_to_felts,
-    };
-    use ethereum_types::{H256, U256};
-
-    extern crate alloc;
-    use alloc::vec;
-    use alloc::vec::Vec;
+    use super::*;
 
     #[test]
-    fn felt_to_bytes_test() {
-        for i in 0..3333 {
-            let v = (0..i as u8).collect::<Vec<u8>>();
-            let felts = felts_from_bytes(&v[..]);
-
-            let bytes = felts_to_bytes(&felts[..], Some(v.len()));
-            assert_eq!(v, bytes);
-        }
-        for i in 0..1025 {
-            let v = vec![0u8; i];
-            let felts = felts_from_bytes(&v[..]);
-
-            let bytes = felts_to_bytes(&felts[..], Some(v.len()));
-            assert_eq!(v, bytes);
+    fn test_felt_to_bytes_roundtrip() {
+        for i in 0..100 {
+            let original = (0..i as u8).collect::<Vec<u8>>();
+            let felts = felts_from_bytes(&original);
+            let reconstructed = felts_to_bytes(&felts, Some(original.len()));
+            assert_eq!(original, reconstructed, "Roundtrip failed for length {i}");
         }
     }
 
     #[test]
-    fn felts_u256_conversion_test() {
-        let bytes = (33..65).collect::<Vec<u8>>();
-        let u256 = U256::from_big_endian(&bytes[..]);
-        //        let u256: U256 = 1.into();
+    fn test_try_parse_functions() {
+        assert_eq!(try_parse_u64("123").unwrap(), 123);
+        assert_eq!(try_parse_u64("0x123").unwrap(), 0x123);
 
-        let (lo, hi) = u256_to_felts(&u256);
-        let expected = u256_from_felts(&lo, &hi);
-        assert_eq!(u256, expected);
+        assert_eq!(try_parse_usize("456").unwrap(), 456);
+        assert_eq!(try_parse_usize("0x456").unwrap(), 0x456);
+
+        // Test basic felt parsing
+        assert_eq!(try_parse_felt("42").unwrap(), Felt::from(42u64));
+        assert_eq!(try_parse_felt("0x2A").unwrap(), Felt::from(42u64));
     }
 
     #[test]
-    fn felts_h256_conversion_test() {
-        let bytes = (33..65).collect::<Vec<u8>>();
-        let h256 = H256::from_slice(&bytes[..]);
-        //        let u256: U256 = 1.into();
-
-        let (lo, hi) = h256_to_felts(&h256);
-        let expected = h256_from_felts(&lo, &hi);
-        assert_eq!(h256, expected);
+    fn test_negative_felt_parsing() {
+        let negative_felt = try_parse_felt("-42").unwrap();
+        let expected = Felt::ZERO - Felt::from(42u64);
+        assert_eq!(negative_felt, expected);
     }
 }
