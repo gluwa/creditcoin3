@@ -55,15 +55,9 @@ pub const LEAF_HASH_PREPEND_VALUE: u8 = 0;
 /// Inner nodes will be prepended with this value prior to hashing
 pub const INNER_HASH_PREPEND_VALUE: u8 = 1;
 
-/// The arity (branching factor) of the Merkle tree.
+/// Binary Merkle tree (arity = 2).
 ///
-/// This determines how many children each node has. Only power-of-2 arities are supported
-/// for efficient bit manipulation during tree traversal.
-/// NOTE: Arity enum removed; binary arity fixed at 2 via `pub const ARITY: usize = 2;`
-/// A complete Merkle tree with a fixed arity.
-///
-/// This structure stores all tree nodes in a compact format using prefixed hash blocks.
-/// The tree is constructed from leaf data and supports proof generation and leaf updates.
+/// Uses prefixed hash blocks for compact storage. Supports proof generation and verification.
 pub struct BaseTree<H: HashT> {
     root: H::Output,
     prefixed: Vec<Prefixed<H>>,
@@ -87,7 +81,7 @@ where
         for (i, d) in input.iter().enumerate() {
             prefixed_input[1..d.len() + 1].copy_from_slice(d.as_ref());
 
-            let (index, offset) = location_in_prefixed(i, ARITY);
+            let (index, offset) = location_in_prefixed(i);
             this.prefixed[index].hashes[offset] = H::hash(&prefixed_input[0..d.len() + 1]);
         }
 
@@ -108,7 +102,7 @@ impl<H: HashT> BaseTree<H> {
         let mut this = Self::default_alloc(len);
 
         for (i, leaf) in leaves.iter().enumerate() {
-            let (index, offset) = location_in_prefixed(i, ARITY);
+            let (index, offset) = location_in_prefixed(i);
             this.prefixed[index].hashes[offset] = *leaf;
         }
         this.pad_leaves(len);
@@ -120,14 +114,14 @@ impl<H: HashT> BaseTree<H> {
     fn default_alloc(len: usize) -> Self {
         Self {
             root: Default::default(),
-            prefixed: vec![Prefixed::default(); num_of_prefixed_for_input(len, ARITY)],
-            height: height(len, ARITY),
+            prefixed: vec![Prefixed::default(); num_of_prefixed_for_input(len)],
+            height: height(len),
             num_of_leaves: len,
         }
     }
 
     fn base_layer_size(&self) -> usize {
-        layer_size(ARITY, self.height, 0)
+        layer_size(self.height, 0)
     }
 
     pub fn height(&self) -> usize {
@@ -210,7 +204,7 @@ impl<H: HashT> BaseTree<H> {
         let partial_to_index = Self::ARITY * start_aligned_prefixed_index;
         // pad first partial prefixed hashes in the base layer
         for i in from_index..partial_to_index {
-            let (index, offset) = location_in_prefixed(i, ARITY);
+            let (index, offset) = location_in_prefixed(i);
             self.prefixed[index].hashes[offset] = default_hash;
         }
         // pad the rest of hashes in the base layer
@@ -226,15 +220,13 @@ impl<H: HashT> BaseTree<H> {
         layer: usize,
         layer_base: usize,
     ) -> (usize, usize) {
-        let curr_layer_len = layer_size(ARITY, self.height, layer);
+        let curr_layer_len = layer_size(self.height, layer);
         let parent_layer_base = layer_base + curr_layer_len;
         let parent_index =
             parent_layer_base + ((index - layer_base) >> Self::ARITY.trailing_zeros());
 
         (parent_index, parent_layer_base)
     }
-
-    // replace_inner removed (mutation no longer supported)
 
     pub fn num_of_leaves(&self) -> usize {
         self.num_of_leaves
@@ -248,7 +240,6 @@ impl<H: HashT> BaseTree<H> {
 impl<H: HashT> BaseTree<H> {
     /// generates proof at given index on base layer
     /// panics if index is out of bound
-    #[allow(dead_code)]
     pub fn generate_proof(&self, index: usize) -> Proof<H> {
         let mut proof = Proof::<H>::from_root(self.root());
         let mut layer_base = 0;
@@ -267,10 +258,6 @@ impl<H: HashT> BaseTree<H> {
     pub fn root(&self) -> H::Output {
         self.root
     }
-
-    // replace() removed: mutation API no longer part of MerkleTreeTrait
-
-    // replace_leaf() removed: mutation API no longer part of MerkleTreeTrait
 }
 
 impl<H: HashT> Debug for BaseTree<H> {

@@ -32,22 +32,23 @@ impl<H: HashT> Prefixed<H> {
 
     /// Hashes the prefix together with all child hashes.
     ///
-    /// # Safety
-    ///
-    /// This function uses unsafe code to treat the entire structure as a byte slice.
-    /// This is safe because of the `#[repr(C)]` attribute which ensures a predictable
-    /// memory layout.
+    /// Only the conversion from a raw pointer to a byte slice is performed inside
+    /// an `unsafe` block. The `#[repr(C)]` attribute and the homogeneous `H::Output`
+    /// type are relied upon to make this access safe in practice. Keep the unsafe
+    /// scope minimal and consider running miri when changing `H::Output` or memory layout.
     #[inline]
     pub fn hash_all(&self) -> H::Output {
-        unsafe {
-            // Treat the prefix + hashes array as a contiguous byte slice and hash it directly.
-            // Layout guaranteed by #[repr(C)] and homogeneous Output element type.
-            let outputs_len = ARITY + 1;
-            let byte_len = core::mem::size_of::<H::Output>() * outputs_len;
+        // Compute byte length for prefix + hashes
+        let outputs_len = ARITY + 1;
+        let byte_len = core::mem::size_of::<H::Output>() * outputs_len;
+
+        // Only the slice construction from a raw pointer is unsafe; keep its scope minimal.
+        let bytes: &[u8] = unsafe {
             let ptr = &self.prefix as *const H::Output as *const u8;
-            let bytes = core::slice::from_raw_parts(ptr, byte_len);
-            H::hash(bytes)
-        }
+            core::slice::from_raw_parts(ptr, byte_len)
+        };
+
+        H::hash(bytes)
     }
 }
 

@@ -50,7 +50,7 @@ where
 {
     fn from(input: &[T]) -> Self {
         let len = input.len();
-        let partition_offsets = partition_by_arity(len, ARITY);
+        let partition_offsets = partition_by_arity(len);
 
         let base_trees = partition_offsets
             .par_windows(2)
@@ -75,7 +75,7 @@ where
 {
     fn from(input: &[T]) -> Self {
         let len = input.len();
-        let partition_offsets = partition_by_arity(len, ARITY);
+        let partition_offsets = partition_by_arity(len);
 
         let base_trees = partition_offsets
             .windows(2)
@@ -296,7 +296,6 @@ fn mmr_from_long_input() {
     assert!(proof.validate(input.iter().next_back().unwrap()));
 }
 
-// Removed deprecated replace_in_mmr_test: mutation API no longer part of MerkleTreeTrait
 #[test]
 fn same_path_offsets_for_different_indices_test() {
     let input = (0..7u8).map(|i| vec![i]).collect::<Vec<_>>();
