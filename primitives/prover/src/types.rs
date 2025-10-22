@@ -112,7 +112,6 @@ impl TryFrom<&[&str]> for CairoVerifierOutput {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MerkleProofSerializable {
     height: usize,
-    arity: usize,
     root: String,
     path: Vec<Vec<String>>,
     subject: Vec<u8>,
@@ -124,7 +123,6 @@ impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
     fn from((proof, subject): (StarknetPedersenMerkleProof, Vec<u8>)) -> Self {
         Self {
             height: proof.height(),
-            arity: StarknetPedersenMerkleProof::arity(),
             root: proof.root().to_string(),
             path: proof
                 .path()

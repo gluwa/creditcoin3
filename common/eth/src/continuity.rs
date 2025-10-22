@@ -10,7 +10,7 @@ use attestor_primitives::{
 };
 
 use super::{Client, Error as EthError};
-use mmr::traits::MerkleTreeTrait;
+
 use utils::Felt;
 
 #[derive(Debug, thiserror::Error)]

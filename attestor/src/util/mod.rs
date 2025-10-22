@@ -2,7 +2,7 @@ use sp_core::H256;
 
 use attestor_primitives::{Attestation, ChainKey};
 use eth::OrderedBlock;
-use mmr::traits::MerkleTreeTrait;
+
 use tracing::debug;
 
 pub mod retry;

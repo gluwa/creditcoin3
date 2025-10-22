@@ -1,3 +1,32 @@
+//! A Merkle tree implementation with binary arity for Starknet Pedersen hashing.
+//!
+//! This crate provides an efficient implementation of binary Merkle trees with support for:
+//! - Proof generation and verification
+//! - Fixed binary arity (2 children per node)
+//! - Configurable hash function via the `HashT` trait
+//!
+//! # Primary Use Case
+//!
+//! This crate is used to create Merkle trees of Ethereum block data using Starknet Pedersen hash.
+//! The trees are used for attestation and proof generation in the Creditcoin attestor system.
+//!
+//! # Examples
+//!
+//! ```ignore
+//! use mmr::{BaseTree, traits::MerkleTreeTrait};
+//! use utils::StarknetPedersenMerkleTree;
+//!
+//! // Create a tree from block data
+//! let data = vec![b"leaf1", b"leaf2", b"leaf3"];
+//! let tree = StarknetPedersenMerkleTree::from(&data[..]);
+//!
+//! // Generate a proof for the first leaf
+//! let proof = tree.generate_proof(0);
+//!
+//! // Get the root hash
+//! let root = tree.root();
+//! ```
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 mod prefixed;
@@ -14,36 +43,27 @@ use core::ops::Deref;
 extern crate alloc;
 use alloc::{vec, vec::Vec};
 
-#[cfg(feature = "par_mmr")]
-use rayon::prelude::*;
-
 use crate::prefixed::Prefixed;
 use crate::proof::Proof;
-use crate::traits::{HashT, MerkleTreeTrait};
-use crate::utils::{
-    height, layer_size, location_in_prefixed, num_of_prefixed_for_input, partition_by_arity,
-};
+use crate::traits::HashT;
+use crate::utils::{height, layer_size, location_in_prefixed, num_of_prefixed_for_input};
 
-pub const ARITY: Arity = Arity::Two;
+pub const ARITY: usize = 2;
 
-/// leaves will be prepended with this value prior to hashing
+/// Leaves will be prepended with this value prior to hashing
 pub const LEAF_HASH_PREPEND_VALUE: u8 = 0;
-/// inner nodes will be prepended with this value prior to hashing
+/// Inner nodes will be prepended with this value prior to hashing
 pub const INNER_HASH_PREPEND_VALUE: u8 = 1;
 
-#[derive(Debug)]
-pub enum Error {
-    Append,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Arity {
-    Two = 2,
-    Four = 4,
-    Eight = 8,
-    Sixteen = 16,
-}
-
+/// The arity (branching factor) of the Merkle tree.
+///
+/// This determines how many children each node has. Only power-of-2 arities are supported
+/// for efficient bit manipulation during tree traversal.
+/// NOTE: Arity enum removed; binary arity fixed at 2 via `pub const ARITY: usize = 2;`
+/// A complete Merkle tree with a fixed arity.
+///
+/// This structure stores all tree nodes in a compact format using prefixed hash blocks.
+/// The tree is constructed from leaf data and supports proof generation and leaf updates.
 pub struct BaseTree<H: HashT> {
     root: H::Output,
     prefixed: Vec<Prefixed<H>>,
@@ -79,8 +99,9 @@ where
 }
 
 impl<H: HashT> BaseTree<H> {
-    const ARITY: usize = ARITY as usize;
+    const ARITY: usize = ARITY;
 
+    #[cfg(test)]
     fn from_leaves(leaves: &[H::Output]) -> Self {
         let len = leaves.len();
 
@@ -120,6 +141,10 @@ impl<H: HashT> BaseTree<H> {
     }
 
     fn fill_layers(&mut self, data_len: usize) {
+        debug_assert!(
+            !self.prefixed.is_empty(),
+            "prefixed buffer must be non-empty"
+        );
         if self.height == 0 {
             self.root = self.prefixed[0].hashes[0];
             return;
@@ -132,6 +157,10 @@ impl<H: HashT> BaseTree<H> {
         for h in 0..self.height - 1 {
             // hash packed siblings of the current layer and fill the upper layer
             for i in start_ind..data_len_aligned {
+                debug_assert!(
+                    i < self.prefixed.len(),
+                    "index out of bounds in fill_layers (base hash loop)"
+                );
                 let offset = i & (Self::ARITY - 1); // index modulo ARITY
                 let (j, _) = self.parent_index_and_base(i, h, start_ind);
 
@@ -141,8 +170,16 @@ impl<H: HashT> BaseTree<H> {
                 self.prefixed[j].hashes[offset] = self.prefixed[i].hash_all();
             }
 
+            debug_assert!(
+                data_len_aligned < self.prefixed.len(),
+                "aligned length out of bounds in fill_layers (default hash)"
+            );
             let layer_default_hash = self.prefixed[data_len_aligned].hash_all();
             for i in data_len_aligned..next_layer_ind {
+                debug_assert!(
+                    i < self.prefixed.len(),
+                    "index out of bounds in fill_layers (default fill loop)"
+                );
                 let offset = i & (Self::ARITY - 1); // index modulo ARITY
                 let (j, _) = self.parent_index_and_base(i, h, start_ind);
 
@@ -167,7 +204,7 @@ impl<H: HashT> BaseTree<H> {
 
     pub(crate) fn pad_leaves(&mut self, from_index: usize) {
         let default_hash = Prefixed::<H>::default_hash();
-        let default_hashes = [default_hash; ARITY as usize];
+        let default_hashes = [default_hash; ARITY];
 
         let start_aligned_prefixed_index = Self::align_len(from_index, Self::ARITY);
         let partial_to_index = Self::ARITY * start_aligned_prefixed_index;
@@ -197,30 +234,7 @@ impl<H: HashT> BaseTree<H> {
         (parent_index, parent_layer_base)
     }
 
-    fn replace_inner(&mut self, index: usize) {
-        if self.height == 0 {
-            self.root = self.prefixed[0].hashes[0];
-            return;
-        }
-        let mut layer_base = 0;
-        let mut j = index / Self::ARITY;
-
-        // start from the base layer and propagate the new hashes upwords
-        for layer in 0..self.height - 1 {
-            let parent_hashed = self.prefixed[j].hash_all();
-
-            let offset = j & (Self::ARITY - 1); // index modulo ARITY
-            (j, layer_base) = self.parent_index_and_base(j, layer, layer_base);
-
-            self.prefixed[j].hashes[offset] = parent_hashed;
-        }
-        self.root = self
-            .prefixed
-            .iter()
-            .last()
-            .expect("prefixed buffer is not empty. qed")
-            .hash_all();
-    }
+    // replace_inner removed (mutation no longer supported)
 
     pub fn num_of_leaves(&self) -> usize {
         self.num_of_leaves
@@ -231,10 +245,11 @@ impl<H: HashT> BaseTree<H> {
     }
 }
 
-impl<H: HashT> MerkleTreeTrait<H> for BaseTree<H> {
+impl<H: HashT> BaseTree<H> {
     /// generates proof at given index on base layer
     /// panics if index is out of bound
-    fn generate_proof(&self, index: usize) -> Proof<H> {
+    #[allow(dead_code)]
+    pub fn generate_proof(&self, index: usize) -> Proof<H> {
         let mut proof = Proof::<H>::from_root(self.root());
         let mut layer_base = 0;
         let mut j = index / Self::ARITY;
@@ -249,31 +264,13 @@ impl<H: HashT> MerkleTreeTrait<H> for BaseTree<H> {
         proof
     }
 
-    fn root(&self) -> H::Output {
+    pub fn root(&self) -> H::Output {
         self.root
     }
-    /// replace an element at index with input
-    /// panics if index is out of leaf layer bound
-    fn replace(&mut self, index: usize, input: &[u8]) {
-        let prefixed_len = input.len() + 1;
-        let mut prefixed = vec![LEAF_HASH_PREPEND_VALUE; prefixed_len];
-        prefixed[1..prefixed_len].copy_from_slice(input);
 
-        let (prefixed_index, offset) = location_in_prefixed(index, ARITY);
+    // replace() removed: mutation API no longer part of MerkleTreeTrait
 
-        self.prefixed[prefixed_index].hashes[offset] = H::hash(&prefixed[..]);
-        self.replace_inner(index);
-    }
-
-    fn replace_leaf(&mut self, index: usize, leaf: H::Output) {
-        let (prefixed_index, offset) = location_in_prefixed(index, ARITY);
-        self.prefixed[prefixed_index].hashes[offset] = leaf;
-
-        self.replace_inner(index);
-    }
-    fn leaves(&self) -> &[Prefixed<H>] {
-        &self.prefixed[..self.base_layer_size()]
-    }
+    // replace_leaf() removed: mutation API no longer part of MerkleTreeTrait
 }
 
 impl<H: HashT> Debug for BaseTree<H> {
@@ -289,112 +286,5 @@ impl<H: HashT> Debug for BaseTree<H> {
         )?;
         writeln!(f, "[hash output len]: {} bytes", size_of::<H::Output>())?;
         write!(f, "{:?}", self.prefixed)
-    }
-}
-
-pub struct Mmr<H: HashT> {
-    base_trees: Vec<BaseTree<H>>,
-    summit_tree: BaseTree<H>,
-    num_of_leaves: usize,
-}
-
-#[cfg(feature = "par_mmr")]
-impl<H, T> From<&[T]> for Mmr<H>
-where
-    H: HashT,
-    T: AsRef<[u8]> + Deref<Target = [u8]> + Send + Sync + Debug,
-{
-    fn from(input: &[T]) -> Self {
-        let len = input.len();
-        let partition_offsets = partition_by_arity(len, ARITY);
-
-        let base_trees = partition_offsets
-            .par_windows(2)
-            .map(|w| BaseTree::from(&input[w[0]..w[1]]))
-            .collect::<Vec<_>>();
-
-        let summit_tree =
-            BaseTree::from_leaves(&base_trees.iter().map(BaseTree::root).collect::<Vec<_>>()[..]);
-
-        Self {
-            base_trees,
-            summit_tree,
-            num_of_leaves: len,
-        }
-    }
-}
-
-#[cfg(not(feature = "par_mmr"))]
-impl<H, T> From<&[T]> for Mmr<H>
-where
-    H: HashT,
-    T: AsRef<[u8]> + Deref<Target = [u8]> + Debug,
-{
-    fn from(input: &[T]) -> Self {
-        let len = input.len();
-        let partition_offsets = partition_by_arity(len, ARITY);
-
-        let base_trees = partition_offsets
-            .windows(2)
-            .map(|w| BaseTree::from(&input[w[0]..w[1]]))
-            .collect::<Vec<_>>();
-
-        let summit_tree =
-            BaseTree::from_leaves(&base_trees.iter().map(BaseTree::root).collect::<Vec<_>>()[..]);
-
-        Self {
-            base_trees,
-            summit_tree,
-            num_of_leaves: len,
-        }
-    }
-}
-
-impl<H: HashT> Mmr<H> {
-    pub fn num_of_leaves(&self) -> usize {
-        self.num_of_leaves
-    }
-
-    fn base_and_inner_indexes_for(&self, index: usize) -> (usize, usize) {
-        let mut accrue_len = 0;
-        let mut i = 0;
-        // find the peak corresponding to the index
-        while accrue_len + self.base_trees[i].num_of_leaves() <= index {
-            accrue_len += self.base_trees[i].num_of_leaves();
-            i += 1;
-        }
-        (i, index - accrue_len)
-    }
-}
-
-impl<H: HashT> MerkleTreeTrait<H> for Mmr<H> {
-    fn root(&self) -> H::Output {
-        self.summit_tree.root()
-    }
-
-    fn generate_proof(&self, index: usize) -> Proof<H> {
-        let (base_index, inner_index) = self.base_and_inner_indexes_for(index);
-
-        self.base_trees[base_index]
-            .generate_proof(inner_index)
-            .chain(self.summit_tree.generate_proof(base_index))
-    }
-
-    fn replace(&mut self, index: usize, input: &[u8]) {
-        let (base_index, inner_index) = self.base_and_inner_indexes_for(index);
-
-        self.base_trees[base_index].replace(inner_index, input);
-        self.summit_tree
-            .replace_leaf(base_index, self.base_trees[base_index].root());
-    }
-    fn replace_leaf(&mut self, index: usize, leaf: H::Output) {
-        let (base_index, inner_index) = self.base_and_inner_indexes_for(index);
-
-        self.base_trees[base_index].replace_leaf(inner_index, leaf);
-        self.summit_tree
-            .replace_leaf(base_index, self.base_trees[base_index].root());
-    }
-    fn leaves(&self) -> &[Prefixed<H>] {
-        unimplemented!();
     }
 }

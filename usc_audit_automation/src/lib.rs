@@ -5,7 +5,7 @@ use ccnext_abi_encoding::abi::EncodingVersion;
 use clap::Parser;
 use eth::{self, AlloyB256, Client as EthClient, OrderedBlock};
 use ethers::types::U64;
-use mmr::traits::MerkleTreeTrait;
+
 use mockall::{automock, predicate::*};
 use reqwest::Client;
 use serde::Deserialize;

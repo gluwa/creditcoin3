@@ -33,20 +33,6 @@ impl mmr::traits::HashT for StarknetPedersenHash {
         let felts = felts_from_bytes(data);
         pedersen_array(&felts)
     }
-
-    /// Hashes an array of pre-computed hash values.
-    ///
-    /// This method is used internally by MMR structures to combine
-    /// multiple hash values into a single hash.
-    ///
-    /// # Arguments
-    /// * `felt_hashes` - Array of Felt hash values
-    ///
-    /// # Returns
-    /// * `Self::Output` - The combined hash as a Felt
-    fn concat_then_hash(felt_hashes: &[Self::Output]) -> Self::Output {
-        pedersen_array(felt_hashes)
-    }
 }
 
 /// Computes Pedersen hash of an array of Felt values.
@@ -164,12 +150,12 @@ mod tests {
         // Same input should produce same hash
         assert_eq!(hash1, hash2);
 
-        // Test concat_then_hash
+        // Test combining two hashes using pedersen_array directly (concat_then_hash removed)
         let hashes = [hash1, hash2];
-        let combined = StarknetPedersenHash::concat_then_hash(&hashes);
+        let combined = pedersen_array(&hashes);
 
         // Should be deterministic
-        let combined2 = StarknetPedersenHash::concat_then_hash(&hashes);
+        let combined2 = pedersen_array(&hashes);
         assert_eq!(combined, combined2);
     }
 }

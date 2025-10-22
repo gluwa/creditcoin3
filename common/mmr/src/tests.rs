@@ -1,10 +1,14 @@
-use super::*;
-use crate::traits::{MerkleTreeTrait, ProofValidator};
+use super::*; // No change; please provide the current file contents with line numbers if further edits are required.
+
+use crate::utils::partition_by_arity;
+use crate::BaseTree;
 use crate::HashT;
-use crate::{BaseTree, Mmr};
 use std::hash::DefaultHasher;
 use std::hash::Hash;
 use std::hash::Hasher;
+
+#[cfg(feature = "par_mmr")]
+use rayon::prelude::*;
 
 #[derive(Debug)]
 struct StdHash;
@@ -27,6 +31,92 @@ impl HashT for StdHash {
         let mut s = DefaultHasher::new();
         input.hash(&mut s);
         Wrapped8(s.finish().to_ne_bytes())
+    }
+}
+
+/// A Merkle Mountain Range (MMR) structure composed of multiple base trees.
+///
+/// NOTE: This struct is only used in tests and is not part of the public API.
+struct Mmr<H: HashT> {
+    base_trees: Vec<BaseTree<H>>,
+    summit_tree: BaseTree<H>,
+}
+
+#[cfg(feature = "par_mmr")]
+impl<H, T> From<&[T]> for Mmr<H>
+where
+    H: HashT,
+    T: AsRef<[u8]> + Deref<Target = [u8]> + Send + Sync + Debug,
+{
+    fn from(input: &[T]) -> Self {
+        let len = input.len();
+        let partition_offsets = partition_by_arity(len, ARITY);
+
+        let base_trees = partition_offsets
+            .par_windows(2)
+            .map(|w| BaseTree::from(&input[w[0]..w[1]]))
+            .collect::<Vec<_>>();
+
+        let summit_tree =
+            BaseTree::from_leaves(&base_trees.iter().map(BaseTree::root).collect::<Vec<_>>()[..]);
+
+        Self {
+            base_trees,
+            summit_tree,
+        }
+    }
+}
+
+#[cfg(not(feature = "par_mmr"))]
+impl<H, T> From<&[T]> for Mmr<H>
+where
+    H: HashT,
+    T: AsRef<[u8]> + Deref<Target = [u8]> + Debug,
+{
+    fn from(input: &[T]) -> Self {
+        let len = input.len();
+        let partition_offsets = partition_by_arity(len, ARITY);
+
+        let base_trees = partition_offsets
+            .windows(2)
+            .map(|w| BaseTree::from(&input[w[0]..w[1]]))
+            .collect::<Vec<_>>();
+
+        let summit_tree =
+            BaseTree::from_leaves(&base_trees.iter().map(BaseTree::root).collect::<Vec<_>>()[..]);
+
+        Self {
+            base_trees,
+            summit_tree,
+            num_of_leaves: len,
+        }
+    }
+}
+
+impl<H: HashT> Mmr<H> {
+    fn base_and_inner_indexes_for(&self, index: usize) -> (usize, usize) {
+        let mut accrue_len = 0;
+        let mut i = 0;
+        // find the peak corresponding to the index
+        while accrue_len + self.base_trees[i].num_of_leaves() <= index {
+            accrue_len += self.base_trees[i].num_of_leaves();
+            i += 1;
+        }
+        (i, index - accrue_len)
+    }
+}
+
+impl<H: HashT> Mmr<H> {
+    fn root(&self) -> H::Output {
+        self.summit_tree.root()
+    }
+
+    fn generate_proof(&self, index: usize) -> Proof<H> {
+        let (base_index, inner_index) = self.base_and_inner_indexes_for(index);
+
+        self.base_trees[base_index]
+            .generate_proof(inner_index)
+            .chain(self.summit_tree.generate_proof(base_index))
     }
 }
 
@@ -122,17 +212,6 @@ fn base_tree_basic_test() {
 }
 
 #[test]
-fn base_tree_claim_index_test() {
-    let input = create_input(0, 123456);
-    let tree =
-        BaseTree::<StdHash>::from(&input.iter().map(|d| d.as_slice()).collect::<Vec<_>>()[..]);
-    for (i, _) in input.iter().enumerate() {
-        let proof = tree.generate_proof(i);
-        assert_eq!(proof.claim_index(), i);
-    }
-}
-
-#[test]
 fn empty_mmr_test() {
     let v = Vec::<&[u8]>::default();
     let mmr = Mmr::<StdHash>::from(&v[..]);
@@ -217,25 +296,7 @@ fn mmr_from_long_input() {
     assert!(proof.validate(input.iter().next_back().unwrap()));
 }
 
-#[test]
-fn replace_in_mmr_test() {
-    let string = vec![42u8; 10];
-    let input = vec![string.as_slice(); 65];
-    let mut mmr1 = Mmr::<StdHash>::from(&input[..]);
-    for i in 0..mmr1.num_of_leaves() {
-        mmr1.replace(i, &[77u8]);
-    }
-
-    let root1 = mmr1.root();
-
-    let replacement = vec![77u8; 1];
-    let input = vec![replacement.as_slice(); 65];
-    let mmr2 = Mmr::<StdHash>::from(&input[..]);
-    let root2 = mmr2.root();
-
-    assert_eq!(root1, root2);
-}
-
+// Removed deprecated replace_in_mmr_test: mutation API no longer part of MerkleTreeTrait
 #[test]
 fn same_path_offsets_for_different_indices_test() {
     let input = (0..7u8).map(|i| vec![i]).collect::<Vec<_>>();

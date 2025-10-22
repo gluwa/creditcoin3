@@ -8,7 +8,7 @@ use utils::{block_item_traits::BlockItem, StarknetPedersenMerkleProof};
 
 use attestor_primitives::attestation_fragment::FragmentContinuityBlocksSerializable;
 use eth_common::OrderedBlock;
-use mmr::traits::MerkleTreeTrait;
+
 use prover_primitives::query::QuerySerializable;
 use prover_primitives::query_out_of_bounds_witness::QueryOutOfBoundsWitness;
 use prover_primitives::types::{
