@@ -62,12 +62,6 @@ docs/smart-contract-development/with-hardhat/artifacts/*
 bridge-usage-example/out/*
 bridge-usage-example/lib/*
 
-# temp, output & test files
-data/attestation-chain/*
-# don't ignore block-cache for integration tests
-#data/block-cache/*
-data/claim-proofs/*
-data/db/*
 **/*output.txt
 **/program_input*.json
 #**/block_*.json
