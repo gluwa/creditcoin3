@@ -181,6 +181,7 @@ jobs:
       - name: Compare current Prover.sol with previously released artifact(s)
         working-directory: ./common/eth/contracts/sol/
         run: |
+          # shellcheck disable=SC2129
           sudo apt-get install colordiff
           echo "========== DEBUG DEBUG DEBUG =========="
           git status --short --untracked-files=no
