@@ -9,13 +9,27 @@ describe('RemoveChain', (): void => {
     // unique integer to serve as chain id during testing
     const chainId = Date.now();
     const chainName = `Test Chain ${chainId}`;
+    const encoding = 'V1';
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
         const nonce = await api.rpc.system.accountNextIndex(root.address);
         await api.tx.sudo
-            .sudo(api.tx.supportedChains.registerChain(chainId, chainName, null, null, null, null, null, null, null))
+            .sudo(
+                api.tx.supportedChains.registerChain(
+                    chainId,
+                    chainName,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    encoding,
+                ),
+            )
             .signAndSend(root, { nonce });
 
         await forElapsedBlocks(api);

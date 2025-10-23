@@ -1,6 +1,6 @@
 use crate as supported_chains;
 use crate::ChainId;
-use attestor_primitives::ChainKey;
+use attestor_primitives::{ChainEncodingVersion, ChainKey};
 use frame_support::traits::{ConstU16, ConstU64};
 use sp_core::H256;
 use sp_runtime::{
@@ -72,6 +72,7 @@ impl supported_chains_primitives::provider::OnRegisterChainProvider for DummyReg
         _max_invulnerables: Option<u32>,
         _attestation_chain_genesis_block_number: Option<u64>,
         _vote_acceptance_window: Option<u64>,
+        _encoding: ChainEncodingVersion,
     ) {
     }
 }
@@ -86,7 +87,11 @@ impl ExtBuilder {
             .unwrap();
 
         let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
-            supported_chains: vec![(200, "Ethereum".as_bytes().to_vec())],
+            supported_chains: vec![(
+                200,
+                "Ethereum".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+            )],
             _phantom: Default::default(),
         };
 
@@ -101,7 +106,7 @@ impl ExtBuilder {
 
     pub fn build_and_execute_with_duplicate_chains(
         self,
-        supported_chains: Vec<(ChainId, Vec<u8>)>,
+        supported_chains: Vec<(ChainId, Vec<u8>, ChainEncodingVersion)>,
         test: impl FnOnce(),
     ) {
         let mut storage = frame_system::GenesisConfig::<Test>::default()

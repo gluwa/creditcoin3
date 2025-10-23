@@ -24,7 +24,7 @@ use sp_runtime::{
     BuildStorage, Perbill,
 };
 
-use attestor_primitives::AttestationChainConfiguration;
+use attestor_primitives::{AttestationChainConfiguration, ChainEncodingVersion};
 
 use sp_staking::{EraIndex, SessionIndex};
 
@@ -325,7 +325,11 @@ impl ExtBuilder {
         b.assimilate_storage(&mut t).unwrap();
 
         let chains = pallet_supported_chains::GenesisConfig::<Test> {
-            supported_chains: vec![(SOURCE_CHAIN_ID, "Ethereum".as_bytes().to_vec())],
+            supported_chains: vec![(
+                SOURCE_CHAIN_ID,
+                "Ethereum".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+            )],
             _phantom: Default::default(),
         };
         chains.assimilate_storage(&mut t).unwrap();

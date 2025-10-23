@@ -16,7 +16,7 @@ pub mod weights;
 pub mod pallet {
     use super::*;
     pub use attestor_primitives::ChainId;
-    use attestor_primitives::ChainKey;
+    use attestor_primitives::{ChainEncodingVersion, ChainKey};
     use frame_support::{
         pallet_prelude::*,
         traits::{BuildGenesisConfig, ConstU64},
@@ -81,7 +81,7 @@ pub mod pallet {
     #[pallet::genesis_config]
     #[derive(frame_support::DefaultNoBound)]
     pub struct GenesisConfig<T> {
-        pub supported_chains: Vec<(ChainId, Vec<u8>)>,
+        pub supported_chains: Vec<(ChainId, Vec<u8>, ChainEncodingVersion)>,
         pub _phantom: PhantomData<T>,
     }
 
@@ -89,12 +89,13 @@ pub mod pallet {
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
             let mut chain_key = 1;
-            for (chain_id, chain_name) in &self.supported_chains {
+            for (chain_id, chain_name, encoding) in &self.supported_chains {
                 SupportedChains::<T>::insert(
                     chain_key,
                     SupportedChain {
                         chain_id: *chain_id,
                         chain_name: chain_name.clone(),
+                        chain_encoding: *encoding,
                     },
                 );
                 //check that no dublicate chain name is added
@@ -119,6 +120,7 @@ pub mod pallet {
             chain_key: ChainKey,
             chain_id: ChainId,
             chain_name: Vec<u8>,
+            chain_encoding: ChainEncodingVersion,
         },
 
         /// A chain has been removed with a given ID
@@ -126,6 +128,7 @@ pub mod pallet {
             chain_key: ChainKey,
             chain_id: ChainId,
             chain_name: Vec<u8>,
+            chain_encoding: ChainEncodingVersion,
         },
     }
 
@@ -156,6 +159,7 @@ pub mod pallet {
             max_invulnerables: Option<u32>,
             attestation_chain_genesis_block_number: Option<u64>,
             vote_acceptance_window: Option<u64>,
+            encoding: ChainEncodingVersion,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
@@ -170,6 +174,7 @@ pub mod pallet {
                 SupportedChain {
                     chain_id,
                     chain_name: chain_name.as_bytes().to_vec(),
+                    chain_encoding: encoding,
                 },
             );
             ChainIdAndNameToUniqKey::<T>::insert(
@@ -191,12 +196,14 @@ pub mod pallet {
                 max_invulnerables,
                 attestation_chain_genesis_block_number,
                 vote_acceptance_window,
+                encoding,
             );
 
             Self::deposit_event(Event::ChainRegistered {
                 chain_key,
                 chain_id,
                 chain_name: chain_name.as_bytes().to_vec(),
+                chain_encoding: encoding,
             });
 
             Ok(())
@@ -224,6 +231,7 @@ pub mod pallet {
                 chain_key,
                 chain_id: item.chain_id,
                 chain_name: item.chain_name.clone(),
+                chain_encoding: item.chain_encoding,
             });
 
             Ok(())

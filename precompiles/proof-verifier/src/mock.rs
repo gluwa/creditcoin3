@@ -272,6 +272,7 @@ impl supported_chains_primitives::provider::OnRegisterChainProvider for DummyReg
         _max_invulnerables: Option<u32>,
         _attestation_chain_genesis_block_number: Option<u64>,
         _vote_acceptance_window: Option<u64>,
+        _encoding: ChainEncodingVersion,
     ) {
     }
 }
@@ -378,7 +379,7 @@ impl pallet_session::historical::Config for Runtime {
     type FullIdentificationOf = pallet_staking::ExposureOf<Self>;
 }
 
-use attestor_primitives::{ChainId, ChainKey};
+use attestor_primitives::{ChainEncodingVersion, ChainId, ChainKey};
 use sp_staking::EraIndex;
 
 parameter_types! {
@@ -464,7 +465,7 @@ impl ExtBuilder {
         .expect("Pallet balances storage can be assimilated");
 
         let chains = pallet_supported_chains::GenesisConfig::<Runtime> {
-            supported_chains: vec![(1, "Ethereum".as_bytes().to_vec())],
+            supported_chains: vec![(1, "Ethereum".as_bytes().to_vec(), ChainEncodingVersion::V1)],
             _phantom: Default::default(),
         };
         chains.assimilate_storage(&mut t).unwrap();

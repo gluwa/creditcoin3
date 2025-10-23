@@ -48,6 +48,21 @@ pub struct AttestationChainConfiguration {
     pub vote_acceptance_window: u64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
+/// Encoding version to use when processing blocks from source chains
+pub enum ChainEncodingVersion {
+    V1 = 1,
+}
+
+#[cfg(feature = "std")]
+impl From<ChainEncodingVersion> for ccnext_abi_encoding::abi::EncodingVersion {
+    fn from(version: ChainEncodingVersion) -> Self {
+        match version {
+            ChainEncodingVersion::V1 => ccnext_abi_encoding::abi::EncodingVersion::V1,
+        }
+    }
+}
+
 /// Identifier for a source chain
 pub type ChainId = u64;
 

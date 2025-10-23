@@ -15,6 +15,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
     // unique integer to serve as chain id during testing
     const newChainId = BigInt(Date.now());
     const newChainName = `Test Chain ${newChainId}`;
+    const encoding = 'V1';
     let newChainKey = 0n;
 
     beforeAll(async () => {
@@ -49,6 +50,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
                     null,
                     null,
                     null,
+                    encoding,
                 ),
             )
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
@@ -67,7 +69,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
                 supportedChains(
                     filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
-                ) { nodes { id, at, chainKey, chainName, chainId }}}`,
+                ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding }}}`,
         );
         expect(response2.data.supportedChains.nodes).toBeTruthy();
         expect(response2.data.supportedChains.nodes.length).toEqual(1);

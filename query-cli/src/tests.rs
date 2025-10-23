@@ -55,13 +55,17 @@ async fn test_get_erc20_transfer_segments_with_sepolia_gcre() {
         .unwrap()
         .abi;
 
-    let selected_offsets: Vec<(usize, usize)> =
-        get_erc20_transfer_segments(Network::Sepolia(String::new()), tx.clone(), rx.clone())
-            .await
-            .expect("Getting segments should succeed")
-            .iter()
-            .map(|segment| (segment.offset as usize, segment.size as usize))
-            .collect();
+    let selected_offsets: Vec<(usize, usize)> = get_erc20_transfer_segments(
+        Network::Sepolia(String::new()),
+        tx.clone(),
+        rx.clone(),
+        EncodingVersion::V1,
+    )
+    .await
+    .expect("Getting segments should succeed")
+    .iter()
+    .map(|segment| (segment.offset as usize, segment.size as usize))
+    .collect();
 
     let expected_results: Vec<ResultField> = vec![
         ResultField::RxStatus(rx.status() as u8),

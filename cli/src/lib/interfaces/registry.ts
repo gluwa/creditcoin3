@@ -12,6 +12,7 @@ import type {
     AttestorPrimitivesAttestor,
     AttestorPrimitivesAttestorStatus,
     AttestorPrimitivesBlockBlockSerializable,
+    AttestorPrimitivesChainEncodingVersion,
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
@@ -238,6 +239,7 @@ declare module '@polkadot/types/types/registry' {
         AttestorPrimitivesAttestor: AttestorPrimitivesAttestor;
         AttestorPrimitivesAttestorStatus: AttestorPrimitivesAttestorStatus;
         AttestorPrimitivesBlockBlockSerializable: AttestorPrimitivesBlockBlockSerializable;
+        AttestorPrimitivesChainEncodingVersion: AttestorPrimitivesChainEncodingVersion;
         AttestorPrimitivesSignedAttestation: AttestorPrimitivesSignedAttestation;
         Creditcoin3RuntimeOpaqueSessionKeys: Creditcoin3RuntimeOpaqueSessionKeys;
         Creditcoin3RuntimeOriginCaller: Creditcoin3RuntimeOriginCaller;

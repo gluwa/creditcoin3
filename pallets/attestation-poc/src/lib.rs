@@ -28,8 +28,8 @@ pub mod pallet {
     use attestor_primitives::{
         provider::{AttestationProvider, CheckpointProvider},
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, BlsPublicKey,
-        BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainKey, Digest,
-        InherentError, SignedAttestation, INHERENT_IDENTIFIER,
+        BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainEncodingVersion,
+        ChainKey, Digest, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use frame_support::{
         pallet_prelude::{OptionQuery, ValueQuery, *},
@@ -1177,6 +1177,7 @@ pub mod pallet {
             max_invulnerables: Option<u32>,
             attestation_chain_genesis_block_number: Option<u64>,
             vote_acceptance_window: Option<u64>,
+            _encoding: ChainEncodingVersion,
         ) {
             TargetSampleSize::<T>::insert(
                 chain_key,

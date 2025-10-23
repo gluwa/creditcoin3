@@ -7,7 +7,9 @@ use std::{
 };
 
 // Substrate
-use attestor_primitives::{AttestationChainConfiguration, AttestationCheckpoint, ChainId};
+use attestor_primitives::{
+    AttestationChainConfiguration, AttestationCheckpoint, ChainEncodingVersion, ChainId,
+};
 use sc_chain_spec::{ChainSpecExtension, ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
@@ -473,18 +475,38 @@ fn testnet_genesis(
                 // The chain keys resulting from these entries are in numerical order
                 // NOTE: DO NOT CHANGE THE ORDER OF CHAINS UNLESS YOU KNOW WHAT YOU ARE DOING
                 // 1. Ethereum
-                (1, "Ethereum".as_bytes().to_vec()),
+                (1, "Ethereum".as_bytes().to_vec(), ChainEncodingVersion::V1),
                 // 2 Anvil network one
-                (31337, "Anvil1".as_bytes().to_vec()),
+                (
+                    31337,
+                    "Anvil1".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                ),
                 // 3. Sepolia ethereum
-                (11155111, "Sepolia ethereum".as_bytes().to_vec()),
+                (
+                    11155111,
+                    "Sepolia ethereum".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                ),
                 // 4. Anvil network two
-                (31338, "Anvil2".as_bytes().to_vec()),
+                (
+                    31338,
+                    "Anvil2".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                ),
                 // 5. Anvil network three // Due to a restart of the anvil network on devnet
                 // This makes it so the the devnet anvil endpoint is still compatible with local dev setup
-                (31339, "Anvil3".as_bytes().to_vec()),
+                (
+                    31339,
+                    "Anvil3".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                ),
                 // 6. Polygon amoy testnet
-                (80002, "Polygon amoy testnet".as_bytes().to_vec()),
+                (
+                    80002,
+                    "Polygon amoy testnet".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                ),
             ],
             _phantom: Default::default(),
         },

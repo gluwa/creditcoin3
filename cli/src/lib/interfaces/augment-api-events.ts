@@ -25,6 +25,7 @@ import type { ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
     AttestorPrimitivesAttestationCheckpoint,
+    AttestorPrimitivesChainEncodingVersion,
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeProxyFilter,
     EthereumLog,
@@ -919,16 +920,16 @@ declare module '@polkadot/api-base/types/events' {
              **/
             ChainRegistered: AugmentedEvent<
                 ApiType,
-                [chainKey: u64, chainId: u64, chainName: Bytes],
-                { chainKey: u64; chainId: u64; chainName: Bytes }
+                [chainKey: u64, chainId: u64, chainName: Bytes, chainEncoding: AttestorPrimitivesChainEncodingVersion],
+                { chainKey: u64; chainId: u64; chainName: Bytes; chainEncoding: AttestorPrimitivesChainEncodingVersion }
             >;
             /**
              * A chain has been removed with a given ID
              **/
             ChainRemoved: AugmentedEvent<
                 ApiType,
-                [chainKey: u64, chainId: u64, chainName: Bytes],
-                { chainKey: u64; chainId: u64; chainName: Bytes }
+                [chainKey: u64, chainId: u64, chainName: Bytes, chainEncoding: AttestorPrimitivesChainEncodingVersion],
+                { chainKey: u64; chainId: u64; chainName: Bytes; chainEncoding: AttestorPrimitivesChainEncodingVersion }
             >;
             /**
              * Generic event

@@ -14,18 +14,22 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     const rawEntries = await (api.query as any).supportedChains.supportedChains.entries();
 
     // Normalize to [chainKey, { chainId, chainNameHex }]
-    const entries: [bigint, { chainId: bigint; chainName: string }][] = rawEntries.map(([storageKey, value]: any) => {
-        const chainKey = BI(storageKey.args[0].toString());
-        const j = value?.toJSON?.() ?? {};
-        const chainId = value?.chainId?.toBigInt?.() ?? (j.chainId != null ? BI(j.chainId as number) : BI(0));
-        const chainNameHex =
-            value?.chainName?.toHex?.() ??
-            value?.chainName?.toString?.() ??
-            (typeof j.chainName === 'string' ? j.chainName : '0x');
-        return [chainKey, { chainId, chainName: chainNameHex }];
-    });
+    const entries: [bigint, { chainId: bigint; chainName: string; chainEncoding: string }][] = rawEntries.map(
+        ([storageKey, value]: any) => {
+            const chainKey = BI(storageKey.args[0].toString());
+            const j = value?.toJSON?.() ?? {};
+            const chainId = value?.chainId?.toBigInt?.() ?? (j.chainId != null ? BI(j.chainId as number) : BI(0));
+            const chainNameHex =
+                value?.chainName?.toHex?.() ??
+                value?.chainName?.toString?.() ??
+                (typeof j.chainName === 'string' ? j.chainName : '0x');
+            const chainEncoding =
+                value?.chainEncoding?.toString?.() ?? (typeof j.chainEncoding === 'string' ? j.chainEncoding : 'V1');
+            return [chainKey, { chainId, chainName: chainNameHex, chainEncoding }];
+        },
+    );
 
-    for (const [chainKey, { chainId, chainName }] of entries) {
+    for (const [chainKey, { chainId, chainName, chainEncoding }] of entries) {
         const id = `chain_${chainKey.toString()}`;
         logger.info(`Processing chain ${id} with key ${chainKey.toString()}`);
         logger.info(`Chain ID: ${chainId.toString()}`);
@@ -67,6 +71,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
             chainKey,
             chainName: name,
             chainId,
+            chainEncoding,
             at: block.block.header.number.toBigInt(),
         });
 

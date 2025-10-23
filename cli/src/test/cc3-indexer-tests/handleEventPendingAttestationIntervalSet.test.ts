@@ -11,6 +11,7 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
     const newChainId = Date.now();
     const newChainName = `Test Chain ${newChainId}`;
     const newInterval = BigInt(randomIntBetween(10, 100));
+    const encoding = 'V1';
     let newChainKey = 0n;
 
     beforeAll(async () => {
@@ -29,6 +30,7 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
                     null,
                     null,
                     null,
+                    encoding,
                 ),
             )
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });

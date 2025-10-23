@@ -27,6 +27,7 @@ sp-std = { workspace = true, default-features = false }
 
 utils = { workspace = true, default-features = false }
 
+ccnext-abi-encoding = { workspace = true, optional = true }
 serde = { workspace = true, default-features = false, features = ["derive"] }
 serde_bytes = { version = "0.11.14", default-features = false }
 
@@ -50,4 +51,5 @@ std = [
     "utils/std",
     "starknet-types-core/std",
     "starknet-crypto/std",
+    "ccnext-abi-encoding",
 ]

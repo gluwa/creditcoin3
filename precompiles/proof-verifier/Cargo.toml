@@ -94,7 +94,6 @@ std = [
     "sp-staking/std",
     "pallet-staking/std",
     "supported-chains-primitives/std",
-    "pallet-babe/std",
     "proof-verifier/std",
     "ethabi/std",
 ]

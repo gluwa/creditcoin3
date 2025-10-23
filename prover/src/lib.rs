@@ -16,6 +16,7 @@ use tracing::{debug, error, info, warn};
 use attestation::cache::AttestationCache;
 use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
 use cc_client::{attestation::CcEvent, Client as CcClient};
+use ccnext_abi_encoding::abi::EncodingVersion;
 use pallet_prover_primitives::Query;
 
 pub mod config;
@@ -63,6 +64,8 @@ pub struct Server {
     metrics: Option<ProverMetrics>,
     // Chain name
     chain_name: ChainName,
+    // Block encoding version
+    encoding: EncodingVersion,
 }
 
 impl Server {
@@ -146,6 +149,7 @@ impl Server {
             received_query_proofs: HashSet::new(),
             metrics,
             chain_name,
+            encoding: EncodingVersion::from(supported_chain.chain_encoding),
         })
     }
 
@@ -469,6 +473,7 @@ impl Server {
             &query,
             &self.attestations_cache,
             !self.is_light_prover_mode(),
+            self.encoding,
         )
         .await?;
 

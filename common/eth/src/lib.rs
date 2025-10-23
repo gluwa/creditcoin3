@@ -22,7 +22,7 @@ use alloy::{
 };
 
 use anyhow::Result;
-use ccnext_abi_encoding::abi::{abi_encode, EncodingVersion};
+use ccnext_abi_encoding::abi::EncodingVersion;
 use hex::FromHexError;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
@@ -79,6 +79,7 @@ pub struct TxRx {
     id: BlockItemIdentifier,
     tx: Transaction,
     rx: TransactionReceipt,
+    encoding: EncodingVersion,
 }
 
 impl TxRx {
@@ -86,8 +87,14 @@ impl TxRx {
         id: BlockItemIdentifier,
         tx: Transaction,
         rx: TransactionReceipt,
+        encoding: EncodingVersion,
     ) -> Result<Self, ConversionError> {
-        Ok(Self { id, tx, rx })
+        Ok(Self {
+            id,
+            tx,
+            rx,
+            encoding,
+        })
     }
 
     pub fn tx(&self) -> &Transaction {
@@ -105,7 +112,7 @@ impl TxRx {
 
 impl BlockItem for TxRx {
     fn payload_bytes(&self) -> Vec<u8> {
-        abi_encode(self.tx().clone(), self.rx().clone(), EncodingVersion::V1)
+        ccnext_abi_encoding::abi::abi_encode(self.tx().clone(), self.rx().clone(), self.encoding)
             .expect("Transaction and receipt should be encodable.")
             .abi
     }
@@ -140,6 +147,7 @@ impl OrderedBlock {
         hash: BlockHash,
         mut transactions: Vec<Transaction>,
         mut receipts: Vec<TransactionReceipt>,
+        encoding: EncodingVersion,
     ) -> Result<Self, ConversionError> {
         transactions.sort_by_key(|tx| tx.transaction_index);
         receipts.sort_by_key(|rx| rx.transaction_index);
@@ -153,6 +161,7 @@ impl OrderedBlock {
                     BlockItemIdentifier::new(number, index as u64),
                     tx_rx.0,
                     tx_rx.1,
+                    encoding,
                 )
             })
             .collect::<Result<_, _>>()?;
@@ -325,7 +334,11 @@ impl Client {
         Ok(PrivateKeySigner::from_signing_key(signing_key))
     }
 
-    pub async fn get_block(&self, number: u64) -> Result<OrderedBlock, Error> {
+    pub async fn get_block(
+        &self,
+        number: u64,
+        encoding: EncodingVersion,
+    ) -> Result<OrderedBlock, Error> {
         info!(
             "Getting block {:?}",
             BlockId::Number(BlockNumberOrTag::Number(number))
@@ -349,6 +362,7 @@ impl Client {
             block.header.hash,
             transactions,
             receipts,
+            encoding,
         )
         .map_err(Error::TransactionConversion)
     }

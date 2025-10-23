@@ -1,4 +1,4 @@
-use attestor_primitives::{ChainId, ChainKey};
+use attestor_primitives::{ChainEncodingVersion, ChainId, ChainKey};
 use sp_std::vec::Vec;
 
 use crate::SupportedChain;
@@ -22,5 +22,6 @@ pub trait OnRegisterChainProvider {
         max_invulnerables: Option<u32>,
         attestation_chain_genesis_block_number: Option<u64>,
         vote_acceptance_window: Option<u64>,
+        encoding: ChainEncodingVersion,
     );
 }

@@ -93,7 +93,7 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
 export async function handleSupportedChainRegistered(event: SubstrateEvent): Promise<void> {
     const {
         event: {
-            data: [chainKey, chainId, chainName],
+            data: [chainKey, chainId, chainName, chainEncoding],
         },
     } = event;
 
@@ -106,12 +106,14 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
     const chainKeyNumber = BigInt(chainKeyStr);
 
     const hexDecodedChainName = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
+    const chainEncodingStr = chainEncoding.toString();
 
     const chainRegistered = ChainRegistered.create({
         id: `${blockNumber}-${event.idx}`,
         at: blockNumber,
         chainKey: chainKeyNumber,
         chainName: hexDecodedChainName,
+        chainEncoding: chainEncodingStr,
         chainId: BigInt(chainId.toString()),
         whoId: from.toString(),
     });
@@ -121,6 +123,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         at: blockNumber,
         chainKey: chainKeyNumber,
         chainName: hexDecodedChainName,
+        chainEncoding: chainEncodingStr,
         chainId: BigInt(chainId.toString()),
     });
 
@@ -152,7 +155,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
 export async function handleSupportedChainRemoved(event: SubstrateEvent): Promise<void> {
     const {
         event: {
-            data: [chainKey, chainId, chainName],
+            data: [chainKey, chainId, chainName, chainEncoding],
         },
     } = event;
 
@@ -165,12 +168,14 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
     const chainKeyNumber = BigInt(chainKeyStr);
 
     const hexDecodedChainName = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
+    const chainEncodingStr = chainEncoding.toString();
 
     const chainRemoved = ChainRemoved.create({
         id: `${blockNumber}-${event.idx}`,
         at: blockNumber,
         chainKey: chainKeyNumber,
         chainName: hexDecodedChainName,
+        chainEncoding: chainEncodingStr,
         chainId: BigInt(chainId.toString()),
         whoId: from.toString(),
     });

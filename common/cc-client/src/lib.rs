@@ -30,7 +30,8 @@ use cc3::runtime_types::{
     attestor_primitives::{
         attestation_fragment::AttestationFragmentSerializable as CcAttestationFragment,
         block::BlockSerializable as CcBlockSerializable, Attestation as CcAttestation,
-        AttestationCheckpoint as CcAttestationCheckpoint, SignedAttestation as CcSignedAttestation,
+        AttestationCheckpoint as CcAttestationCheckpoint,
+        ChainEncodingVersion as CcChainEncodingVersion, SignedAttestation as CcSignedAttestation,
     },
     supported_chains_primitives::SupportedChain as CcSupportedChain,
 };
@@ -39,7 +40,7 @@ use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
     block::Block,
     Attestation, AttestationCheckpoint, AttestorId, AttestorStatus, BlsPublicKey, BlsSignature,
-    ChainKey, Digest, SignedAttestation,
+    ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
 };
 use creditcoin3_attestor_gossip::communication::Attestation as RpcAttestation;
 use supported_chains_primitives::SupportedChain;
@@ -944,6 +945,24 @@ impl From<CcSupportedChain> for SupportedChain {
         SupportedChain {
             chain_id: chain.chain_id,
             chain_name: chain.chain_name,
+            chain_encoding: ChainEncodingVersion::from(chain.chain_encoding),
+        }
+    }
+}
+
+impl From<CcChainEncodingVersion> for ChainEncodingVersion {
+    fn from(version: CcChainEncodingVersion) -> Self {
+        match version {
+            CcChainEncodingVersion::V1 => ChainEncodingVersion::V1,
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<CcChainEncodingVersion> for ccnext_abi_encoding::abi::EncodingVersion {
+    fn from(version: CcChainEncodingVersion) -> Self {
+        match version {
+            CcChainEncodingVersion::V1 => ccnext_abi_encoding::abi::EncodingVersion::V1,
         }
     }
 }

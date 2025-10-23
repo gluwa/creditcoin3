@@ -8,6 +8,7 @@ use tokio_retry::strategy::{jitter, FibonacciBackoff};
 use tokio_retry::Retry;
 use tracing::{debug, error, info, warn};
 
+use ccnext_abi_encoding::abi::EncodingVersion;
 use pallet_prover_primitives::Query;
 use prover_primitives::query::{
     byte_segments_into_felt_ranges, compact_and_sort_ranges, QueryIdentifier, QuerySerializable,
@@ -64,6 +65,7 @@ pub async fn process(
     query: &Query,
     attestation_cache: &AttestationCacheType,
     stone_proof: bool,
+    encoding: EncodingVersion,
 ) -> Result<Either<Proof, Vec<PathBuf>>, Error> {
     let query_id = query.id();
     debug!("Processing query with id: {:?}", query_id);
@@ -72,7 +74,7 @@ pub async fn process(
     let retry_strategy = FibonacciBackoff::from_millis(1000).map(jitter).take(5);
 
     let fragment_result = Retry::spawn(retry_strategy.clone(), || {
-        fragment::get_for_query(eth_client, query, attestation_cache)
+        fragment::get_for_query(eth_client, query, attestation_cache, encoding)
     })
     .await;
 
@@ -109,15 +111,17 @@ pub async fn process(
 
     debug!("🟢 Query serializable: {:?}", query_serializable);
 
-    let block = Retry::spawn(retry_strategy, || eth_client.get_block(query.height))
-        .await
-        .map_err(|e| {
-            error!(
-                "🔴 Failed to get block {} after multiple retries: {:?}",
-                query.height, e
-            );
-            e
-        })?;
+    let block = Retry::spawn(retry_strategy, || {
+        eth_client.get_block(query.height, encoding)
+    })
+    .await
+    .map_err(|e| {
+        error!(
+            "🔴 Failed to get block {} after multiple retries: {:?}",
+            query.height, e
+        );
+        e
+    })?;
 
     // Check if we need to force stone proving based on fragment type changes
     let maybe_force_stone_proving =

@@ -9,6 +9,7 @@ use crate::{
 };
 use anyhow::Result;
 use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
+use ccnext_abi_encoding::abi::EncodingVersion;
 use eth::OrderedBlock;
 use ethers::types::U64;
 use hex_literal::hex;
@@ -1117,8 +1118,16 @@ async fn test_calculate_merkle_root_returns_expected_bytes() {
     let hash = &[0u8; 32];
     let transactions = vec![];
     let receipts = vec![];
-    let test_ordered_block =
-        OrderedBlock::try_create(chain_id, number, hash.into(), transactions, receipts).unwrap();
+    let encoding = EncodingVersion::V1;
+    let test_ordered_block = OrderedBlock::try_create(
+        chain_id,
+        number,
+        hash.into(),
+        transactions,
+        receipts,
+        encoding,
+    )
+    .unwrap();
     let test_ordered_block = Arc::new(test_ordered_block); // Wrap in Arc
 
     // Set up the mock client
@@ -1126,15 +1135,15 @@ async fn test_calculate_merkle_root_returns_expected_bytes() {
     let block_clone = Arc::clone(&test_ordered_block);
     mock_client
         .expect_get_block_by_number()
-        .with(eq(123u64))
-        .returning(move |_| {
+        .with(eq(123u64), always())
+        .returning(move |_, _| {
             let block = Arc::clone(&block_clone);
 
             Ok(Some((*block).clone()))
         });
 
     // Call the function
-    let result = calculate_merkle_root(&mock_client, 123).await;
+    let result = calculate_merkle_root(&mock_client, 123, encoding).await;
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap().len(), 32);

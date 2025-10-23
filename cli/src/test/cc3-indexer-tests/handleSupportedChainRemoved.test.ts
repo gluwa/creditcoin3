@@ -10,6 +10,7 @@ describe('handleSupportedChainRemoved()', () => {
     // unique integer to serve as chain id during testing
     const newChainId = BigInt(Date.now());
     const newChainName = `Test Chain ${newChainId}`;
+    const encoding = 'V1';
     let newChainKey = 0n;
 
     beforeAll(async () => {
@@ -28,6 +29,7 @@ describe('handleSupportedChainRemoved()', () => {
                     null,
                     null,
                     null,
+                    encoding,
                 ),
             )
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
@@ -46,7 +48,7 @@ describe('handleSupportedChainRemoved()', () => {
                 supportedChains(
                     filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
-                ) { nodes { id, at, chainKey, chainName, chainId }}}`,
+                ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding }}}`,
         );
         expect(response.data.supportedChains.nodes).toBeTruthy();
         expect(response.data.supportedChains.nodes.length).toEqual(1);
@@ -57,6 +59,7 @@ describe('handleSupportedChainRemoved()', () => {
             expect(BigInt(node.chainKey)).toEqual(newChainKey);
             expect(node.chainName).toEqual(newChainName);
             expect(BigInt(node.chainId)).toEqual(newChainId);
+            expect(node.chainEncoding).toEqual(encoding);
         }
     }, 60_000);
 
@@ -82,7 +85,7 @@ describe('handleSupportedChainRemoved()', () => {
                     chainRemoveds(
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
-                    ) { nodes { id, at, chainKey, chainName, chainId, whoId }}}`,
+                    ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding, whoId }}}`,
             );
             expect(response.data.chainRemoveds.nodes).toBeTruthy();
             expect(response.data.chainRemoveds.nodes.length).toEqual(1);
@@ -94,6 +97,7 @@ describe('handleSupportedChainRemoved()', () => {
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.chainName).toEqual(newChainName);
                 expect(BigInt(node.chainId)).toEqual(newChainId);
+                expect(node.chainEncoding).toEqual(encoding);
                 expect(node.whoId).toEqual(root.address);
             }
         });
@@ -104,7 +108,7 @@ describe('handleSupportedChainRemoved()', () => {
                     supportedChains(
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
-                    ) { nodes { id, at, chainKey, chainName, chainId }}}`,
+                    ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding }}}`,
             );
             expect(response.data.supportedChains.nodes).toBeTruthy();
             expect(response.data.supportedChains.nodes.length).toEqual(0);

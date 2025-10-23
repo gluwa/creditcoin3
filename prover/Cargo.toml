@@ -62,6 +62,7 @@ sp-core = { workspace = true, default-features = false }
 attestor-primitives = { workspace = true }
 base64 = "0.22.1"
 cc-client = { workspace = true }
+ccnext-abi-encoding = { workspace = true }
 dotenv = "0.15.0"
 eth = { workspace = true }
 mmr = { workspace = true, features = ["par_mmr"] }

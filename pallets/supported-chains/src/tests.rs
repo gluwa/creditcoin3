@@ -1,4 +1,5 @@
 use crate::{mock::SupportedChain, mock::*, Error, SupportedChains};
+use attestor_primitives::ChainEncodingVersion;
 use frame_support::{assert_noop, assert_ok};
 use sp_runtime::traits::BadOrigin;
 use supported_chains_primitives::provider::SupportedChainsProvider;
@@ -25,6 +26,7 @@ fn register_chain_works() {
             None,
             None,
             None,
+            ChainEncodingVersion::V1,
         ));
         assert_eq!(SupportedChain::chain_key_value(), 2);
 
@@ -37,7 +39,8 @@ fn register_chain_works() {
             SupportedChains::<Test>::get(chain_key.expect("Should have a chain key")),
             Some(supported_chains_primitives::SupportedChain {
                 chain_id,
-                chain_name: chain_name.as_bytes().to_vec()
+                chain_name: chain_name.as_bytes().to_vec(),
+                chain_encoding: ChainEncodingVersion::V1,
             })
         );
 
@@ -47,6 +50,7 @@ fn register_chain_works() {
                 chain_key: chain_key.unwrap(),
                 chain_id,
                 chain_name: chain_name.into(),
+                chain_encoding: ChainEncodingVersion::V1,
             }
             .into(),
         );
@@ -72,6 +76,7 @@ fn register_chain_should_error_when_not_signed() {
                 None,
                 None,
                 None,
+                ChainEncodingVersion::V1,
             ),
             BadOrigin
         );
@@ -98,6 +103,7 @@ fn register_chain_should_error_when_not_signed_by_root() {
                 None,
                 None,
                 None,
+                ChainEncodingVersion::V1,
             ),
             BadOrigin
         );
@@ -123,6 +129,7 @@ fn register_chain_should_error_when_registering_duplicate_chain() {
                 None,
                 None,
                 None,
+                ChainEncodingVersion::V1,
             ),
             Error::<Test>::ChainAlreadyRegistered
         );
@@ -146,7 +153,8 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_id_but_diffe
             None,
             None,
             None,
-            None
+            None,
+            ChainEncodingVersion::V1,
         ),);
 
         let chain_key = SupportedChain::chain_key_by_chain_id_and_name(
@@ -158,7 +166,8 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_id_but_diffe
             SupportedChains::<Test>::get(chain_key.expect("Should have a chain key")),
             Some(supported_chains_primitives::SupportedChain {
                 chain_id,
-                chain_name: chain_name.as_bytes().to_vec()
+                chain_name: chain_name.as_bytes().to_vec(),
+                chain_encoding: ChainEncodingVersion::V1,
             })
         );
     });
@@ -182,6 +191,7 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_name_but_dif
             None,
             None,
             None,
+            ChainEncodingVersion::V1,
         ),);
 
         let chain_key = SupportedChain::chain_key_by_chain_id_and_name(
@@ -193,7 +203,8 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_name_but_dif
             SupportedChains::<Test>::get(chain_key.expect("Should have a chain key")),
             Some(supported_chains_primitives::SupportedChain {
                 chain_id,
-                chain_name: chain_name.as_bytes().to_vec()
+                chain_name: chain_name.as_bytes().to_vec(),
+                chain_encoding: ChainEncodingVersion::V1,
             })
         );
     });
@@ -222,6 +233,7 @@ fn register_chain_should_error_when_chain_key_index_exceeded() {
                 None,
                 None,
                 None,
+                ChainEncodingVersion::V1,
             ),
             Error::<Test>::Arithmetic
         );
@@ -252,6 +264,7 @@ fn remove_chain_works() {
                 chain_key,
                 chain_id: 200,
                 chain_name: "Ethereum".into(),
+                chain_encoding: ChainEncodingVersion::V1,
             }
             .into(),
         );
@@ -318,6 +331,7 @@ fn test_method_supported_chains() {
             None,
             None,
             None,
+            ChainEncodingVersion::V1,
         ));
 
         let chain_key = SupportedChain::chain_key_by_chain_id_and_name(
@@ -363,8 +377,8 @@ fn empty_supported_chains() {
 fn build_should_panic_with_duplicate_chains_in_genesis() {
     ExtBuilder.build_and_execute_with_duplicate_chains(
         vec![
-            (1, "Ethereum".as_bytes().to_vec()),
-            (1, "Ethereum".as_bytes().to_vec()),
+            (1, "Ethereum".as_bytes().to_vec(), ChainEncodingVersion::V1),
+            (1, "Ethereum".as_bytes().to_vec(), ChainEncodingVersion::V1),
         ],
         || {
             System::set_block_number(1);

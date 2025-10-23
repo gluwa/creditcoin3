@@ -13,6 +13,7 @@ describe('handleVoteAcceptanceWindowChanged()', () => {
     // unique integer to serve as chain id during testing
     const newChainId = Date.now();
     const newChainName = `Test Chain ${newChainId}`;
+    const encoding = 'V1';
     let newChainKey = 0n;
 
     beforeAll(async () => {
@@ -31,6 +32,7 @@ describe('handleVoteAcceptanceWindowChanged()', () => {
                     null,
                     null,
                     null,
+                    encoding,
                 ),
             )
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });

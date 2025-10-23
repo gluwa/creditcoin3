@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
 use cc_client::Client as USCClient;
+use ccnext_abi_encoding::abi::EncodingVersion;
 use clap::Parser;
 use eth::{self, AlloyB256, Client as EthClient, OrderedBlock};
 use ethers::types::U64;
@@ -120,7 +121,11 @@ pub(crate) trait EthereumProvider {
         &self,
         block_hash: ethers_core::types::H256,
     ) -> Result<Option<U64>>;
-    async fn get_block_by_number(&self, block_number: u64) -> Result<Option<OrderedBlock>>;
+    async fn get_block_by_number(
+        &self,
+        block_number: u64,
+        encoding: EncodingVersion,
+    ) -> Result<Option<OrderedBlock>>;
 }
 impl EthereumProvider for EthClient {
     async fn fetch_block_number(&self) -> Result<Option<U64>> {
@@ -138,8 +143,12 @@ impl EthereumProvider for EthClient {
 
         Ok(Some(U64::from(block_number)))
     }
-    async fn get_block_by_number(&self, block_number: u64) -> Result<Option<OrderedBlock>> {
-        let ordered_block = self.get_block(block_number).await?;
+    async fn get_block_by_number(
+        &self,
+        block_number: u64,
+        encoding: EncodingVersion,
+    ) -> Result<Option<OrderedBlock>> {
+        let ordered_block = self.get_block(block_number, encoding).await?;
 
         Ok(Some(ordered_block))
     }
@@ -280,9 +289,10 @@ pub fn calculate_usc_and_source_chain_block_diff(
 pub(crate) async fn calculate_merkle_root(
     eth_client: &impl EthereumProvider,
     block_number: u64,
+    encoding: EncodingVersion,
 ) -> Result<[u8; 32]> {
     let ordered_block = eth_client
-        .get_block_by_number(block_number)
+        .get_block_by_number(block_number, encoding)
         .await?
         .context("Failed to get block")?;
     let merkle_tree = eth::starknet_pedersen_mmr(&ordered_block);

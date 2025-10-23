@@ -1,7 +1,7 @@
 //! Pallet Supported Chains Benchmarks
 use super::Pallet as SupportedChains;
 use super::*;
-use attestor_primitives::ChainId;
+use attestor_primitives::{ChainEncodingVersion, ChainId};
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_support::traits::OriginTrait;
@@ -17,6 +17,7 @@ mod benchmarks {
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         let chain_id: ChainId = 2;
         let chain_name: String = String::from("Ethereum");
+        let chain_encoding = ChainEncodingVersion::V1;
 
         #[extrinsic_call]
         _(
@@ -30,6 +31,7 @@ mod benchmarks {
             None,
             None,
             None,
+            chain_encoding,
         )
     }
 
@@ -39,6 +41,8 @@ mod benchmarks {
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         let chain_id: ChainId = 2;
         let chain_name: String = String::from("Ethereum");
+        let chain_encoding = ChainEncodingVersion::V1;
+
         assert_ok!(SupportedChains::<T>::register_chain(
             root_origin.clone(),
             chain_id,
@@ -50,6 +54,7 @@ mod benchmarks {
             None,
             None,
             None,
+            chain_encoding,
         ));
 
         #[extrinsic_call]

@@ -20,6 +20,9 @@ describe('RegisterChain', (): void => {
 
         const nonce = await api.rpc.system.accountNextIndex(root.address);
 
+        // Using V1 encoding for test
+        const encoding = 'V1';
+
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.sudo
                 .sudo(
@@ -33,6 +36,7 @@ describe('RegisterChain', (): void => {
                         null,
                         null,
                         null,
+                        encoding,
                     ),
                 )
                 .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {

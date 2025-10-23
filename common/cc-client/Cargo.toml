@@ -34,6 +34,7 @@ supported-chains-primitives = { workspace = true }
 vrf = { workspace = true }
 
 # workspace deps
+ccnext-abi-encoding = { workspace = true, optional = true }
 hex = { workspace = true }
 parity-scale-codec = { workspace = true }
 sc-service = { workspace = true }
@@ -47,4 +48,9 @@ tracing = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["sp-core/std", "attestor-primitives/std", "bls-signatures/std"]
+std = [
+    "sp-core/std",
+    "attestor-primitives/std",
+    "bls-signatures/std",
+    "ccnext-abi-encoding",
+]

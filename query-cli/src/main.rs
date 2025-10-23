@@ -1,4 +1,5 @@
 use anyhow::Result;
+use ccnext_abi_encoding::abi::EncodingVersion;
 use clap::Parser;
 use prompt::{prompt, PromptOutput, SelectedData};
 use query_builder::{get_erc20_transfer_segments, get_native_token_transfer_segments};
@@ -73,7 +74,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let query_eth_client = Client::new(&prompt.network.url(), None).await?;
 
-    let block = query_eth_client.get_block(prompt.height).await?;
+    let block = query_eth_client
+        .get_block(prompt.height, prompt.encoding)
+        .await?;
     // Get tx index
     let tx_index = block
         .items()
@@ -105,6 +108,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 prompt.network.clone(),
                 tx_rx.tx().clone(),
                 tx_rx.rx().clone(),
+                prompt.encoding,
             )
             .await?
         }
@@ -113,6 +117,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 prompt.network.clone(),
                 tx_rx.tx().clone(),
                 tx_rx.rx().clone(),
+                prompt.encoding,
             )
             .await?
         }

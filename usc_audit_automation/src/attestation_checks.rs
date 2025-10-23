@@ -3,6 +3,7 @@ use attestor_primitives::SignedAttestation;
 use cc_client::{
     self, cc3, cc3::runtime_types::supported_chains_primitives::SupportedChain, Client as USCClient,
 };
+use ccnext_abi_encoding::abi::EncodingVersion;
 use eth::{self, Client as EthClient};
 use hex;
 use reqwest::Client;
@@ -81,6 +82,7 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
         let supported_chain: SupportedChain = kv.value;
         let chain_name = String::from_utf8(supported_chain.chain_name.clone()).unwrap_or_default();
         let chain_id = supported_chain.chain_id;
+        let encoding = EncodingVersion::from(supported_chain.chain_encoding);
 
         let chain_key = usc_client
             .0
@@ -152,6 +154,7 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
         let calculated_ethereum_block_root = calculate_merkle_root(
             &eth_client,
             latest_signed_attestation.attestation.header_number(),
+            encoding,
         )
         .await?;
 

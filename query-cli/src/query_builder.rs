@@ -118,8 +118,9 @@ pub async fn get_erc20_transfer_segments(
     network: Network,
     tx: Transaction,
     rx: TransactionReceipt,
+    encoding: EncodingVersion,
 ) -> Result<Vec<LayoutSegment>> {
-    let mut query_builder = QueryBuilder::create_from_transaction(tx, rx, EncodingVersion::V1)
+    let mut query_builder = QueryBuilder::create_from_transaction(tx, rx, encoding)
         .map_err(|e| anyhow!("Creating query builder failed: {:?}", e))?;
 
     match network {
@@ -200,8 +201,9 @@ pub async fn get_native_token_transfer_segments(
     _network: Network,
     tx: Transaction,
     rx: TransactionReceipt,
+    encoding: EncodingVersion,
 ) -> Result<Vec<LayoutSegment>> {
-    let mut query_builder = QueryBuilder::create_from_transaction(tx, rx, EncodingVersion::V1)
+    let mut query_builder = QueryBuilder::create_from_transaction(tx, rx, encoding)
         .map_err(|e| anyhow!("Creating query builder failed: {:?}", e))?;
 
     // For native token transfers we know the abi provider will never be used, since the transaction

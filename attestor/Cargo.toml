@@ -45,6 +45,7 @@ vrf = { workspace = true }
 
 # Workspace deps
 async-trait = { workspace = true }
+ccnext-abi-encoding = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }

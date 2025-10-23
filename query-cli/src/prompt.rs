@@ -8,6 +8,7 @@ pub(crate) struct PromptOutput {
     pub tx_hash: String,
     pub selected_data: SelectedData,
     pub offsets_and_sizes: Vec<(u64, u64)>,
+    pub encoding: EncodingVersion,
 }
 
 #[derive(Debug)]
@@ -27,6 +28,9 @@ pub(crate) fn prompt(args: QueryCli) -> Result<PromptOutput> {
 
     // Prompt the user for all data, range of data, ERC20 preset data, or native transfer preset data
     let (selected_data, offsets_and_sizes) = prompt_for_data_selection(args);
+
+    // For now we hardcode the only version we support
+    let encoding = EncodingVersion::V1;
 
     // Display the collected information
     println!("\nCollected Information:");
@@ -48,6 +52,7 @@ pub(crate) fn prompt(args: QueryCli) -> Result<PromptOutput> {
         tx_hash: tx_hash.trim().to_string(),
         selected_data,
         offsets_and_sizes,
+        encoding,
     })
 }
 

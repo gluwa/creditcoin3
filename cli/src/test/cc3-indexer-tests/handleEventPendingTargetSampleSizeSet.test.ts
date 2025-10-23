@@ -11,6 +11,7 @@ describe('handleEventPendingTargetSampleSizeSet()', () => {
     const newChainId = Date.now();
     const newChainName = `Test Chain ${newChainId}`;
     const newTargetSampleSize = BigInt(randomIntBetween(10, 100));
+    const encoding = 'V1';
     let newChainKey = 0n;
 
     beforeAll(async () => {
@@ -29,6 +30,7 @@ describe('handleEventPendingTargetSampleSizeSet()', () => {
                     null,
                     null,
                     null,
+                    encoding,
                 ),
             )
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });

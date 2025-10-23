@@ -34,6 +34,7 @@ cc-client = { workspace = true }
 pallet-supported-chains = { workspace = true }
 
 # Workspace deps
+ccnext-abi-encoding = { workspace = true }
 clap = { workspace = true }
 eth = { workspace = true }
 futures = { workspace = true }

@@ -13,6 +13,7 @@ pub use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
     block::Block,
 };
+use ccnext_abi_encoding::abi::EncodingVersion;
 
 #[derive(Debug, Clone)]
 pub struct Cache {
@@ -20,6 +21,8 @@ pub struct Cache {
     eth_client: Client,
     // Block cache
     blocks: BTreeMap<u64, Block>,
+    // Block encoding
+    encoding: EncodingVersion,
 }
 
 #[derive(Debug, Error)]
@@ -32,10 +35,11 @@ pub enum Error {
 
 impl Cache {
     /// Creates a new cache instance.
-    pub fn new(eth_client: Client) -> Self {
+    pub fn new(eth_client: Client, encoding: EncodingVersion) -> Self {
         Cache {
             eth_client,
             blocks: BTreeMap::new(),
+            encoding,
         }
     }
 
@@ -143,7 +147,7 @@ impl Cache {
 
             // Use retry logic to ensure fragment creation is attempted multiple times
             let fragment: AttestationFragment = crate::util::retry::ret(
-                || async { fragment_manager.create(prev_digest).await },
+                || async { fragment_manager.create(prev_digest, self.encoding).await },
                 10,       // max_retries
                 10,       // delay between retries (seconds)
                 Some(60), // max retry duration (seconds)

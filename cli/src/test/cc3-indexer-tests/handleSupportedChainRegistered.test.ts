@@ -11,6 +11,7 @@ describe('handleSupportedChainRegistered()', () => {
     // unique integer to serve as chain id during testing
     const newChainId = BigInt(Date.now());
     const newChainName = `Test Chain ${newChainId}`;
+    const encoding = 'V1';
     let newChainKey = 0n;
 
     beforeAll(async () => {
@@ -43,6 +44,7 @@ describe('handleSupportedChainRegistered()', () => {
                         null,
                         null,
                         null,
+                        encoding,
                     ),
                 )
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
@@ -63,7 +65,7 @@ describe('handleSupportedChainRegistered()', () => {
                     chainRegistereds(
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
-                    ) { nodes { id, at, chainKey, chainName, chainId, whoId }}}`,
+                    ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding, whoId }}}`,
             );
             expect(response.data.chainRegistereds.nodes).toBeTruthy();
             expect(response.data.chainRegistereds.nodes.length).toEqual(1);
@@ -75,6 +77,7 @@ describe('handleSupportedChainRegistered()', () => {
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.chainName).toEqual(newChainName);
                 expect(BigInt(node.chainId)).toEqual(BigInt(newChainId));
+                expect(node.chainEncoding).toEqual(encoding);
                 expect(node.whoId).toEqual(root.address);
             }
         });
@@ -85,7 +88,7 @@ describe('handleSupportedChainRegistered()', () => {
                     supportedChains(
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
-                    ) { nodes { id, chainKey, chainName, chainId }}}`,
+                    ) { nodes { id, chainKey, chainName, chainId, chainEncoding }}}`,
             );
             expect(response.data.supportedChains.nodes).toBeTruthy();
             expect(response.data.supportedChains.nodes.length).toEqual(1);
@@ -96,6 +99,7 @@ describe('handleSupportedChainRegistered()', () => {
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.chainName).toEqual(newChainName);
                 expect(BigInt(node.chainId)).toEqual(newChainId);
+                expect(node.chainEncoding).toEqual(encoding);
             }
         });
 

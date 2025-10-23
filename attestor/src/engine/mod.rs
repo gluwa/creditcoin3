@@ -17,6 +17,7 @@ use tracing::{debug, error, info, warn};
 // --- workspace crates ---
 use attestor_primitives::{AttestorId, ChainKey, Digest};
 use cc_client::attestation::{CcEvent, Subscription};
+use ccnext_abi_encoding::abi::EncodingVersion;
 use creditcoin3_attestor_gossip::communication::Attestation;
 use eth::{subscription::Height, Client};
 
@@ -129,6 +130,9 @@ pub struct AttestorService {
     pending: BTreeMap<u64, Vec<u64>>,
 
     chain_name: String,
+
+    // Block encoding
+    encoding: EncodingVersion,
 }
 
 impl AttestorService {
@@ -150,6 +154,8 @@ impl AttestorService {
         cc3_client.init().await?;
 
         let chain_key = cc3_client.get_chain_key();
+        let encoding = EncodingVersion::from(cc3_client.get_chain_encoding());
+
         let (attestation_tx, attestation_rx) = broadcast::channel(ATTESTATION_BUFFER_SIZE);
 
         // Get last finalized header from CC chain (or checkpoint)
@@ -194,7 +200,7 @@ impl AttestorService {
             sync_state: SyncState::new(last_finalized_header, target),
             current_epoch,
             start_block,
-            continuity_cache: continuity::Cache::new(eth_client.clone()),
+            continuity_cache: continuity::Cache::new(eth_client.clone(), encoding),
             maturity_delay: config.maturity_delay,
             metrics,
             chain_key,
@@ -204,6 +210,7 @@ impl AttestorService {
             next_backoff_deadline: None,
             pending: BTreeMap::new(),
             chain_name,
+            encoding,
         };
 
         // Spawn the actor
@@ -741,7 +748,10 @@ impl AttestorService {
         let continuity_fragment = self.create_continuity_proof(header_number).await?;
 
         // Get the eth block for the header number
-        let block = self.eth_client.get_block(header_number).await?;
+        let block = self
+            .eth_client
+            .get_block(header_number, self.encoding)
+            .await?;
         // Get the previous digest from the continuity fragment
         let prev_digest = continuity_fragment
             .head_digest()

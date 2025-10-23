@@ -11,6 +11,7 @@ use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentError},
     block::Block,
 };
+use ccnext_abi_encoding::abi::EncodingVersion;
 use eth::{
     continuity::{Error as FragmentManagerError, Manager as FragmentManager},
     Client,
@@ -99,6 +100,7 @@ pub async fn get_for_query(
     eth_client: &Client,
     query: &Query,
     attestation_cache: &AttestationCacheType,
+    encoding: EncodingVersion,
 ) -> Result<AttestationFragment, Error> {
     let chain_key = query.chain_id;
 
@@ -146,7 +148,7 @@ pub async fn get_for_query(
             expected_len
         );
         // Build once via FragmentManager
-        let fragment = build_with_manager(eth_client, &lower, &upper).await?;
+        let fragment = build_with_manager(eth_client, &lower, &upper, encoding).await?;
         validate_end_digest_fragment(&fragment, upper.digest, true)?;
 
         // Persist to cache (single upsert) and return the mapped blocks
@@ -167,10 +169,11 @@ async fn build_with_manager(
     eth_client: &Client,
     lower: &IntervalEndpoint,
     upper: &IntervalEndpoint,
+    encoding: EncodingVersion,
 ) -> Result<AttestationFragment, Error> {
     let manager = FragmentManager::new(lower.block_number + 1, upper.block_number, eth_client);
     debug!("📝 Providing lower endpoint: {:?}", lower);
-    let fragment = manager.create(lower.digest).await?;
+    let fragment = manager.create(lower.digest, encoding).await?;
     Ok(fragment)
 }
 

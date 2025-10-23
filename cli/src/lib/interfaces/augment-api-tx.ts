@@ -40,6 +40,7 @@ import type {
 } from '@polkadot/types/interfaces/runtime';
 import type {
     AttestorPrimitivesAttestationCheckpoint,
+    AttestorPrimitivesChainEncodingVersion,
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
@@ -3065,8 +3066,20 @@ declare module '@polkadot/api-base/types/submittable' {
                     maxInvulnerables: Option<u32> | null | Uint8Array | u32 | AnyNumber,
                     attestationChainGenesisBlockNumber: Option<u64> | null | Uint8Array | u64 | AnyNumber,
                     voteAcceptanceWindow: Option<u64> | null | Uint8Array | u64 | AnyNumber,
+                    encoding: AttestorPrimitivesChainEncodingVersion | 'V1' | number | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [u64, Text, Option<u32>, Option<u64>, Option<u32>, Option<u32>, Option<u32>, Option<u64>, Option<u64>]
+                [
+                    u64,
+                    Text,
+                    Option<u32>,
+                    Option<u64>,
+                    Option<u32>,
+                    Option<u32>,
+                    Option<u32>,
+                    Option<u64>,
+                    Option<u64>,
+                    AttestorPrimitivesChainEncodingVersion,
+                ]
             >;
             removeChain: AugmentedSubmittable<
                 (

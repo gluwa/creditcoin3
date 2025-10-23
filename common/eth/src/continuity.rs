@@ -1,4 +1,5 @@
 use anyhow::Result;
+use ccnext_abi_encoding::abi::EncodingVersion;
 use futures::stream::{self, StreamExt};
 use sp_core::H256;
 use tracing::debug;
@@ -41,7 +42,11 @@ impl<'a> Manager<'a> {
         }
     }
 
-    pub async fn create(&self, prev_digest: H256) -> Result<AttestationFragment, Error> {
+    pub async fn create(
+        &self,
+        prev_digest: H256,
+        encoding: EncodingVersion,
+    ) -> Result<AttestationFragment, Error> {
         // Only for genesis block we don't need to build a fragment
         if self.end_block == 0 {
             debug!("No need to build full fragment for genesis block");
@@ -65,7 +70,7 @@ impl<'a> Manager<'a> {
         // Get all blocks first in parallel
         // This list is sorted because we provide the futures in order
         let blocks = futures::future::join_all(
-            (self.start_block..=self.end_block).map(|i| self.eth_client.get_block(i)),
+            (self.start_block..=self.end_block).map(|i| self.eth_client.get_block(i, encoding)),
         )
         .await;
 

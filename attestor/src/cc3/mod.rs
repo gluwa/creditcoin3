@@ -9,8 +9,8 @@ use cc_client::{AccountId32, Client as CcClient};
 
 use attestor_primitives::{
     attestation_fragment::AttestationFragmentSerializable, Attestation as AttestationPrimitive,
-    AttestationCheckpoint, AttestorId, AttestorStatus, BlsPublicKey, BlsSignature, ChainId,
-    ChainKey, SignedAttestation,
+    AttestationCheckpoint, AttestorId, AttestorStatus, BlsPublicKey, BlsSignature,
+    ChainEncodingVersion, ChainId, ChainKey, SignedAttestation,
 };
 use creditcoin3_attestor_gossip::communication::Attestation;
 use vrf::ProofOfInclusion;
@@ -21,6 +21,7 @@ use crate::error::Error;
 struct SourceChainConfig {
     pub chain_key: ChainKey,
     pub current_attestation_interval: u64,
+    pub chain_encoding: ChainEncodingVersion,
 }
 
 #[derive(Clone)]
@@ -78,6 +79,11 @@ impl Client {
     pub fn get_chain_key(&self) -> ChainKey {
         self.chain_config.chain_key
     }
+
+    #[must_use]
+    pub fn get_chain_encoding(&self) -> ChainEncodingVersion {
+        self.chain_config.chain_encoding
+    }
 }
 
 impl Client {
@@ -120,6 +126,7 @@ impl Client {
         let chain_config = SourceChainConfig {
             chain_key,
             current_attestation_interval: attestation_interval,
+            chain_encoding: supported_chain.chain_encoding,
         };
 
         Ok(Self {

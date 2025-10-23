@@ -82,7 +82,7 @@ describe('initiateStoreAndDatabase()', () => {
                 `query {
                     supportedChains(
                         orderBy: CHAIN_KEY_ASC,
-                    ) { nodes { id, chainKey, chainName, chainId }}}`,
+                    ) { nodes { id, chainKey, chainName, chainId, chainEncoding }}}`,
             );
             expect(response.data.supportedChains.nodes).toBeTruthy();
             // starting with 4 initial chain in Genesis but we'll inspect all currently supported
@@ -101,6 +101,7 @@ describe('initiateStoreAndDatabase()', () => {
                 // GraphQL & on-chain values match
                 expect(BigInt(node.chainId)).toEqual(sourceChain.chainId.toBigInt());
                 expect(node.chainName).toEqual(hexToString(sourceChain.chainName.toString()));
+                expect(node.chainEncoding).toEqual(sourceChain.chainEncoding.toString());
             }
         }, 15_000);
     });
