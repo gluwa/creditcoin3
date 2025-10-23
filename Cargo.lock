@@ -1470,7 +1470,7 @@ dependencies = [
  "futures-util",
  "hex",
  "mmr",
- "prometheus 3.65.0",
+ "prometheus 3.66.0",
  "rand 0.9.0",
  "serde",
  "serde_json",
@@ -1488,7 +1488,7 @@ dependencies = [
 
 [[package]]
 name = "attestor-primitives"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "bls-signatures",
  "ccnext-abi-encoding",
@@ -1510,7 +1510,7 @@ dependencies = [
 
 [[package]]
 name = "attestor_zombienet"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
@@ -2162,7 +2162,7 @@ dependencies = [
 
 [[package]]
 name = "cc-client"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
@@ -2776,7 +2776,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-attestor-gossip"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2827,7 +2827,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-cli-opt"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "bip32",
  "clap",
@@ -2841,7 +2841,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "async-trait",
  "attestor-primitives",
@@ -2927,7 +2927,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "attestor-primitives",
  "ethereum 0.18.2",
@@ -3940,7 +3940,7 @@ dependencies = [
 
 [[package]]
 name = "eth"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5527,7 +5527,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "clap",
  "creditcoin3-runtime",
@@ -8045,7 +8045,7 @@ dependencies = [
 
 [[package]]
 name = "mmr"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "rayon",
  "twox-hash 2.1.0",
@@ -8924,7 +8924,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-attestation-poc"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "assert_matches",
  "attestor-primitives",
@@ -9350,7 +9350,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-prover"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "assert_matches",
  "attestor-primitives",
@@ -9387,7 +9387,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-prover-primitives"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "attestor-primitives",
  "parity-scale-codec",
@@ -9415,7 +9415,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-randomness"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "attestor-primitives",
  "frame-benchmarking",
@@ -9515,7 +9515,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-supported-chains"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "attestor-primitives",
  "frame-benchmarking",
@@ -10442,7 +10442,7 @@ dependencies = [
 
 [[package]]
 name = "prometheus"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "axum",
  "http-body-util",
@@ -10477,7 +10477,7 @@ dependencies = [
 
 [[package]]
 name = "proof"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
@@ -10506,7 +10506,7 @@ dependencies = [
 
 [[package]]
 name = "proof-verifier"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "anyhow",
  "hashbrown 0.14.5",
@@ -10695,7 +10695,7 @@ dependencies = [
  "pallet-evm",
  "pallet-prover-primitives",
  "parity-scale-codec",
- "prometheus 3.65.0",
+ "prometheus 3.66.0",
  "proof",
  "prover-primitives",
  "rand 0.8.5",
@@ -10717,7 +10717,7 @@ dependencies = [
 
 [[package]]
 name = "prover-primitives"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
@@ -11064,7 +11064,7 @@ dependencies = [
 
 [[package]]
 name = "randomness-primitives"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "impl-trait-for-tuples",
  "sp-api",
@@ -15385,7 +15385,7 @@ dependencies = [
 
 [[package]]
 name = "supported-chains-primitives"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "attestor-primitives",
  "impl-trait-for-tuples",
@@ -16572,7 +16572,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "utils"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "acid_io",
  "anyhow",
@@ -16647,7 +16647,7 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
 name = "vrf"
-version = "3.65.0"
+version = "3.66.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
