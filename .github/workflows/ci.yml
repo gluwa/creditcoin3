@@ -2493,6 +2493,20 @@ jobs:
           message: "Auto-update metadata & TypeScript type definitions"
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check for uncommitted changes for typedefs on PR against non-default branches
+        # NOTE: not checking matrix condition on purpose! In case some of the jobs have failed we want
+        # maximum opportunities to expose uncommitted typedefs changes for a PR against non-default branches!
+        if: ${{ github.base_ref != 'dev' && github.base_ref != 'poc_external_attestation_network' && steps.update_typedefs.outputs.git_diff == 'true' }}
+        run: |
+            echo "FAIL: it appears there are uncommitted typedefs changes which is not supposed to happen"
+            echo "TODO: make sure these changes make it to the default branch first!"
+
+            echo "========== DEBUG DEBUG DEBUG =========="
+            git status --short --untracked-files=no
+            git diff
+            echo "======================================="
+            exit 1
+
       - name: Upload coverage report as artifact
         if: ${{ matrix.proxy == 'yes' && matrix.proxy_type == 'All' }}
         uses: actions/upload-artifact@v4
