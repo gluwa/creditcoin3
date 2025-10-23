@@ -115,6 +115,7 @@ pub struct MerkleProofSerializable {
     root: String,
     path: Vec<Vec<String>>,
     subject: Vec<u8>,
+    arity: usize,
     leaf_hash_prefix: u8,
     inner_node_hash_prefix: u8,
 }
@@ -135,6 +136,7 @@ impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
                 })
                 .collect(),
             subject,
+            arity: mmr::ARITY,
             leaf_hash_prefix: mmr::LEAF_HASH_PREPEND_VALUE,
             inner_node_hash_prefix: mmr::INNER_HASH_PREPEND_VALUE,
         }
