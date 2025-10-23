@@ -33,7 +33,6 @@ impl<H: HashT> ProofItem<H> {
     }
 }
 
-// Removed ProofItemT trait implementation (trait no longer exists)
 impl<H: HashT> ProofItem<H> {
     pub(crate) fn create(offset: usize, prefixed: Prefixed<H>) -> Self {
         Self { offset, prefixed }
