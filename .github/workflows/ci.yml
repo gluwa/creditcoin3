@@ -323,7 +323,7 @@ jobs:
           sudo apt-get install colordiff
           echo "BRANCH_NAME=rebase-dev+pr-${{ github.event.pull_request.number }}-onto-testnet" >> "$GITHUB_ENV"
 
-      - name: Rebase current PR against `testnet`
+      - name: Rebase current PR against `testnet` branch
         run: |
           git config --global user.email "creditcoin@gluwa.com"
           git config --global user.name "gluwa-bot"
@@ -342,6 +342,47 @@ jobs:
 
           echo "Most Recent Common Ancestor"
           git merge-base "${{ env.BRANCH_NAME }}" origin/testnet --all
+
+  git-merge-sanity-check:
+    runs-on: ubuntu-24.04
+    if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          lfs: true
+          fetch-depth: 0
+
+      - name: Setup
+        run: |
+          sudo apt-get install colordiff
+
+      - name: Merge current PR into `testnet` branch
+        env:
+          BRANCH_NAME: merge+pr-${{ github.event.pull_request.number }}-into-testnet
+        run: |
+          git config --global user.email "creditcoin@gluwa.com"
+          git config --global user.name "gluwa-bot"
+
+          # make a branch first b/c we need it
+          git checkout -b "${{ env.BRANCH_NAME }}"
+          git branch
+
+          # then switch to testnet branch and merge the incoming changes
+          git checkout -b testnet "origin/testnet"
+          git merge "${{ env.BRANCH_NAME }}"
+
+      - name: DEBUG
+        if: always()
+        run: |
+          echo "INFO: Number of conflicts found"
+          grep "<<< HEAD" * -R | wc -l
+
+          echo "INFO: git status"
+          git status
+          git branch
+          git diff --diff-filter=U | colordiff
 
   sanity-tests:
     runs-on: ubuntu-24.04
