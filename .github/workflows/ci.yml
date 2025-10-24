@@ -377,7 +377,7 @@ jobs:
         if: always()
         run: |
           echo "INFO: Number of conflicts found"
-          grep "<<< HEAD" * -R | wc -l
+          grep "<<< HEAD" ./* -R | wc -l
 
           echo "INFO: git status"
           git status
