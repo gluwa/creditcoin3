@@ -145,33 +145,44 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&NULL_ABI[..]) == cairo_verifier_output.query_fields {
                 Err(QueryOutOfBounds(cairo_verifier_output.query_index))
             } else {
-                // Sanitized layout segments are used to generate the layout segments hash in
-                // verify_merkle_proof.cairo. So we validate using sanitized segments here as well.
-                // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
-                // then sanitize them
-                let sanitized_felts =
-                    result_segments::convert_to_felts_then_sanitize(&query.layout_segments);
-                let query = Query {
-                    layout_segments: sanitized_felts,
+                // Verify that the Cairo program used the correct felt ranges for this query.
+                //
+                // Process:
+                // 1. Convert byte segments to felt segments (31-byte alignment)
+                // 2. Merge overlapping felt ranges (Cairo optimization)
+                // 3. Hash the felt indices to match Cairo's computation
+                //
+                // Example: LayoutSegment{offset: 192, size: 32} (bytes)
+                //   → LayoutSegment{offset: 6, size: 2} (felts)
+                //   → Hash of [6, 7] (felt indices)
+                let felt_segments =
+                    result_segments::convert_byte_segments_to_felt_segments_and_merge(
+                        &query.layout_segments,
+                    );
+
+                let felt_query = Query {
+                    layout_segments: felt_segments.clone(),
                     ..query
                 };
-                debug!(
-                    "Verifying layout segments hash. Sanitized felt segments: {:?}",
-                    query.layout_segments
-                );
 
-                let local_offset_hash = match result_segments::hash_layout_segments(&query) {
+                debug!("Verifying felt indices hash. Merged felt segments: {felt_segments:?}",);
+
+                let computed_hash = match result_segments::hash_felt_indices(&felt_query) {
                     Ok(hash) => hash,
                     Err(e) => {
-                        error!("Failed to hash layout segments: {e:?}");
+                        error!("Failed to hash felt indices: {e:?}");
                         return Err(FailedToHashLayoutsegments(e.to_string()));
                     }
                 };
 
-                if local_offset_hash != cairo_verifier_output.query_hash {
+                if computed_hash != cairo_verifier_output.query_hash {
+                    error!(
+                        "Query hash mismatch: expected {:?}, got {:?}",
+                        cairo_verifier_output.query_hash, computed_hash
+                    );
                     Err(QueryOffsetsMismatch(
                         cairo_verifier_output.query_hash,
-                        local_offset_hash,
+                        computed_hash,
                     ))
                 } else {
                     Ok(())

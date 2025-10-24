@@ -1,7 +1,5 @@
 use anyhow::{anyhow, Result};
 use sp_core::H256;
-
-use std::ops::Range;
 use std::vec::Vec;
 
 use pallet_prover_primitives::{LayoutSegment, Query, ResultSegment};
@@ -9,221 +7,292 @@ use utils::pedersen_hash::pedersen_array;
 use utils::utils::U248_BYTE_COUNT;
 use utils::Felt;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FeltResult {
-    offset: u64,
-    felts: Vec<Felt>,
+/// Computes the Pedersen hash of felt indices covered by the layout segments.
+///
+/// IMPORTANT: This function expects `query.layout_segments` to already be converted
+/// to felt-based segments (not byte-based). The segments are expanded into individual
+/// felt indices and then hashed.
+///
+/// Example:
+///   Input: LayoutSegment{offset: 6, size: 2} (felt-based)
+///   Expands to: [6, 7]
+///   Hashes: pedersen([6, 7, 2]) where 2 is the array length
+///
+/// For byte-based segments, first call `convert_byte_segments_to_felt_segments()`.
+pub fn hash_felt_indices(query: &Query) -> Result<Felt, &'static str> {
+    let mut felt_indices = Vec::new();
+
+    for segment in &query.layout_segments {
+        let end = segment
+            .offset
+            .checked_add(segment.size)
+            .ok_or("Overflow in felt segment")?;
+
+        // Expand felt range into individual indices
+        // e.g., offset=6, size=2 → [6, 7]
+        felt_indices.extend((segment.offset..end).map(Felt::from));
+    }
+
+    Ok(pedersen_array(&felt_indices))
 }
 
-pub fn hash_layout_segments(query: &Query) -> Result<Felt, &'static str> {
-    let felt_ranges: Vec<Range<u64>> = query
-        .layout_segments
+/// Main entry point: extracts byte segments from felt array based on byte layout segments.
+///
+/// Pipeline:
+/// 1. Convert byte segments → felt segments (31-byte aligned)
+/// 2. Merge overlapping felt segments (optimization)
+/// 3. Extract bytes from the felt array
+/// 4. Map back to original byte segment boundaries
+///
+/// Example:
+///   Input: LayoutSegment{offset: 192, size: 32} (bytes)
+///   Step 1: LayoutSegment{offset: 6, size: 2} (felts, since 192÷31=6)
+///   Step 2: No change if no overlap
+///   Step 3: Read felts[6] and felts[7] → 62 bytes
+///   Step 4: Extract bytes [192..224] from those 62 bytes
+pub fn get(query_felts: &[Felt], byte_segments: &[LayoutSegment]) -> Result<Vec<ResultSegment>> {
+    if byte_segments.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Convert byte segments to felt-aligned segments and merge overlaps
+    let felt_segments = convert_byte_segments_to_felt_segments(byte_segments);
+    let merged_felt_segments = merge_overlapping_segments(&felt_segments);
+
+    // Extract raw bytes from the felt array
+    let felt_bytes = extract_bytes_from_felts(query_felts, &merged_felt_segments)?;
+
+    // Map extracted bytes back to original byte segment boundaries
+    extract_result_segments(&felt_bytes, byte_segments)
+}
+
+/// Converts byte-based segments to felt-based segments, then merges overlapping ones.
+///
+/// This is the conversion used by both prover and verifier to ensure they agree
+/// on which felts to read. The result is used to compute the query hash.
+///
+/// Example:
+///   Input: [LayoutSegment{offset: 192, size: 32}, LayoutSegment{offset: 200, size: 10}]
+///   Step 1: [{offset: 6, size: 2}, {offset: 6, size: 1}] (both span felt 6)
+///   Step 2: [{offset: 6, size: 2}] (merged)
+pub fn convert_byte_segments_to_felt_segments_and_merge(
+    byte_segments: &[LayoutSegment],
+) -> Vec<LayoutSegment> {
+    let felt_segments = convert_byte_segments_to_felt_segments(byte_segments);
+    merge_overlapping_segments(&felt_segments)
+}
+
+/// Converts byte-based segments to felt-based segments (31-byte alignment).
+///
+/// Each felt holds 31 bytes (U248). This function calculates which felts
+/// are needed to cover the requested byte ranges.
+///
+/// Example:
+///   Felt 0 = bytes [0..31)
+///   Felt 1 = bytes [31..62)
+///   Felt 6 = bytes [186..217)
+///   Felt 7 = bytes [217..248)
+///
+///   Input: LayoutSegment{offset: 192, size: 32} (bytes 192-223)
+///   Output: LayoutSegment{offset: 6, size: 2} (felts 6-7)
+fn convert_byte_segments_to_felt_segments(byte_segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
+    byte_segments
         .iter()
-        .map(|layout| {
-            layout
-                .offset
-                .checked_add(layout.size)
-                .map(|end| Range {
-                    start: layout.offset,
-                    end,
-                })
-                .ok_or("Overflow detected in layout segment")
+        .map(|segment| {
+            // Which felt contains the first byte?
+            let first_felt_index = segment.offset / U248_BYTE_COUNT as u64;
+
+            // Which felt contains the last byte?
+            let last_byte_index = segment.offset + segment.size - 1;
+            let last_felt_index = last_byte_index / U248_BYTE_COUNT as u64;
+
+            // How many felts do we need?
+            let felt_count = last_felt_index - first_felt_index + 1;
+
+            LayoutSegment {
+                offset: first_felt_index,
+                size: felt_count,
+            }
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect()
+}
 
-    let mut felts_offsets = Vec::new();
-    for r in felt_ranges {
-        let range_len = (r.end - r.start) as usize;
-        felts_offsets
-            .try_reserve(range_len)
-            .map_err(|_| "layout range is too large")?;
-        felts_offsets.extend((r.start..r.end).map(Into::<Felt>::into));
+/// Merges overlapping or adjacent segments into minimal set.
+///
+/// This optimization ensures Cairo only reads each felt once, even if
+/// multiple byte segments overlap the same felt.
+///
+/// Example:
+///   Input: [{offset: 5, size: 2}, {offset: 6, size: 2}]
+///   Overlaps at felt 6
+///   Output: [{offset: 5, size: 3}] (covers felts 5, 6, 7)
+fn merge_overlapping_segments(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
+    if segments.is_empty() {
+        return Vec::new();
     }
 
-    Ok(pedersen_array(&felts_offsets))
-}
+    // Sort by offset
+    let mut sorted = segments.to_vec();
+    sorted.sort_by_key(|s| s.offset);
 
-pub fn get(query_felts: &[Felt], layout_segments: &[LayoutSegment]) -> Result<Vec<ResultSegment>> {
-    // 1. Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
-    let felt_segments = convert_segments_to_felt_segments(layout_segments);
+    let mut merged = Vec::new();
+    let mut current = sorted[0];
 
-    // 2. Sanitize felt segments
-    let sanitized = sanitize(&felt_segments);
+    for next in sorted.iter().skip(1) {
+        let current_end = current.offset + current.size;
 
-    // 3. Retrieve felt-aligned bytes from the felt array based on the felt ranges
-    let result_felts = extract_felt_ranges_from_felt_array(query_felts, &sanitized);
-
-    // 4. Convert sanitized segments into felt segments with original layout
-    let felt_segments = extract_original_felt_ranges_from_sanitized(result_felts, &felt_segments);
-
-    // 5. Convert felt-aligned extracted data back into byte-based segments
-    extract_bytes_from_felts_using_original_ranges(&felt_segments, layout_segments)
-}
-
-// Bundling these to make sure they happen in the right order. Sanitizing before
-// vs after converting to felts can yield different results.
-pub fn convert_to_felts_then_sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
-    let felt_segments = convert_segments_to_felt_segments(segments);
-    sanitize(&felt_segments)
-}
-
-pub fn sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
-    // Segment count already minimal
-    if segments.len() <= 1 {
-        return Vec::from(segments);
-    }
-
-    // Sort segments in order of least to greatest offset
-    let mut sanitized = segments.to_vec();
-    sanitized.sort_by(|seg_a, seg_b| seg_a.offset.cmp(&seg_b.offset));
-
-    // Condense segments pair by pair starting from end. We start with i = sanitized.len() - 2
-    // because the last pair of segment indices is (len - 2, len - 1)
-    let mut i = sanitized.len() - 2;
-    loop {
-        let left_segment = &sanitized[i];
-        let right_segment = &sanitized[i + 1];
-
-        // Immediately adjacent counts as overlapping for our purposes. Therefore `right_segment.offset - 1`
-        let overlapping = (left_segment.offset + left_segment.size - 1) >= right_segment.offset - 1;
-        if overlapping {
-            // Left segment offset guaranteed to be lesser due to sort
-            let first_byte_index = left_segment.offset;
-            let last_byte_index = (left_segment.offset + left_segment.size)
-                .max(right_segment.offset + right_segment.size)
-                - 1;
-            let new_segment = LayoutSegment {
-                offset: first_byte_index,
-                size: last_byte_index - first_byte_index + 1,
-            };
-            // Replace two combined segments with new segment
-            sanitized.remove(i + 1);
-            sanitized[i] = new_segment;
+        // Segments overlap or are adjacent if next starts at or before current ends
+        if next.offset <= current_end {
+            // Merge: extend current to cover both
+            let next_end = next.offset + next.size;
+            current.size = next_end.max(current_end) - current.offset;
+        } else {
+            // Gap between segments: save current and start new
+            merged.push(current);
+            current = *next;
         }
-        // Proceed to next pair or break if this was the last pair
-        if i == 0 {
-            break;
+    }
+    merged.push(current);
+
+    merged
+}
+
+/// Extracts bytes from felt array based on felt-aligned segments.
+///
+/// The Cairo program outputs felts in sequential order corresponding to
+/// the merged felt segments. Each felt is 32 bytes but only the last 31
+/// bytes are used (first byte is padding).
+///
+/// Returns: Vector of (felt_offset, bytes) tuples
+fn extract_bytes_from_felts(
+    query_felts: &[Felt],
+    felt_segments: &[LayoutSegment],
+) -> Result<Vec<(u64, Vec<u8>)>> {
+    let mut result = Vec::new();
+    let mut felt_index = 0;
+
+    for segment in felt_segments {
+        let num_felts = segment.size as usize;
+        let end_index = felt_index + num_felts;
+
+        if end_index > query_felts.len() {
+            return Err(anyhow!(
+                "Not enough felts in Cairo output: expected {}, got {}",
+                end_index,
+                query_felts.len()
+            ));
         }
-        i -= 1;
-    }
-    sanitized
-}
 
-pub fn convert_segments_to_felt_segments(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
-    let mut felt_segments = Vec::with_capacity(segments.len());
-    for seg in segments {
-        // Inclusive last byte index of the segment
-        let last_byte_index = seg.offset.saturating_add(seg.size) - 1;
-        // Felt index at start and end of the segment
-        let felt_offset = seg.offset / U248_BYTE_COUNT as u64;
-        let felt_end = last_byte_index / U248_BYTE_COUNT as u64;
-        // Number of 31-byte felts needed to cover this segment
-        let felt_count = felt_end - felt_offset + 1;
-        felt_segments.push(LayoutSegment {
-            offset: felt_offset,
-            size: felt_count,
-        });
-    }
-    felt_segments
-}
-
-pub fn extract_felt_ranges_from_felt_array(
-    felt_array: &[Felt],
-    felt_ranges: &[LayoutSegment],
-) -> Vec<FeltResult> {
-    let mut extracted_felt_segments = Vec::with_capacity(felt_ranges.len());
-
-    let mut felts_position: usize = 0;
-    // Cairo program returns a felt_array containing only felts which are part of our ranges rather than all felts.
-    for range in felt_ranges {
-        let count = range.size as usize;
-        let end_idx = felts_position + count;
-
-        let segment_felts = felt_array[felts_position..end_idx].to_vec();
-        let felt_result = FeltResult {
-            offset: range.offset,
-            felts: segment_felts,
-        };
-        extracted_felt_segments.push(felt_result);
-        felts_position = end_idx;
-    }
-
-    extracted_felt_segments
-}
-
-fn extract_bytes_from_felts_using_original_ranges(
-    felt_segments: &[FeltResult],
-    original_segments: &[LayoutSegment],
-) -> Result<Vec<ResultSegment>> {
-    let mut segments = Vec::new();
-
-    for (i, orig) in original_segments.iter().enumerate() {
-        let mut combined_bytes = Vec::with_capacity(felt_segments[i].felts.len() * U248_BYTE_COUNT);
-
-        for felt in &felt_segments[i].felts {
+        // Convert felts to bytes
+        let mut bytes = Vec::with_capacity(num_felts * U248_BYTE_COUNT);
+        for felt in &query_felts[felt_index..end_index] {
             let felt_bytes = felt.to_bytes_be(); // 32 bytes
-            combined_bytes.extend_from_slice(&felt_bytes[1..]); // Skip padding byte
+            bytes.extend_from_slice(&felt_bytes[1..]); // Skip first padding byte, use 31 bytes
         }
 
-        let start = orig.offset as usize % U248_BYTE_COUNT;
-        let end = start + orig.size as usize;
+        result.push((segment.offset, bytes));
+        felt_index = end_index;
+    }
 
-        if end > combined_bytes.len() {
-            return Err(anyhow!("Segment end exceeds combined bytes length"));
+    Ok(result)
+}
+
+/// Maps felt-aligned bytes back to original byte segment boundaries.
+///
+/// The felt-aligned bytes may contain more data than requested (since felts
+/// are 31 bytes). This function extracts only the exact byte ranges specified
+/// in the original segments and splits them into 32-byte chunks for ResultSegment.
+fn extract_result_segments(
+    felt_bytes: &[(u64, Vec<u8>)],
+    byte_segments: &[LayoutSegment],
+) -> Result<Vec<ResultSegment>> {
+    let mut results = Vec::new();
+
+    for segment in byte_segments {
+        let segment_start = segment.offset;
+        let segment_end = segment.offset + segment.size;
+
+        // Collect bytes for this segment from the felt-aligned data
+        let mut segment_bytes = Vec::new();
+
+        for (felt_offset, bytes) in felt_bytes {
+            let felt_start_byte = felt_offset * U248_BYTE_COUNT as u64;
+            let felt_end_byte = felt_start_byte + bytes.len() as u64;
+
+            // Check if this felt-aligned chunk overlaps with our segment
+            if felt_start_byte < segment_end && felt_end_byte > segment_start {
+                // Calculate overlap range
+                let copy_start = segment_start.max(felt_start_byte);
+                let copy_end = segment_end.min(felt_end_byte);
+
+                // Calculate indices into the felt's byte array
+                let local_start = (copy_start - felt_start_byte) as usize;
+                let local_end = (copy_end - felt_start_byte) as usize;
+
+                segment_bytes.extend_from_slice(&bytes[local_start..local_end]);
+            }
         }
 
-        let relevant_bytes = &combined_bytes[start..end];
+        // Verify we got the right amount of data
+        if segment_bytes.len() != segment.size as usize {
+            return Err(anyhow!(
+                "Extracted {} bytes but expected {} for segment at offset {}",
+                segment_bytes.len(),
+                segment.size,
+                segment.offset
+            ));
+        }
 
-        for (j, chunk) in relevant_bytes.chunks(32).enumerate() {
-            let mut padded_chunk = [0u8; 32];
-            padded_chunk[..chunk.len()].copy_from_slice(chunk);
-            segments.push(ResultSegment {
-                offset: orig.offset + (j as u64 * 32),
-                bytes: H256::from(padded_chunk),
+        // Split into 32-byte chunks (ResultSegment requirement)
+        for (chunk_index, chunk) in segment_bytes.chunks(32).enumerate() {
+            let mut padded = [0u8; 32];
+            padded[..chunk.len()].copy_from_slice(chunk);
+
+            results.push(ResultSegment {
+                offset: segment.offset + (chunk_index as u64 * 32),
+                bytes: H256::from(padded),
             });
         }
     }
 
-    Ok(segments)
+    Ok(results)
 }
 
-fn extract_original_felt_ranges_from_sanitized(
-    sanitized_results: Vec<FeltResult>,
-    original_segments: &[LayoutSegment],
-) -> Vec<FeltResult> {
-    let mut result: Vec<FeltResult> = Vec::with_capacity(original_segments.len());
-    for orig in original_segments {
-        let mut collected_felts: Vec<Felt> = Vec::with_capacity(orig.size as usize);
-        let mut collected_up_to: usize = orig.offset as usize;
-        for sanitized in &sanitized_results {
-            let last_sanitized_byte_idx = sanitized.offset as usize + sanitized.felts.len() - 1;
-            // If part of original segment range is contained in sanitized segment, then copy bytes over
-            if sanitized.offset as usize <= collected_up_to
-                && last_sanitized_byte_idx >= collected_up_to
-            {
-                let last_orig_seg_idx = (orig.offset + orig.size - 1) as usize;
-                let last_copy_idx = last_orig_seg_idx.min(last_sanitized_byte_idx);
-                let sanitized_start_idx = collected_up_to - sanitized.offset as usize;
-                let sanitized_end_idx = last_copy_idx - sanitized.offset as usize;
+// ============================================================================
+// Legacy API - maintained for backward compatibility
+// ============================================================================
 
-                for felt in &sanitized.felts[sanitized_start_idx..=sanitized_end_idx] {
-                    collected_felts.insert(collected_up_to - orig.offset as usize, *felt);
-                    collected_up_to += 1;
-                }
-                // All bytes collected
-                if collected_up_to > last_orig_seg_idx {
-                    break;
-                }
-            }
-        }
-        // When last byte of original segment is found, then add ResultSegment to result and move on
-        result.push(FeltResult {
-            offset: orig.offset,
-            felts: collected_felts,
-        });
-    }
-    result
+/// Legacy name for hash_felt_indices. Maintained for backward compatibility.
+#[deprecated(note = "Use hash_felt_indices for clarity")]
+#[allow(dead_code)]
+pub fn hash_layout_segments(query: &Query) -> Result<Felt, &'static str> {
+    hash_felt_indices(query)
 }
+
+/// Legacy name for convert_byte_segments_to_felt_segments_and_merge.
+#[deprecated(note = "Use convert_byte_segments_to_felt_segments_and_merge for clarity")]
+#[allow(dead_code)]
+pub fn convert_to_felts_then_sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
+    convert_byte_segments_to_felt_segments_and_merge(segments)
+}
+
+/// Legacy name for convert_byte_segments_to_felt_segments.
+#[deprecated(note = "Use convert_byte_segments_to_felt_segments for clarity")]
+#[allow(dead_code)]
+pub fn convert_segments_to_felt_segments(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
+    convert_byte_segments_to_felt_segments(segments)
+}
+
+/// Legacy name for merge_overlapping_segments.
+#[deprecated(note = "Use merge_overlapping_segments directly")]
+#[allow(dead_code)]
+pub fn sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
+    merge_overlapping_segments(segments)
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -231,103 +300,192 @@ mod tests {
     use pallet_prover_primitives::get_test_query;
 
     #[test]
-    fn prover_and_verifier_segment_conversions_match() {
-        let query = get_test_query();
-        // This process used on the prover side
-        let ranges =
-            prover_primitives::query::prepare_query_segments_for_prover(&query.layout_segments);
-        // This process used on verifier side
-        let segments = get_segments(&query);
+    fn test_byte_to_felt_conversion() {
+        // Byte range [0..31) = Felt 0 only
+        let segment = LayoutSegment {
+            offset: 0,
+            size: 31,
+        };
+        let result = convert_byte_segments_to_felt_segments(&[segment]);
+        assert_eq!(result[0].offset, 0);
+        assert_eq!(result[0].size, 1);
 
-        check_ranges_against_segments(&ranges, &segments);
+        // Byte range [0..32) = Felts 0 and 1
+        let segment = LayoutSegment {
+            offset: 0,
+            size: 32,
+        };
+        let result = convert_byte_segments_to_felt_segments(&[segment]);
+        assert_eq!(result[0].offset, 0);
+        assert_eq!(result[0].size, 2);
+
+        // Byte range [31..63) = Felts 1 and 2
+        let segment = LayoutSegment {
+            offset: 31,
+            size: 32,
+        };
+        let result = convert_byte_segments_to_felt_segments(&[segment]);
+        assert_eq!(result[0].offset, 1);
+        assert_eq!(result[0].size, 2);
+
+        // Byte range [192..224) = Felts 6 and 7 (since 192÷31=6.19...)
+        let segment = LayoutSegment {
+            offset: 192,
+            size: 32,
+        };
+        let result = convert_byte_segments_to_felt_segments(&[segment]);
+        assert_eq!(result[0].offset, 6);
+        assert_eq!(result[0].size, 2);
     }
 
     #[test]
-    fn segment_conversions_work_for_0_segments() {
-        let mut query = get_test_query();
-        query.layout_segments = vec![];
-
-        // This process used on the prover side
-        let ranges =
-            prover_primitives::query::prepare_query_segments_for_prover(&query.layout_segments);
-        // This process used on verifier side
-        let segments = get_segments(&query);
-
-        check_ranges_against_segments(&ranges, &segments);
+    fn test_merge_empty() {
+        assert_eq!(merge_overlapping_segments(&[]), vec![]);
     }
 
     #[test]
-    fn get_segments_from_output_felts_works() {
+    fn test_merge_single() {
+        let seg = LayoutSegment {
+            offset: 5,
+            size: 10,
+        };
+        assert_eq!(merge_overlapping_segments(&[seg]), vec![seg]);
+    }
+
+    #[test]
+    fn test_merge_overlapping() {
+        let segments = vec![
+            LayoutSegment { offset: 0, size: 5 },
+            LayoutSegment { offset: 3, size: 5 }, // Overlaps at 3-4
+        ];
+        let result = merge_overlapping_segments(&segments);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].offset, 0);
+        assert_eq!(result[0].size, 8); // Covers 0-7
+    }
+
+    #[test]
+    fn test_merge_adjacent() {
+        let segments = vec![
+            LayoutSegment { offset: 0, size: 5 },
+            LayoutSegment { offset: 5, size: 5 }, // Adjacent
+        ];
+        let result = merge_overlapping_segments(&segments);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].offset, 0);
+        assert_eq!(result[0].size, 10);
+    }
+
+    #[test]
+    fn test_merge_separate() {
+        let segments = vec![
+            LayoutSegment { offset: 0, size: 5 },
+            LayoutSegment {
+                offset: 10,
+                size: 5,
+            }, // Gap
+        ];
+        let result = merge_overlapping_segments(&segments);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_unsorted() {
+        let segments = vec![
+            LayoutSegment {
+                offset: 10,
+                size: 5,
+            },
+            LayoutSegment { offset: 0, size: 5 },
+            LayoutSegment { offset: 4, size: 8 }, // Overlaps both
+        ];
+        let result = merge_overlapping_segments(&segments);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].offset, 0);
+        assert_eq!(result[0].size, 15);
+    }
+
+    #[test]
+    fn test_hash_felt_indices() {
+        // Create felt-based segments (not byte-based!)
+        let felt_segments = vec![
+            LayoutSegment { offset: 6, size: 2 }, // Felts 6-7
+            LayoutSegment {
+                offset: 10,
+                size: 1,
+            }, // Felt 10
+        ];
+        let query = Query {
+            chain_id: 1,
+            height: 1,
+            index: 0,
+            layout_segments: felt_segments,
+        };
+
+        // This should hash [6, 7, 10] (3 felt indices)
+        let result = hash_felt_indices(&query);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_prover_verifier_conversion_match() {
         let query = get_test_query();
-        let segments = get_segments(&query);
-        let dummy_felts = get_dummy_felts_for_query(&query);
 
-        let result_segments = extract_felt_ranges_from_felt_array(&dummy_felts, &segments);
+        // Prover side
+        let prover_ranges =
+            prover_primitives::query::prepare_query_segments_for_prover(&query.layout_segments);
 
-        check_felt_segments_against_layout(&result_segments, &segments);
-    }
+        // Verifier side
+        let verifier_segments =
+            convert_byte_segments_to_felt_segments_and_merge(&query.layout_segments);
 
-    fn get_segments(query: &Query) -> Vec<LayoutSegment> {
-        // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
-        let felt_segments = convert_segments_to_felt_segments(&query.layout_segments);
-
-        // Sanitize incoming layout segments
-        sanitize(&felt_segments)
-    }
-
-    fn check_ranges_against_segments(ranges: &[Range<usize>], segments: &[LayoutSegment]) {
-        assert_eq!(ranges.len(), segments.len());
-        for (range, segment) in ranges.iter().zip(segments) {
+        // Should produce identical results
+        assert_eq!(prover_ranges.len(), verifier_segments.len());
+        for (range, segment) in prover_ranges.iter().zip(&verifier_segments) {
             assert_eq!(range.start, segment.offset as usize);
-            let segment_end = segment.offset + segment.size;
-            assert_eq!(range.end, segment_end as usize);
+            assert_eq!(range.end, (segment.offset + segment.size) as usize);
         }
     }
 
-    fn check_felt_segments_against_layout(
-        felt_segments: &[FeltResult],
-        layout_segments: &[LayoutSegment],
-    ) {
-        assert_eq!(felt_segments.len(), layout_segments.len());
-        let mut byte_value_counter: u8 = 0;
-        for (result, layout) in felt_segments.iter().zip(layout_segments) {
-            assert_eq!(result.felts.len(), layout.size as usize);
-            for felt in &result.felts {
-                let dummy_bytes = make_sample_bytes(&mut byte_value_counter);
-                assert_eq!(*felt, Felt::from_bytes_be_slice(&dummy_bytes));
-            }
-        }
+    #[test]
+    fn test_empty_segments() {
+        let segments: Vec<LayoutSegment> = vec![];
+        let prover_ranges = prover_primitives::query::prepare_query_segments_for_prover(&segments);
+        let verifier_segments = convert_byte_segments_to_felt_segments_and_merge(&segments);
+
+        assert_eq!(prover_ranges.len(), 0);
+        assert_eq!(verifier_segments.len(), 0);
     }
 
-    fn get_dummy_felts_for_query(query: &Query) -> Vec<Felt> {
-        // Get original byte segments
+    #[test]
+    fn test_extract_bytes_from_felts() {
+        // Create test felts
+        let felt1 = Felt::from(1u64);
+        let felt2 = Felt::from(2u64);
+        let felts = vec![felt1, felt2];
 
-        // Sum up lengths of segments and construct payload with incrementing bytes
-        let felt_segments = get_segments(query);
+        let segments = vec![LayoutSegment { offset: 0, size: 2 }];
 
-        let sizes_sum = felt_segments
-            .iter()
-            .fold(0, |acc, segment| acc + segment.size as u8);
-
-        // We expect the felts output from verify_merkle_proof.cairo to have the same number of felts
-        // as the sum of the sizes of our layout segments. This property is enforced so long as
-        // prover and verifier layout segment conversions match.
-        let mut dummy_felts = Vec::new();
-        let mut byte_value_counter = 0u8;
-        for _ in 0..sizes_sum {
-            let dummy_bytes = make_sample_bytes(&mut byte_value_counter);
-            dummy_felts.push(Felt::from_bytes_be_slice(&dummy_bytes));
-        }
-        dummy_felts
+        let result = extract_bytes_from_felts(&felts, &segments).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, 0); // offset
+        assert_eq!(result[0].1.len(), 62); // 2 felts × 31 bytes
     }
 
-    fn make_sample_bytes(byte_value_counter: &mut u8) -> Vec<u8> {
-        let mut dummy_bytes = Vec::new();
-        // Make 31 bytes with incrementing value, so we can check byte positions in output
-        for _ in 0..31 {
-            dummy_bytes.push(*byte_value_counter);
-            *byte_value_counter = byte_value_counter.wrapping_add(1);
-        }
-        dummy_bytes
+    #[test]
+    fn test_overflow_protection() {
+        let segment = LayoutSegment {
+            offset: u64::MAX,
+            size: 1,
+        };
+        let query = Query {
+            chain_id: 1,
+            height: 1,
+            index: 0,
+            layout_segments: vec![segment],
+        };
+
+        let result = hash_felt_indices(&query);
+        assert!(result.is_err());
     }
 }

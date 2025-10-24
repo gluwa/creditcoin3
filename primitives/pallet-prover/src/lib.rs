@@ -66,7 +66,7 @@ impl Query {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec)]
+#[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec, Copy)]
 pub struct LayoutSegment {
     pub offset: u64,
     pub size: u64,
