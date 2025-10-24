@@ -6,7 +6,7 @@ volumes:
 services:
   database:
     container_name: prover-database
-    image: postgres:latest
+    image: postgres:17
     # only for debugging network connectivity
     extra_hosts:
       - "host.docker.internal:host-gateway"
