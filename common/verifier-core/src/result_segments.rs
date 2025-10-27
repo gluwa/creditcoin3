@@ -36,31 +36,30 @@ pub fn hash_felt_indices(query: &Query) -> Result<Felt, &'static str> {
     Ok(pedersen_array(&felt_indices))
 }
 
-/// Main entry point: extracts byte segments from felt array based on byte layout segments.
+/// Extracts byte segments from felt array using pre-merged felt segments.
+///
+/// This is an optimization for when the caller has already computed the merged
+/// felt segments (e.g., during query validation).
 ///
 /// Pipeline:
-/// 1. Convert byte segments → felt segments (31-byte aligned)
-/// 2. Merge overlapping felt segments (optimization)
-/// 3. Extract bytes from the felt array
-/// 4. Map back to original byte segment boundaries
+/// 1. Extract bytes from the felt array (using pre-merged segments)
+/// 2. Map back to original byte segment boundaries
 ///
-/// Example:
-///   Input: LayoutSegment{offset: 192, size: 32} (bytes)
-///   Step 1: LayoutSegment{offset: 6, size: 2} (felts, since 192÷31=6)
-///   Step 2: No change if no overlap
-///   Step 3: Read felts[6] and felts[7] → 62 bytes
-///   Step 4: Extract bytes [192..224] from those 62 bytes
-pub fn get(query_felts: &[Felt], byte_segments: &[LayoutSegment]) -> Result<Vec<ResultSegment>> {
+/// Example usage:
+///   During validation, we compute merged_felt_segments to hash them.
+///   Later, when extracting result segments, we reuse those same segments
+///   instead of recomputing the byte->felt conversion and merge.
+pub fn get_with_merged_segments(
+    query_felts: &[Felt],
+    merged_felt_segments: &[LayoutSegment],
+    byte_segments: &[LayoutSegment],
+) -> Result<Vec<ResultSegment>> {
     if byte_segments.is_empty() {
         return Ok(Vec::new());
     }
 
-    // Convert byte segments to felt-aligned segments and merge overlaps
-    let felt_segments = convert_byte_segments_to_felt_segments(byte_segments);
-    let merged_felt_segments = merge_overlapping_segments(&felt_segments);
-
-    // Extract raw bytes from the felt array
-    let felt_bytes = extract_bytes_from_felts(query_felts, &merged_felt_segments)?;
+    // Extract raw bytes from the felt array using the pre-merged segments
+    let felt_bytes = extract_bytes_from_felts(query_felts, merged_felt_segments)?;
 
     // Map extracted bytes back to original byte segment boundaries
     extract_result_segments(&felt_bytes, byte_segments)
@@ -256,38 +255,6 @@ fn extract_result_segments(
     }
 
     Ok(results)
-}
-
-// ============================================================================
-// Legacy API - maintained for backward compatibility
-// ============================================================================
-
-/// Legacy name for hash_felt_indices. Maintained for backward compatibility.
-#[deprecated(note = "Use hash_felt_indices for clarity")]
-#[allow(dead_code)]
-pub fn hash_layout_segments(query: &Query) -> Result<Felt, &'static str> {
-    hash_felt_indices(query)
-}
-
-/// Legacy name for convert_byte_segments_to_felt_segments_and_merge.
-#[deprecated(note = "Use convert_byte_segments_to_felt_segments_and_merge for clarity")]
-#[allow(dead_code)]
-pub fn convert_to_felts_then_sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
-    convert_byte_segments_to_felt_segments_and_merge(segments)
-}
-
-/// Legacy name for convert_byte_segments_to_felt_segments.
-#[deprecated(note = "Use convert_byte_segments_to_felt_segments for clarity")]
-#[allow(dead_code)]
-pub fn convert_segments_to_felt_segments(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
-    convert_byte_segments_to_felt_segments(segments)
-}
-
-/// Legacy name for merge_overlapping_segments.
-#[deprecated(note = "Use merge_overlapping_segments directly")]
-#[allow(dead_code)]
-pub fn sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
-    merge_overlapping_segments(segments)
 }
 
 // ============================================================================

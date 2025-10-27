@@ -1,9 +1,7 @@
 use log::{debug, error};
 use sp_core::H256;
 use std::{
-    cmp::Ordering,
     collections::HashMap,
-    env, fs,
     io::Write,
     process::{Command, Stdio},
 };
@@ -25,109 +23,105 @@ use crate::{error::VerifierError, result_segments};
 pub const NULL_ABI: [u8; 1] = [0x80; 1];
 
 pub fn run_verifier(
-    proof: &[u8],
+    proof_json: &[u8],
     query: Query,
-    metadata: Vec<(u8, StarkProgramAuthHash)>,
+    program_metadata: Vec<(u8, StarkProgramAuthHash)>,
 ) -> Result<(String, Vec<ResultSegment>, ContinuityProofLength, H256), VerifierError> {
-    debug!("current dir: {:?}", env::current_dir()?.as_os_str());
+    // Step 1: Parse and prepare the STARK proof (fast, no I/O)
+    let stone_proof = parse_and_prepare_proof(proof_json)?;
 
-    // Write proof to a temporary JSON file
-    let temp_file_path = write_proof_to_temp_file(proof)?;
+    // Step 2: Authenticate the STARK program to ensure it's authorized
+    let program_metadata_storage = build_program_metadata_storage(program_metadata);
+    let authenticated_metadata = StarkProgramAuth::authenticate(
+        &stone_proof,
+        &program_metadata_storage,
+        blake2_256_stark_program_auth_hasher,
+    )?;
+    debug!("STARK program authenticated with metadata: {authenticated_metadata:?}");
 
-    debug!("Created temp file with proof at: {temp_file_path}");
+    // Step 3: Extract Cairo verifier output from the proof
+    let cairo_output = CairoVerifierOutput::try_from(stone_proof.proof()).map_err(|e| {
+        error!("Failed to convert StoneProof to CairoVerifierOutput: {e:?}");
+        VerifierError::CairoVerifierOutputConversionError(e)
+    })?;
 
-    let proof: StoneProofJson = serde_json::from_slice(proof)?;
+    // Step 4: Validate query against proof and get merged felt segments
+    validate_layout_segments(&query.layout_segments)?;
+    let merged_felt_segments = validate_query_against_proof(query.clone(), &cairo_output)
+        .map_err(VerifierError::QueryValidationError)?;
+    debug!("Query validated successfully");
 
-    let mut stone_proof = StoneProof::from(proof);
+    // Step 5: Write proof to temp file and run cpu_air_verifier (expensive operations)
+    // We do this last to avoid wasted I/O if earlier validation fails
+    let temp_file = write_proof_to_temp_file(proof_json)?;
+    let temp_path = temp_file
+        .path()
+        .to_str()
+        .ok_or(VerifierError::TempFileNotFound)?;
+    debug!("Created temp file with proof at: {temp_path}");
+
+    let verifier_output = Command::new("cpu_air_verifier")
+        .arg(format!("--in_file={temp_path}"))
+        .stdout(Stdio::piped())
+        .output()?;
+    // temp_file is automatically deleted when it goes out of scope
+
+    // Step 6: Process results
+    if !verifier_output.status.success() {
+        let stderr = String::from_utf8_lossy(&verifier_output.stderr).to_string();
+        return Err(VerifierError::VerifierProcessError(stderr));
+    }
+
+    // Step 7: Extract result segments using the precomputed merged felt segments
+    let result_segments = result_segments::get_with_merged_segments(
+        &cairo_output.query_fields,
+        &merged_felt_segments,
+        &query.layout_segments,
+    )?;
+
+    let continuity_checkpoint_digest =
+        H256::from(cairo_output.continuity_checkpoint_digest.to_bytes_be());
+    let stdout = String::from_utf8_lossy(&verifier_output.stdout).to_string();
+
+    Ok((
+        stdout,
+        result_segments,
+        cairo_output.continuity_proof_length,
+        continuity_checkpoint_digest,
+    ))
+}
+
+/// Parses the proof JSON and strips unnecessary sections for authentication.
+fn parse_and_prepare_proof(proof_json: &[u8]) -> Result<StoneProof, VerifierError> {
+    let proof_data: StoneProofJson = serde_json::from_slice(proof_json)?;
+    let mut stone_proof = StoneProof::from(proof_data);
 
     stone_proof
         .strip_off_annotations()
         .strip_off_prover_config()
         .strip_off_private_input();
 
-    // Last version is the highest version in the metadata
-    let last_version = metadata.last().map(|(v, _)| *v).unwrap_or(0);
-    // Prepare cairo program metadata
-    let map: HashMap<StarkProgramAuthHash, StarkProgramMetadata> = metadata
-        .into_iter()
-        .map(|(k, v)| {
-            (
-                v as StarkProgramAuthHash,
-                StarkProgramMetadata { version: k },
-            )
-        })
-        .collect();
-
-    let program_metadata_storage = StarkProgramMetadataStorage { map, last_version };
-
-    // Authenticate the STARK program
-    let metadata = StarkProgramAuth::authenticate(
-        &stone_proof,
-        &program_metadata_storage,
-        blake2_256_stark_program_auth_hasher,
-    )?;
-
-    let cairo_verifier_output =
-        CairoVerifierOutput::try_from(stone_proof.proof()).map_err(|e| {
-            error!("Failed to convert StoneProof to CairoVerifierOutput: {e:?}",);
-            VerifierError::CairoVerifierOutputConversionError(e)
-        })?;
-
-    // Save layout segments for later composition of ResultSegments
-    let unsanitized_layout_segments = query.layout_segments.clone();
-
-    validate_layout_segments(&unsanitized_layout_segments)?;
-
-    // Sanitized layout segments are used to generate the layout segments hash in
-    // verify_merkle_proof.cairo. So we validate using sanitized segments here as well.
-    match validate_query_against_proof(query, &cairo_verifier_output) {
-        Ok(_) => debug!("Query validated successfully"),
-        Err(e) => return Err(VerifierError::QueryValidationError(e)),
-    }
-
-    debug!("stark program authenticated with metadata: {metadata:?}");
-
-    // Execute the verifier command
-    // WARNING: binary must be in $PATH and/or $PATH must be configured accordingly
-    let output = Command::new("cpu_air_verifier")
-        .arg(format!("--in_file={temp_file_path}"))
-        .stdout(Stdio::piped())
-        .output()?;
-
-    fs::remove_file(&temp_file_path)?;
-
-    let continuity_checkpoint_digest = H256::from(
-        cairo_verifier_output
-            .continuity_checkpoint_digest
-            .to_bytes_be(),
-    );
-    if output.status.success() {
-        // Return result segments along with message on success
-        let query_felts = cairo_verifier_output.query_fields.clone();
-        let result_segments: Vec<ResultSegment> =
-            result_segments::get(&query_felts, &unsanitized_layout_segments)?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        Ok((
-            stdout,
-            result_segments,
-            cairo_verifier_output.continuity_proof_length,
-            continuity_checkpoint_digest,
-        ))
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        Err(VerifierError::VerifierProcessError(stderr))
-    }
+    Ok(stone_proof)
 }
 
-fn write_proof_to_temp_file(proof: &[u8]) -> Result<String, VerifierError> {
+/// Builds the program metadata storage from the provided metadata list.
+fn build_program_metadata_storage(
+    metadata: Vec<(u8, StarkProgramAuthHash)>,
+) -> StarkProgramMetadataStorage {
+    let last_version = metadata.last().map(|(v, _)| *v).unwrap_or(0);
+    let map: HashMap<StarkProgramAuthHash, StarkProgramMetadata> = metadata
+        .into_iter()
+        .map(|(version, hash)| (hash, StarkProgramMetadata { version }))
+        .collect();
+
+    StarkProgramMetadataStorage { map, last_version }
+}
+
+/// Writes proof to a temporary file. The file is automatically deleted when dropped.
+fn write_proof_to_temp_file(proof: &[u8]) -> Result<NamedTempFile, VerifierError> {
     let mut temp_file = NamedTempFile::new()?;
     temp_file.write_all(proof)?;
-    let (_f, path) = temp_file.keep()?;
-
-    let temp_file_path = path.to_str().ok_or(VerifierError::TempFileNotFound)?;
-
-    Ok(temp_file_path.to_string())
+    Ok(temp_file)
 }
 
 fn blake2_256_stark_program_auth_hasher(bytes: &[u8]) -> StarkProgramAuthHash {
@@ -137,64 +131,66 @@ fn blake2_256_stark_program_auth_hasher(bytes: &[u8]) -> StarkProgramAuthHash {
 pub fn validate_query_against_proof(
     query: Query,
     cairo_verifier_output: &CairoVerifierOutput,
-) -> Result<(), QueryValidationError> {
-    match query.index.cmp(&cairo_verifier_output.query_index) {
-        Ordering::Greater => Err(QueryOutOfBounds(cairo_verifier_output.query_index)),
+) -> Result<Vec<LayoutSegment>, QueryValidationError> {
+    // Validate that the query index matches the proof's query index
+    if query.index > cairo_verifier_output.query_index {
+        return Err(QueryOutOfBounds(cairo_verifier_output.query_index));
+    }
 
-        Ordering::Equal => {
-            if felts_from_bytes(&NULL_ABI[..]) == cairo_verifier_output.query_fields {
-                Err(QueryOutOfBounds(cairo_verifier_output.query_index))
-            } else {
-                // Verify that the Cairo program used the correct felt ranges for this query.
-                //
-                // Process:
-                // 1. Convert byte segments to felt segments (31-byte alignment)
-                // 2. Merge overlapping felt ranges (Cairo optimization)
-                // 3. Hash the felt indices to match Cairo's computation
-                //
-                // Example: LayoutSegment{offset: 192, size: 32} (bytes)
-                //   → LayoutSegment{offset: 6, size: 2} (felts)
-                //   → Hash of [6, 7] (felt indices)
-                let felt_segments =
-                    result_segments::convert_byte_segments_to_felt_segments_and_merge(
-                        &query.layout_segments,
-                    );
-
-                let felt_query = Query {
-                    layout_segments: felt_segments.clone(),
-                    ..query
-                };
-
-                debug!("Verifying felt indices hash. Merged felt segments: {felt_segments:?}",);
-
-                let computed_hash = match result_segments::hash_felt_indices(&felt_query) {
-                    Ok(hash) => hash,
-                    Err(e) => {
-                        error!("Failed to hash felt indices: {e:?}");
-                        return Err(FailedToHashLayoutsegments(e.to_string()));
-                    }
-                };
-
-                if computed_hash != cairo_verifier_output.query_hash {
-                    error!(
-                        "Query hash mismatch: expected {:?}, got {:?}",
-                        cairo_verifier_output.query_hash, computed_hash
-                    );
-                    Err(QueryOffsetsMismatch(
-                        cairo_verifier_output.query_hash,
-                        computed_hash,
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-        }
-
-        Ordering::Less => Err(QueryTransactionIdMismatch(
+    if query.index < cairo_verifier_output.query_index {
+        return Err(QueryTransactionIdMismatch(
             query.index,
             cairo_verifier_output.query_index,
-        )),
+        ));
     }
+
+    // Check if the proof returned empty/null data (indicates query out of bounds)
+    if cairo_verifier_output.query_fields == felts_from_bytes(&NULL_ABI[..]) {
+        return Err(QueryOutOfBounds(cairo_verifier_output.query_index));
+    }
+
+    // Convert byte-based layout segments to felt-based segments and merge overlaps.
+    // This must match what the Cairo prover does to ensure we're verifying the same data.
+    //
+    // Process:
+    // 1. Convert byte segments to felt segments (31-byte alignment)
+    // 2. Merge overlapping felt ranges (Cairo optimization)
+    // 3. Hash the felt indices to match Cairo's computation
+    //
+    // Example: LayoutSegment{offset: 192, size: 32} (bytes)
+    //   → LayoutSegment{offset: 6, size: 2} (felts, since 192÷31≈6)
+    //   → Hash of [6, 7] (felt indices)
+    let felt_segments =
+        result_segments::convert_byte_segments_to_felt_segments_and_merge(&query.layout_segments);
+
+    debug!("Verifying felt indices hash. Merged felt segments: {felt_segments:?}");
+
+    // Compute the hash of felt indices from our converted segments
+    let felt_query = Query {
+        layout_segments: felt_segments.clone(),
+        ..query
+    };
+
+    let computed_hash = result_segments::hash_felt_indices(&felt_query).map_err(|e| {
+        error!("Failed to hash felt indices: {e}");
+        FailedToHashLayoutsegments(e.to_string())
+    })?;
+
+    // Verify that our computed hash matches what the Cairo prover computed
+    if computed_hash != cairo_verifier_output.query_hash {
+        error!(
+            "Query hash mismatch: Cairo proof has {:?}, but we computed {:?}",
+            cairo_verifier_output.query_hash, computed_hash
+        );
+        return Err(QueryOffsetsMismatch(
+            cairo_verifier_output.query_hash,
+            computed_hash,
+        ));
+    }
+
+    // Validation successful - return the merged felt segments so the caller
+    // can reuse them when extracting result segments (avoids recomputation)
+    Ok(felt_segments)
 }
 
 fn validate_layout_segments(layout_segments: &[LayoutSegment]) -> Result<(), VerifierError> {
