@@ -946,7 +946,7 @@ impl From<CcSupportedChain> for SupportedChain {
             chain_id: chain.chain_id,
             chain_name: chain.chain_name,
             chain_encoding: ChainEncodingVersion::from(chain.chain_encoding),
-            maturity_strategy: String::new(), // chain.maturity_strategy
+            maturity_strategy: chain.maturity_strategy,
         }
     }
 }
