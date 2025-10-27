@@ -65,6 +65,38 @@ jobs:
           repository-owner: ${{ github.repository_owner }}
           repository: ${{ github.event.repository.name }}
 
+      - name: Assign PR ${{ steps.open-pr.outputs.pull_number }} to ${{ github.triggering_actor }}
+        if: env.ACTOR
+        uses: actions/github-script@v8
+        env:
+          TARGET_PR: ${{ steps.open-pr.outputs.pull_number }}
+          ACTOR: ${{ github.triggering_actor }}
+          WORKFLOW_URL: ${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: process.env.TARGET_PR,
+              body: `Initiated by ${process.env.WORKFLOW_URL}`
+            });
+
+            await github.rest.pulls.requestReviewers({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: process.env.TARGET_PR,
+              reviewers: [process.env.ACTOR],
+              // WARNING: doesn't work although docs show this as the correct format
+              // team_reviewers: ['protocol', 'protocol-manager'],
+            });
+
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: process.env.TARGET_PR,
+              assignees: [process.env.ACTOR],
+            });
+
       - name: Report result to Slack
         if: always()
         uses: act10ns/slack@v2
