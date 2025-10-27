@@ -332,6 +332,13 @@ jobs:
           git branch
           git rebase "origin/testnet"
 
+      - name: TODO
+        if: always()
+        run: |
+          echo "SUGGESTION: Revert conflicting commit(s) on 'testnet' branch and/or merge default into 'testnet'."
+          echo "IMPORTANT: Do this ASAP to prevent further branch divergence in the future."
+          echo "NOTE: May also require reverting gluwa-bot commits on the default branch too!"
+
       - name: DEBUG
         if: always()
         run: |
@@ -372,6 +379,13 @@ jobs:
           # then switch to testnet branch and merge the incoming changes
           git checkout -b testnet "origin/testnet"
           git merge "${{ env.BRANCH_NAME }}"
+
+      - name: TODO
+        if: always()
+        run: |
+          echo "SUGGESTION: Revert conflicting commit(s) on 'testnet' branch and/or merge default into 'testnet'."
+          echo "IMPORTANT: Do this ASAP to prevent further branch divergence in the future."
+          echo "NOTE: May also require reverting gluwa-bot commits on the default branch too!"
 
       - name: DEBUG
         if: always()
