@@ -471,7 +471,8 @@ impl Server {
         info!("🏗️ Processing query: {:?}", query.id());
 
         // Check if the query is clearly invalid
-        let precheck_result = pre_check_query(&query, &self.source_chain_eth_client).await;
+        let precheck_result =
+            pre_check_query(&query, &self.source_chain_eth_client, self.encoding).await;
         if let Err(e) = precheck_result {
             if e.is_permanently_invalid() {
                 warn!("⚠️ Received invalid query {:?}, ignoring.", query.id());

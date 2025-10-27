@@ -1,3 +1,4 @@
+use ccnext_abi_encoding::abi::EncodingVersion;
 use eth::{Client as EthClient, OrderedBlock};
 use pallet_prover_primitives::Query;
 use thiserror::Error;
@@ -52,9 +53,13 @@ impl Error {
 }
 
 /// Checks to make sure that a query isn't obviously invalid before processing it.
-pub(crate) async fn pre_check_query(query: &Query, eth_client: &EthClient) -> Result<(), Error> {
+pub(crate) async fn pre_check_query(
+    query: &Query,
+    eth_client: &EthClient,
+    encoding: EncodingVersion,
+) -> Result<(), Error> {
     check_highest_source_block(query, eth_client).await?;
-    let query_block = get_query_block(query.height, eth_client).await?;
+    let query_block = get_query_block(query.height, eth_client, encoding).await?;
     check_tx_exists_in_block(query, &query_block)?;
     check_queried_bytes_against_txrx(query, &query_block)?;
     Ok(())
@@ -73,10 +78,17 @@ async fn check_highest_source_block(query: &Query, eth_client: &EthClient) -> Re
 }
 
 /// Gets the query block, with retries
-async fn get_query_block(block_height: u64, eth_client: &EthClient) -> Result<OrderedBlock, Error> {
+async fn get_query_block(
+    block_height: u64,
+    eth_client: &EthClient,
+    encoding: EncodingVersion,
+) -> Result<OrderedBlock, Error> {
     // Retry strategy with Fibonacci backoff and jitter (1, 1, 2, 3, 5, ...)
     let retry_strategy = FibonacciBackoff::from_millis(1000).map(jitter).take(5);
-    let block = Retry::spawn(retry_strategy, || eth_client.get_block(block_height)).await?;
+    let block = Retry::spawn(retry_strategy, || {
+        eth_client.get_block(block_height, encoding)
+    })
+    .await?;
     Ok(block)
 }
 
