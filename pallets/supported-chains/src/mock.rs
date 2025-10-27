@@ -1,6 +1,7 @@
 use crate as supported_chains;
 use crate::ChainId;
 use attestor_primitives::{ChainEncodingVersion, ChainKey};
+use frame_support::parameter_types;
 use frame_support::traits::{ConstU16, ConstU64};
 use sp_core::H256;
 use sp_runtime::{
@@ -51,11 +52,16 @@ impl frame_system::Config for Test {
     type MaxConsumers = frame_support::traits::ConstU32<16>;
 }
 
+parameter_types! {
+    pub const DefaultMaturityStrategy: &'static str = "FixedDelay: 10";
+}
+
 impl supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = supported_chains::weights::WeightInfo<Test>;
     type EventListeners = ();
     type ChainRegistrationHandler = DummyRegistrationHandler;
+    type DefaultMaturityStrategy = DefaultMaturityStrategy;
 }
 
 pub struct DummyRegistrationHandler;
@@ -91,6 +97,7 @@ impl ExtBuilder {
                 200,
                 "Ethereum".as_bytes().to_vec(),
                 ChainEncodingVersion::V1,
+                "FixedDelay: 10".to_string(),
             )],
             _phantom: Default::default(),
         };
@@ -106,7 +113,7 @@ impl ExtBuilder {
 
     pub fn build_and_execute_with_duplicate_chains(
         self,
-        supported_chains: Vec<(ChainId, Vec<u8>, ChainEncodingVersion)>,
+        supported_chains: Vec<(ChainId, Vec<u8>, ChainEncodingVersion, String)>,
         test: impl FnOnce(),
     ) {
         let mut storage = frame_system::GenesisConfig::<Test>::default()

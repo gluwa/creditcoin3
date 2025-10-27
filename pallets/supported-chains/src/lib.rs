@@ -27,8 +27,8 @@ pub mod pallet {
     use sp_std::vec::Vec;
     use supported_chains_primitives::{
         chain_removal_listener::ChainRemovalListener,
-        provider::OnRegisterChainProvider as OnChainRegisteredProvider,
-        provider::SupportedChainsProvider, SupportedChain,
+        provider::{OnRegisterChainProvider as OnChainRegisteredProvider, SupportedChainsProvider},
+        SupportedChain,
     };
 
     #[pallet::pallet]
@@ -44,6 +44,20 @@ pub mod pallet {
         /// Informs other pallets if a supported chain is removed
         type EventListeners: ChainRemovalListener;
         type ChainRegistrationHandler: OnChainRegisteredProvider;
+        /// Determines which maturity strategy attestors will use when fetching source chain
+        /// blocks and building attestations. Strict strategies such as EvmFinalized delay
+        /// longer before building attestations, ensuring that attestations won't be created
+        /// from blocks which could be re-orged.
+        ///
+        /// Maturity strategies use the String type for extensability.
+        ///
+        /// Expected strategies:
+        /// - "EvmFinalized" Gets blocks once they are finalized
+        /// - "EvmSafe" Gets blocks once they are confirmed
+        /// - "EvmLatest" Gets blocks as soon as available
+        /// - "FixedDelay: X" Gets blocks after they are X blocks old
+        #[pallet::constant]
+        type DefaultMaturityStrategy: Get<String>;
     }
 
     pub trait WeightInfo {
@@ -81,7 +95,7 @@ pub mod pallet {
     #[pallet::genesis_config]
     #[derive(frame_support::DefaultNoBound)]
     pub struct GenesisConfig<T> {
-        pub supported_chains: Vec<(ChainId, Vec<u8>, ChainEncodingVersion)>,
+        pub supported_chains: Vec<(ChainId, Vec<u8>, ChainEncodingVersion, String)>,
         pub _phantom: PhantomData<T>,
     }
 
@@ -89,13 +103,14 @@ pub mod pallet {
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
             let mut chain_key = 1;
-            for (chain_id, chain_name, encoding) in &self.supported_chains {
+            for (chain_id, chain_name, encoding, maturity_strategy) in &self.supported_chains {
                 SupportedChains::<T>::insert(
                     chain_key,
                     SupportedChain {
                         chain_id: *chain_id,
                         chain_name: chain_name.clone(),
                         chain_encoding: *encoding,
+                        maturity_strategy: maturity_strategy.clone(),
                     },
                 );
                 //check that no dublicate chain name is added
@@ -175,6 +190,7 @@ pub mod pallet {
                     chain_id,
                     chain_name: chain_name.as_bytes().to_vec(),
                     chain_encoding: encoding,
+                    maturity_strategy: T::DefaultMaturityStrategy::get(),
                 },
             );
             ChainIdAndNameToUniqKey::<T>::insert(

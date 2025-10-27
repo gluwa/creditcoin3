@@ -1,4 +1,4 @@
-use crate::{mock::SupportedChain, mock::*, Error, SupportedChains};
+use crate::{self as pallet, mock, mock::SupportedChain, mock::*, Error, SupportedChains};
 use attestor_primitives::ChainEncodingVersion;
 use frame_support::{assert_noop, assert_ok};
 use sp_runtime::traits::BadOrigin;
@@ -41,6 +41,8 @@ fn register_chain_works() {
                 chain_id,
                 chain_name: chain_name.as_bytes().to_vec(),
                 chain_encoding: ChainEncodingVersion::V1,
+                maturity_strategy: <mock::Test as pallet::Config>::DefaultMaturityStrategy::get()
+                    .to_string()
             })
         );
 
@@ -168,6 +170,8 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_id_but_diffe
                 chain_id,
                 chain_name: chain_name.as_bytes().to_vec(),
                 chain_encoding: ChainEncodingVersion::V1,
+                maturity_strategy: <mock::Test as pallet::Config>::DefaultMaturityStrategy::get()
+                    .to_string()
             })
         );
     });
@@ -205,6 +209,8 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_name_but_dif
                 chain_id,
                 chain_name: chain_name.as_bytes().to_vec(),
                 chain_encoding: ChainEncodingVersion::V1,
+                maturity_strategy: <mock::Test as pallet::Config>::DefaultMaturityStrategy::get()
+                    .to_string()
             })
         );
     });
@@ -377,8 +383,18 @@ fn empty_supported_chains() {
 fn build_should_panic_with_duplicate_chains_in_genesis() {
     ExtBuilder.build_and_execute_with_duplicate_chains(
         vec![
-            (1, "Ethereum".as_bytes().to_vec(), ChainEncodingVersion::V1),
-            (1, "Ethereum".as_bytes().to_vec(), ChainEncodingVersion::V1),
+            (
+                1,
+                "Ethereum".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                "FixedDelay: 10".to_string(),
+            ),
+            (
+                1,
+                "Ethereum".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                "FixedDelay: 10".to_string(),
+            ),
         ],
         || {
             System::set_block_number(1);

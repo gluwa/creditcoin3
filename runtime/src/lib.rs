@@ -913,11 +913,16 @@ impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
 }
 
+parameter_types! {
+    pub const DefaultMaturityStrategy: &'static str = "FixedDelay: 10";
+}
+
 impl pallet_supported_chains::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
     type EventListeners = Attestation;
     type ChainRegistrationHandler = pallet_attestation_poc::Pallet<Runtime>;
+    type DefaultMaturityStrategy = DefaultMaturityStrategy;
 }
 
 impl pallet_randomness::Config for Runtime {

@@ -15,6 +15,7 @@ too_many_arguments = "allow"
 attestor-primitives = { workspace = true }
 impl-trait-for-tuples = { workspace = true }
 parity-scale-codec = { workspace = true, default-features = false }
+precompile-utils = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 sp-api = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
