@@ -5,7 +5,7 @@ use std::vec::Vec;
 use pallet_prover_primitives::{LayoutSegment, Query, ResultSegment};
 use utils::pedersen_hash::pedersen_array;
 use utils::utils::U248_BYTE_COUNT;
-use utils::Felt;
+use utils::Felt; // Re-exported from starknet_crypto::Felt (see common/utils/src/lib.rs)
 
 /// Computes the Pedersen hash of felt indices covered by the layout segments.
 ///
@@ -83,8 +83,38 @@ pub fn convert_byte_segments_to_felt_segments_and_merge(
 
 /// Converts byte-based segments to felt-based segments (31-byte alignment).
 ///
+/// ## Why Felts?
+///
+/// Cairo/STARK proofs operate on **field elements (felts)**, not raw bytes. Each felt
+/// is 248 bits (31 bytes) of usable data. The transaction data in the Merkle tree is
+/// pre-converted to felts before storage, so Cairo must work with felt indices.
+///
+/// **Type Definition:**
+/// - `Felt` = `starknet_crypto::Felt` (re-exported via `common/utils/src/lib.rs`)
+/// - Crate: <https://docs.rs/starknet-crypto/latest/starknet_crypto/struct.Felt.html>
+///
+/// **References:**
+/// - See `docs/architecture/WHY_FELTS_NOT_BYTES.md` for detailed explanation
+/// - Cairo program: `cairo/scripts/verify_merkle_proof.cairo`
+/// - Starknet docs: <https://docs.starknet.io/documentation/architecture_and_concepts/Smart_Contracts/cairo-and-sierra/>
+/// - Felt spec: <https://docs.starknet.io/documentation/architecture_and_concepts/Cryptography/p-value/>
+///
+/// ## Felt Encoding
+///
 /// Each felt holds 31 bytes (U248). This function calculates which felts
 /// are needed to cover the requested byte ranges.
+///
+/// ### Encoding Details:
+/// - **Felt size**: 32 bytes total (252 bits field)
+/// - **Usable data**: 31 bytes (248 bits) - first byte is padding/zero
+/// - **Encoding**: `felt.to_bytes_be()[1..]` extracts the 31 usable bytes
+/// - **Cairo storage**: Transaction data stored as `felt[]` in Merkle tree
+/// - **Constant**: `U248_BYTE_COUNT = 31` (defined in `common/utils/src/utils.rs`)
+///
+/// ### Mapping Formula:
+/// ```
+/// felt_index = byte_offset ÷ 31
+/// ```
 ///
 /// Example:
 ///   Felt 0 = bytes [0..31)
@@ -94,6 +124,13 @@ pub fn convert_byte_segments_to_felt_segments_and_merge(
 ///
 ///   Input: LayoutSegment{offset: 192, size: 32} (bytes 192-223)
 ///   Output: LayoutSegment{offset: 6, size: 2} (felts 6-7)
+///
+/// ### Implementation:
+/// ```
+/// first_felt = byte_offset ÷ 31
+/// last_felt = (byte_offset + size - 1) ÷ 31
+/// felt_count = last_felt - first_felt + 1
+/// ```
 fn convert_byte_segments_to_felt_segments(byte_segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
     byte_segments
         .iter()
@@ -161,6 +198,43 @@ fn merge_overlapping_segments(segments: &[LayoutSegment]) -> Vec<LayoutSegment> 
 /// The Cairo program outputs felts in sequential order corresponding to
 /// the merged felt segments. Each felt is 32 bytes but only the last 31
 /// bytes are used (first byte is padding).
+///
+/// ## Felt to Bytes Conversion
+///
+/// Each felt in the Cairo output is decoded as:
+/// ```rust
+/// let felt_bytes = felt.to_bytes_be();        // 32 bytes (big-endian)
+/// let usable_bytes = &felt_bytes[1..];        // 31 bytes (skip padding)
+/// ```
+///
+/// ## Practical Example
+///
+/// ```rust
+/// // Given: Transaction data with 100 bytes
+/// // Want: Bytes 65-95 (31 bytes)
+///
+/// // Step 1: Which felts contain this data?
+/// // Felt[2] covers bytes 62-92 (31 bytes)
+/// // Felt[3] covers bytes 93-123 (31 bytes)
+/// // So we need felts 2 and 3 (62 bytes total)
+///
+/// // Step 2: Cairo outputs these felts
+/// let query_felts = vec![felt2, felt3];
+///
+/// // Step 3: Extract bytes from felts
+/// let felt2_bytes = felt2.to_bytes_be()[1..]; // 31 bytes [62..93)
+/// let felt3_bytes = felt3.to_bytes_be()[1..]; // 31 bytes [93..124)
+///
+/// // Step 4: Extract our requested range [65..96)
+/// // From felt2_bytes: skip 3 bytes (65-62=3), take 28 bytes
+/// // From felt3_bytes: take 3 bytes (to complete 31 bytes)
+/// ```
+///
+/// **Reference implementations:**
+/// - **Prover**: `primitives/prover/src/query.rs` → `byte_segments_into_felt_ranges()`
+/// - **Verifier**: This function (extraction from felts)
+/// - **Cairo**: `cairo/scripts/verify_merkle_proof.cairo`
+/// - **Documentation**: `docs/architecture/WHY_FELTS_NOT_BYTES.md`
 ///
 /// Returns: Vector of (felt_offset, bytes) tuples
 fn extract_bytes_from_felts(

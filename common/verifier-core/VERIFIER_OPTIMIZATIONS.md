@@ -236,9 +236,75 @@ Potential areas for further improvement:
 3. **Caching**: Cache merged felt segments for repeated queries with same layout
 4. **Zero-copy parsing**: Use `serde` with borrowing where possible
 
+## 4. Documentation Improvements
+
+### Problem
+
+The felt encoding logic in `result_segments.rs` lacked comprehensive documentation explaining:
+- Why Cairo uses felts instead of bytes
+- How the encoding/decoding works
+- Where to find reference implementations
+- Links to external documentation
+
+This made it difficult for new contributors to understand the system.
+
+### Solution
+
+Added comprehensive inline documentation with:
+
+1. **Type definitions and links:**
+   - Link to `starknet_crypto::Felt` documentation
+   - Reference to constant definitions (`U248_BYTE_COUNT`)
+
+2. **Conceptual explanations:**
+   - Why STARKs require field elements
+   - How transaction data is stored in the Merkle tree
+   - The 31-byte alignment requirement
+
+3. **Practical examples:**
+   - Step-by-step byte extraction walkthrough
+   - Concrete examples with real numbers
+   - Mapping formulas and calculations
+
+4. **Cross-references:**
+   - Links to Cairo program implementation
+   - Links to prover-side implementation
+   - Links to architecture documentation
+   - Links to Starknet specifications
+
+### Example Documentation Added
+
+```rust
+/// ## Why Felts?
+///
+/// Cairo/STARK proofs operate on **field elements (felts)**, not raw bytes.
+/// Each felt is 248 bits (31 bytes) of usable data.
+///
+/// **Type Definition:**
+/// - `Felt` = `starknet_crypto::Felt`
+/// - Crate: https://docs.rs/starknet-crypto/latest/starknet_crypto/struct.Felt.html
+///
+/// **References:**
+/// - See `docs/architecture/WHY_FELTS_NOT_BYTES.md`
+/// - Cairo program: `cairo/scripts/verify_merkle_proof.cairo`
+/// - Starknet docs: https://docs.starknet.io/...
+///
+/// ## Practical Example
+/// [Step-by-step walkthrough with code examples]
+```
+
+### Impact
+
+- **Onboarding**: New developers can understand the felt encoding immediately
+- **Maintenance**: Clear references to where implementations live
+- **Debugging**: Examples help identify conversion issues quickly
+- **Standards**: Links to official Starknet documentation ensure accuracy
+
 ## Related Files
 
 - `common/verifier-core/src/verifier.rs` - Main verification logic
-- `common/verifier-core/src/result_segments.rs` - Segment conversion and merging
+- `common/verifier-core/src/result_segments.rs` - Segment conversion and merging (now with comprehensive docs)
+- `common/utils/src/lib.rs` - Felt type re-export
+- `primitives/prover/src/query.rs` - Prover-side felt conversion reference
 - `docs/architecture/WHY_FELTS_NOT_BYTES.md` - Context on felt conversion necessity
 - `docs/architecture/WHAT_IS_BEING_PROVEN.md` - Overall proof system architecture
