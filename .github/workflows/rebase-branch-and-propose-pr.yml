@@ -62,8 +62,8 @@ jobs:
           github-token: ${{ secrets.GLUWA_BOT_TOKEN }}
           from-branch: ${{ env.BRANCH_NAME }}
           to-branch: ${{ inputs.target-branch }}
-          repository-owner: gluwa
-          repository: creditcoin3-next
+          repository-owner: ${{ github.repository_owner }}
+          repository: ${{ github.event.repository.name }}
 
       - name: Report result to Slack
         if: always()
