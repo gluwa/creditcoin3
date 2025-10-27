@@ -477,14 +477,13 @@ impl Server {
                 warn!("⚠️ Received invalid query {:?}, ignoring.", query.id());
                 self.mark_query_as_invalid(query.id(), e.to_string())
                     .await?;
-                return Ok(());
             } else {
                 let reason = format!("Error during pre-checking: {e}");
-                warn!(reason);
+                warn!("{reason}");
                 self.mark_query_processing_failed(query.id(), reason)
                     .await?;
-                return Ok(());
             }
+            return Ok(());
         }
 
         let r = query::process(

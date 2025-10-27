@@ -18,10 +18,10 @@ pub enum Error {
     #[error("The TxRx item for the given block and transaction has no data.")]
     EmptyTxRx,
     #[error(
-        "Query corresponds to non-existant block. Query height: {0}, Highest source block: {0}"
+        "Query corresponds to non-existant block. Query height: {0}, Highest source block: {1}"
     )]
     NoSuchBlock(u64, u64),
-    #[error("No such tx in block. Query tx index: {0}, Max index in block: {0}")]
+    #[error("No such tx in block. Query tx index: {0}, Max index in block: {1}")]
     NoSuchTxInBlock(usize, usize),
     #[error("No such data in tx. Segment: {segment}, Queried index: {end}, Max index contained in TxRx: {payload_len}")]
     NoSuchDataInTxRx {
@@ -45,12 +45,8 @@ impl Error {
                 | Error::EmptyTxRx
                 | Error::NoSuchBlock(_, _)
                 | Error::NoSuchTxInBlock(_, _)
-                | Error::NoSuchDataInTxRx {
-                    segment: _,
-                    end: _,
-                    payload_len: _
-                }
-                | Error::OffsetOverflow { segment: _ }
+                | Error::NoSuchDataInTxRx { .. }
+                | Error::OffsetOverflow { .. }
         )
     }
 }
@@ -89,7 +85,7 @@ fn check_tx_exists_in_block(query: &Query, block: &OrderedBlock) -> Result<(), E
     if block.items().is_empty() {
         return Err(Error::NoSuchTxInBlock(query.index as usize, 0));
     }
-    let last_index = block.items().len() - 1;
+    let last_index = block.items().len() - 1; // Made safe by the is_empty() check immediately above
     if last_index >= query.index as usize {
         Ok(())
     } else {
