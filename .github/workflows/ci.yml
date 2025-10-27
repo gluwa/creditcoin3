@@ -335,9 +335,10 @@ jobs:
       - name: TODO
         if: always()
         run: |
-          echo "SUGGESTION: Revert conflicting commit(s) on 'testnet' branch and/or merge default into 'testnet'."
-          echo "IMPORTANT: Do this ASAP to prevent further branch divergence in the future."
-          echo "NOTE: May also require reverting gluwa-bot commits on the default branch too!"
+          # note: GitHub appears to display these in reverse order
+          echo "::notice::May also require reverting gluwa-bot commits on the default branch too!"
+          echo "::notice::IMPORTANT:  Do this ASAP to prevent further branch divergence in the future."
+          echo "::notice::SUGGESTION: Revert conflicting commit(s) on 'testnet' branch and/or merge default into 'testnet'."
 
       - name: DEBUG
         if: always()
@@ -383,9 +384,10 @@ jobs:
       - name: TODO
         if: always()
         run: |
-          echo "SUGGESTION: Revert conflicting commit(s) on 'testnet' branch and/or merge default into 'testnet'."
-          echo "IMPORTANT: Do this ASAP to prevent further branch divergence in the future."
-          echo "NOTE: May also require reverting gluwa-bot commits on the default branch too!"
+          # note: GitHub appears to display these in reverse order
+          echo "::notice::May also require reverting gluwa-bot commits on the default branch too!"
+          echo "::notice::IMPORTANT:  Do this ASAP to prevent further branch divergence in the future."
+          echo "::notice::SUGGESTION: Revert conflicting commit(s) on 'testnet' branch and/or merge default into 'testnet'."
 
       - name: DEBUG
         if: always()
