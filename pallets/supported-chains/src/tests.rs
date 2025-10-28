@@ -2,7 +2,10 @@ use crate::{self as pallet, mock, mock::SupportedChain, mock::*, Error, Supporte
 use attestor_primitives::ChainEncodingVersion;
 use frame_support::{assert_noop, assert_ok};
 use sp_runtime::traits::BadOrigin;
-use supported_chains_primitives::provider::SupportedChainsProvider;
+use supported_chains_primitives::{
+    provider::SupportedChainsProvider, MATURITY_EVM_FINALIZED, MATURITY_FIXED_DELAY,
+    MATURITY_FIXED_DELAY_10,
+};
 
 #[test]
 fn register_chain_works() {
@@ -387,13 +390,13 @@ fn build_should_panic_with_duplicate_chains_in_genesis() {
                 1,
                 "Ethereum".as_bytes().to_vec(),
                 ChainEncodingVersion::V1,
-                "FixedDelay: 10".to_string(),
+                MATURITY_FIXED_DELAY_10.to_string(),
             ),
             (
                 1,
                 "Ethereum".as_bytes().to_vec(),
                 ChainEncodingVersion::V1,
-                "FixedDelay: 10".to_string(),
+                MATURITY_FIXED_DELAY_10.to_string(),
             ),
         ],
         || {
@@ -408,11 +411,12 @@ fn test_function_set_maturity_strategy() {
         System::set_block_number(1);
 
         let chain_key = 1;
-        let new_strategy = "EvmFinalized";
+        let new_strategy = MATURITY_EVM_FINALIZED;
 
         let supported_chain =
             SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
-        assert!(&supported_chain.maturity_strategy == "FixedDelay: 10");
+        let expected_strategy = format!("{MATURITY_FIXED_DELAY} 10");
+        assert!(&supported_chain.maturity_strategy == &expected_strategy);
 
         assert_ok!(SupportedChain::set_maturity_strategy(
             RuntimeOrigin::root(),

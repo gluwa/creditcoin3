@@ -76,7 +76,7 @@ pub use pallet_staking::StakerStatus;
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::Multiplier;
 use randomness_primitives::provider::RandomnessPalletProvider;
-use supported_chains_primitives::provider::SupportedChainsProvider;
+use supported_chains_primitives::{provider::SupportedChainsProvider, MATURITY_FIXED_DELAY_10};
 
 mod precompiles;
 pub use precompiles::{used_addresses, GluwaPrecompiles};
@@ -914,7 +914,7 @@ impl pallet_attestation_poc::Config for Runtime {
 }
 
 parameter_types! {
-    pub const DefaultMaturityStrategy: &'static str = "FixedDelay: 10";
+    pub const DefaultMaturityStrategy: &'static str = MATURITY_FIXED_DELAY_10;
 }
 
 impl pallet_supported_chains::Config for Runtime {

@@ -16,3 +16,13 @@ pub struct SupportedChain {
     pub chain_encoding: ChainEncodingVersion,
     pub maturity_strategy: String,
 }
+
+// All maturity strategy variants. Using strings to avoid storage migrations.
+pub const MATURITY_EVM_FINALIZED: &str = "EvmFinalized";
+pub const MATURITY_EVM_SAFE: &str = "EvmSafe";
+pub const MATURITY_EVM_LATEST: &str = "EvmLatest";
+pub const MATURITY_FIXED_DELAY: &str = "FixedDelay:";
+
+// Most common fixed delay (current attestor default) set here for ease of entry
+// in chain_spec, etc.
+pub const MATURITY_FIXED_DELAY_10: &str = "FixedDelay: 10";

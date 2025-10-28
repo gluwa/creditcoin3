@@ -23,6 +23,7 @@ use sp_runtime::{
     traits::{IdentityLookup, OpaqueKeys},
     BuildStorage, Perbill,
 };
+use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 
 use attestor_primitives::{AttestationChainConfiguration, ChainEncodingVersion};
 
@@ -273,7 +274,7 @@ impl attestation_poc::Config for Test {
 }
 
 parameter_types! {
-    pub const DefaultMaturityStrategy: &'static str = "FixedDelay: 10";
+    pub const DefaultMaturityStrategy: &'static str = MATURITY_FIXED_DELAY_10;
 }
 
 impl pallet_supported_chains::Config for Test {
@@ -334,7 +335,7 @@ impl ExtBuilder {
                 SOURCE_CHAIN_ID,
                 "Ethereum".as_bytes().to_vec(),
                 ChainEncodingVersion::V1,
-                "FixedDelay: 10".to_string(),
+                MATURITY_FIXED_DELAY_10.to_string(),
             )],
             _phantom: Default::default(),
         };

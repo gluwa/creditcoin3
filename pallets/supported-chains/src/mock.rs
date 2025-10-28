@@ -8,6 +8,7 @@ use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
     BuildStorage,
 };
+use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 
 pub type AccountId = u64;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -53,7 +54,7 @@ impl frame_system::Config for Test {
 }
 
 parameter_types! {
-    pub const DefaultMaturityStrategy: &'static str = "FixedDelay: 10";
+    pub const DefaultMaturityStrategy: &'static str = MATURITY_FIXED_DELAY_10;
 }
 
 impl supported_chains::Config for Test {
@@ -97,7 +98,7 @@ impl ExtBuilder {
                 200,
                 "Ethereum".as_bytes().to_vec(),
                 ChainEncodingVersion::V1,
-                "FixedDelay: 10".to_string(),
+                MATURITY_FIXED_DELAY_10.to_string(),
             )],
             _phantom: Default::default(),
         };

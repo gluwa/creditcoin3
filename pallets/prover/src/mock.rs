@@ -159,7 +159,7 @@ impl pallet_timestamp::Config for Test {
 }
 
 parameter_types! {
-    pub const DefaultMaturityStrategy: &'static str = "FixedDelay: 10";
+    pub const DefaultMaturityStrategy: &'static str = MATURITY_FIXED_DELAY_10;
 }
 
 impl pallet_supported_chains::Config for Test {
@@ -253,6 +253,7 @@ use attestor_primitives::{ChainEncodingVersion, ChainId, ChainKey};
 use pallet_staking::FixedNominationsQuota;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::traits::OpaqueKeys;
+use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 
 type DummyValidatorId = u64;
 
@@ -333,7 +334,7 @@ impl ExtBuilder {
                 1,
                 "Ethereum".as_bytes().to_vec(),
                 ChainEncodingVersion::V1,
-                "FixedDelay: 10".to_string(),
+                MATURITY_FIXED_DELAY_10.to_string(),
             )],
             _phantom: Default::default(),
         };

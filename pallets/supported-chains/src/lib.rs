@@ -1,6 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use pallet::*;
+use supported_chains_primitives::{
+    MATURITY_EVM_FINALIZED, MATURITY_EVM_LATEST, MATURITY_EVM_SAFE, MATURITY_FIXED_DELAY,
+};
 
 #[cfg(test)]
 mod mock;
@@ -327,10 +330,10 @@ pub mod pallet {
 
 fn is_valid_maturity_strategy(strategy: &str) -> bool {
     match strategy {
-        "EvmFinalized" | "EvmSafe" | "EvmLatest" => true,
-        s if s.starts_with("FixedDelay:") => {
+        MATURITY_EVM_FINALIZED | MATURITY_EVM_SAFE | MATURITY_EVM_LATEST => true,
+        s if s.starts_with(MATURITY_FIXED_DELAY) => {
             // Split off the number part and trim whitespace
-            let num_str = s.trim_start_matches("FixedDelay:").trim();
+            let num_str = s.trim_start_matches(MATURITY_FIXED_DELAY).trim();
             // Try parsing as u64
             num_str.parse::<u64>().is_ok()
         }

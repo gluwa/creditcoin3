@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     str::FromStr,
 };
+use supported_chains_primitives::MATURITY_FIXED_DELAY;
 
 // Substrate
 use attestor_primitives::{
@@ -479,28 +480,28 @@ fn testnet_genesis(
                     1,
                     "Ethereum".as_bytes().to_vec(),
                     ChainEncodingVersion::V1,
-                    "FixedDelay: 10".to_string(),
+                    MATURITY_FIXED_DELAY_10.to_string(),
                 ),
                 // 2 Anvil network one
                 (
                     31337,
                     "Anvil1".as_bytes().to_vec(),
                     ChainEncodingVersion::V1,
-                    "FixedDelay: 10".to_string(),
+                    MATURITY_FIXED_DELAY_10.to_string(),
                 ),
                 // 3. Sepolia ethereum
                 (
                     11155111,
                     "Sepolia ethereum".as_bytes().to_vec(),
                     ChainEncodingVersion::V1,
-                    "FixedDelay: 10".to_string(),
+                    MATURITY_FIXED_DELAY_10.to_string(),
                 ),
                 // 4. Anvil network two
                 (
                     31338,
                     "Anvil2".as_bytes().to_vec(),
                     ChainEncodingVersion::V1,
-                    "FixedDelay: 10".to_string(),
+                    MATURITY_FIXED_DELAY_10.to_string(),
                 ),
                 // 5. Anvil network three // Due to a restart of the anvil network on devnet
                 // This makes it so the the devnet anvil endpoint is still compatible with local dev setup
@@ -508,14 +509,14 @@ fn testnet_genesis(
                     31339,
                     "Anvil3".as_bytes().to_vec(),
                     ChainEncodingVersion::V1,
-                    "FixedDelay: 10".to_string(),
+                    MATURITY_FIXED_DELAY_10.to_string(),
                 ),
                 // 6. Polygon amoy testnet
                 (
                     80002,
                     "Polygon amoy testnet".as_bytes().to_vec(),
                     ChainEncodingVersion::V1,
-                    "FixedDelay: 10".to_string(),
+                    MATURITY_FIXED_DELAY_10.to_string(),
                 ),
             ],
             _phantom: Default::default(),

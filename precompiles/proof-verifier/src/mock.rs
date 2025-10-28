@@ -251,7 +251,7 @@ impl pallet_prover::Config for Runtime {
 }
 
 parameter_types! {
-    pub const DefaultMaturityStrategy: &'static str = "FixedDelay: 10";
+    pub const DefaultMaturityStrategy: &'static str = MATURITY_FIXED_DELAY_10;
 }
 
 impl pallet_supported_chains::Config for Runtime {
@@ -386,6 +386,7 @@ impl pallet_session::historical::Config for Runtime {
 
 use attestor_primitives::{ChainEncodingVersion, ChainId, ChainKey};
 use sp_staking::EraIndex;
+use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 
 parameter_types! {
     pub const MaxLocks: u32 = 50;
@@ -474,7 +475,7 @@ impl ExtBuilder {
                 1,
                 "Ethereum".as_bytes().to_vec(),
                 ChainEncodingVersion::V1,
-                "FixedDelay: 10".to_string(),
+                MATURITY_FIXED_DELAY_10.to_string(),
             )],
             _phantom: Default::default(),
         };

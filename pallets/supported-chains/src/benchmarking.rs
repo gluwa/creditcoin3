@@ -6,6 +6,7 @@ use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_support::traits::OriginTrait;
 use scale_info::prelude::string::String;
+use supported_chains_primitives::MATURITY_EVM_FINALIZED;
 
 #[benchmarks]
 mod benchmarks {
@@ -72,7 +73,7 @@ mod benchmarks {
         let chain_id: ChainId = 2;
         let chain_name: String = String::from("Ethereum");
         let chain_encoding = ChainEncodingVersion::V1;
-        let maturity_strategy = String::from("EvmFinalized");
+        let maturity_strategy = String::from(MATURITY_EVM_FINALIZED);
 
         assert_ok!(SupportedChains::<T>::register_chain(
             root_origin.clone(),
