@@ -10,7 +10,9 @@ concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
   cancel-in-progress: true
 
-permissions: read-all
+permissions:
+  id-token: write
+  contents: read
 
 env:
   RUNNER_VM_NAME: "${{ github.event.repository.name }}-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
@@ -273,7 +275,7 @@ jobs:
           # WARNING: always use the same tag name as the release
           sed -i "s/\"version\": \".*\"/\"version\": \"${{ needs.sanity-check.outputs.TAG_NAME }}\"/" package*.json
           git diff
-
+          npm install -g npm@latest
           npm install
           npm pack
 
@@ -289,8 +291,6 @@ jobs:
         working-directory: common/eth/contracts/
         run: |
           npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PUBLISH_TOKEN }}
 
       - name: Upload smart contract(s)
         uses: actions/upload-artifact@v4
