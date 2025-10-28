@@ -22,3 +22,5 @@ http://subquery-node:3000
 postgres://(.*)
 https://github.com/gluwa/creditcoin3/pull(.*)
 https://sepolia.infura.io/v3/(.*)
+https://registry.npmjs.org/-/npm/v1/(.*)
+https://github.com/request/request/issues/(.*)

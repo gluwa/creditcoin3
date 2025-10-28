@@ -5,6 +5,7 @@ name: Build Release Artifacts
   push:
     tags:
       - "*"
+  pull_request:
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -19,7 +20,36 @@ env:
   LINODE_VM_SIZE: "g6-standard-4"
 
 jobs:
+  # WARNING: must be in release.yml b/c on the NPM side there's no way to configure
+  # multiple workflows for Trusted Publishing!
+  check-npm-trusted-publishing:
+    permissions:
+      id-token: write
+      contents: read
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Get GitHub OIDC id_token for NPM
+        id: oidc
+        run: |
+          TOKEN=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org" | jq -r '.value')
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Exchange id_token for NPM registry token (no publish)
+        env:
+          OIDC_ID_TOKEN: ${{ steps.oidc.outputs.token }}
+          PACKAGE_NAME: "@gluwa%2fcreditcoin-public-prover"
+        run: |
+          set -e
+          resp=$(curl --request POST -sS -w "%{http_code}" -o resp.json \
+            -H "Authorization: Bearer ${OIDC_ID_TOKEN}" \
+            "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/${PACKAGE_NAME}")
+          echo "HTTP ${resp}"
+          test "${resp}" = "201" || (cat resp.json; exit 1)
+          echo "Preflight OK: OIDC trust is correctly configured."
+
   sanity-check:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     outputs:
       TAG_NAME: ${{ steps.identify-tag.outputs.TAG_NAME }}
@@ -83,6 +113,7 @@ jobs:
           node dist/scripts/npm-semver-check.js "${{ env.TAG_NAME }}"
 
   setup:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     needs: sanity-check
     outputs:
@@ -142,6 +173,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
   generate-changelog:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     needs: setup
     steps:
@@ -204,6 +236,7 @@ jobs:
           if-no-files-found: error
 
   deploy-github-runner:
+    if: github.event_name != 'pull_request'
     timeout-minutes: 15
     needs:
       - sanity-check
@@ -250,6 +283,7 @@ jobs:
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
 
   build-npm-package:
+    if: github.event_name != 'pull_request'
     needs:
       - sanity-check
       - setup
@@ -305,6 +339,7 @@ jobs:
           include-hidden-files: true
 
   build-native-runtime:
+    if: github.event_name != 'pull_request'
     needs:
       - sanity-check
       - setup
@@ -317,6 +352,7 @@ jobs:
     secrets: inherit
 
   build-wasm-runtime:
+    if: github.event_name != 'pull_request'
     needs:
       - sanity-check
       - setup
@@ -328,6 +364,7 @@ jobs:
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-wasm']"
 
   docker-build:
+    if: github.event_name != 'pull_request'
     needs:
       - sanity-check
       - setup
@@ -340,6 +377,7 @@ jobs:
     secrets: inherit
 
   create-release:
+    if: github.event_name != 'pull_request'
     permissions:
       contents: write
     runs-on: ubuntu-24.04
@@ -414,10 +452,10 @@ jobs:
           message: "Release pipeline finished! cc <@U028EMRHS3S>"
 
   rm-gh-runner-docker:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     needs:
       - docker-build
-    if: ${{ always() }}
 
     strategy:
       fail-fast: false
@@ -450,10 +488,10 @@ jobs:
           LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
 
   rm-gh-runner-native:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     needs:
       - build-native-runtime
-    if: ${{ always() }}
 
     strategy:
       fail-fast: false
@@ -486,10 +524,10 @@ jobs:
           LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
 
   rm-gh-runner-wasm:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     needs:
       - build-wasm-runtime
-    if: ${{ always() }}
 
     strategy:
       fail-fast: false
