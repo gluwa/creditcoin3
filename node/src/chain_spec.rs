@@ -5,7 +5,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     str::FromStr,
 };
-use supported_chains_primitives::MATURITY_FIXED_DELAY;
+use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 
 // Substrate
 use attestor_primitives::{
