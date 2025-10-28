@@ -74,11 +74,11 @@ LayoutSegment { offset: 192, size: 32 }
 The transaction is stored as felts, where each felt holds 31 bytes:
 
 ```
-Felt[0] = bytes [0..31)      (31 bytes)
-Felt[1] = bytes [31..62)     (31 bytes)
+Felt[0] = bytes [0..31]     (31 bytes)
+Felt[1] = bytes [31..62]     (31 bytes)
 ...
-Felt[6] = bytes [186..217)   (31 bytes)  ← Contains bytes 192-216
-Felt[7] = bytes [217..248)   (31 bytes)  ← Contains bytes 217-223
+Felt[6] = bytes [186..217]   (31 bytes)  ← Contains bytes 192-216
+Felt[7] = bytes [217..248]   (31 bytes)  ← Contains bytes 217-223
 ...
 ```
 
