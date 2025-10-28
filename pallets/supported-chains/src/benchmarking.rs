@@ -64,4 +64,35 @@ mod benchmarks {
             true,
         )
     }
+
+    #[benchmark]
+    fn set_maturity_strategy() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let chain_id: ChainId = 2;
+        let chain_name: String = String::from("Ethereum");
+        let chain_encoding = ChainEncodingVersion::V1;
+        let maturity_strategy = String::from("EvmFinalized");
+
+        assert_ok!(SupportedChains::<T>::register_chain(
+            root_origin.clone(),
+            chain_id,
+            chain_name,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            chain_encoding,
+        ));
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_id,
+            maturity_strategy,
+        )
+    }
 }

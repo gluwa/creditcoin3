@@ -63,6 +63,7 @@ pub mod pallet {
     pub trait WeightInfo {
         fn register_chain() -> Weight;
         fn remove_chain() -> Weight;
+        fn set_maturity_strategy() -> Weight;
     }
 
     #[pallet::storage]
@@ -145,6 +146,14 @@ pub mod pallet {
             chain_name: Vec<u8>,
             chain_encoding: ChainEncodingVersion,
         },
+
+        /// The maturity strategy for a chain has been set
+        MaturityStrategySet {
+            chain_key: ChainKey,
+            chain_id: ChainId,
+            chain_name: Vec<u8>,
+            maturity_strategy: String,
+        },
     }
 
     #[pallet::error]
@@ -157,6 +166,9 @@ pub mod pallet {
 
         /// Math overflow/underflow
         Arithmetic,
+
+        /// Maturity strategy doesn't match one in the expected set
+        InvalidMaturityStrategy,
     }
 
     #[pallet::call]
@@ -252,6 +264,41 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// Sets the maturity strategy for a supported chain
+        /// Options
+        /// - "EvmFinalized" Gets blocks once they are finalized
+        /// - "EvmSafe" Gets blocks once they are confirmed
+        /// - "EvmLatest" Gets blocks as soon as available
+        /// - "FixedDelay: X" Gets blocks after they are X blocks old
+        #[pallet::call_index(2)]
+        #[pallet::weight(T::WeightInfo::set_maturity_strategy())]
+        pub fn set_maturity_strategy(
+            origin: OriginFor<T>,
+            chain_key: ChainId,
+            maturity_strategy: String,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(
+                is_valid_maturity_strategy(&maturity_strategy),
+                Error::<T>::InvalidMaturityStrategy
+            );
+
+            let mut item =
+                SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
+            item.maturity_strategy = maturity_strategy;
+
+            Self::deposit_event(Event::MaturityStrategySet {
+                chain_key,
+                chain_id: item.chain_id,
+                chain_name: item.chain_name.clone(),
+                maturity_strategy: item.maturity_strategy.clone(),
+            });
+
+            SupportedChains::<T>::insert(chain_key, item);
+
+            Ok(())
+        }
     }
 
     impl<T: Config> SupportedChainsProvider for Pallet<T> {
@@ -275,5 +322,18 @@ pub mod pallet {
         fn get_supported_chain(chain_key: ChainKey) -> Option<SupportedChain> {
             SupportedChains::<T>::get(chain_key)
         }
+    }
+}
+
+fn is_valid_maturity_strategy(strategy: &str) -> bool {
+    match strategy {
+        "EvmFinalized" | "EvmSafe" | "EvmLatest" => true,
+        s if s.starts_with("FixedDelay:") => {
+            // Split off the number part and trim whitespace
+            let num_str = s.trim_start_matches("FixedDelay:").trim();
+            // Try parsing as u64
+            num_str.parse::<u64>().is_ok()
+        }
+        _ => false,
     }
 }

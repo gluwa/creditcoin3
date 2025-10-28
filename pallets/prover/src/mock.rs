@@ -158,11 +158,16 @@ impl pallet_timestamp::Config for Test {
     type WeightInfo = ();
 }
 
+parameter_types! {
+    pub const DefaultMaturityStrategy: &'static str = "FixedDelay: 10";
+}
+
 impl pallet_supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Test>;
     type EventListeners = ();
     type ChainRegistrationHandler = DummyRegistrationHandler;
+    type DefaultMaturityStrategy = DefaultMaturityStrategy;
 }
 
 pub struct DummyRegistrationHandler;
@@ -324,7 +329,12 @@ impl ExtBuilder {
         b.assimilate_storage(&mut t).unwrap();
 
         let chains = pallet_supported_chains::GenesisConfig::<Test> {
-            supported_chains: vec![(1, "Ethereum".as_bytes().to_vec(), ChainEncodingVersion::V1)],
+            supported_chains: vec![(
+                1,
+                "Ethereum".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                "FixedDelay: 10".to_string(),
+            )],
             _phantom: Default::default(),
         };
         chains.assimilate_storage(&mut t).unwrap();

@@ -401,3 +401,59 @@ fn build_should_panic_with_duplicate_chains_in_genesis() {
         },
     );
 }
+
+#[test]
+fn test_function_set_maturity_strategy() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+        let new_strategy = "EvmFinalized";
+
+        let supported_chain =
+            SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
+        assert!(&supported_chain.maturity_strategy == "FixedDelay: 10");
+
+        assert_ok!(SupportedChain::set_maturity_strategy(
+            RuntimeOrigin::root(),
+            chain_key,
+            new_strategy.to_string()
+        ));
+
+        let supported_chain =
+            SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
+        assert!(&supported_chain.maturity_strategy == new_strategy);
+
+        // assert on emited event
+        System::assert_last_event(
+            crate::Event::MaturityStrategySet {
+                chain_key: chain_key,
+                chain_id: supported_chain.chain_id,
+                chain_name: supported_chain.chain_name.into(),
+                maturity_strategy: new_strategy.to_string(),
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn set_maturity_strategy_fails_with_invalid_strategy() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+
+        // Verify the chain is supported
+        assert!(SupportedChain::supported_chain(chain_key).is_some());
+
+        assert_noop!(
+            SupportedChain::set_maturity_strategy(
+                RuntimeOrigin::root(),
+                chain_key,
+                "FixedDelay: the".to_string()
+            ),
+            Error::<Test>::InvalidMaturityStrategy
+        );
+    });
+}

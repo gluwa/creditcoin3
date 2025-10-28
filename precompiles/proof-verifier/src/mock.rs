@@ -250,12 +250,17 @@ impl pallet_prover::Config for Runtime {
     type MaxSegmentsPerVerifierResult = MaxSegmentsPerVerifierResult;
 }
 
+parameter_types! {
+    pub const DefaultMaturityStrategy: &'static str = "FixedDelay: 10";
+}
+
 impl pallet_supported_chains::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
     type EventListeners = ();
 
     type ChainRegistrationHandler = DummyRegistrationHandler;
+    type DefaultMaturityStrategy = DefaultMaturityStrategy;
 }
 
 pub struct DummyRegistrationHandler;
@@ -465,7 +470,12 @@ impl ExtBuilder {
         .expect("Pallet balances storage can be assimilated");
 
         let chains = pallet_supported_chains::GenesisConfig::<Runtime> {
-            supported_chains: vec![(1, "Ethereum".as_bytes().to_vec(), ChainEncodingVersion::V1)],
+            supported_chains: vec![(
+                1,
+                "Ethereum".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                "FixedDelay: 10".to_string(),
+            )],
             _phantom: Default::default(),
         };
         chains.assimilate_storage(&mut t).unwrap();

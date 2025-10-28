@@ -272,11 +272,16 @@ impl attestation_poc::Config for Test {
     type DefaultVoteAcceptanceWindow = DefaultVoteAcceptanceWindow;
 }
 
+parameter_types! {
+    pub const DefaultMaturityStrategy: &'static str = "FixedDelay: 10";
+}
+
 impl pallet_supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Test>;
     type EventListeners = Attestation;
     type ChainRegistrationHandler = Attestation;
+    type DefaultMaturityStrategy = DefaultMaturityStrategy;
 }
 
 impl pallet_randomness::Config for Test {
@@ -329,6 +334,7 @@ impl ExtBuilder {
                 SOURCE_CHAIN_ID,
                 "Ethereum".as_bytes().to_vec(),
                 ChainEncodingVersion::V1,
+                "FixedDelay: 10".to_string(),
             )],
             _phantom: Default::default(),
         };
