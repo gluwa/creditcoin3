@@ -3089,6 +3089,21 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, bool]
             >;
             /**
+             * Sets the maturity strategy for a supported chain
+             * Options
+             * - "EvmFinalized" Gets blocks once they are finalized
+             * - "EvmSafe" Gets blocks once they are confirmed
+             * - "EvmLatest" Gets blocks as soon as available
+             * - "FixedDelay: X" Gets blocks after they are X blocks old
+             **/
+            setMaturityStrategy: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    maturityStrategy: Text | string,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, Text]
+            >;
+            /**
              * Generic tx
              **/
             [key: string]: SubmittableExtrinsicFunction<ApiType>;

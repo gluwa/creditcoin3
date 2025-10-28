@@ -1260,7 +1260,14 @@ declare module '@polkadot/types/lookup' {
             readonly chainName: Bytes;
             readonly chainEncoding: AttestorPrimitivesChainEncodingVersion;
         } & Struct;
-        readonly type: 'ChainRegistered' | 'ChainRemoved';
+        readonly isMaturityStrategySet: boolean;
+        readonly asMaturityStrategySet: {
+            readonly chainKey: u64;
+            readonly chainId: u64;
+            readonly chainName: Bytes;
+            readonly maturityStrategy: Text;
+        } & Struct;
+        readonly type: 'ChainRegistered' | 'ChainRemoved' | 'MaturityStrategySet';
     }
 
     /** @name AttestorPrimitivesChainEncodingVersion (106) */
@@ -3120,7 +3127,12 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly removeCheckpoints: bool;
         } & Struct;
-        readonly type: 'RegisterChain' | 'RemoveChain';
+        readonly isSetMaturityStrategy: boolean;
+        readonly asSetMaturityStrategy: {
+            readonly chainKey: u64;
+            readonly maturityStrategy: Text;
+        } & Struct;
+        readonly type: 'RegisterChain' | 'RemoveChain' | 'SetMaturityStrategy';
     }
 
     /** @name PalletProverCall (335) */
@@ -3681,6 +3693,7 @@ declare module '@polkadot/types/lookup' {
         readonly chainId: u64;
         readonly chainName: Bytes;
         readonly chainEncoding: AttestorPrimitivesChainEncodingVersion;
+        readonly maturityStrategy: Text;
     }
 
     /** @name PalletSupportedChainsError (420) */
@@ -3688,7 +3701,8 @@ declare module '@polkadot/types/lookup' {
         readonly isChainAlreadyRegistered: boolean;
         readonly isChainNotSupported: boolean;
         readonly isArithmetic: boolean;
-        readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported' | 'Arithmetic';
+        readonly isInvalidMaturityStrategy: boolean;
+        readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported' | 'Arithmetic' | 'InvalidMaturityStrategy';
     }
 
     /** @name PalletProverError (421) */

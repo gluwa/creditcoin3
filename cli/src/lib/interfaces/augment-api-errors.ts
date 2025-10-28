@@ -832,6 +832,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             ChainNotSupported: AugmentedError<ApiType>;
             /**
+             * Maturity strategy doesn't match one in the expected set
+             **/
+            InvalidMaturityStrategy: AugmentedError<ApiType>;
+            /**
              * Generic error
              **/
             [key: string]: AugmentedError<ApiType>;

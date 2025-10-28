@@ -995,6 +995,12 @@ export default {
                 chainName: 'Bytes',
                 chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
             },
+            MaturityStrategySet: {
+                chainKey: 'u64',
+                chainId: 'u64',
+                chainName: 'Bytes',
+                maturityStrategy: 'Text',
+            },
         },
     },
     /**
@@ -2673,6 +2679,10 @@ export default {
                 chainKey: 'u64',
                 removeCheckpoints: 'bool',
             },
+            set_maturity_strategy: {
+                chainKey: 'u64',
+                maturityStrategy: 'Text',
+            },
         },
     },
     /**
@@ -3126,12 +3136,13 @@ export default {
         chainId: 'u64',
         chainName: 'Bytes',
         chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
+        maturityStrategy: 'Text',
     },
     /**
      * Lookup420: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
-        _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic'],
+        _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic', 'InvalidMaturityStrategy'],
     },
     /**
      * Lookup421: pallet_prover::pallet::Error<T>

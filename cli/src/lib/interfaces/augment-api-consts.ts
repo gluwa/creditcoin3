@@ -6,7 +6,7 @@
 import '@polkadot/api-base/types/consts';
 
 import type { ApiTypes, AugmentedConst } from '@polkadot/api-base/types';
-import type { Vec, u128, u16, u32, u64, u8 } from '@polkadot/types-codec';
+import type { Text, Vec, u128, u16, u32, u64, u8 } from '@polkadot/types-codec';
 import type { Codec } from '@polkadot/types-codec/types';
 import type {
     FrameSupportPalletId,
@@ -340,6 +340,27 @@ declare module '@polkadot/api-base/types/consts' {
              * should be applied immediately, without opportunity for intervention.
              **/
             slashDeferDuration: u32 & AugmentedConst<ApiType>;
+            /**
+             * Generic const
+             **/
+            [key: string]: Codec;
+        };
+        supportedChains: {
+            /**
+             * Determines which maturity strategy attestors will use when fetching source chain
+             * blocks and building attestations. Strict strategies such as EvmFinalized delay
+             * longer before building attestations, ensuring that attestations won't be created
+             * from blocks which could be re-orged.
+             *
+             * Maturity strategies use the String type for extensability.
+             *
+             * Expected strategies:
+             * - "EvmFinalized" Gets blocks once they are finalized
+             * - "EvmSafe" Gets blocks once they are confirmed
+             * - "EvmLatest" Gets blocks as soon as available
+             * - "FixedDelay: X" Gets blocks after they are X blocks old
+             **/
+            defaultMaturityStrategy: Text & AugmentedConst<ApiType>;
             /**
              * Generic const
              **/

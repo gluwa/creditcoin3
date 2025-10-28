@@ -11,6 +11,7 @@ import type {
     Null,
     Option,
     Result,
+    Text,
     U256,
     U8aFixed,
     Vec,
@@ -930,6 +931,14 @@ declare module '@polkadot/api-base/types/events' {
                 ApiType,
                 [chainKey: u64, chainId: u64, chainName: Bytes, chainEncoding: AttestorPrimitivesChainEncodingVersion],
                 { chainKey: u64; chainId: u64; chainName: Bytes; chainEncoding: AttestorPrimitivesChainEncodingVersion }
+            >;
+            /**
+             * The maturity strategy for a chain has been set
+             **/
+            MaturityStrategySet: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, chainId: u64, chainName: Bytes, maturityStrategy: Text],
+                { chainKey: u64; chainId: u64; chainName: Bytes; maturityStrategy: Text }
             >;
             /**
              * Generic event
