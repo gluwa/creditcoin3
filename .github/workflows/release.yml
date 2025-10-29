@@ -10,9 +10,7 @@ concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
   cancel-in-progress: true
 
-permissions:
-  id-token: write
-  contents: read
+permissions: read-all
 
 env:
   RUNNER_VM_NAME: "${{ github.event.repository.name }}-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
@@ -255,6 +253,9 @@ jobs:
     needs:
       - sanity-check
       - setup
+    permissions:
+      id-token: write
+      contents: read
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
