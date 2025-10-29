@@ -237,7 +237,7 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
                     module: 'attestation',
                     method: 'AuthorizedAttestorRemoved',
                 },
-            }
+            },
         ],
     },
 };

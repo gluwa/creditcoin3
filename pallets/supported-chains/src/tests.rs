@@ -56,6 +56,8 @@ fn register_chain_works() {
                 chain_id,
                 chain_name: chain_name.into(),
                 chain_encoding: ChainEncodingVersion::V1,
+                maturity_strategy: <mock::Test as pallet::Config>::DefaultMaturityStrategy::get()
+                    .to_string(),
             }
             .into(),
         );
@@ -274,6 +276,8 @@ fn remove_chain_works() {
                 chain_id: 200,
                 chain_name: "Ethereum".into(),
                 chain_encoding: ChainEncodingVersion::V1,
+                maturity_strategy: <mock::Test as pallet::Config>::DefaultMaturityStrategy::get()
+                    .to_string(),
             }
             .into(),
         );

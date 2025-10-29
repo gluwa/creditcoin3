@@ -1,7 +1,7 @@
 ---
 services:
     postgres:
-        network_mode: "host"
+        network_mode: 'host'
         build:
             context: .
             dockerfile: ./postgres/Dockerfile
@@ -23,7 +23,7 @@ services:
             'postgres':
                 condition: service_healthy
         restart: unless-stopped
-        network_mode: "host"
+        network_mode: 'host'
         ports:
             - 3000:3000
         # extra_hosts:

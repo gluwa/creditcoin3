@@ -601,6 +601,8 @@ type SupportedChain @entity {
     chainName: String!
     # Chain encoding version
     chainEncoding: String!
+    # Chain maturity strategy
+    maturityStrategy: String!
     # At Block
     at: BigInt!
 }
@@ -615,6 +617,8 @@ type ChainRegistered @entity {
     chainName: String!
     # Chain encoding version
     chainEncoding: String!
+    # Chain maturity strategy
+    maturityStrategy: String!
     # At Block
     at: BigInt!
     # account that registered chain
@@ -631,6 +635,8 @@ type ChainRemoved @entity {
     chainName: String!
     # Chain encoding version
     chainEncoding: String!
+    # Chain maturity strategy
+    maturityStrategy: String!
     # At Block
     at: BigInt!
     # account that removed chain

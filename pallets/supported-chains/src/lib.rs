@@ -140,6 +140,7 @@ pub mod pallet {
             chain_id: ChainId,
             chain_name: Vec<u8>,
             chain_encoding: ChainEncodingVersion,
+            maturity_strategy: String,
         },
 
         /// A chain has been removed with a given ID
@@ -148,6 +149,7 @@ pub mod pallet {
             chain_id: ChainId,
             chain_name: Vec<u8>,
             chain_encoding: ChainEncodingVersion,
+            maturity_strategy: String,
         },
 
         /// The maturity strategy for a chain has been set
@@ -235,6 +237,7 @@ pub mod pallet {
                 chain_id,
                 chain_name: chain_name.as_bytes().to_vec(),
                 chain_encoding: encoding,
+                maturity_strategy: T::DefaultMaturityStrategy::get(),
             });
 
             Ok(())
@@ -263,6 +266,7 @@ pub mod pallet {
                 chain_id: item.chain_id,
                 chain_name: item.chain_name.clone(),
                 chain_encoding: item.chain_encoding,
+                maturity_strategy: item.maturity_strategy,
             });
 
             Ok(())
