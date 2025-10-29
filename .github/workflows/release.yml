@@ -291,7 +291,7 @@ jobs:
       - name: Publish @gluwa/creditcoin-public-prover package
         working-directory: common/eth/contracts/
         run: |
-          npm publish --access public
+          npm publish --access public --verbose
 
       - name: Upload smart contract(s)
         uses: actions/upload-artifact@v4
