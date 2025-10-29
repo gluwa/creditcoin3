@@ -3,7 +3,7 @@ import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
 import { graphQLQuery } from './common';
 
-describe('handleSupportedChainRemoved()', () => {
+describe('handleMaturityStrategySet()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
     let startingBlock: bigint;
@@ -12,7 +12,7 @@ describe('handleSupportedChainRemoved()', () => {
     const newChainName = `Test Chain ${newChainId}`;
     const encoding = 'V1';
     let newChainKey = 0n;
-    const defaultMaturityStrategy = 'FixedDelay: 10';
+    const maturityStrategy = 'EvmFinalized';
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -49,7 +49,7 @@ describe('handleSupportedChainRemoved()', () => {
                 supportedChains(
                     filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
-                ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding, maturityStrategy }}}`,
+                ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding }}}`,
         );
         expect(response.data.supportedChains.nodes).toBeTruthy();
         expect(response.data.supportedChains.nodes.length).toEqual(1);
@@ -61,7 +61,6 @@ describe('handleSupportedChainRemoved()', () => {
             expect(node.chainName).toEqual(newChainName);
             expect(BigInt(node.chainId)).toEqual(newChainId);
             expect(node.chainEncoding).toEqual(encoding);
-            expect(node.maturityStrategy).toEqual(defaultMaturityStrategy);
         }
     }, 60_000);
 
@@ -69,13 +68,13 @@ describe('handleSupportedChainRemoved()', () => {
         await api.disconnect();
     });
 
-    describe('when a supported chain is removed', () => {
+    describe('when the maturity strategy for a chain is set', () => {
         beforeAll(async () => {
             startingBlock = BigInt((await getChainStatus(api)).bestNumber);
             expect(startingBlock).toBeGreaterThan(0);
 
             await api.tx.sudo
-                .sudo(api.tx.supportedChains.removeChain(newChainKey, true))
+                .sudo(api.tx.supportedChains.setMaturityStrategy(newChainKey, maturityStrategy))
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
 
             await forElapsedBlocks(api, { minBlocks: 3 });
@@ -84,49 +83,45 @@ describe('handleSupportedChainRemoved()', () => {
         it('graphQL returns known ChainRemoved entity', async () => {
             const response = await graphQLQuery(
                 `query {
-                    chainRemoveds(
+                    maturityStrategySets(
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
-                    ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding, maturityStrategy, whoId }}}`,
+                    ) { nodes { id, at, chainKey, chainName, chainId, maturityStrategy, whoId }}}`,
             );
-            expect(response.data.chainRemoveds.nodes).toBeTruthy();
-            expect(response.data.chainRemoveds.nodes.length).toEqual(1);
+            expect(response.data.maturityStrategySets.nodes).toBeTruthy();
+            expect(response.data.maturityStrategySets.nodes.length).toEqual(1);
 
-            for (const node of response.data.chainRemoveds.nodes) {
+            for (const node of response.data.maturityStrategySets.nodes) {
                 expect(node.id).toBeTruthy();
                 // note: inspecting only last record
                 expect(BigInt(node.at)).toBeGreaterThanOrEqual(startingBlock);
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.chainName).toEqual(newChainName);
                 expect(BigInt(node.chainId)).toEqual(newChainId);
-                expect(node.chainEncoding).toEqual(encoding);
-                expect(node.maturityStrategy).toEqual(defaultMaturityStrategy);
+                expect(node.maturityStrategy).toEqual(maturityStrategy);
                 expect(node.whoId).toEqual(root.address);
             }
         });
 
-        it('known SupportedChain entity should be removed', async () => {
+        it('known SupportedChain entity should have correct maturity strategy', async () => {
             const response = await graphQLQuery(
                 `query {
                     supportedChains(
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
-                    ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding, maturityStrategy }}}`,
+                    ) { nodes { id, chainKey, chainName, chainId, chainEncoding, maturityStrategy }}}`,
             );
             expect(response.data.supportedChains.nodes).toBeTruthy();
-            expect(response.data.supportedChains.nodes.length).toEqual(0);
-        });
+            expect(response.data.supportedChains.nodes.length).toEqual(1);
 
-        it('known AttestationChainData entity should be removed', async () => {
-            const response = await graphQLQuery(
-                `query {
-                    attestationChainData(
-                        filter: { chainKey: { equalTo: "${newChainKey}" }},
-                        last: 1,
-                    ) { nodes { id, chainKey }}}`,
-            );
-            expect(response.data.attestationChainData.nodes).toBeTruthy();
-            expect(response.data.attestationChainData.nodes.length).toEqual(0);
+            for (const node of response.data.supportedChains.nodes) {
+                expect(node.id).toBeTruthy();
+                expect(BigInt(node.chainKey)).toEqual(newChainKey);
+                expect(node.chainName).toEqual(newChainName);
+                expect(BigInt(node.chainId)).toEqual(newChainId);
+                expect(node.chainEncoding).toEqual(encoding);
+                expect(node.maturityStrategy).toEqual(maturityStrategy);
+            }
         });
     });
 });

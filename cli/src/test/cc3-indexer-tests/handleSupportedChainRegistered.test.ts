@@ -13,6 +13,7 @@ describe('handleSupportedChainRegistered()', () => {
     const newChainName = `Test Chain ${newChainId}`;
     const encoding = 'V1';
     let newChainKey = 0n;
+    const defaultMaturityStrategy = 'FixedDelay: 10';
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -65,7 +66,7 @@ describe('handleSupportedChainRegistered()', () => {
                     chainRegistereds(
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
-                    ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding, whoId }}}`,
+                    ) { nodes { id, at, chainKey, chainName, chainId, chainEncoding, maturityStrategy, whoId }}}`,
             );
             expect(response.data.chainRegistereds.nodes).toBeTruthy();
             expect(response.data.chainRegistereds.nodes.length).toEqual(1);
@@ -78,6 +79,7 @@ describe('handleSupportedChainRegistered()', () => {
                 expect(node.chainName).toEqual(newChainName);
                 expect(BigInt(node.chainId)).toEqual(BigInt(newChainId));
                 expect(node.chainEncoding).toEqual(encoding);
+                expect(node.maturityStrategy).toEqual(defaultMaturityStrategy);
                 expect(node.whoId).toEqual(root.address);
             }
         });
@@ -88,7 +90,7 @@ describe('handleSupportedChainRegistered()', () => {
                     supportedChains(
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
-                    ) { nodes { id, chainKey, chainName, chainId, chainEncoding }}}`,
+                    ) { nodes { id, chainKey, chainName, chainId, maturityStrategy, chainEncoding }}}`,
             );
             expect(response.data.supportedChains.nodes).toBeTruthy();
             expect(response.data.supportedChains.nodes.length).toEqual(1);
@@ -100,6 +102,7 @@ describe('handleSupportedChainRegistered()', () => {
                 expect(node.chainName).toEqual(newChainName);
                 expect(BigInt(node.chainId)).toEqual(newChainId);
                 expect(node.chainEncoding).toEqual(encoding);
+                expect(node.maturityStrategy).toEqual(defaultMaturityStrategy);
             }
         });
 

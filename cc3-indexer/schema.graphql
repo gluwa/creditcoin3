@@ -643,6 +643,22 @@ type ChainRemoved @entity {
     who: Account!
 }
 
+type MaturityStrategySet @entity {
+    id: ID!
+    # Chain key
+    chainKey: BigInt! @index
+    # Chain id
+    chainId: BigInt! @index
+    # Chain name
+    chainName: String!
+    # Chain maturity strategy
+    maturityStrategy: String!
+    # At Block
+    at: BigInt!
+    # account that removed chain
+    who: Account!
+}
+
 type VoteAcceptanceWindowChanged @entity {
     """
     id field is always required and must look like this

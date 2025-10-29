@@ -26,6 +26,7 @@ import {
     ChainRegistered,
     SupportedChain,
     ChainRemoved,
+    MaturityStrategySet,
     AttestationChainData,
     MaxAttestorsChanged,
     VoteAcceptanceWindowChanged,
@@ -208,6 +209,44 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
     }
 
     return Promise.resolve();
+}
+
+export async function handleMaturityStrategySet(event: SubstrateEvent): Promise<void> {
+    const {
+        event: {
+            data: [chainKey, chainId, chainName, maturityStrategy],
+        },
+    } = event;
+
+    const from = event.extrinsic?.extrinsic.signer;
+    assert(from, 'Signer is missing');
+
+    const blockNumber = event.block.block.header.number.toBigInt();
+
+    const chainKeyStr = chainKey.toString();
+    const chainKeyNumber = BigInt(chainKeyStr);
+
+    const hexDecodedChainName = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
+    const maturityStrategyStr = maturityStrategy.toString();
+
+    const maturityStrategySet = MaturityStrategySet.create({
+        id: `${blockNumber}-${event.idx}`,
+        at: blockNumber,
+        chainKey: chainKeyNumber,
+        chainName: hexDecodedChainName,
+        maturityStrategy: maturityStrategyStr,
+        chainId: BigInt(chainId.toString()),
+        whoId: from.toString(),
+    });
+
+    let supportedChain = await SupportedChain.get(chainKeyStr);
+    if (!supportedChain) {
+        logger.error(`Supported Chain : ${chainKeyStr} not found in db for set maturity strategy event: ${event.idx}.`);
+    } else {
+        supportedChain.maturityStrategy = maturityStrategyStr;
+        logger.info(`New MaturityStrategySet event created at block ${blockNumber}`);
+        await Promise.all([maturityStrategySet.save(), supportedChain.save()]);
+    }
 }
 
 export async function handleEventAttestorRegistered(event: SubstrateEvent): Promise<void> {

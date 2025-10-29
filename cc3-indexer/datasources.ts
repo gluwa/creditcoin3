@@ -200,6 +200,14 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
             },
             {
                 kind: SubstrateHandlerKind.Event,
+                handler: 'handleMaturityStrategySet',
+                filter: {
+                    module: 'supportedChains',
+                    method: 'MaturityStrategySet',
+                },
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
                 handler: 'handleMaxAttestorsChanged',
                 filter: {
                     module: 'attestation',
