@@ -102,6 +102,7 @@ describe('initiateStoreAndDatabase()', () => {
                 expect(BigInt(node.chainId)).toEqual(sourceChain.chainId.toBigInt());
                 expect(node.chainName).toEqual(hexToString(sourceChain.chainName.toString()));
                 expect(node.chainEncoding).toEqual(sourceChain.chainEncoding.toString());
+                expect(node.maturityStrategy).toEqual(sourceChain.maturityStrategy.toString());
             }
         }, 15_000);
     });

@@ -13,7 +13,6 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     // Read all supported chains at the current indexed height
     const rawEntries = await (api.query as any).supportedChains.supportedChains.entries();
 
-    // Normalize to [chainKey, { chainId, chainName, chainEncoding, maturityStrategy }]
     const entries: [bigint, { chainId: bigint; chainName: string; chainEncoding: string; maturityStrategy: string }][] =
         rawEntries.map(([storageKey, value]: any) => {
             const chainKey = BI(storageKey.args[0].toString());

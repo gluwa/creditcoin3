@@ -8,16 +8,17 @@ describe('handleSupportedChainRegistered()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
     let startingBlock: bigint;
+    let defaultMaturityStrategy: String;
     // unique integer to serve as chain id during testing
     const newChainId = BigInt(Date.now());
     const newChainName = `Test Chain ${newChainId}`;
     const encoding = 'V1';
     let newChainKey = 0n;
-    const defaultMaturityStrategy = 'FixedDelay: 10';
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        defaultMaturityStrategy = await api.consts.supportedChains.defaultMaturityStrategy.toString();
     }, 30_000);
 
     afterAll(async () => {
