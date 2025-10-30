@@ -239,7 +239,7 @@ export async function handleMaturityStrategySet(event: SubstrateEvent): Promise<
         whoId: from.toString(),
     });
 
-    let supportedChain = await SupportedChain.get(chainKeyStr);
+    const supportedChain = await SupportedChain.get(chainKeyStr);
     if (!supportedChain) {
         logger.error(`Supported Chain : ${chainKeyStr} not found in db for set maturity strategy event: ${event.idx}.`);
     } else {

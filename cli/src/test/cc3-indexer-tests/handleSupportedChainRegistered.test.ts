@@ -90,7 +90,7 @@ describe('handleSupportedChainRegistered()', () => {
                     supportedChains(
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
-                    ) { nodes { id, chainKey, chainName, chainId, maturityStrategy, chainEncoding }}}`,
+                    ) { nodes { id, chainKey, chainName, chainId, chainEncoding, maturityStrategy }}}`,
             );
             expect(response.data.supportedChains.nodes).toBeTruthy();
             expect(response.data.supportedChains.nodes.length).toEqual(1);

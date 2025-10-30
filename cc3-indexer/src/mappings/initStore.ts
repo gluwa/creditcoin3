@@ -26,6 +26,9 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
             const chainEncoding =
                 value?.chainEncoding?.toString?.() ?? (typeof j.chainEncoding === 'string' ? j.chainEncoding : 'V1');
             const maturityStrategy = value?.maturityStrategy?.toString?.();
+            if (maturityStrategy == null) {
+                throw new Error(`maturityStrategy missing for chainKey= ${chainKey.toString()}`);
+            }
             return [chainKey, { chainId, chainName: chainNameHex, chainEncoding, maturityStrategy }];
         });
 

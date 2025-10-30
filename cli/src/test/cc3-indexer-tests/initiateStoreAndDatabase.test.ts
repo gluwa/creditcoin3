@@ -82,7 +82,7 @@ describe('initiateStoreAndDatabase()', () => {
                 `query {
                     supportedChains(
                         orderBy: CHAIN_KEY_ASC,
-                    ) { nodes { id, chainKey, chainName, chainId, chainEncoding }}}`,
+                    ) { nodes { id, chainKey, chainName, chainId, chainEncoding, maturityStrategy }}}`,
             );
             expect(response.data.supportedChains.nodes).toBeTruthy();
             // starting with 4 initial chain in Genesis but we'll inspect all currently supported
