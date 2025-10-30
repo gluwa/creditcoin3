@@ -988,12 +988,14 @@ export default {
                 chainId: 'u64',
                 chainName: 'Bytes',
                 chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
+                maturityStrategy: 'Text',
             },
             ChainRemoved: {
                 chainKey: 'u64',
                 chainId: 'u64',
                 chainName: 'Bytes',
                 chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
+                maturityStrategy: 'Text',
             },
             MaturityStrategySet: {
                 chainKey: 'u64',

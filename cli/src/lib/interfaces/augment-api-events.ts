@@ -921,16 +921,40 @@ declare module '@polkadot/api-base/types/events' {
              **/
             ChainRegistered: AugmentedEvent<
                 ApiType,
-                [chainKey: u64, chainId: u64, chainName: Bytes, chainEncoding: AttestorPrimitivesChainEncodingVersion],
-                { chainKey: u64; chainId: u64; chainName: Bytes; chainEncoding: AttestorPrimitivesChainEncodingVersion }
+                [
+                    chainKey: u64,
+                    chainId: u64,
+                    chainName: Bytes,
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion,
+                    maturityStrategy: Text,
+                ],
+                {
+                    chainKey: u64;
+                    chainId: u64;
+                    chainName: Bytes;
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion;
+                    maturityStrategy: Text;
+                }
             >;
             /**
              * A chain has been removed with a given ID
              **/
             ChainRemoved: AugmentedEvent<
                 ApiType,
-                [chainKey: u64, chainId: u64, chainName: Bytes, chainEncoding: AttestorPrimitivesChainEncodingVersion],
-                { chainKey: u64; chainId: u64; chainName: Bytes; chainEncoding: AttestorPrimitivesChainEncodingVersion }
+                [
+                    chainKey: u64,
+                    chainId: u64,
+                    chainName: Bytes,
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion,
+                    maturityStrategy: Text,
+                ],
+                {
+                    chainKey: u64;
+                    chainId: u64;
+                    chainName: Bytes;
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion;
+                    maturityStrategy: Text;
+                }
             >;
             /**
              * The maturity strategy for a chain has been set

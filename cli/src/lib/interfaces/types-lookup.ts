@@ -1252,6 +1252,7 @@ declare module '@polkadot/types/lookup' {
             readonly chainId: u64;
             readonly chainName: Bytes;
             readonly chainEncoding: AttestorPrimitivesChainEncodingVersion;
+            readonly maturityStrategy: Text;
         } & Struct;
         readonly isChainRemoved: boolean;
         readonly asChainRemoved: {
@@ -1259,6 +1260,7 @@ declare module '@polkadot/types/lookup' {
             readonly chainId: u64;
             readonly chainName: Bytes;
             readonly chainEncoding: AttestorPrimitivesChainEncodingVersion;
+            readonly maturityStrategy: Text;
         } & Struct;
         readonly isMaturityStrategySet: boolean;
         readonly asMaturityStrategySet: {
