@@ -18,7 +18,7 @@ describe('handleSupportedChainRegistered()', () => {
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
-        defaultMaturityStrategy = await api.consts.supportedChains.defaultMaturityStrategy.toString();
+        defaultMaturityStrategy = api.consts.supportedChains.defaultMaturityStrategy.toString();
     }, 30_000);
 
     afterAll(async () => {
