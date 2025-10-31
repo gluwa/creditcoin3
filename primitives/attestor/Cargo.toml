@@ -24,8 +24,10 @@ sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
+precompile-utils = { workspace = true }
 
 utils = { workspace = true, default-features = false }
+hex = { workspace = true, default-features = false }
 
 ccnext-abi-encoding = { workspace = true, optional = true }
 serde = { workspace = true, default-features = false, features = ["derive"] }
@@ -49,7 +51,9 @@ std = [
     "sp-api/std",
     "bls-signatures/std",
     "utils/std",
+    "hex/std",
     "starknet-types-core/std",
     "starknet-crypto/std",
     "ccnext-abi-encoding",
+    "precompile-utils/std"
 ]

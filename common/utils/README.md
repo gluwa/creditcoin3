@@ -137,7 +137,6 @@ fn save_and_load_example() -> anyhow::Result<()> {
 
 ### Constants
 
-- `U248_BYTE_COUNT`: Number of bytes in a U248 field element (31 bytes)
 
 ### Functions
 

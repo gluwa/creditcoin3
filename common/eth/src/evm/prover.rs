@@ -8,7 +8,6 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
-use pallet_prover_primitives::{LayoutSegment, Query, ResultSegment};
 use sp_core::H256;
 
 use crate::evm::prover::CreditcoinPublicProver::{
@@ -22,7 +21,10 @@ use alloy::{
     providers::Provider,
     sol,
 };
-use attestor_primitives::ChainKey;
+use attestor_primitives::{
+    query::{LayoutSegment, Query, ResultSegment},
+    ChainKey,
+};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -38,6 +40,8 @@ pub enum Error {
     TransactionSendError(#[from] PendingTransactionError),
     #[error(transparent)]
     TransportError(#[from] RpcError<TransportErrorKind>),
+    #[error("Invalid address format")]
+    InvalidAddress,
     #[error("Query submission stream ended")]
     QueryStreamEnded,
     #[error("Proof verification event stream ended")]
@@ -203,7 +207,7 @@ pub async fn check_fees_against_existing(
 
 pub fn new(address: String) -> Result<GluwaPublicProverContract, Error> {
     Ok(GluwaPublicProverContract {
-        address: address.parse()?,
+        address: address.parse().map_err(|_| Error::InvalidAddress)?,
         gas_limit: GAS_LIMIT,
     })
 }

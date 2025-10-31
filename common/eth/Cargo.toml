@@ -31,5 +31,5 @@ tracing = { workspace = true }
 
 # Local dependencies
 attestor-primitives = { workspace = true }
-pallet-prover-primitives = { workspace = true, features = ["std"] }
+mmr = { workspace = true }
 utils = { workspace = true }

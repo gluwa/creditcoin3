@@ -291,8 +291,8 @@ pub(crate) async fn calculate_merkle_root(
         .get_block_by_number(block_number)
         .await?
         .context("Failed to get block")?;
-    let merkle_tree = starknet_pedersen_mmr(&ordered_block);
-    Ok(merkle_tree.root().to_bytes_be())
+    let merkle_tree = eth::keccak_merkle_tree(&ordered_block);
+    Ok(merkle_tree.root().0)
 }
 
 #[derive(Debug, Deserialize)]

@@ -3,5 +3,5 @@ default_command: "../target/release/attestor"
 run: true
 default_args:
   # - "-v"
-num_attestors: 3
+num_attestors: 1
 single_node: true

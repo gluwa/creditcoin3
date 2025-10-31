@@ -12,16 +12,20 @@ release = false
 alloy = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
+hex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+attestor-primitives = { workspace = true }
+cc-client = { workspace = true }
 eth = { workspace = true }
+mmr = { workspace = true }
+sp-core = { workspace = true }
 
 anyhow.workspace = true
 ccnext-abi-encoding = { workspace = true }
 ccnext-query-builder = { workspace = true }
-pallet-prover-primitives = { workspace = true }
 utils = { path = "../common/utils" }

@@ -1,0 +1,16 @@
+[package]
+name = "test-merkle"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+mmr = { path = "../common/mmr" }
+utils = { path = "../common/utils" }
+starknet-crypto = "0.7.2"
+hex = "0.4.3"
+
+[[bin]]
+name = "test-merkle"
+path = "src/main.rs"

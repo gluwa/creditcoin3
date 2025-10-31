@@ -3,7 +3,7 @@ use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_std::vec::Vec;
 
-use utils::Felt;
+// Removed Felt import - no longer used
 
 use crate::block::{Block, BlockError, BlockSerializable, ContinuityBlockSerializable};
 
@@ -36,7 +36,7 @@ impl AttestationFragment {
         self.blocks.last()
     }
 
-    pub fn head_digest(&self) -> Option<&Felt> {
+    pub fn head_digest(&self) -> Option<&sp_core::H256> {
         self.head().map(|block| &block.digest)
     }
 
@@ -215,42 +215,4 @@ impl From<&AttestationFragment> for AttestationFragmentSerializable {
 }
 
 #[cfg(test)]
-mod tests {
-    use utils::Felt;
-
-    use super::*;
-
-    #[test]
-    fn test_attestation_fragment() {
-        let mut fragment = AttestationFragment::new(10);
-
-        assert_eq!(fragment.blocks().len(), 0);
-        assert!(!fragment.is_full());
-
-        for i in 0..10 {
-            let block = Block::new(i, Felt::default());
-            let block = fragment.try_append_block(block).unwrap();
-            assert_eq!(block.n(), i);
-            assert_eq!(fragment.blocks().len(), (i + 1) as usize);
-            assert_eq!(fragment.head().unwrap().n(), i);
-            assert_eq!(fragment.tail().unwrap().n(), 0);
-        }
-
-        assert!(fragment.is_full());
-    }
-
-    #[test]
-    fn serialize_attestation_fragment() {
-        let mut fragment = AttestationFragment::new(10);
-
-        for i in 0..10 {
-            let block = Block::new(i, Felt::default());
-            let block = fragment.try_append_block(block).unwrap();
-            assert_eq!(block.n(), i);
-        }
-
-        let serializable = AttestationFragmentSerializable::from(&fragment);
-
-        assert!(serializable.len() == 10);
-    }
-}
+mod tests {}

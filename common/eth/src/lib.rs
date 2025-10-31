@@ -27,10 +27,7 @@ use hex::FromHexError;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tracing::{error, info};
-use utils::{
-    block_item_traits::{BlockItem, BlockItemIdentifier},
-    StarknetPedersenMerkleTree,
-};
+use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
 pub use alloy::core::primitives::Address;
 
@@ -441,13 +438,19 @@ impl Client {
     }
 }
 
-pub fn starknet_pedersen_mmr(block: &OrderedBlock) -> StarknetPedersenMerkleTree {
-    // Create abi's for all transactions
-    let abis = block
-        .items()
-        .iter()
-        .map(BlockItem::to_bytes)
-        .collect::<Vec<Vec<u8>>>();
+pub fn keccak_merkle_tree(block: &OrderedBlock) -> utils::KeccakMerkleTree {
+    // Use the keccak_merkle_tree function from utils which takes items
+    utils::keccak_merkle_tree(block.items())
+}
 
-    StarknetPedersenMerkleTree::from(&abis[..])
+/// Build a simple Ethereum-compatible Merkle tree from a block
+pub fn simple_merkle_tree(block: &OrderedBlock) -> utils::simple_merkle::SimpleMerkleTree {
+    let tx_bytes: Vec<Vec<u8>> = block.items().iter().map(|item| item.to_bytes()).collect();
+    utils::simple_merkle::SimpleMerkleTree::new(&tx_bytes)
+}
+
+// Deprecated: Use keccak_merkle_tree instead
+#[deprecated(note = "Use keccak_merkle_tree instead")]
+pub fn starknet_pedersen_mmr(block: &OrderedBlock) -> utils::KeccakMerkleTree {
+    keccak_merkle_tree(block)
 }

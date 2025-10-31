@@ -2,12 +2,12 @@ use super::Network;
 use alloy::rpc::types::{Transaction, TransactionReceipt};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use attestor_primitives::query::LayoutSegment;
 use ccnext_abi_encoding::abi::EncodingVersion;
 use ccnext_query_builder::abi::{
     models::{QueryBuilderError, QueryableFields},
     query_builder::{AbiProvider, QueryBuilder},
 };
-use pallet_prover_primitives::LayoutSegment;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 

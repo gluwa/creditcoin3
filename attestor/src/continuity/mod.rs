@@ -126,7 +126,7 @@ impl Cache {
                     missing_start,
                     prev_block.digest()
                 );
-                H256::from(prev_block.digest().to_bytes_be())
+                prev_block.digest()
             } else {
                 // Fallback: no digest available for previous block, use the passed one
                 debug!(
@@ -172,9 +172,9 @@ impl Cache {
             debug!(
                 "Block({}) digest: {:?}, root: {:?} prev_digest: {:?}",
                 block.block_number,
-                H256::from(block.digest().to_bytes_be()),
-                H256::from(block.root.to_bytes_be()),
-                H256::from(block.prev_digest().to_bytes_be())
+                block.digest(),
+                block.root,
+                block.prev_digest()
             );
         }
 

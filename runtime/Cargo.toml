@@ -85,13 +85,18 @@ moonbeam-rpc-primitives-debug = { workspace = true }
 
 # Gluwa
 pallet-attestation-poc = { workspace = true }
-pallet-prover = { workspace = true }
+# pallet-prover = { workspace = true }
 pallet-randomness = { workspace = true }
 pallet-supported-chains = { workspace = true }
 
 attestor-primitives = { workspace = true }
+<<<<<<< HEAD
 pallet-evm-precompile-proof-verifier = { workspace = true }
 pallet-evm-precompile-signature-verifier = { workspace = true }
+=======
+pallet-evm-precompile-native-query-verifier = { workspace = true }
+# pallet-evm-precompile-proof-verifier = { workspace = true }
+>>>>>>> 580dbab5 (feat: native query verifier precompile with simplified Merkle tree)
 pallet-evm-precompile-substrate-transfer = { workspace = true }
 randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
@@ -129,12 +134,11 @@ runtime-benchmarks = [
     "pallet-ethereum/runtime-benchmarks",
     "pallet-evm/runtime-benchmarks",
     "pallet-hotfix-sufficients/runtime-benchmarks",
-    "pallet-prover/runtime-benchmarks",
+    # "pallet-prover/runtime-benchmarks",
     "pallet-supported-chains/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
     "sp-staking/runtime-benchmarks",
     "pallet-randomness/runtime-benchmarks",
-    "pallet-evm-precompile-proof-verifier/runtime-benchmarks",
 ]
 std = [
     "parity-scale-codec/std",
@@ -173,7 +177,7 @@ std = [
     "pallet-nomination-pools/std",
     "pallet-nomination-pools-runtime-api/std",
     "pallet-offences/std",
-    "pallet-prover/std",
+    # "pallet-prover/std",
     "pallet-proxy/std",
     "pallet-session/std",
     "pallet-staking/std",
@@ -204,8 +208,12 @@ std = [
     "ethereum/std",
     "attestor-primitives/std",
     "supported-chains-primitives/std",
+<<<<<<< HEAD
     "pallet-evm-precompile-proof-verifier/std",
     "pallet-evm-precompile-signature-verifier/std",
+=======
+    "pallet-evm-precompile-native-query-verifier/std",
+>>>>>>> 580dbab5 (feat: native query verifier precompile with simplified Merkle tree)
     "pallet-evm-precompile-substrate-transfer/std",
     "log/std",
     "pallet-randomness/std",

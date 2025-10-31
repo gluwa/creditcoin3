@@ -14,6 +14,10 @@ pub mod attestation_fragment;
 pub mod block;
 pub mod bls;
 pub mod provider;
+pub mod query;
+
+// Re-export query types for convenience
+pub use query::{LayoutSegment, Query, ResultSegment};
 
 use crate::attestation_fragment::AttestationFragmentSerializable;
 
@@ -232,19 +236,21 @@ where
         bytes
     }
 
-    /// Digest for the attestation is the pedersen hash of the header number and the root
+    /// Digest for the attestation is the keccak256 hash of the header number, root,
     /// and the previous digest if it exists
     pub fn digest(&self) -> Digest {
-        let mut digest = starknet_crypto::pedersen_hash(
-            &self.header_number.into(),
-            &Felt::from_bytes_be(&self.root),
-        );
+        use sp_io::hashing::keccak_256;
+
+        // Build input bytes: header_number || root || prev_digest (if exists)
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.header_number.to_be_bytes());
+        bytes.extend_from_slice(&self.root);
 
         if let Some(prev_digest) = self.prev_digest {
-            digest = starknet_crypto::pedersen_hash(&digest, &Felt::from_bytes_be(&prev_digest.0));
+            bytes.extend_from_slice(prev_digest.as_bytes());
         }
 
-        H256::from(digest.to_bytes_be())
+        H256::from(keccak_256(&bytes))
     }
 
     pub fn prev_digest(&self) -> Option<Digest> {

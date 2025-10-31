@@ -10,8 +10,8 @@ use crate::eth::EthCompatRuntimeApiCollection;
 pub type HostFunctions = (
     sp_io::SubstrateHostFunctions,
     creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
-    proof_verifier::host_benchmark_api::HostFunctions,
-    proof_verifier::host_api::HostFunctions,
+    // proof_verifier::host_benchmark_api::HostFunctions,
+    // proof_verifier::host_api::HostFunctions,
     frame_benchmarking::benchmarking::HostFunctions,
 );
 /// Otherwise we only use the default Substrate host functions.
@@ -19,7 +19,7 @@ pub type HostFunctions = (
 pub type HostFunctions = (
     sp_io::SubstrateHostFunctions,
     creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
-    proof_verifier::host_api::HostFunctions,
+    // proof_verifier::host_api::HostFunctions,
 );
 
 /// Full backend.

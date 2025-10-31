@@ -368,7 +368,7 @@ impl AttestorService {
     async fn attach_source_chain(&mut self) -> Result<(), Error> {
         // Determine start & target
         let attestation_interval = self.cc3_client.get_attestation_interval();
-        let start = if let Some((_, last_finalized)) =
+        let (start, needs_genesis_attestation) = if let Some((_, last_finalized)) =
             get_last_finalized(&self.cc3_client, self.chain_key).await?
         {
             // If the block we last voted for is bigger than the last finalized it means the protocol is still finalizing
@@ -382,10 +382,38 @@ impl AttestorService {
             };
 
             // Start at next interval
-            actual_start + attestation_interval
+            (actual_start + attestation_interval, false)
         } else {
-            self.start_block
+            // No finalized attestations yet - this is a bootstrap scenario
+            // We need to attest to the genesis block first
+            info!(
+                "🚀 Bootstrap mode: Will attest to genesis block {}",
+                self.start_block
+            );
+            (self.start_block, true)
         };
+
+        // If this is a bootstrap scenario, immediately attest to the genesis block
+        if needs_genesis_attestation {
+            info!(
+                "🔨 Preparing genesis block attestation for block {}",
+                self.start_block
+            );
+
+            // Immediately prepare and submit the genesis block attestation
+            // No maturity delay needed for the genesis block
+            let signed = self.prepare_attestation(self.start_block).await?;
+            let digest = signed.digest();
+            let round = signed.round();
+            self.cc3_client
+                .submit_attestation::<H256>(signed.clone())
+                .await?;
+            self.voted_for.insert((self.start_block, digest));
+            // After submitting genesis attestation, enter backoff to wait for finalization
+            info!("⏸️ Entering backoff after genesis attestation to wait for finalization");
+            self.evaluate_voting_position().await?;
+            return Ok(());
+        }
 
         let vote_acceptance_window = self.vote_acceptance_window().await?;
         let target_header = start + vote_acceptance_window;
@@ -672,7 +700,24 @@ impl AttestorService {
             header
         );
 
-        if header
+        if header == self.start_block {
+            info!(
+                "🟢 Genesis block attestation finalized, resuming from block: {:}",
+                header
+            );
+            self.start_running().await?;
+            return Ok(());
+        }
+
+        // Special handling for genesis block attestation
+        // If we're paused at genesis and receive an attestation for the genesis block, resume
+        if self.state.is_paused_backoff() && header == self.start_block {
+            info!(
+                "🟢 Genesis block attestation finalized, resuming from block: {:}",
+                header
+            );
+            self.start_running().await?;
+        } else if header
             >= last_voted_for.saturating_sub(
                 ATTESTATIONS_RESTART_WINDOW * self.cc3_client.get_attestation_interval(),
             )
@@ -753,9 +798,7 @@ impl AttestorService {
             .get_block(header_number, self.encoding)
             .await?;
         // Get the previous digest from the continuity fragment
-        let prev_digest = continuity_fragment
-            .head_digest()
-            .map(|d| H256::from(d.to_bytes_be()));
+        let prev_digest = continuity_fragment.head_digest().copied();
         // Create attestation data
         let attestation = crate::util::create_attestation(self.chain_key, &block, prev_digest);
 
@@ -783,7 +826,7 @@ impl AttestorService {
         &mut self,
         attestation_header_number: u64,
     ) -> Result<continuity::AttestationFragment, Error> {
-        if attestation_header_number == 0 {
+        if attestation_header_number == 0 || attestation_header_number == self.start_block {
             info!("🛠️ Creating default continuity proof for header number 0");
             return Ok(continuity::AttestationFragment::default());
         }

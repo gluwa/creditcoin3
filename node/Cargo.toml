@@ -95,7 +95,6 @@ fp-rpc = { workspace = true, features = ["default"] }
 
 # Gluwa
 creditcoin3-runtime = { workspace = true, features = ["std"], optional = true }
-proof-verifier = { workspace = true }
 
 # Tracing
 creditcoin3-cli-opt = { workspace = true }

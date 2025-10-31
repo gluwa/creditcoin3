@@ -105,7 +105,7 @@ struct AttestorKey {
 }
 
 const BATCH_SIZE: usize = 50;
-const TIMEOUT_SECONDS: u64 = 15;
+const TIMEOUT_SECONDS: u64 = 12;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

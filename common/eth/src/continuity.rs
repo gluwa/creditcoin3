@@ -4,14 +4,13 @@ use futures::stream::{self, StreamExt};
 use sp_core::H256;
 use tracing::debug;
 
+use super::{Client, Error as EthError};
 use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentError},
     block::{Block as FragmentBlock, BlockError},
 };
 
-use super::{Client, Error as EthError};
-
-use utils::Felt;
+// Removed Felt import - using H256 instead
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -83,7 +82,7 @@ impl<'a> Manager<'a> {
                 let end_block = self.end_block;
                 tokio::task::spawn_blocking(move || {
                     debug!("Merkleization of block {}/{}", block.number(), end_block);
-                    let root = crate::starknet_pedersen_mmr(&block);
+                    let root = crate::keccak_merkle_tree(&block);
                     (block, root)
                 })
             })
@@ -95,13 +94,13 @@ impl<'a> Manager<'a> {
         for block_with_root in blocks_with_roots {
             let (block, merkle_root) = block_with_root?;
 
-            let fragment_block = FragmentBlock::new(block.number(), merkle_root.root());
+            let fragment_block = FragmentBlock::new(block.number(), merkle_root.root().into());
             let fragment_block = if fragment.is_empty() {
                 debug!("Constructing first block from start block");
                 FragmentBlock::new_from_prev_digest(
                     block.number(),
-                    merkle_root.root(),
-                    Felt::from_bytes_be(&prev_digest.0),
+                    merkle_root.root().into(),
+                    prev_digest,
                 )
             } else {
                 fragment_block

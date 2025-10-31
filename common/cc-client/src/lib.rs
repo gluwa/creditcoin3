@@ -7,7 +7,6 @@ use sp_core::{
     sr25519::{self},
     Pair, U256,
 };
-use starknet_types_core::felt::Felt;
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
     backend::rpc::{
@@ -851,40 +850,40 @@ impl Client {
         Ok(result)
     }
 
-    pub async fn fetch_stark_program_metadata(&self) -> Result<Vec<(u8, sp_core::H256)>, Error> {
-        let mut metadata = Vec::new();
+    // pub async fn fetch_stark_program_metadata(&self) -> Result<Vec<(u8, sp_core::H256)>, Error> {
+    //     let mut metadata = Vec::new();
 
-        let storage_query = cc3::storage().prover().stark_program_metadata_iter();
+    //     let storage_query = cc3::storage().prover().stark_program_metadata_iter();
 
-        let mut iter = self
-            .api()
-            .await?
-            .storage()
-            .at_latest()
-            .await?
-            .iter(storage_query)
-            .await?;
+    //     let mut iter = self
+    //         .api()
+    //         .await?
+    //         .storage()
+    //         .at_latest()
+    //         .await?
+    //         .iter(storage_query)
+    //         .await?;
 
-        while let Some(Ok(kv)) = iter.next().await {
-            // Extract the SCALE-encoded key from the storage key bytes. For Blake2_128Concat<u8>,
-            // the last byte is the raw u8 key appended after the 16-byte hash prefix.
-            let Some(&version) = kv.key_bytes.last() else {
-                error!(
-                    "Failed to read version from storage key bytes: {:?}",
-                    kv.key_bytes
-                );
-                continue;
-            };
-            metadata.push((version, sp_core::H256::from(kv.value.0)));
-        }
-        if metadata.is_empty() {
-            error!("No stark program metadata found in storage");
-            return Err(Error::FailedToGetStarkMetadata(
-                "No stark program metadata found in storage".to_string(),
-            ));
-        }
-        Ok(metadata)
-    }
+    //     while let Some(Ok(kv)) = iter.next().await {
+    //         // Extract the SCALE-encoded key from the storage key bytes. For Blake2_128Concat<u8>,
+    //         // the last byte is the raw u8 key appended after the 16-byte hash prefix.
+    //         let Some(&version) = kv.key_bytes.last() else {
+    //             error!(
+    //                 "Failed to read version from storage key bytes: {:?}",
+    //                 kv.key_bytes
+    //             );
+    //             continue;
+    //         };
+    //         metadata.push((version, sp_core::H256::from(kv.value.0)));
+    //     }
+    //     if metadata.is_empty() {
+    //         error!("no stark program metadata found in storage");
+    //         return Err(Error::FailedToGetStarkMetadata(
+    //             "No stark program metadata found in storage".to_string(),
+    //         ));
+    //     }
+    //     Ok(metadata)
+    // }
 }
 
 impl<A> From<CcSignedAttestation<H256, A>> for SignedAttestation<Digest, A> {
@@ -910,9 +909,9 @@ impl From<CcBlockSerializable> for Block {
     fn from(block: CcBlockSerializable) -> Self {
         Block {
             block_number: block.block_number,
-            root: Felt::from_bytes_be(&block.root.0),
-            prev_digest: Felt::from_bytes_be(&block.prev_digest.0),
-            digest: Felt::from_bytes_be(&block.digest.0),
+            root: sp_core::H256::from_slice(&block.root.0),
+            prev_digest: sp_core::H256::from_slice(&block.prev_digest.0),
+            digest: sp_core::H256::from_slice(&block.digest.0),
         }
     }
 }

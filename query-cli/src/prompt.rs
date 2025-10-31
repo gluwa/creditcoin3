@@ -19,7 +19,7 @@ pub(crate) enum SelectedData {
     NativeTokenTransferData,
 }
 
-pub(crate) fn prompt(args: QueryCli) -> Result<PromptOutput> {
+pub(crate) fn prompt(args: PromptArgs) -> Result<PromptOutput> {
     // Prompt the user for the network
     let network = prompt_for_network(args.clone())?;
 
@@ -56,7 +56,7 @@ pub(crate) fn prompt(args: QueryCli) -> Result<PromptOutput> {
     })
 }
 
-fn prompt_for_network(args: QueryCli) -> Result<Network> {
+fn prompt_for_network(args: PromptArgs) -> Result<Network> {
     if let Some(eth_rpc_url) = args.eth_rpc_url {
         return Ok(Network::Local(eth_rpc_url.trim().to_string()));
     }
@@ -144,7 +144,7 @@ fn prompt_for_network(args: QueryCli) -> Result<Network> {
     }
 }
 
-fn prompt_for_height_and_hash(args: QueryCli) -> (u64, String) {
+fn prompt_for_height_and_hash(args: PromptArgs) -> (u64, String) {
     let height: u64 = args.block_height.unwrap_or_else(|| {
         print!("Enter the block height (number): ");
         io::stdout().flush().unwrap();
@@ -174,7 +174,7 @@ fn prompt_for_height_and_hash(args: QueryCli) -> (u64, String) {
     (height, tx_hash)
 }
 
-fn prompt_for_data_selection(args: QueryCli) -> (SelectedData, Vec<(u64, u64)>) {
+fn prompt_for_data_selection(args: PromptArgs) -> (SelectedData, Vec<(u64, u64)>) {
     let data_choice: u64 = args.data_choice.unwrap_or_else(|| {
         println!("Which data do you want represented in your proof results?");
         println!("1. All data");

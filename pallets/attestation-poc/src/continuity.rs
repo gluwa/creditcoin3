@@ -1,7 +1,6 @@
 use attestor_primitives::{block::Block, SignedAttestation};
 use frame_support::pallet_prelude::*;
 use log::{debug, error, info};
-use sp_core::H256;
 
 use super::pallet::*;
 
@@ -10,12 +9,12 @@ impl<T: Config> Pallet<T> {
     pub fn validate_attestation_continuity(
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
     ) -> DispatchResult {
-        debug!("🔍 Validating attestation continuity...");
+        info!("🔍 Validating attestation continuity...");
         let chain_key = attestation.chain_key();
         let attestation_header_number = attestation.header_number();
         let attestation_genesis = AttestationChainGenesisBlockNumber::<T>::get(chain_key);
 
-        debug!(
+        info!(
             "📝 Validating attestation continuity for attestation: chain_key: {chain_key:?}, attestation_header_number: {attestation_header_number}, digest: {:?}, prev_digest: {:?}, continuity_proof length: {}",
             attestation.digest(),
             attestation.prev_digest(),
@@ -82,7 +81,7 @@ impl<T: Config> Pallet<T> {
         // Validate the prev digest of the attestation against the head of the continuity proof
         if let Some(attestation_head) = attestation.continuity_proof.head() {
             let block: Block = (*attestation_head).clone().into();
-            let block_digest = H256::from_slice(&block.digest.to_bytes_be());
+            let block_digest = block.digest;
             ensure!(
                 block_digest == attestation_prev_digest,
                 Error::<T>::InvalidAttestationContinuityProofHead
@@ -95,7 +94,7 @@ impl<T: Config> Pallet<T> {
         if let Some(tail) = attestation.continuity_proof.tail() {
             let block: Block = tail.clone().into();
             debug!("📝 Checking continuity proof tail: {block:?}");
-            let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
+            let block_prev_digest = block.prev_digest;
 
             // In almost all cases, the tail's prev_digest should match one of the previously finalized attestations
             if let Some(prev_attestation) = Self::get(chain_key, block_prev_digest) {
@@ -116,8 +115,8 @@ impl<T: Config> Pallet<T> {
         for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
             let block: Block = serializable.clone().into();
 
-            let block_digest = H256::from_slice(&block.digest.to_bytes_be());
-            let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
+            let block_digest = block.digest;
+            let block_prev_digest = block.prev_digest;
 
             debug!(
                 "📝 Checking block number: {}, block_digest: {:?}, block_root: {:?} block_prev_digest: {:?}",

@@ -15,9 +15,9 @@ pub fn create_attestation(
     new_block: &OrderedBlock,
     prev_digest: Option<H256>,
 ) -> Attestation<H256> {
-    let mt = eth::starknet_pedersen_mmr(new_block);
+    let mt = eth::keccak_merkle_tree(new_block);
 
-    debug!("Root h256: {:?}", sp_core::H256(mt.root().to_bytes_be()));
+    debug!("Root h256: {:?}", mt.root());
     debug!(
         "Header hash: {:?}",
         sp_core::H256(*new_block.hash().unwrap())
@@ -26,7 +26,7 @@ pub fn create_attestation(
         chain_key,
         header_number: new_block.number(),
         header_hash: sp_core::H256(*new_block.hash().unwrap()),
-        root: mt.root().to_bytes_be(),
+        root: *mt.root().as_bytes(),
         prev_digest,
     }
 }

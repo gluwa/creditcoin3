@@ -23,11 +23,46 @@ impl AttestorService {
     /// - bumps attempt + reattach closer to finalized and returns Continue.
     pub async fn backoff_tick_once(&mut self) -> Result<BackoffNext, Error> {
         debug!("⏳ Backoff tick, checking finality vs last vote head");
-        // You likely have logic like this already in note_last_attested_header / continuity checks.
-        let Some((_last_finalized_digest, last_finalized_num)) =
-            crate::engine::get_last_finalized(&self.cc3_client, self.chain_key()).await?
-        else {
+
+        // First check if LastDigest is set
+        let mut last_finalized =
+            crate::engine::get_last_finalized(&self.cc3_client, self.chain_key()).await?;
+
+        // If LastDigest is not set, check if there are any attestations at all
+        // This handles the case where attestations are finalized but LastDigest isn't updated yet
+        if last_finalized.is_none() {
+            debug!("LastDigest not set, checking for any attestations on chain");
+            let attestations = self
+                .cc3_client
+                .inner
+                .get_attestations_for_chain(self.chain_key())
+                .await?;
+
+            if !attestations.is_empty() {
+                // Find the attestation with the lowest block number (oldest/first)
+                let first_attestation = attestations
+                    .iter()
+                    .min_by_key(|a| a.attestation.header_number)
+                    .unwrap();
+
+                info!(
+                    "🟢 Found attestation even though LastDigest is not set: block {}, digest: {:?}",
+                    first_attestation.attestation.header_number,
+                    first_attestation.digest()
+                );
+
+                last_finalized = Some((
+                    first_attestation.digest(),
+                    first_attestation.attestation.header_number,
+                ));
+            } else {
+                debug!("No attestations found on chain yet");
+            }
+        }
+
+        let Some((_last_finalized_digest, last_finalized_num)) = last_finalized else {
             // If nothing finalized at all, keep backing off up to the cap.
+            debug!("No finalized head yet, bumping backoff attempt");
             self.bump_without_scheduling();
             return Ok(BackoffNext::Continue);
         };
@@ -67,7 +102,7 @@ impl AttestorService {
                 }
 
                 debug!(
-                    "🔴 Finality not caught up yet, last voted for block: {:?}, last finalized: {}, elapsed: {:?}, attempt: {}",
+                    "Finality not caught up yet, last voted for block: {:?}, last finalized: {}, elapsed: {:?}, attempt: {}",
                     last_voted_for_block,
                     last_finalized_num,
                     elapsed,
@@ -108,7 +143,7 @@ impl AttestorService {
             *attempt = attempt.saturating_add(1).min(BACKOFF_MAX_ATTEMPTS);
             *since = std::time::Instant::now();
             debug!(
-                "No finalized head yet, bumping backoff attempt to {}",
+                "No finalized attestations found on chain, bumping backoff attempt to {}",
                 *attempt
             );
         }

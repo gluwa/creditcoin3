@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use sp_std::{vec, vec::Vec};
 
-use crate::utils::U248_BYTE_COUNT;
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 
@@ -86,30 +85,21 @@ impl BlockItemIdentifier {
 
     /// Converts the identifier to a byte representation suitable for hashing.
     ///
-    /// The byte layout is designed to be compatible with Felt encoding:
-    /// - Pads the index to fit within the 31-byte U248 constraint
-    /// - Uses big-endian encoding for consistent ordering
+    /// The byte layout uses big-endian encoding for consistent ordering:
+    /// - First 8 bytes: block number
+    /// - Next 8 bytes: index
     ///
     /// # Returns
     /// * `Vec<u8>` - The byte representation of this identifier
     ///
     /// # Memory Layout
     /// ```text
-    /// [padding: 23 bytes][index: 8 bytes (big-endian)]
+    /// [block_number: 8 bytes (big-endian)][index: 8 bytes (big-endian)]
     /// ```
     pub fn to_bytes(&self) -> Vec<u8> {
-        use core::mem::size_of;
-
-        // Calculate padding needed to align index properly within U248 constraint
-        const INDEX_PADDING_LEN: usize = U248_BYTE_COUNT - size_of::<u64>();
-
-        // Total buffer size: padding + index
-        let mut buffer = vec![0u8; INDEX_PADDING_LEN + size_of::<u64>()];
-
-        // Place index at the end in big-endian format
-        let index_offset = INDEX_PADDING_LEN;
-        buffer[index_offset..].copy_from_slice(&self.index.to_be_bytes());
-
+        let mut buffer = vec![0u8; 16]; // 8 bytes for block_number + 8 bytes for index
+        buffer[0..8].copy_from_slice(&self.block_number.to_be_bytes());
+        buffer[8..16].copy_from_slice(&self.index.to_be_bytes());
         buffer
     }
 }
@@ -234,16 +224,16 @@ mod tests {
         let id = BlockItemIdentifier::new(42, 100);
         let bytes = id.to_bytes();
 
-        // Should have correct length
-        assert_eq!(bytes.len(), U248_BYTE_COUNT);
+        // Should be 16 bytes total (8 for block_number + 8 for index)
+        assert_eq!(bytes.len(), 16);
+
+        // First 8 bytes should be the block number in big-endian
+        let block_bytes = &bytes[0..8];
+        assert_eq!(block_bytes, &42u64.to_be_bytes());
 
         // Last 8 bytes should be the index in big-endian
-        let index_bytes = &bytes[bytes.len() - 8..];
+        let index_bytes = &bytes[8..16];
         assert_eq!(index_bytes, &100u64.to_be_bytes());
-
-        // Earlier bytes should be zero padding
-        let padding = &bytes[..bytes.len() - 8];
-        assert!(padding.iter().all(|&b| b == 0));
     }
 
     #[test]
@@ -260,7 +250,7 @@ mod tests {
         assert_eq!(item.tx_type(), Some(42));
 
         let bytes = item.to_bytes();
-        let expected_len = U248_BYTE_COUNT + 4; // identifier + payload
+        let expected_len = 16 + 4; // identifier (16 bytes) + payload (4 bytes)
         assert_eq!(bytes.len(), expected_len);
         assert_eq!(item.size(), expected_len);
     }

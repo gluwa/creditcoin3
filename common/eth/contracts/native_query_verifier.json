@@ -1,0 +1,130 @@
+{
+  "abi": [
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint64",
+              "name": "chain_id",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "height",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "index",
+              "type": "uint64"
+            },
+            {
+              "components": [
+                {
+                  "internalType": "uint64",
+                  "name": "offset",
+                  "type": "uint64"
+                },
+                {
+                  "internalType": "uint64",
+                  "name": "size",
+                  "type": "uint64"
+                }
+              ],
+              "internalType": "struct LayoutSegment[]",
+              "name": "layout_segments",
+              "type": "tuple[]"
+            }
+          ],
+          "internalType": "struct Query",
+          "name": "query",
+          "type": "tuple"
+        },
+        {
+          "internalType": "bytes",
+          "name": "tx_data",
+          "type": "bytes"
+        },
+        {
+          "components": [
+            {
+              "internalType": "bytes32",
+              "name": "root",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32[]",
+              "name": "siblings",
+              "type": "bytes32[]"
+            }
+          ],
+          "internalType": "struct MerkleProof",
+          "name": "merkle_proof",
+          "type": "tuple"
+        },
+        {
+          "components": [
+            {
+              "internalType": "uint64",
+              "name": "block_number",
+              "type": "uint64"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "root",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "prev_digest",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "digest",
+              "type": "bytes32"
+            }
+          ],
+          "internalType": "struct ContinuityBlock[]",
+          "name": "continuity_blocks",
+          "type": "tuple[]"
+        }
+      ],
+      "name": "verifyQuery",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint8",
+              "name": "status",
+              "type": "uint8"
+            },
+            {
+              "components": [
+                {
+                  "internalType": "uint64",
+                  "name": "offset",
+                  "type": "uint64"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "bytes",
+                  "type": "bytes32"
+                }
+              ],
+              "internalType": "struct ResultSegment[]",
+              "name": "result_segments",
+              "type": "tuple[]"
+            }
+          ],
+          "internalType": "struct QueryVerificationResult",
+          "name": "result",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ]
+}

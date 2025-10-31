@@ -176,7 +176,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
                 chain_reward: 1000,
-                target_sample_size: 3,
+                target_sample_size: 1,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
             },
@@ -284,7 +284,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
                 chain_reward: 1000,
-                target_sample_size: 3,
+                target_sample_size: 1,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
             },
@@ -521,6 +521,6 @@ fn testnet_genesis(
             ],
             _phantom: Default::default(),
         },
-        prover: Default::default(),
+        // prover: Default::default(),
     }
 }

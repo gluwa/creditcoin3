@@ -85,6 +85,13 @@ where
             return Err(Error::ChainNotSupported);
         }
 
+        let attestation_chain_genesis_block_number =
+            runtime.attestation_chain_genesis_block_number(block_hash, chain_key)?;
+        if header_number == attestation_chain_genesis_block_number {
+            info!(target: LOG_TARGET, "📝 Attestation is the genesis block, skipping continuity proof validation");
+            return Ok(());
+        }
+
         // Every attestation must have a continuity proof
         // except for the first attestation in the chain
         if attestation.continuity_proof.is_empty() && header_number != 0 {
@@ -122,7 +129,7 @@ where
         // Validate the prev digest of the attestation against the head of the continuity proof
         if let Some(attestation_head) = attestation.continuity_proof.head() {
             let block: Block = attestation_head.clone().into();
-            let block_digest = H256::from_slice(&block.digest.to_bytes_be());
+            let block_digest = block.digest;
 
             if block_digest != attestation.prev_digest().unwrap_or_default() {
                 error!(target: LOG_TARGET, "❌ Continuity proof head digest mismatch, expected {:?}, got {:?}", attestation.prev_digest().unwrap_or_default(), block_digest);
@@ -135,7 +142,7 @@ where
         // This could happen if the attestation view is lagging behind
         if let Some(tail) = attestation.continuity_proof.tail() {
             let block: Block = tail.clone().into();
-            let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
+            let block_prev_digest = block.prev_digest;
             if block_prev_digest != last_block_digest {
                 // Check if we have the block_prev_digest in storage
                 let exists = runtime.contains_digest(block_hash, chain_key, block_prev_digest)?;
@@ -152,8 +159,8 @@ where
         for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
             let block: Block = serializable.into();
 
-            let block_digest = H256::from_slice(&block.digest.to_bytes_be());
-            let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
+            let block_digest = block.digest;
+            let block_prev_digest = block.prev_digest;
 
             // Check if the last block digest matches the previous digest of the current block
             // This to ensure that the continuity proof is valid

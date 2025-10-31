@@ -931,18 +931,18 @@ impl pallet_randomness::Config for Runtime {
     type EventListeners = Attestation;
 }
 
-parameter_types! {
-    pub const MaxSegmentsPerVerifierResult: u32 = 1000;
-}
+// parameter_types! {
+//     pub const MaxSegmentsPerVerifierResult: u32 = 1000;
+// }
 
-impl pallet_prover::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_prover::weights::WeightInfo<Runtime>;
-    type SupportedChains = SupportedChains;
-    type Checkpoints = Attestation;
-    type Attestations = Attestation;
-    type MaxSegmentsPerVerifierResult = MaxSegmentsPerVerifierResult;
-}
+// impl pallet_prover::Config for Runtime {
+//     type RuntimeEvent = RuntimeEvent;
+//     type WeightInfo = pallet_prover::weights::WeightInfo<Runtime>;
+//     type SupportedChains = SupportedChains;
+//     type Checkpoints = Attestation;
+//     type Attestations = Attestation;
+//     type MaxSegmentsPerVerifierResult = MaxSegmentsPerVerifierResult;
+// }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
@@ -980,7 +980,7 @@ construct_runtime!(
 
         Attestation: pallet_attestation_poc,
         SupportedChains: pallet_supported_chains,
-        Prover: pallet_prover,
+        // Prover: pallet_prover,
 
         Randomness: pallet_randomness,
     }
@@ -1127,7 +1127,7 @@ mod benches {
         [pallet_timestamp, Timestamp]
         [pallet_sudo, Sudo]
         [pallet_evm, EVM]
-        [pallet_prover, Prover]
+        // [pallet_prover, Prover]
         [pallet_attestation_poc, Attestation]
         [pallet_randomness, Randomness]
     );

@@ -2,15 +2,21 @@ use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use serde::{de::Deserializer, Deserialize, Serialize, Serializer};
 use sp_core::H256;
+use sp_std::vec::Vec;
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::string::{String, ToString};
+use alloc::string::String;
 #[cfg(feature = "std")]
-use std::string::{String, ToString};
+use std::string::String;
 
-use utils::Felt;
+#[cfg(not(feature = "std"))]
+use sp_runtime::format;
+#[cfg(feature = "std")]
+use std::format;
+
+// Removed Felt import - using H256 instead
 
 pub trait MaybeCreatedFromEmpty {
     fn created_from_empty(&self) -> bool;
@@ -40,15 +46,15 @@ impl core::error::Error for BlockError {}
 #[derive(Debug, Clone, Default)]
 pub struct Block {
     pub block_number: u64,
-    pub root: Felt,
-    pub prev_digest: Felt,
-    pub digest: Felt,
+    pub root: H256,
+    pub prev_digest: H256,
+    pub digest: H256,
 }
 
 impl Block {
-    pub fn new(block_number: u64, root: Felt) -> Self {
-        let prev_digest = Default::default();
-        let digest = Self::hash_payload(&block_number.into(), &root, &prev_digest);
+    pub fn new(block_number: u64, root: H256) -> Self {
+        let prev_digest = H256::default();
+        let digest = Self::hash_payload(&block_number, &root, &prev_digest);
 
         Self {
             block_number,
@@ -59,8 +65,8 @@ impl Block {
     }
 
     /// Creates a new block with the given block number, root, and previous digest.
-    pub fn new_from_prev_digest(block_number: u64, root: Felt, prev_digest: Felt) -> Self {
-        let digest = Self::hash_payload(&block_number.into(), &root, &prev_digest);
+    pub fn new_from_prev_digest(block_number: u64, root: H256, prev_digest: H256) -> Self {
+        let digest = Self::hash_payload(&block_number, &root, &prev_digest);
 
         Self {
             block_number,
@@ -71,7 +77,7 @@ impl Block {
     }
 
     /// Creates a new block with the given block number and digest, initializing root and prev_digest to default values.
-    pub fn new_from_digest(block_number: u64, digest: Felt) -> Self {
+    pub fn new_from_digest(block_number: u64, _root: H256, digest: H256) -> Self {
         Self {
             block_number,
             root: Default::default(),
@@ -84,11 +90,11 @@ impl Block {
         self.block_number
     }
 
-    pub fn digest(&self) -> Felt {
+    pub fn digest(&self) -> H256 {
         self.digest
     }
 
-    pub fn prev_digest(&self) -> Felt {
+    pub fn prev_digest(&self) -> H256 {
         self.prev_digest
     }
 
@@ -96,7 +102,7 @@ impl Block {
         if block.block_number != prev.block_number + 1 {
             return Err(BlockError::BlockNumberMismatch(block.block_number));
         }
-        let digest = Self::hash_payload(&block.block_number.into(), &block.root, &prev.digest);
+        let digest = Self::hash_payload(&block.block_number, &block.root, &prev.digest);
 
         Ok(Self {
             block_number: block.block_number,
@@ -106,7 +112,7 @@ impl Block {
         })
     }
 
-    pub fn from_block_number_and_digest(block_number: u64, digest: Felt) -> Self {
+    pub fn from_block_number_and_digest(block_number: u64, digest: H256) -> Self {
         Self {
             block_number,
             digest,
@@ -114,9 +120,13 @@ impl Block {
         }
     }
 
-    pub fn hash_payload(block_number: &Felt, root: &Felt, prev_digest: &Felt) -> Felt {
-        let d = starknet_crypto::pedersen_hash(block_number, root);
-        starknet_crypto::pedersen_hash(&d, prev_digest)
+    pub fn hash_payload(block_number: &u64, root: &H256, prev_digest: &H256) -> H256 {
+        use sp_io::hashing::keccak_256;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&block_number.to_be_bytes());
+        bytes.extend_from_slice(root.as_bytes());
+        bytes.extend_from_slice(prev_digest.as_bytes());
+        H256::from(keccak_256(&bytes))
     }
 }
 
@@ -126,25 +136,31 @@ impl MaybeCreatedFromEmpty for Block {
     }
 }
 
-// Helper serde adapters to encode/decode H256 as decimal strings (via Felt) in JSON
-fn h256_serialize_as_decimal<S>(val: &H256, s: S) -> Result<S::Ok, S::Error>
+// Helper serde adapters to encode/decode H256 as hex strings in JSON
+fn h256_serialize_as_hex<S>(val: &H256, s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    let felt = Felt::from_bytes_be(&val.0);
-    s.serialize_str(&felt.to_string())
+    s.serialize_str(&format!("0x{}", hex::encode(val.as_bytes())))
 }
 
-fn h256_deserialize_from_decimal<'de, D>(d: D) -> Result<H256, D::Error>
+fn h256_deserialize_from_hex<'de, D>(d: D) -> Result<H256, D::Error>
 where
     D: Deserializer<'de>,
 {
     let s = String::deserialize(d)?;
-    // Only accept decimal strings here
-    match Felt::from_dec_str(&s) {
-        Ok(f) => Ok(H256::from_slice(&f.to_bytes_be())),
-        Err(_) => Err(serde::de::Error::custom("Felt decimal parse error")),
+    let hex_str = s.strip_prefix("0x").unwrap_or(&s);
+    let bytes = hex::decode(hex_str)
+        .map_err(|e| serde::de::Error::custom(format!("Hex decode error: {e}")))?;
+    if bytes.len() != 32 {
+        return Err(serde::de::Error::custom(format!(
+            "Expected 32 bytes, got {}",
+            bytes.len()
+        )));
     }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    Ok(H256::from(arr))
 }
 
 #[derive(
@@ -162,28 +178,28 @@ where
     Deserialize,
 )]
 pub struct BlockSerializable {
-    block_number: u64,
+    pub block_number: u64,
     #[serde(
-        serialize_with = "h256_serialize_as_decimal",
-        deserialize_with = "h256_deserialize_from_decimal"
+        serialize_with = "h256_serialize_as_hex",
+        deserialize_with = "h256_deserialize_from_hex"
     )]
-    root: H256,
+    pub root: H256,
     #[serde(
-        serialize_with = "h256_serialize_as_decimal",
-        deserialize_with = "h256_deserialize_from_decimal"
+        serialize_with = "h256_serialize_as_hex",
+        deserialize_with = "h256_deserialize_from_hex"
     )]
-    prev_digest: H256,
+    pub prev_digest: H256,
     #[serde(
-        serialize_with = "h256_serialize_as_decimal",
-        deserialize_with = "h256_deserialize_from_decimal"
+        serialize_with = "h256_serialize_as_hex",
+        deserialize_with = "h256_deserialize_from_hex"
     )]
-    digest: H256,
+    pub digest: H256,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct ContinuityBlock {
-    root: Felt,
-    digest: Felt,
+    root: H256,
+    digest: H256,
 }
 
 #[derive(
@@ -191,13 +207,13 @@ pub struct ContinuityBlock {
 )]
 pub struct ContinuityBlockSerializable {
     #[serde(
-        serialize_with = "h256_serialize_as_decimal",
-        deserialize_with = "h256_deserialize_from_decimal"
+        serialize_with = "h256_serialize_as_hex",
+        deserialize_with = "h256_deserialize_from_hex"
     )]
     root: H256,
     #[serde(
-        serialize_with = "h256_serialize_as_decimal",
-        deserialize_with = "h256_deserialize_from_decimal"
+        serialize_with = "h256_serialize_as_hex",
+        deserialize_with = "h256_deserialize_from_hex"
     )]
     digest: H256,
 }
@@ -205,8 +221,8 @@ pub struct ContinuityBlockSerializable {
 impl From<&ContinuityBlock> for ContinuityBlockSerializable {
     fn from(b: &ContinuityBlock) -> Self {
         Self {
-            root: H256::from_slice(&b.root.to_bytes_be()),
-            digest: H256::from_slice(&b.digest.to_bytes_be()),
+            root: b.root,
+            digest: b.digest,
         }
     }
 }
@@ -223,10 +239,10 @@ impl From<BlockSerializable> for ContinuityBlockSerializable {
 impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
     type Error = ();
 
-    fn try_from(block: ContinuityBlockSerializable) -> Result<Self, ()> {
+    fn try_from(block: ContinuityBlockSerializable) -> Result<Self, Self::Error> {
         Ok(Self {
-            root: Felt::from_bytes_be(&block.root.0),
-            digest: Felt::from_bytes_be(&block.digest.0),
+            root: block.root,
+            digest: block.digest,
         })
     }
 }
@@ -235,9 +251,9 @@ impl From<&Block> for BlockSerializable {
     fn from(b: &Block) -> Self {
         Self {
             block_number: b.block_number,
-            root: H256::from_slice(&b.root.to_bytes_be()),
-            prev_digest: H256::from_slice(&b.prev_digest.to_bytes_be()),
-            digest: H256::from_slice(&b.digest.to_bytes_be()),
+            root: b.root,
+            prev_digest: b.prev_digest,
+            digest: b.digest,
         }
     }
 }
@@ -246,9 +262,9 @@ impl From<BlockSerializable> for Block {
     fn from(val: BlockSerializable) -> Self {
         Block {
             block_number: val.block_number,
-            root: Felt::from_bytes_be(&val.root.0),
-            prev_digest: Felt::from_bytes_be(&val.prev_digest.0),
-            digest: Felt::from_bytes_be(&val.digest.0),
+            root: val.root,
+            prev_digest: val.prev_digest,
+            digest: val.digest,
         }
     }
 }
@@ -257,27 +273,28 @@ impl From<BlockSerializable> for Block {
 mod tests {
     use super::*;
 
-    // Helper to make a Felt from decimal for readable fixtures
-    fn felt_dec(s: &str) -> Felt {
-        Felt::from_dec_str(s).expect("test fixture Felt parsing failed")
+    fn h256_from_u64(n: u64) -> H256 {
+        let mut bytes = [0u8; 32];
+        bytes[24..32].copy_from_slice(&n.to_be_bytes());
+        H256::from(bytes)
     }
 
     #[test]
-    fn continuity_block_serialization_is_decimal_and_roundtrips() {
+    fn continuity_block_serialization_is_hex_and_roundtrips() {
         // Arrange
         let original = ContinuityBlock {
-            root: felt_dec("123456789012345678901234567890"),
-            digest: felt_dec("42"),
+            root: h256_from_u64(123456789012345678),
+            digest: h256_from_u64(42),
         };
 
         // Act: produce serializable and serialize to JSON
         let ser = ContinuityBlockSerializable::from(&original);
         let json = serde_json::to_string(&ser).expect("serialization failed");
 
-        // Assert: serialized strings are decimal (no 0x prefix)
+        // Assert: serialized strings are hex (with 0x prefix)
         assert!(
-            !json.contains("0x") && !json.contains("0X"),
-            "Serialized ContinuityBlockSerializable fields should be decimal strings without 0x prefix"
+            json.contains("0x"),
+            "Serialized ContinuityBlockSerializable fields should be hex strings with 0x prefix"
         );
 
         // Act: parse back to ContinuityBlockSerializable via JSON and then convert
@@ -286,61 +303,38 @@ mod tests {
         let parsed = ContinuityBlock::try_from(parsed_ser)
             .expect("parsing ContinuityBlockSerializable failed");
 
-        // Assert: values round-trip (compare via to_string to avoid needing PartialEq on Felt)
-        assert_eq!(original.root.to_string(), parsed.root.to_string());
-        assert_eq!(original.digest.to_string(), parsed.digest.to_string());
+        // Assert: values round-trip
+        assert_eq!(original.root, parsed.root);
+        assert_eq!(original.digest, parsed.digest);
     }
 
     #[test]
-    fn block_serialization_is_decimal_and_roundtrips() {
-        // Arrange: a Block with decimal Felt values
+    fn block_serialization_is_hex_and_roundtrips() {
+        // Arrange: a Block with H256 values
         let original = Block {
             block_number: 7,
-            root: felt_dec("98765432109876543210"),
-            prev_digest: felt_dec("3141592653589793238462643383279502884"),
-            digest: felt_dec("2718281828459045235360287471352662497"),
+            root: h256_from_u64(98765432109876543),
+            prev_digest: h256_from_u64(314159265358979),
+            digest: h256_from_u64(271828182845904),
         };
 
         // Act: produce serializable and serialize to JSON
         let ser = BlockSerializable::from(&original);
         let json = serde_json::to_string(&ser).expect("serialization failed");
 
-        // Assert: serialized strings are decimal (no 0x prefix)
-        assert!(!json.contains("0x") && !json.contains("0X"));
+        // Assert: serialized strings are hex (with 0x prefix)
+        assert!(json.contains("0x"));
 
         // Act: parse back via JSON and convert to Block
+        // Act: parse back to BlockSerializable via JSON and then convert
         let parsed_ser: BlockSerializable =
             serde_json::from_str(&json).expect("deserialization failed");
         let parsed = Block::from(parsed_ser);
 
-        // Assert: fields match via string form
+        // Assert: values round-trip
         assert_eq!(original.block_number, parsed.block_number);
-        assert_eq!(original.root.to_string(), parsed.root.to_string());
-        assert_eq!(
-            original.prev_digest.to_string(),
-            parsed.prev_digest.to_string()
-        );
-        assert_eq!(original.digest.to_string(), parsed.digest.to_string());
-    }
-
-    #[test]
-    fn very_large_decimal_values_roundtrip() {
-        // A 256-bit-ish large decimal to smoke-test boundaries (fits as Felt if your field allows it)
-        let big = "1157920892373161954235709850086879078532699846656405640394575840079131296399"; // ~2^256-1
-
-        let original = ContinuityBlock {
-            root: felt_dec(big),
-            digest: felt_dec("340282366920938463463374607431768211455"), // ~2^128-1
-        };
-
-        let ser = ContinuityBlockSerializable::from(&original);
-        let json = serde_json::to_string(&ser).expect("serialization failed");
-        assert!(!json.contains("0x") && !json.contains("0X"));
-
-        let parsed_ser: ContinuityBlockSerializable =
-            serde_json::from_str(&json).expect("deserialization failed");
-        let parsed = ContinuityBlock::try_from(parsed_ser).expect("parsing large decimals failed");
-        assert_eq!(original.root.to_string(), parsed.root.to_string());
-        assert_eq!(original.digest.to_string(), parsed.digest.to_string());
+        assert_eq!(original.root, parsed.root);
+        assert_eq!(original.prev_digest, parsed.prev_digest);
+        assert_eq!(original.digest, parsed.digest);
     }
 }

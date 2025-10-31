@@ -3,18 +3,21 @@ members = [
     "node",
     "runtime",
     "runtime/generate-bags",
-    "pallets/*",
+    "pallets/attestation-poc",
+    "pallets/randomness",
+    "pallets/supported-chains",
     "attestor",
-    "prover",
     "primitives/attestor",
-    "primitives/prover",
     "primitives/supported-chains",
     "primitives/randomness",
+<<<<<<< HEAD
     "primitives/pallet-prover",
     "precompiles/proof-verifier",
     "precompiles/signature-verifier",
+=======
+>>>>>>> 580dbab5 (feat: native query verifier precompile with simplified Merkle tree)
     "precompiles/substrate-transfer",
-    "host",
+    "precompiles/native-query-verifier",
     "common/*",
     "attestor_zombienet",
     "query-cli",
@@ -226,9 +229,10 @@ pallet-supported-chains = { path = "pallets/supported-chains", default-features 
 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }
-pallet-evm-precompile-proof-verifier = { path = "precompiles/proof-verifier", default-features = false }
+# pallet-evm-precompile-proof-verifier = { path = "precompiles/proof-verifier", default-features = false }
 pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verifier", default-features = false }
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
+pallet-evm-precompile-native-query-verifier = { path = "precompiles/native-query-verifier", default-features = false }
 
 # Tracing
 evm = { version = "0.42.0", default-features = false, features = ["tracing"] }
@@ -265,14 +269,6 @@ supported-chains-primitives = { path = "primitives/supported-chains", default-fe
 # Randomness
 pallet-randomness = { path = "pallets/randomness", default-features = false }
 randomness-primitives = { path = "primitives/randomness", default-features = false }
-
-# Prover
-pallet-prover = { path = "pallets/prover", default-features = false }
-pallet-prover-primitives = { path = "primitives/pallet-prover", default-features = false }
-proof = { path = "proof", default-features = false }
-proof-verifier = { path = "host", default-features = false }
-prover-primitives = { path = "primitives/prover", default-features = false }
-verifier-core = { path = "common/verifier-core", default-features = false }
 
 # Common
 bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-features = false, features = [
