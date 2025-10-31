@@ -7,7 +7,7 @@ describe('handleSupportedChainRemoved()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
     let startingBlock: bigint;
-    let defaultMaturityStrategy: String;
+    let defaultMaturityStrategy: string;
     // unique integer to serve as chain id during testing
     const newChainId = BigInt(Date.now());
     const newChainName = `Test Chain ${newChainId}`;
