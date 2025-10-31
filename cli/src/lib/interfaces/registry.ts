@@ -150,9 +150,6 @@ import type {
     PalletNominationPoolsSubPools,
     PalletNominationPoolsUnbondPool,
     PalletOffencesEvent,
-    PalletProverCall,
-    PalletProverError,
-    PalletProverEvent,
     PalletProxyAnnouncement,
     PalletProxyCall,
     PalletProxyError,
@@ -377,9 +374,6 @@ declare module '@polkadot/types/types/registry' {
         PalletNominationPoolsSubPools: PalletNominationPoolsSubPools;
         PalletNominationPoolsUnbondPool: PalletNominationPoolsUnbondPool;
         PalletOffencesEvent: PalletOffencesEvent;
-        PalletProverCall: PalletProverCall;
-        PalletProverError: PalletProverError;
-        PalletProverEvent: PalletProverEvent;
         PalletProxyAnnouncement: PalletProxyAnnouncement;
         PalletProxyCall: PalletProxyCall;
         PalletProxyError: PalletProxyError;

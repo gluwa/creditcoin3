@@ -596,14 +596,6 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             [key: string]: AugmentedError<ApiType>;
         };
-        prover: {
-            StarkProgramMetadataAlreadySet: AugmentedError<ApiType>;
-            StarkProgramMetadataNotFound: AugmentedError<ApiType>;
-            /**
-             * Generic error
-             **/
-            [key: string]: AugmentedError<ApiType>;
-        };
         proxy: {
             /**
              * Account is already a proxy.

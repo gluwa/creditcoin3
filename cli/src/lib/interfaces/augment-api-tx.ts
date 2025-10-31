@@ -25,7 +25,6 @@ import type {
     u16,
     u32,
     u64,
-    u8,
 } from '@polkadot/types-codec';
 import type { AnyNumber, IMethod, ITuple } from '@polkadot/types-codec/types';
 import type {
@@ -1957,23 +1956,6 @@ declare module '@polkadot/api-base/types/submittable' {
                     numSlashingSpans: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [MultiAddress, u32]
-            >;
-            /**
-             * Generic tx
-             **/
-            [key: string]: SubmittableExtrinsicFunction<ApiType>;
-        };
-        prover: {
-            removeStarkProgramMetadata: AugmentedSubmittable<
-                (programVersion: u8 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [u8]
-            >;
-            setStarkProgramMetadata: AugmentedSubmittable<
-                (
-                    programVersion: u8 | AnyNumber | Uint8Array,
-                    programAuthHash: H256 | string | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [u8, H256]
             >;
             /**
              * Generic tx

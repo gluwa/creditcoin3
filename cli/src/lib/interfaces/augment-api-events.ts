@@ -20,7 +20,6 @@ import type {
     u16,
     u32,
     u64,
-    u8,
 } from '@polkadot/types-codec';
 import type { ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Permill } from '@polkadot/types/interfaces/runtime';
@@ -672,14 +671,6 @@ declare module '@polkadot/api-base/types/events' {
              * \[kind, timeslot\].
              **/
             Offence: AugmentedEvent<ApiType, [kind: U8aFixed, timeslot: Bytes], { kind: U8aFixed; timeslot: Bytes }>;
-            /**
-             * Generic event
-             **/
-            [key: string]: AugmentedEvent<ApiType>;
-        };
-        prover: {
-            StarkProgramMetadataRemoved: AugmentedEvent<ApiType, [u8]>;
-            StarkProgramMetadataSet: AugmentedEvent<ApiType, [u8, H256]>;
             /**
              * Generic event
              **/

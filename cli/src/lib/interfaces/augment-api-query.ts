@@ -7,7 +7,7 @@ import '@polkadot/api-base/types/storage';
 
 import type { ApiTypes, AugmentedQuery, QueryableStorageEntry } from '@polkadot/api-base/types';
 import type { Data } from '@polkadot/types';
-import type { Bytes, Null, Option, Struct, U256, U8aFixed, Vec, bool, u128, u32, u64, u8 } from '@polkadot/types-codec';
+import type { Bytes, Null, Option, Struct, U256, U8aFixed, Vec, bool, u128, u32, u64 } from '@polkadot/types-codec';
 import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
@@ -1019,18 +1019,6 @@ declare module '@polkadot/api-base/types/storage' {
                 [H256]
             > &
                 QueryableStorageEntry<ApiType, [H256]>;
-            /**
-             * Generic query
-             **/
-            [key: string]: QueryableStorageEntry<ApiType>;
-        };
-        prover: {
-            starkProgramMetadata: AugmentedQuery<
-                ApiType,
-                (arg: u8 | AnyNumber | Uint8Array) => Observable<H256>,
-                [u8]
-            > &
-                QueryableStorageEntry<ApiType, [u8]>;
             /**
              * Generic query
              **/
