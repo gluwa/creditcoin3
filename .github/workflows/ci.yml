@@ -40,7 +40,7 @@ jobs:
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-test"]
     steps:
       - name: Download locally built docker image
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/gluwa/
@@ -187,7 +187,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: docker-logs
           path: docker-*.log
@@ -220,7 +220,7 @@ jobs:
           git checkout "$GITHUB_HEAD_REF"
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -520,7 +520,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -568,7 +568,7 @@ jobs:
           npm pack
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binary-for-npm-creditcoin-public-prover
           path: "common/eth/contracts/gluwa-creditcoin-public-prover-*.tgz"
@@ -599,7 +599,7 @@ jobs:
 
       - name: Upload generated precompiles ABI
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: precompiles-abi
           path: precompiles/metadata/abi/*.json
@@ -674,7 +674,7 @@ jobs:
           npm run solhint
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -894,7 +894,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.62.23
+        uses: taiki-e/install-action@v2.62.43
         with:
           tool: cargo-llvm-cov
 
@@ -912,7 +912,7 @@ jobs:
               --ignore-filename-regex "(benchmarking.rs|mock.rs|tests.rs|weights.rs)"
 
       - name: Upload coverage report as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-report
           path: target/llvm-cov/html/
@@ -967,7 +967,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -1039,7 +1039,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -1113,7 +1113,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -1128,13 +1128,13 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
 
@@ -1202,13 +1202,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install Node Dependencies
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -1225,7 +1225,7 @@ jobs:
       # Upload logs if nodes are not connecting.
       # head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
       - name: Upload logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           if-no-files-found: warn
@@ -1243,7 +1243,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -1323,7 +1323,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -1370,7 +1370,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -1417,7 +1417,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -1466,7 +1466,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -1513,7 +1513,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -2020,7 +2020,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -2034,7 +2034,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download binaries
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -2127,7 +2127,7 @@ jobs:
             --base-path ./charlie-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-charlie.log 2>&1 &
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -2205,7 +2205,7 @@ jobs:
       # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: integration-test-attestor-network
           path: /var/tmp/integration-test-attestor-network/
@@ -2282,7 +2282,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-${{ matrix.secret }}-${{ matrix.proxy_type }}-logs
           path: retry*.json
@@ -2352,14 +2352,14 @@ jobs:
           cargo install subxt-cli@0.37.0 --locked
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
 
       # WARNING: always after Swatinem/rust-cache
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -2492,7 +2492,7 @@ jobs:
 
       - name: Upload logs from Alice and Bob
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
           path: /tmp/creditcoin3-node-*.std*
@@ -2525,7 +2525,7 @@ jobs:
 
       - name: Upload coverage report as artifact
         if: ${{ matrix.proxy == 'yes' && matrix.proxy_type == 'All' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: integration-test-cli-coverage-report
           path: cli/src/test/coverage/
@@ -2581,7 +2581,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -2595,13 +2595,13 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -2697,7 +2697,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: integration-test-blockchain
           path: |
@@ -2728,13 +2728,13 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-${{ matrix.chainspec }}
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -2862,7 +2862,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -2909,13 +2909,13 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
 
@@ -2936,7 +2936,7 @@ jobs:
 
       - name: Upload coverage report as artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hardhat-coverage-report
           path: ./docs/smart-contract-development/with-hardhat/coverage/
@@ -3077,7 +3077,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -3135,7 +3135,7 @@ jobs:
 
       # WARNING: always after Swatinem/rust-cache
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-benchmarks
           path: target/release
@@ -3228,7 +3228,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
@@ -3242,7 +3242,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download binaries
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -3295,7 +3295,7 @@ jobs:
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8343'
 
       - name: Setup Node.js environment
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
 
@@ -3515,7 +3515,7 @@ jobs:
       # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: cc3-indexer-testing
           path: /var/tmp/cc3-indexer-testing/
@@ -3635,7 +3635,7 @@ jobs:
 
       - name: Upload Linode logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linode-attestor-cli-${{ matrix.proxy }}-${{ matrix.secret }}-${{ matrix.proxy_type }}-logs
           path: retry*.json
@@ -3673,13 +3673,13 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download binaries
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Download subkey binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: subkey
           path: ~/.cargo/bin
@@ -3714,7 +3714,7 @@ jobs:
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -3794,7 +3794,7 @@ jobs:
 
       - name: Upload logs from Alice and Bob
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: logs-for-attestor-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
           path: |

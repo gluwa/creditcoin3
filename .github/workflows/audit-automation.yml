@@ -41,7 +41,7 @@ jobs:
         run: cargo build --release --package  usc_audit_automation
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: usc_audit_automation
           path: target/release/usc_audit_automation
@@ -57,7 +57,7 @@ jobs:
 
     steps:
       - name: Download binary artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: usc_audit_automation
           path: target/release

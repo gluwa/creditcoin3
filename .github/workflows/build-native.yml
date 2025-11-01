@@ -58,7 +58,7 @@ jobs:
           args: ${{ inputs.build-options }}
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binary-for-${{ inputs.version-string }}
           path: |
@@ -70,7 +70,7 @@ jobs:
             target/release/query-cli
 
       - name: Upload WASM runtime
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ inputs.version-string }}
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
@@ -84,7 +84,7 @@ jobs:
 
       - name: Upload subkey binary
         if: ${{ inputs.build-subkey }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: subkey
           path: ~/.cargo/bin/subkey

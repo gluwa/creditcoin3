@@ -59,7 +59,7 @@ jobs:
           mv ${{ steps.srtool_build.outputs.wasm_compressed }} creditcoin-${{ inputs.version-string }}-runtime.wasm
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binary-for-wasm
           path: "*.wasm"

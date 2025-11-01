@@ -81,7 +81,7 @@ jobs:
           args: --release --features runtime-benchmarks
 
       - name: Upload benchmark binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: creditcoin3-node
           path: target/release/creditcoin3-node
@@ -143,7 +143,7 @@ jobs:
           echo "HOME=/home/actions" >> "$GITHUB_ENV"
 
       - name: Download benchmark binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: creditcoin3-node
           path: target/release

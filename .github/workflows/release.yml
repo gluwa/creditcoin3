@@ -180,7 +180,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           registry-url: "https://registry.npmjs.org"
@@ -229,7 +229,7 @@ jobs:
           echo "\`\`\`" >> /var/tmp/changelog.md
 
       - name: Upload changelog
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: changelog
           path: /var/tmp/changelog.md
@@ -297,7 +297,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           registry-url: "https://registry.npmjs.org"
@@ -315,7 +315,7 @@ jobs:
           npm pack
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binary-for-npm-creditcoin-public-prover
           path: "common/eth/contracts/gluwa-creditcoin-public-prover-${{ needs.sanity-check.outputs.TAG_NAME }}.tgz"
@@ -328,7 +328,7 @@ jobs:
           npm publish --access public --verbose
 
       - name: Upload smart contract(s)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: smart-contracts
           path: |
@@ -392,19 +392,19 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download binaries
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: artifact
           pattern: binary-for-*
           merge-multiple: true
 
       - name: Download changelog
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           pattern: changelog
 
       - name: Download smart contract(s)
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: artifact
           pattern: smart-contracts
