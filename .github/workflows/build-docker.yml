@@ -33,7 +33,7 @@ jobs:
 
       - name: Upload exported image for use by other CI jobs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/${{ github.repository }}.tar

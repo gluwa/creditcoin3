@@ -41,7 +41,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.62.15
+        uses: taiki-e/install-action@v2.62.44
         with:
           tool: cargo-llvm-cov
 
@@ -88,7 +88,7 @@ jobs:
           az storage blob upload-batch --account-name staticsitellvmhtml --auth-mode key -d "\$web" --destination-path "$DESTINATION_PATH" --overwrite -s ./target/llvm-cov
 
       - name: Upload coverage report as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-report
           path: target/llvm-cov/html/
