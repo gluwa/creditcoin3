@@ -823,6 +823,11 @@
   resolved "https://registry.yarnpkg.com/@opentelemetry/api/-/api-1.9.0.tgz#d03eba68273dc0f7509e2a3d5cba21eae10379fe"
   integrity sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==
 
+"@pinojs/redact@^0.4.0":
+  version "0.4.0"
+  resolved "https://registry.yarnpkg.com/@pinojs/redact/-/redact-0.4.0.tgz#c3de060dd12640dcc838516aa2a6803cc7b2e9d6"
+  integrity sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==
+
 "@pkgjs/parseargs@^0.11.0":
   version "0.11.0"
   resolved "https://registry.yarnpkg.com/@pkgjs/parseargs/-/parseargs-0.11.0.tgz#a77ea742fab25775145434eb1d2328cf5013ac33"
@@ -5251,11 +5256,12 @@ pino@7.11.0:
     sonic-boom "^2.2.1"
     thread-stream "^0.15.1"
 
-pino@^10.0.0:
-  version "10.0.0"
-  resolved "https://registry.yarnpkg.com/pino/-/pino-10.0.0.tgz#3d1a8abc7a700142edebf02a7b291834da199fbe"
-  integrity sha512-eI9pKwWEix40kfvSzqEP6ldqOoBIN7dwD/o91TY5z8vQI12sAffpR/pOqAD1IVVwIVHDpHjkq0joBPdJD0rafA==
+pino@^10.1.0:
+  version "10.1.0"
+  resolved "https://registry.yarnpkg.com/pino/-/pino-10.1.0.tgz#eb2a8a5b509fe4c75643ccec30461ea24766003a"
+  integrity sha512-0zZC2ygfdqvqK8zJIr1e+wT1T/L+LF6qvqvbzEQ6tiMAoTqEVK9a1K3YRu8HEUvGEvNqZyPJTtb2sNIoTkB83w==
   dependencies:
+    "@pinojs/redact" "^0.4.0"
     atomic-sleep "^1.0.0"
     on-exit-leak-free "^2.1.0"
     pino-abstract-transport "^2.0.0"
@@ -5264,7 +5270,6 @@ pino@^10.0.0:
     quick-format-unescaped "^4.0.3"
     real-require "^0.2.0"
     safe-stable-stringify "^2.3.1"
-    slow-redact "^0.3.0"
     sonic-boom "^4.0.1"
     thread-stream "^3.0.0"
 
@@ -5808,11 +5813,6 @@ siwe@^3.0.0:
   dependencies:
     "@spruceid/siwe-parser" "^3.0.0"
     "@stablelib/random" "^1.0.1"
-
-slow-redact@^0.3.0:
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/slow-redact/-/slow-redact-0.3.0.tgz#97b4d7bd04136404e529c1ab29f3cb50e903c746"
-  integrity sha512-cf723wn9JeRIYP9tdtd86GuqoR5937u64Io+CYjlm2i7jvu7g0H+Cp0l0ShAf/4ZL+ISUTVT+8Qzz7RZmp9FjA==
 
 smoldot@2.0.26:
   version "2.0.26"
