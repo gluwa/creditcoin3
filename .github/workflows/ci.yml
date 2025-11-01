@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Download locally built docker image
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/gluwa/
@@ -183,7 +183,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: docker-logs
           path: docker-*.log
@@ -271,7 +271,7 @@ jobs:
           lfs: true
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -504,13 +504,13 @@ jobs:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
 
@@ -549,13 +549,13 @@ jobs:
         with:
           lfs: true
       - name: Install Node Dependencies
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -571,7 +571,7 @@ jobs:
       #Upload logs if nodes are not connecting.
       #head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
       - name: Upload logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           if-no-files-found: warn
@@ -590,7 +590,7 @@ jobs:
           lfs: true
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -775,13 +775,13 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -876,7 +876,7 @@ jobs:
 
       - name: Upload logs from Alice and Bob
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
           path: /tmp/creditcoin3-node-*.std*
@@ -910,13 +910,13 @@ jobs:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -970,13 +970,13 @@ jobs:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-${{ matrix.chainspec }}
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -1086,7 +1086,7 @@ jobs:
           lfs: true
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -1107,13 +1107,13 @@ jobs:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 20
 
