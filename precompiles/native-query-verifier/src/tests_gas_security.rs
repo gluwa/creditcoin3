@@ -28,8 +28,8 @@ fn test_gas_prevents_dos_with_large_tx_data() {
 
             // For 10MB (max size), gas should be prohibitively expensive
             if size == 10_485_760 {
-                // 35,000 + (16 * 10,485,760) = 167,807,160 gas
-                assert_eq!(gas_cost, 167_807_160, "10MB should cost ~168M gas");
+                // 21,000 + (16 * 10,485,760) = 167,793,160 gas
+                assert_eq!(gas_cost, 167_793_160, "10MB should cost ~168M gas");
 
                 // This exceeds typical block gas limits (30M), preventing DoS
                 assert!(gas_cost > 30_000_000, "Should exceed block gas limit");
@@ -60,7 +60,7 @@ fn test_gas_prevents_dos_with_deep_merkle_tree() {
 
             // But cost should scale to prevent abuse
             if levels > 20 {
-                assert!(gas_cost > 100_000, "Very deep trees should be expensive");
+                assert!(gas_cost > 30_000, "Very deep trees should be expensive");
             }
         }
     });
@@ -104,13 +104,12 @@ fn test_gas_comparison_with_ethereum_precompiles() {
         // ecrecover costs 3,000 gas
         let ecrecover_gas = 3_000u64;
 
-        // Our base cost should be reasonable multiple of ecrecover
-        // (we do more work: merkle + continuity + extraction)
-        let ratio = GAS_BASE_VERIFY / ecrecover_gas;
-        assert!(
-            ratio >= 10 && ratio <= 15,
-            "Base gas should be 10-15x ecrecover, got {}x",
-            ratio
+        // Our base cost should match standard transaction cost
+        // (precompile efficiency offsets the complex verification work)
+        let tx_base = 21_000u64;
+        assert_eq!(
+            GAS_BASE_VERIFY, tx_base,
+            "Base gas should match standard transaction cost"
         );
 
         // Per-byte cost should match calldata
@@ -119,10 +118,10 @@ fn test_gas_comparison_with_ethereum_precompiles() {
         // Storage lookup should match SLOAD
         assert_eq!(GAS_STORAGE_LOOKUP, 2_600, "Should match cold SLOAD");
 
-        // Sibling verification comparable to ecrecover
-        assert_eq!(
-            GAS_PER_SIBLING, ecrecover_gas,
-            "Sibling verification should equal ecrecover"
+        // Sibling verification much more efficient than ecrecover due to native execution
+        assert!(
+            GAS_PER_SIBLING < ecrecover_gas / 10,
+            "Native sibling verification should be much cheaper than ecrecover"
         );
     });
 }
@@ -143,7 +142,7 @@ fn test_gas_for_typical_use_cases() {
             + (3 * GAS_STORAGE_LOOKUP);
 
         println!("ERC20 transfer verification: {} gas", erc20_gas);
-        assert!(erc20_gas < 100_000, "Simple transfers should be < 100k gas");
+        assert!(erc20_gas < 50_000, "Simple transfers should be < 50k gas");
 
         // Scenario 2: Complex DeFi transaction
         // - 1000 byte transaction
@@ -156,7 +155,7 @@ fn test_gas_for_typical_use_cases() {
             + (10 * GAS_STORAGE_LOOKUP);
 
         println!("DeFi transaction verification: {} gas", defi_gas);
-        assert!(defi_gas < 500_000, "Complex DeFi should be < 500k gas");
+        assert!(defi_gas < 100_000, "Complex DeFi should be < 100k gas");
 
         // Scenario 3: NFT mint verification
         // - 500 byte transaction
@@ -169,7 +168,7 @@ fn test_gas_for_typical_use_cases() {
             + (5 * GAS_STORAGE_LOOKUP);
 
         println!("NFT mint verification: {} gas", nft_gas);
-        assert!(nft_gas < 200_000, "NFT operations should be < 200k gas");
+        assert!(nft_gas < 60_000, "NFT operations should be < 60k gas");
     });
 }
 
@@ -186,8 +185,8 @@ fn test_gas_cost_boundaries() {
                      GAS_STORAGE_LOOKUP; // 1 lookup
 
         println!("Minimum gas cost: {}", min_gas);
-        assert_eq!(min_gas, 35_000 + 16 + 0 + 5_000 + 2_600);
-        assert_eq!(min_gas, 42_616, "Minimum should be ~43k gas");
+        assert_eq!(min_gas, 21_000 + 16 + 0 + 3_000 + 2_600);
+        assert_eq!(min_gas, 26_616, "Minimum should be ~27k gas");
 
         // Reasonable maximum: large but valid query
         let reasonable_max = GAS_BASE_VERIFY +

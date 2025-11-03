@@ -37,14 +37,14 @@ mod tests_gas_security;
 pub struct NativeQueryVerifierPrecompile<Runtime>(PhantomData<Runtime>);
 
 // Gas cost constants
-// Based on comparison with standard Ethereum precompiles:
-// - ecrecover: 3,000 gas
-// - sha256: 60 + 12/word
+// Based on realistic Solidity implementation costs with precompile efficiency gains:
+// - Base transaction: 21,000 gas
+// - Keccak256 in Solidity: ~30 + 6/word, in precompile: ~10x faster
 // - SLOAD: 2,100 (warm) / 2,600 (cold)
-const GAS_BASE_VERIFY: u64 = 35_000; // Base overhead for entering the precompile (reduced from 50k)
+const GAS_BASE_VERIFY: u64 = 21_000; // Base transaction cost (matches Ethereum standard)
 const GAS_PER_TX_BYTE: u64 = 16; // Per byte cost for transaction data (matches calldata cost)
-const GAS_PER_SIBLING: u64 = 3_000; // Per Merkle sibling hash verification (comparable to ecrecover)
-const GAS_PER_CONTINUITY_BLOCK: u64 = 5_000; // Per block in continuity chain
+const GAS_PER_SIBLING: u64 = 200; // Per Merkle sibling verification (native efficiency vs ~166 in Solidity)
+const GAS_PER_CONTINUITY_BLOCK: u64 = 3_000; // Per block verification (storage + hash check)
 const GAS_STORAGE_LOOKUP: u64 = 2_600; // Each storage read (matches cold SLOAD)
 const WEIGHT_MERKLE_VERIFY: u64 = 100_000; // Merkle verification work
 const WEIGHT_CONTINUITY_VERIFY: u64 = 50_000; // Continuity verification work

@@ -334,7 +334,7 @@ fn test_gas_scales_with_tx_size() {
         assert_eq!(large_gas - small_gas, GAS_PER_TX_BYTE * 900);
 
         // Verify new gas costs are reasonable
-        assert_eq!(GAS_BASE_VERIFY, 35_000, "Base gas should be 35k");
+        assert_eq!(GAS_BASE_VERIFY, 21_000, "Base gas should be 21k");
         assert_eq!(GAS_PER_TX_BYTE, 16, "Per byte should match calldata cost");
         assert_eq!(
             GAS_STORAGE_LOOKUP, 2_600,
