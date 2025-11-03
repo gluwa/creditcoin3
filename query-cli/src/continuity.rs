@@ -10,6 +10,9 @@ use cc_client::Client as CcClient;
 use eth::{Client as EthClient, OrderedBlock};
 use sp_core::H256;
 
+// Type alias for continuity bounds to reduce complexity
+type ContinuityBounds = (Option<(u64, H256)>, Option<(u64, H256)>);
+
 /// Fetch continuity proof (attestations/checkpoints) for the given query
 pub async fn fetch_continuity_proof(
     cc3_rpc_url: &str,
@@ -76,7 +79,7 @@ fn find_continuity_bounds<A>(
     query_height: u64,
     attestations: &[SignedAttestation<sp_core::H256, A>],
     checkpoints: &[AttestationCheckpoint],
-) -> Result<(Option<(u64, H256)>, Option<(u64, H256)>)> {
+) -> Result<ContinuityBounds> {
     // Find highest attestation/checkpoint before query height
     let lower_attestation = attestations
         .iter()
@@ -151,8 +154,7 @@ async fn build_continuity_fragment(
         // Check if the query block is within the bounds
         if query_height <= lower_height || query_height > upper_height {
             println!(
-                "⚠️  Query height {} is outside the attestation bounds [{}, {}]",
-                query_height, lower_height, upper_height
+                "⚠️  Query height {query_height} is outside the attestation bounds [{lower_height}, {upper_height}]"
             );
             println!(
                 "   The query block must be between attestations for continuity verification."
@@ -180,10 +182,7 @@ async fn build_continuity_fragment(
             );
         } else {
             // There are intermediate blocks between the attestation and query block
-            println!(
-                "Fetching continuity chain from block {} to {}",
-                start_height, query_height
-            );
+            println!("Fetching continuity chain from block {start_height} to {query_height}");
 
             // Build chain with actual block data
             let mut prev_digest = lower_digest;
@@ -194,7 +193,7 @@ async fn build_continuity_fragment(
                     block.clone()
                 } else {
                     // Fetch intermediate block
-                    println!("Fetching intermediate block {}...", height);
+                    println!("Fetching intermediate block {height}...");
                     eth_client
                         .get_block(height, ccnext_abi_encoding::abi::EncodingVersion::V1)
                         .await?

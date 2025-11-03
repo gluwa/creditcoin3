@@ -394,7 +394,7 @@ async fn submit_native_query(
     // Debug: print siblings
     for (i, sibling) in merkle_proof.siblings.iter().enumerate() {
         if *sibling == sp_core::H256::default() {
-            println!("  Sibling[{}]: PLACEHOLDER", i);
+            println!("  Sibling[{i}]: PLACEHOLDER");
         } else {
             println!("  Sibling[{}]: 0x{}", i, hex::encode(&sibling.0[..8]));
         }
@@ -453,10 +453,7 @@ pub async fn submit_default_query(
 
     let query_id = query.id();
 
-    println!(
-        "Going to submit following Query: {:?}, id({:?})\n",
-        query, query_id
-    );
+    println!("Going to submit following Query: {query:?}, id({query_id:?})\n");
 
     let eth_rpc_url = "ws://localhost:8545".to_string(); // Local Ethereum node URL
 

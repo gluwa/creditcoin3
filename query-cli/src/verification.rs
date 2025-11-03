@@ -127,21 +127,18 @@ pub fn display_results(query: &Query, result: &VerificationResult) {
         println!("     • Layout segments: {}", query.layout_segments.len());
 
         println!("\n   Comparison with Solidity smart contract:");
-        println!("     Native Precompile (0x0FD2): {} gas", gas);
+        println!("     Native Precompile (0x0FD2): {gas} gas");
         let estimated_solidity_gas = estimate_solidity_equivalent(
             result.merkle_siblings_count,
             result.continuity_blocks_count,
             result.tx_data_size,
             query.layout_segments.len(),
         );
-        println!(
-            "     Solidity Contract (est.): ~{} gas",
-            estimated_solidity_gas
-        );
+        println!("     Solidity Contract (est.): ~{estimated_solidity_gas} gas");
         let savings = ((estimated_solidity_gas as f64 - gas as f64) / estimated_solidity_gas as f64
             * 100.0) as i32;
         if savings > 0 {
-            println!("     Savings: ~{}% lower cost", savings);
+            println!("     Savings: ~{savings}% lower cost");
         }
 
         println!("\n   Note: Native precompile provides optimized");
@@ -161,11 +158,11 @@ pub fn display_results(query: &Query, result: &VerificationResult) {
 /// Format ETH value for display
 fn format_eth(eth: f64) -> String {
     if eth < 0.001 {
-        format!("{:.9}", eth)
+        format!("{eth:.9}")
     } else if eth < 0.01 {
-        format!("{:.6}", eth)
+        format!("{eth:.6}")
     } else {
-        format!("{:.4}", eth)
+        format!("{eth:.4}")
     }
 }
 
