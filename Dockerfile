@@ -1,13 +1,12 @@
 # hadolint global ignore=DL3008,DL3009,DL3013,DL3016,SC3046,DL4006,SC1091,SC2086
 FROM ubuntu:24.04 AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
-COPY ./deadsnakes-ubuntu-ppa-noble.sources /etc/apt/sources.list.d/
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     update-ca-certificates && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y libdw1t64 libpq5 nodejs python3.10 --no-install-recommends && \
+    apt-get install -y libdw1t64 libpq5 nodejs --no-install-recommends && \
     npm install -g yarn node-gyp
 # WARNING: devel dependencies should go into the devel-base image below
 
@@ -22,20 +21,11 @@ USER 0
 # NOTE: only devel releated dependencies here
 RUN apt-get install -y --no-install-recommends \
     software-properties-common \
-    gcc libgmp-dev libpq-dev make python3.10-dev python3-virtualenv
+    gcc libpq-dev make
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 RUN .github/install-solidity-compiler.sh
 
 USER creditcoin
-ENV PATH=/creditcoin-node/venv/bin:${PATH} \
-    VIRTUAL_ENV=/creditcoin-node/venv
-RUN virtualenv --python /usr/bin/python3.10 /creditcoin-node/venv
-RUN source /creditcoin-node/venv/bin/activate && \
-    pip install --no-cache-dir --upgrade setuptools && \
-    pip install --no-cache-dir --requirement /creditcoin-node/prover/requirements.txt
-
-RUN cairo-compile /creditcoin-node/cairo/scripts/verify_merkle_proof.cairo \
-         --output /creditcoin-node/cairo/scripts/verify_merkle_proof.cairo_compiled.json --proof_mode 2>&1
 
 
 FROM devel-base AS rust-builder
@@ -77,13 +67,6 @@ COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/chainspe
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor /bin/attestor
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor_zombienet /bin/attestor_zombienet
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/query-cli /bin/query-cli
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/prover /bin/prover
-
-ENV PATH=/creditcoin-node/venv/bin:/cairo/scripts:/cairo/stone-prover:/cairo/stone-verifier:${PATH} \
-    VIRTUAL_ENV=/creditcoin-node/venv
-COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/venv/ /creditcoin-node/venv
-COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/cairo/ /cairo
-COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/prover/sleep-and-prover.sh /usr/libexec/sleep-and-prover.sh
 
 USER 0
 RUN npm install -g /creditcoin-node/creditcoin-v*.tgz
