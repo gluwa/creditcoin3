@@ -156,7 +156,7 @@ fn create_valid_continuity_chain(start_block: u64, count: usize) -> Vec<Continui
 
     for i in 0..count {
         let block_number = start_block + i as u64;
-        let root = H256::from(keccak_256(&format!("root_{}", block_number).as_bytes()));
+        let root = H256::from(keccak_256(format!("root_{block_number}").as_bytes()));
 
         // Compute digest matching the Block::hash_payload logic
         let mut digest_bytes = Vec::new();
@@ -667,8 +667,8 @@ fn test_transaction_at_size_limit() {
 fn test_gas_costs_scale_correctly() {
     ExtBuilder::default().build().execute_with(|| {
         // Test 1: Small transaction with few siblings
-        let small_tx = vec![0u8; 100];
-        let small_siblings = vec![H256::random(); 2];
+        let small_tx = [0u8; 100].to_vec();
+        let small_siblings = [H256::random(), H256::random()].to_vec();
         let small_continuity = create_valid_continuity_chain(100, 2);
 
         // Test 2: Large transaction with many siblings

@@ -8,3 +8,4 @@ In this repository, can you keep to following guidelines:
 - Our CI jobs test all of these so always check if we need changes
 - Don't write documentation files unless we ask
 - Don't auto commit or push, always ask first or be asked to.
+- Always run clippy and other formatters / linters configured in the project

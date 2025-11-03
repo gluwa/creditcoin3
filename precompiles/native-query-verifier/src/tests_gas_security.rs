@@ -24,7 +24,7 @@ fn test_gas_prevents_dos_with_large_tx_data() {
             let gas_cost = GAS_BASE_VERIFY + (GAS_PER_TX_BYTE * size);
 
             // Ensure gas cost scales appropriately
-            println!("{} transaction costs {} gas", label, gas_cost);
+            println!("{label} transaction costs {gas_cost} gas");
 
             // For 10MB (max size), gas should be prohibitively expensive
             if size == 10_485_760 {
@@ -53,7 +53,7 @@ fn test_gas_prevents_dos_with_deep_merkle_tree() {
         for (levels, siblings) in test_cases {
             let gas_cost = GAS_BASE_VERIFY + (GAS_PER_SIBLING * siblings);
 
-            println!("{} level tree costs {} gas", levels, gas_cost);
+            println!("{levels} level tree costs {gas_cost} gas");
 
             // Even very deep trees should have reasonable gas costs
             assert!(gas_cost < 500_000, "Deep trees should still be affordable");
@@ -84,7 +84,7 @@ fn test_gas_prevents_dos_with_long_continuity_chain() {
                 + (blocks * GAS_PER_CONTINUITY_BLOCK)
                 + (blocks * GAS_STORAGE_LOOKUP);
 
-            println!("{} block chain costs {} gas", blocks, gas_cost);
+            println!("{blocks} block chain costs {gas_cost} gas");
 
             // Long chains should be expensive but not prohibitive
             if blocks <= 100 {
@@ -141,7 +141,7 @@ fn test_gas_for_typical_use_cases() {
             + (3 * GAS_PER_CONTINUITY_BLOCK)
             + (3 * GAS_STORAGE_LOOKUP);
 
-        println!("ERC20 transfer verification: {} gas", erc20_gas);
+        println!("ERC20 transfer verification: {erc20_gas} gas");
         assert!(erc20_gas < 50_000, "Simple transfers should be < 50k gas");
 
         // Scenario 2: Complex DeFi transaction
@@ -154,7 +154,7 @@ fn test_gas_for_typical_use_cases() {
             + (10 * GAS_PER_CONTINUITY_BLOCK)
             + (10 * GAS_STORAGE_LOOKUP);
 
-        println!("DeFi transaction verification: {} gas", defi_gas);
+        println!("DeFi transaction verification: {defi_gas} gas");
         assert!(defi_gas < 100_000, "Complex DeFi should be < 100k gas");
 
         // Scenario 3: NFT mint verification
@@ -167,7 +167,7 @@ fn test_gas_for_typical_use_cases() {
             + (5 * GAS_PER_CONTINUITY_BLOCK)
             + (5 * GAS_STORAGE_LOOKUP);
 
-        println!("NFT mint verification: {} gas", nft_gas);
+        println!("NFT mint verification: {nft_gas} gas");
         assert!(nft_gas < 60_000, "NFT operations should be < 60k gas");
     });
 }
@@ -180,12 +180,12 @@ fn test_gas_cost_boundaries() {
         // Minimum: smallest possible query
         let min_gas = GAS_BASE_VERIFY +
                      GAS_PER_TX_BYTE +  // 1 byte tx
-                     0 +                 // No siblings (single tx block)
+                     // No siblings (single tx block)
                      GAS_PER_CONTINUITY_BLOCK + // 1 block
                      GAS_STORAGE_LOOKUP; // 1 lookup
 
-        println!("Minimum gas cost: {}", min_gas);
-        assert_eq!(min_gas, 21_000 + 16 + 0 + 3_000 + 2_600);
+        println!("Minimum gas cost: {min_gas}");
+        assert_eq!(min_gas, 21_000 + 16 + 3_000 + 2_600);
         assert_eq!(min_gas, 26_616, "Minimum should be ~27k gas");
 
         // Reasonable maximum: large but valid query
@@ -195,7 +195,7 @@ fn test_gas_cost_boundaries() {
                            (50 * GAS_PER_CONTINUITY_BLOCK) + // 50 blocks
                            (50 * GAS_STORAGE_LOOKUP); // 50 lookups
 
-        println!("Reasonable maximum gas cost: {}", reasonable_max);
+        println!("Reasonable maximum gas cost: {reasonable_max}");
         assert!(reasonable_max < 10_000_000, "Should be under 10M gas");
 
         // Theoretical maximum would exceed block limits, providing natural protection
@@ -236,8 +236,8 @@ fn test_gas_incentivizes_efficient_queries() {
             "Should save significant gas with optimization"
         );
 
-        println!("Inefficient query: {} gas", inefficient_gas);
-        println!("Efficient query: {} gas", efficient_gas);
-        println!("Savings from optimization: {} gas", savings);
+        println!("Inefficient query: {inefficient_gas} gas");
+        println!("Efficient query: {efficient_gas} gas");
+        println!("Savings from optimization: {savings} gas");
     });
 }

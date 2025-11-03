@@ -99,7 +99,7 @@ pub fn display_results(query: &Query, result: &VerificationResult) {
         println!("   Estimated costs:");
         for (gwei, label) in gas_prices {
             let eth_cost = gas as f64 * gwei as f64 / 1_000_000_000.0;
-            println!("     {} ETH at {format_eth(eth_cost), label}");
+            println!("     {} ETH at {}", format_eth(eth_cost), label);
         }
 
         println!("\n   Gas cost factors:");
@@ -121,10 +121,10 @@ pub fn display_results(query: &Query, result: &VerificationResult) {
         );
 
         println!("\n   This query parameters:");
-        println!("     • Chain ID: {query.chain_id}");
-        println!("     • Block height: {query.height}");
-        println!("     • Transaction index: {query.index}");
-        println!("     • Layout segments: {query.layout_segments.len()}");
+        println!("     • Chain ID: {}", query.chain_id);
+        println!("     • Block height: {}", query.height);
+        println!("     • Transaction index: {}", query.index);
+        println!("     • Layout segments: {}", query.layout_segments.len());
 
         println!("\n   Comparison with Solidity smart contract:");
         println!("     Native Precompile (0x0FD2): {} gas", gas);
@@ -153,7 +153,7 @@ pub fn display_results(query: &Query, result: &VerificationResult) {
         display_extracted_data(&result.segments);
     } else {
         println!("\n❌ Verification failed");
-        println!("Query ID: {query.id():?}");
+        println!("Query ID: {:?}", query.id());
         println!("Note: This may be due to missing continuity chain data");
     }
 }
@@ -212,7 +212,7 @@ fn display_extracted_data(segments: &[ResultSegment]) {
         return;
     }
 
-    println!("Result segments count: {segments.len()}");
+    println!("Result segments count: {}", segments.len());
     for (i, segment) in segments.iter().enumerate() {
         println!(
             "  Segment {}: offset={}, bytes=0x{}",

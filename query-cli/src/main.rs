@@ -379,7 +379,7 @@ async fn submit_native_query(
         layout_segments,
     };
 
-    println!("\nQuery ID: {query.id():?}");
+    println!("\nQuery ID: {:?}", query.id());
     println!("Query details: {query:?}");
 
     // Step 6: Display block information (using refactored module)
@@ -388,15 +388,15 @@ async fn submit_native_query(
     // Step 7: Generate Merkle proof (using refactored module)
     println!("\n=== Merkle Proof Generation ===");
     let merkle_proof = merkle::generate_merkle_proof(&block, tx_index)?;
-    println!("Merkle root: {merkle_proof.root:?}");
-    println!("Siblings count: {merkle_proof.siblings.len()}");
+    println!("Merkle root: {:?}", merkle_proof.root);
+    println!("Siblings count: {}", merkle_proof.siblings.len());
 
     // Debug: print siblings
     for (i, sibling) in merkle_proof.siblings.iter().enumerate() {
         if *sibling == sp_core::H256::default() {
             println!("  Sibling[{}]: PLACEHOLDER", i);
         } else {
-            println!("  Sibling[{}]: 0x{i, hex::encode(&sibling.0[..8])}");
+            println!("  Sibling[{}]: 0x{}", i, hex::encode(&sibling.0[..8]));
         }
     }
 
@@ -409,7 +409,7 @@ async fn submit_native_query(
         &prompt_output.network.url(),
     )
     .await?;
-    println!("Continuity blocks: {continuity_blocks.len()}");
+    println!("Continuity blocks: {}", continuity_blocks.len());
 
     // Step 9: Verify the query (using refactored module)
     println!("\n=== Query Verification ===");
@@ -453,7 +453,10 @@ pub async fn submit_default_query(
 
     let query_id = query.id();
 
-    println!("Going to submit following Query: {query:?}, id({query_id:?})\n");
+    println!(
+        "Going to submit following Query: {:?}, id({:?})\n",
+        query, query_id
+    );
 
     let eth_rpc_url = "ws://localhost:8545".to_string(); // Local Ethereum node URL
 
@@ -479,7 +482,7 @@ pub async fn submit_default_query(
         .subscribe_proof_verification(&eth_client, query_id.0.into())
         .await?;
 
-    println!("\nProof received: proof len: {proof.len()}");
+    println!("\nProof received: proof len: {}", proof.len());
 
     Ok(())
 }
