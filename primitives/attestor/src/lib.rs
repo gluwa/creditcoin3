@@ -223,7 +223,7 @@ where
         bytes.extend_from_slice(self.header_hash.as_ref());
 
         // Serialize tx_root
-        bytes.extend_from_slice(&self.root.as_bytes());
+        bytes.extend_from_slice(self.root.as_bytes());
 
         // Serialize prev_digest if it exists
         if let Some(prev_digest) = &self.prev_digest {
@@ -241,7 +241,7 @@ where
         // Build input bytes: header_number || root || prev_digest (if exists)
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.header_number.to_be_bytes());
-        bytes.extend_from_slice(&self.root.as_bytes());
+        bytes.extend_from_slice(self.root.as_bytes());
 
         if let Some(prev_digest) = self.prev_digest {
             bytes.extend_from_slice(prev_digest.as_bytes());

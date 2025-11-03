@@ -17,7 +17,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use log::{error, info};
+use log::error;
 use pallet_evm::AddressMapping;
 use precompile_utils::{prelude::*, solidity::Codec};
 use sp_core::H256;
@@ -269,20 +269,11 @@ where
         prefixed_leaf[1..].copy_from_slice(tx_data);
 
         let current_hash = sp_io::hashing::keccak_256(&prefixed_leaf);
-        info!(
-            "  Initial leaf hash (after prepending 0x00): {:?}",
-            H256::from(current_hash)
-        );
 
         // Step 2: Handle single-transaction case (no siblings)
         if merkle_proof.siblings.is_empty() {
             let computed_root = H256::from(current_hash);
-            info!(
-                "  Single transaction case - computed root: {:?}",
-                computed_root
-            );
             let result = computed_root == merkle_proof.root;
-            info!("  Verification result: {}", result);
             return Ok(result);
         }
 
@@ -295,11 +286,6 @@ where
         let siblings_per_level = arity; // We have ARITY hashes per level (including placeholder)
         let num_levels = merkle_proof.siblings.len() / siblings_per_level;
 
-        info!(
-            "  Tree traversal: {} levels, {} siblings per level",
-            num_levels, siblings_per_level
-        );
-
         // Process each level of the tree
         // siblings contains ALL hashes per level (ARITY hashes including placeholder at offset)
         for level in 0..num_levels {
@@ -307,7 +293,7 @@ where
             let end = start + siblings_per_level;
 
             if end > merkle_proof.siblings.len() {
-                error!("  Level {} would exceed siblings array bounds", level);
+                error!("  Level {level} would exceed siblings array bounds");
                 break;
             }
 
@@ -317,39 +303,29 @@ where
             // Determine which position our current hash occupies
             let offset = (index % arity as u64) as usize;
 
-            info!("  Level {}: index={}, offset={}", level, index, offset);
-            info!("    Current hash: {:?}", current_hash);
-            for (i, sibling) in level_siblings.iter().enumerate() {
-                info!("    Sibling[{}]: {:?}", i, sibling);
-            }
-
             // Build the hash input with inner node prefix
             let mut hash_input = sp_std::vec![0x01u8]; // INNER_HASH_PREPEND_VALUE
 
             // Add child hashes in order, replacing placeholder with current_hash
-            for i in 0..arity {
+            for (i, sibling) in level_siblings.iter().enumerate().take(arity) {
                 if i == offset {
                     // Replace placeholder with our computed hash at this position
                     hash_input.extend_from_slice(&current_hash.0);
                 } else {
                     // Use the hash from the proof at this position
-                    hash_input.extend_from_slice(&level_siblings[i].0);
+                    hash_input.extend_from_slice(&sibling.0);
                 }
             }
 
             // Hash with Keccak256
             current_hash = H256::from(sp_io::hashing::keccak_256(&hash_input));
-            info!("    New hash after combining: {:?}", current_hash);
 
             // Move up the tree
             index /= arity as u64;
         }
 
         // Step 4: Compare computed root with provided root
-        info!("  Final computed root: {:?}", current_hash);
-        info!("  Expected root:       {:?}", merkle_proof.root);
         let result = current_hash == merkle_proof.root;
-        info!("  Verification result: {}", result);
 
         Ok(result)
     }
@@ -423,8 +399,7 @@ where
                 last_finalized_digest = block_prev_digest;
             } else {
                 error!(
-                    "❌ Continuity proof tail prev digest {:?} not found in attestations or checkpoints",
-                    block_prev_digest
+                    "❌ Continuity proof tail prev digest {block_prev_digest:?} not found in attestations or checkpoints"
                 );
                 return Ok(false);
             }
@@ -438,8 +413,7 @@ where
             // Verify the link continues exactly
             if last_finalized_digest != block_prev_digest {
                 error!(
-                    "❌ Continuity proof break: expected prev_digest {:?}, got {:?}",
-                    last_finalized_digest, block_prev_digest
+                    "❌ Continuity proof break: expected prev_digest {last_finalized_digest:?}, got {block_prev_digest:?}"
                 );
                 return Ok(false);
             }
@@ -459,10 +433,10 @@ where
             // Additional query-specific validation can be added here
         }
 
-        info!(
-            "Continuity chain verified successfully for query: {:?}",
-            query.id()
-        );
+        // info!(
+        //     "Continuity chain verified successfully for query: {:?}",
+        //     query.id()
+        // );
 
         Ok(true)
     }

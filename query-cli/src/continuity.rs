@@ -28,7 +28,7 @@ pub async fn fetch_continuity_proof(
     let attestations = match cc_client.get_attestations_for_chain(chain_key).await {
         Ok(attestations) => attestations,
         Err(e) => {
-            println!("Warning: Could not fetch attestations: {:?}", e);
+            println!("Warning: Could not fetch attestations: {e:?}");
             vec![]
         }
     };
@@ -36,7 +36,7 @@ pub async fn fetch_continuity_proof(
     let checkpoints = match cc_client.get_checkpoints_for_chain(chain_key).await {
         Ok(checkpoints) => checkpoints,
         Err(e) => {
-            println!("Warning: Could not fetch checkpoints: {:?}", e);
+            println!("Warning: Could not fetch checkpoints: {e:?}");
             vec![]
         }
     };

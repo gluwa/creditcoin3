@@ -24,8 +24,8 @@ pub async fn execute_native_query(config: AppConfig) -> Result<()> {
     // Step 3: Create the query from configuration
     let query = config.query.to_query(tx_index as u64);
 
-    println!("\nQuery ID: {:?}", query.id());
-    println!("Query details: {:?}", query);
+    println!("\nQuery ID: {query.id():?}");
+    println!("Query details: {query:?}");
 
     // Step 4: Display block information
     merkle::display_block_info(&block);
@@ -33,8 +33,8 @@ pub async fn execute_native_query(config: AppConfig) -> Result<()> {
     // Step 5: Generate Merkle proof
     println!("\n=== Merkle Proof Generation ===");
     let merkle_proof = merkle::generate_merkle_proof(&block, tx_index)?;
-    println!("Merkle root: {:?}", merkle_proof.root);
-    println!("Siblings count: {}", merkle_proof.siblings.len());
+    println!("Merkle root: {merkle_proof.root:?}");
+    println!("Siblings count: {merkle_proof.siblings.len()}");
 
     // Step 6: Get transaction data
     let tx_data = merkle::get_transaction_data(&block, tx_index)?;
@@ -49,7 +49,7 @@ pub async fn execute_native_query(config: AppConfig) -> Result<()> {
         &config.query.network.rpc_url(),
     )
     .await?;
-    println!("Continuity blocks: {}", continuity_blocks.len());
+    println!("Continuity blocks: {continuity_blocks.len()}");
 
     // Step 8: Verify the query
     println!("\n=== Query Verification ===");
@@ -102,7 +102,7 @@ fn find_transaction_index(block: &OrderedBlock, tx_hash: &str) -> Result<usize> 
         let item_hash = item.tx_hash().to_string();
 
         if item_hash == tx_hash {
-            println!("Found transaction at index {}", index);
+            println!("Found transaction at index {index}");
             return Ok(index);
         }
     }
@@ -188,8 +188,6 @@ pub mod submission {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_transaction_index_finding() {
         // Add tests for transaction index finding

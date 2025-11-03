@@ -43,8 +43,8 @@ pub fn get_transaction_data(block: &OrderedBlock, tx_index: usize) -> Result<Vec
 /// Display block structure information
 pub fn display_block_info(block: &OrderedBlock) {
     println!("\n=== Block Structure ===");
-    println!("Block number: {}", block.number());
-    println!("Total transactions in block: {}", block.items().len());
+    println!("Block number: {block.number()}");
+    println!("Total transactions in block: {block.items().len()}");
 
     for (idx, item) in block.items().iter().take(5).enumerate() {
         let tx_bytes = item.to_bytes();

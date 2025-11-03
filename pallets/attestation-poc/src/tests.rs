@@ -82,10 +82,10 @@ pub fn create_signed_attestation(
         chain_key,
         header_number,
         header_hash: H256::random(),
-        root: [0; 32],
+        root: H256::from([0; 32]),
         prev_digest: fragment.head().map(|h| {
             let block: Block = h.clone();
-            H256::from(block.digest().to_bytes_be())
+            block.digest()
         }),
     };
 
@@ -2052,7 +2052,7 @@ fn commit_attestation_interval_1_works() {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 1,
             header_hash: H256::random(),
-            root: [0; 32],
+            root: H256::from([0; 32]),
             prev_digest: Some(attestation_1.digest()),
         };
         let attestation = self::bls_sign_attestation(
@@ -2128,7 +2128,7 @@ fn commit_attestation_interval_1_fails_with_wrong_prev_digest() {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 1,
             header_hash: H256::random(),
-            root: [0; 32],
+            root: H256::from([0; 32]),
             prev_digest: Some(H256::random()), // wrong prev digest
         };
         let attestation = self::bls_sign_attestation(
@@ -2282,7 +2282,7 @@ fn commit_attestation_should_error_on_invalid_prev_digest() {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 10,
             header_hash: H256::random(),
-            root: [0; 32],
+            root: H256::from([0; 32]),
             prev_digest: None,
         };
 
@@ -2359,7 +2359,7 @@ fn commit_attestation_should_error_on_invalid_continuity_head() {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 10,
             header_hash: H256::random(),
-            root: [0; 32],
+            root: H256::from([0; 32]),
             prev_digest: Some(attestation_1.digest()),
         };
 
@@ -2443,10 +2443,10 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 10,
             header_hash: H256::random(),
-            root: [0; 32],
+            root: H256::from([0; 32]),
             prev_digest: correct_fragment.head().map(|h| {
                 let block: Block = h.clone();
-                H256::from(block.digest().to_bytes_be())
+                block.digest()
             }),
         };
 
@@ -2539,10 +2539,10 @@ fn commit_attestation_should_error_on_invalid_continuity_genesis_block() {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 10,
             header_hash: H256::random(),
-            root: [0; 32],
+            root: H256::from([0; 32]),
             prev_digest: correct_fragment.head().map(|h| {
                 let block: Block = h.clone();
-                H256::from(block.digest().to_bytes_be())
+                block.digest()
             }),
         };
 

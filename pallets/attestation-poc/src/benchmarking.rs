@@ -85,10 +85,10 @@ fn create_signed_attestation<T: frame_system::Config>(
         chain_key,
         header_number,
         header_hash: <T as frame_system::Config>::Hash::default(),
-        root: [0; 32],
+        root: H256::from([0; 32]),
         prev_digest: fragment.head().map(|h| {
             let block: Block = h.clone();
-            H256::from(block.digest().to_bytes_be())
+            block.digest()
         }),
     };
 

@@ -32,6 +32,7 @@ pub mod pallet {
         ChainKey, Digest, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use frame_support::{
+        dispatch::{Pays, PostDispatchInfo},
         pallet_prelude::{OptionQuery, ValueQuery, *},
         traits::{Currency, LockableCurrency, OnUnbalanced},
         Blake2_128Concat, Twox64Concat,
@@ -828,7 +829,10 @@ pub mod pallet {
                 Self::do_commit_attestation(attestation)?;
             }
 
-            Ok(Some(weight).into())
+            Ok(PostDispatchInfo {
+                actual_weight: Some(weight),
+                pays_fee: Pays::Yes,
+            })
         }
 
         #[pallet::call_index(10)]

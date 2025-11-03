@@ -38,7 +38,9 @@ impl AttestorService {
                 .get_attestations_for_chain(self.chain_key())
                 .await?;
 
-            if !attestations.is_empty() {
+            if attestations.is_empty() {
+                debug!("No attestations found on chain yet");
+            } else {
                 // Find the attestation with the lowest block number (oldest/first)
                 let first_attestation = attestations
                     .iter()
@@ -55,8 +57,6 @@ impl AttestorService {
                     first_attestation.digest(),
                     first_attestation.attestation.header_number,
                 ));
-            } else {
-                debug!("No attestations found on chain yet");
             }
         }
 

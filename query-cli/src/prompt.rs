@@ -36,7 +36,7 @@ pub(crate) fn prompt(args: PromptArgs) -> Result<PromptOutput> {
     println!("\nCollected Information:");
     println!("Network: {network:?}");
     println!("Block Height: {tx_height}");
-    println!("Transaction Hash: {}", tx_hash.trim());
+    println!("Transaction Hash: {tx_hash.trim()}");
     match selected_data {
         SelectedData::All => println!("Data: All data\n"),
         SelectedData::RangeOfData => {

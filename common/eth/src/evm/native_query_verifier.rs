@@ -82,8 +82,7 @@ impl TryFrom<u8> for VerificationStatus {
             2 => Ok(VerificationStatus::ContinuityChainInvalid),
             3 => Ok(VerificationStatus::DataExtractionError),
             _ => Err(Error::Other(format!(
-                "Unknown verification status: {}",
-                value
+                "Unknown verification status: {value}"
             ))),
         }
     }
