@@ -947,7 +947,7 @@ export default {
         chainKey: 'u64',
         headerNumber: 'u64',
         headerHash: 'H256',
-        root: '[u8;32]',
+        root: 'H256',
         prevDigest: 'Option<H256>',
     },
     /**

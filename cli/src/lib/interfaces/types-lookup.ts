@@ -1213,7 +1213,7 @@ declare module '@polkadot/types/lookup' {
         readonly chainKey: u64;
         readonly headerNumber: u64;
         readonly headerHash: H256;
-        readonly root: U8aFixed;
+        readonly root: H256;
         readonly prevDigest: Option<H256>;
     }
 
