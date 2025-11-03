@@ -7,7 +7,6 @@ This simply CLI tool allow you to create a "Query" Object that can be used to su
 You need to run following components first:
 
 - Ccnext network (dev or whatever)
-- Prover binary (see [prover](../prover/README.md) for more details)
 
 ## Installation
 

@@ -129,17 +129,6 @@ This directory contains comprehensive architecture documentation for Creditcoin3
 - Modifying query processing
 - Investigating query hash issues
 
-#### [WHY_FELTS_NOT_BYTES.md](./WHY_FELTS_NOT_BYTES.md)
-**What it covers:**
-- Why the system uses field elements (felts) instead of bytes
-- Cairo constraints and limitations
-- Design decisions and trade-offs
-
-**Read this if you're:**
-- Working with Cairo programs
-- Understanding data encoding
-- Debugging felt-related issues
-
 ---
 
 ## Common Questions Answered
@@ -271,7 +260,6 @@ See [AUTOMATIC_QUERY_GENERATION_GUIDE.md](./AUTOMATIC_QUERY_GENERATION_GUIDE.md)
 ### Core Protocol Developer
 1. [WHAT_IS_BEING_PROVEN.md](./WHAT_IS_BEING_PROVEN.md) - Security properties
 2. [QUERY_HASH_SIMPLIFICATION.md](./QUERY_HASH_SIMPLIFICATION.md) - Internal details
-3. [WHY_FELTS_NOT_BYTES.md](./WHY_FELTS_NOT_BYTES.md) - Design decisions
 
 ### Product Manager / Decision Maker
 1. [STARK_VS_NATIVE_PRECOMPILE_ANALYSIS.md](./STARK_VS_NATIVE_PRECOMPILE_ANALYSIS.md) - Strategic decision
@@ -295,9 +283,6 @@ When adding new architecture documentation:
 ## Additional Resources
 
 - [Creditcoin3 Main README](../../README.md)
-- [Prover Service Documentation](../../prover/README.md)
-- [Verifier Core Documentation](../../common/verifier-core/README.md)
-- [Cairo Programs](../../cairo/)
 
 ---
 

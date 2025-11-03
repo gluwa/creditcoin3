@@ -368,7 +368,7 @@ This precompile is part of the Creditcoin3 project and follows the same license.
 
 ## References
 
-- [Creditcoin3 Documentation](../../../docs/)
-- [Precompile Utils](https://github.com/moonbeam-foundation/moonbeam/tree/master/precompiles/utils)
+- [Creditcoin3 Documentation](../../docs/)
+- [Precompile Utils](https://github.com/moonbeam-foundation/moonbeam/tree/main/precompiles/utils)
 - [EVM Precompiles](https://www.evm.codes/precompiled)
 - [Merkle Proofs](https://en.wikipedia.org/wiki/Merkle_tree)
