@@ -10,7 +10,6 @@ version.workspace = true
 [dependencies]
 acid_io = { version = "0.1.0", git = "https://github.com/dataphract/acid_io", default-features = false }
 anyhow = { workspace = true, default-features = false }
-sha3 = { version = "0.10", default-features = false }
 chrono = { version = "0.4.38", default-features = false }
 colored = { version = "2.1.0", default-features = false }
 ethereum = { workspace = true, default-features = false }
@@ -20,6 +19,7 @@ ethereum-types = { workspace = true, default-features = false, features = [
 fs2 = { version = "0.4.3", optional = true, default-features = false }
 hex = { workspace = true, features = ["alloc"], default-features = false }
 rlp = { version = "0.5.2", features = ["rlp-derive"], default-features = false }
+sha3 = { version = "0.10", default-features = false }
 
 # Workspace dependencies
 mmr = { workspace = true, default-features = false }
