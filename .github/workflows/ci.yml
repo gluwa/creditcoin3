@@ -85,28 +85,6 @@ jobs:
           docker exec creditcoin-validator which query-cli
           docker exec creditcoin-validator query-cli --help
 
-          docker exec creditcoin-validator which prover
-          docker exec creditcoin-validator prover --help
-
-      - name: Sanity check Cairo components inside the container
-        run: |
-          docker exec creditcoin-validator which cairo-compile
-          docker exec creditcoin-validator cairo-compile --help
-
-          docker exec creditcoin-validator which cairo-run
-          docker exec creditcoin-validator cairo-run --help
-
-          docker exec creditcoin-validator which cpu_air_prover
-          docker exec creditcoin-validator cpu_air_prover --help | grep "Flags from"
-
-          docker exec creditcoin-validator which cpu_air_verifier
-          docker exec creditcoin-validator cpu_air_verifier --help | grep "Flags from"
-
-          docker exec creditcoin-validator which verify_merkle_proof.sh
-          docker exec creditcoin-validator verify_merkle_proof.sh | grep "expected arguments: input_path proof_mode"
-
-          docker exec creditcoin-validator which stone_prove_query.sh
-          docker exec creditcoin-validator stone_prove_query.sh | grep "expected arguments: input_path"
 
       - name: Collect docker logs
         if: always()
@@ -143,38 +121,6 @@ jobs:
           # while downing a compose will not even when the underlying containers have crashed
           docker compose down
 
-      # steps below are related to prover
-      - name: Start Ethereum simulation with Anvil
-        run: |
-          # first install it
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
-          ~/.foundry/bin/anvil --block-time 6 --host 0.0.0.0 &
-          .github/wait-for-ethereum.sh 'http://127.0.0.1:8545'
-
-      - name: Start prover via compose
-        run: |
-          docker compose -f docker-compose.prover-testing up -d
-
-      - name: Sanity check for prover
-        run: |
-          sleep 60
-          # TODO
-
-      - name: Collect compose logs
-        if: always()
-        run: |
-          docker compose -f docker-compose.prover-testing logs --no-color > docker-compose-prover-testing.log
-
-      - name: Kill prover container and local Creditcoin node
-        run: |
-          # note: killall will report failure if process had crashed
-          sudo killall -9 prover
-          sudo killall -9 creditcoin3-node
-
-          # while downing a compose will not even when the underlying containers have crashed
-          docker compose -f docker-compose.prover-testing down
 
       - name: Upload logs
         if: always()
@@ -239,70 +185,6 @@ jobs:
         run: |
           ./.github/check-bootnodes.sh
 
-  sanity-test-cairo:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.10"
-          cache: "pip"
-      - run: pip install -r prover/requirements.txt
-
-      - name: Compile all Cairo programs available in source code
-        run: |
-          # shellcheck disable=SC2044,SC2086
-          for PROGRAM in $(find . -name "*.cairo"); do
-              echo "INFO: will cairo-compile $PROGRAM ..."
-              cairo-compile $PROGRAM --proof_mode 2>&1;
-          done
-
-  sanity-test-stone-binaries:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.10"
-          cache: "pip"
-      - run: pip install -r prover/requirements.txt
-
-      - name: setup Cairo program used for testing
-        working-directory: ./cairo/testing/
-        run: |
-          # compile the Cairo program
-          cairo-compile fibonacci.cairo --output fibonacci_compiled.json --proof_mode
-
-          # Run the compiled program to generate the prover input files:
-          cairo-run \
-            --program=fibonacci_compiled.json \
-            --layout=small \
-            --program_input=fibonacci_input.json \
-            --air_public_input=fibonacci_public_input.json \
-            --air_private_input=fibonacci_private_input.json \
-            --trace_file=fibonacci_trace.bin \
-            --memory_file=fibonacci_memory.bin \
-            --print_output \
-            --proof_mode
-
-      - name: Execute stone prover binary
-        working-directory: ./cairo/testing/
-        run: |
-          ../stone-prover/cpu_air_prover \
-            --out_file=fibonacci_proof.json \
-            --private_input_file=fibonacci_private_input.json \
-            --public_input_file=fibonacci_public_input.json \
-            --prover_config_file=cpu_air_prover_config.json \
-            --parameter_file=cpu_air_params.json
-
-      - name: Execute stone verifier binary
-        working-directory: ./cairo/testing/
-        run: |
-          ../stone-verifier/cpu_air_verifier --in_file=fibonacci_proof.json
 
   sanity-test-npm-packages:
     runs-on: ubuntu-24.04
@@ -351,18 +233,6 @@ jobs:
           creditcoin wizard --help
           creditcoin attestor --help
 
-      - name: Build @gluwa/creditcoin-public-prover package
-        working-directory: common/eth/contracts/
-        run: |
-          npm install
-          npm pack
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v5
-        with:
-          name: binary-for-npm-creditcoin-public-prover
-          path: "common/eth/contracts/gluwa-creditcoin-public-prover-*.tgz"
-          if-no-files-found: error
 
   sanity-test-solidity:
     runs-on: ubuntu-24.04
@@ -431,105 +301,6 @@ jobs:
           export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
           .github/check-solidity-source-vs-metadata.sh
 
-      - name: Install openzeppelin dependencies
-        working-directory: ./common/eth/contracts/
-        run: |
-          npm install
-
-      - name: Rebuild ABI for Prover.sol
-        working-directory: ./common/eth/contracts/
-        run: |
-          ./build.sh
-
-      - name: Check if prover.json is in sync with Prover.sol
-        working-directory: ./common/eth/contracts/
-        run: |
-          echo "========== DEBUG DEBUG DEBUG =========="
-          git status --short --untracked-files=no
-          git diff
-          echo "======================================="
-
-          # shellcheck disable=SC2143
-          if [ -n "$(git status --short --untracked-files=no)" ]; then
-              echo "FAIL: changes detected. prover.json NOT in sync with Prover.sol, see above."
-              exit 1
-          else
-              echo "PASS: No changes detected. All good."
-              exit 0
-          fi
-
-      - name: Execute Solidity linters
-        working-directory: ./common/eth/contracts/
-        run: |
-          npm run solhint
-
-      - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v6
-        with:
-          name: binary-for-testing-ci
-          path: target/release
-
-      - name: Update Prover.sol bytecode.hash if changed
-        id: bytecode_hash
-        run: |
-          chmod a+x ./target/release/compute-prover-contract-bytecode-hash
-          ./target/release/compute-prover-contract-bytecode-hash > common/eth/contracts/.bytecode.hash
-
-          if [ -n "$(git status --short --untracked-files=no -- common/eth/contracts/)" ]; then
-              git diff common/eth/contracts/
-              echo "git_diff=true" >> "$GITHUB_OUTPUT"
-          else
-              echo "git_diff=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Commit changes for bytecode.hash
-        if: ${{ env.GITHUB_TOKEN && success() && steps.bytecode_hash.outputs.git_diff == 'true' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        uses: EndBug/add-and-commit@v9
-        with:
-          add: "common/eth/contracts/.bytecode.hash"
-          author_name: gluwa-bot
-          author_email: creditcoin@gluwa.com
-          message: "docs(Prover.sol): update bytecode hash\n
-                    \n
-                    BREAKING CHANGE: contract changed. Redeployment required!"
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Find latest release
-        id: find-latest
-        run: |
-          # shellcheck disable=SC2129
-          echo "release_tag=${{ steps.devnet-env.outputs.release_tag || steps.testnet-env.outputs.release_tag || steps.mainnet-env.outputs.release_tag }}" >> "$GITHUB_OUTPUT"
-
-      - name: Download smart-contract artifact(s) for release ${{ steps.find-latest.outputs.release_tag }}
-        uses: i3h/download-release-asset@v1
-        with:
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          tag: ${{ steps.find-latest.outputs.release_tag }}
-          file: /(.*)\.sol/
-          path: common/eth/contracts/sol/
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compare current Prover.sol with latest released artifact(s)
-        working-directory: ./common/eth/contracts/sol/
-        run: |
-          echo "========== DEBUG DEBUG DEBUG =========="
-          git status --short --untracked-files=no
-          git diff -R | colordiff
-          echo "======================================="
-
-          # shellcheck disable=SC2143
-          if [ -n "$(git status --short --untracked-files=no)" ]; then
-              echo "FAIL: Current Prover.sol differs from Prover.sol in latest release"
-              echo "INFO: changes to Prover.sol require contract(s) to be redeployed"
-              echo "WARN: when updating prover(s) don't forget to redeploy this contract"
-              exit 1
-          else
-              echo "PASS: No changes detected. All good."
-              exit 0
-          fi
 
   deploy-runner-build-creditcoin-for:
     strategy:
@@ -1959,61 +1730,6 @@ jobs:
           # note: chain_key is hard-coded in this script so waiting only on Anvil_1
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
 
-      - name: Start prover DBs
-        working-directory: ./prover
-        run: |
-          sed -ie '/ports/{N; d;}' docker-compose.yaml
-          docker compose pull
-          docker compose --project-name anvil-1 up -d
-          docker compose --project-name anvil-2 up -d
-
-          # wait for DBs to start accepting connections
-          sleep 60
-
-      - name: Start Prover for Alice - Anvil-1
-        env:
-          RUST_LOG_STYLE: never
-        run: |
-          # configure the path so we can discover external binaries
-          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
-          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
-          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
-          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
-
-          DB_ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' anvil-1-postgres-1)
-
-          chmod a+x ./target/release/prover
-          ./target/release/prover \
-            --verbose \
-            --cc3-key "//Alice"   \
-            --cc3-evm-private-key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
-            --eth-rpc-url ws://127.0.0.1:8141 \
-            --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
-            --name "Prover-for-Alice-num-1" \
-            > /var/tmp/cc3-indexer-testing/prover-1.log 2>&1 &
-
-      - name: Start Prover for Bob - Anvil-2
-        if: false # note: started explicitly within tests
-        env:
-          RUST_LOG_STYLE: never
-        run: |
-          # configure the path so we can discover external binaries
-          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
-          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
-          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
-          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
-
-          DB_ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' anvil-2-postgres-1)
-
-          chmod a+x ./target/release/prover
-          ./target/release/prover \
-            --verbose \
-            --cc3-key "//Bob"   \
-            --cc3-evm-private-key "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
-            --eth-rpc-url ws://127.0.0.1:8242 \
-            --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
-            --name "Prover-for-Bob-num-1" \
-            > /var/tmp/cc3-indexer-testing/prover-2.log 2>&1 &
 
       - name: Setup cc3-indexer
         working-directory: ./cc3-indexer
@@ -2060,27 +1776,19 @@ jobs:
         run: |
           .github/check-grapqhl-schema-types.sh
 
-      - name: Run query-cli e2e
+      - name: Run query-cli e2e with native verification
         if: always()
         run: |
-          PROVER_SOL_ADDR=$(grep "Gluwa Public Prover contract deploy at" /var/tmp/cc3-indexer-testing/prover-1.log | rev | cut -f1 -d' ' | rev)
-
           chmod a+x ./target/release/query-cli
           ./target/release/query-cli \
             --cc3-rpc-url ws://127.0.0.1:9944 \
             --cc3-evm-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
-            --prover-contract-address "$PROVER_SOL_ADDR" \
+            native \
             --eth-rpc-url ws://127.0.0.1:8141 \
             --block-height ${{ steps.native-transfer-anvil-1.outputs.block_number }} \
             --txn-hash ${{ steps.native-transfer-anvil-1.outputs.txn_hash }} \
             --data-choice 4
 
-      - name: Collect Prover DB logs
-        if: always()
-        working-directory: ./prover
-        run: |
-          docker compose --project-name anvil-1 logs --no-color > /var/tmp/cc3-indexer-testing/prover-1-db.log
-          docker compose --project-name anvil-2 logs --no-color > /var/tmp/cc3-indexer-testing/prover-2-db.log
 
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
@@ -2102,9 +1810,6 @@ jobs:
           killall -9 attestor_zombienet
           killall -9 attestor
           killall -9 creditcoin3-node
-          killall -9 prover
-          docker compose -f prover/docker-compose.yaml -p anvil-1 down
-          docker compose -f prover/docker-compose.yaml -p anvil-2 down
 
   rm-gh-runner-cc3-indexer:
     needs:
