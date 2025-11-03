@@ -28,7 +28,7 @@ use sp_runtime::{
 };
 use sp_staking::SessionIndex;
 
-pub const PRECOMPILE_ADDRESS: u64 = 3050; // 0x0BEA
+pub const PRECOMPILE_ADDRESS: u64 = 4050; // 0x0FD2
 
 pub type Balance = u128;
 pub type AccountId = Account;

@@ -7,7 +7,7 @@
 //! - Continuity chain validation for block attestations
 //! - Data extraction from verified transactions
 //!
-//! The precompile is accessible at address 0x0BEA (3050 in decimal)
+//! The precompile is accessible at address 0x0FD2 (4050 in decimal)
 
 use attestor_primitives::{block::Block, query::Query};
 use core::marker::PhantomData;

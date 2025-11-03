@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 /// @title INativeQueryVerifier
-/// @notice Interface for the Native Query Verifier Precompile at address 0x0BEA (3050)
+/// @notice Interface for the Native Query Verifier Precompile at address 0x0FD2 (4050)
 /// @dev This precompile provides native-speed verification of blockchain queries using
 ///      Merkle proofs and continuity chains.
 interface INativeQueryVerifier {

@@ -41,7 +41,7 @@ Result Available (1 block time)
 
 ## Precompile Address
 
-The precompile is accessible at address `0x0BEA` (3050 in decimal).
+The precompile is accessible at address `0x0FD2` (4050 in decimal).
 
 ## Interface
 
@@ -294,7 +294,7 @@ impl PrecompileSet for GluwaPrecompiles<R> {
     fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
         match handle.code_address() {
             // ... existing precompiles ...
-            a if a == hash(3050) => Some(NativeQueryVerifierPrecompile::<Runtime>::execute(handle)),
+            a if a == hash(4050) => Some(NativeQueryVerifierPrecompile::<Runtime>::execute(handle)),
             _ => None,
         }
     }
@@ -369,6 +369,5 @@ This precompile is part of the Creditcoin3 project and follows the same license.
 ## References
 
 - [Creditcoin3 Documentation](../../docs/)
-- [Precompile Utils](https://github.com/moonbeam-foundation/moonbeam/tree/main/precompiles/utils)
 - [EVM Precompiles](https://www.evm.codes/precompiled)
 - [Merkle Proofs](https://en.wikipedia.org/wiki/Merkle_tree)

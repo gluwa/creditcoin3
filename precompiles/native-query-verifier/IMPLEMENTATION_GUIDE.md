@@ -500,7 +500,7 @@ impl PrecompileSet for GluwaPrecompiles<R> {
     fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
         match handle.code_address() {
             // ... existing precompiles ...
-            a if a == hash(3050) => Some(NativeQueryVerifierPrecompile::<Runtime>::execute(handle)),
+            a if a == hash(4050) => Some(NativeQueryVerifierPrecompile::<Runtime>::execute(handle)),
             _ => None,
         }
     }
