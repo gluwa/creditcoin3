@@ -33,7 +33,6 @@ updates:
     directories:
       - "/"
       - "/cc3-indexer"
-      - "/prover"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
@@ -50,37 +49,27 @@ updates:
       - "/"
       - "/attestor"
       - "/attestor_zombienet"
-      - "/block-cache"
       - "/client/attestor-gossip"
       - "/client/attestor-rpc"
-      - "/common/bls-signatures"
       - "/common/cc-client"
       - "/common/eth"
       - "/common/mmr"
       - "/common/utils"
-      - "/common/verifier-core"
       - "/common/vrf"
       - "/common/prometheus"
-      - "/host"
       - "/node"
       - "/node/cli-opt"
       - "/pallets/attestation-poc"
-      - "/pallets/prover"
       - "/pallets/randomness"
       - "/pallets/supported-chains"
-      - "/precompiles/proof-verifier"
+      - "/precompiles/native-query-verifier"
       - "/precompiles/substrate-transfer"
       - "/precompiles/signature-verifier"
       - "/primitives/account"
-      - "/primitives/attestation_chain"
       - "/primitives/attestor"
       - "/primitives/core"
-      - "/primitives/pallet-prover"
-      - "/primitives/prover"
       - "/primitives/randomness"
       - "/primitives/supported-chains"
-      - "/proof"
-      - "/prover"
       - "/query-cli"
       - "/runtime"
       - "/runtime/generate-bags"
@@ -119,17 +108,6 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
-
-  # Maintain dependencies for Cairo and Python
-  - package-ecosystem: "pip"
-    directories:
-      - "/prover"
-    groups:
-      prod-dependencies:
-        dependency-type: "production"
-        applies-to: version-updates
-    schedule:
-      interval: "monthly"
 
   # Python dependencies for Linode
   - package-ecosystem: "pip"
