@@ -20,7 +20,6 @@ ethereum-types = { workspace = true, default-features = false, features = [
 fs2 = { version = "0.4.3", optional = true, default-features = false }
 hex = { workspace = true, features = ["alloc"], default-features = false }
 rlp = { version = "0.5.2", features = ["rlp-derive"], default-features = false }
-starknet-ff = { version = "0.3.7", default-features = false }
 
 # Workspace dependencies
 mmr = { workspace = true, default-features = false }
@@ -35,8 +34,6 @@ serde_json = { workspace = true, features = [
 ], default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
-starknet-crypto = { workspace = true }
-starknet-types-core = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.8"
@@ -56,11 +53,8 @@ std = [
     "mmr/std",
     "fs2",
     "chrono/std",
-    "starknet-ff/std",
     "parity-scale-codec/std",
     "scale-info/std",
-    "starknet-crypto/std",
-    "starknet-types-core/std",
     "sha3/std",
     "sp-core/std",
 ]

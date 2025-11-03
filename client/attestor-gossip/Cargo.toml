@@ -26,7 +26,6 @@ hex = { version = "0.4", default-features = false, features = ["alloc"] }
 log = { workspace = true, default-features = true }
 parking_lot = { workspace = true }
 serde = { workspace = true, features = ["derive"], default-features = true }
-starknet-crypto = { workspace = true }
 thiserror = { workspace = true }
 vrf = { workspace = true }
 wasm-timer = { workspace = true }

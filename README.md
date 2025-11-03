@@ -7,11 +7,10 @@ A Creditcoin3 node with the Ethereum RPC support, ready for deploying smart cont
 The following directories correspond to major components:
 
 - `attestor/` and `attestor_zombienet/`
-- `cairo/`
 - `cc3-indexer/`
 - `cli/`
 - `pallets/` and `precompiles/`
-- `prover/` and `common/eth/contracts/`
+- `common/eth/contracts/`
 - `query-cli/`
 
 See individual README files for more information

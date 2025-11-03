@@ -404,7 +404,6 @@ impl AttestorService {
             // No maturity delay needed for the genesis block
             let signed = self.prepare_attestation(self.start_block).await?;
             let digest = signed.digest();
-            let round = signed.round();
             self.cc3_client
                 .submit_attestation::<H256>(signed.clone())
                 .await?;

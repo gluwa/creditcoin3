@@ -169,7 +169,7 @@ fn setup_attestation(chain_key: u64, block_number: u64, digest: H256) {
         chain_key,
         header_number: block_number,
         header_hash: H256::random(),
-        root: [0u8; 32], // ScaleFelt is just [u8; 32]
+        root: H256::from([0u8; 32]),
         prev_digest: Some(H256::zero()),
     };
 

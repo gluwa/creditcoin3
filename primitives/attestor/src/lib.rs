@@ -4,10 +4,9 @@ use frame_support::inherent::{InherentIdentifier, IsFatalError};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
-use sp_core::{H256, U256};
+use sp_core::H256;
 use sp_runtime::AccountId32;
 use sp_std::vec::Vec;
-use starknet_types_core::felt::Felt;
 
 pub mod api;
 pub mod attestation_fragment;
@@ -180,8 +179,6 @@ where
     }
 }
 
-type ScaleFelt = [u8; 32];
-
 #[derive(
     Debug,
     Clone,
@@ -200,7 +197,7 @@ pub struct Attestation<H> {
     pub chain_key: ChainKey,
     pub header_number: u64,
     pub header_hash: H,
-    pub root: ScaleFelt,
+    pub root: H256,
     pub prev_digest: Option<Digest>,
 }
 
@@ -226,7 +223,7 @@ where
         bytes.extend_from_slice(self.header_hash.as_ref());
 
         // Serialize tx_root
-        bytes.extend_from_slice(&self.root);
+        bytes.extend_from_slice(&self.root.as_bytes());
 
         // Serialize prev_digest if it exists
         if let Some(prev_digest) = &self.prev_digest {
@@ -244,7 +241,7 @@ where
         // Build input bytes: header_number || root || prev_digest (if exists)
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.header_number.to_be_bytes());
-        bytes.extend_from_slice(&self.root);
+        bytes.extend_from_slice(&self.root.as_bytes());
 
         if let Some(prev_digest) = self.prev_digest {
             bytes.extend_from_slice(prev_digest.as_bytes());
@@ -304,15 +301,6 @@ impl AttestationCheckpoint {
     pub fn digest(&self) -> Digest {
         self.digest
     }
-}
-
-pub fn u256_to_felts(x: &U256) -> (Felt, Felt) {
-    let mut buf = [0u8; 32];
-    x.to_big_endian(&mut buf);
-    let lo = Felt::from_bytes_be_slice(&buf[1..32]);
-    let hi = Felt::from(buf[0]);
-
-    (lo, hi)
 }
 
 /// Function to calculate the threshold for a committee set size to reach majority vote

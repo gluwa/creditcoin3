@@ -12,8 +12,6 @@ version.workspace = true
 [dependencies]
 # Workspace
 bls-signatures = { workspace = true, default-features = false }
-starknet-crypto = { workspace = true, default-features = false }
-starknet-types-core = { workspace = true, default-features = false }
 
 # Substrate
 frame-support = { workspace = true, default-features = false }
@@ -52,8 +50,6 @@ std = [
     "bls-signatures/std",
     "utils/std",
     "hex/std",
-    "starknet-types-core/std",
-    "starknet-crypto/std",
     "ccnext-abi-encoding",
     "precompile-utils/std"
 ]

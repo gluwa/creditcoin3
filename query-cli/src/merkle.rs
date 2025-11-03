@@ -5,7 +5,6 @@
 
 use anyhow::Result;
 use eth::{evm, OrderedBlock};
-use sp_core::H256;
 use utils::block_item_traits::BlockItem;
 use utils::simple_merkle::proof_to_precompile_format;
 

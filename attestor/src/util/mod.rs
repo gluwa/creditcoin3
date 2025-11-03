@@ -26,7 +26,7 @@ pub fn create_attestation(
         chain_key,
         header_number: new_block.number(),
         header_hash: sp_core::H256(*new_block.hash().unwrap()),
-        root: *mt.root().as_bytes(),
+        root: sp_core::H256::from_slice(mt.root().as_bytes()),
         prev_digest,
     }
 }

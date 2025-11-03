@@ -2,7 +2,6 @@ use crate::{attestation_check_result::AttestationCheckResult, SupportedChainInfo
 use anyhow::{anyhow, Result};
 use num_format::{Locale, ToFormattedString};
 use serde_json::{json, Value};
-use sp_core::hexdisplay::AsBytesRef;
 use tracing::error;
 
 const USERNAME: &str = "usc-audit-automation";
@@ -321,7 +320,7 @@ pub fn create_json_message(
             .signed_attestation
             .attestation
             .root
-            .as_bytes_ref(),
+            .as_bytes(),
     );
 
     // last attestation prev digest

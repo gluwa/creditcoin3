@@ -127,7 +127,7 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[ContinuityBlock]) {
         chain_key: chain_id,
         header_number: blocks[0].block_number - 1,
         header_hash: H256::random(),
-        root: [0u8; 32],
+        root: H256::from([0u8; 32]),
         prev_digest: Some(H256::zero()),
     };
 
@@ -518,7 +518,7 @@ fn test_continuity_attestation_header_validation() {
             chain_key: 1,
             header_number: continuity_blocks[0].block_number - 1, // Correct number
             header_hash: H256::random(),
-            root: [0u8; 32],
+            root: H256::from([0u8; 32]),
             prev_digest: Some(H256::zero()),
         };
 
@@ -574,7 +574,7 @@ fn test_continuity_wrong_attestation_header_fails() {
             chain_key: 1,
             header_number: continuity_blocks[0].block_number + 10, // Wrong number!
             header_hash: H256::random(),
-            root: [0u8; 32],
+            root: H256::from([0u8; 32]),
             prev_digest: Some(H256::zero()),
         };
 

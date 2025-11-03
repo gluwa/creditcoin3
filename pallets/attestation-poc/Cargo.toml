@@ -31,7 +31,6 @@ attestor-primitives = { workspace = true }
 bls-signatures = { workspace = true, default-features = false }
 randomness-primitives = { workspace = true }
 serde = { workspace = true, default-features = false, features = ["derive"] }
-starknet-crypto = { workspace = true, default-features = false }
 supported-chains-primitives = { workspace = true }
 
 [dev-dependencies]
@@ -52,7 +51,6 @@ pallet-timestamp = { workspace = true }
 sp-consensus-babe = { workspace = true, default-features = false, features = [
     "serde",
 ] }
-starknet-types-core = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -81,7 +79,6 @@ std = [
     "supported-chains-primitives/std",
     "bls-signatures/std",
     "serde/std",
-    "starknet-crypto/std",
     "sp-staking/std",
     "frame-election-provider-support/std",
     "pallet-authorship/std",

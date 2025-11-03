@@ -48,7 +48,6 @@ fp-evm = { workspace = true }
 pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 
 ethabi = { workspace = true, default-features = false }
-starknet-crypto = { workspace = true, default-features = false }
 
 [dev-dependencies]
 derive_more = { workspace = true }
@@ -94,5 +93,4 @@ std = [
     "pallet-staking/std",
     "supported-chains-primitives/std",
     "ethabi/std",
-    "starknet-crypto/std",
 ]

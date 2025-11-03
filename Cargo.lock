@@ -1475,7 +1475,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sp-core",
- "starknet-crypto",
  "thiserror 1.0.69",
  "tokio",
  "tower 0.5.2",
@@ -1505,8 +1504,6 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "starknet-crypto",
- "starknet-types-core",
  "utils",
 ]
 
@@ -2176,7 +2173,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sp-core",
- "starknet-types-core",
  "subxt",
  "subxt-signer",
  "supported-chains-primitives",
@@ -2804,7 +2800,6 @@ dependencies = [
  "sp-core",
  "sp-inherents",
  "sp-runtime",
- "starknet-crypto",
  "substrate-prometheus-endpoint",
  "supported-chains-primitives",
  "thiserror 1.0.69",
@@ -5516,10 +5511,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4567c8db10ae91089c99af84c68c38da3ec2f087c3f82960bcdbf3656b6f4d7"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -6922,28 +6915,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "507460a910eb7b32ee961886ff48539633b788a36b65692b95f225b844c82553"
 dependencies = [
  "regex-automata",
-]
-
-[[package]]
-name = "lambdaworks-crypto"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbc2a4da0d9e52ccfe6306801a112e81a8fc0c76aa3e4449fefeda7fef72bb34"
-dependencies = [
- "lambdaworks-math",
- "serde",
- "sha2 0.10.8",
- "sha3",
-]
-
-[[package]]
-name = "lambdaworks-math"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1bd2632acbd9957afc5aeec07ad39f078ae38656654043bf16e046fa2730e23"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -8855,8 +8826,6 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std",
- "starknet-crypto",
- "starknet-types-core",
  "supported-chains-primitives",
 ]
 
@@ -9060,7 +9029,6 @@ dependencies = [
  "sp-staking",
  "sp-std",
  "sp-weights",
- "starknet-crypto",
  "supported-chains-primitives",
  "utils",
 ]
@@ -13392,12 +13360,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
-name = "size-of"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4e36eca171fddeda53901b0a436573b3f2391eaa9189d439b2bd8ea8cebd7e3"
-
-[[package]]
 name = "slab"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14497,61 +14459,6 @@ dependencies = [
  "sp-runtime",
  "sp-weights",
  "xcm-procedural",
-]
-
-[[package]]
-name = "starknet-crypto"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "039a3bad70806b494c9e6b21c5238a6c8a373d66a26071859deb0ccca6f93634"
-dependencies = [
- "crypto-bigint",
- "hmac 0.12.1",
- "num-bigint",
- "num-integer",
- "num-traits",
- "rfc6979",
- "sha2 0.10.8",
- "starknet-curve",
- "starknet-types-core",
- "zeroize",
-]
-
-[[package]]
-name = "starknet-curve"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcde6bd74269b8161948190ace6cf069ef20ac6e79cd2ba09b320efa7500b6de"
-dependencies = [
- "starknet-types-core",
-]
-
-[[package]]
-name = "starknet-ff"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7abf1b44ec5b18d87c1ae5f54590ca9d0699ef4dd5b2ffa66fc97f24613ec585"
-dependencies = [
- "ark-ff 0.4.2",
- "crypto-bigint",
- "getrandom 0.2.15",
- "hex",
-]
-
-[[package]]
-name = "starknet-types-core"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4037bcb26ce7c508448d221e570d075196fd4f6912ae6380981098937af9522a"
-dependencies = [
- "lambdaworks-crypto",
- "lambdaworks-math",
- "num-bigint",
- "num-integer",
- "num-traits",
- "serde",
- "size-of",
- "zeroize",
 ]
 
 [[package]]
@@ -16193,9 +16100,6 @@ dependencies = [
  "sha3",
  "sp-core",
  "sp-std",
- "starknet-crypto",
- "starknet-ff",
- "starknet-types-core",
  "tempfile",
 ]
 
