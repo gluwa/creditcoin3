@@ -1,8 +1,9 @@
 use super::*;
 use crate::mock::*;
+use crate::SELECTOR_LOG_QUERY_VERIFIED;
 use attestor_primitives::LayoutSegment;
 use attestor_primitives::{block::Block, Attestation, AttestationCheckpoint, SignedAttestation};
-use precompile_utils::testing::*;
+use precompile_utils::{evm::logs::log2, testing::*};
 use sp_core::H256;
 use utils::{
     block_item_traits::{BlockItem, BlockItemIdentifier},
@@ -932,7 +933,18 @@ fn test_continuity_chain_height_validation() {
                     continuity_blocks: continuity_blocks_valid.clone(),
                 },
             )
-            .expect_no_logs()
+            .expect_log(log2(
+                Account::Precompile,
+                SELECTOR_LOG_QUERY_VERIFIED,
+                Account::Alice,
+                ethabi::encode(&[
+                    ethabi::Token::FixedBytes(query.id().0.to_vec()),
+                    ethabi::Token::Uint(query.chain_id.into()),
+                    ethabi::Token::Uint(query.height.into()),
+                    ethabi::Token::Uint(0u8.into()),
+                    ethabi::Token::Array(vec![]),
+                ]),
+            ))
             .execute_returns(QueryVerificationResult {
                 status: 0,
                 result_segments: vec![],
@@ -965,6 +977,9 @@ fn test_continuity_chain_height_validation() {
         setup_attestation(1, 96, continuity_blocks_extended[0].prev_digest);
 
         // This should also pass - extending beyond query height is acceptable
+        let query_id = query.id();
+        let query_chain_id = query.chain_id;
+        let query_height = query.height;
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -976,7 +991,18 @@ fn test_continuity_chain_height_validation() {
                     continuity_blocks: continuity_blocks_extended,
                 },
             )
-            .expect_no_logs()
+            .expect_log(log2(
+                Account::Precompile,
+                SELECTOR_LOG_QUERY_VERIFIED,
+                Account::Alice,
+                ethabi::encode(&[
+                    ethabi::Token::FixedBytes(query_id.0.to_vec()),
+                    ethabi::Token::Uint(query_chain_id.into()),
+                    ethabi::Token::Uint(query_height.into()),
+                    ethabi::Token::Uint(0u8.into()),
+                    ethabi::Token::Array(vec![]),
+                ]),
+            ))
             .execute_returns(QueryVerificationResult {
                 status: 0,
                 result_segments: vec![],

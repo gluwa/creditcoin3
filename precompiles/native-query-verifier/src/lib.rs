@@ -19,8 +19,9 @@ use frame_support::{
 };
 use log::error;
 use pallet_evm::AddressMapping;
-use precompile_utils::{prelude::*, solidity::Codec};
+use precompile_utils::{evm::logs::log2, keccak256, prelude::*, solidity::Codec};
 use sp_core::H256;
+use sp_std::vec;
 use sp_std::vec::Vec;
 
 // Use the QueryMerkleProof from the mmr crate
@@ -28,6 +29,14 @@ use mmr::query_proof::QueryMerkleProof;
 
 // Type alias for compatibility
 type MerkleProof = QueryMerkleProof;
+
+// Event selectors (keccak256 of event signatures)
+/// QueryVerified(address indexed,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])
+pub const SELECTOR_LOG_QUERY_VERIFIED: [u8; 32] =
+    keccak256!("QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])");
+/// QueryVerificationFailed(address indexed,bytes32,uint64,uint64,uint8,string)
+pub const SELECTOR_LOG_QUERY_VERIFICATION_FAILED: [u8; 32] =
+    keccak256!("QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)");
 
 #[cfg(test)]
 mod mock;
@@ -185,6 +194,24 @@ where
                 "Merkle proof verification failed for query: {:?}",
                 query.id()
             );
+
+            // Emit failure event with queryId, chainKey and height
+            let event_data = ethabi::encode(&[
+                Token::FixedBytes(query.id().0.to_vec()), // queryId
+                Token::Uint(query.chain_id.into()),       // chainKey
+                Token::Uint(query.height.into()),         // height
+                Token::Uint(1u8.into()),                  // status: MerkleProofInvalid
+                Token::Bytes(b"Merkle proof validation failed".to_vec()),
+            ]);
+
+            log2(
+                handle.context().address,
+                SELECTOR_LOG_QUERY_VERIFICATION_FAILED,
+                handle.context().caller,
+                event_data,
+            )
+            .record(handle)?;
+
             return Ok(QueryVerificationResult {
                 status: 1, // MerkleProofInvalid
                 result_segments: Vec::new(),
@@ -210,6 +237,24 @@ where
                 "Continuity chain verification failed for query: {:?}",
                 query.id()
             );
+
+            // Emit failure event with queryId, chainKey and height
+            let event_data = ethabi::encode(&[
+                Token::FixedBytes(query.id().0.to_vec()), // queryId
+                Token::Uint(query.chain_id.into()),       // chainKey
+                Token::Uint(query.height.into()),         // height
+                Token::Uint(2u8.into()),                  // status: ContinuityChainInvalid
+                Token::Bytes(b"Continuity chain validation failed".to_vec()),
+            ]);
+
+            log2(
+                handle.context().address,
+                SELECTOR_LOG_QUERY_VERIFICATION_FAILED,
+                handle.context().caller,
+                event_data,
+            )
+            .record(handle)?;
+
             return Ok(QueryVerificationResult {
                 status: 2, // ContinuityChainInvalid
                 result_segments: Vec::new(),
@@ -218,6 +263,33 @@ where
 
         // Step 3: Extract data segments
         let result_segments = Self::extract_data_segments(&tx_bytes, &query)?;
+
+        // Emit success event with queryId, chainKey, height, and result segments
+        let result_tokens: Vec<Token> = result_segments
+            .iter()
+            .map(|segment| {
+                Token::Tuple(vec![
+                    Token::Uint(segment.offset.into()),
+                    Token::FixedBytes(segment.bytes.0.to_vec()),
+                ])
+            })
+            .collect();
+
+        let event_data = ethabi::encode(&[
+            Token::FixedBytes(query.id().0.to_vec()), // queryId
+            Token::Uint(query.chain_id.into()),       // chainKey
+            Token::Uint(query.height.into()),         // height
+            Token::Uint(0u8.into()),                  // status: Success
+            Token::Array(result_tokens),              // result segments
+        ]);
+
+        log2(
+            handle.context().address,
+            SELECTOR_LOG_QUERY_VERIFIED,
+            handle.context().caller,
+            event_data,
+        )
+        .record(handle)?;
 
         Ok(QueryVerificationResult {
             status: 0, // Success

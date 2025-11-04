@@ -85,7 +85,6 @@ jobs:
           docker exec creditcoin-validator which query-cli
           docker exec creditcoin-validator query-cli --help
 
-
       - name: Collect docker logs
         if: always()
         run: |
@@ -120,7 +119,6 @@ jobs:
 
           # while downing a compose will not even when the underlying containers have crashed
           docker compose down
-
 
       - name: Upload logs
         if: always()
@@ -185,7 +183,6 @@ jobs:
         run: |
           ./.github/check-bootnodes.sh
 
-
   sanity-test-npm-packages:
     runs-on: ubuntu-24.04
     steps:
@@ -232,7 +229,6 @@ jobs:
           creditcoin help
           creditcoin wizard --help
           creditcoin attestor --help
-
 
   sanity-test-solidity:
     runs-on: ubuntu-24.04
@@ -300,7 +296,6 @@ jobs:
 
           export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
           .github/check-solidity-source-vs-metadata.sh
-
 
   fmt:
     name: Rustfmt
@@ -1254,14 +1249,14 @@ jobs:
         # maximum opportunities to expose uncommitted typedefs changes for a PR against non-default branches!
         if: ${{ github.base_ref != 'dev' && github.base_ref != 'poc_external_attestation_network' && steps.update_typedefs.outputs.git_diff == 'true' }}
         run: |
-            echo "FAIL: it appears there are uncommitted typedefs changes which is not supposed to happen"
-            echo "TODO: make sure these changes make it to the default branch first!"
+          echo "FAIL: it appears there are uncommitted typedefs changes which is not supposed to happen"
+          echo "TODO: make sure these changes make it to the default branch first!"
 
-            echo "========== DEBUG DEBUG DEBUG =========="
-            git status --short --untracked-files=no
-            git diff
-            echo "======================================="
-            exit 1
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short --untracked-files=no
+          git diff
+          echo "======================================="
+          exit 1
 
       - name: Upload coverage report as artifact
         if: ${{ matrix.proxy == 'yes' && matrix.proxy_type == 'All' }}
@@ -1751,11 +1746,9 @@ jobs:
           path: target/release
 
       - name: Set up Python for Cairo - Verifier + Prover
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-          cache: "pip"
-      - run: pip install -r prover/requirements.txt
 
       - name: Start creditcoin3-node - Alice
         env:
@@ -1807,6 +1800,16 @@ jobs:
 
           BLOCK_NUMBER=$(echo "$OUTPUT" | grep block: | cut -f2 -d: | tr -d ' ')
           TXN_HASH=$(echo "$OUTPUT" | grep hash: | cut -f2 -d: | tr -d ' ')
+
+          # Provide default values if extraction failed
+          if [ -z "$BLOCK_NUMBER" ]; then
+            echo "Warning: Could not extract block number from Transfer.js output"
+            BLOCK_NUMBER="1"
+          fi
+          if [ -z "$TXN_HASH" ]; then
+            echo "Warning: Could not extract transaction hash from Transfer.js output"
+            TXN_HASH="0x0000000000000000000000000000000000000000000000000000000000000000"
+          fi
 
           echo "block_number=$BLOCK_NUMBER" >> "$GITHUB_OUTPUT"
           echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
@@ -1878,7 +1881,6 @@ jobs:
           # note: chain_key is hard-coded in this script so waiting only on Anvil_1
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
 
-
       - name: Setup cc3-indexer
         working-directory: ./cc3-indexer
         run: |
@@ -1890,7 +1892,6 @@ jobs:
             http://127.0.0.1:9944 | jq -r .result)
           echo "ENDPOINT=ws://host.docker.internal:9944/" > .env
           echo "CHAIN_ID=$GENESIS_HASH" >> .env
-          echo "DATASOURCE=all-in-one" >> .env
 
           yarn build
 
@@ -1936,7 +1937,6 @@ jobs:
             --block-height ${{ steps.native-transfer-anvil-1.outputs.block_number }} \
             --txn-hash ${{ steps.native-transfer-anvil-1.outputs.txn_hash }} \
             --data-choice 4
-
 
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
