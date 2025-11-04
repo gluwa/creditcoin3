@@ -304,17 +304,22 @@ where
 
         // Validate the head's digest matches the query's previous requirement
         if let Some(head) = continuity_blocks.last() {
-            let _block_digest = head.digest;
+            // The continuity chain must reach at least the query's block height
+            // This ensures the merkle proof is for a transaction in a block that's covered by the chain
+            if head.block_number < query.height {
+                error!(
+                    "❌ Continuity chain ends at block {}, but query requires block {}",
+                    head.block_number, query.height
+                );
+                return Err(PrecompileFailure::Revert {
+                    output: encode_revert_message("Continuity chain does not reach query height"),
+                    exit_status: ExitRevert::Reverted,
+                });
+            }
 
-            // The head should connect to the query height
-            // For now, we just validate that the continuity chain is internally consistent
-            // Additional query-specific validation can be added here
+            // If the chain extends beyond the query height, that's acceptable
+            // as it provides additional confirmation of the chain's validity
         }
-
-        // info!(
-        //     "Continuity chain verified successfully for query: {:?}",
-        //     query.id()
-        // );
 
         Ok(true)
     }

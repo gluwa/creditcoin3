@@ -834,6 +834,157 @@ fn test_encode_revert_message() {
 // ============================================================================
 
 #[test]
+fn test_continuity_chain_height_validation() {
+    ExtBuilder::default().build().execute_with(|| {
+        let query = create_test_query(1, 100, 0, vec![]); // Query at height 100
+        let tx_data = get_sample_tx_data();
+
+        // Create a simple valid merkle proof (single transaction)
+        let merkle_proof = MerkleProof {
+            root: H256::from(sp_io::hashing::keccak_256(&{
+                let mut prefixed = vec![0x00u8]; // LEAF_HASH_PREFIX
+                prefixed.extend_from_slice(&tx_data);
+                prefixed
+            })),
+            siblings: vec![], // Single transaction, no siblings needed
+        };
+
+        // Test 1: Continuity blocks that end at block 99 (before query height)
+        let mut continuity_blocks = Vec::new();
+        let mut prev_digest = H256::zero();
+
+        for i in 0..3 {
+            let block_number = 97 + i; // Will create blocks 97, 98, 99
+                                       // Use merkle root for block 99 so merkle verification passes
+            let root = if block_number == 99 {
+                merkle_proof.root
+            } else {
+                H256::random()
+            };
+            let digest = compute_test_digest(block_number, &root, &prev_digest);
+
+            continuity_blocks.push(Block {
+                block_number,
+                root,
+                prev_digest,
+                digest,
+            });
+
+            prev_digest = digest;
+        }
+
+        // Setup attestation at block 96 to make the chain valid
+        setup_attestation(1, 96, continuity_blocks[0].prev_digest);
+
+        // This should fail because continuity chain doesn't reach query height
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_query {
+                    query: query.clone(),
+                    tx_data: tx_data.clone().into(),
+                    merkle_proof: merkle_proof.clone(),
+                    continuity_blocks: continuity_blocks.clone(),
+                },
+            )
+            .expect_no_logs()
+            .execute_reverts(|output| {
+                let revert_msg = String::from_utf8_lossy(output);
+                revert_msg.contains("Continuity chain does not reach query height")
+            });
+
+        // Test 2: Continuity chain that reaches exactly the query height (block 100)
+        let mut continuity_blocks_valid = Vec::new();
+        prev_digest = H256::zero();
+
+        for i in 0..4 {
+            let block_number = 97 + i; // Will create blocks 97, 98, 99, 100
+                                       // Use merkle root for block 100 where the transaction is
+            let root = if block_number == 100 {
+                merkle_proof.root
+            } else {
+                H256::random()
+            };
+            let digest = compute_test_digest(block_number, &root, &prev_digest);
+
+            continuity_blocks_valid.push(Block {
+                block_number,
+                root,
+                prev_digest,
+                digest,
+            });
+
+            prev_digest = digest;
+        }
+
+        setup_attestation(1, 96, continuity_blocks_valid[0].prev_digest);
+
+        // This should pass all validations and return success
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_query {
+                    query: query.clone(),
+                    tx_data: tx_data.clone().into(),
+                    merkle_proof: merkle_proof.clone(),
+                    continuity_blocks: continuity_blocks_valid.clone(),
+                },
+            )
+            .expect_no_logs()
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![],
+            });
+
+        // Test 3: Continuity chain that extends beyond query height (block 101)
+        let mut continuity_blocks_extended = Vec::new();
+        prev_digest = H256::zero();
+
+        for i in 0..5 {
+            let block_number = 97 + i; // Will create blocks 97, 98, 99, 100, 101
+                                       // Use merkle root for block 100 where the transaction is
+            let root = if block_number == 100 {
+                merkle_proof.root
+            } else {
+                H256::random()
+            };
+            let digest = compute_test_digest(block_number, &root, &prev_digest);
+
+            continuity_blocks_extended.push(Block {
+                block_number,
+                root,
+                prev_digest,
+                digest,
+            });
+
+            prev_digest = digest;
+        }
+
+        setup_attestation(1, 96, continuity_blocks_extended[0].prev_digest);
+
+        // This should also pass - extending beyond query height is acceptable
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_query {
+                    query,
+                    tx_data: tx_data.into(),
+                    merkle_proof,
+                    continuity_blocks: continuity_blocks_extended,
+                },
+            )
+            .expect_no_logs()
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![],
+            });
+    });
+}
+
+#[test]
 fn test_full_query_verification_flow() {
     ExtBuilder::default().build().execute_with(|| {
         // Setup: Create a realistic query scenario

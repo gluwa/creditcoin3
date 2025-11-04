@@ -30,8 +30,4 @@ std = [
     "precompile-utils?/std",
     "log?/std",
 ]
-verification = [
-    "fp-evm",
-    "precompile-utils",
-    "log",
-]
+verification = ["fp-evm", "precompile-utils", "log"]
