@@ -5,6 +5,9 @@ name: BENCHMARKS
 "on":
   pull_request:
     branches: [testnet]
+    paths:
+      - '**weights.rs'
+      - '**benchmarking.rs'
   workflow_dispatch:
 
 env:
