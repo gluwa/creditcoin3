@@ -252,13 +252,13 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
                 ✅ Last attestation header number found in GraphQL: (100|100)\n\
                 ✅ Last attestation root found in GraphQL: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last attestation prev digest found in GraphQL: (0000000000000000000000000000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)\n\
-                ✅ Last attestation digest found in GraphQL: (02311158238ba841f34895c6496db20167b55b0612b2b628a59c665f918307c9|02311158238ba841f34895c6496db20167b55b0612b2b628a59c665f918307c9)\
+                ❌ Last attestation digest not found in GraphQL: (02311158238ba841f34895c6496db20167b55b0612b2b628a59c665f918307c9|cad6b21256bec3cb9437b48b62c090588a1bd44a81ace43194220da992e8c93a)\
                 ```"
         }),
         Some(json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":rotating_light:",
-            "text": "<!subteam^S_TEST_GROUP> The following issues were detected:\nCurrent block difference exceeds threshold!"
+            "text": "<!subteam^S_TEST_GROUP> The following issues were detected:\nCurrent block difference exceeds threshold!\n- Last attestation digest not found in GraphQL!"
         })),
     );
     let attestation_check_result = compute_attestation_check_result(
@@ -348,13 +348,13 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
                 ✅ Last attestation header number found in GraphQL: (150|150)\n\
                 ✅ Last attestation root found in GraphQL: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last attestation prev digest found in GraphQL: (0000000000000000000000000000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)\n\
-                ✅ Last attestation digest found in GraphQL: (033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1|033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1)\
+                ❌ Last attestation digest not found in GraphQL: (033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1|9150065bdc2fdfde0f9db07f1872d532f50eb1515c49106716093103a68c0a36)\
                 ```"
         }),
         Some(json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":rotating_light:",
-            "text": "<!subteam^S_TEST_GROUP> The following issues were detected:\nAttestation header hash does not match correct Ethereum block!"
+            "text": "<!subteam^S_TEST_GROUP> The following issues were detected:\nAttestation header hash does not match correct Ethereum block!\n- Last attestation digest not found in GraphQL!"
         })),
     );
 
@@ -535,13 +535,13 @@ fn create_message_returns_chain_status_and_group_notification_with_u_slack_id_wh
                 ✅ Last attestation header number found in GraphQL: (180|180)\n\
                 ✅ Last attestation root found in GraphQL: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last attestation prev digest found in GraphQL: (0000000000000000000000000000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)\n\
-                ✅ Last attestation digest found in GraphQL: (0450faec12366258ce8385f3dda48d90dc92f4928255b9c0feb2c080482f9416|0450faec12366258ce8385f3dda48d90dc92f4928255b9c0feb2c080482f9416)\
+                ❌ Last attestation digest not found in GraphQL: (0450faec12366258ce8385f3dda48d90dc92f4928255b9c0feb2c080482f9416|80a45f82d8f89b6b5d99dba938219b046adf8cb7b641a81562774d8026b28456)\
                 ```"
         }),
         Some(json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":rotating_light:",
-            "text": "<@U_TEST_USER> The following issues were detected:\nAttestation header hash does not match correct Ethereum block!"
+            "text": "<@U_TEST_USER> The following issues were detected:\nAttestation header hash does not match correct Ethereum block!\n- Last attestation digest not found in GraphQL!"
         })),
     );
     let attestation_check_result = compute_attestation_check_result(
@@ -627,7 +627,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
                 ❌ Last attestation header number not found in GraphQL: (0|140)\n\
                 ❌ Last attestation root not found in GraphQL: (N/A|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ❌ Last attestation prev digest not found in GraphQL: (N/A|0000000000000000000000000000000000000000000000000000000000000000)\n\
-                ❌ Last attestation digest not found in GraphQL: (N/A|06c0604ab2cd092921328e8975192f938fb23d403ff31eca090e31ee360a001a)\
+                ❌ Last attestation digest not found in GraphQL: (N/A|b79e7f3f2c3683eba162376126a02894a20d6f28d2e63cfec703ab0f2e724afe)\
                 ```"
         }),
         None,
@@ -703,7 +703,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
                 ✅ Last attestation header number found in GraphQL: (100|100)\n\
                 ✅ Last attestation root found in GraphQL: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last attestation prev digest found in GraphQL: (0000000000000000000000000000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)\n\
-                ✅ Last attestation digest found in GraphQL: (02311158238ba841f34895c6496db20167b55b0612b2b628a59c665f918307c9|02311158238ba841f34895c6496db20167b55b0612b2b628a59c665f918307c9)\
+                ❌ Last attestation digest not found in GraphQL: (02311158238ba841f34895c6496db20167b55b0612b2b628a59c665f918307c9|cad6b21256bec3cb9437b48b62c090588a1bd44a81ace43194220da992e8c93a)\
                 ```"
         }),
         None,
@@ -793,7 +793,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
                 ✅ Last attestation header number found in GraphQL: (150|150)\n\
                 ✅ Last attestation root found in GraphQL: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last attestation prev digest found in GraphQL: (0000000000000000000000000000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)\n\
-                ✅ Last attestation digest found in GraphQL: (033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1|033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1)\
+                ❌ Last attestation digest not found in GraphQL: (033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1|9150065bdc2fdfde0f9db07f1872d532f50eb1515c49106716093103a68c0a36)\
                 ```"
         }),
         None,
@@ -881,7 +881,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
                 ✅ Last attestation header number found in GraphQL: (150|150)\n\
                 ✅ Last attestation root found in GraphQL: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last attestation prev digest found in GraphQL: (0000000000000000000000000000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)\n\
-                ✅ Last attestation digest found in GraphQL: (033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1|033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1)\
+                ❌ Last attestation digest not found in GraphQL: (033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1|9150065bdc2fdfde0f9db07f1872d532f50eb1515c49106716093103a68c0a36)\
                 ```"
         }),
         None,
@@ -975,7 +975,7 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
                 ✅ Last attestation header number found in GraphQL: (150|150)\n\
                 ✅ Last attestation root found in GraphQL: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last attestation prev digest found in GraphQL: (0000000000000000000000000000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)\n\
-                ✅ Last attestation digest found in GraphQL: (033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1|033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1)\
+                ❌ Last attestation digest not found in GraphQL: (033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1|9150065bdc2fdfde0f9db07f1872d532f50eb1515c49106716093103a68c0a36)\
                 ```"
         }),
         None,
@@ -1065,7 +1065,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
                 ✅ Last attestation header number found in GraphQL: (180|180)\n\
                 ✅ Last attestation root found in GraphQL: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last attestation prev digest found in GraphQL: (0000000000000000000000000000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)\n\
-                ✅ Last attestation digest found in GraphQL: (0450faec12366258ce8385f3dda48d90dc92f4928255b9c0feb2c080482f9416|0450faec12366258ce8385f3dda48d90dc92f4928255b9c0feb2c080482f9416)\
+                ❌ Last attestation digest not found in GraphQL: (0450faec12366258ce8385f3dda48d90dc92f4928255b9c0feb2c080482f9416|80a45f82d8f89b6b5d99dba938219b046adf8cb7b641a81562774d8026b28456)\
                 ```"
         }),
         None,
