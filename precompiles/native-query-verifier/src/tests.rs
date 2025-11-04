@@ -3,6 +3,7 @@ use crate::mock::*;
 use crate::SELECTOR_LOG_QUERY_VERIFIED;
 use attestor_primitives::LayoutSegment;
 use attestor_primitives::{block::Block, Attestation, AttestationCheckpoint, SignedAttestation};
+use mmr::query_proof::MerkleProofEntry;
 use precompile_utils::{evm::logs::log2, testing::*};
 use sp_core::H256;
 use utils::{
@@ -28,16 +29,10 @@ impl BlockItem for TestTransaction {
 }
 
 /// Helper to create a test query
-fn create_test_query(
-    chain_id: u64,
-    height: u64,
-    index: u64,
-    segments: Vec<LayoutSegment>,
-) -> Query {
+fn create_test_query(chain_id: u64, height: u64, segments: Vec<LayoutSegment>) -> Query {
     Query {
         chain_id,
         height,
-        index,
         layout_segments: segments,
     }
 }
@@ -47,7 +42,6 @@ fn get_simple_query() -> Query {
     create_test_query(
         1,
         100,
-        0,
         vec![
             LayoutSegment {
                 offset: 4,
@@ -100,17 +94,26 @@ fn create_valid_merkle_proof(
     let tree = keccak_merkle_tree(&transactions);
     let proof_result = tree.generate_proof(tx_index);
 
-    // Extract siblings - need to include placeholder at offset position
+    // Convert siblings to MerkleProofEntry format with position information
     let mut siblings = Vec::new();
+    let mut current_index = tx_index;
+
     for proof_item in proof_result.path() {
         let offset = proof_item.offset();
         for (i, hash) in proof_item.hashes().iter().enumerate() {
-            if i == offset {
-                siblings.push(H256::zero()); // Placeholder for computed hash
-            } else {
-                siblings.push(hash.to_h256());
+            if i != offset {
+                // Determine if sibling is on left or right based on current position
+                // In a binary tree, if current_index is even, we're on left, sibling on right
+                // If current_index is odd, we're on right, sibling on left
+                let is_left = (current_index % 2) == 1;
+                siblings.push(MerkleProofEntry {
+                    hash: hash.to_h256(),
+                    is_left,
+                });
             }
         }
+        // Move up the tree
+        current_index /= 2;
     }
 
     let merkle_proof = MerkleProof {
@@ -125,7 +128,10 @@ fn create_valid_merkle_proof(
 fn create_invalid_merkle_proof() -> MerkleProof {
     MerkleProof {
         root: H256::random(),
-        siblings: vec![H256::random()],
+        siblings: vec![MerkleProofEntry {
+            hash: H256::random(),
+            is_left: false,
+        }],
     }
 }
 
@@ -252,7 +258,7 @@ fn test_empty_continuity_chain_with_valid_merkle() {
 #[test]
 fn test_no_layout_segments_succeeds_with_empty_results() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = create_test_query(1, 100, 0, vec![]); // No segments
+        let query = create_test_query(1, 100, vec![]); // No segments
         let tx_data = get_sample_tx_data();
         let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
         let continuity_blocks = create_continuity_blocks(2);
@@ -535,7 +541,6 @@ fn test_extract_single_segment() {
         let query = create_test_query(
             1,
             100,
-            0,
             vec![LayoutSegment {
                 offset: 4,
                 size: 32,
@@ -571,7 +576,6 @@ fn test_extract_multiple_segments() {
         let query = create_test_query(
             1,
             100,
-            0,
             vec![
                 LayoutSegment {
                     offset: 4,
@@ -621,7 +625,6 @@ fn test_segment_out_of_bounds_fails() {
         let query = create_test_query(
             1,
             100,
-            0,
             vec![LayoutSegment {
                 offset: 4,
                 size: 1000,
@@ -658,7 +661,6 @@ fn test_segment_offset_beyond_data_fails() {
         let query = create_test_query(
             1,
             100,
-            0,
             vec![LayoutSegment {
                 offset: 200,
                 size: 32,
@@ -693,20 +695,19 @@ fn test_segment_offset_beyond_data_fails() {
 // Merkle Proof Tests
 // ============================================================================
 
+/// Test merkle proof validation with valid proof
 #[test]
 fn test_merkle_proof_validation_with_valid_proof() {
     ExtBuilder::default().build().execute_with(|| {
         let query = get_simple_query();
         let tx_data = get_sample_tx_data();
 
-        // Create valid merkle proof with multiple siblings
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 4);
-        let continuity_blocks = create_continuity_blocks(1);
+        // Note: This creates a proof but the format doesn't match what the precompile expects
+        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
+        let continuity_blocks = create_continuity_blocks(2);
 
         setup_attestation(1, 0, continuity_blocks[0].prev_digest);
 
-        // Note: The mmr crate's proof format doesn't match the precompile's expected format
-        // so this will fail merkle verification
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -719,21 +720,26 @@ fn test_merkle_proof_validation_with_valid_proof() {
                 },
             )
             .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
+                status: 1, // MerkleProofInvalid - format mismatch
                 result_segments: vec![],
             });
     });
 }
 
+/// Test invalid merkle proof fails
 #[test]
 fn test_invalid_merkle_proof_fails() {
     ExtBuilder::default().build().execute_with(|| {
         let query = get_simple_query();
         let tx_data = get_sample_tx_data();
-
-        // Use invalid merkle proof
-        let merkle_proof = create_invalid_merkle_proof();
-        let continuity_blocks = create_continuity_blocks(1);
+        let merkle_proof = MerkleProof {
+            root: H256::random(),
+            siblings: vec![MerkleProofEntry {
+                hash: H256::random(),
+                is_left: false,
+            }], // Invalid siblings
+        };
+        let continuity_blocks = create_continuity_blocks(2);
 
         setup_attestation(1, 0, continuity_blocks[0].prev_digest);
 
@@ -762,7 +768,7 @@ fn test_invalid_merkle_proof_fails() {
 #[test]
 fn test_zero_size_segment_succeeds() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = create_test_query(1, 100, 0, vec![LayoutSegment { offset: 4, size: 0 }]);
+        let query = create_test_query(1, 100, vec![LayoutSegment { offset: 4, size: 0 }]);
         let tx_data = get_sample_tx_data();
         let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
         let continuity_blocks = create_continuity_blocks(1);
@@ -837,7 +843,7 @@ fn test_encode_revert_message() {
 #[test]
 fn test_continuity_chain_height_validation() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = create_test_query(1, 100, 0, vec![]); // Query at height 100
+        let query = create_test_query(1, 100, vec![]); // Query at height 100
         let tx_data = get_sample_tx_data();
 
         // Create a simple valid merkle proof (single transaction)
@@ -1017,7 +1023,6 @@ fn test_full_query_verification_flow() {
         let query = create_test_query(
             1,   // chain_id
             100, // height
-            0,   // index
             vec![
                 LayoutSegment {
                     offset: 4,

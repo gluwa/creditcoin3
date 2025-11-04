@@ -54,7 +54,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -62,7 +61,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100);
             const merkleProof = {
                 root: ethers.keccak256(txData),
-                siblings: [],
+                siblings: [], // Empty array of entries for single tx
             };
             const continuityChain = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -90,7 +89,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -100,7 +98,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
             const merkleProof = {
                 root: ethers.keccak256(smallTxData),
-                siblings: [],
+                siblings: [], // Empty array of entries
             };
 
             const continuityChain = {
@@ -119,7 +117,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
                 const largeProof = {
                     root: ethers.keccak256(largeTxData),
-                    siblings: [],
+                    siblings: [], // Empty array of entries
                 };
 
                 const largeGas = await contract.verifyQuery.estimateGas(
@@ -142,7 +140,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -151,12 +148,16 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
             const simpleMerkleProof = {
                 root: ethers.keccak256(txData),
-                siblings: [],
+                siblings: [], // No siblings needed
             };
 
             const complexMerkleProof = {
                 root: ethers.keccak256(txData),
-                siblings: [ethers.randomBytes(32), ethers.randomBytes(32), ethers.randomBytes(32)],
+                siblings: [
+                    { hash: ethers.randomBytes(32), isLeft: false },
+                    { hash: ethers.randomBytes(32), isLeft: true },
+                    { hash: ethers.randomBytes(32), isLeft: false },
+                ],
             };
 
             const continuityChain = {
@@ -193,7 +194,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 103,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -201,7 +201,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100);
             const merkleProof = {
                 root: ethers.keccak256(txData),
-                siblings: [],
+                siblings: [], // Empty for single transaction
             };
 
             const shortContinuityChain = {
@@ -246,7 +246,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 2n ** 64n - 1n, // Max uint64
                 height: 2n ** 64n - 1n,
-                index: 2n ** 64n - 1n,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -254,7 +253,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100);
             const merkleProof = {
                 root: ethers.keccak256(txData),
-                siblings: [],
+                siblings: [], // Empty entries array
             };
             const continuityChain = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -278,7 +277,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -287,7 +285,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const invalidData = 'INVALID_HEX_DATA';
             const merkleProof = {
                 root: ethers.zeroPadBytes('0x01', 32),
-                siblings: [],
+                siblings: [], // Empty entries array
             };
             const continuityChain = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -307,12 +305,11 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             }
         });
 
-        test('should fail with negative transaction index', async () => {
+        test('should handle invalid encoding in transaction data', async () => {
             const query = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: -1, // Will be handled by ethers as a different value due to unsigned
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -320,7 +317,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100);
             const merkleProof = {
                 root: ethers.keccak256(txData),
-                siblings: [],
+                siblings: [], // Empty entries array
             };
             const continuityChain = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -344,7 +341,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -352,7 +348,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100);
             const merkleProof = {
                 root: ethers.keccak256(txData),
-                siblings: [],
+                siblings: [], // Empty entries array
             };
 
             // Malformed continuity chain with invalid structure
@@ -377,14 +373,13 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
 
             const merkleProof = {
                 root: ethers.zeroPadBytes('0x01', 32),
-                siblings: [],
+                siblings: [], // Empty entries array
             };
             const continuityChain = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -410,7 +405,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -418,7 +412,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100);
             const merkleProof = {
                 root: ethers.keccak256(txData),
-                siblings: [],
+                siblings: [], // Empty entries array
             };
             const continuityChain = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -447,7 +441,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [],
             };
@@ -455,7 +448,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = '0x'; // Empty transaction data
             const merkleProof = {
                 root: ethers.zeroPadBytes('0x00', 32),
-                siblings: [],
+                siblings: [], // Empty entries array
             };
             const continuityChain = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -479,7 +472,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [
                     { offset: 150, size: 32 }, // Offset beyond tx data length
@@ -489,7 +481,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100); // Only 100 bytes
             const merkleProof = {
                 root: ethers.keccak256(txData),
-                siblings: [],
+                siblings: [], // Empty entries array
             };
 
             const continuityChain = {
@@ -514,7 +506,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [
                     { offset: 0, size: 2 ** 32 - 1 }, // Max uint32
@@ -524,7 +515,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100);
             const merkleProof = {
                 root: ethers.keccak256(txData),
-                siblings: [],
+                siblings: [], // Empty entries array
             };
             const continuityChain = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -548,7 +539,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -556,7 +546,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100);
             const merkleProof = {
                 root: ethers.keccak256('0xdeadbeef'), // Wrong root, doesn't match txData
-                siblings: [ethers.randomBytes(32)],
+                siblings: [{ hash: ethers.randomBytes(32), isLeft: false }],
             };
             const continuityChain = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention

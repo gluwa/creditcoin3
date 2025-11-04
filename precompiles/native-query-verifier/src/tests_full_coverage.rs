@@ -5,6 +5,7 @@ use crate::mock::*;
 use crate::*;
 use attestor_primitives::{block::Block, LayoutSegment, Query};
 use attestor_primitives::{Attestation, AttestationCheckpoint, SignedAttestation};
+use mmr::query_proof::MerkleProofEntry;
 use precompile_utils::testing::*;
 use sp_core::H256;
 
@@ -21,7 +22,7 @@ fn create_proper_merkle_proof_for_single_tx(tx_data: &[u8]) -> MerkleProof {
 
     MerkleProof {
         root: root_hash,
-        siblings: vec![], // Empty siblings for single transaction
+        siblings: vec![], // Single transaction has no siblings
     }
 }
 
@@ -63,14 +64,14 @@ fn create_proper_merkle_proof_binary(
         // Collect siblings for this level
         let sibling_idx = if index % 2 == 0 { index + 1 } else { index - 1 };
         if sibling_idx < current_level.len() {
-            // For binary tree, we need both hashes with placeholder at offset
-            if index % 2 == 0 {
-                siblings.push(H256::zero()); // Placeholder for our position
-                siblings.push(current_level[sibling_idx]); // Sibling
-            } else {
-                siblings.push(current_level[sibling_idx]); // Sibling
-                siblings.push(H256::zero()); // Placeholder for our position
-            }
+            // Determine if sibling is on left or right
+            // If we're at even index, we're on left, sibling on right
+            // If we're at odd index, we're on right, sibling on left
+            let is_left = index % 2 == 1;
+            siblings.push(MerkleProofEntry {
+                hash: current_level[sibling_idx],
+                is_left,
+            });
         }
 
         // Build next level
@@ -193,7 +194,6 @@ fn test_successful_verification_single_transaction() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![
                 LayoutSegment { offset: 0, size: 4 }, // Extract first 4 bytes
                 LayoutSegment {
@@ -269,7 +269,6 @@ fn test_successful_verification_multiple_transactions() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 1, // Second transaction
             layout_segments: vec![LayoutSegment {
                 offset: 0,
                 size: 32,
@@ -332,7 +331,6 @@ fn test_extract_less_than_32_bytes() {
             let query = Query {
                 chain_id: 1,
                 height: 100,
-                index: 0,
                 layout_segments: vec![LayoutSegment {
                     offset: 0,
                     size: size as u64,
@@ -376,7 +374,6 @@ fn test_extract_exactly_32_bytes() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![LayoutSegment {
                 offset: 0,
                 size: 32,
@@ -415,7 +412,6 @@ fn test_extract_more_than_32_bytes() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![
                 LayoutSegment {
                     offset: 0,
@@ -460,7 +456,6 @@ fn test_continuity_with_checkpoint_fallback() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![],
         };
 
@@ -504,7 +499,6 @@ fn test_continuity_attestation_header_validation() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![],
         };
 
@@ -560,7 +554,6 @@ fn test_continuity_wrong_attestation_header_fails() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![],
         };
 
@@ -621,7 +614,6 @@ fn test_transaction_at_size_limit() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![LayoutSegment {
                 offset: 0,
                 size: 32,
@@ -634,7 +626,7 @@ fn test_transaction_at_size_limit() {
         // For this test, we'll use a simple proof since the focus is on size handling
         let merkle_proof = MerkleProof {
             root: H256::random(),
-            siblings: vec![],
+            siblings: vec![], // Empty entries for simple test
         };
 
         let continuity_blocks = create_valid_continuity_chain(100, 1);
@@ -705,7 +697,6 @@ fn test_empty_continuity_chain_reverts_with_message() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![],
         };
 
@@ -737,7 +728,6 @@ fn test_no_finalized_attestation_or_checkpoint_reverts() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![],
         };
 
@@ -772,7 +762,6 @@ fn test_segment_out_of_bounds_reverts_properly() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![
                 LayoutSegment {
                     offset: 50,
@@ -811,7 +800,6 @@ fn test_log_costs_are_recorded() {
         let query = Query {
             chain_id: 1,
             height: 100,
-            index: 0,
             layout_segments: vec![],
         };
 

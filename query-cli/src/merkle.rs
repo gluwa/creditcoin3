@@ -4,28 +4,35 @@
 //! for transaction verification using the simple, Ethereum-compatible approach.
 
 use anyhow::Result;
-use eth::{evm, OrderedBlock};
+use eth::OrderedBlock;
+use mmr::query_proof::{MerkleProofEntry, QueryMerkleProof};
 use utils::block_item_traits::BlockItem;
-use utils::simple_merkle::proof_to_precompile_format;
 
 /// Generate a Merkle proof for a transaction in a block
-pub fn generate_merkle_proof(
-    block: &OrderedBlock,
-    tx_index: usize,
-) -> Result<evm::native_query_verifier::MerkleProof> {
+pub fn generate_merkle_proof(block: &OrderedBlock, tx_index: usize) -> Result<QueryMerkleProof> {
     // Build the simple Merkle tree using the eth helper function
     let tree = eth::simple_merkle_tree(block);
 
     // Generate proof for the specified transaction
     let proof = tree.generate_proof(tx_index);
 
-    // Convert to precompile format (flat array with placeholders)
-    let siblings = proof_to_precompile_format(&proof, tx_index);
+    // Convert proof siblings to QueryMerkleProof format
+    let siblings = proof
+        .siblings
+        .into_iter()
+        .enumerate()
+        .map(|(level, sibling)| {
+            // Determine if sibling is on left or right based on tx_index at this level
+            let index_at_level = tx_index >> level;
+            let is_left = (index_at_level & 1) == 1; // If index is odd, sibling is on left
+            MerkleProofEntry {
+                hash: sibling,
+                is_left,
+            }
+        })
+        .collect();
 
-    Ok(evm::native_query_verifier::MerkleProof {
-        root: tree.root(),
-        siblings,
-    })
+    Ok(QueryMerkleProof::new(tree.root(), siblings))
 }
 
 /// Get transaction data from the block

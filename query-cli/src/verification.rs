@@ -7,6 +7,7 @@ use anyhow::Result;
 use attestor_primitives::block::Block;
 use attestor_primitives::{Query, ResultSegment};
 use eth::{evm, Client};
+use mmr::query_proof::QueryMerkleProof;
 
 /// Configuration for query verification
 pub struct VerificationConfig {
@@ -29,7 +30,7 @@ pub async fn verify_query(
     config: &VerificationConfig,
     query: &Query,
     tx_data: &[u8],
-    merkle_proof: evm::native_query_verifier::MerkleProof,
+    merkle_proof: QueryMerkleProof,
     continuity_blocks: Vec<Block>,
 ) -> Result<VerificationResult> {
     // Initialize the Ethereum client for Creditcoin3
@@ -123,7 +124,7 @@ pub fn display_results(query: &Query, result: &VerificationResult) {
         println!("\n   This query parameters:");
         println!("     • Chain ID: {}", query.chain_id);
         println!("     • Block height: {}", query.height);
-        println!("     • Transaction index: {}", query.index);
+
         println!("     • Layout segments: {}", query.layout_segments.len());
 
         println!("\n   Comparison with Solidity smart contract:");

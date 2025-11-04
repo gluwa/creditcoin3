@@ -7924,10 +7924,10 @@ dependencies = [
 name = "mmr"
 version = "3.66.0"
 dependencies = [
- "fp-evm",
- "log",
+ "parity-scale-codec",
  "precompile-utils",
  "rayon",
+ "scale-info",
  "sp-core",
  "sp-io",
  "sp-std",

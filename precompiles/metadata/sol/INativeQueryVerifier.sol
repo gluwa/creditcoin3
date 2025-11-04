@@ -71,8 +71,6 @@ interface INativeQueryVerifier {
         /// Offset in the transaction data where this segment was extracted
         uint64 offset;
         /// Extracted bytes (32-byte chunks)
-        /// NOTE: Named 'bytes' in the actual ABI for compatibility with precompile
-        /// but 'bytes' is a Solidity reserved keyword, so we use 'data' here for compilation
         bytes32 data;
     }
 

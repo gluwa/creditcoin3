@@ -7,6 +7,7 @@ use attestor_primitives::{
     block::Block,
     query::{Query, ResultSegment},
 };
+use mmr::query_proof::QueryMerkleProof;
 use sp_core::H256;
 // Removed Felt import - no longer using Felt type
 
@@ -40,21 +41,24 @@ pub enum Error {
 
 sol! {
     #[sol(rpc)]
-    NativeQueryVerifier,
+    INativeQueryVerifier,
     "contracts/native_query_verifier.json",
 }
 
-// Helper function to convert attestor Block to Solidity ContinuityBlock
-fn convert_to_sol_blocks(blocks: Vec<AttestorBlock>) -> Vec<NativeQueryVerifier::ContinuityBlock> {
-    blocks
-        .into_iter()
-        .map(|block| NativeQueryVerifier::ContinuityBlock {
-            block_number: block.block_number,
-            root: FixedBytes::from(block.root.to_fixed_bytes()),
-            prev_digest: FixedBytes::from(block.prev_digest.to_fixed_bytes()),
-            digest: FixedBytes::from(block.digest.to_fixed_bytes()),
-        })
-        .collect()
+// Helper function to convert attestor Blocks to Solidity ContinuityChain
+fn convert_to_continuity_chain(
+    blocks: Vec<AttestorBlock>,
+) -> INativeQueryVerifier::ContinuityChain {
+    let block_numbers: Vec<u64> = blocks.iter().map(|b| b.block_number).collect();
+    let digests: Vec<FixedBytes<32>> = blocks
+        .iter()
+        .map(|b| FixedBytes::from(b.root.to_fixed_bytes()))
+        .collect();
+
+    INativeQueryVerifier::ContinuityChain {
+        block_numbers,
+        digests,
+    }
 }
 
 /// Native Query Verifier precompile address (0x0FD2 = 4050)
@@ -101,28 +105,24 @@ impl std::fmt::Display for VerificationStatus {
 
 /// Convert from Solidity ResultSegment to primitive ResultSegment
 fn decode_result_segment(
-    segment: NativeQueryVerifier::ResultSegment,
+    segment: INativeQueryVerifier::ResultSegment,
 ) -> Result<ResultSegment, Error> {
     let offset = segment.offset;
     let bytes = H256::from(segment.bytes.0);
     Ok(ResultSegment { offset, bytes })
 }
 
-/// Merkle proof for transaction inclusion
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MerkleProof {
-    pub root: H256,
-    pub siblings: Vec<H256>,
-}
-
-impl From<MerkleProof> for NativeQueryVerifier::MerkleProof {
-    fn from(proof: MerkleProof) -> Self {
+impl From<QueryMerkleProof> for INativeQueryVerifier::MerkleProof {
+    fn from(proof: QueryMerkleProof) -> Self {
         Self {
             root: FixedBytes::<32>::new(proof.root.0),
             siblings: proof
                 .siblings
                 .into_iter()
-                .map(|h| FixedBytes::<32>::new(h.0))
+                .map(|entry| INativeQueryVerifier::MerkleProofEntry {
+                    hash: FixedBytes::<32>::new(entry.hash.0),
+                    isLeft: entry.is_left,
+                })
                 .collect(),
         }
     }
@@ -153,15 +153,14 @@ impl NativeQueryVerifierContract {
     }
 
     /// Convert Query to Solidity Query type
-    fn to_solidity_query(query: &Query) -> NativeQueryVerifier::Query {
-        NativeQueryVerifier::Query {
+    fn to_solidity_query(query: &Query) -> INativeQueryVerifier::Query {
+        INativeQueryVerifier::Query {
             chain_id: query.chain_id,
             height: query.height,
-            index: query.index,
             layout_segments: query
                 .layout_segments
                 .iter()
-                .map(|seg| NativeQueryVerifier::LayoutSegment {
+                .map(|seg| INativeQueryVerifier::LayoutSegment {
                     offset: seg.offset,
                     size: seg.size,
                 })
@@ -183,25 +182,26 @@ impl NativeQueryVerifierContract {
         &self,
         query: &Query,
         tx_data: &[u8],
-        merkle_proof: MerkleProof,
+        merkle_proof: QueryMerkleProof,
         continuity_blocks: Vec<Block>,
     ) -> Result<QueryVerificationResult, Error> {
         debug!(
-            "Calling native query verifier for query: chain_id={}, height={}, index={}",
-            query.chain_id, query.height, query.index
+            "Calling native query verifier for query: chain_id={}, height={}",
+            query.chain_id, query.height
         );
 
         let sol_query = Self::to_solidity_query(query);
         let sol_proof = merkle_proof.into();
+        let sol_continuity = convert_to_continuity_chain(continuity_blocks);
 
         let provider = self.client.get_wallet_ws_provider().await?;
-        let contract = NativeQueryVerifier::new(self.address, &provider);
+        let contract = INativeQueryVerifier::new(self.address, provider);
         let result = contract
             .verifyQuery(
                 sol_query,
                 tx_data.to_vec().into(),
                 sol_proof,
-                convert_to_sol_blocks(continuity_blocks),
+                sol_continuity,
             )
             .call()
             .await
@@ -242,26 +242,27 @@ impl NativeQueryVerifierContract {
         &self,
         query: &Query,
         tx_data: &[u8],
-        merkle_proof: MerkleProof,
+        merkle_proof: QueryMerkleProof,
         continuity_blocks: Vec<Block>,
     ) -> Result<u64, Error> {
         let sol_query = Self::to_solidity_query(query);
         let sol_proof = merkle_proof.into();
+        let sol_continuity = convert_to_continuity_chain(continuity_blocks);
 
         let provider = self.client.get_wallet_ws_provider().await?;
-        let contract = NativeQueryVerifier::new(self.address, &provider);
+        let contract = INativeQueryVerifier::new(self.address, provider);
         let gas = contract
             .verifyQuery(
                 sol_query,
                 tx_data.to_vec().into(),
                 sol_proof,
-                convert_to_sol_blocks(continuity_blocks),
+                sol_continuity,
             )
             .estimate_gas()
             .await?;
 
         debug!("Estimated gas for query verification: {}", gas);
-        Ok(gas as u64)
+        Ok(gas)
     }
 
     /// Get the precompile address

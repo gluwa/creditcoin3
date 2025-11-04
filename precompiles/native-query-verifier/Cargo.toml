@@ -25,9 +25,7 @@ attestor-primitives = { workspace = true }
 pallet-attestation-poc = { workspace = true, default-features = false }
 
 # Utils
-mmr = { workspace = true, default-features = false, features = [
-    "verification",
-] }
+mmr = { workspace = true, default-features = false }
 utils = { workspace = true, default-features = false }
 
 # Substrate

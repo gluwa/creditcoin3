@@ -13,7 +13,6 @@ use crate::ChainId;
 pub struct Query {
     pub chain_id: ChainId,
     pub height: u64,
-    pub index: u64,
     pub layout_segments: Vec<LayoutSegment>,
 }
 
@@ -51,7 +50,6 @@ pub fn get_test_query() -> Query {
     Query {
         chain_id: 1,
         height: 23,
-        index: 0,
         layout_segments: vec![
             LayoutSegment {
                 offset: 448,

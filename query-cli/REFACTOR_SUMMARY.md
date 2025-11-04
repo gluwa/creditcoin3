@@ -107,24 +107,16 @@ The query-cli has been refactored to improve code organization, maintainability,
 
 ## Command Structure
 
-### Prover Command (Legacy ZK Proof-based)
+### Verify Command (Native Query Verification)
 ```bash
-query-cli --cc3-rpc-url <URL> --cc3-evm-private-key <KEY> prover \
-  --prover-contract-address <ADDRESS> \
+query-cli --cc3-rpc-url <URL> --cc3-evm-private-key <KEY> verify \
   [--eth-rpc-url <URL>] \
   [--block-height <HEIGHT>] \
   [--txn-hash <HASH>] \
   [--data-choice <CHOICE>]
 ```
 
-### Native Command (Direct Verification)
-```bash
-query-cli --cc3-rpc-url <URL> --cc3-evm-private-key <KEY> native \
-  [--eth-rpc-url <URL>] \
-  [--block-height <HEIGHT>] \
-  [--txn-hash <HASH>] \
-  [--data-choice <CHOICE>]
-```
+The verify command uses the native query verifier precompile at address 0x0FD2 for direct, efficient verification without requiring external proof generation.
 
 ## Benefits of the Refactor
 

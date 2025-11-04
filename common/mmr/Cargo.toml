@@ -8,14 +8,14 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-fp-evm = { workspace = true, default-features = false, optional = true }
-log = { workspace = true, default-features = false, optional = true }
-precompile-utils = { workspace = true, default-features = false, optional = true }
+precompile-utils = { workspace = true }
 rayon = { version = "1.10.0", optional = true }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
 twox-hash = { version = "2.1", default-features = false }
+scale-info = { workspace = true, default-features = false }
+parity-scale-codec = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -26,8 +26,7 @@ std = [
     "sp-core/std",
     "sp-io/std",
     "sp-std/std",
-    "fp-evm?/std",
-    "precompile-utils?/std",
-    "log?/std",
+    "precompile-utils/std",
+    "scale-info/std",
+    "parity-scale-codec/std",
 ]
-verification = ["fp-evm", "precompile-utils", "log"]

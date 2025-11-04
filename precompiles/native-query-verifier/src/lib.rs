@@ -137,7 +137,7 @@ where
     ///
     /// # Returns
     /// `QueryVerificationResult` with status and extracted data segments
-    #[precompile::public("verifyQuery((uint64,uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,bytes32[]),(uint64,bytes32,bytes32,bytes32)[])")]
+    #[precompile::public("verifyQuery((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(uint64,bytes32,bytes32,bytes32)[])")]
     fn verify_query(
         handle: &mut impl PrecompileHandle,
         query: Query,
@@ -187,7 +187,7 @@ where
         RuntimeHelper::<Runtime>::record_external_cost(handle, merkle_weight, 0)?;
 
         // Step 1: Verify Merkle proof
-        let merkle_valid = merkle_proof.verify(&tx_bytes, query.index);
+        let merkle_valid = merkle_proof.verify(&tx_bytes);
 
         if !merkle_valid {
             error!(

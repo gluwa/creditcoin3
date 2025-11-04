@@ -32,29 +32,9 @@ pub struct QueryCli {
 }
 
 #[derive(Subcommand, Debug, Clone)]
-enum Commands {
-    /// Submit query through the prover contract (old way with ZK proofs)
-    Prover {
-        #[arg(long, required = true)]
-        prover_contract_address: String,
-
-        #[arg(long, default_value = "false")]
-        default: bool,
-
-        #[arg(long)]
-        eth_rpc_url: Option<String>,
-
-        #[arg(long)]
-        block_height: Option<u64>,
-
-        #[arg(long)]
-        txn_hash: Option<String>,
-
-        #[arg(long)]
-        data_choice: Option<u64>,
-    },
-    /// Verify query through the native precompile (new way - direct verification)
-    Native {
+pub enum Commands {
+    /// Verify query through the native precompile (direct verification)
+    Verify {
         #[arg(long)]
         eth_rpc_url: Option<String>,
 
@@ -89,36 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .try_init();
 
     match args.command {
-        Commands::Prover {
-            prover_contract_address,
-            default,
-            eth_rpc_url,
-            block_height,
-            txn_hash,
-            data_choice,
-        } => {
-            if default {
-                submit_default_query(
-                    args.cc3_rpc_url,
-                    args.cc3_evm_private_key,
-                    prover_contract_address,
-                )
-                .await?;
-                return Ok(());
-            }
-
-            submit_prover_query(
-                args.cc3_rpc_url,
-                args.cc3_evm_private_key,
-                prover_contract_address,
-                eth_rpc_url,
-                block_height,
-                txn_hash,
-                data_choice,
-            )
-            .await?;
-        }
-        Commands::Native {
+        Commands::Verify {
             eth_rpc_url,
             block_height,
             txn_hash,
@@ -146,128 +97,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
-
-    Ok(())
-}
-
-async fn submit_prover_query(
-    cc3_rpc_url: String,
-    cc3_evm_private_key: String,
-    prover_contract_address: String,
-    eth_rpc_url: Option<String>,
-    block_height: Option<u64>,
-    txn_hash: Option<String>,
-    data_choice: Option<u64>,
-) -> Result<(), Box<dyn Error>> {
-    use crate::prompt::{prompt as prompt_user, SelectedData};
-    use crate::query_builder::{get_erc20_transfer_segments, get_native_token_transfer_segments};
-    use attestor_primitives::{LayoutSegment, Query};
-    use eth::Client;
-
-    let prompt_args = PromptArgs {
-        eth_rpc_url,
-        block_height,
-        txn_hash,
-        data_choice,
-    };
-
-    let prompt_output = prompt_user(prompt_args).expect("Failed to prompt user");
-
-    let query_eth_client = Client::new(&prompt_output.network.url(), None).await?;
-
-    let block = query_eth_client
-        .get_block(prompt_output.height, prompt_output.encoding)
-        .await?;
-    // Get tx index
-    let tx_index = block
-        .items()
-        .iter()
-        .position(|tx_rx| tx_rx.tx_hash().to_string() == prompt_output.tx_hash)
-        .expect("Transaction not found in block");
-
-    let tx_rx = &block.items()[tx_index];
-
-    let data = tx_rx.to_bytes();
-
-    let layout_segments = match prompt_output.selected_data {
-        SelectedData::All => {
-            vec![LayoutSegment {
-                offset: 0,
-                size: data.len() as u64,
-            }]
-        }
-        SelectedData::RangeOfData => prompt_output
-            .offsets_and_sizes
-            .iter()
-            .map(|(offset, size)| LayoutSegment {
-                offset: *offset,
-                size: *size,
-            })
-            .collect(),
-        SelectedData::Erc20TransferData => {
-            get_erc20_transfer_segments(
-                prompt_output.network.clone(),
-                tx_rx.tx().clone(),
-                tx_rx.rx().clone(),
-                prompt_output.encoding,
-            )
-            .await?
-        }
-        SelectedData::NativeTokenTransferData => {
-            get_native_token_transfer_segments(
-                prompt_output.network.clone(),
-                tx_rx.tx().clone(),
-                tx_rx.rx().clone(),
-                prompt_output.encoding,
-            )
-            .await?
-        }
-    };
-
-    let query = Query {
-        height: prompt_output.height,
-        chain_id: prompt_output.network.id(),
-        index: tx_index as u64,
-        layout_segments,
-    };
-
-    let query_id = query.id();
-    println!("Query ID: {query_id:?}");
-    println!("Going to submit following Query: {query:?}\n");
-
-    // Initialize the Ethereum client for ccnext and the contract
-    let eth_client = Client::new(&cc3_rpc_url, Some(&cc3_evm_private_key)).await?;
-    let contract = eth::evm::prover::new(prover_contract_address)?;
-
-    println!("Checking for existing result...");
-    if let Some(result_segments) = contract
-        .get_query_result(&eth_client, query.clone())
-        .await?
-    {
-        println!("\nResult segments already available: {result_segments:?}");
-        return Ok(());
-    }
-
-    println!("\nNo existing result found, proceeding with query submission...");
-
-    println!("\nComputing query cost...");
-    let computed_cost = contract
-        .compute_query_cost(&eth_client, query.clone())
-        .await?;
-    println!("Computed cost: {computed_cost}\n");
-
-    println!("Submitting query...");
-    let tx_hash = contract
-        .submit_query(&eth_client, query, computed_cost)
-        .await?;
-    println!("Query submitted! Tx hash: {tx_hash}\n");
-
-    println!("Waiting for result segments...");
-    let result_segments = contract
-        .subscribe_proof_verification(&eth_client, query_id.0.into())
-        .await?;
-
-    println!("\nResult segments received: {result_segments:?}");
 
     Ok(())
 }
@@ -375,7 +204,6 @@ async fn submit_native_query(
     let query = Query {
         height: prompt_output.height,
         chain_id: prompt_output.network.id(),
-        index: tx_index as u64,
         layout_segments,
     };
 
@@ -393,10 +221,15 @@ async fn submit_native_query(
 
     // Debug: print siblings
     for (i, sibling) in merkle_proof.siblings.iter().enumerate() {
-        if *sibling == sp_core::H256::default() {
-            println!("  Sibling[{i}]: PLACEHOLDER");
+        if sibling.hash == sp_core::H256::default() {
+            println!("  Sibling[{i}]: PLACEHOLDER (is_left: {})", sibling.is_left);
         } else {
-            println!("  Sibling[{}]: 0x{}", i, hex::encode(&sibling.0[..8]));
+            println!(
+                "  Sibling[{}]: 0x{} (is_left: {})",
+                i,
+                hex::encode(&sibling.hash.0[..8]),
+                sibling.is_left
+            );
         }
     }
 
@@ -429,57 +262,6 @@ async fn submit_native_query(
 
     // Step 10: Display results (using refactored module)
     verification::display_results(&query, &result);
-
-    Ok(())
-}
-
-/// Submit a default query for testing purposes
-pub async fn submit_default_query(
-    _cc3_rpc_url: String,
-    cc3_evm_private_key: String,
-    prover_contract_address: String,
-) -> Result<()> {
-    use attestor_primitives::{LayoutSegment, Query};
-
-    let query = Query {
-        chain_id: 2, // Local network
-        height: 6493200,
-        index: 75,
-        layout_segments: vec![LayoutSegment {
-            offset: 0,
-            size: 99326,
-        }],
-    };
-
-    let query_id = query.id();
-
-    println!("Going to submit following Query: {query:?}, id({query_id:?})\n");
-
-    let eth_rpc_url = "ws://localhost:8545".to_string(); // Local Ethereum node URL
-
-    // Initialize the Ethereum client for ccnext and the contract
-    use eth::Client;
-    let eth_client = Client::new(&eth_rpc_url, Some(&cc3_evm_private_key)).await?;
-    let contract = eth::evm::prover::new(prover_contract_address)?;
-
-    println!("Computing query cost...");
-    let computed_cost = contract
-        .compute_query_cost(&eth_client, query.clone())
-        .await?;
-    println!("Computed cost: {computed_cost}\n");
-
-    println!("Submitting query...");
-    let tx_hash = contract
-        .submit_query(&eth_client, query, computed_cost)
-        .await?;
-    println!("Query submitted! Tx hash: {tx_hash}'n");
-
-    println!("Waiting for proof...");
-    let proof = contract
-        .subscribe_proof_verification(&eth_client, query_id.0.into())
-        .await?;
-
-    println!("\nProof received: proof len: {}", proof.len());
 
     Ok(())
 }

@@ -45,19 +45,18 @@ contract EthereumTransactionVerifier {
     /// @return from The from address (if successful)
     /// @return to The to address (if successful)
     /// @return amount The transfer amount (if successful)
-    function verifyERC20Transfer(
+    function verifySimpleTransfer(
         uint64 blockHeight,
-        uint64 txIndex,
         bytes calldata txData,
         bytes32 merkleRoot,
         bytes32[] calldata siblings,
         uint64[] calldata blockNumbers,
         bytes32[] calldata digests
     ) external returns (
-        bool success,
+        bool verified,
         address from,
         address to,
-        uint256 amount
+        uint256 value
     ) {
         // Create layout segments for ERC20 Transfer event:
         // Topic 0: Transfer(address,address,uint256) - offset 0
@@ -73,7 +72,6 @@ contract EthereumTransactionVerifier {
         INativeQueryVerifier.Query memory query = INativeQueryVerifier.Query({
             chain_id: 1,
             height: blockHeight,
-            index: txIndex,
             layout_segments: segments
         });
 
@@ -161,7 +159,6 @@ contract EthereumTransactionVerifier {
         INativeQueryVerifier.Query memory query = INativeQueryVerifier.Query({
             chain_id: 1,
             height: blockHeight,
-            index: txIndex,
             layout_segments: segments
         });
 
@@ -217,7 +214,6 @@ contract EthereumTransactionVerifier {
     function verifyCustomQuery(
         uint64 chainId,
         uint64 blockHeight,
-        uint64 txIndex,
         bytes calldata txData,
         INativeQueryVerifier.LayoutSegment[] calldata segments,
         bytes32 merkleRoot,
@@ -228,7 +224,6 @@ contract EthereumTransactionVerifier {
         INativeQueryVerifier.Query memory query = INativeQueryVerifier.Query({
             chain_id: chainId,
             height: blockHeight,
-            index: txIndex,
             layout_segments: segments
         });
 

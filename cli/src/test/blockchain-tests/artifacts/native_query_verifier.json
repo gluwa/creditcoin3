@@ -17,11 +17,6 @@
                   "type": "uint64"
                 },
                 {
-                  "internalType": "uint64",
-                  "name": "index",
-                  "type": "uint64"
-                },
-                {
                   "components": [
                     {
                       "internalType": "uint64",
@@ -56,9 +51,21 @@
                   "type": "bytes32"
                 },
                 {
-                  "internalType": "bytes32[]",
+                  "components": [
+                    {
+                      "internalType": "bytes32",
+                      "name": "hash",
+                      "type": "bytes32"
+                    },
+                    {
+                      "internalType": "bool",
+                      "name": "isLeft",
+                      "type": "bool"
+                    }
+                  ],
+                  "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
                   "name": "siblings",
-                  "type": "bytes32[]"
+                  "type": "tuple[]"
                 }
               ],
               "internalType": "struct INativeQueryVerifier.MerkleProof",
@@ -122,7 +129,7 @@
       "devdoc": {
         "details": "This precompile provides native-speed verification of blockchain queries using Merkle proofs and continuity chains.",
         "methods": {
-          "verifyQuery((uint64,uint64,uint64,(uint64,uint64)[]),(bytes32,bytes32[]),(uint64[],bytes32[]))": {
+          "verifyQuery((uint64,uint64,(uint64,uint64)[]),(bytes32,(bytes32,bool)[]),(uint64[],bytes32[]))": {
             "details": "This is a view function that performs native verification at runtime speed",
             "params": {
               "continuity_chain": "Chain of block attestations for continuity verification",
@@ -137,7 +144,7 @@
         },
         "title": "INativeQueryVerifier"
       },
-      "metadata": "{\"compiler\":{\"version\":\"0.8.20+commit.a1b79de6\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"components\":[{\"internalType\":\"uint64\",\"name\":\"chain_id\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"height\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"index\",\"type\":\"uint64\"},{\"components\":[{\"internalType\":\"uint64\",\"name\":\"offset\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"size\",\"type\":\"uint64\"}],\"internalType\":\"struct INativeQueryVerifier.LayoutSegment[]\",\"name\":\"layout_segments\",\"type\":\"tuple[]\"}],\"internalType\":\"struct INativeQueryVerifier.Query\",\"name\":\"query\",\"type\":\"tuple\"},{\"internalType\":\"bytes\",\"name\":\"tx_data\",\"type\":\"bytes\"},{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"root\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32[]\",\"name\":\"siblings\",\"type\":\"bytes32[]\"}],\"internalType\":\"struct INativeQueryVerifier.MerkleProof\",\"name\":\"merkle_proof\",\"type\":\"tuple\"},{\"components\":[{\"internalType\":\"uint64[]\",\"name\":\"block_numbers\",\"type\":\"uint64[]\"},{\"internalType\":\"bytes32[]\",\"name\":\"digests\",\"type\":\"bytes32[]\"}],\"internalType\":\"struct INativeQueryVerifier.ContinuityChain\",\"name\":\"continuity_chain\",\"type\":\"tuple\"}],\"name\":\"verifyQuery\",\"outputs\":[{\"components\":[{\"internalType\":\"uint8\",\"name\":\"status\",\"type\":\"uint8\"},{\"components\":[{\"internalType\":\"uint64\",\"name\":\"offset\",\"type\":\"uint64\"},{\"internalType\":\"bytes32\",\"name\":\"bytes\",\"type\":\"bytes32\"}],\"internalType\":\"struct INativeQueryVerifier.ResultSegment[]\",\"name\":\"result_segments\",\"type\":\"tuple[]\"}],\"internalType\":\"struct INativeQueryVerifier.QueryVerificationResult\",\"name\":\"result\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"}],\"devdoc\":{\"details\":\"This precompile provides native-speed verification of blockchain queries using Merkle proofs and continuity chains.\",\"methods\":{\"verifyQuery((uint64,uint64,uint64,(uint64,uint64)[]),(bytes32,bytes32[]),(uint64[],bytes32[]))\":{\"details\":\"This is a view function that performs native verification at runtime speed\",\"params\":{\"continuity_chain\":\"Chain of block attestations for continuity verification\",\"merkle_proof\":\"Merkle proof for transaction inclusion in the block\",\"query\":\"The query specification defining what data to retrieve\",\"tx_data\":\"Raw transaction data to verify and extract from\"},\"returns\":{\"result\":\"Verification result containing status and extracted data segments\"}}},\"title\":\"INativeQueryVerifier\"}},\"settings\":{\"compilationTarget\":{\"sol/native_query_verifier.sol\":\"NativeQueryVerifier\"},\"evmVersion\":\"paris\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":true,\"runs\":200},\"remappings\":[]},\"sources\":{\"sol/native_query_verifier.sol\":{\"keccak256\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"urls\":[\"bzz-raw://0000000000000000000000000000000000000000000000000000000000000000\",\"dweb:/ipfs/Qm0000000000000000000000000000000000000000000000000000\"]}},\"version\":1}"
+      "metadata": "{\"compiler\":{\"version\":\"0.8.20+commit.a1b79de6\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"components\":[{\"internalType\":\"uint64\",\"name\":\"chain_id\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"height\",\"type\":\"uint64\"},{\"components\":[{\"internalType\":\"uint64\",\"name\":\"offset\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"size\",\"type\":\"uint64\"}],\"internalType\":\"struct INativeQueryVerifier.LayoutSegment[]\",\"name\":\"layout_segments\",\"type\":\"tuple[]\"}],\"internalType\":\"struct INativeQueryVerifier.Query\",\"name\":\"query\",\"type\":\"tuple\"},{\"internalType\":\"bytes\",\"name\":\"tx_data\",\"type\":\"bytes\"},{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"root\",\"type\":\"bytes32\"},{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"hash\",\"type\":\"bytes32\"},{\"internalType\":\"bool\",\"name\":\"isLeft\",\"type\":\"bool\"}],\"internalType\":\"struct INativeQueryVerifier.MerkleProofEntry[]\",\"name\":\"siblings\",\"type\":\"tuple[]\"}],\"internalType\":\"struct INativeQueryVerifier.MerkleProof\",\"name\":\"merkle_proof\",\"type\":\"tuple\"},{\"components\":[{\"internalType\":\"uint64[]\",\"name\":\"block_numbers\",\"type\":\"uint64[]\"},{\"internalType\":\"bytes32[]\",\"name\":\"digests\",\"type\":\"bytes32[]\"}],\"internalType\":\"struct INativeQueryVerifier.ContinuityChain\",\"name\":\"continuity_chain\",\"type\":\"tuple\"}],\"name\":\"verifyQuery\",\"outputs\":[{\"components\":[{\"internalType\":\"uint8\",\"name\":\"status\",\"type\":\"uint8\"},{\"components\":[{\"internalType\":\"uint64\",\"name\":\"offset\",\"type\":\"uint64\"},{\"internalType\":\"bytes32\",\"name\":\"bytes\",\"type\":\"bytes32\"}],\"internalType\":\"struct INativeQueryVerifier.ResultSegment[]\",\"name\":\"result_segments\",\"type\":\"tuple[]\"}],\"internalType\":\"struct INativeQueryVerifier.QueryVerificationResult\",\"name\":\"result\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"}],\"devdoc\":{\"details\":\"This precompile provides native-speed verification of blockchain queries using Merkle proofs and continuity chains.\",\"methods\":{\"verifyQuery((uint64,uint64,(uint64,uint64)[]),(bytes32,(bytes32,bool)[]),(uint64[],bytes32[]))\":{\"details\":\"This is a view function that performs native verification at runtime speed\",\"params\":{\"continuity_chain\":\"Chain of block attestations for continuity verification\",\"merkle_proof\":\"Merkle proof for transaction inclusion in the block\",\"query\":\"The query specification defining what data to retrieve\",\"tx_data\":\"Raw transaction data to verify and extract from\"},\"returns\":{\"result\":\"Verification result containing status and extracted data segments\"}}},\"title\":\"INativeQueryVerifier\"}},\"settings\":{\"compilationTarget\":{\"sol/native_query_verifier.sol\":\"NativeQueryVerifier\"},\"evmVersion\":\"paris\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":true,\"runs\":200},\"remappings\":[]},\"sources\":{\"sol/native_query_verifier.sol\":{\"keccak256\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"urls\":[\"bzz-raw://0000000000000000000000000000000000000000000000000000000000000000\",\"dweb:/ipfs/Qm0000000000000000000000000000000000000000000000000000\"]}},\"version\":1}"
     }
   }
 }
