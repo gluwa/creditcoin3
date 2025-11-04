@@ -4,6 +4,10 @@ name: Check runtime changes
 "on":
   pull_request:
     branches: [dev, testnet, main]
+    paths:
+      - '**Cargo.*'
+      - 'precompiles/**'
+      - 'runtime/**'
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
