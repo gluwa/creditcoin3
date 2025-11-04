@@ -23,6 +23,12 @@ use precompile_utils::{prelude::*, solidity::Codec};
 use sp_core::H256;
 use sp_std::vec::Vec;
 
+// Use the QueryMerkleProof from the mmr crate
+use mmr::query_proof::QueryMerkleProof;
+
+// Type alias for compatibility
+type MerkleProof = QueryMerkleProof;
+
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -50,48 +56,7 @@ const WEIGHT_MERKLE_VERIFY: u64 = 100_000; // Merkle verification work
 const WEIGHT_CONTINUITY_VERIFY: u64 = 50_000; // Continuity verification work
 
 // Size constraints
-type ConstU10MB = sp_core::ConstU32<10485760>; // 10 MB max for tx data
-
-/// Merkle proof structure containing root and sibling hashes
-#[derive(Debug, Clone, PartialEq, Eq, Codec)]
-pub struct MerkleProof {
-    /// The Merkle root hash
-    pub root: H256,
-    /// Sibling hashes for the Merkle path
-    pub siblings: Vec<H256>,
-}
-
-/// ContinuityBlock for Solidity ABI compatibility
-/// Since Block already has the right structure, we just need a wrapper for Codec implementation
-#[derive(Debug, Clone, Codec)]
-pub struct ContinuityBlock {
-    pub block_number: u64,
-    pub root: H256,
-    pub prev_digest: H256,
-    pub digest: H256,
-}
-
-impl From<Block> for ContinuityBlock {
-    fn from(block: Block) -> Self {
-        Self {
-            block_number: block.block_number,
-            root: block.root,
-            prev_digest: block.prev_digest,
-            digest: block.digest,
-        }
-    }
-}
-
-impl From<ContinuityBlock> for Block {
-    fn from(cb: ContinuityBlock) -> Self {
-        Block {
-            block_number: cb.block_number,
-            root: cb.root,
-            prev_digest: cb.prev_digest,
-            digest: cb.digest,
-        }
-    }
-}
+type ConstU10MB = sp_core::ConstU32<10_485_760>; // Type alias for bounded vec
 
 /// Result of query verification
 #[derive(Debug, Clone, PartialEq, Eq, Codec)]
@@ -169,7 +134,7 @@ where
         query: Query,
         tx_data: BoundedBytes<ConstU10MB>,
         merkle_proof: MerkleProof,
-        continuity_blocks: Vec<ContinuityBlock>,
+        continuity_blocks: Vec<Block>,
     ) -> EvmResult<QueryVerificationResult> {
         // Log the query verification attempt
         handle.record_log_costs_manual(3, 32)?;
@@ -193,8 +158,6 @@ where
             });
         }
 
-        // Note: Empty siblings is valid for single-transaction blocks
-
         // Charge for transaction data processing
         handle.record_cost(GAS_PER_TX_BYTE.saturating_mul(tx_bytes.len() as u64))?;
 
@@ -204,7 +167,7 @@ where
         RuntimeHelper::<Runtime>::record_external_cost(handle, merkle_weight, 0)?;
 
         // Step 1: Verify Merkle proof
-        let merkle_valid = Self::verify_merkle_proof(handle, &tx_bytes, &merkle_proof, &query)?;
+        let merkle_valid = merkle_proof.verify(&tx_bytes, query.index);
 
         if !merkle_valid {
             error!(
@@ -224,7 +187,7 @@ where
         RuntimeHelper::<Runtime>::record_external_cost(handle, continuity_weight, 0)?;
 
         // Step 2: Verify continuity chain
-        let blocks: Vec<Block> = continuity_blocks.into_iter().map(|cb| cb.into()).collect();
+        let blocks: Vec<Block> = continuity_blocks;
         let continuity_valid = Self::verify_continuity_chain(handle, &blocks, &query)?;
 
         if !continuity_valid {
@@ -247,91 +210,6 @@ where
         })
     }
 
-    /// Verify the Merkle proof for transaction inclusion using Keccak256 hash
-    ///
-    /// This implements the MMR Merkle tree verification with:
-    /// 1. Leaf hashing: prepend 0x00 to tx_data and hash with Keccak256
-    /// 2. Inner node hashing: prepend 0x01 to (left + right) and hash with Keccak256
-    /// 3. Tree traversal: use query.index to determine sibling positions
-    fn verify_merkle_proof(
-        _handle: &mut impl PrecompileHandle,
-        tx_data: &[u8],
-        merkle_proof: &MerkleProof,
-        query: &Query,
-    ) -> Result<bool, PrecompileFailure> {
-        let max_size = 10485760usize; // 10MB
-        let tx_data = &tx_data[..tx_data.len().min(max_size)];
-
-        // Step 1: Hash the transaction data as a leaf node
-        // Prepend LEAF_HASH_PREPEND_VALUE (0x00) to tx_data before hashing
-        let mut prefixed_leaf = sp_std::vec![0u8; tx_data.len() + 1];
-        prefixed_leaf[0] = 0x00; // LEAF_HASH_PREPEND_VALUE
-        prefixed_leaf[1..].copy_from_slice(tx_data);
-
-        let current_hash = sp_io::hashing::keccak_256(&prefixed_leaf);
-
-        // Step 2: Handle single-transaction case (no siblings)
-        if merkle_proof.siblings.is_empty() {
-            let computed_root = H256::from(current_hash);
-            let result = computed_root == merkle_proof.root;
-            return Ok(result);
-        }
-
-        // Step 3: Traverse the Merkle tree using siblings
-        // Each level has ARITY (2) siblings that represent the complete set of child hashes
-        let mut current_hash = H256::from(current_hash);
-        let mut index = query.index;
-        let arity = 2usize; // Binary tree
-
-        let siblings_per_level = arity; // We have ARITY hashes per level (including placeholder)
-        let num_levels = merkle_proof.siblings.len() / siblings_per_level;
-
-        // Process each level of the tree
-        // siblings contains ALL hashes per level (ARITY hashes including placeholder at offset)
-        for level in 0..num_levels {
-            let start = level * siblings_per_level;
-            let end = start + siblings_per_level;
-
-            if end > merkle_proof.siblings.len() {
-                error!("  Level {level} would exceed siblings array bounds");
-                break;
-            }
-
-            // Get all hashes for this level (including placeholder at offset)
-            let level_siblings = &merkle_proof.siblings[start..end];
-
-            // Determine which position our current hash occupies
-            let offset = (index % arity as u64) as usize;
-
-            // Build the hash input with inner node prefix
-            let mut hash_input = sp_std::vec![0x01u8]; // INNER_HASH_PREPEND_VALUE
-
-            // Add child hashes in order, replacing placeholder with current_hash
-            for (i, sibling) in level_siblings.iter().enumerate().take(arity) {
-                if i == offset {
-                    // Replace placeholder with our computed hash at this position
-                    hash_input.extend_from_slice(&current_hash.0);
-                } else {
-                    // Use the hash from the proof at this position
-                    hash_input.extend_from_slice(&sibling.0);
-                }
-            }
-
-            // Hash with Keccak256
-            current_hash = H256::from(sp_io::hashing::keccak_256(&hash_input));
-
-            // Move up the tree
-            index /= arity as u64;
-        }
-
-        // Step 4: Compare computed root with provided root
-        let result = current_hash == merkle_proof.root;
-
-        Ok(result)
-    }
-
-    /// Verify the continuity chain of block attestations
-    ///
     /// Verify the continuity chain of block attestations
     fn verify_continuity_chain(
         handle: &mut impl PrecompileHandle,

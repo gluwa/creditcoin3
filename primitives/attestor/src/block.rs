@@ -1,4 +1,5 @@
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
+use precompile_utils::solidity::Codec;
 use scale_info::TypeInfo;
 use serde::{de::Deserializer, Deserialize, Serialize, Serializer};
 use sp_core::H256;
@@ -43,7 +44,7 @@ impl core::fmt::Display for BlockError {
 #[cfg(feature = "std")]
 impl core::error::Error for BlockError {}
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Codec)]
 pub struct Block {
     pub block_number: u64,
     pub root: H256,

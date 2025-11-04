@@ -922,7 +922,7 @@ impl From<CcAttestation<H256>> for Attestation<Digest> {
             chain_key: attestation.chain_key,
             header_number: attestation.header_number,
             header_hash: sp_core::H256::from(attestation.header_hash.0),
-            root: sp_core::H256::from_slice(&attestation.root),
+            root: sp_core::H256::from(attestation.root.0),
             prev_digest: attestation
                 .prev_digest
                 .map(|digest| sp_core::H256::from(digest.0)),

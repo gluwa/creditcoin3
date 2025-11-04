@@ -7924,7 +7924,14 @@ dependencies = [
 name = "mmr"
 version = "3.66.0"
 dependencies = [
+ "fp-evm",
+ "log",
+ "precompile-utils",
  "rayon",
+ "sp-core",
+ "sp-io",
+ "sp-std",
+ "twox-hash 2.1.0",
 ]
 
 [[package]]
@@ -9010,6 +9017,7 @@ dependencies = [
  "frame-system",
  "hex",
  "log",
+ "mmr",
  "pallet-attestation-poc",
  "pallet-babe",
  "pallet-balances",

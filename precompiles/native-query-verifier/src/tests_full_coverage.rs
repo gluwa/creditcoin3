@@ -3,8 +3,8 @@
 
 use crate::mock::*;
 use crate::*;
+use attestor_primitives::{block::Block, LayoutSegment, Query};
 use attestor_primitives::{Attestation, AttestationCheckpoint, SignedAttestation};
-use attestor_primitives::{LayoutSegment, Query};
 use precompile_utils::testing::*;
 use sp_core::H256;
 
@@ -115,7 +115,7 @@ fn create_tx_with_layout(segments: &[(usize, usize, u8)]) -> Vec<u8> {
 }
 
 /// Helper to setup a valid attestation chain
-fn setup_valid_attestation_chain(chain_id: u64, blocks: &[ContinuityBlock]) {
+fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
     use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
 
     if blocks.is_empty() {
@@ -148,7 +148,7 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[ContinuityBlock]) {
 }
 
 /// Helper to create valid continuity blocks with proper digest chain
-fn create_valid_continuity_chain(start_block: u64, count: usize) -> Vec<ContinuityBlock> {
+fn create_valid_continuity_chain(start_block: u64, count: usize) -> Vec<Block> {
     use sp_io::hashing::keccak_256;
 
     let mut blocks = Vec::new();
@@ -165,7 +165,7 @@ fn create_valid_continuity_chain(start_block: u64, count: usize) -> Vec<Continui
         digest_bytes.extend_from_slice(prev_digest.as_bytes());
         let digest = H256::from(keccak_256(&digest_bytes));
 
-        blocks.push(ContinuityBlock {
+        blocks.push(Block {
             block_number,
             root,
             prev_digest,

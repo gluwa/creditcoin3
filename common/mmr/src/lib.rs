@@ -29,8 +29,10 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub mod keccak;
 mod prefixed;
 pub mod proof;
+pub mod query_proof;
 #[cfg(test)]
 mod tests;
 pub mod traits;

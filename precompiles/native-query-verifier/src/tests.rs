@@ -1,7 +1,7 @@
 use super::*;
 use crate::mock::*;
 use attestor_primitives::LayoutSegment;
-use attestor_primitives::{Attestation, AttestationCheckpoint, SignedAttestation};
+use attestor_primitives::{block::Block, Attestation, AttestationCheckpoint, SignedAttestation};
 use precompile_utils::testing::*;
 use sp_core::H256;
 use utils::{
@@ -129,7 +129,7 @@ fn create_invalid_merkle_proof() -> MerkleProof {
 }
 
 /// Helper to create continuity blocks
-fn create_continuity_blocks(count: usize) -> Vec<ContinuityBlock> {
+fn create_continuity_blocks(count: usize) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut prev_digest = H256::zero();
 
@@ -138,7 +138,7 @@ fn create_continuity_blocks(count: usize) -> Vec<ContinuityBlock> {
         let root = H256::random();
         let digest = compute_test_digest(block_number, &root, &prev_digest);
 
-        blocks.push(ContinuityBlock {
+        blocks.push(Block {
             block_number,
             root,
             prev_digest,

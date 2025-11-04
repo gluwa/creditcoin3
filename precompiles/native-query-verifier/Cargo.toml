@@ -26,6 +26,7 @@ pallet-attestation-poc = { workspace = true, default-features = false }
 
 # Utils
 utils = { workspace = true, default-features = false }
+mmr = { workspace = true, default-features = false, features = ["verification"] }
 
 # Substrate
 frame-support = { workspace = true }
@@ -89,6 +90,7 @@ std = [
     "attestor-primitives/std",
     "pallet-babe/std",
     "utils/std",
+    "mmr/std",
     "sp-staking/std",
     "pallet-staking/std",
     "supported-chains-primitives/std",
