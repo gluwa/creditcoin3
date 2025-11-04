@@ -12,7 +12,7 @@
 use attestor_primitives::{block::Block, query::Query};
 use core::marker::PhantomData;
 use ethabi::{encode, Token};
-use fp_evm::{ExitRevert, PrecompileFailure, PrecompileHandle};
+use fp_evm::{ExitError, ExitRevert, PrecompileFailure, PrecompileHandle};
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
@@ -159,10 +159,21 @@ where
         }
 
         // Charge for transaction data processing
-        handle.record_cost(GAS_PER_TX_BYTE.saturating_mul(tx_bytes.len() as u64))?;
+        let tx_gas =
+            GAS_PER_TX_BYTE
+                .checked_mul(tx_bytes.len() as u64)
+                .ok_or(PrecompileFailure::Error {
+                    exit_status: ExitError::OutOfGas,
+                })?;
+        handle.record_cost(tx_gas)?;
 
         // Charge for Merkle proof verification
-        handle.record_cost(GAS_PER_SIBLING.saturating_mul(merkle_proof.siblings.len() as u64))?;
+        let merkle_gas = GAS_PER_SIBLING
+            .checked_mul(merkle_proof.siblings.len() as u64)
+            .ok_or(PrecompileFailure::Error {
+                exit_status: ExitError::OutOfGas,
+            })?;
+        handle.record_cost(merkle_gas)?;
         let merkle_weight = sp_weights::Weight::from_parts(WEIGHT_MERKLE_VERIFY, 0);
         RuntimeHelper::<Runtime>::record_external_cost(handle, merkle_weight, 0)?;
 
@@ -181,8 +192,12 @@ where
         }
 
         // Charge for continuity chain verification
-        handle
-            .record_cost(GAS_PER_CONTINUITY_BLOCK.saturating_mul(continuity_blocks.len() as u64))?;
+        let continuity_gas = GAS_PER_CONTINUITY_BLOCK
+            .checked_mul(continuity_blocks.len() as u64)
+            .ok_or(PrecompileFailure::Error {
+                exit_status: ExitError::OutOfGas,
+            })?;
+        handle.record_cost(continuity_gas)?;
         let continuity_weight = sp_weights::Weight::from_parts(WEIGHT_CONTINUITY_VERIFY, 0);
         RuntimeHelper::<Runtime>::record_external_cost(handle, continuity_weight, 0)?;
 
