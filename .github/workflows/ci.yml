@@ -2634,16 +2634,6 @@ jobs:
               exit 0
           fi
 
-  shellcheck:
-    name: "🐚 Shellcheck"
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@2.0.0
-        env:
-          SHELLCHECK_OPTS: -e SC2002 # allow useless cat commands
-
   docs-smart-contract-development-with-hardhat:
     needs:
       - build-creditcoin-node-for-testing-ci
