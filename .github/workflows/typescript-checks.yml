@@ -1,0 +1,67 @@
+---
+name: typescript-checks
+
+# Controls when the action will run.
+"on":
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  execute-command:
+    name: ${{ matrix.command }} / ${{ matrix.directory }}
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        directory:
+          # note: add also in .github/hooks/pre-commit
+          [cc3-indexer, cli, docs/smart-contract-development/with-hardhat]
+        command: [lint, typecheck, check-format]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
+          # explicitly format auto-generated files so they don't trigger the check below
+          yarn format typechain-types/ cache/
+
+      - name: Run tools
+        working-directory: ${{ matrix.directory }}
+        run: |
+          if [ -f yarn.lock ]; then
+              yarn install
+          else
+              npm clean-install
+          fi
+          yarn ${{ matrix.command }}
