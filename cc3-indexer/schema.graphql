@@ -509,7 +509,7 @@ type QueryVerification @entity {
     height: BigInt!
 
     # Verification status: 0 = Success, 1 = MerkleProofInvalid, 2 = ContinuityChainInvalid
-    status: Int!
+    status: Int! # this-is-expected
 
     # Failure reason if verification failed
     failureReason: String

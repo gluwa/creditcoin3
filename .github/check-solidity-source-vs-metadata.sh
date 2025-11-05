@@ -44,7 +44,8 @@ fi
 
 # NOTE: requires that abi-creator.sh was executed beforehand
 # NOTE2: both representations are multi-line
-ABI_FROM_DISK=$(jq -r "..|.abi?|select(.)" precompiles/metadata/abi/*.json)
+# NOTE3: filter out empty ABIs (e.g., from libraries with no external functions)
+ABI_FROM_DISK=$(jq -r '.contracts | .[] | .abi | select(length > 0)' precompiles/metadata/abi/*.json | jq -r)
 ABI_FROM_JSON=$(jq -r .[].abi "precompiles/metadata/precompiles-creditcoin3-$TARGET_CHAIN.json" | jq -r)
 
 if [ "$ABI_FROM_DISK" == "$ABI_FROM_JSON" ]; then
