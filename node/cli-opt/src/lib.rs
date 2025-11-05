@@ -34,7 +34,7 @@ impl FromStr for EthApi {
                 return Err(format!(
                     "`{}` is not recognized as a supported Ethereum Api",
                     s
-                ))
+                ));
             }
         })
     }
