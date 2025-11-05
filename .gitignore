@@ -37,11 +37,7 @@ __pycache__/
 attestor/scripts/.env
 attestor/scripts/checkpoints.json
 
-# Prover
-prover/claims/*.json
-prover/artifacts/*.json
-prover/.env
-artifacts/*.json
+
 
 # Added by cargo
 /target

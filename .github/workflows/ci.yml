@@ -1745,7 +1745,7 @@ jobs:
           name: binary-for-testing-ci
           path: target/release
 
-      - name: Set up Python for Cairo - Verifier + Prover
+      - name: Set up Python for Cairo - Verifier
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"

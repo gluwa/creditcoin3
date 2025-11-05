@@ -172,7 +172,6 @@ jobs:
           export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
 
           .github/bench.sh -p attestation_poc -b -s 2 -r 2
-          .github/bench.sh -p prover -b
           .github/bench.sh -p randomness -b
           .github/bench.sh -p supported_chains -b
 

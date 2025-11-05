@@ -1,1 +1,0 @@
-../../../../common/eth/contracts/sol/Prover.sol

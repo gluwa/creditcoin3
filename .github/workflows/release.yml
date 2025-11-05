@@ -14,34 +14,6 @@ concurrency:
 permissions: read-all
 
 jobs:
-  # WARNING: must be in release.yml b/c on the NPM side there's no way to configure
-  # multiple workflows for Trusted Publishing!
-  check-npm-trusted-publishing:
-    permissions:
-      id-token: write
-      contents: read
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Get GitHub OIDC id_token for NPM
-        id: oidc
-        run: |
-          TOKEN=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org" | jq -r '.value')
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
-
-      - name: Exchange id_token for NPM registry token (no publish)
-        env:
-          OIDC_ID_TOKEN: ${{ steps.oidc.outputs.token }}
-          PACKAGE_NAME: "@gluwa%2fcreditcoin-public-prover"
-        run: |
-          set -e
-          resp=$(curl --request POST -sS -w "%{http_code}" -o resp.json \
-            -H "Authorization: Bearer ${OIDC_ID_TOKEN}" \
-            "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/${PACKAGE_NAME}")
-          echo "HTTP ${resp}"
-          test "${resp}" = "201" || (cat resp.json; exit 1)
-          echo "Preflight OK: OIDC trust is correctly configured."
-
   sanity-check:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
@@ -204,24 +176,6 @@ jobs:
           path: common/eth/contracts/sol/
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compare current Prover.sol with previously released artifact(s)
-        working-directory: ./common/eth/contracts/sol/
-        run: |
-          # shellcheck disable=SC2129
-          sudo apt-get install colordiff
-          echo "========== DEBUG DEBUG DEBUG =========="
-          git status --short --untracked-files=no
-          git diff -R | colordiff
-          echo "======================================="
-
-          echo "**Changes to Prover.sol:**" >> /var/tmp/changelog.md
-          echo "" >> /var/tmp/changelog.md
-          echo "\`\`\`diff" >> /var/tmp/changelog.md
-
-          git diff -R >> /var/tmp/changelog.md
-
-          echo "\`\`\`" >> /var/tmp/changelog.md
-
       - name: Upload changelog
         uses: actions/upload-artifact@v5
         with:
@@ -249,62 +203,6 @@ jobs:
       LINODE_VM_SIZE: "g6-standard-4"
       proxy_type: ${{ matrix.build }}
     secrets: inherit
-
-  build-npm-package:
-    if: github.event_name != 'pull_request'
-    needs:
-      - sanity-check
-      - setup
-    permissions:
-      id-token: write
-      contents: read
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Install Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          registry-url: "https://registry.npmjs.org"
-          always-auth: true
-          scope: "@gluwa"
-
-      - name: Build @gluwa/creditcoin-public-prover package
-        working-directory: common/eth/contracts/
-        run: |
-          # WARNING: always use the same tag name as the release
-          sed -i "s/\"version\": \".*\"/\"version\": \"${{ needs.sanity-check.outputs.TAG_NAME }}\"/" package*.json
-          git diff
-          npm install -g npm@latest
-          npm install
-          npm pack
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v5
-        with:
-          name: binary-for-npm-creditcoin-public-prover
-          path: "common/eth/contracts/gluwa-creditcoin-public-prover-${{ needs.sanity-check.outputs.TAG_NAME }}.tgz"
-          compression-level: 0
-          if-no-files-found: error
-
-      - name: Publish @gluwa/creditcoin-public-prover package
-        working-directory: common/eth/contracts/
-        run: |
-          npm publish --access public --verbose
-
-      - name: Upload smart contract(s)
-        uses: actions/upload-artifact@v5
-        with:
-          name: smart-contracts
-          path: |
-            common/eth/contracts/sol/*.sol
-            common/eth/contracts/prover.json
-            common/eth/contracts/.bytecode.hash
-          if-no-files-found: warn
-          include-hidden-files: true
 
   build-native-runtime:
     if: github.event_name != 'pull_request'
@@ -422,11 +320,6 @@ jobs:
           files: |
             artifact/attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}*
             artifact/creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}*
-            artifact/gluwa-creditcoin-public-prover-${{ needs.sanity-check.outputs.TAG_NAME }}.tgz
-            artifact/sol/*.sol
-            artifact/Prover-ABI.json
-            artifact/Prover-bytecode-hash.txt
-            artifact/usc_audit_automation-${{ needs.sanity-check.outputs.TAG_NAME }}*
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
           body_path: changelog.md

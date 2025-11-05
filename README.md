@@ -142,7 +142,7 @@ Every individual category may contain one or more test suites comprising of many
 inside those files. We try to select directory structure, file names and scenario names
 which are intuitive and self evident as to which the Target Under Test is and what the
 actual expected behaviour should be. That could be an extrinsic,
-a function name, a specific condition + expected outcome or a functional area for example (e.g Prover.sol).
+a function name, a specific condition + expected outcome or a functional area.
 
 The rule of thumb for naming and directory structure usually is:
 

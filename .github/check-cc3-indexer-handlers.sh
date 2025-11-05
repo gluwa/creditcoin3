@@ -27,7 +27,7 @@ if [ "$HANDLERS_FROM_SOURCE" != "$HANDLERS_FROM_RUNTIME" ]; then
     diff -u <(echo "$HANDLERS_FROM_SOURCE") <(echo "$HANDLERS_FROM_RUNTIME") | colordiff
     set -e
     echo "TIP: missing ones above were not executed. This is usually a sign of"
-    echo "TIP: missing tests; unaccounted changes in Prover.sol and/or mistake"
+    echo "TIP: missing tests or a mistake in the test suite"
     exit 3
 fi
 
