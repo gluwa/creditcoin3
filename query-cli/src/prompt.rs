@@ -145,7 +145,7 @@ fn prompt_for_network(args: PromptArgs) -> Result<Network> {
 }
 
 fn prompt_for_height_and_hash(args: PromptArgs) -> (u64, String) {
-    let height: u64 = args.block_height.unwrap_or_else(|| {
+    let height = args.block_height.unwrap_or_else(|| {
         print!("Enter the block height (number): ");
         io::stdout().flush().unwrap();
 
@@ -160,7 +160,6 @@ fn prompt_for_height_and_hash(args: PromptArgs) -> (u64, String) {
     });
 
     let tx_hash = args.txn_hash.unwrap_or_else(|| {
-        // Prompt the user for the transaction hash
         print!("Enter the transaction hash: ");
         io::stdout().flush().unwrap();
 

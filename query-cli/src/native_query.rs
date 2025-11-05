@@ -12,7 +12,7 @@ use anyhow::Result;
 use eth::{Client as EthClient, OrderedBlock};
 
 /// Execute a native query with the given configuration
-pub async fn execute_native_query(config: AppConfig) -> Result<()> {
+pub async fn execute_native_query(config: AppConfig, send_tx: bool) -> Result<()> {
     println!("\n=== Native Query Execution ===");
 
     // Step 1: Fetch block data from source chain
@@ -22,7 +22,7 @@ pub async fn execute_native_query(config: AppConfig) -> Result<()> {
     let tx_index = find_transaction_index(&block, &config.query.transaction_hash)?;
 
     // Step 3: Create the query from configuration
-    let query = config.query.to_query(tx_index as u64);
+    let query = config.query.to_query();
 
     println!("\nQuery ID: {:?}", query.id());
     println!("Query details: {query:?}");
@@ -64,6 +64,7 @@ pub async fn execute_native_query(config: AppConfig) -> Result<()> {
         &tx_data,
         merkle_proof,
         continuity_blocks,
+        send_tx,
     )
     .await?;
 
@@ -100,6 +101,7 @@ fn find_transaction_index(block: &OrderedBlock, tx_hash: &str) -> Result<usize> 
     for (index, item) in block.items().iter().enumerate() {
         // Get transaction hash from the item
         let item_hash = item.tx_hash().to_string();
+        let item_hash = item_hash.strip_prefix("0x").unwrap_or(&item_hash);
 
         if item_hash == tx_hash {
             println!("Found transaction at index {index}");
@@ -107,8 +109,8 @@ fn find_transaction_index(block: &OrderedBlock, tx_hash: &str) -> Result<usize> 
         }
     }
 
-    // For development, if exact match not found, use index 0
-    println!("Warning: Exact transaction hash not found, using index 0");
+    // If exact match not found, use index 0
+    println!("Transaction hash not found, using index 0");
     Ok(0)
 }
 
@@ -121,6 +123,7 @@ pub mod submission {
     pub async fn handle_interactive(
         cc3_rpc_url: String,
         cc3_evm_private_key: String,
+        send_tx: bool,
     ) -> Result<()> {
         // Get query configuration from user
         let prompt_args = crate::PromptArgs {
@@ -141,7 +144,7 @@ pub mod submission {
         );
 
         // Execute the native query
-        execute_native_query(app_config).await
+        execute_native_query(app_config, send_tx).await
     }
 
     /// Convert prompt output to query configuration

@@ -31,10 +31,10 @@ use mmr::query_proof::QueryMerkleProof;
 type MerkleProof = QueryMerkleProof;
 
 // Event selectors (keccak256 of event signatures)
-/// QueryVerified(address indexed,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])
+/// QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])
 pub const SELECTOR_LOG_QUERY_VERIFIED: [u8; 32] =
     keccak256!("QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])");
-/// QueryVerificationFailed(address indexed,bytes32,uint64,uint64,uint8,string)
+/// QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)
 pub const SELECTOR_LOG_QUERY_VERIFICATION_FAILED: [u8; 32] =
     keccak256!("QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)");
 

@@ -114,8 +114,8 @@ pub struct QueryConfig {
 }
 
 impl QueryConfig {
-    /// Create a Query from the configuration and transaction index
-    pub fn to_query(&self, _tx_index: u64) -> Query {
+    /// Create a Query from the configuration
+    pub fn to_query(&self) -> Query {
         Query {
             chain_id: self.network.chain_id(),
             height: self.block_height,

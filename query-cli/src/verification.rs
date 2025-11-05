@@ -32,6 +32,7 @@ pub async fn verify_query(
     tx_data: &[u8],
     merkle_proof: QueryMerkleProof,
     continuity_blocks: Vec<Block>,
+    send_tx: bool,
 ) -> Result<VerificationResult> {
     // Initialize the Ethereum client for Creditcoin3
     let eth_client = Client::new(&config.cc3_rpc_url, Some(&config.cc3_evm_private_key)).await?;
@@ -53,11 +54,18 @@ pub async fn verify_query(
     let continuity_blocks_count = continuity_blocks.len();
     let tx_data_size = tx_data.len();
 
-    // Call the verifier
-    match verifier
-        .verify_query(query, tx_data, merkle_proof, continuity_blocks)
-        .await
-    {
+    // Call the verifier (as transaction if requested to emit events)
+    let verification_result = if send_tx {
+        verifier
+            .verify_query_with_tx(query, tx_data, merkle_proof, continuity_blocks)
+            .await
+    } else {
+        verifier
+            .verify_query(query, tx_data, merkle_proof, continuity_blocks)
+            .await
+    };
+
+    match verification_result {
         Ok(result) => Ok(VerificationResult {
             success: true,
             segments: result.result_segments,

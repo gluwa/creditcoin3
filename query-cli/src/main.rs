@@ -46,6 +46,10 @@ pub enum Commands {
 
         #[arg(long)]
         data_choice: Option<u64>,
+
+        /// Send as transaction to emit events (costs gas)
+        #[arg(long)]
+        send_tx: bool,
     },
 }
 
@@ -74,6 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             block_height,
             txn_hash,
             data_choice,
+            send_tx,
         } => {
             // If all parameters are provided via CLI, use direct execution
             // Otherwise, use interactive mode
@@ -85,6 +90,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     block_height,
                     txn_hash,
                     data_choice,
+                    send_tx,
                 )
                 .await?;
             } else {
@@ -92,6 +98,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 native_query::submission::handle_interactive(
                     args.cc3_rpc_url,
                     args.cc3_evm_private_key,
+                    send_tx,
                 )
                 .await?;
             }
@@ -108,6 +115,7 @@ async fn submit_native_query(
     block_height: Option<u64>,
     txn_hash: Option<String>,
     data_choice: Option<u64>,
+    send_tx: bool,
 ) -> Result<(), Box<dyn Error>> {
     use crate::prompt::{prompt as prompt_user, SelectedData};
     use crate::query_builder::{get_erc20_transfer_segments, get_native_token_transfer_segments};
@@ -135,14 +143,19 @@ async fn submit_native_query(
         .await?;
     println!("Block fetched successfully");
 
-    // Step 3: Find transaction index
+    // Step 3: Check if block has transactions
+    if block.items().is_empty() {
+        return Err("Block has no transactions".into());
+    }
+
+    // Step 4: Find transaction by hash
     let tx_index = block
         .items()
         .iter()
-        .position(|tx_rx| tx_rx.tx_hash().to_string() == prompt_output.tx_hash)
-        .expect("Transaction not found in block");
-    println!("Found transaction at index {tx_index}");
+        .position(|tx| tx.tx_hash().to_string() == prompt_output.tx_hash)
+        .unwrap_or(0);
 
+    println!("Using transaction at index {tx_index}");
     let tx_rx = &block.items()[tx_index];
     let full_tx_data = tx_rx.to_bytes();
 
@@ -257,6 +270,7 @@ async fn submit_native_query(
         &full_tx_data,
         merkle_proof,
         continuity_blocks,
+        send_tx,
     )
     .await?;
 

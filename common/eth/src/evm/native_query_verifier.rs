@@ -165,7 +165,7 @@ impl NativeQueryVerifierContract {
         }
     }
 
-    /// Verify a blockchain query with Merkle proof and continuity chain
+    /// Verify a blockchain query with Merkle proof and continuity chain (read-only call)
     ///
     /// # Arguments
     /// * `query` - The query specification
@@ -193,6 +193,91 @@ impl NativeQueryVerifierContract {
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
+        let result = contract
+            .verifyQuery(sol_query, tx_data.to_vec().into(), sol_proof, sol_blocks)
+            .call()
+            .await
+            .map_err(|e| {
+                error!("Native query verifier call failed: {:?}", e);
+                Error::AlloyContractError(e)
+            })?;
+
+        let status = VerificationStatus::try_from(result.result.status)?;
+
+        if status != VerificationStatus::Success {
+            error!("Query verification failed with status: {}", status);
+            return Err(Error::VerificationFailed(result.result.status));
+        }
+
+        let result_segments: Result<Vec<ResultSegment>, Error> = result
+            .result
+            .result_segments
+            .into_iter()
+            .map(decode_result_segment)
+            .collect();
+
+        let result_segments = result_segments?;
+
+        info!(
+            "Query verification successful. Extracted {} segments",
+            result_segments.len()
+        );
+
+        Ok(QueryVerificationResult {
+            status,
+            result_segments,
+        })
+    }
+
+    /// Verify a blockchain query with Merkle proof and continuity chain (transaction that emits events)
+    ///
+    /// # Arguments
+    /// * `query` - The query specification
+    /// * `tx_data` - Raw transaction data to verify
+    /// * `merkle_proof` - Merkle proof for transaction inclusion
+    /// * `continuity_blocks` - Chain of block attestations
+    ///
+    /// # Returns
+    /// `QueryVerificationResult` with status and extracted data segments
+    pub async fn verify_query_with_tx(
+        &self,
+        query: &Query,
+        tx_data: &[u8],
+        merkle_proof: QueryMerkleProof,
+        continuity_blocks: Vec<Block>,
+    ) -> Result<QueryVerificationResult, Error> {
+        debug!(
+            "Sending native query verifier transaction for query: chain_id={}, height={} id={}",
+            query.chain_id,
+            query.height,
+            query.id()
+        );
+
+        let sol_query = Self::to_solidity_query(query);
+        let sol_proof: crate::evm::native_query_verifier::INativeQueryVerifier::MerkleProof =
+            merkle_proof.into();
+        let sol_blocks = convert_to_solidity_blocks(continuity_blocks);
+
+        let provider = self.client.get_wallet_ws_provider().await?;
+        let contract = INativeQueryVerifier::new(self.address, provider);
+
+        // Send as a transaction to emit events
+        let tx_builder = contract.verifyQuery(
+            sol_query.clone(),
+            tx_data.to_vec().into(),
+            sol_proof.clone(),
+            sol_blocks.clone(),
+        );
+
+        let pending_tx = tx_builder.send().await?;
+        let receipt = pending_tx.get_receipt().await.unwrap();
+
+        info!(
+            "Query verification transaction sent. Hash: {:?}, Gas used: {:?}",
+            receipt.transaction_hash, receipt.gas_used
+        );
+
+        // Now call to get the result
         let result = contract
             .verifyQuery(sol_query, tx_data.to_vec().into(), sol_proof, sol_blocks)
             .call()

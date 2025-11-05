@@ -140,6 +140,38 @@ interface INativeQueryVerifier {
         MerkleProof calldata merkle_proof,
         Block[] calldata continuity_blocks
     ) external view returns (QueryVerificationResult memory result);
+
+    /// @notice Emitted when a query is successfully verified
+    /// @param caller The address that initiated the verification
+    /// @param queryId The unique identifier of the query
+    /// @param chainKey The chain key from the query
+    /// @param height The block height from the query
+    /// @param status The verification status (0 for success)
+    /// @param resultSegments The extracted data segments
+    event QueryVerified(
+        address indexed caller,
+        bytes32 queryId,
+        uint64 chainKey,
+        uint64 height,
+        uint8 status,
+        ResultSegment[] resultSegments
+    );
+
+    /// @notice Emitted when query verification fails
+    /// @param caller The address that initiated the verification
+    /// @param queryId The unique identifier of the query
+    /// @param chainKey The chain key from the query
+    /// @param height The block height from the query
+    /// @param status The verification status (non-zero for failure)
+    /// @param reason The reason for verification failure
+    event QueryVerificationFailed(
+        address indexed caller,
+        bytes32 queryId,
+        uint64 chainKey,
+        uint64 height,
+        uint8 status,
+        string reason
+    );
 }
 
 /// @title NativeQueryVerifierLib
