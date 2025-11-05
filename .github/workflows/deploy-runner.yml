@@ -1,0 +1,70 @@
+---
+name: Reusable workflow to deploy a self-hosted runner
+
+"on":
+  workflow_call:
+    inputs:
+      RUNNER_VM_NAME:
+        required: true
+        type: string
+      LINODE_REGION:
+        required: true
+        type: string
+      LINODE_VM_SIZE:
+        required: true
+        type: string
+      proxy:
+        required: false
+        type: string
+      secret:
+        required: false
+        type: string
+      proxy_type:
+        required: false
+        type: string
+
+permissions: read-all
+
+jobs:
+  deploy-runner:
+    timeout-minutes: 15
+    name: proxy=${{ inputs.proxy }} / ${{ inputs.secret }} / type=${{ inputs.proxy_type }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create inputs.txt
+        run: |
+          echo "proxy=${{ inputs.proxy }} / secret=${{ inputs.secret }} / type=${{ inputs.proxy_type }}" > inputs.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('inputs.txt') }}" | cut -c1-7)
+          rm inputs.txt
+
+          echo "runner_vm_name=${{ inputs.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Provision VM
+        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
+        run: |
+          .github/provision-linode-vm.sh
+        env:
+          LC_OWNER_REPO_SLUG: ${{ github.repository }}
+          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+          LC_PROXY_ENABLED: ${{ inputs.proxy }}
+          LC_PROXY_SECRET_VARIANT: ${{ inputs.secret }}
+          LC_PROXY_TYPE: ${{ inputs.proxy_type }}
+          LC_WORKFLOW_ID: ${{ github.run_id }}
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LINODE_REGION: ${{ inputs.LINODE_REGION }}
+          LINODE_VM_SIZE: ${{ inputs.LINODE_VM_SIZE }}
+
+      - name: Upload Linode logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: linode-${{ inputs.proxy }}-${{ inputs.secret }}-${{ inputs.proxy_type }}-logs
+          path: retry*.json
