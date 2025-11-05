@@ -43,13 +43,17 @@ interface INativeQueryVerifier {
         MerkleProofEntry[] siblings;
     }
 
-    /// @notice Continuity chain for verifying block attestations
-    /// @dev Links a sequence of blocks through attestations or checkpoints
-    struct ContinuityChain {
-        /// Block numbers in the continuity chain
-        uint64[] block_numbers;
-        /// Block digests (hashes) corresponding to each block number
-        bytes32[] digests;
+    /// @notice Block structure for continuity verification
+    /// @dev Represents a block in the continuity chain
+    struct Block {
+        /// Block number
+        uint64 block_number;
+        /// Block root hash
+        bytes32 root;
+        /// Previous block digest
+        bytes32 prev_digest;
+        /// Current block digest
+        bytes32 digest;
     }
 
     /// @notice Result of query verification
@@ -81,7 +85,7 @@ interface INativeQueryVerifier {
     /// @param query The query specification defining what data to retrieve
     /// @param tx_data Raw transaction data to verify and extract from
     /// @param merkle_proof Merkle proof for transaction inclusion (with position info, no index needed)
-    /// @param continuity_chain Chain of block attestations for continuity verification
+    /// @param continuity_blocks Array of blocks for continuity verification
     /// @return result Verification result containing status and extracted data segments
     ///
     /// Gas Costs (aligned with standard Ethereum precompiles):
@@ -124,7 +128,7 @@ interface INativeQueryVerifier {
     ///     query,
     ///     txData,
     ///     proof,
-    ///     continuity
+    ///     blocks
     /// );
     ///
     /// require(result.status == 0, "Verification failed");
@@ -134,7 +138,7 @@ interface INativeQueryVerifier {
         Query calldata query,
         bytes calldata tx_data,
         MerkleProof calldata merkle_proof,
-        ContinuityChain calldata continuity_chain
+        Block[] calldata continuity_blocks
     ) external view returns (QueryVerificationResult memory result);
 }
 

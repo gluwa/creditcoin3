@@ -73,19 +73,29 @@
         {
           "components": [
             {
-              "internalType": "uint64[]",
-              "name": "block_numbers",
-              "type": "uint64[]"
+              "internalType": "uint64",
+              "name": "block_number",
+              "type": "uint64"
             },
             {
-              "internalType": "bytes32[]",
-              "name": "digests",
-              "type": "bytes32[]"
+              "internalType": "bytes32",
+              "name": "root",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "prev_digest",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "digest",
+              "type": "bytes32"
             }
           ],
-          "internalType": "struct INativeQueryVerifier.ContinuityChain",
-          "name": "continuity_chain",
-          "type": "tuple"
+          "internalType": "struct INativeQueryVerifier.Block[]",
+          "name": "continuity_blocks",
+          "type": "tuple[]"
         }
       ],
       "name": "verifyQuery",
@@ -128,16 +138,16 @@
     "details": "This precompile provides native-speed verification of blockchain queries using      Merkle proofs and continuity chains.",
     "kind": "dev",
     "methods": {
-      "verifyQuery((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(uint64[],bytes32[]))": {
+      "verifyQuery((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(uint64,bytes32,bytes32,bytes32)[])": {
         "details": "This is a view function that performs native verification at runtime speed",
         "params": {
-          "continuity_chain": "Chain of block attestations for continuity verification",
+          "continuity_blocks": "Array of blocks for continuity verification",
           "merkle_proof": "Merkle proof for transaction inclusion (with position info, no index needed)",
           "query": "The query specification defining what data to retrieve",
           "tx_data": "Raw transaction data to verify and extract from"
         },
         "returns": {
-          "result": "Verification result containing status and extracted data segments Gas Costs (aligned with standard Ethereum precompiles): - Base: 35,000 (reduced for efficiency) - Per TX byte: 16 (matches EVM calldata cost) - Per sibling: 3,000 (equal to ecrecover) - Per continuity block: 5,000 - Storage lookup: 2,600 per attestation/checkpoint (matches cold SLOAD) - Merkle verification: 100,000 weight - Continuity verification: 50,000 weight Example Usage: ```solidity INativeQueryVerifier verifier = INativeQueryVerifier(0x0000000000000000000000000000000000000FD2); // Define data segments to extract (e.g., ERC20 transfer event) INativeQueryVerifier.LayoutSegment[] memory segments = new INativeQueryVerifier.LayoutSegment[](2); segments[0] = INativeQueryVerifier.LayoutSegment(192, 32);  // from address segments[1] = INativeQueryVerifier.LayoutSegment(224, 32);  // to address // Create query (no transaction index needed!) INativeQueryVerifier.Query memory query = INativeQueryVerifier.Query({     chain_id: 1,     height: 18000000,     layout_segments: segments }); // Create merkle proof with position information INativeQueryVerifier.MerkleProofEntry[] memory siblings = new INativeQueryVerifier.MerkleProofEntry[](2); siblings[0] = INativeQueryVerifier.MerkleProofEntry(siblingHash1, false); // sibling on right siblings[1] = INativeQueryVerifier.MerkleProofEntry(siblingHash2, true);  // sibling on left INativeQueryVerifier.MerkleProof memory proof = INativeQueryVerifier.MerkleProof({     root: merkleRoot,     siblings: siblings }); // Verify INativeQueryVerifier.QueryVerificationResult memory result = verifier.verifyQuery(     query,     txData,     proof,     continuity ); require(result.status == 0, \"Verification failed\"); // Use result.result_segments... ```"
+          "result": "Verification result containing status and extracted data segments Gas Costs (aligned with standard Ethereum precompiles): - Base: 35,000 (reduced for efficiency) - Per TX byte: 16 (matches EVM calldata cost) - Per sibling: 3,000 (equal to ecrecover) - Per continuity block: 5,000 - Storage lookup: 2,600 per attestation/checkpoint (matches cold SLOAD) - Merkle verification: 100,000 weight - Continuity verification: 50,000 weight Example Usage: ```solidity INativeQueryVerifier verifier = INativeQueryVerifier(0x0000000000000000000000000000000000000FD2); // Define data segments to extract (e.g., ERC20 transfer event) INativeQueryVerifier.LayoutSegment[] memory segments = new INativeQueryVerifier.LayoutSegment[](2); segments[0] = INativeQueryVerifier.LayoutSegment(192, 32);  // from address segments[1] = INativeQueryVerifier.LayoutSegment(224, 32);  // to address // Create query (no transaction index needed!) INativeQueryVerifier.Query memory query = INativeQueryVerifier.Query({     chain_id: 1,     height: 18000000,     layout_segments: segments }); // Create merkle proof with position information INativeQueryVerifier.MerkleProofEntry[] memory siblings = new INativeQueryVerifier.MerkleProofEntry[](2); siblings[0] = INativeQueryVerifier.MerkleProofEntry(siblingHash1, false); // sibling on right siblings[1] = INativeQueryVerifier.MerkleProofEntry(siblingHash2, true);  // sibling on left INativeQueryVerifier.MerkleProof memory proof = INativeQueryVerifier.MerkleProof({     root: merkleRoot,     siblings: siblings }); // Verify INativeQueryVerifier.QueryVerificationResult memory result = verifier.verifyQuery(     query,     txData,     proof,     blocks ); require(result.status == 0, \"Verification failed\"); // Use result.result_segments... ```"
         }
       }
     },
@@ -145,6 +155,6 @@
     "version": 1
   },
   "hashes": {
-    "verifyQuery((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(uint64[],bytes32[]))": "78244614"
+    "verifyQuery((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(uint64,bytes32,bytes32,bytes32)[])": "012f7e47"
   }
 }

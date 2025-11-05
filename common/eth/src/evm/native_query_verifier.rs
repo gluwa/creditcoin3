@@ -45,20 +45,17 @@ sol! {
     "contracts/native_query_verifier.json",
 }
 
-// Helper function to convert attestor Blocks to Solidity ContinuityChain
-fn convert_to_continuity_chain(
-    blocks: Vec<AttestorBlock>,
-) -> INativeQueryVerifier::ContinuityChain {
-    let block_numbers: Vec<u64> = blocks.iter().map(|b| b.block_number).collect();
-    let digests: Vec<FixedBytes<32>> = blocks
-        .iter()
-        .map(|b| FixedBytes::from(b.root.to_fixed_bytes()))
-        .collect();
-
-    INativeQueryVerifier::ContinuityChain {
-        block_numbers,
-        digests,
-    }
+// Helper function to convert attestor Blocks to Solidity Block structs
+fn convert_to_solidity_blocks(blocks: Vec<AttestorBlock>) -> Vec<INativeQueryVerifier::Block> {
+    blocks
+        .into_iter()
+        .map(|b| INativeQueryVerifier::Block {
+            block_number: b.block_number,
+            root: FixedBytes::from(b.root.to_fixed_bytes()),
+            prev_digest: FixedBytes::from(b.prev_digest.to_fixed_bytes()),
+            digest: FixedBytes::from(b.digest.to_fixed_bytes()),
+        })
+        .collect()
 }
 
 /// Native Query Verifier precompile address (0x0FD2 = 4050)
@@ -192,17 +189,12 @@ impl NativeQueryVerifierContract {
 
         let sol_query = Self::to_solidity_query(query);
         let sol_proof = merkle_proof.into();
-        let sol_continuity = convert_to_continuity_chain(continuity_blocks);
+        let sol_blocks = convert_to_solidity_blocks(continuity_blocks);
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
         let result = contract
-            .verifyQuery(
-                sol_query,
-                tx_data.to_vec().into(),
-                sol_proof,
-                sol_continuity,
-            )
+            .verifyQuery(sol_query, tx_data.to_vec().into(), sol_proof, sol_blocks)
             .call()
             .await
             .map_err(|e| {
@@ -247,17 +239,12 @@ impl NativeQueryVerifierContract {
     ) -> Result<u64, Error> {
         let sol_query = Self::to_solidity_query(query);
         let sol_proof = merkle_proof.into();
-        let sol_continuity = convert_to_continuity_chain(continuity_blocks);
+        let sol_blocks = convert_to_solidity_blocks(continuity_blocks);
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
         let gas = contract
-            .verifyQuery(
-                sol_query,
-                tx_data.to_vec().into(),
-                sol_proof,
-                sol_continuity,
-            )
+            .verifyQuery(sol_query, tx_data.to_vec().into(), sol_proof, sol_blocks)
             .estimate_gas()
             .await?;
 
