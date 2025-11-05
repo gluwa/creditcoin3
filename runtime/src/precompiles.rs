@@ -10,6 +10,8 @@ use pallet_evm_precompile_modexp::Modexp;
 use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
 
+use pallet_evm_precompile_bn128::{Bn128Add, Bn128Mul, Bn128Pairing};
+
 pub struct FrontierPrecompiles<R>(PhantomData<R>);
 
 impl<R> FrontierPrecompiles<R>
@@ -19,13 +21,16 @@ where
     pub fn new() -> Self {
         Self(Default::default())
     }
-    pub fn used_addresses() -> [H160; 9] {
+    pub fn used_addresses() -> [H160; 12] {
         [
             hash(1),    // 0x0000000000000000000000000000000000000001
             hash(2),    // 0x0000000000000000000000000000000000000002
             hash(3),    // 0x0000000000000000000000000000000000000003
             hash(4),    // 0x0000000000000000000000000000000000000004
             hash(5),    // 0x0000000000000000000000000000000000000005
+            hash(6),    // 0x0000000000000000000000000000000000000006
+            hash(7),    // 0x0000000000000000000000000000000000000007
+            hash(8),    // 0x0000000000000000000000000000000000000008
             hash(1024), // 0x0000000000000000000000000000000000000400
             hash(1025), // 0x0000000000000000000000000000000000000401
             hash(4049), // 0x0000000000000000000000000000000000000Fd1
@@ -47,6 +52,9 @@ where
             a if a == hash(3) => Some(Ripemd160::execute(handle)),
             a if a == hash(4) => Some(Identity::execute(handle)),
             a if a == hash(5) => Some(Modexp::execute(handle)),
+            a if a == hash(6) => Some(Bn128Add::execute(handle)),
+            a if a == hash(7) => Some(Bn128Mul::execute(handle)),
+            a if a == hash(8) => Some(Bn128Pairing::execute(handle)),
             // Non-Frontier specific nor Ethereum precompiles :
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
