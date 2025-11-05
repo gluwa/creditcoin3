@@ -154,7 +154,7 @@ pallet-transaction-payment-rpc = { git = "https://github.com/paritytech/polkadot
 pallet-transaction-payment-rpc-runtime-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 pallet-utility = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 # Substrate Utility
-frame-benchmarking-cli = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
+frame-benchmarking-cli = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", version = "43.1.0" }
 substrate-prometheus-endpoint = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 substrate-build-script-utils = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 substrate-frame-rpc-system = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
@@ -191,6 +191,7 @@ pallet-evm-chain-id = { git = "https://github.com/paritytech/frontier", branch =
 pallet-evm-precompile-modexp = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
 pallet-evm-precompile-sha3fips = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
 pallet-evm-precompile-simple = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
+pallet-evm-precompile-bn128 = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
 pallet-evm-test-vector-support = { git = "https://github.com/paritytech/frontier", branch = "stable2409" }
 pallet-hotfix-sufficients = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
 # Frontier Utility
