@@ -138,7 +138,7 @@ pub fn run() -> sc_cli::Result<()> {
                                     "Cannot purge `{:?}` database",
                                     config.database
                                 )
-                                .into())
+                                .into());
                             }
                         };
                         cmd.run(frontier_database_config)?;
@@ -157,7 +157,7 @@ pub fn run() -> sc_cli::Result<()> {
                                     "Cannot purge `{:?}` database: {:?}",
                                     db_path, err,
                                 )
-                                .into())
+                                .into());
                             }
                         };
                     }
