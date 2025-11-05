@@ -79,6 +79,7 @@ pallet-hotfix-sufficients = { workspace = true }
 
 pallet-evm-precompile-signature-verifier = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
+pallet-evm-precompile-bn128 = { workspace = true }
 
 # Tracing
 ethereum = { workspace = true }
@@ -150,6 +151,7 @@ std = [
   "pallet-evm-precompile-modexp/std",
   "pallet-evm-precompile-sha3fips/std",
   "pallet-evm-precompile-simple/std",
+  "pallet-evm-precompile-bn128/std",
   "pallet-hotfix-sufficients/std",
   "moonbeam-evm-tracer/std",
   "moonbeam-rpc-primitives-debug/std",
