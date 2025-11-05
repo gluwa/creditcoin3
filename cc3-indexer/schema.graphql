@@ -490,105 +490,45 @@ type PendingTargetSampleSizeSet @entity {
     targetSampleSize: BigInt!
 }
 
-type Prover @entity {
+type QueryVerification @entity {
     """
-    id field is always required and must look like this
-    """
-    id: ID!
-
-    owner: String
-
-    proceedsAccount: String
-
-    contractAddress: String @index
-
-    chainKey: BigInt!
-
-    name: String!
-
-    baseCostPerByte: BigInt!
-
-    baseFee: BigInt!
-
-    timeout: BigInt!
-
-    chainQueries: [ChainQueries] @derivedFrom(field: "prover")
-}
-
-type ChainQueries @entity {
-    """
-    Represents a ChainQuery with chainKey, height, index, and layout segments
+    Query verification event from the Native Query Verifier precompile
     """
     id: ID!
-    chainQueryId: String! @index
-    chainKey: BigInt!
+
+    # Caller address who initiated the verification
+    caller: String! @index
+
+    # Unique query identifier (hash)
+    queryId: String! @index
+
+    # Chain ID from the query
+    chainId: BigInt! @index
+
+    # Block height for the query
     height: BigInt!
-    index: BigInt!
-    layoutSegments: [LayoutSegment]
-    state: QueryStatus!
 
-    estimatedCost: BigInt!
-    escrowedAmount: BigInt!
+    # Verification status: 0 = Success, 1 = MerkleProofInvalid, 2 = ContinuityChainInvalid
+    status: Int!
 
-    failedReason: String
+    # Failure reason if verification failed
+    failureReason: String
 
-    prover: Prover!
+    # Block number when verification occurred
+    blockNumber: BigInt!
+
+    # Timestamp of verification
+    timestamp: BigInt!
+
+    # Result segments if verification succeeded
+    resultSegments: [QueryResultSegment]
 }
 
-enum QueryStatus {
-    Uninitialized
-    Submitted
-    ResultAvailable
-    TimedOut
-    InvalidQuery
-    QueryProcessingFailed
-}
-
-type LayoutSegment @jsonField {
+type QueryResultSegment @jsonField {
+    # Offset in the transaction data
     offset: String!
-    size: String!
-}
-
-type Proof @entity {
-    """
-    Represents a proof with id, queryRef, and result segments
-    """
-    id: ID!
-    queryRef: String!
-    resultSegments: [ResultSegment]
-}
-
-type ResultSegment @jsonField {
-    offset: String!
+    # Extracted bytes at this offset
     bytes: String!
-}
-
-type EscrowPaymentReclaimed @entity {
-    """
-    id field is always required and must look like this
-    """
-    id: ID!
-
-    blockNumber: BigInt!
-
-    who: String!
-
-    amount: BigInt!
-}
-
-type ProceedsWithdrawn @entity {
-    """
-    id field is always required and must look like this
-    """
-    id: ID!
-
-    blockNumber: BigInt!
-
-    who: String!
-
-    proceedsAccount: String!
-
-    amount: BigInt!
 }
 
 type SupportedChain @entity {

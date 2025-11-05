@@ -1,7 +1,7 @@
 import { SubstrateProject, SubstrateRuntimeDatasource } from '@subql/types';
 import { FrontierEvmDatasource } from '@subql/frontier-evm-processor';
 
-import { proverDatasource, attestationDatasources, genesisDatasource } from './datasources';
+import { nativeQueryVerifierDatasource, attestationDatasources, genesisDatasource } from './datasources';
 
 import * as dotenv from 'dotenv';
 import path from 'path';
@@ -14,18 +14,10 @@ dotenv.config({ path: dotenvPath });
 
 const dataSources: (FrontierEvmDatasource | SubstrateRuntimeDatasource)[] = [];
 
-if (process.env.DATASOURCE === 'prover') {
-    dataSources.push(proverDatasource);
-} else if (process.env.DATASOURCE === 'attestations') {
-    dataSources.push(attestationDatasources);
-    dataSources.push(genesisDatasource);
-} else if (process.env.DATASOURCE === 'all-in-one') {
-    dataSources.push(proverDatasource);
-    dataSources.push(attestationDatasources);
-    dataSources.push(genesisDatasource);
-} else {
-    throw new Error('DATASOURCE must be either prover or attestations');
-}
+// Always index all datasources - no more split configuration
+dataSources.push(attestationDatasources);
+dataSources.push(nativeQueryVerifierDatasource);
+dataSources.push(genesisDatasource);
 
 // Can expand the Datasource processor types via the genreic param
 const project: SubstrateProject<FrontierEvmDatasource> = {

@@ -1,325 +1,80 @@
-/* eslint-disable @typescript-eslint/no-redundant-type-constituents */
 import { FrontierEvmEvent } from '@subql/frontier-evm-processor';
-import { BigNumber } from 'ethers';
+import { QueryVerification } from '../types';
 
-import { Prover, ChainQueries, Proof, EscrowPaymentReclaimed, ProceedsWithdrawn, QueryStatus } from '../types';
-import {
-    QuerySubmittedEventObject,
-    ChainQueryStructOutput,
-    ResultSegmentStructOutput,
-    ProverDeployedEventObject,
-    EscrowedPaymentReclaimedEventObject,
-    ProceedsWithdrawnEventObject,
-    QueryProofVerifiedEventObject,
-    BaseFeeUpdatedEventObject,
-    CostPerByteUpdatedEventObject,
-    QueryMarkedInvalidEventObject,
-    QueryProcessingFailedEventObject,
-} from '../types/chain/ProverAbi';
+// Event signatures for Native Query Verifier precompile
+// QueryVerified(address indexed caller, bytes32 queryId, uint64 chainKey, uint64 height, uint8 status, (uint64,bytes32)[] resultSegments)
+type QueryVerifiedArgs = [string, string, bigint, bigint, number, [bigint, string][]];
 
-// event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount);
-type ProverDeployedArgs = [string, string, string, bigint, bigint, bigint, string, bigint] & ProverDeployedEventObject;
+// QueryVerificationFailed(address indexed caller, bytes32 queryId, uint64 chainKey, uint64 height, uint8 status, string reason)
+type QueryVerificationFailedArgs = [string, string, bigint, bigint, number, string];
 
-export async function handleProverDeployed(event: FrontierEvmEvent<ProverDeployedArgs>): Promise<void> {
+export async function handleQueryVerified(event: FrontierEvmEvent<QueryVerifiedArgs>): Promise<void> {
     if (!event.args) {
-        logger.error(`No args found for ProverDeployed event`);
+        logger.error(`No args found for QueryVerified event`);
         return;
     }
 
-    const contractAddress = event.address;
-
-    const [_owner, owner, proceedsAccount, baseCostPerByte, baseFee, chainKey, name, timeout] = event.args;
-
-    const id = `${event.blockNumber} - ${event.transactionIndex}`;
+    const [caller, queryId, chainKey, height, status, resultSegments] = event.args;
 
     logger.info(
-        `Prover deployed: ${id} ${owner} ${proceedsAccount} ${contractAddress}, chain: ${chainKey}, name: ${name}`,
+        `Query verified: caller=${caller}, queryId=${queryId}, chainKey=${chainKey}, height=${height}, status=${status}`,
     );
 
-    const prover = Prover.create({
+    // Create a unique ID for this verification event
+    const id = `${event.blockNumber}-${event.transactionIndex}-${event.logIndex || 0}`;
+
+    // Parse the queryId to extract query details if possible
+    // The queryId is a hash of the query parameters, so we store it as-is
+    const verification = QueryVerification.create({
         id,
-        owner,
-        proceedsAccount,
-        contractAddress,
-        baseCostPerByte: BigInt(baseCostPerByte.toString()),
-        baseFee: BigInt(baseFee.toString()),
-        chainKey: BigInt(chainKey.toString()),
-        name,
-        timeout: BigInt(timeout.toString()),
+        caller: caller.toLowerCase(),
+        queryId,
+        chainId: BigInt(chainKey),
+        height: BigInt(height),
+        status,
+        failureReason: undefined,
+        blockNumber: BigInt(event.blockNumber),
+        timestamp: event.blockTimestamp ? BigInt(event.blockTimestamp.getTime()) : BigInt(Date.now()),
+        resultSegments: resultSegments
+            ? resultSegments.map((segment) => ({
+                  offset: segment[0].toString(),
+                  bytes: segment[1],
+              }))
+            : [],
     });
 
-    await prover.save();
+    await verification.save();
 }
 
-type QuerySubmittedArgs = [string, BigNumber, BigNumber, ChainQueryStructOutput] & QuerySubmittedEventObject;
-
-export async function handleQuerySubmitted(event: FrontierEvmEvent<QuerySubmittedArgs>): Promise<void> {
-    if (!event.args) {
-        logger.error(`No args found for QuerySubmitted event`);
-        return;
-    }
-
-    const [queryId, estimatedCost, escrowedAmount, chainQuery] = event.args;
-    const proverContractAddress = event.address;
-
-    logger.info(`Query with ID ${queryId} subbmitted`);
-
-    const id = `query-${event.blockNumber}-${event.transactionIndex}`;
-
-    const prover = await Prover.getByFields([['contractAddress', '=', proverContractAddress]], { limit: 1 });
-    if (prover.length === 0) {
-        logger.error(
-            `Prover with address ${proverContractAddress} not found. Block number: ${event.blockNumber}, Transaction index: ${event.transactionIndex}`,
-        );
-        return;
-    }
-
-    const queryEntity = ChainQueries.create({
-        id,
-        chainQueryId: queryId.toString(),
-        chainKey: chainQuery.chainId.toBigInt(),
-        height: chainQuery.height.toBigInt(),
-        index: chainQuery.index.toBigInt(),
-        layoutSegments: chainQuery.layoutSegments.map((segment) => {
-            return {
-                offset: segment.offset.toString(),
-                size: segment.size.toString(),
-            };
-        }),
-        state: QueryStatus.Submitted,
-        estimatedCost: estimatedCost.toBigInt(),
-        escrowedAmount: escrowedAmount.toBigInt(),
-        proverId: prover[0].id,
-    });
-
-    await queryEntity.save();
-}
-
-// event QueryProofVerified(QueryId indexed queryId, bytes proof);
-type QueryProofVerifiedArgs = [string, ResultSegmentStructOutput, number] & QueryProofVerifiedEventObject;
-
-export async function handleQueryProofVerified(event: FrontierEvmEvent<QueryProofVerifiedArgs>): Promise<void> {
-    if (!event.args) {
-        logger.error(`No args found for QueryProofVerified event`);
-        return;
-    }
-
-    const { queryId, resultSegments, state } = event.args;
-
-    logger.info(`Query proof verified for query ${queryId}, state: ${state}`);
-
-    const proofEntity = Proof.create({
-        id: `${event.blockNumber}-${event.transactionIndex}`,
-        queryRef: queryId,
-        resultSegments: resultSegments.map((segment) => {
-            return {
-                offset: segment.offset.toString(),
-                bytes: segment.abiBytes.toString(),
-            };
-        }),
-    });
-
-    await proofEntity.save();
-
-    // Get the query entity
-    const queries = await ChainQueries.getByFields([['chainQueryId', '=', queryId]], { limit: 1 });
-    if (queries.length === 0) {
-        logger.error(`Query with ID ${queryId} not found`);
-        return;
-    }
-    const query = queries[0];
-
-    query.escrowedAmount = BigInt(0);
-
-    // Update state
-    switch (state) {
-        case 0:
-            query.state = QueryStatus.Uninitialized;
-            break;
-        case 1:
-            query.state = QueryStatus.Submitted;
-            break;
-        case 2:
-            query.state = QueryStatus.ResultAvailable;
-            break;
-        case 3:
-            query.state = QueryStatus.InvalidQuery;
-            break;
-        case 4:
-            query.state = QueryStatus.QueryProcessingFailed;
-            break;
-        default:
-            query.state = QueryStatus.InvalidQuery;
-    }
-
-    // Save the updated query
-    await query.save();
-}
-
-type QueryMarkedInvalidArgs = [string, string] & QueryMarkedInvalidEventObject;
-
-export async function handleQueryMarkedInvalid(event: FrontierEvmEvent<QueryMarkedInvalidArgs>): Promise<void> {
-    if (!event.args) {
-        logger.error(`No args found for QueryMarkedInvalid event`);
-        return;
-    }
-
-    const { queryId, reason } = event.args;
-
-    logger.info(`Query proof verification failed for query ${queryId}, reason: ${reason}`);
-
-    // Get the query entity
-    const queries = await ChainQueries.getByFields([['chainQueryId', '=', queryId]], { limit: 1 });
-
-    if (queries.length === 0) {
-        logger.error(`Query with ID ${queryId} not found`);
-        return;
-    }
-
-    const query = queries[0];
-    query.escrowedAmount = BigInt(0);
-    // Update state
-    query.state = QueryStatus.InvalidQuery;
-    query.failedReason = reason;
-
-    // Save the updated query
-    await query.save();
-}
-
-type QueryProcessingFailedArgs = [string, string] & QueryProcessingFailedEventObject;
-
-export async function handleQueryProcessingFailed(event: FrontierEvmEvent<QueryProcessingFailedArgs>): Promise<void> {
-    if (!event.args) {
-        logger.error(`No args found for QueryProcessingFailed event`);
-        return;
-    }
-
-    const { queryId, reason } = event.args;
-
-    logger.info(`Query processing failed for query ${queryId}, reason: ${reason}`);
-
-    // Get the query entity
-    const queries = await ChainQueries.getByFields([['chainQueryId', '=', queryId]], { limit: 1 });
-
-    if (queries.length === 0) {
-        logger.error(`Query with ID ${queryId} not found`);
-        return;
-    }
-
-    const query = queries[0];
-    query.escrowedAmount = BigInt(0);
-    // Update state
-    query.state = QueryStatus.QueryProcessingFailed;
-    query.failedReason = reason;
-
-    // Save the updated query
-    await query.save();
-}
-
-// event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
-type EscrowedPaymentReclaimedArgs = [string, BigNumber] & EscrowedPaymentReclaimedEventObject;
-
-export async function handleEscrowedPaymentReclaimed(
-    event: FrontierEvmEvent<EscrowedPaymentReclaimedArgs>,
+export async function handleQueryVerificationFailed(
+    event: FrontierEvmEvent<QueryVerificationFailedArgs>,
 ): Promise<void> {
     if (!event.args) {
-        logger.error(`No args found for EscrowedPaymentReclaimed event`);
+        logger.error(`No args found for QueryVerificationFailed event`);
         return;
     }
 
-    const { queryId, escrowedAmount } = event.args;
+    const [caller, queryId, chainKey, height, status, reason] = event.args;
 
-    logger.info(`Escrowed payment reclaimed for query ${queryId}`);
+    logger.info(
+        `Query verification failed: caller=${caller}, queryId=${queryId}, chainKey=${chainKey}, height=${height}, status=${status}, reason=${reason}`,
+    );
 
-    const reclaimedPayment = EscrowPaymentReclaimed.create({
-        id: `${event.blockNumber}-${event.transactionIndex}`,
+    // Create a unique ID for this verification event
+    const id = `${event.blockNumber}-${event.transactionIndex}-${event.logIndex || 0}`;
+
+    const verification = QueryVerification.create({
+        id,
+        caller: caller.toLowerCase(),
+        queryId,
+        chainId: BigInt(chainKey),
+        height: BigInt(height),
+        status,
+        failureReason: reason,
         blockNumber: BigInt(event.blockNumber),
-        who: event.address,
-        amount: escrowedAmount.toBigInt(),
+        timestamp: event.blockTimestamp ? BigInt(event.blockTimestamp.getTime()) : BigInt(Date.now()),
+        resultSegments: [],
     });
 
-    const queries = await ChainQueries.getByFields([['chainQueryId', '=', queryId]], { limit: 1 });
-    if (queries.length === 0) {
-        logger.error(`Query with ID ${queryId} not found`);
-        return;
-    }
-    const query = queries[0];
-
-    query.escrowedAmount = BigInt(0);
-
-    await query.save();
-
-    await reclaimedPayment.save();
-}
-
-// event ProceedsWithdrawn(address indexed proceedsAccount, uint256 amount);
-type ProceedsWithdrawnArgs = [string, BigNumber] & ProceedsWithdrawnEventObject;
-
-export async function handleProceedsWithdrawn(event: FrontierEvmEvent<ProceedsWithdrawnArgs>): Promise<void> {
-    if (!event.args) {
-        logger.error(`No args found for ProceedsWithdrawn event`);
-        return;
-    }
-
-    const { proceedsAccount, amount } = event.args;
-
-    logger.info(`Proceeds withdrawn by ${proceedsAccount}`);
-
-    const withdrawn = ProceedsWithdrawn.create({
-        id: `${event.blockNumber}-${event.transactionIndex}`,
-        blockNumber: BigInt(event.blockNumber),
-        who: event.address,
-        proceedsAccount,
-        amount: amount.toBigInt(),
-    });
-
-    await withdrawn.save();
-}
-
-type BaseFeeUpdatedArgs = [BigNumber] & BaseFeeUpdatedEventObject;
-
-export async function handleUpdateBaseFee(event: FrontierEvmEvent<BaseFeeUpdatedArgs>): Promise<void> {
-    if (!event.args) {
-        logger.error(`No args found for BaseFeeUpdated event`);
-        return;
-    }
-
-    const proverContractAddress = event.address;
-    logger.info(`Updating base fee for prover ${proverContractAddress}`);
-
-    const [newBaseFee] = event.args;
-
-    logger.info(`Base fee updated to ${newBaseFee.toString()}`);
-
-    // Update the prover entity
-    const provers = await Prover.getByFields([['contractAddress', '=', proverContractAddress]], { limit: 1 });
-    for (const prover of provers) {
-        logger.info(`Updating base fee for prover ${prover.id}`);
-        prover.baseFee = BigInt(newBaseFee.toString());
-        await prover.save();
-    }
-}
-
-type CostPerByteUpdatedArgs = [BigNumber] & CostPerByteUpdatedEventObject;
-
-export async function handleUpdateCostPerByte(event: FrontierEvmEvent<CostPerByteUpdatedArgs>): Promise<void> {
-    if (!event.args) {
-        logger.error(`No args found for CostPerByteUpdated event`);
-        return;
-    }
-
-    const proverContractAddress = event.address;
-    logger.info(`Updating cost per byte for prover ${proverContractAddress}`);
-
-    const [newCostPerByte] = event.args;
-
-    logger.info(`Cost per byte updated to ${newCostPerByte.toString()}`);
-
-    // Update the prover entity
-    const provers = await Prover.getByFields([['contractAddress', '=', proverContractAddress]], { limit: 1 });
-    for (const prover of provers) {
-        logger.info(`Updating cost per byte for prover ${prover.id}`);
-        prover.baseCostPerByte = BigInt(newCostPerByte.toString());
-        await prover.save();
-    }
+    await verification.save();
 }

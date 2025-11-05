@@ -250,83 +250,34 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
     },
 };
 
-export const proverDatasource: FrontierEvmDatasource = {
-    // Frontier EVM Processor
+export const nativeQueryVerifierDatasource: FrontierEvmDatasource = {
+    // Frontier EVM Processor for Native Query Verifier Precompile
     kind: 'substrate/FrontierEvm',
     startBlock: 1,
     processor: {
         file: './node_modules/@subql/frontier-evm-processor/dist/bundle.js',
         options: {
-            abi: 'prover',
+            abi: 'nativeQueryVerifier',
+            // The precompile is at address 0x0FD2
+            address: '0x0000000000000000000000000000000000000fd2',
         },
     },
-    assets: new Map([['prover', { file: './abis/prover.abi.json' }]]),
+    assets: new Map([['nativeQueryVerifier', { file: './abis/nativeQueryVerifier.abi.json' }]]),
     mapping: {
         file: './dist/index.js',
         handlers: [
             {
-                handler: 'handleProverDeployed',
+                handler: 'handleQueryVerified',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: [
-                        'ProverDeployed(address indexed contractAddress,address indexed owner,address proceedsAccount,uint256 costPerByte,uint256 baseFee,uint64 chainKey,string displayName,uint64 timeout)',
-                    ],
+                    topics: ['QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])'],
                 },
             },
             {
-                handler: 'handleQuerySubmitted',
+                handler: 'handleQueryVerificationFailed',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: ['QuerySubmitted(bytes32,uint256,uint256,(uint64,uint64,uint64,(uint64,uint64)[]))'],
-                },
-            },
-            {
-                handler: 'handleQueryProofVerified',
-                kind: 'substrate/FrontierEvmEvent',
-                filter: {
-                    topics: ['QueryProofVerified(bytes32,(uint256,bytes32)[],uint8)'],
-                },
-            },
-            {
-                handler: 'handleQueryMarkedInvalid',
-                kind: 'substrate/FrontierEvmEvent',
-                filter: {
-                    topics: ['QueryMarkedInvalid(bytes32,string)'],
-                },
-            },
-            {
-                handler: 'handleQueryProcessingFailed',
-                kind: 'substrate/FrontierEvmEvent',
-                filter: {
-                    topics: ['QueryProcessingFailed(bytes32,string)'],
-                },
-            },
-            {
-                handler: 'handleEscrowedPaymentReclaimed',
-                kind: 'substrate/FrontierEvmEvent',
-                filter: {
-                    topics: ['EscrowedPaymentReclaimed(bytes32,uint256)'],
-                },
-            },
-            {
-                handler: 'handleProceedsWithdrawn',
-                kind: 'substrate/FrontierEvmEvent',
-                filter: {
-                    topics: ['ProceedsWithdrawn(address indexed proceedsAccount,uint256 amount)'],
-                },
-            },
-            {
-                handler: 'handleUpdateCostPerByte',
-                kind: 'substrate/FrontierEvmEvent',
-                filter: {
-                    topics: ['CostPerByteUpdated(uint256 newCostPerByte)'],
-                },
-            },
-            {
-                handler: 'handleUpdateBaseFee',
-                kind: 'substrate/FrontierEvmEvent',
-                filter: {
-                    topics: ['BaseFeeUpdated(uint256 newBaseFee)'],
+                    topics: ['QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)'],
                 },
             },
         ],

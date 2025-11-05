@@ -67,6 +67,19 @@ docker compose down
 yarn start:docker
 ```
 
+## Event Handlers
+
+### Native Query Verifier Events
+
+The indexer tracks query verification events from the Native Query Verifier precompile at address `0x0FD2`:
+
+- **QueryVerified**: Emitted when a query is successfully verified
+  - Stores the query details, verification status, and extracted result segments
+- **QueryVerificationFailed**: Emitted when query verification fails
+  - Stores the query details, failure status, and reason for failure
+
+These events are handled in `src/mappings/evmHandlers.ts` and stored in the `QueryVerification` entity.
+
 ## Testing
 
 The primary CI job for cc3-indexer is `cc3-indexer-testing:` inside `.github/workflows/ci.yml`.
