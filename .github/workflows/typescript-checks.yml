@@ -4,6 +4,13 @@ name: typescript-checks
 # Controls when the action will run.
 "on":
   pull_request:
+    paths:
+      - '**.ts'
+      - '**.js'
+      - '**.json'
+      - '**package.json'
+      - '**package-lock.json'
+      - '**yarn.lock'
   workflow_dispatch:
 
 concurrency:
