@@ -4,6 +4,10 @@ name: Reusable workflow to deploy a self-hosted runner
 "on":
   workflow_call:
     inputs:
+      EPHEMERAL:
+        required: false
+        type: boolean
+        default: true
       RUNNER_VM_NAME:
         required: true
         type: string
@@ -12,6 +16,13 @@ name: Reusable workflow to deploy a self-hosted runner
         type: string
       LINODE_VM_SIZE:
         required: true
+        type: string
+      WORKFLOW_ID:
+        required: false
+        type: string
+        default: ${{ github.run_id }}
+      KEEP_UNTIL:
+        required: false
         type: string
       proxy:
         required: false
@@ -53,18 +64,20 @@ jobs:
         env:
           LC_OWNER_REPO_SLUG: ${{ github.repository }}
           LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
+          LC_RUNNER_EPHEMERAL: ${{ inputs.EPHEMERAL }}
           LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
           LC_PROXY_ENABLED: ${{ inputs.proxy }}
           LC_PROXY_SECRET_VARIANT: ${{ inputs.secret }}
           LC_PROXY_TYPE: ${{ inputs.proxy_type }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
+          LC_WORKFLOW_ID: ${{ inputs.WORKFLOW_ID }}
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
           LINODE_REGION: ${{ inputs.LINODE_REGION }}
           LINODE_VM_SIZE: ${{ inputs.LINODE_VM_SIZE }}
+          KEEP_UNTIL: ${{ inputs.KEEP_UNTIL }}
 
       - name: Upload Linode logs
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: linode-${{ inputs.proxy }}-${{ inputs.secret }}-${{ inputs.proxy_type }}-logs
+          name: linode-logs-${{ steps.get-env.outputs.runner_vm_name }}
           path: retry*.json

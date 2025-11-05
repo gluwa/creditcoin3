@@ -13,15 +13,10 @@ concurrency:
 
 permissions: read-all
 
-env:
-  RUNNER_VM_NAME: "attestor-chaos-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
-  LINODE_REGION: "nl-ams"
-  # Shared CPU, Linode 2 GB, 1 vCPU, 12 $/mo
-  LINODE_VM_SIZE: "g6-standard-1"
-
 jobs:
   setup:
     outputs:
+      keep-until: ${{ steps.get-env.outputs.KEEP_UNTIL }}
       prev-runId: ${{ steps.prev-runId.outputs.result }}
       # TODO: change to Testnet once we have a new release vvv
       rpc_url: ${{ steps.devnet-env.outputs.rpc_url }}
@@ -31,6 +26,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          # note: keep this VM for 20hrs so it has the ability to become an active attestor
+          # note2: this CI jobs runs every 23 hrs and will chill previous attestors when it executes
+          # leaving a gap of 3hrs where linode-cleaner.yml will shutdown an active attestor without
+          # calling chill first (and once this workflow kicks-in again we just clean-up the orphaned accounts)
+          KEEP_UNTIL=$(date --utc "+%Y-%m-%dT%H:%M:%S" -d "+20 hours")
+          echo "KEEP_UNTIL=$KEEP_UNTIL" >> "$GITHUB_OUTPUT"
 
       - name: Devnet ENV
         id: devnet-env
@@ -99,59 +104,17 @@ jobs:
           echo ${{ steps.prev-runId.outputs.result }}
 
   deploy-attestor:
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: attestor-chaos
-
-    name: deploy-attestor / ${{ matrix.proxy }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-          # note: keep this VM for 20hrs so it has the ability to become an active attestor
-          # note2: this CI jobs runs every 23 hrs and will chill previous attestors when it executes
-          # leaving a gap of 3hrs where linode-cleaner.yml will shutdown an active attestor without
-          # calling chill first (and once this workflow kicks-in again we just clean-up the orphaned accounts)
-          KEEP_UNTIL=$(date --utc "+%Y-%m-%dT%H:%M:%S" -d "+20 hours")
-          echo "KEEP_UNTIL=$KEEP_UNTIL" >> "$GITHUB_ENV"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          KEEP_UNTIL: ${{ env.KEEP_UNTIL }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    needs:
+      - setup
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "attestor-chaos-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      # Shared CPU, Linode 2 GB, 1 vCPU, 12 $/mo
+      LINODE_VM_SIZE: "g6-standard-1"
+      KEEP_UNTIL: ${{ needs.setup.outputs.keep-until }}
+      proxy: "attestor-chaos"
+    secrets: inherit
 
   start-attestor:
     needs:

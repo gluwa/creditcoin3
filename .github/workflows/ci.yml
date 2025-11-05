@@ -14,12 +14,6 @@ concurrency:
 
 permissions: read-all
 
-env:
-  RUNNER_VM_NAME: "${{ github.event.repository.name }}-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
-  LINODE_REGION: "nl-ams"
-  # Shared CPU, Linode 8 GB, 4 vCPU, 96 $/mo
-  LINODE_VM_SIZE: "g6-standard-4"
-
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   docker-build:
@@ -721,52 +715,19 @@ jobs:
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   deploy-runner-build-creditcoin-for:
-    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         include:
           - proxy: build-creditcoin-node-for-devnet
           - proxy: build-creditcoin-node-for-testnet
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} / / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: ${{ matrix.proxy }}
+    secrets: inherit
 
   build-creditcoin-node-for-devnet:
     needs:
@@ -793,52 +754,19 @@ jobs:
   deploy-runner-build-creditcoin-for-testing:
     needs:
       - build-creditcoin-node-for-devnet
-    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         include:
           - proxy: build-creditcoin-node-for-testing-benchmarks
           - proxy: build-creditcoin-node-for-testing-ci
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: ${{ matrix.proxy }}
+    secrets: inherit
 
   build-creditcoin-node-for-testing-benchmarks:
     needs:
@@ -868,51 +796,13 @@ jobs:
     if: false
     needs:
       - build-creditcoin-node-for-testing-ci
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: smart-contract
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "smart-contract"
+    secrets: inherit
 
   integration-test-smart-contract:
     needs:
@@ -1078,244 +968,53 @@ jobs:
           verbose: true
 
   deploy-runner-clippy:
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: clippy
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "clippy"
+    secrets: inherit
 
   deploy-runner-check:
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: check
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "check"
+    secrets: inherit
 
   deploy-runner-docker-build:
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: docker-build
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "docker-build"
+    secrets: inherit
 
   deploy-runner-docker-test:
     needs:
       - docker-build
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: docker-test
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "docker-test"
+    secrets: inherit
 
   deploy-runner-unit-test-creditcoin:
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: unit-test-creditcoin
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "unit-test-creditcoin"
+    secrets: inherit
 
   rm-gh-runner-integration-test-cli:
-    runs-on: ubuntu-24.04
     needs:
       - integration-test-cli
     if: ${{ always() }}
@@ -1346,480 +1045,148 @@ jobs:
             secret: valid-proxy
             proxy_type: All
 
-    name: remove-github-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: ${{ matrix.proxy }}
+      secret: ${{ matrix.secret }}
+      proxy_type: ${{ matrix.proxy_type }}
+    secrets: inherit
 
   rm-gh-runner-benchmark:
-    runs-on: ubuntu-24.04
     needs:
       - benchmark
     if: ${{ always() }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: benchmark
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "benchmark"
+    secrets: inherit
 
   rm-gh-runner-attestator-network:
-    runs-on: ubuntu-24.04
     needs:
       - integration-test-attestator-network
     if: ${{ always() }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: attestator-network
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "attestator-network"
+    secrets: inherit
 
   rm-gh-runner-blockchain:
-    runs-on: ubuntu-24.04
     needs:
       - integration-test-blockchain
     if: ${{ always() }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: blockchain
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "blockchain"
+    secrets: inherit
 
   rm-gh-runner-build-creditcoin-node:
-    runs-on: ubuntu-24.04
     needs:
       - build-creditcoin-node-for-devnet
       - build-creditcoin-node-for-testnet
     if: ${{ always() }}
-
     strategy:
       fail-fast: false
       matrix:
         include:
           - proxy: build-creditcoin-node-for-devnet
           - proxy: build-creditcoin-node-for-testnet
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: ${{ matrix.proxy }}
+    secrets: inherit
 
   rm-gh-runner-build-creditcoin-node-for-testing:
-    runs-on: ubuntu-24.04
     needs:
       - build-creditcoin-node-for-testing-benchmarks
       - build-creditcoin-node-for-testing-ci
     if: ${{ always() }}
-
     strategy:
       fail-fast: false
       matrix:
         include:
           - proxy: build-creditcoin-node-for-testing-benchmarks
           - proxy: build-creditcoin-node-for-testing-ci
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: ${{ matrix.proxy }}
+    secrets: inherit
 
   rm-gh-runner-clippy:
-    runs-on: ubuntu-24.04
     needs:
       - clippy
     if: ${{ always() }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: clippy
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "clippy"
+    secrets: inherit
 
   rm-gh-runner-check:
-    runs-on: ubuntu-24.04
     needs:
       - check
     if: ${{ always() }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: check
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "check"
+    secrets: inherit
 
   rm-gh-runner-docker-build:
-    runs-on: ubuntu-24.04
     needs:
       - docker-build
     if: ${{ always() }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: docker-build
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "docker-build"
+    secrets: inherit
 
   rm-gh-runner-docker-test:
-    runs-on: ubuntu-24.04
     needs:
       - docker-test
     if: ${{ always() }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: docker-test
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "docker-test"
+    secrets: inherit
 
   rm-gh-runner-smart-contract:
-    runs-on: ubuntu-24.04
     needs:
       - integration-test-smart-contract
     if: ${{ always() }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: smart-contract
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "smart-contract"
+    secrets: inherit
 
   rm-gh-runner-unit-test-creditcoin:
-    runs-on: ubuntu-24.04
     needs:
       - unit-test-creditcoin
     if: ${{ always() }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: unit-test-creditcoin
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "unit-test-creditcoin"
+    secrets: inherit
 
   deploy-runner-attestator-network:
     needs:
       - build-creditcoin-node-for-testing-ci
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: attestator-network
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "attestator-network"
+    secrets: inherit
 
   integration-test-attestator-network:
     needs:
@@ -2017,7 +1384,6 @@ jobs:
   deploy-runner-integration-test-cli:
     needs:
       - build-creditcoin-node-for-testing-ci
-    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -2042,46 +1408,15 @@ jobs:
             secret: valid-proxy
             proxy_type: All
 
-    name: deploy-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_PROXY_SECRET_VARIANT: ${{ matrix.secret }}
-          LC_PROXY_TYPE: ${{ matrix.proxy_type }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-${{ matrix.secret }}-${{ matrix.proxy_type }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: ${{ matrix.proxy }}
+      secret: ${{ matrix.secret }}
+      proxy_type: ${{ matrix.proxy_type }}
+    secrets: inherit
 
   integration-test-cli:
     strategy:
@@ -2336,51 +1671,13 @@ jobs:
   deploy-runner-blockchain:
     needs:
       - build-creditcoin-node-for-testing-ci
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: blockchain
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "blockchain"
+    secrets: inherit
 
   integration-test-blockchain:
     needs:
@@ -2769,51 +2066,13 @@ jobs:
   deploy-runner-benchmark:
     needs:
       - build-creditcoin-node-for-testing-benchmarks
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: benchmark
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "benchmark"
+    secrets: inherit
 
   benchmark:
     needs:
@@ -2920,51 +2179,13 @@ jobs:
   deploy-runner-cc3-indexer:
     needs:
       - build-creditcoin-node-for-testing-ci
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: cc3-indexer
-
-    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-${{ matrix.proxy }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "cc3-indexer"
+    secrets: inherit
 
   cc3-indexer-testing:
     needs:
@@ -3268,40 +2489,14 @@ jobs:
           docker compose -f prover/docker-compose.yaml -p anvil-2 down
 
   rm-gh-runner-cc3-indexer:
-    runs-on: ubuntu-24.04
     needs:
       - cc3-indexer-testing
     if: ${{ always() }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: cc3-indexer
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "cc3-indexer"
+    secrets: inherit
 
   # preceeds all of the attestor-cli jobs so that we can
   # easily trigger all of them when something fails
@@ -3315,7 +2510,6 @@ jobs:
   deploy-runner-attestor-cli:
     needs:
       - trigger-attestor-cli
-    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -3332,46 +2526,16 @@ jobs:
             secret: valid-proxy
             proxy_type: All
 
-    name: runner-attestor-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}-attestor-cli
-          LC_PROXY_ENABLED: ${{ matrix.proxy }}
-          LC_PROXY_SECRET_VARIANT: ${{ matrix.secret }}
-          LC_PROXY_TYPE: ${{ matrix.proxy_type }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}-attestor-cli
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
-      - name: Upload Linode logs
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: linode-attestor-cli-${{ matrix.proxy }}-${{ matrix.secret }}-${{ matrix.proxy_type }}-logs
-          path: retry*.json
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}-attestor-cli"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      WORKFLOW_ID: "${{ github.run_id }}-attestor-cli"
+      proxy: ${{ matrix.proxy }}
+      secret: ${{ matrix.secret }}
+      proxy_type: ${{ matrix.proxy_type }}
+    secrets: inherit
 
   attestor-cli-testing:
     needs:
@@ -3542,11 +2706,9 @@ jobs:
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   rm-gh-runner-attestor-cli:
-    runs-on: ubuntu-24.04
     needs:
       - attestor-cli-testing
     if: ${{ always() }}
-
     strategy:
       fail-fast: false
       matrix:
@@ -3564,28 +2726,10 @@ jobs:
             secret: valid-proxy
             proxy_type: All
 
-    name: remove-attestor-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}-attestor-cli
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}-attestor-cli"
+      proxy: ${{ matrix.proxy }}
+      secret: ${{ matrix.secret }}
+      proxy_type: ${{ matrix.proxy_type }}
+    secrets: inherit

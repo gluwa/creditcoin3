@@ -11,12 +11,6 @@ concurrency:
 
 permissions: read-all
 
-env:
-  RUNNER_VM_NAME: "${{ github.event.repository.name }}-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
-  LINODE_REGION: "us-ord"
-  # Shared CPU, Linode 64 GB, 16 vCPU, disk: 1280 GB, 0.576 $/hr
-  LINODE_VM_SIZE: "g6-standard-16"
-
 jobs:
   setup:
     runs-on: ubuntu-24.04
@@ -598,80 +592,24 @@ jobs:
           killall -9 creditcoin3-node
 
   deploy-github-runner:
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy_type: runtime-upgrade
-
-    name: deploy-github-runner / type=${{ matrix.proxy_type }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=type=${{ matrix.proxy_type }}" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_EPHEMERAL: false
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_PROXY_TYPE: ${{ matrix.proxy_type }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      EPHEMERAL: false
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "us-ord"
+      # Shared CPU, Linode 64 GB, 16 vCPU, disk: 1280 GB, 0.576 $/hr
+      LINODE_VM_SIZE: "g6-standard-16"
+      proxy_type: "runtime-upgrade"
+    secrets: inherit
 
   remove-github-runner:
-    runs-on: ubuntu-24.04
     needs:
       - deploy-github-runner
       - test-against-fork
       - test-against-disconnected-live-node
     if: ${{ always() }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy_type: runtime-upgrade
-
-    name: remove-github-runner / type=${{ matrix.proxy_type }}
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
-      - name: Create matrix.txt
-        run: |
-          echo "proxy=type=${{ matrix.proxy_type }}" > matrix.txt
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
-          rm matrix.txt
-
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-
-      - name: Remove VM
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy_type: "runtime-upgrade"
+    secrets: inherit
