@@ -91,6 +91,7 @@ pallet-supported-chains = { workspace = true }
 
 attestor-primitives = { workspace = true }
 pallet-evm-precompile-proof-verifier = { workspace = true }
+pallet-evm-precompile-signature-verifier = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
 randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
@@ -204,6 +205,7 @@ std = [
     "attestor-primitives/std",
     "supported-chains-primitives/std",
     "pallet-evm-precompile-proof-verifier/std",
+    "pallet-evm-precompile-signature-verifier/std",
     "pallet-evm-precompile-substrate-transfer/std",
     "log/std",
     "pallet-randomness/std",

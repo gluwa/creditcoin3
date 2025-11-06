@@ -12,6 +12,7 @@ members = [
     "primitives/randomness",
     "primitives/pallet-prover",
     "precompiles/proof-verifier",
+    "precompiles/signature-verifier",
     "precompiles/substrate-transfer",
     "host",
     "common/*",
@@ -226,6 +227,7 @@ pallet-supported-chains = { path = "pallets/supported-chains", default-features 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }
 pallet-evm-precompile-proof-verifier = { path = "precompiles/proof-verifier", default-features = false }
+pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verifier", default-features = false }
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 
 # Tracing
