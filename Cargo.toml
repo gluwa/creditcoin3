@@ -3,6 +3,7 @@ members = [
   "node",
   "runtime",
   "runtime/generate-bags",
+  "precompiles/signature-verifier",
   "precompiles/substrate-transfer",
 ]
 resolver = "2"
@@ -199,6 +200,7 @@ precompile-utils = { git = "https://github.com/paritytech/frontier", branch = "s
 creditcoin3-runtime = { path = "runtime", default-features = false }
 
 # Precompiles
+pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verifier", default-features = false }
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 
 # Arkworks
