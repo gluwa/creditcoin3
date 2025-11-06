@@ -180,6 +180,7 @@ The precompile uses the following gas cost model (aligned with standard Ethereum
 | 1 | MerkleProofInvalid | Merkle proof verification failed |
 | 2 | ContinuityChainInvalid | Continuity chain validation failed |
 | 3 | DataExtractionError | Error extracting data from transaction |
+| 4 | MerkleRootMismatch | Merkle proof root doesn't match continuity block |
 
 ## Implementation Status
 
@@ -190,10 +191,13 @@ The precompile uses the following gas cost model (aligned with standard Ethereum
 - Input validation
 - Error handling
 - Test framework
+- Merkle proof to continuity chain verification (critical security check)
 
 ### 🚧 TODO - Fill in Core Logic
 
 The following functions need implementation:
+
+**Note**: The verification that the merkle proof root matches the continuity chain block has been implemented. This ensures that the transaction being verified is actually from the attested block, not just any block with a valid merkle tree.
 
 #### 1. `verify_merkle_proof()` (Line ~244)
 

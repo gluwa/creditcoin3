@@ -70,7 +70,7 @@ type ConstU10MB = sp_core::ConstU32<10_485_760>; // Type alias for bounded vec
 /// Result of query verification
 #[derive(Debug, Clone, PartialEq, Eq, Codec)]
 pub struct QueryVerificationResult {
-    /// Verification status: 0 = Success, 1 = MerkleProofInvalid, 2 = ContinuityChainInvalid, 3 = DataExtractionError
+    /// Verification status: 0 = Success, 1 = MerkleProofInvalid, 2 = ContinuityChainInvalid, 3 = DataExtractionError, 4 = MerkleRootMismatch
     pub status: u8,
     /// Extracted data segments from the transaction
     pub result_segments: Vec<ResultSegment>,
@@ -190,32 +190,12 @@ where
         let merkle_valid = merkle_proof.verify(&tx_bytes);
 
         if !merkle_valid {
-            error!(
-                "Merkle proof verification failed for query: {:?}",
-                query.id()
+            return Self::handle_verification_failure(
+                handle,
+                &query,
+                1, // MerkleProofInvalid
+                "Merkle proof validation failed",
             );
-
-            // Emit failure event with queryId, chainKey and height
-            let event_data = ethabi::encode(&[
-                Token::FixedBytes(query.id().0.to_vec()), // queryId
-                Token::Uint(query.chain_id.into()),       // chainKey
-                Token::Uint(query.height.into()),         // height
-                Token::Uint(1u8.into()),                  // status: MerkleProofInvalid
-                Token::Bytes(b"Merkle proof validation failed".to_vec()),
-            ]);
-
-            log2(
-                handle.context().address,
-                SELECTOR_LOG_QUERY_VERIFICATION_FAILED,
-                handle.context().caller,
-                event_data,
-            )
-            .record(handle)?;
-
-            return Ok(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: Vec::new(),
-            });
         }
 
         // Charge for continuity chain verification
@@ -233,38 +213,88 @@ where
         let continuity_valid = Self::verify_continuity_chain(handle, &blocks, &query)?;
 
         if !continuity_valid {
-            error!(
-                "Continuity chain verification failed for query: {:?}",
-                query.id()
+            return Self::handle_verification_failure(
+                handle,
+                &query,
+                2, // ContinuityChainInvalid
+                "Continuity chain validation failed",
             );
+        }
 
-            // Emit failure event with queryId, chainKey and height
-            let event_data = ethabi::encode(&[
-                Token::FixedBytes(query.id().0.to_vec()), // queryId
-                Token::Uint(query.chain_id.into()),       // chainKey
-                Token::Uint(query.height.into()),         // height
-                Token::Uint(2u8.into()),                  // status: ContinuityChainInvalid
-                Token::Bytes(b"Continuity chain validation failed".to_vec()),
-            ]);
+        // Step 3: CRITICAL - Verify merkle proof root matches continuity chain
+        // Find the block at query height in the continuity chain
+        let query_block = blocks
+            .iter()
+            .find(|b| b.block_number == query.height)
+            .ok_or_else(|| {
+                error!(
+                    "Query block {} not found in continuity chain for query: {:?}",
+                    query.height,
+                    query.id()
+                );
+                PrecompileFailure::Revert {
+                    output: encode_revert_message("Query block not found in continuity chain"),
+                    exit_status: ExitRevert::Reverted,
+                }
+            })?;
 
-            log2(
-                handle.context().address,
-                SELECTOR_LOG_QUERY_VERIFICATION_FAILED,
-                handle.context().caller,
-                event_data,
-            )
-            .record(handle)?;
-
-            return Ok(QueryVerificationResult {
-                status: 2, // ContinuityChainInvalid
-                result_segments: Vec::new(),
-            });
+        // Verify the merkle proof root matches the block's merkle root
+        if query_block.root != merkle_proof.root {
+            error!(
+                "Merkle root mismatch for query: {:?}. Proof root: {:?}, Block root: {:?}",
+                query.id(),
+                merkle_proof.root,
+                query_block.root
+            );
+            return Self::handle_verification_failure(
+                handle,
+                &query,
+                4, // MerkleRootMismatch
+                "Merkle proof root does not match continuity block",
+            );
         }
 
         // Step 3: Extract data segments
         let result_segments = Self::extract_data_segments(&tx_bytes, &query)?;
 
-        // Emit success event with queryId, chainKey, height, and result segments
+        // Emit success event
+        Self::emit_verification_success(handle, &query, &result_segments)?;
+
+        Ok(QueryVerificationResult {
+            status: 0, // Success
+            result_segments,
+        })
+    }
+
+    /// Generic handler for verification failures
+    fn handle_verification_failure(
+        handle: &mut impl PrecompileHandle,
+        query: &Query,
+        status: u8,
+        message: &str,
+    ) -> EvmResult<QueryVerificationResult> {
+        error!("{} for query: {:?}", message, query.id());
+
+        Self::emit_verification_event(
+            handle,
+            query,
+            status,
+            Some(message.as_bytes().to_vec()),
+            None,
+        )?;
+
+        Ok(QueryVerificationResult {
+            status,
+            result_segments: Vec::new(),
+        })
+    }
+
+    /// Emit success event for verified query
+    fn emit_verification_success(
+        handle: &mut impl PrecompileHandle,
+        query: &Query,
+        result_segments: &[ResultSegment],
+    ) -> Result<(), PrecompileFailure> {
         let result_tokens: Vec<Token> = result_segments
             .iter()
             .map(|segment| {
@@ -275,26 +305,58 @@ where
             })
             .collect();
 
-        let event_data = ethabi::encode(&[
-            Token::FixedBytes(query.id().0.to_vec()), // queryId
-            Token::Uint(query.chain_id.into()),       // chainKey
-            Token::Uint(query.height.into()),         // height
-            Token::Uint(0u8.into()),                  // status: Success
-            Token::Array(result_tokens),              // result segments
-        ]);
+        Self::emit_verification_event(
+            handle,
+            query,
+            0, // Success status
+            None,
+            Some(result_tokens),
+        )
+    }
+
+    /// Common event emitter for query verification results
+    fn emit_verification_event(
+        handle: &mut impl PrecompileHandle,
+        query: &Query,
+        status: u8,
+        error_message: Option<Vec<u8>>,
+        result_tokens: Option<Vec<Token>>,
+    ) -> Result<(), PrecompileFailure> {
+        let selector = if status == 0 {
+            SELECTOR_LOG_QUERY_VERIFIED
+        } else {
+            SELECTOR_LOG_QUERY_VERIFICATION_FAILED
+        };
+
+        let event_data = if status == 0 {
+            // Success event includes result segments
+            ethabi::encode(&[
+                Token::FixedBytes(query.id().0.to_vec()),
+                Token::Uint(query.chain_id.into()),
+                Token::Uint(query.height.into()),
+                Token::Uint(status.into()),
+                Token::Array(result_tokens.unwrap_or_default()),
+            ])
+        } else {
+            // Failure event includes error message
+            ethabi::encode(&[
+                Token::FixedBytes(query.id().0.to_vec()),
+                Token::Uint(query.chain_id.into()),
+                Token::Uint(query.height.into()),
+                Token::Uint(status.into()),
+                Token::Bytes(error_message.unwrap_or_default()),
+            ])
+        };
 
         log2(
             handle.context().address,
-            SELECTOR_LOG_QUERY_VERIFIED,
+            selector,
             handle.context().caller,
             event_data,
         )
         .record(handle)?;
 
-        Ok(QueryVerificationResult {
-            status: 0, // Success
-            result_segments,
-        })
+        Ok(())
     }
 
     /// Verify the continuity chain of block attestations
