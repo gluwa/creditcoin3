@@ -1,6 +1,7 @@
 use pallet_evm::{
     IsPrecompileResult, Precompile, PrecompileHandle, PrecompileResult, PrecompileSet,
 };
+use pallet_evm_precompile_signature_verifier::SignatureVerifierPrecompile;
 use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
 use sp_core::H160;
 use sp_std::marker::PhantomData;
@@ -18,7 +19,7 @@ where
     pub fn new() -> Self {
         Self(Default::default())
     }
-    pub fn used_addresses() -> [H160; 8] {
+    pub fn used_addresses() -> [H160; 9] {
         [
             hash(1),    // 0x0000000000000000000000000000000000000001
             hash(2),    // 0x0000000000000000000000000000000000000002
@@ -28,6 +29,7 @@ where
             hash(1024), // 0x0000000000000000000000000000000000000400
             hash(1025), // 0x0000000000000000000000000000000000000401
             hash(4049), // 0x0000000000000000000000000000000000000Fd1
+            hash(5049), // 0x00000000000000000000000000000000000013B9
         ]
         // see fn execute() below for an address-->precompile map
     }
@@ -49,6 +51,7 @@ where
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
             a if a == hash(4049) => Some(SubstrateTransferPrecompile::<R, ()>::execute(handle)),
+            a if a == hash(5049) => Some(SignatureVerifierPrecompile::<R>::execute(handle)),
             _ => None,
         }
     }
