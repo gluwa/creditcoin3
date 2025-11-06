@@ -77,6 +77,7 @@ pallet-evm-precompile-sha3fips = { workspace = true }
 pallet-evm-precompile-simple = { workspace = true }
 pallet-hotfix-sufficients = { workspace = true }
 
+pallet-evm-precompile-signature-verifier = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
 
 # Tracing
@@ -153,6 +154,7 @@ std = [
   "moonbeam-evm-tracer/std",
   "moonbeam-rpc-primitives-debug/std",
   "ethereum/std",
+  "pallet-evm-precompile-signature-verifier/std",
   "pallet-evm-precompile-substrate-transfer/std",
   "ethereum/std",
   "frame-metadata-hash-extension/std",
