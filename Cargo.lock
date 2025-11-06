@@ -1460,6 +1460,7 @@ dependencies = [
  "pallet-evm-chain-id",
  "pallet-evm-precompile-modexp",
  "pallet-evm-precompile-sha3fips",
+ "pallet-evm-precompile-signature-verifier",
  "pallet-evm-precompile-simple",
  "pallet-evm-precompile-substrate-transfer",
  "pallet-fast-unstake",
@@ -6386,6 +6387,28 @@ source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990ac
 dependencies = [
  "fp-evm",
  "tiny-keccak",
+]
+
+[[package]]
+name = "pallet-evm-precompile-signature-verifier"
+version = "0.1.0"
+dependencies = [
+ "derive_more 0.99.19",
+ "fp-evm",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "pallet-evm",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "precompile-utils",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]
