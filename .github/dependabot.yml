@@ -39,6 +39,7 @@ updates:
       - "/node"
       - "/node/cli-opt"
       - "/precompiles/substrate-transfer"
+      - "/precompiles/signature-verifier"
       - "/primitives/account"
       - "/primitives/core"
       - "/primitives/ext"
