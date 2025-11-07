@@ -70,6 +70,7 @@ updates:
       - "/pallets/supported-chains"
       - "/precompiles/proof-verifier"
       - "/precompiles/substrate-transfer"
+      - "/precompiles/signature-verifier"
       - "/primitives/account"
       - "/primitives/attestation_chain"
       - "/primitives/attestor"
