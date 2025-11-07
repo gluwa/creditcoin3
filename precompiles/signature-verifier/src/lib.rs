@@ -61,8 +61,9 @@ where
             return Err(revert("Invalid signature length: must be exactly 64 bytes"));
         }
 
-        let sig = sr25519::Signature::try_from(signature_bytes.as_slice())
-            .map_err(|_| revert("Invalid signature length: must be exactly 64 bytes"))?;
+        let mut sig_raw = [0u8; 64];
+        sig_raw.copy_from_slice(&signature_bytes);
+        let sig = sr25519::Signature::from_raw(sig_raw);
 
         // Convert public key to sr25519::Public
         let public = sr25519::Public::from_raw(public_key.0);
