@@ -99,7 +99,7 @@ fn verify_wrong_public_key_should_return_false() {
 }
 
 #[test]
-fn verify_invalid_signature_length_should_return_false() {
+fn verify_invalid_signature_length_should_revert() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate a keypair
         let (pair, _seed) = sr25519::Pair::generate();
@@ -123,7 +123,9 @@ fn verify_invalid_signature_length_should_return_false() {
                 },
             )
             .expect_no_logs()
-            .execute_returns(false);
+            .execute_reverts(|output| {
+                output == b"Invalid signature length: must be exactly 64 bytes"
+            });
     });
 }
 
@@ -184,5 +186,35 @@ fn verify_long_message_should_work() {
             )
             .expect_no_logs()
             .execute_returns(true);
+    });
+}
+
+#[test]
+fn verify_signature_too_long_should_revert() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Generate a keypair
+        let (pair, _seed) = sr25519::Pair::generate();
+        let public = pair.public();
+        let message = b"Hello!";
+
+        // Create an invalid signature (too long)
+        let invalid_signature = vec![0u8; 100]; // Should be exactly 64 bytes
+
+        let caller: H160 = Account::Alice.into();
+
+        // Call the precompile with invalid signature length
+        // This will be caught by BoundedBytes boundary check before reaching our code
+        precompiles()
+            .prepare_test(
+                caller,
+                Account::Precompile,
+                PCall::verify {
+                    message: message.to_vec().into(),
+                    signature: invalid_signature.into(),
+                    public_key: H256::from(public.0),
+                },
+            )
+            .expect_no_logs()
+            .execute_reverts(|output| output == b"signature: Value is too large for length");
     });
 }
