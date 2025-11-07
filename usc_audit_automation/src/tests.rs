@@ -4,13 +4,12 @@ use crate::{
     calculate_merkle_root, calculate_usc_and_source_chain_block_diff,
     create_json_message::create_json_message,
     AttestationCheckpointChainNode, AttestationNode, CheckpointCreatedWithinRangeResult,
-    GraphQLAttestationCheckResult, MockEthereumProvider, SupportedChainInfo,
-    UniversalSmartContractProvider,
+    GraphQLAttestationCheckResult, MockEthereumProvider, OrderedBlock, SignedAttestation,
+    SupportedChainInfo, UniversalSmartContractProvider,
 };
 use anyhow::Result;
-use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
+use attestor_primitives::AttestationCheckpoint;
 use ccnext_abi_encoding::abi::EncodingVersion;
-use eth::OrderedBlock;
 use ethers::types::U64;
 use hex_literal::hex;
 use mockall::predicate::*;
@@ -46,7 +45,6 @@ impl UniversalSmartContractProvider for MockUscRpcClientOk {
             },
             signature: [0u8; 96],
             attestors: vec![],
-            continuity_proof: Default::default(),
         }))
     }
     async fn get_attestation_interval(&self, _chain_key: u64) -> Result<Option<u64>> {
@@ -222,7 +220,6 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
         },
         signature: [0u8; 96],
         attestors: vec![],
-        continuity_proof: Default::default(),
     };
     let slack_alert_group = Some("S_TEST_GROUP".to_string());
     let calculated_ethereum_block_merkle_root =
@@ -319,7 +316,6 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
         },
         signature: [0u8; 96],
         attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([1u8; 32])],
-        continuity_proof: Default::default(),
     };
     let slack_alert_group = Some("S_TEST_GROUP".to_string());
     let calculated_ethereum_block_merkle_root =
@@ -414,7 +410,6 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
         },
         signature: [0u8; 96],
         attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([1u8; 32])],
-        continuity_proof: Default::default(),
     };
     let slack_alert_group = Some("S_TEST_GROUP".to_string());
     let calculated_ethereum_block_merkle_root = "somecalculatedmerkle".to_string(); // mismatch
@@ -506,7 +501,6 @@ fn create_message_returns_chain_status_and_group_notification_with_u_slack_id_wh
         },
         signature: [0u8; 96],
         attestors: vec![],
-        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
@@ -600,7 +594,6 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         },
         signature: [0u8; 96],
         attestors: vec![AccountId32::from([10u8; 32]), AccountId32::from([11u8; 32])],
-        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let last_checkpoint_block_number = 50;
@@ -675,7 +668,6 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         },
         signature: [0u8; 96],
         attestors: vec![],
-        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
@@ -765,7 +757,6 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         },
         signature: [0u8; 96],
         attestors: vec![],
-        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
@@ -857,7 +848,6 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         },
         signature: [0u8; 96],
         attestors: vec![],
-        continuity_proof: Default::default(),
     };
     let calculated_ethereum_block_merkle_root = "somecalculatedmerkle".to_string(); // mismatch
     let fetched_ethereum_block_number_by_hash = Some(U64::from(150u64)); // matches header_number
@@ -946,7 +936,6 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
         },
         signature: [0u8; 96],
         attestors: vec![],
-        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
@@ -1037,7 +1026,6 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         },
         signature: [0u8; 96],
         attestors: vec![],
-        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let ethereum_current_block_calculated_merkle_root =
@@ -1118,14 +1106,13 @@ async fn test_calculate_merkle_root_returns_expected_bytes() {
     let hash = &[0u8; 32];
     let transactions = vec![];
     let receipts = vec![];
-    let encoding = EncodingVersion::V1;
     let test_ordered_block = OrderedBlock::try_create(
         chain_id,
         number,
         hash.into(),
         transactions,
         receipts,
-        encoding,
+        EncodingVersion::V1,
     )
     .unwrap();
     let test_ordered_block = Arc::new(test_ordered_block); // Wrap in Arc
@@ -1135,15 +1122,15 @@ async fn test_calculate_merkle_root_returns_expected_bytes() {
     let block_clone = Arc::clone(&test_ordered_block);
     mock_client
         .expect_get_block_by_number()
-        .with(eq(123u64), always())
-        .returning(move |_, _| {
+        .with(eq(123u64))
+        .returning(move |_| {
             let block = Arc::clone(&block_clone);
 
             Ok(Some((*block).clone()))
         });
 
     // Call the function
-    let result = calculate_merkle_root(&mock_client, 123, encoding).await;
+    let result = calculate_merkle_root(&mock_client, 123).await;
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap().len(), 32);

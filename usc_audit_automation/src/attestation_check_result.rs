@@ -1,11 +1,11 @@
 use crate::{
     calculate_usc_and_source_chain_block_diff, CheckpointCreatedWithinRangeResult,
-    GraphQLAttestationCheckResult, MAX_ALLOWED_BLOCK_HEIGHT_DIFF,
+    GraphQLAttestationCheckResult, SignedAttestation, MAX_ALLOWED_BLOCK_HEIGHT_DIFF,
 };
-use attestor_primitives::SignedAttestation;
 use ethers::types::U64;
 use sp_core::H256;
 use subxt::utils::AccountId32;
+use tracing::info;
 
 #[derive(Debug)]
 pub struct AttestationInfo {
@@ -99,7 +99,11 @@ impl AttestationCheckResult {
                     .header_number
                     .parse::<u64>()
                     .unwrap_or_default()
-                    == self.attestation_info.signed_attestation.header_number()
+                    == self
+                        .attestation_info
+                        .signed_attestation
+                        .attestation
+                        .header_number()
             })
             .unwrap_or_default()
     }
@@ -175,6 +179,11 @@ pub fn compute_attestation_check_result(
         fetched_ethereum_block_number_by_hash.map(|block| block.as_u64());
 
     let attestation_merkle_root = hex::encode(latest_signed_attestation.attestation.root);
+    info!(
+        "Attestation Merkle Root: {} for attestor_best_block_number: {}",
+        attestation_merkle_root,
+        latest_signed_attestation.attestation.header_number()
+    );
 
     let attestation_info = AttestationInfo {
         attestor_best_block_number,
@@ -200,8 +209,11 @@ pub fn compute_attestation_check_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AttestationCheckpointChainNode, AttestationNode, GraphQLAttestationCheckResult};
-    use attestor_primitives::{Attestation, SignedAttestation};
+    use crate::{
+        AttestationCheckpointChainNode, AttestationNode, GraphQLAttestationCheckResult,
+        SignedAttestation,
+    };
+    use attestor_primitives::Attestation;
     use sp_core::H256;
     use subxt::utils::AccountId32;
 
@@ -219,7 +231,6 @@ mod tests {
             },
             signature: [0u8; 96],
             attestors: vec![],
-            continuity_proof: Default::default(),
         }
     }
 
@@ -683,7 +694,6 @@ mod tests {
             },
             signature: [0u8; 96],
             attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([2u8; 32])],
-            continuity_proof: Default::default(),
         };
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(100u64.into());
@@ -774,7 +784,6 @@ mod tests {
             },
             signature: [0u8; 96],
             attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([2u8; 32])],
-            continuity_proof: Default::default(),
         };
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(100u64.into());

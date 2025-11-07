@@ -1,11 +1,9 @@
 use anyhow::{Context, Result};
-use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
-use cc_client::Client as USCClient;
+use attestor_primitives::AttestationCheckpoint;
 use ccnext_abi_encoding::abi::EncodingVersion;
 use clap::Parser;
-use eth::{self, AlloyB256, Client as EthClient, OrderedBlock};
+use eth::{self, AlloyB256};
 use ethers::types::U64;
-
 use mockall::{automock, predicate::*};
 use reqwest::Client;
 use serde::Deserialize;
@@ -13,17 +11,21 @@ use sp_core::H256;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use subxt::utils::AccountId32;
-use tracing::info;
+use tracing::{debug, info};
 
 const MAX_ALLOWED_BLOCK_HEIGHT_DIFF: i128 = 50;
 const CHAIN_LIST_URL: &str = "https://chainid.network/chains.json";
 
 pub mod attestation_check_result;
 pub mod attestation_checks;
+pub mod clients;
 mod create_json_message;
 mod ethereum_rpc;
 #[cfg(test)]
 mod tests;
+
+use clients::usc::{SignedAttestation, SupportedChain, USCClient};
+use eth::{starknet_pedersen_mmr, Client as EthClient, OrderedBlock};
 
 #[derive(Parser, Debug)]
 #[command(name = "sanities checker")]
@@ -80,6 +82,7 @@ pub async fn fetch_chains_json(client: &Client) -> Result<Option<Vec<ChainInfo>>
     Ok(Some(chains))
 }
 
+#[derive(Debug, Clone)]
 pub struct SupportedChainInfo {
     pub chain_id: u64,
     pub chain_name: String,
@@ -121,12 +124,9 @@ pub(crate) trait EthereumProvider {
         &self,
         block_hash: ethers_core::types::H256,
     ) -> Result<Option<U64>>;
-    async fn get_block_by_number(
-        &self,
-        block_number: u64,
-        encoding: EncodingVersion,
-    ) -> Result<Option<OrderedBlock>>;
+    async fn get_block_by_number(&self, block_number: u64) -> Result<Option<OrderedBlock>>;
 }
+
 impl EthereumProvider for EthClient {
     async fn fetch_block_number(&self) -> Result<Option<U64>> {
         let block_number = self.get_last_block().await?;
@@ -143,12 +143,8 @@ impl EthereumProvider for EthClient {
 
         Ok(Some(U64::from(block_number)))
     }
-    async fn get_block_by_number(
-        &self,
-        block_number: u64,
-        encoding: EncodingVersion,
-    ) -> Result<Option<OrderedBlock>> {
-        let ordered_block = self.get_block(block_number, encoding).await?;
+    async fn get_block_by_number(&self, block_number: u64) -> Result<Option<OrderedBlock>> {
+        let ordered_block = self.get_block(block_number, EncodingVersion::V1).await?;
 
         Ok(Some(ordered_block))
     }
@@ -289,13 +285,13 @@ pub fn calculate_usc_and_source_chain_block_diff(
 pub(crate) async fn calculate_merkle_root(
     eth_client: &impl EthereumProvider,
     block_number: u64,
-    encoding: EncodingVersion,
 ) -> Result<[u8; 32]> {
+    debug!("Calculating Merkle root for block number: {}", block_number);
     let ordered_block = eth_client
-        .get_block_by_number(block_number, encoding)
+        .get_block_by_number(block_number)
         .await?
         .context("Failed to get block")?;
-    let merkle_tree = eth::starknet_pedersen_mmr(&ordered_block);
+    let merkle_tree = starknet_pedersen_mmr(&ordered_block);
     Ok(merkle_tree.root().to_bytes_be())
 }
 
@@ -408,20 +404,17 @@ pub async fn get_graphql_attestation_check_result(
             .nodes
             .into_iter()
             .next()
-            .map(|n| AttestationNode::from(&n))
-            .context("No attestation node found")?;
+            .map(|n| AttestationNode::from(&n));
 
-        let checkpoint_chain_node = data
-            .attestation_chain_data
-            .nodes
-            .into_iter()
-            .next()
-            .context("No chain node found")?;
-
-        return Ok(Some(GraphQLAttestationCheckResult {
-            attestation_node,
-            checkpoint_chain_node,
-        }));
+        let checkpoint_chain_node = data.attestation_chain_data.nodes.into_iter().next();
+        if let (Some(attestation_node), Some(checkpoint_chain_node)) =
+            (attestation_node, checkpoint_chain_node)
+        {
+            return Ok(Some(GraphQLAttestationCheckResult {
+                attestation_node,
+                checkpoint_chain_node,
+            }));
+        }
     }
 
     Ok(None)

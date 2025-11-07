@@ -1,23 +1,20 @@
-use anyhow::{Context, Result};
-use attestor_primitives::SignedAttestation;
-use cc_client::{
-    self, cc3, cc3::runtime_types::supported_chains_primitives::SupportedChain, Client as USCClient,
-};
-use ccnext_abi_encoding::abi::EncodingVersion;
-use eth::{self, Client as EthClient};
-use hex;
-use reqwest::Client;
-use sp_core::H256;
-use subxt::utils::AccountId32;
-use tracing::{error, info};
-
 use crate::{
     attestation_check_result::compute_attestation_check_result, calculate_merkle_root,
     check_attestation_checkpoint_created_within_block_interval_range,
     create_json_message::create_json_message, ethereum_rpc::get_ethereum_rpc_url_from_chain_cache,
     fetch_chains_json, get_graphql_attestation_check_result, ChainCache, EthereumProvider,
-    SanitiesConfigFile, SupportedChainInfo, USCClientWrapper, UniversalSmartContractProvider,
+    SanitiesConfigFile, SignedAttestation, SupportedChain, SupportedChainInfo, USCClient,
+    USCClientWrapper, UniversalSmartContractProvider,
 };
+use anyhow::{Context, Result};
+use eth::Client as EthClient;
+use hex;
+use parity_scale_codec::Decode;
+use reqwest::Client;
+use sp_core::H256;
+use subxt::dynamic::{storage, Value};
+use subxt::utils::AccountId32;
+use tracing::{error, info};
 
 pub(crate) async fn get_attestor_latest_attestation_data(
     usc_client: &impl UniversalSmartContractProvider,
@@ -29,12 +26,17 @@ pub(crate) async fn get_attestor_latest_attestation_data(
         .await?
         .with_context(|| format!("No last digest found for chain key {chain_key}"))?;
 
+    info!(
+        "Fetched last digest for chain key {chain_key}: 0x{:x}",
+        last_digest
+    );
     // Get the signed attestation corresponding to the digest
     let signed_attestation = usc_client
         .get_attestation_by_digest(chain_key, last_digest)
         .await?
         .context("No attestation found for the given digest")?;
 
+    info!("Fetched signed attestation for chain key {chain_key} {signed_attestation:?}");
     Ok(signed_attestation)
 }
 
@@ -61,17 +63,18 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
     let chain_info = fetch_chains_json(&client).await?;
     let chain_cache = ChainCache::from_chains(chain_info.expect("No chain info found"));
 
+    info!("Connecting to USC RPC at {}", &config.usc_rpc_url);
     // Create USC client
-    let usc_client = USCClientWrapper(
-        USCClient::new(&config.usc_rpc_url.clone(), &config.usc_account_mnemonic).await?,
-    );
+    let usc_client =
+        USCClientWrapper(USCClient::new(&config.usc_rpc_url, &config.usc_account_mnemonic).await?);
 
     // Iterate over supported chains
-    let address = cc3::storage().supported_chains().supported_chains_iter();
+    let address = storage("SupportedChains", "SupportedChains", vec![]);
+    info!("Queried supported chains storage address {:?}", &address);
+
     let mut supported_chains_iter = usc_client
         .0
         .api()
-        .await?
         .storage()
         .at_latest()
         .await?
@@ -79,10 +82,10 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
         .await?;
 
     while let Some(Ok(kv)) = supported_chains_iter.next().await {
-        let supported_chain: SupportedChain = kv.value;
+        let bytes = kv.value.encoded();
+        let supported_chain = SupportedChain::decode(&mut &bytes[..])?;
         let chain_name = String::from_utf8(supported_chain.chain_name.clone()).unwrap_or_default();
         let chain_id = supported_chain.chain_id;
-        let encoding = EncodingVersion::from(supported_chain.chain_encoding);
 
         let chain_key = usc_client
             .0
@@ -122,16 +125,26 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
         // Create Ethereum client
         let eth_client: EthClient = EthClient::new(&eth_rpc_url, None).await?;
 
-        // Get last signed attestation, continue if none found
-        let Ok(latest_signed_attestation) =
-            get_attestor_latest_attestation_data(&usc_client, supported_chain_info.chain_key).await
-        else {
-            error!(
-                    "No signed attestation found for {} with chain key: {}. Skipping sanity checks for this chain.",
-                    supported_chain_info.chain_name, supported_chain_info.chain_key
+        let latest_signed_attestation = match get_attestor_latest_attestation_data(
+            &usc_client,
+            supported_chain_info.chain_key,
+        )
+        .await
+        {
+            Ok(latest_signed_attestation) => latest_signed_attestation,
+            Err(e) => {
+                error!(
+                    "No signed attestation found for {} with chain key: {}. Skipping sanity checks for this chain. Error: {}",
+                    supported_chain_info.chain_name, supported_chain_info.chain_key, e
                 );
-            continue;
+                continue;
+            }
         };
+
+        info!(
+            "Latest signed attestation fetched: {:?}",
+            latest_signed_attestation.attestation.root
+        );
 
         // Fetch latest ethereum chain block number
         let latest_eth_block_number = get_ethereum_current_block_number(&eth_client).await?;
@@ -154,12 +167,11 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
         let calculated_ethereum_block_root = calculate_merkle_root(
             &eth_client,
             latest_signed_attestation.attestation.header_number(),
-            encoding,
         )
         .await?;
 
         let ethereum_block_calculated_merkle_root = hex::encode(calculated_ethereum_block_root);
-        info!("Ethereum block calculated merkle root 0x{ethereum_block_calculated_merkle_root}\n");
+        info!("Ethereum block calculated merkle root 0x{ethereum_block_calculated_merkle_root} for block number: {}", latest_signed_attestation.attestation.header_number());
 
         let check_point_created_within_range_checker =
             check_attestation_checkpoint_created_within_block_interval_range(
@@ -173,19 +185,23 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
             check_point_created_within_range_checker.checkpoint_created_within_range
         );
 
-        let elected_attestors_storage_query = cc_client::cc3::storage()
-            .attestation()
-            .active_attestors(supported_chain_info.chain_key);
-
+        let elected_attestors_storage_query = storage(
+            "Attestation",     // pallet name exactly as shown in metadata
+            "ActiveAttestors", // storage item name exactly as shown in metadata
+            vec![Value::from(supported_chain_info.chain_key)],
+        );
         let maybe_elected_attestors = usc_client
             .0
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
             .fetch(&elected_attestors_storage_query)
             .await?;
+
+        let maybe_elected_attestors: Option<Vec<AccountId32>> = maybe_elected_attestors
+            .map(|val| val.as_type::<Vec<AccountId32>>())
+            .transpose()?; // converts Option<Result<_>> -> Result<Option<_>>
 
         let last_checkpoint_block_number =
             check_point_created_within_range_checker.last_checkpoint_block_number;

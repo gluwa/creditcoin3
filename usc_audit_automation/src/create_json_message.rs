@@ -303,6 +303,7 @@ pub fn create_json_message(
     let latest_attestation_block_number_str = &attestation_check_result
         .attestation_info
         .signed_attestation
+        .attestation
         .header_number()
         .to_formatted_string(&Locale::en);
 
