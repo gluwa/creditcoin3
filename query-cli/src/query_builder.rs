@@ -1,4 +1,3 @@
-use super::Network;
 use alloy::rpc::types::{Transaction, TransactionReceipt};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -10,6 +9,8 @@ use ccnext_query_builder::abi::{
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+
+use crate::Network;
 
 // Header names and url expected by etherscan
 const MODULE: &str = "module";

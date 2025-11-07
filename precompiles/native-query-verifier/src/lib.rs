@@ -34,9 +34,9 @@ type MerkleProof = QueryMerkleProof;
 /// QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])
 pub const SELECTOR_LOG_QUERY_VERIFIED: [u8; 32] =
     keccak256!("QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])");
-/// QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)
-pub const SELECTOR_LOG_QUERY_VERIFICATION_FAILED: [u8; 32] =
-    keccak256!("QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)");
+/// BatchQueriesVerified(uint256,uint256,uint256)
+pub const SELECTOR_LOG_BATCH_QUERIES_VERIFIED: [u8; 32] =
+    keccak256!("BatchQueriesVerified(uint256,uint256,uint256)");
 
 #[cfg(test)]
 mod mock;
@@ -67,6 +67,9 @@ const WEIGHT_CONTINUITY_VERIFY: u64 = 50_000; // Continuity verification work
 // Size constraints
 type ConstU10MB = sp_core::ConstU32<10_485_760>; // Type alias for bounded vec
 
+// Batch queries constraint
+type MaxBatchSize = sp_core::ConstU32<10>;
+
 /// Result of query verification
 #[derive(Debug, Clone, PartialEq, Eq, Codec)]
 pub struct QueryVerificationResult {
@@ -83,6 +86,17 @@ pub struct ResultSegment {
     pub offset: u64,
     /// Extracted bytes at this offset
     pub bytes: H256,
+}
+
+/// Result of batch query verification
+#[derive(Debug, Clone, PartialEq, Eq, Codec)]
+pub struct BatchQueryVerificationResult {
+    /// Number of successfully verified queries
+    pub successful_queries: u32,
+    /// Number of failed queries
+    pub failed_queries: u32,
+    /// Individual results for each query
+    pub results: Vec<QueryVerificationResult>,
 }
 
 /// Helper function to encode revert messages in Solidity format
@@ -127,6 +141,74 @@ where
     fn get_checkpoint(chain_key: u64, digest: H256) -> Option<u64> {
         pallet_attestation_poc::Pallet::<Runtime>::checkpoints(chain_key, digest)
     }
+
+    /// Verify a single query against its merkle proof and continuity chain
+    /// This is the core verification logic used by both single and batch verification
+    /// Note: Gas charging is handled by the caller
+    fn verify_single_query_internal(
+        _handle: &mut impl PrecompileHandle,
+        query: &Query,
+        tx_bytes: &[u8],
+        merkle_proof: &MerkleProof,
+        continuity_blocks: &[Block],
+    ) -> EvmResult<QueryVerificationResult> {
+        // Step 1: Verify Merkle proof
+        let merkle_valid = merkle_proof.verify(tx_bytes);
+
+        if !merkle_valid {
+            return Ok(QueryVerificationResult {
+                status: 1, // MerkleProofInvalid
+                result_segments: Vec::new(),
+            });
+        }
+
+        // Step 2: Check if continuity chain contains the query block
+        // If not, we can't verify the merkle root against the continuity chain
+        let query_block = continuity_blocks
+            .iter()
+            .find(|b| b.block_number == query.height);
+
+        // Step 3: If we have the query block, verify merkle root matches
+        if let Some(query_block) = query_block {
+            if merkle_proof.root != query_block.root {
+                error!(
+                    "Merkle root mismatch: proof root {:?} != block root {:?}",
+                    merkle_proof.root, query_block.root
+                );
+                return Ok(QueryVerificationResult {
+                    status: 4, // MerkleRootMismatch
+                    result_segments: Vec::new(),
+                });
+            }
+        } else {
+            // Query block not in continuity chain - this is a continuity chain issue
+            error!("Query block {} not found in continuity chain", query.height);
+            return Ok(QueryVerificationResult {
+                status: 2, // ContinuityChainInvalid
+                result_segments: Vec::new(),
+            });
+        }
+
+        // Step 4: Extract data segments
+        match Self::extract_data_segments(tx_bytes, query) {
+            Ok(segments) => Ok(QueryVerificationResult {
+                status: 0, // Success
+                result_segments: segments,
+            }),
+            Err(e @ PrecompileFailure::Revert { .. }) => {
+                // Propagate revert errors (like segment out of bounds)
+                Err(e)
+            }
+            Err(e) => {
+                // Other extraction errors return status 3
+                error!("Failed to extract data segments: {e:?}");
+                Ok(QueryVerificationResult {
+                    status: 3, // DataExtractionError
+                    result_segments: Vec::new(),
+                })
+            }
+        }
+    }
     /// Verify a blockchain query with Merkle proof and continuity chain
     ///
     /// # Parameters
@@ -167,6 +249,37 @@ where
             });
         }
 
+        // Check for empty continuity chain
+        if continuity_blocks.is_empty() {
+            return Err(PrecompileFailure::Revert {
+                output: encode_revert_message("Continuity chain cannot be empty"),
+                exit_status: ExitRevert::Reverted,
+            });
+        }
+
+        // Charge for continuity chain verification
+        let continuity_gas = GAS_PER_CONTINUITY_BLOCK
+            .checked_mul(continuity_blocks.len() as u64)
+            .ok_or(PrecompileFailure::Error {
+                exit_status: ExitError::OutOfGas,
+            })?;
+        handle.record_cost(continuity_gas)?;
+        let continuity_weight = sp_weights::Weight::from_parts(WEIGHT_CONTINUITY_VERIFY, 0);
+        RuntimeHelper::<Runtime>::record_external_cost(handle, continuity_weight, 0)?;
+
+        // Verify continuity chain
+        let blocks: Vec<Block> = continuity_blocks;
+        let continuity_valid = Self::verify_continuity_chain(handle, &blocks, &query)?;
+
+        if !continuity_valid {
+            return Self::handle_verification_failure(
+                handle,
+                &query,
+                2, // ContinuityChainInvalid
+                "Continuity chain validation failed",
+            );
+        }
+
         // Charge for transaction data processing
         let tx_gas =
             GAS_PER_TX_BYTE
@@ -186,106 +299,316 @@ where
         let merkle_weight = sp_weights::Weight::from_parts(WEIGHT_MERKLE_VERIFY, 0);
         RuntimeHelper::<Runtime>::record_external_cost(handle, merkle_weight, 0)?;
 
-        // Step 1: Verify Merkle proof
-        let merkle_valid = merkle_proof.verify(&tx_bytes);
+        // Use the common verification logic
+        let result =
+            Self::verify_single_query_internal(handle, &query, &tx_bytes, &merkle_proof, &blocks)?;
 
-        if !merkle_valid {
-            return Self::handle_verification_failure(
-                handle,
-                &query,
-                1, // MerkleProofInvalid
-                "Merkle proof validation failed",
-            );
+        // Handle the result
+        if result.status == 0 {
+            // Emit success event
+            Self::emit_verification_success(handle, &query, &result.result_segments)?;
+        } else {
+            // Map status codes to error messages
+            let message = match result.status {
+                1 => "Merkle proof validation failed",
+                2 => "Query block not found in continuity chain",
+                3 => "Failed to extract data segments",
+                4 => "Merkle root mismatch",
+                _ => "Unknown verification error",
+            };
+            return Self::handle_verification_failure(handle, &query, result.status, message);
         }
 
-        // Charge for continuity chain verification
-        let continuity_gas = GAS_PER_CONTINUITY_BLOCK
-            .checked_mul(continuity_blocks.len() as u64)
-            .ok_or(PrecompileFailure::Error {
-                exit_status: ExitError::OutOfGas,
-            })?;
-        handle.record_cost(continuity_gas)?;
-        let continuity_weight = sp_weights::Weight::from_parts(WEIGHT_CONTINUITY_VERIFY, 0);
-        RuntimeHelper::<Runtime>::record_external_cost(handle, continuity_weight, 0)?;
+        Ok(result)
+    }
 
-        // Step 2: Verify continuity chain
-        let blocks: Vec<Block> = continuity_blocks;
-        let continuity_valid = Self::verify_continuity_chain(handle, &blocks, &query)?;
+    /// Verify a batch of queries with shared continuity proof
+    ///
+    /// This function verifies multiple queries that share a common continuity chain,
+    /// optimizing gas costs by verifying the continuity proof only once.
+    /// Verify batch queries with a shared continuity chain (POC-optimized)
+    ///
+    /// Uses relaxed verification mode for efficiency:
+    /// 1. Verifies the continuity proof chain once (shared across all queries)
+    /// 2. For each query, only verifies:
+    ///    - Merkle proof for transaction inclusion
+    ///    - Query block exists in continuity chain at correct position
+    ///    - Merkle root matches the continuity block
+    ///
+    /// This is more efficient than strict verification as it avoids redundant
+    /// continuity chain validation for each query. The primary goal is proving
+    /// inclusion - as long as the transaction is in the block and the block's
+    /// merkle root is validated against a checkpoint, full sequential chain
+    /// verification per query is not necessary.
+    ///
+    /// # Arguments
+    /// * `queries` - Vector of queries to verify
+    /// * `tx_data_array` - Transaction data for each query
+    /// * `merkle_proofs` - Merkle proofs for each query
+    /// * `shared_continuity_blocks` - Shared continuity chain covering all queries
+    ///
+    /// # Returns
+    /// `BatchQueryVerificationResult` with statistics and individual results
+    #[precompile::public("verifyBatchQueries((uint64,uint64,(uint64,uint64)[])[],bytes[],(bytes32,(bytes32,bool)[])[],(uint64,bytes32,bytes32,bytes32)[])")]
+    fn verify_batch_queries(
+        handle: &mut impl PrecompileHandle,
+        queries: BoundedVec<Query, MaxBatchSize>,
+        tx_data_array: Vec<BoundedBytes<ConstU10MB>>,
+        merkle_proofs: Vec<MerkleProof>,
+        shared_continuity_blocks: Vec<Block>,
+    ) -> EvmResult<BatchQueryVerificationResult> {
+        let queries: Vec<Query> = queries.into();
+        let num_queries = queries.len();
+        log::info!("Processing batch of {num_queries} queries");
 
-        if !continuity_valid {
-            return Self::handle_verification_failure(
-                handle,
-                &query,
-                2, // ContinuityChainInvalid
-                "Continuity chain validation failed",
-            );
+        // Validate input arrays have same length
+        if num_queries != tx_data_array.len() || num_queries != merkle_proofs.len() {
+            return Err(PrecompileFailure::Revert {
+                output: encode_revert_message("Input arrays must have the same length"),
+                exit_status: ExitRevert::Reverted,
+            });
         }
 
-        // Step 3: CRITICAL - Verify merkle proof root matches continuity chain
-        // Find the block at query height in the continuity chain
-        let query_block = blocks
-            .iter()
-            .find(|b| b.block_number == query.height)
-            .ok_or_else(|| {
-                error!(
-                    "Query block {} not found in continuity chain for query: {:?}",
-                    query.height,
-                    query.id()
-                );
-                PrecompileFailure::Revert {
-                    output: encode_revert_message("Query block not found in continuity chain"),
+        // Calculate gas for batch operation
+        let base_gas_per_query = GAS_BASE_VERIFY;
+        let total_base_gas =
+            base_gas_per_query
+                .checked_mul(num_queries as u64)
+                .ok_or(PrecompileFailure::Error {
+                    exit_status: ExitError::OutOfGas,
+                })?;
+        handle.record_cost(total_base_gas)?;
+
+        // Find min and max block heights from all queries
+        let min_height =
+            queries
+                .iter()
+                .map(|q| q.height)
+                .min()
+                .ok_or_else(|| PrecompileFailure::Revert {
+                    output: encode_revert_message("Empty queries array"),
                     exit_status: ExitRevert::Reverted,
-                }
-            })?;
+                })?;
 
-        // Verify the merkle proof root matches the block's merkle root
-        if query_block.root != merkle_proof.root {
-            error!(
-                "Merkle root mismatch for query: {:?}. Proof root: {:?}, Block root: {:?}",
-                query.id(),
-                merkle_proof.root,
-                query_block.root
-            );
-            return Self::handle_verification_failure(
-                handle,
-                &query,
-                4, // MerkleRootMismatch
-                "Merkle proof root does not match continuity block",
-            );
+        let max_height = queries.iter().map(|q| q.height).max().unwrap(); // Safe because we already checked for non-empty
+
+        // Verify shared continuity chain once (more efficient than verifying per query)
+        if !shared_continuity_blocks.is_empty() {
+            let continuity_gas = GAS_PER_CONTINUITY_BLOCK
+                .checked_mul(shared_continuity_blocks.len() as u64)
+                .ok_or(PrecompileFailure::Error {
+                    exit_status: ExitError::OutOfGas,
+                })?;
+            handle.record_cost(continuity_gas)?;
+
+            // Verify continuity chain covers the range of all queries
+            if let Some(first_block) = shared_continuity_blocks.first() {
+                if first_block.block_number > min_height {
+                    return Err(PrecompileFailure::Revert {
+                        output: encode_revert_message(
+                            "Continuity chain doesn't cover minimum query height",
+                        ),
+                        exit_status: ExitRevert::Reverted,
+                    });
+                }
+            }
+
+            if let Some(last_block) = shared_continuity_blocks.last() {
+                if last_block.block_number < max_height {
+                    return Err(PrecompileFailure::Revert {
+                        output: encode_revert_message(
+                            "Continuity chain doesn't cover maximum query height",
+                        ),
+                        exit_status: ExitRevert::Reverted,
+                    });
+                }
+            }
+
+            // Verify the continuity chain itself (using first query for chain_id)
+            let first_query = &queries[0];
+            let continuity_valid =
+                Self::verify_continuity_chain(handle, &shared_continuity_blocks, first_query)?;
+
+            if !continuity_valid {
+                // If continuity fails, revert the entire batch
+                return Err(PrecompileFailure::Revert {
+                    output: encode_revert_message("Continuity chain validation failed for batch"),
+                    exit_status: ExitRevert::Reverted,
+                });
+            }
         }
 
-        // Step 3: Extract data segments
-        let result_segments = Self::extract_data_segments(&tx_bytes, &query)?;
+        // Process each query
+        let mut results = Vec::with_capacity(num_queries);
+        let mut successful_queries = 0u32;
+        let mut failed_queries = 0u32;
 
-        // Emit success event
-        Self::emit_verification_success(handle, &query, &result_segments)?;
+        for (i, ((query, tx_data), merkle_proof)) in queries
+            .into_iter()
+            .zip(tx_data_array.into_iter())
+            .zip(merkle_proofs.into_iter())
+            .enumerate()
+        {
+            log::info!("Processing query {}/{}", i + 1, num_queries);
 
-        Ok(QueryVerificationResult {
-            status: 0, // Success
-            result_segments,
+            // Convert bounded bytes to Vec<u8>
+            let tx_bytes: Vec<u8> = tx_data.into();
+
+            // Charge per-transaction data gas
+            let data_gas = GAS_PER_TX_BYTE.checked_mul(tx_bytes.len() as u64).ok_or(
+                PrecompileFailure::Error {
+                    exit_status: ExitError::OutOfGas,
+                },
+            )?;
+            handle.record_cost(data_gas)?;
+
+            // Verify Merkle proof
+            let merkle_gas = GAS_PER_SIBLING
+                .checked_mul(merkle_proof.siblings.len() as u64)
+                .ok_or(PrecompileFailure::Error {
+                    exit_status: ExitError::OutOfGas,
+                })?;
+            handle.record_cost(merkle_gas)?;
+
+            // POC-style relaxed verification for batch queries:
+            // 1. Verify Merkle proof for transaction inclusion
+            let merkle_valid = merkle_proof.verify(&tx_bytes);
+
+            if !merkle_valid {
+                // Merkle proof failed - record failure but don't emit event
+                let result = QueryVerificationResult {
+                    status: 1, // MerkleProofInvalid
+                    result_segments: Vec::new(),
+                };
+                failed_queries += 1;
+                results.push(result);
+                continue;
+            }
+
+            // 2. Find the query block in the continuity chain (relaxed check)
+            // POC optimization: We can compute the index from the query height
+            // if blocks are sequential. First, check if we have a valid range.
+            let first_block_num = shared_continuity_blocks
+                .first()
+                .map(|b| b.block_number)
+                .unwrap_or(0);
+            let last_block_num = shared_continuity_blocks
+                .last()
+                .map(|b| b.block_number)
+                .unwrap_or(0);
+
+            // Try to find by computed index first (more efficient)
+            let query_block = if query.height >= first_block_num && query.height <= last_block_num {
+                // Compute index: query.height - first_block_number
+                let index = (query.height - first_block_num) as usize;
+                if index < shared_continuity_blocks.len() {
+                    let block = &shared_continuity_blocks[index];
+                    // Verify the computed index is correct
+                    if block.block_number == query.height {
+                        Some(block)
+                    } else {
+                        // Fall back to linear search if blocks aren't sequential
+                        shared_continuity_blocks
+                            .iter()
+                            .find(|b| b.block_number == query.height)
+                    }
+                } else {
+                    None
+                }
+            } else {
+                // Query height is outside the range
+                None
+            };
+
+            if let Some(query_block) = query_block {
+                // 3. Verify merkle root matches the continuity block
+                if merkle_proof.root != query_block.root {
+                    // Root mismatch
+                    let result = QueryVerificationResult {
+                        status: 4, // MerkleRootMismatch
+                        result_segments: Vec::new(),
+                    };
+                    // Root mismatch - record failure but don't emit event
+                    failed_queries += 1;
+                    results.push(result);
+                    continue;
+                }
+
+                // 4. Extract data segments (only if merkle proof and root match succeeded)
+                match Self::extract_data_segments(&tx_bytes, &query) {
+                    Ok(segments) => {
+                        let result = QueryVerificationResult {
+                            status: 0, // Success
+                            result_segments: segments.clone(),
+                        };
+                        Self::emit_verification_success(handle, &query, &segments)?;
+                        successful_queries += 1;
+                        results.push(result);
+                    }
+                    Err(e @ PrecompileFailure::Revert { .. }) => {
+                        // Propagate revert errors
+                        return Err(e);
+                    }
+                    Err(_) => {
+                        // Other extraction errors - record failure but don't emit event
+                        let result = QueryVerificationResult {
+                            status: 3, // DataExtractionError
+                            result_segments: Vec::new(),
+                        };
+                        failed_queries += 1;
+                        results.push(result);
+                    }
+                }
+            } else {
+                // Query block not found in continuity chain - record failure but don't emit event
+                let result = QueryVerificationResult {
+                    status: 2, // ContinuityChainInvalid
+                    result_segments: Vec::new(),
+                };
+                failed_queries += 1;
+                results.push(result);
+            }
+        }
+
+        // Emit batch summary event (in addition to individual events)
+        log::info!(
+            "Batch verification completed: {successful_queries} successful, {failed_queries} failed"
+        );
+
+        let event_data = ethabi::encode(&[
+            Token::Uint(successful_queries.into()),
+            Token::Uint(failed_queries.into()),
+            Token::Uint((successful_queries + failed_queries).into()),
+        ]);
+
+        log2(
+            handle.context().address,
+            SELECTOR_LOG_BATCH_QUERIES_VERIFIED,
+            handle.context().caller,
+            event_data,
+        )
+        .record(handle)?;
+
+        Ok(BatchQueryVerificationResult {
+            successful_queries,
+            failed_queries,
+            results,
         })
     }
 
     /// Generic handler for verification failures
     fn handle_verification_failure(
-        handle: &mut impl PrecompileHandle,
+        _handle: &mut impl PrecompileHandle,
         query: &Query,
-        status: u8,
+        _status: u8,
         message: &str,
     ) -> EvmResult<QueryVerificationResult> {
         error!("{} for query: {:?}", message, query.id());
 
-        Self::emit_verification_event(
-            handle,
-            query,
-            status,
-            Some(message.as_bytes().to_vec()),
-            None,
-        )?;
-
-        Ok(QueryVerificationResult {
-            status,
-            result_segments: Vec::new(),
+        // Revert with the error message instead of emitting an event
+        Err(PrecompileFailure::Revert {
+            output: encode_revert_message(message),
+            exit_status: ExitRevert::Reverted,
         })
     }
 
@@ -305,52 +628,18 @@ where
             })
             .collect();
 
-        Self::emit_verification_event(
-            handle,
-            query,
-            0, // Success status
-            None,
-            Some(result_tokens),
-        )
-    }
-
-    /// Common event emitter for query verification results
-    fn emit_verification_event(
-        handle: &mut impl PrecompileHandle,
-        query: &Query,
-        status: u8,
-        error_message: Option<Vec<u8>>,
-        result_tokens: Option<Vec<Token>>,
-    ) -> Result<(), PrecompileFailure> {
-        let selector = if status == 0 {
-            SELECTOR_LOG_QUERY_VERIFIED
-        } else {
-            SELECTOR_LOG_QUERY_VERIFICATION_FAILED
-        };
-
-        let event_data = if status == 0 {
-            // Success event includes result segments
-            ethabi::encode(&[
-                Token::FixedBytes(query.id().0.to_vec()),
-                Token::Uint(query.chain_id.into()),
-                Token::Uint(query.height.into()),
-                Token::Uint(status.into()),
-                Token::Array(result_tokens.unwrap_or_default()),
-            ])
-        } else {
-            // Failure event includes error message
-            ethabi::encode(&[
-                Token::FixedBytes(query.id().0.to_vec()),
-                Token::Uint(query.chain_id.into()),
-                Token::Uint(query.height.into()),
-                Token::Uint(status.into()),
-                Token::Bytes(error_message.unwrap_or_default()),
-            ])
-        };
+        // Emit the success event directly
+        let event_data = ethabi::encode(&[
+            Token::FixedBytes(query.id().0.to_vec()),
+            Token::Uint(query.chain_id.into()),
+            Token::Uint(query.height.into()),
+            Token::Uint(0u8.into()), // Success status
+            Token::Array(result_tokens),
+        ]);
 
         log2(
             handle.context().address,
-            selector,
+            SELECTOR_LOG_QUERY_VERIFIED,
             handle.context().caller,
             event_data,
         )
@@ -360,17 +649,19 @@ where
     }
 
     /// Verify the continuity chain of block attestations
+    ///
+    /// Note: For POC optimization compatibility, batch verification uses
+    /// implicit block numbering where block_number can be computed from index
+    /// (block_number = start_block + index). This optimization is implemented
+    /// directly in the batch verification logic for efficiency.
     fn verify_continuity_chain(
         handle: &mut impl PrecompileHandle,
         continuity_blocks: &[Block],
         query: &Query,
     ) -> Result<bool, PrecompileFailure> {
-        // For now, allow empty continuity chain for testing
+        // Should not be called with empty continuity_blocks, but check anyway
         if continuity_blocks.is_empty() {
-            return Err(PrecompileFailure::Revert {
-                output: encode_revert_message("Continuity chain cannot be empty"),
-                exit_status: ExitRevert::Reverted,
-            });
+            return Ok(false);
         }
 
         // Get the last finalized digest for this chain
@@ -451,10 +742,8 @@ where
             last_finalized_digest = block_digest;
         }
 
-        // Validate the head's digest matches the query's previous requirement
+        // Validate the continuity chain reaches the query height
         if let Some(head) = continuity_blocks.last() {
-            // The continuity chain must reach at least the query's block height
-            // This ensures the merkle proof is for a transaction in a block that's covered by the chain
             if head.block_number < query.height {
                 error!(
                     "❌ Continuity chain ends at block {}, but query requires block {}",
@@ -465,9 +754,6 @@ where
                     exit_status: ExitRevert::Reverted,
                 });
             }
-
-            // If the chain extends beyond the query height, that's acceptable
-            // as it provides additional confirmation of the chain's validity
         }
 
         Ok(true)

@@ -35,18 +35,6 @@ pub fn generate_merkle_proof(block: &OrderedBlock, tx_index: usize) -> Result<Qu
     Ok(QueryMerkleProof::new(tree.root(), siblings))
 }
 
-/// Get transaction data from the block
-pub fn get_transaction_data(block: &OrderedBlock, tx_index: usize) -> Result<Vec<u8>> {
-    let tx = block
-        .items()
-        .get(tx_index)
-        .ok_or_else(|| anyhow::anyhow!("Transaction index {} not found in block", tx_index))?;
-
-    // Use to_bytes() to get the same data that was used to build the Merkle tree
-    // This includes the BlockItemIdentifier (16 bytes: block_number + index)
-    Ok(tx.to_bytes())
-}
-
 /// Display block structure information
 pub fn display_block_info(block: &OrderedBlock) {
     println!("\n=== Block Structure ===");

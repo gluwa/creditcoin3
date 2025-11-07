@@ -508,7 +508,7 @@ type QueryVerification @entity {
     # Block height for the query
     height: BigInt!
 
-    # Verification status: 0 = Success, 1 = MerkleProofInvalid, 2 = ContinuityChainInvalid
+    # Verification status: 0 = Success, 1 = MerkleProofInvalid, 2 = ContinuityChainInvalid, 3 = DataExtractionError, 4 = MerkleRootMismatch
     status: Int! # this-is-expected
 
     # Failure reason if verification failed
@@ -522,6 +522,31 @@ type QueryVerification @entity {
 
     # Result segments if verification succeeded
     resultSegments: [QueryResultSegment]
+}
+
+type BatchQueryVerification @entity {
+    """
+    Batch query verification event from the Native Query Verifier precompile
+    """
+    id: ID!
+
+    # Transaction hash that triggered the batch verification
+    transactionHash: String! @index
+
+    # Number of successful queries in the batch
+    successfulQueries: Int!
+
+    # Number of failed queries in the batch
+    failedQueries: Int!
+
+    # Total number of queries in the batch
+    totalQueries: Int!
+
+    # Block number when batch verification occurred
+    blockNumber: BigInt!
+
+    # Timestamp of batch verification
+    timestamp: BigInt!
 }
 
 type QueryResultSegment @jsonField {

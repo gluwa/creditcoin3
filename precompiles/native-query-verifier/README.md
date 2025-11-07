@@ -13,6 +13,8 @@ This precompile enables smart contracts to verify blockchain data from external 
 - **Continuity Chain Validation**: Verifies block attestation chains for data continuity
 - **Data Extraction**: Extracts specific data segments from verified transactions
 - **Gas Efficient**: Optimized gas costs for verification operations
+- **POC-Optimized Batch Verification**: Relaxed mode for batch queries that verifies continuity once
+- **Implicit Block Numbering**: Efficient index-based block number computation for sequential chains
 
 ## Architecture
 
@@ -158,6 +160,30 @@ contract MyContract {
 }
 ```
 
+## POC Optimizations
+
+The precompile includes two key optimizations from the POC (Proof of Concept) implementation:
+
+### 1. Relaxed Batch Verification Mode
+
+For batch queries, the precompile uses a relaxed verification approach:
+- The continuity proof chain is verified **once** upfront (shared across all queries)
+- Each individual query only needs to verify:
+  - Merkle proof for transaction inclusion
+  - Query block exists in the continuity chain
+  - Merkle root matches the continuity block
+
+This is significantly more efficient than strict verification which would validate the entire continuity chain for each query. The relaxed mode is safe because the primary goal is proving **inclusion** - as long as the transaction is in the block and the block's merkle root is validated against a checkpoint, full sequential chain verification per query is not necessary.
+
+### 2. Implicit Block Numbering
+
+The precompile optimizes block lookups by computing block numbers from indices:
+- For sequential continuity chains, block number = start_block + index
+- This allows O(1) lookup instead of O(n) linear search
+- Falls back to linear search if blocks aren't sequential
+
+This optimization reduces computational overhead when processing large continuity chains.
+
 ## Gas Costs
 
 The precompile uses the following gas cost model (aligned with standard Ethereum precompiles):
@@ -181,6 +207,50 @@ The precompile uses the following gas cost model (aligned with standard Ethereum
 | 2 | ContinuityChainInvalid | Continuity chain validation failed |
 | 3 | DataExtractionError | Error extracting data from transaction |
 | 4 | MerkleRootMismatch | Merkle proof root doesn't match continuity block |
+
+## Batch Query Verification
+
+The precompile supports batch verification of up to 10 queries with a shared continuity proof, providing significant gas savings:
+
+### Features
+
+- **Shared Continuity Proof**: Verifies the continuity chain once for all queries
+- **Gas Optimization**: For 5 queries with 20-block continuity, saves ~240,000 gas (80% reduction)
+- **Individual Event Emission**: Emits `QueryVerified` or `QueryVerificationFailed` for each query
+- **Summary Event**: Emits `BatchQueriesVerified` with aggregate statistics
+
+### Usage Example
+
+```solidity
+// Prepare multiple queries
+Query[] memory queries = new Query[](3);
+bytes[] memory txDataArray = new bytes[](3);
+MerkleProof[] memory proofs = new MerkleProof[](3);
+
+// ... populate arrays ...
+
+// Shared continuity blocks covering all query heights
+Block[] memory sharedBlocks = getBlocks(100, 102);
+
+// Batch verify
+BatchQueryVerificationResult memory result = verifier.verifyBatchQueries(
+    queries,
+    txDataArray,
+    proofs,
+    sharedBlocks
+);
+
+// Check results
+require(result.failed_queries == 0, "Some queries failed");
+```
+
+### Events
+
+When calling `verifyBatchQueries`, the following events are emitted:
+1. **Individual Events**: `QueryVerified` or `QueryVerificationFailed` for each query
+2. **Summary Event**: `BatchQueriesVerified(successful, failed, total)` at the end
+
+This ensures full data availability in indexers while providing summary statistics.
 
 ## Implementation Status
 

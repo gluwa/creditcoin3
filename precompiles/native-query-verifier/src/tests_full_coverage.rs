@@ -621,10 +621,7 @@ fn test_continuity_wrong_attestation_header_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 2, // ContinuityChainInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain validation failed");
     });
 }
 
@@ -668,10 +665,7 @@ fn test_transaction_at_size_limit() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid (expected for this test)
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Merkle proof validation failed");
     });
 }
 
@@ -856,10 +850,7 @@ fn test_merkle_root_mismatch_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 4, // MerkleRootMismatch
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Merkle root mismatch");
     });
 }
 
@@ -949,10 +940,7 @@ fn test_merkle_root_mismatch_with_multiple_blocks() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 4, // MerkleRootMismatch
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Merkle root mismatch");
     });
 }
 
@@ -1138,10 +1126,7 @@ fn test_merkle_root_mismatch_event_emission() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 4, // MerkleRootMismatch
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Merkle root mismatch");
     });
 }
 
@@ -1299,6 +1284,446 @@ fn test_security_verification_prevents_cross_block_attack() {
                         H256::from(expected)
                     },
                 }],
+            });
+    });
+}
+
+// ============================================================================
+// BATCH QUERY VERIFICATION TESTS
+// ============================================================================
+
+#[test]
+fn test_batch_queries_success() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Create multiple queries at different heights
+        let query1 = Query {
+            chain_id: 1,
+            height: 100,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 32,
+            }],
+        };
+
+        let query2 = Query {
+            chain_id: 1,
+            height: 101,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 20,
+            }],
+        };
+
+        let query3 = Query {
+            chain_id: 1,
+            height: 102,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 10,
+            }],
+        };
+
+        // Create transaction data for each query
+        let tx_data1 = vec![0x11; 100];
+        let tx_data2 = vec![0x22; 100];
+        let tx_data3 = vec![0x33; 100];
+
+        // Create merkle proofs
+        let proof1 = create_proper_merkle_proof_for_single_tx(&tx_data1);
+        let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2);
+        let proof3 = create_proper_merkle_proof_for_single_tx(&tx_data3);
+
+        // Create continuity chain covering blocks 100-102
+        let continuity_blocks = vec![
+            // Block 100
+            Block {
+                block_number: 100,
+                root: proof1.root,
+                prev_digest: H256::from([0x99; 32]),
+                digest: H256::from([0xA0; 32]),
+            },
+            // Block 101
+            Block {
+                block_number: 101,
+                root: proof2.root,
+                prev_digest: H256::from([0xA0; 32]),
+                digest: H256::from([0xA1; 32]),
+            },
+            // Block 102
+            Block {
+                block_number: 102,
+                root: proof3.root,
+                prev_digest: H256::from([0xA1; 32]),
+                digest: H256::from([0xA2; 32]),
+            },
+        ];
+
+        // Setup attestation for the continuity chain
+        setup_valid_attestation_chain(1, &continuity_blocks);
+
+        // Execute batch verification
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_batch_queries {
+                    queries: vec![query1, query2, query3].into(),
+                    tx_data_array: vec![
+                        tx_data1.clone().into(),
+                        tx_data2.clone().into(),
+                        tx_data3.clone().into(),
+                    ],
+                    merkle_proofs: vec![proof1, proof2, proof3],
+                    shared_continuity_blocks: continuity_blocks,
+                },
+            )
+            .execute_returns(BatchQueryVerificationResult {
+                successful_queries: 3,
+                failed_queries: 0,
+                results: vec![
+                    QueryVerificationResult {
+                        status: 0,
+                        result_segments: vec![ResultSegment {
+                            offset: 0,
+                            bytes: H256::from_slice(&tx_data1[0..32]),
+                        }],
+                    },
+                    QueryVerificationResult {
+                        status: 0,
+                        result_segments: vec![ResultSegment {
+                            offset: 0,
+                            bytes: {
+                                let mut expected = [0u8; 32];
+                                expected[12..32].copy_from_slice(&tx_data2[0..20]);
+                                H256::from(expected)
+                            },
+                        }],
+                    },
+                    QueryVerificationResult {
+                        status: 0,
+                        result_segments: vec![ResultSegment {
+                            offset: 0,
+                            bytes: {
+                                let mut expected = [0u8; 32];
+                                expected[22..32].copy_from_slice(&tx_data3[0..10]);
+                                H256::from(expected)
+                            },
+                        }],
+                    },
+                ],
+            });
+    });
+}
+
+#[test]
+fn test_batch_queries_mixed_results() {
+    ExtBuilder::default().build().execute_with(|| {
+        let query1 = Query {
+            chain_id: 1,
+            height: 100,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 32,
+            }],
+        };
+
+        let query2 = Query {
+            chain_id: 1,
+            height: 100,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 32,
+            }],
+        };
+
+        let tx_data1 = vec![0xAA; 100];
+        let tx_data2 = vec![0xBB; 100];
+
+        let proof1 = create_proper_merkle_proof_for_single_tx(&tx_data1);
+        let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2); // Valid proof for tx_data2
+
+        let continuity_blocks = create_valid_continuity_chain_with_root(100, 1, Some(proof1.root));
+        setup_valid_attestation_chain(1, &continuity_blocks);
+
+        // Execute batch with one success and one failure
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_batch_queries {
+                    queries: vec![query1, query2].into(),
+                    tx_data_array: vec![tx_data1.clone().into(), tx_data2.into()],
+                    merkle_proofs: vec![proof1, proof2],
+                    shared_continuity_blocks: continuity_blocks,
+                },
+            )
+            .execute_returns(BatchQueryVerificationResult {
+                successful_queries: 1,
+                failed_queries: 1,
+                results: vec![
+                    QueryVerificationResult {
+                        status: 0, // Success
+                        result_segments: vec![ResultSegment {
+                            offset: 0,
+                            bytes: H256::from_slice(&tx_data1[0..32]),
+                        }],
+                    },
+                    QueryVerificationResult {
+                        status: 4, // MerkleRootMismatch - proof2.root doesn't match continuity block root (which is proof1.root)
+                        result_segments: vec![],
+                    },
+                ],
+            });
+    });
+}
+
+#[test]
+fn test_batch_queries_continuity_failure() {
+    ExtBuilder::default().build().execute_with(|| {
+        let query1 = Query {
+            chain_id: 1,
+            height: 100,
+            layout_segments: vec![],
+        };
+
+        let query2 = Query {
+            chain_id: 1,
+            height: 101,
+            layout_segments: vec![],
+        };
+
+        let tx_data1 = vec![0x11; 50];
+        let tx_data2 = vec![0x22; 50];
+
+        let proof1 = create_proper_merkle_proof_for_single_tx(&tx_data1);
+        let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2);
+
+        // Create invalid continuity chain (broken link)
+        let continuity_blocks = vec![
+            Block {
+                block_number: 100,
+                root: proof1.root,
+                prev_digest: H256::from([0x99; 32]),
+                digest: H256::from([0xA0; 32]),
+            },
+            Block {
+                block_number: 101,
+                root: proof2.root,
+                prev_digest: H256::from([0xBB; 32]), // Wrong prev_digest!
+                digest: H256::from([0xA1; 32]),
+            },
+        ];
+
+        // Setup attestation for the first block but with wrong digest to make continuity fail
+        use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
+        let attestation = Attestation {
+            chain_key: 1,
+            header_number: 99,
+            header_hash: H256::random(),
+            root: H256::from([0u8; 32]),
+            prev_digest: Some(H256::zero()),
+        };
+        let signed_attestation = SignedAttestation {
+            attestation,
+            signature: [0u8; 96],
+            attestors: vec![Account::Alice],
+            continuity_proof: AttestationFragmentSerializable::default(),
+        };
+        pallet_attestation_poc::Attestations::<Runtime>::insert(
+            1,
+            continuity_blocks[0].prev_digest,
+            signed_attestation,
+        );
+        pallet_attestation_poc::LastDigest::<Runtime>::insert(1, continuity_blocks[0].prev_digest);
+
+        // Batch should revert due to continuity chain failure
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_batch_queries {
+                    queries: vec![query1, query2].into(),
+                    tx_data_array: vec![tx_data1.into(), tx_data2.into()],
+                    merkle_proofs: vec![proof1, proof2],
+                    shared_continuity_blocks: continuity_blocks,
+                },
+            )
+            .execute_reverts(|output| output == b"Continuity chain validation failed for batch");
+    });
+}
+
+#[test]
+fn test_batch_queries_invalid_input_lengths() {
+    ExtBuilder::default().build().execute_with(|| {
+        let query = Query {
+            chain_id: 1,
+            height: 100,
+            layout_segments: vec![],
+        };
+
+        let tx_data = vec![0x11; 50];
+        let proof = create_proper_merkle_proof_for_single_tx(&tx_data);
+        let continuity_blocks = create_valid_continuity_chain_with_root(100, 1, Some(proof.root));
+
+        // Mismatched array lengths
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_batch_queries {
+                    queries: vec![query.clone(), query].into(),
+                    tx_data_array: vec![tx_data.into()], // Only 1 tx_data for 2 queries
+                    merkle_proofs: vec![proof.clone(), proof],
+                    shared_continuity_blocks: continuity_blocks,
+                },
+            )
+            .execute_reverts(|output| output == b"Input arrays must have the same length");
+    });
+}
+
+#[test]
+fn test_batch_queries_exceeds_max_size() {
+    ExtBuilder::default().build().execute_with(|| {
+        let query = Query {
+            chain_id: 1,
+            height: 100,
+            layout_segments: vec![],
+        };
+
+        let tx_data = vec![0x11; 50];
+        let proof = create_proper_merkle_proof_for_single_tx(&tx_data);
+        let continuity_blocks = create_valid_continuity_chain_with_root(100, 1, Some(proof.root));
+
+        // Create 11 queries (exceeds MAX_BATCH_SIZE of 10)
+        let queries: Vec<_> = (0..11).map(|_| query.clone()).collect();
+        let tx_data_array: Vec<_> = (0..11).map(|_| tx_data.clone().into()).collect();
+        let merkle_proofs: Vec<_> = (0..11).map(|_| proof.clone()).collect();
+
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_batch_queries {
+                    queries: queries.into(),
+                    tx_data_array,
+                    merkle_proofs,
+                    shared_continuity_blocks: continuity_blocks,
+                },
+            )
+            .execute_reverts(|output| output == b"queries: Value is too large for length");
+    });
+}
+
+#[test]
+fn test_batch_queries_shared_continuity_optimization() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Test that continuity is only verified once for all queries
+        // This is a gas optimization test - functionality is same but more efficient
+
+        let query1 = Query {
+            chain_id: 1,
+            height: 100,
+            layout_segments: vec![LayoutSegment { offset: 0, size: 4 }],
+        };
+
+        let query2 = Query {
+            chain_id: 1,
+            height: 102,
+            layout_segments: vec![LayoutSegment { offset: 0, size: 4 }],
+        };
+
+        let query3 = Query {
+            chain_id: 1,
+            height: 101,
+            layout_segments: vec![LayoutSegment { offset: 0, size: 4 }],
+        };
+
+        let tx_data1 = vec![0x11; 100];
+        let tx_data2 = vec![0x22; 100];
+        let tx_data3 = vec![0x33; 100];
+
+        let proof1 = create_proper_merkle_proof_for_single_tx(&tx_data1);
+        let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2);
+        let proof3 = create_proper_merkle_proof_for_single_tx(&tx_data3);
+
+        // Create shared continuity chain for blocks 100-102
+        let continuity_blocks = vec![
+            Block {
+                block_number: 100,
+                root: proof1.root,
+                prev_digest: H256::from([0x99; 32]),
+                digest: H256::from([0xA0; 32]),
+            },
+            Block {
+                block_number: 101,
+                root: proof3.root, // Note: query3 is for block 101
+                prev_digest: H256::from([0xA0; 32]),
+                digest: H256::from([0xA1; 32]),
+            },
+            Block {
+                block_number: 102,
+                root: proof2.root, // Note: query2 is for block 102
+                prev_digest: H256::from([0xA1; 32]),
+                digest: H256::from([0xA2; 32]),
+            },
+        ];
+
+        setup_valid_attestation_chain(1, &continuity_blocks);
+
+        // Queries are in different order than blocks to test proper matching
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_batch_queries {
+                    queries: vec![query1, query2, query3].into(),
+                    tx_data_array: vec![
+                        tx_data1.clone().into(),
+                        tx_data2.clone().into(),
+                        tx_data3.clone().into(),
+                    ],
+                    merkle_proofs: vec![proof1, proof2, proof3],
+                    shared_continuity_blocks: continuity_blocks,
+                },
+            )
+            .execute_returns(BatchQueryVerificationResult {
+                successful_queries: 3,
+                failed_queries: 0,
+                results: vec![
+                    QueryVerificationResult {
+                        status: 0,
+                        result_segments: vec![ResultSegment {
+                            offset: 0,
+                            bytes: {
+                                let mut expected = [0u8; 32];
+                                expected[28..32].copy_from_slice(&tx_data1[0..4]);
+                                H256::from(expected)
+                            },
+                        }],
+                    },
+                    QueryVerificationResult {
+                        status: 0,
+                        result_segments: vec![ResultSegment {
+                            offset: 0,
+                            bytes: {
+                                let mut expected = [0u8; 32];
+                                expected[28..32].copy_from_slice(&tx_data2[0..4]);
+                                H256::from(expected)
+                            },
+                        }],
+                    },
+                    QueryVerificationResult {
+                        status: 0,
+                        result_segments: vec![ResultSegment {
+                            offset: 0,
+                            bytes: {
+                                let mut expected = [0u8; 32];
+                                expected[28..32].copy_from_slice(&tx_data3[0..4]);
+                                H256::from(expected)
+                            },
+                        }],
+                    },
+                ],
             });
     });
 }

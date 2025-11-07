@@ -3,6 +3,31 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "successful",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "failed",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "total",
+        "type": "uint256"
+      }
+    ],
+    "name": "BatchQueriesVerified",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": true,
         "internalType": "address",
         "name": "caller",
@@ -84,7 +109,7 @@
           },
           {
             "internalType": "bytes32",
-            "name": "bytes",
+            "name": "data",
             "type": "bytes32"
           }
         ],
@@ -96,6 +121,156 @@
     ],
     "name": "QueryVerified",
     "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint64",
+            "name": "chain_id",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint64",
+            "name": "height",
+            "type": "uint64"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint64",
+                "name": "offset",
+                "type": "uint64"
+              },
+              {
+                "internalType": "uint64",
+                "name": "size",
+                "type": "uint64"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.LayoutSegment[]",
+            "name": "layout_segments",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.Query[]",
+        "name": "queries",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "bytes[]",
+        "name": "tx_data_array",
+        "type": "bytes[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "hash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bool",
+                "name": "isLeft",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
+            "name": "siblings",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.MerkleProof[]",
+        "name": "merkle_proofs",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint64",
+            "name": "block_number",
+            "type": "uint64"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "prev_digest",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "digest",
+            "type": "bytes32"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.Block[]",
+        "name": "shared_continuity_blocks",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "verifyBatchQueries",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint32",
+            "name": "successful_queries",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "failed_queries",
+            "type": "uint32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint8",
+                "name": "status",
+                "type": "uint8"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "uint64",
+                    "name": "offset",
+                    "type": "uint64"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "data",
+                    "type": "bytes32"
+                  }
+                ],
+                "internalType": "struct INativeQueryVerifier.ResultSegment[]",
+                "name": "result_segments",
+                "type": "tuple[]"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.QueryVerificationResult[]",
+            "name": "results",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.BatchQueryVerificationResult",
+        "name": "result",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   },
   {
     "inputs": [
@@ -213,7 +388,7 @@
               },
               {
                 "internalType": "bytes32",
-                "name": "bytes",
+                "name": "data",
                 "type": "bytes32"
               }
             ],
@@ -227,7 +402,7 @@
         "type": "tuple"
       }
     ],
-    "stateMutability": "nonpayable",
+    "stateMutability": "view",
     "type": "function"
   }
 ]

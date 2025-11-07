@@ -236,7 +236,7 @@ fn test_empty_continuity_chain_with_valid_merkle() {
         let tx_data = get_sample_tx_data();
         let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
 
-        // Merkle proof format doesn't match precompile expectations, so fails at merkle stage
+        // Empty continuity chain should revert
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -248,10 +248,7 @@ fn test_empty_continuity_chain_with_valid_merkle() {
                     continuity_blocks: vec![],
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain cannot be empty");
     });
 }
 
@@ -279,10 +276,7 @@ fn test_no_layout_segments_succeeds_with_empty_results() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -316,10 +310,7 @@ fn test_gas_calculation_base() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -376,10 +367,7 @@ fn test_continuity_chain_with_attestation() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -405,10 +393,7 @@ fn test_continuity_chain_with_checkpoint() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -434,10 +419,7 @@ fn test_continuity_chain_invalid_prev_digest_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid (merkle check happens first)
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain validation failed");
     });
 }
 
@@ -466,10 +448,7 @@ fn test_continuity_chain_broken_link_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid (merkle check happens first)
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain validation failed");
     });
 }
 
@@ -482,7 +461,7 @@ fn test_continuity_no_finalized_attestation_fails() {
         let continuity_blocks = create_continuity_blocks(2);
 
         // Don't setup any attestation or checkpoint
-        // Merkle fails first, so never reaches continuity check
+        // This will fail at continuity chain validation when checking for attestations
 
         precompiles()
             .prepare_test(
@@ -495,10 +474,7 @@ fn test_continuity_no_finalized_attestation_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"No finalized attestation or checkpoint found");
     });
 }
 
@@ -524,10 +500,7 @@ fn test_continuity_checkpoint_block_number_mismatch_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid (merkle check happens first)
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain validation failed");
     });
 }
 
@@ -563,10 +536,7 @@ fn test_extract_single_segment() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -612,10 +582,7 @@ fn test_extract_multiple_segments() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -648,10 +615,7 @@ fn test_segment_out_of_bounds_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -684,10 +648,7 @@ fn test_segment_offset_beyond_data_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -719,10 +680,7 @@ fn test_merkle_proof_validation_with_valid_proof() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid - format mismatch
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -754,10 +712,7 @@ fn test_invalid_merkle_proof_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -786,10 +741,7 @@ fn test_zero_size_segment_succeeds() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -817,10 +769,7 @@ fn test_large_continuity_chain() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }
 
@@ -1062,9 +1011,6 @@ fn test_full_query_verification_flow() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
     });
 }

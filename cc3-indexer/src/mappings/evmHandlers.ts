@@ -1,12 +1,12 @@
 import { FrontierEvmEvent } from '@subql/frontier-evm-processor';
-import { QueryVerification } from '../types';
+import { QueryVerification, BatchQueryVerification } from '../types';
 
 // Event signatures for Native Query Verifier precompile
 // QueryVerified(address indexed caller, bytes32 queryId, uint64 chainKey, uint64 height, uint8 status, (uint64,bytes32)[] resultSegments)
 type QueryVerifiedArgs = [string, string, bigint, bigint, number, [bigint, string][]];
 
-// QueryVerificationFailed(address indexed caller, bytes32 queryId, uint64 chainKey, uint64 height, uint8 status, string reason)
-type QueryVerificationFailedArgs = [string, string, bigint, bigint, number, string];
+// BatchQueriesVerified(uint256 successful, uint256 failed, uint256 total)
+type BatchQueriesVerifiedArgs = [bigint, bigint, bigint];
 
 export async function handleQueryVerified(event: FrontierEvmEvent<QueryVerifiedArgs>): Promise<void> {
     if (!event.args) {
@@ -46,35 +46,28 @@ export async function handleQueryVerified(event: FrontierEvmEvent<QueryVerifiedA
     await verification.save();
 }
 
-export async function handleQueryVerificationFailed(
-    event: FrontierEvmEvent<QueryVerificationFailedArgs>,
-): Promise<void> {
+export async function handleBatchQueriesVerified(event: FrontierEvmEvent<BatchQueriesVerifiedArgs>): Promise<void> {
     if (!event.args) {
-        logger.error(`No args found for QueryVerificationFailed event`);
+        logger.error(`No args found for BatchQueriesVerified event`);
         return;
     }
 
-    const [caller, queryId, chainKey, height, status, reason] = event.args;
+    const [successful, failed, total] = event.args;
 
-    logger.info(
-        `Query verification failed: caller=${caller}, queryId=${queryId}, chainKey=${chainKey}, height=${height}, status=${status}, reason=${reason}`,
-    );
+    logger.info(`Batch queries verified: successful=${successful}, failed=${failed}, total=${total}`);
 
-    // Create a unique ID for this verification event
+    // Create a unique ID for this batch verification event
     const id = `${event.blockNumber}-${event.transactionIndex}-${event.logIndex || 0}`;
 
-    const verification = QueryVerification.create({
+    const batchVerification = BatchQueryVerification.create({
         id,
-        caller: caller.toLowerCase(),
-        queryId,
-        chainId: BigInt(chainKey),
-        height: BigInt(height),
-        status,
-        failureReason: reason,
+        transactionHash: event.transactionHash || '',
+        successfulQueries: Number(successful),
+        failedQueries: Number(failed),
+        totalQueries: Number(total),
         blockNumber: BigInt(event.blockNumber),
         timestamp: event.blockTimestamp ? BigInt(event.blockTimestamp.getTime()) : BigInt(Date.now()),
-        resultSegments: [],
     });
 
-    await verification.save();
+    await batchVerification.save();
 }

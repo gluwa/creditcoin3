@@ -10,9 +10,12 @@ use eth::{evm, Client};
 use mmr::query_proof::QueryMerkleProof;
 
 /// Configuration for query verification
+#[derive(Debug, Clone)]
 pub struct VerificationConfig {
     pub cc3_rpc_url: String,
     pub cc3_evm_private_key: String,
+    pub eth_rpc_url: String,
+    pub chain_key: u64,
 }
 
 /// Result of query verification

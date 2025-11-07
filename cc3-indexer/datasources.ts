@@ -274,10 +274,10 @@ export const nativeQueryVerifierDatasource: FrontierEvmDatasource = {
                 },
             },
             {
-                handler: 'handleQueryVerificationFailed',
+                handler: 'handleBatchQueriesVerified',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: ['QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)'],
+                    topics: ['BatchQueriesVerified(uint256,uint256,uint256)'],
                 },
             },
         ],
