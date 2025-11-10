@@ -36,6 +36,35 @@ fn verify_valid_signature_should_return_true() {
 }
 
 #[test]
+fn verify_bogus_signature_should_return_false() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Generate a keypair
+        let (pair, _seed) = sr25519::Pair::generate();
+        let public = pair.public();
+        let message = b"Hello!";
+
+        // create a bogus signature
+        let bogus_signature = vec![0u8; 64];
+
+        let caller: H160 = Account::Alice.into();
+
+        // Call the precompile
+        precompiles()
+            .prepare_test(
+                caller,
+                Account::Precompile,
+                PCall::verify {
+                    message: message.to_vec().into(),
+                    signature: bogus_signature.into(),
+                    public_key: H256::from(public.0),
+                },
+            )
+            .expect_no_logs()
+            .execute_returns(false);
+    });
+}
+
+#[test]
 fn verify_tampered_message_should_return_false() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate a keypair
