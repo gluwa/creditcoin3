@@ -36,7 +36,7 @@ fn verify_valid_signature_should_return_true() {
 }
 
 #[test]
-fn verify_invalid_signature_should_return_false() {
+fn verify_tampered_message_should_return_false() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate a keypair
         let (pair, _seed) = sr25519::Pair::generate();
