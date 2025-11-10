@@ -531,189 +531,6 @@ jobs:
               exit 0
           fi
 
-  fmt:
-    name: Rustfmt
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          components: rustfmt
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        uses: gluwa/cargo@dev
-        with:
-          command: fmt
-          args: -- --check
-
-      - name: Check TOML formatting
-        run: |
-          cargo install taplo-cli --locked
-          taplo format --check
-
-  clippy:
-    name: Clippy
-    needs:
-      - deploy-runner-clippy
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-clippy"]
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-          components: clippy, rust-src
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Run Clippy
-        uses: gluwa/cargo@dev
-        with:
-          command: clippy
-          args: --all-targets --all-features -- -D warnings
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
-
-  check:
-    needs:
-      - deploy-runner-check
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-check"]
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
-    steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v5
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Check featalign
-        # see https://gluwa.atlassian.net/browse/CSUB-1388
-        if: false
-        run: |
-          cargo install cargo-featalign
-
-          # produces a human readable output
-          cargo featalign runtime --features std,runtime-benchmarks,fast-runtime,devnet --workspace-only --default-std --depth -1 --mode check | jq
-
-          # exit with non-zero on error
-          cargo featalign runtime --features std,runtime-benchmarks,fast-runtime,devnet --workspace-only --default-std --depth -1 --mode check
-
-      - name: Check Build
-        run: |
-          SKIP_WASM_BUILD=1 cargo check --release
-
-      - name: Check Build for Benchmarking
-        run: |
-          SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
-
-  unit-test-creditcoin:
-    needs:
-      - deploy-runner-unit-test-creditcoin
-    runs-on:
-      [
-        self-hosted,
-        "workflow-${{ github.run_id }}",
-        "proxy-unit-test-creditcoin",
-      ]
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          components: llvm-tools-preview, rust-src
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.62.43
-        with:
-          tool: cargo-llvm-cov
-
-      - name: Run tests
-        run: |
-          # configure the path so we can discover external binaries
-          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
-          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
-          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
-          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
-
-          cargo llvm-cov \
-              --release \
-              --workspace --html --show-missing-lines --hide-instantiations \
-              --ignore-filename-regex "(benchmarking.rs|mock.rs|tests.rs|weights.rs)"
-
-      - name: Upload coverage report as artifact
-        uses: actions/upload-artifact@v5
-        with:
-          name: coverage-report
-          path: target/llvm-cov/html/
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
-
   deploy-runner-build-creditcoin-for:
     strategy:
       fail-fast: false
@@ -878,24 +695,6 @@ jobs:
           fail_ci_if_error: false
           verbose: true
 
-  deploy-runner-clippy:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "clippy"
-    secrets: inherit
-
-  deploy-runner-check:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "check"
-    secrets: inherit
-
   deploy-runner-docker-build:
     uses: ./.github/workflows/deploy-runner.yml
     with:
@@ -914,15 +713,6 @@ jobs:
       LINODE_REGION: "nl-ams"
       LINODE_VM_SIZE: "g6-standard-4"
       proxy: "docker-test"
-    secrets: inherit
-
-  deploy-runner-unit-test-creditcoin:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "unit-test-creditcoin"
     secrets: inherit
 
   rm-gh-runner-integration-test-cli:
@@ -1028,26 +818,6 @@ jobs:
       proxy: ${{ matrix.proxy }}
     secrets: inherit
 
-  rm-gh-runner-clippy:
-    needs:
-      - clippy
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "clippy"
-    secrets: inherit
-
-  rm-gh-runner-check:
-    needs:
-      - check
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "check"
-    secrets: inherit
-
   rm-gh-runner-docker-build:
     needs:
       - docker-build
@@ -1066,16 +836,6 @@ jobs:
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy: "docker-test"
-    secrets: inherit
-
-  rm-gh-runner-unit-test-creditcoin:
-    needs:
-      - unit-test-creditcoin
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "unit-test-creditcoin"
     secrets: inherit
 
   deploy-runner-attestator-network:
@@ -1788,49 +1548,6 @@ jobs:
           # previous step killing everything and we don't have to worry about
           # dangling processes
           killall -9 creditcoin3-node
-
-  audit:
-    name: cargo audit
-    if: github.base_ref == 'dev'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install cargo audit
-        run: |
-          cargo install cargo-audit --features=fix --locked
-
-      - name: Run cargo audit
-        run: |
-          cargo audit || true
-          CC_MATCH=$(cargo audit --color never | grep -E "^.── creditcoin3-node" || true)
-
-          # fail for anything which is a 1st level dependency of Creditcoin
-          if [ -n "$CC_MATCH" ]; then
-              echo "FAIL: Direct dependencies of Creditcoin found in audit report"
-              echo "INFO: Inspect the output above for more information"
-              exit 1
-          else
-              echo "INFO: No direct dependencies of Creditcoin found in audit report"
-              exit 0
-          fi
 
   docs-smart-contract-development-with-hardhat:
     needs:
