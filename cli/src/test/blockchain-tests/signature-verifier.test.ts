@@ -102,7 +102,6 @@ describe('Precompile: SignatureVerifier.verify()', (): void => {
             // Generate a keypair
             const pair = keyring.addFromMnemonic(mnemonicGenerate());
 
-            // Create a long message (10KB)
             const longMessage = 'A'.repeat(1048576);
             const messageBytes = new TextEncoder().encode(longMessage);
 
