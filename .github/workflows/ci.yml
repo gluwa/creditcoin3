@@ -791,95 +791,6 @@ jobs:
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-ci']"
     secrets: inherit
 
-  deploy-runner-smart-contract:
-    # skipped until SMC-1036 is resolved
-    if: false
-    needs:
-      - build-creditcoin-node-for-testing-ci
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "smart-contract"
-    secrets: inherit
-
-  integration-test-smart-contract:
-    needs:
-      - build-creditcoin-node-for-testing-ci
-      - deploy-runner-smart-contract
-    runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "proxy-smart-contract"]
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v6
-        with:
-          name: binary-for-testing-ci
-          path: target/release
-
-      - name: Install Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-
-      - name: Start Node 1 - Alice
-        env:
-          RUST_LOG: debug
-        run: |
-          chmod a+x ./target/release/creditcoin3-node
-          ./target/release/creditcoin3-node \
-            --dev --validator --pruning archive \
-            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
-            --base-path ./alice-data &
-
-      - name: Wait for node(s) to start
-        run: |
-          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
-
-      - name: Install Solidity compiler
-        run: |
-          sudo .github/install-solidity-compiler.sh
-
-      - name: Generate precompiles ABI from source code
-        working-directory: ./precompiles/metadata
-        run: |
-          solc --version
-          ./abi-creator.sh
-
-      - name: Install openzeppelin dependencies
-        working-directory: ./common/eth/contracts/
-        run: |
-          npm install
-
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
-
-      - name: Configure testing environment
-        id: test-env
-        working-directory: ./cli
-        run: |
-          yarn install
-          EVM_PRIVATE_KEY=$(node dist/test/blockchainSetup.js)
-          echo "url=http://127.0.0.1:9944" >> "$GITHUB_OUTPUT"
-          echo "private_key=$EVM_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
-
-      - name: Execute smart contract test tool
-        working-directory: ./testing
-        run: |
-          ./evm-network-test.sh ${{ steps.test-env.outputs.url }} ${{ steps.test-env.outputs.private_key }}
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
-
   integration-test-check-extrinsics:
     if: github.base_ref == 'dev'
     needs:
@@ -1155,16 +1066,6 @@ jobs:
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy: "docker-test"
-    secrets: inherit
-
-  rm-gh-runner-smart-contract:
-    needs:
-      - integration-test-smart-contract
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "smart-contract"
     secrets: inherit
 
   rm-gh-runner-unit-test-creditcoin:
