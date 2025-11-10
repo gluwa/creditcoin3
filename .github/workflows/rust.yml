@@ -3,6 +3,10 @@ name: rust
 
 "on":
   pull_request:
+    paths:
+      - '**.rs'
+      - '**.toml'
+      - '**Cargo**'
   workflow_dispatch:
 
 concurrency:
