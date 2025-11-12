@@ -20,7 +20,6 @@ tiny-bip39 = "1.0.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Common
-attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 clap = { workspace = true }
 eth = { workspace = true }

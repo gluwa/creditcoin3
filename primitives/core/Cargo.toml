@@ -8,7 +8,6 @@ repository = { workspace = true }
 version = "0.1.1"
 
 [dependencies]
-account = { workspace = true }
 fp-self-contained = { workspace = true }
 hex-literal = { workspace = true }
 sp-core = { workspace = true }
@@ -18,4 +17,4 @@ pallet-evm = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["account/std", "fp-self-contained/std", "sp-core/std", "sp-runtime/std"]
+std = ["fp-self-contained/std", "sp-core/std", "sp-runtime/std"]

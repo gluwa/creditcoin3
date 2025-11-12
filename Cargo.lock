@@ -1513,7 +1513,6 @@ name = "attestor_zombienet"
 version = "3.66.0"
 dependencies = [
  "anyhow",
- "attestor-primitives",
  "cc-client",
  "clap",
  "eth",
@@ -2818,7 +2817,6 @@ version = "0.1.0"
 dependencies = [
  "creditcoin3-attestor-gossip",
  "jsonrpsee",
- "log",
  "serde",
  "sp-core",
  "sp-runtime",
@@ -3951,7 +3949,6 @@ dependencies = [
  "futures 0.3.31",
  "futures-util",
  "hex",
- "mmr",
  "pallet-prover-primitives",
  "serde",
  "sha3",
@@ -8058,7 +8055,6 @@ name = "mmr"
 version = "3.66.0"
 dependencies = [
  "rayon",
- "twox-hash 2.1.0",
 ]
 
 [[package]]
@@ -9140,7 +9136,6 @@ dependencies = [
  "derive_more 0.99.19",
  "env_logger 0.11.8",
  "ethabi",
- "fp-account",
  "fp-evm",
  "frame-election-provider-support",
  "frame-support",
@@ -9189,7 +9184,6 @@ dependencies = [
  "fp-evm",
  "frame-support",
  "frame-system",
- "log",
  "pallet-balances",
  "pallet-evm",
  "pallet-timestamp",
@@ -9218,7 +9212,6 @@ name = "pallet-evm-precompile-substrate-transfer"
 version = "0.1.0"
 dependencies = [
  "derive_more 0.99.19",
- "fp-account",
  "fp-evm",
  "frame-support",
  "frame-system",
@@ -11093,7 +11086,6 @@ version = "3.66.0"
 dependencies = [
  "impl-trait-for-tuples",
  "sp-api",
- "sp-std",
 ]
 
 [[package]]
@@ -13816,7 +13808,7 @@ dependencies = [
  "slab",
  "smallvec",
  "soketto",
- "twox-hash 1.6.3",
+ "twox-hash",
  "wasmi",
  "x25519-dalek",
  "zeroize",
@@ -14166,7 +14158,7 @@ dependencies = [
  "digest 0.10.7",
  "sha2 0.10.8",
  "sha3",
- "twox-hash 1.6.3",
+ "twox-hash",
 ]
 
 [[package]]
@@ -14179,7 +14171,7 @@ dependencies = [
  "digest 0.10.7",
  "sha2 0.10.8",
  "sha3",
- "twox-hash 1.6.3",
+ "twox-hash",
 ]
 
 [[package]]
@@ -16351,12 +16343,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "twox-hash"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7b17f197b3050ba473acf9181f7b1d3b66d1cf7356c6cc57886662276e65908"
-
-[[package]]
 name = "typenum"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -16671,7 +16657,6 @@ dependencies = [
  "env_logger 0.11.8",
  "log",
  "parity-scale-codec",
- "rand 0.8.5",
  "randomness-primitives",
  "schnorrkel",
  "serde",

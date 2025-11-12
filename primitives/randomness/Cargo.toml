@@ -12,8 +12,7 @@ version.workspace = true
 [dependencies]
 impl-trait-for-tuples = { workspace = true }
 sp-api = { workspace = true, default-features = false }
-sp-std = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
-std = ["sp-std/std", "sp-api/std"]
+std = ["sp-api/std"]

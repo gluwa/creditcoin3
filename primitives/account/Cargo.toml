@@ -11,7 +11,6 @@ version = "0.1.1"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-impl-serde = { workspace = true }
 libsecp256k1 = { workspace = true, features = ["hmac"] }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -34,7 +33,6 @@ default = ["std"]
 std = [
     "full_crypto",
     "hex/std",
-    "impl-serde/std",
     "libsecp256k1/std",
     "parity-scale-codec/std",
     "serde/std",

@@ -11,11 +11,7 @@ version.workspace = true
 optional = true
 version = "1.10.0"
 
-[dependencies.twox-hash]
-default-features = false
-version = "2.1"
-
 [features]
 default = ["std"]
 par_mmr = ["rayon"]
-std = ["par_mmr", "twox-hash/std"]
+std = ["par_mmr"]

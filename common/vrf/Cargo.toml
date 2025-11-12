@@ -23,7 +23,6 @@ sp-core = { workspace = true, default-features = false, features = [
 ] }
 thiserror = { workspace = true, default-features = false }
 
-rand = { version = "0.8", default-features = false }
 schnorrkel = { version = "0.11", default-features = false }
 
 [dev-dependencies]
@@ -40,6 +39,5 @@ std = [
     "serde/std",
     "sp-consensus-babe/std",
     "anyhow/std",
-    "rand/std",
     "schnorrkel/std",
 ]

@@ -25,7 +25,6 @@ sp-runtime = { workspace = true }
 sp-std = { workspace = true }
 
 # Frontier
-fp-account = { workspace = true }
 fp-evm = { workspace = true }
 pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 
@@ -54,7 +53,6 @@ std = [
     "sp-core/std",
     "sp-io/std",
     "sp-std/std",
-    "fp-account/std",
     "sp-runtime/std",
     "pallet-timestamp/std",
 ]
