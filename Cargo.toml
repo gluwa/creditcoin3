@@ -10,12 +10,7 @@ members = [
     "primitives/attestor",
     "primitives/supported-chains",
     "primitives/randomness",
-<<<<<<< HEAD
-    "primitives/pallet-prover",
-    "precompiles/proof-verifier",
     "precompiles/signature-verifier",
-=======
->>>>>>> 580dbab5 (feat: native query verifier precompile with simplified Merkle tree)
     "precompiles/substrate-transfer",
     "precompiles/native-query-verifier",
     "common/*",
@@ -228,9 +223,9 @@ pallet-supported-chains = { path = "pallets/supported-chains", default-features 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }
 # pallet-evm-precompile-proof-verifier = { path = "precompiles/proof-verifier", default-features = false }
+pallet-evm-precompile-native-query-verifier = { path = "precompiles/native-query-verifier", default-features = false }
 pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verifier", default-features = false }
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
-pallet-evm-precompile-native-query-verifier = { path = "precompiles/native-query-verifier", default-features = false }
 
 # Tracing
 evm = { version = "0.42.0", default-features = false, features = ["tracing"] }

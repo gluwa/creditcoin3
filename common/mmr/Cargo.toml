@@ -30,5 +30,5 @@ std = [
     "precompile-utils/std",
     "scale-info/std",
     "parity-scale-codec/std",
-    "utils/std"
+    "utils/std",
 ]
