@@ -2,7 +2,7 @@
   "name": "attestor-scripts",
   "dependencies": {
     "@ethersproject/experimental": "^5.8.0",
-    "@polkadot/api": "16.4.3",
+    "@polkadot/api": "16.5.2",
     "@polkadot/keyring": "13.5.5",
     "@polkadot/util": "13.5.5",
     "@polkadot/util-crypto": "13.5.5",
