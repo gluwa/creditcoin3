@@ -179,6 +179,26 @@ jobs:
           # unreliable
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
+  cargo-machete:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Execute cargo machete
+        uses: bnjbvr/cargo-machete@main
+
   cargo-test:
     needs:
       - deploy-runner-unit-test-creditcoin
