@@ -68,6 +68,7 @@ jobs:
           chmod a+x ./target/release/usc_audit_automation
 
       - name: Create Config File
+        shell: bash
         env:
           AUDIT_CONFIG_TOML: >-
             ${{
@@ -75,8 +76,8 @@ jobs:
               (matrix.network == 'Testnet' && secrets.USC_TESTNET_AUDIT_AUTOMATION_CONFIG_TOML)
             }}
         run: |
-          echo "$AUDIT_CONFIG_TOML" > config.toml
+          printf "%b" "$AUDIT_CONFIG_TOML" > config.toml
 
       - name: Run USC Audit Automation
-        run: |
-          ./target/release/usc_audit_automation --config-file config.toml
+        shell: bash
+        run: ./target/release/usc_audit_automation --config-file config.toml
