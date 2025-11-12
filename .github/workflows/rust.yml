@@ -236,12 +236,6 @@ jobs:
 
       - name: Run tests
         run: |
-          # configure the path so we can discover external binaries
-          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
-          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
-          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
-          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
-
           cargo llvm-cov \
               --release \
               --workspace --html --show-missing-lines --hide-instantiations \

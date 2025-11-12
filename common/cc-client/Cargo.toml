@@ -19,7 +19,6 @@ too_many_arguments = "allow"
 
 [dependencies]
 anyhow = "1.0"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Substrate
 subxt = { version = "0.40", features = ["reconnecting-rpc-client"] }
@@ -27,18 +26,14 @@ subxt-signer = "0.40"
 
 # Creditcoin deps
 attestor-primitives = { workspace = true, features = ["std"] }
-bls-signatures = { workspace = true }
 creditcoin3-attestor-gossip = { workspace = true }
 supported-chains-primitives = { workspace = true }
 vrf = { workspace = true }
 
 # workspace deps
 ccnext-abi-encoding = { workspace = true, optional = true }
-hex = { workspace = true }
-parity-scale-codec = { workspace = true }
 sc-service = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -49,6 +44,5 @@ default = ["std"]
 std = [
     "sp-core/std",
     "attestor-primitives/std",
-    "bls-signatures/std",
     "ccnext-abi-encoding",
 ]

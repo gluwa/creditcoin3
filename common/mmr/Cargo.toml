@@ -15,7 +15,6 @@ scale-info = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
-twox-hash = { version = "2.1", default-features = false }
 utils = { workspace = true, default-features = false }
 
 [features]
@@ -23,7 +22,6 @@ default = ["std"]
 par_mmr = ["rayon"]
 std = [
     "par_mmr",
-    "twox-hash/std",
     "sp-core/std",
     "sp-io/std",
     "sp-std/std",

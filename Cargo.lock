@@ -2164,14 +2164,10 @@ version = "3.66.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
- "bls-signatures",
  "ccnext-abi-encoding",
  "creditcoin3-attestor-gossip",
- "hex",
- "parity-scale-codec",
  "sc-service",
  "serde",
- "serde_json",
  "sp-core",
  "subxt",
  "subxt-signer",
@@ -2179,7 +2175,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "vrf",
 ]
 
@@ -2459,16 +2454,6 @@ name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
-
-[[package]]
-name = "colored"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
-dependencies = [
- "lazy_static",
- "windows-sys 0.48.0",
-]
 
 [[package]]
 name = "combine"
@@ -3865,8 +3850,6 @@ dependencies = [
  "futures-util",
  "hex",
  "mmr",
- "serde",
- "sha3",
  "sp-core",
  "thiserror 1.0.69",
  "tokio",
@@ -7931,7 +7914,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-std",
- "twox-hash 2.1.0",
  "utils",
 ]
 
@@ -16092,21 +16074,13 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "utils"
 version = "3.66.0"
 dependencies = [
- "acid_io",
  "anyhow",
- "chrono",
- "colored",
- "ethereum 0.18.2",
- "ethereum-types 0.14.1",
  "fs2",
- "hex",
  "parity-scale-codec",
- "rlp 0.5.2",
  "scale-info",
  "serde",
  "serde_json",
- "sha3",
- "sp-core",
+ "sp-io",
  "sp-std",
  "tempfile",
 ]
