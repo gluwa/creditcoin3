@@ -41,8 +41,4 @@ tracing = { workspace = true }
 
 [features]
 default = ["std"]
-std = [
-    "sp-core/std",
-    "attestor-primitives/std",
-    "ccnext-abi-encoding",
-]
+std = ["sp-core/std", "attestor-primitives/std", "ccnext-abi-encoding"]
