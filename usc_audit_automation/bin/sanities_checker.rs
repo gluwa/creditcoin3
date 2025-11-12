@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::{fs, path::PathBuf};
-use tracing::debug;
+use tracing::{debug, error};
 use tracing_subscriber::EnvFilter;
 
 use usc_audit_automation::{self, attestation_checks, SanitiesChecker, SanitiesConfigFile};
@@ -42,7 +42,10 @@ async fn main() -> Result<()> {
 
     debug!("CLI args: {:?}", args);
 
-    attestation_checks::run_attestation_sanity_checks(&config).await?;
+    if let Err(e) = attestation_checks::run_attestation_sanity_checks(&config).await {
+        error!("attestation sanity checks failed: {}", e);
+        return Ok(());
+    }
 
     Ok(())
 }

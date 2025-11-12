@@ -44,11 +44,6 @@ pub async fn get_ethereum_rpc_url_from_chain_cache(
     rpc_providers: &[RpcProvider],
     supported_chain_info: &SupportedChainInfo,
 ) -> Option<String> {
-    if supported_chain_info.chain_id == 31337 {
-        info!("Skipping RPC healthcheck for local development chain (chain ID 31337)");
-        return Some("http://localhost:8545".into());
-    }
-
     let rpc_urls: Vec<String> = chain_cache
         .get_by_id(supported_chain_info.chain_id)
         .map(|c| c.rpc.clone())
