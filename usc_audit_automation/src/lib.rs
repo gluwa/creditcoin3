@@ -25,7 +25,7 @@ mod ethereum_rpc;
 mod tests;
 
 use clients::usc::{SignedAttestation, SupportedChain, USCClient};
-use eth::{starknet_pedersen_mmr, Client as EthClient, OrderedBlock};
+use eth::{Client as EthClient, OrderedBlock};
 
 #[derive(Parser, Debug)]
 #[command(name = "sanities checker")]
@@ -292,7 +292,7 @@ pub(crate) async fn calculate_merkle_root(
         .await?
         .context("Failed to get block")?;
     let merkle_tree = eth::keccak_merkle_tree(&ordered_block);
-    Ok(merkle_tree.root().0)
+    Ok(merkle_tree.root().0 .0)
 }
 
 #[derive(Debug, Deserialize)]

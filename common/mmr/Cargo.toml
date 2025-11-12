@@ -16,6 +16,7 @@ sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
 twox-hash = { version = "2.1", default-features = false }
+utils = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -29,4 +30,5 @@ std = [
     "precompile-utils/std",
     "scale-info/std",
     "parity-scale-codec/std",
+    "utils/std"
 ]

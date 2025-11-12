@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use eth::OrderedBlock;
-use mmr::query_proof::{MerkleProofEntry, QueryMerkleProof};
+use mmr::query_proof::QueryMerkleProof;
 use utils::block_item_traits::BlockItem;
 
 /// Generate a Merkle proof for a transaction in a block
@@ -16,23 +16,7 @@ pub fn generate_merkle_proof(block: &OrderedBlock, tx_index: usize) -> Result<Qu
     // Generate proof for the specified transaction
     let proof = tree.generate_proof(tx_index);
 
-    // Convert proof siblings to QueryMerkleProof format
-    let siblings = proof
-        .siblings
-        .into_iter()
-        .enumerate()
-        .map(|(level, sibling)| {
-            // Determine if sibling is on left or right based on tx_index at this level
-            let index_at_level = tx_index >> level;
-            let is_left = (index_at_level & 1) == 1; // If index is odd, sibling is on left
-            MerkleProofEntry {
-                hash: sibling,
-                is_left,
-            }
-        })
-        .collect();
-
-    Ok(QueryMerkleProof::new(tree.root(), siblings))
+    Ok(QueryMerkleProof::new(tree.root(), proof.siblings))
 }
 
 /// Display block structure information

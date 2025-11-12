@@ -32,9 +32,6 @@
 // =============================================================================
 
 pub mod block_item_traits;
-pub mod keccak_merkle;
-pub mod simple_merkle;
-pub mod utils;
 
 #[cfg(feature = "std")]
 pub mod json_serializable;
@@ -45,25 +42,10 @@ pub mod json_serializable;
 
 // Core traits and types
 pub use block_item_traits::{BlockItem, BlockItemIdentifier};
-pub use keccak_merkle::{compute_digest, keccak_merkle_tree, KeccakHasher, KeccakMerkleTree};
 
 // JSON serialization (std only)
 #[cfg(feature = "std")]
 pub use json_serializable::JsonSerializable;
-
-// Utility functions - only the ones actually used in the codebase
-pub use utils::{
-    // Parsing utilities
-    try_parse_u64,
-    try_parse_usize,
-};
-
-// =============================================================================
-// Type Aliases
-// =============================================================================
-
-/// Merkle proof using Keccak256 hash
-pub type KeccakMerkleProof = mmr::proof::Proof<KeccakHasher>;
 
 // =============================================================================
 // Crate-level Tests

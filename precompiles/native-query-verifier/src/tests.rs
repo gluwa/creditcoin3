@@ -3,13 +3,10 @@ use crate::mock::*;
 use crate::SELECTOR_LOG_QUERY_VERIFIED;
 use attestor_primitives::LayoutSegment;
 use attestor_primitives::{block::Block, Attestation, AttestationCheckpoint, SignedAttestation};
-use mmr::query_proof::MerkleProofEntry;
+use mmr::{keccak::keccak_merkle_tree, query_proof::MerkleProofEntry};
 use precompile_utils::{evm::logs::log2, testing::*};
 use sp_core::H256;
-use utils::{
-    block_item_traits::{BlockItem, BlockItemIdentifier},
-    keccak_merkle_tree,
-};
+use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
 /// Simple test transaction item for merkle tree construction
 #[derive(Debug, Clone)]
@@ -107,7 +104,7 @@ fn create_valid_merkle_proof(
                 // If current_index is odd, we're on right, sibling on left
                 let is_left = (current_index % 2) == 1;
                 siblings.push(MerkleProofEntry {
-                    hash: hash.to_h256(),
+                    hash: hash.0,
                     is_left,
                 });
             }
@@ -117,7 +114,7 @@ fn create_valid_merkle_proof(
     }
 
     let merkle_proof = MerkleProof {
-        root: tree.root().to_h256(),
+        root: tree.root().0,
         siblings,
     };
 

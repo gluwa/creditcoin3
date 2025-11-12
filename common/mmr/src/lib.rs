@@ -30,6 +30,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod keccak;
+pub use keccak::{
+    compute_digest, keccak_merkle_tree_from_bytes, KeccakHash, KeccakMerkleTree, SimpleMerkleTree,
+};
 mod prefixed;
 pub mod proof;
 pub mod query_proof;

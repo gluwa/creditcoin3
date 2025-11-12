@@ -34,9 +34,9 @@ fn create_proper_merkle_proof_binary(
 ) -> MerkleProof {
     use sp_io::hashing::keccak_256;
 
-    // Calculate tree depth
-    let num_txs = all_tx_data.len();
-    let depth = (num_txs as f64).log2().ceil() as usize;
+    // Calculate tree depth (not needed anymore, but keeping for reference)
+    // let num_txs = all_tx_data.len();
+    // let depth = (num_txs as f64).log2().ceil() as usize;
 
     // Build leaf hashes
     let mut current_level: Vec<H256> = all_tx_data
@@ -48,11 +48,7 @@ fn create_proper_merkle_proof_binary(
         })
         .collect();
 
-    // Pad to power of 2 if needed
-    let target_size = 2usize.pow(depth as u32);
-    while current_level.len() < target_size {
-        current_level.push(H256::zero());
-    }
+    // No padding needed - we'll handle odd numbers by duplication
 
     let mut siblings = Vec::new();
     let mut index = tx_index;
@@ -63,16 +59,22 @@ fn create_proper_merkle_proof_binary(
 
         // Collect siblings for this level
         let sibling_idx = if index % 2 == 0 { index + 1 } else { index - 1 };
-        if sibling_idx < current_level.len() {
-            // Determine if sibling is on left or right
-            // If we're at even index, we're on left, sibling on right
-            // If we're at odd index, we're on right, sibling on left
-            let is_left = index % 2 == 1;
-            siblings.push(MerkleProofEntry {
-                hash: current_level[sibling_idx],
-                is_left,
-            });
-        }
+
+        let sibling_hash = if sibling_idx < current_level.len() {
+            current_level[sibling_idx]
+        } else {
+            // No sibling exists, duplicate current (odd case)
+            current_level[index]
+        };
+
+        // Determine if sibling is on left or right
+        // If we're at even index, we're on left, sibling on right
+        // If we're at odd index, we're on right, sibling on left
+        let is_left = index % 2 == 1;
+        siblings.push(MerkleProofEntry {
+            hash: sibling_hash,
+            is_left,
+        });
 
         // Build next level
         for i in (0..current_level.len()).step_by(2) {
@@ -80,7 +82,8 @@ fn create_proper_merkle_proof_binary(
             let right = if i + 1 < current_level.len() {
                 &current_level[i + 1]
             } else {
-                &H256::zero()
+                // Duplicate last node when odd (matches POC implementation)
+                &current_level[i]
             };
 
             let mut hash_input = vec![0x01u8]; // INNER_HASH_PREPEND_VALUE
@@ -978,10 +981,7 @@ fn test_attack_scenario_valid_proof_wrong_block() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 4, // MerkleRootMismatch - attack prevented!
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Merkle root mismatch");
     });
 }
 
@@ -1089,10 +1089,7 @@ fn test_merkle_root_verification_with_binary_tree() {
                     continuity_blocks,
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 1, // MerkleProofInvalid - wrong transaction data
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Merkle proof validation failed");
     });
 }
 
@@ -1257,10 +1254,7 @@ fn test_security_verification_prevents_cross_block_attack() {
                     continuity_blocks: continuity_blocks.clone(),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 4, // MerkleRootMismatch - Attack prevented!
-                result_segments: vec![],
-            });
+            .execute_reverts(|output| output == b"Merkle root mismatch");
 
         // CORRECT USE: Transaction actually from block 100
         precompiles()

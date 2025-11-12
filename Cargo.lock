@@ -7932,6 +7932,7 @@ dependencies = [
  "sp-io",
  "sp-std",
  "twox-hash 2.1.0",
+ "utils",
 ]
 
 [[package]]
@@ -16099,7 +16100,6 @@ dependencies = [
  "ethereum-types 0.14.1",
  "fs2",
  "hex",
- "mmr",
  "parity-scale-codec",
  "rlp 0.5.2",
  "scale-info",

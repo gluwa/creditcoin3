@@ -22,7 +22,6 @@ rlp = { version = "0.5.2", features = ["rlp-derive"], default-features = false }
 sha3 = { version = "0.10", default-features = false }
 
 # Workspace dependencies
-mmr = { workspace = true, default-features = false }
 parity-scale-codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 serde = { workspace = true, features = [
@@ -50,7 +49,6 @@ std = [
     "ethereum/std",
     "acid_io/std",
     "sp-std/std",
-    "mmr/std",
     "fs2",
     "chrono/std",
     "parity-scale-codec/std",

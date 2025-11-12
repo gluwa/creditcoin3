@@ -7,6 +7,9 @@
 use crate::traits::HashT;
 use core::fmt::{Debug, Display, Formatter};
 use sp_core::H256;
+use sp_std::vec::Vec;
+
+use utils::block_item_traits::BlockItem;
 
 /// Wrapper type for H256 that implements required traits for HashT
 #[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
@@ -61,9 +64,189 @@ pub type KeccakMerkleTree = crate::BaseTree<Keccak256>;
 /// Type alias for a Keccak256-based Merkle proof
 pub type KeccakMerkleProof = crate::proof::Proof<Keccak256>;
 
+/// Create a Keccak256 Merkle tree from items that implement BlockItem trait
+pub fn keccak_merkle_tree<T: BlockItem>(items: &[T]) -> KeccakMerkleTree {
+    let bytes: Vec<Vec<u8>> = items.iter().map(|item| item.to_bytes()).collect();
+    KeccakMerkleTree::from(&bytes[..])
+}
+
+/// Compute a continuity chain digest using Keccak256
+/// digest = keccak256(block_number || root || prev_digest)
+pub fn compute_digest(block_number: u64, root: H256, prev_digest: H256) -> H256 {
+    let mut bytes = Vec::with_capacity(8 + 32 + 32);
+    bytes.extend_from_slice(&block_number.to_be_bytes());
+    bytes.extend_from_slice(root.as_bytes());
+    bytes.extend_from_slice(prev_digest.as_bytes());
+    H256::from(sp_io::hashing::keccak_256(&bytes))
+}
+
+/// Create a Keccak256 Merkle tree from byte arrays
+pub fn keccak_merkle_tree_from_bytes(items: &[Vec<u8>]) -> KeccakMerkleTree {
+    let byte_slices: Vec<&[u8]> = items.iter().map(|v| v.as_slice()).collect();
+    KeccakMerkleTree::from(&byte_slices[..])
+}
+
+/// Simple Merkle tree that matches POC implementation exactly
+/// This duplicates the last node when odd number of nodes at a level
+#[derive(Debug, Clone)]
+pub struct SimpleMerkleTree {
+    /// All levels of the tree, from leaves to root
+    levels: Vec<Vec<H256>>,
+}
+
+impl SimpleMerkleTree {
+    /// Create a new Merkle tree from raw data items
+    pub fn new(items: &[Vec<u8>]) -> Self {
+        if items.is_empty() {
+            panic!("Cannot create Merkle tree from empty array");
+        }
+
+        let mut levels = Vec::new();
+
+        // Level 0: Hash all leaves with prefix
+        let leaf_hashes: Vec<H256> = items
+            .iter()
+            .map(|item| {
+                let mut prefixed = Vec::with_capacity(item.len() + 1);
+                prefixed.push(0x00); // LEAF_PREFIX
+                prefixed.extend_from_slice(item);
+                H256::from(sp_io::hashing::keccak_256(&prefixed))
+            })
+            .collect();
+
+        levels.push(leaf_hashes.clone());
+
+        // Build tree level by level
+        let mut current_level = leaf_hashes;
+
+        while current_level.len() > 1 {
+            let mut next_level = Vec::new();
+
+            // Process pairs
+            let mut i = 0;
+            while i < current_level.len() {
+                let left = current_level[i];
+                let right = if i + 1 < current_level.len() {
+                    current_level[i + 1]
+                } else {
+                    // Odd number: duplicate the last node (matches POC implementation)
+                    current_level[i]
+                };
+
+                // Hash inner node with prefix
+                let mut prefixed = Vec::with_capacity(65);
+                prefixed.push(0x01); // INNER_PREFIX
+                prefixed.extend_from_slice(left.as_bytes());
+                prefixed.extend_from_slice(right.as_bytes());
+                let parent = H256::from(sp_io::hashing::keccak_256(&prefixed));
+                next_level.push(parent);
+
+                i += 2;
+            }
+
+            levels.push(next_level.clone());
+            current_level = next_level;
+        }
+
+        SimpleMerkleTree { levels }
+    }
+
+    /// Get the root hash
+    pub fn root(&self) -> H256 {
+        self.levels
+            .last()
+            .and_then(|level| level.first())
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Generate a Merkle proof for a specific leaf index
+    pub fn generate_proof(&self, leaf_index: usize) -> crate::query_proof::QueryMerkleProof {
+        if self.levels.is_empty() || leaf_index >= self.levels[0].len() {
+            panic!("Leaf index out of range");
+        }
+
+        let mut siblings = Vec::new();
+        let mut current_index = leaf_index;
+
+        // Traverse from leaves to root (excluding the root level)
+        for level in &self.levels[..self.levels.len() - 1] {
+            let is_left_node = current_index % 2 == 0;
+            let sibling = if is_left_node {
+                // Current is left, sibling is right
+                if current_index + 1 < level.len() {
+                    level[current_index + 1]
+                } else {
+                    // No right sibling, duplicate current (matches POC)
+                    level[current_index]
+                }
+            } else {
+                // Current is right, sibling is left
+                level[current_index - 1]
+            };
+            let is_sibling_left = !is_left_node;
+
+            siblings.push(crate::query_proof::MerkleProofEntry {
+                hash: sibling,
+                is_left: is_sibling_left,
+            });
+
+            // Move to parent index
+            current_index /= 2;
+        }
+
+        crate::query_proof::QueryMerkleProof::new(self.root(), siblings)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_simple_merkle_tree_single_item() {
+        let items = vec![vec![0x11; 32]];
+        let tree = SimpleMerkleTree::new(&items);
+
+        // Single item tree - root should be hash of leaf
+        let mut expected = Vec::with_capacity(33);
+        expected.push(0x00); // LEAF_PREFIX
+        expected.extend_from_slice(&items[0]);
+        let expected_root = H256::from(sp_io::hashing::keccak_256(&expected));
+
+        assert_eq!(tree.root(), expected_root);
+
+        // Generate proof for the single item
+        let proof = tree.generate_proof(0);
+        assert_eq!(proof.siblings.len(), 0); // No siblings for single item
+        assert_eq!(proof.root, expected_root);
+    }
+
+    #[test]
+    fn test_simple_merkle_tree_two_items() {
+        let items = vec![vec![0x11; 32], vec![0x22; 32]];
+        let tree = SimpleMerkleTree::new(&items);
+
+        // Generate and verify proof for first item
+        let proof = tree.generate_proof(0);
+        assert!(proof.verify(&items[0]));
+
+        // Generate and verify proof for second item
+        let proof = tree.generate_proof(1);
+        assert!(proof.verify(&items[1]));
+    }
+
+    #[test]
+    fn test_simple_merkle_tree_odd_items() {
+        let items = vec![vec![0x11; 32], vec![0x22; 32], vec![0x33; 32]];
+        let tree = SimpleMerkleTree::new(&items);
+
+        // Generate and verify proof for all items
+        for (i, item) in items.iter().enumerate() {
+            let proof = tree.generate_proof(i);
+            assert!(proof.verify(item), "Failed to verify proof for item {i}");
+        }
+    }
 
     #[test]
     fn test_keccak_merkle_tree() {
