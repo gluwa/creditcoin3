@@ -3,9 +3,9 @@ import { ApiPromise, BN, MICROUNITS_PER_CTC, newApi } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../artifacts/native_query_verifier.json');
+import contractABIJSON = require('../artifacts/INativeQueryVerifier.json');
 
-const contractABI = contractABIJSON.contracts['sol/native_query_verifier.sol:NativeQueryVerifier'].abi;
+const contractABI = contractABIJSON.contracts['sol/INativeQueryVerifier.sol:INativeQueryVerifier'].abi;
 const PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 
 describe('Precompile: Native Query Verifier Integration Tests', (): void => {
