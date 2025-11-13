@@ -1,8 +1,12 @@
 //! Continuity proof generation module
 //!
 //! This module handles fetching attestations from the Creditcoin3 chain
-//! and building continuity proofs for query verification. It supports both
-//! single queries and batch queries with a unified API.
+//! and building continuity proofs for query verification.
+//!
+//! Key concepts:
+//! - Attestations: Consensus points on the Creditcoin3 chain that anchor block digests
+//! - Continuity chains: Sequences of blocks that link a query block to attestations
+//! - POC compliance: Chains must start at queryHeight-1 and end at next attestation
 
 use anyhow::{anyhow, Result};
 use attestor_primitives::{block::Block, Query, SignedAttestation};
@@ -29,20 +33,11 @@ pub struct ContinuityProof {
     pub blocks: Vec<Block>,
 }
 
-/// Attestation boundaries for continuity proof
-#[derive(Debug, Clone)]
-pub struct AttestationBounds {
-    /// Lower attestation (before or at query height)
-    pub lower: Option<AttestationInfo>,
-    /// Upper attestation (at or after query height)
-    pub upper: Option<AttestationInfo>,
-}
-
 /// Information about an attestation
 #[derive(Debug, Clone)]
-pub struct AttestationInfo {
-    pub block_number: u64,
-    pub digest: H256,
+struct AttestationInfo {
+    block_number: u64,
+    digest: H256,
 }
 
 /// Main continuity proof builder
@@ -71,42 +66,45 @@ impl ContinuityBuilder {
     }
 
     /// Build continuity proof for a single query
+    ///
+    /// Fetches attestations and builds the minimal continuity chain needed
+    /// to verify the query. The chain starts at queryHeight-1 and extends
+    /// to the next attestation/checkpoint after the query.
     pub async fn build_for_single_query(&self, query: &Query) -> Result<ContinuityProof> {
         println!(
             "Building continuity proof for single query at height {}",
             query.height
         );
-
-        let attestations = self.fetch_attestations().await?;
-        if attestations.is_empty() {
-            return Err(anyhow!(
-                "No attestations found for chain_key {}. Queries require at least one attestation.",
-                self.config.chain_key
-            ));
-        }
-
-        let bounds = self.find_attestation_bounds(&[query.height], &attestations)?;
-        let blocks = self.build_continuity_blocks(&bounds, query.height).await?;
-
-        Ok(ContinuityProof { blocks })
+        self.build_for_heights(&[query.height]).await
     }
 
     /// Build continuity proof for multiple queries (batch)
+    ///
+    /// Optimizes gas usage by building a single continuity chain that covers
+    /// all query heights. The chain spans from min(queryHeights)-1 to the
+    /// next attestation after max(queryHeights).
     pub async fn build_for_batch_queries(&self, query_heights: &[u64]) -> Result<ContinuityProof> {
         if query_heights.is_empty() {
             return Err(anyhow!("No query heights provided"));
         }
 
-        let min_height = *query_heights.iter().min().unwrap();
-        let max_height = *query_heights.iter().max().unwrap();
-
+        let (min, max) = (
+            *query_heights.iter().min().unwrap(),
+            *query_heights.iter().max().unwrap(),
+        );
         println!(
             "Building continuity proof for {} queries (range: {} to {})",
             query_heights.len(),
-            min_height,
-            max_height
+            min,
+            max
         );
 
+        self.build_for_heights(query_heights).await
+    }
+
+    /// Core logic for building continuity proof for given heights
+    async fn build_for_heights(&self, query_heights: &[u64]) -> Result<ContinuityProof> {
+        // Fetch attestations once
         let attestations = self.fetch_attestations().await?;
         if attestations.is_empty() {
             return Err(anyhow!(
@@ -115,136 +113,139 @@ impl ContinuityBuilder {
             ));
         }
 
-        let bounds = self.find_attestation_bounds(query_heights, &attestations)?;
+        // Find the query range
+        let min_query = *query_heights.iter().min().unwrap();
+        let max_query = *query_heights.iter().max().unwrap();
 
-        // For batch queries, we need continuity from the lower bound to the upper bound
-        // This ensures all queries are covered by the same continuity chain
-        let target_height = max_height;
-        let blocks = self.build_continuity_blocks(&bounds, target_height).await?;
+        // Find attestation bounds
+        let (lower, upper) = self.find_attestation_bounds(min_query, max_query, &attestations)?;
+
+        // Build and trim continuity blocks
+        let blocks = self
+            .build_and_trim_continuity(lower, upper, min_query)
+            .await?;
 
         Ok(ContinuityProof { blocks })
     }
 
     /// Fetch attestations from Creditcoin3
     async fn fetch_attestations(&self) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
-        match self
-            .cc_client
+        self.cc_client
             .get_attestations_for_chain(self.config.chain_key)
             .await
-        {
-            Ok(attestations) => {
-                println!(
-                    "Found {} attestations for chain_key {}",
-                    attestations.len(),
-                    self.config.chain_key
-                );
-                Ok(attestations)
-            }
-            Err(e) => {
-                println!(
-                    "Warning: Could not fetch attestations for chain_key {}: {:?}",
-                    self.config.chain_key, e
-                );
-                Ok(vec![])
-            }
-        }
+            .map_err(|e| anyhow!("Failed to fetch attestations: {}", e))
     }
 
-    /// Find attestation bounds for the given query heights
+    /// Find optimal attestation bounds for the query range
     fn find_attestation_bounds(
         &self,
-        query_heights: &[u64],
+        min_query: u64,
+        max_query: u64,
         attestations: &[SignedAttestation<H256, AccountId32>],
-    ) -> Result<AttestationBounds> {
-        let min_query = *query_heights.iter().min().unwrap();
-        let max_query = *query_heights.iter().max().unwrap();
+    ) -> Result<(AttestationInfo, Option<AttestationInfo>)> {
+        // Find lower bound: closest attestation before min_query
+        // POC requires continuity to start at queryHeight - 1, so we need attestation before that
+        let required_before = min_query.saturating_sub(1);
 
-        // Find the latest attestation before or at the minimum query height
         let lower = attestations
             .iter()
-            .filter(|a| a.attestation.header_number <= min_query)
+            .filter(|a| a.attestation.header_number < required_before)
             .max_by_key(|a| a.attestation.header_number)
-            .map(|a| AttestationInfo {
-                block_number: a.attestation.header_number,
-                digest: a.attestation.digest(),
-            });
+            .ok_or_else(|| {
+                anyhow!(
+                    "No attestation found before block {}. Need an earlier attestation to build continuity.",
+                    required_before
+                )
+            })?;
 
-        // Find the earliest attestation at or after the maximum query height
-        let upper = attestations
+        let lower_info = AttestationInfo {
+            block_number: lower.attestation.header_number,
+            digest: lower.attestation.digest(),
+        };
+
+        // Find upper bound: closest attestation after max_query
+        let upper_info = attestations
             .iter()
-            .filter(|a| a.attestation.header_number >= max_query)
+            .filter(|a| a.attestation.header_number > max_query)
             .min_by_key(|a| a.attestation.header_number)
             .map(|a| AttestationInfo {
                 block_number: a.attestation.header_number,
                 digest: a.attestation.digest(),
             });
 
-        if lower.is_none() {
-            return Err(anyhow!(
-                "No attestation found before or at block {}. The query block must come after at least one attestation.",
-                min_query
-            ));
-        }
-
-        // If no upper bound, we can still proceed with just the lower bound
-        // The continuity chain will extend from the lower attestation to the query block
-
+        // Log the bounds for debugging
         println!(
-            "Attestation bounds: lower={:?}, upper={:?}",
-            lower.as_ref().map(|l| l.block_number),
-            upper.as_ref().map(|u| u.block_number)
+            "Attestation bounds: lower={} upper={}",
+            lower_info.block_number,
+            upper_info
+                .as_ref()
+                .map(|u| u.block_number)
+                .unwrap_or(max_query + 10)
         );
 
-        Ok(AttestationBounds { lower, upper })
+        Ok((lower_info, upper_info))
     }
 
-    /// Build the actual continuity blocks
-    async fn build_continuity_blocks(
+    /// Build continuity blocks and trim to required range
+    async fn build_and_trim_continuity(
         &self,
-        bounds: &AttestationBounds,
-        target_height: u64,
+        lower: AttestationInfo,
+        upper: Option<AttestationInfo>,
+        min_query: u64,
     ) -> Result<Vec<Block>> {
-        let lower_bound = bounds
-            .lower
-            .as_ref()
-            .ok_or_else(|| anyhow!("Lower attestation bound is required"))?;
+        // POC pattern: continuity chain ALWAYS starts at queryHeight - 1
+        let required_start = min_query.saturating_sub(1);
 
-        // Determine the range of blocks to fetch
-        // Start from the block AFTER the attestation
-        let start_height = lower_bound.block_number + 1;
-        let end_height = if let Some(upper) = &bounds.upper {
-            upper.block_number.min(target_height)
-        } else {
-            target_height
-        };
+        // Determine end height (next consensus point or fallback)
+        let end_height = upper
+            .map(|u| u.block_number)
+            .unwrap_or_else(|| min_query + 10);
 
-        // If start > end, we don't need any continuity blocks (query is at the attestation itself)
-        if start_height > end_height {
-            println!("Query is at attestation block, no continuity chain needed");
-            return Ok(Vec::new());
-        }
+        // Build from attestation to end to get correct digests
+        let build_start = lower.block_number + 1;
 
-        println!("Building continuity chain from block {start_height} to {end_height}");
+        println!(
+            "Building continuity chain from {build_start} to {end_height} (will trim to start at {required_start})"
+        );
 
-        // Use the eth::continuity::Manager to build the fragment
-        let manager = ContinuityManager::new(start_height, end_height, &self.eth_client);
-
-        // Use the digest from the lower bound attestation as the prev_digest
-        // This links the continuity chain to the attestation
-        let prev_digest = lower_bound.digest;
-
-        // Create the attestation fragment using the manager
+        // Create continuity fragment
+        let manager = ContinuityManager::new(build_start, end_height, &self.eth_client);
         let fragment = manager
-            .create(prev_digest, EncodingVersion::V1)
+            .create(lower.digest, EncodingVersion::V1)
             .await
             .map_err(|e| anyhow!("Failed to create continuity fragment: {}", e))?;
 
-        // Extract the blocks from the fragment
-        let continuity_blocks: Vec<Block> = fragment.blocks().to_vec();
+        let all_blocks: Vec<Block> = fragment.blocks().to_vec();
 
-        println!("Generated {} continuity blocks", continuity_blocks.len());
+        // If we built from the required start, no trimming needed
+        if build_start == required_start {
+            println!("Generated {} continuity blocks", all_blocks.len());
+            return Ok(all_blocks);
+        }
 
-        Ok(continuity_blocks)
+        // Trim to start at required_start
+        let start_index = all_blocks
+            .iter()
+            .position(|b| b.block_number == required_start)
+            .ok_or_else(|| {
+                anyhow!(
+                    "Block {} not found in continuity chain (range: {}-{})",
+                    required_start,
+                    all_blocks.first().map(|b| b.block_number).unwrap_or(0),
+                    all_blocks.last().map(|b| b.block_number).unwrap_or(0)
+                )
+            })?;
+
+        let trimmed = all_blocks[start_index..].to_vec();
+
+        println!(
+            "Trimmed continuity chain from {} to {} blocks (starting at block {})",
+            all_blocks.len(),
+            trimmed.len(),
+            required_start
+        );
+
+        Ok(trimmed)
     }
 }
 
@@ -253,13 +254,14 @@ impl ContinuityBuilder {
 /// Fetch continuity proof for a single query (legacy interface)
 pub async fn fetch_continuity_proof(
     cc3_rpc_url: &str,
-    query: &Query,
     eth_rpc_url: &str,
+    chain_key: u64,
+    query: &Query,
 ) -> Result<Vec<Block>> {
     let config = ContinuityConfig {
         cc3_rpc_url: cc3_rpc_url.to_string(),
         eth_rpc_url: eth_rpc_url.to_string(),
-        chain_key: query.chain_id,
+        chain_key,
     };
 
     let builder = ContinuityBuilder::new(config).await?;
@@ -268,8 +270,8 @@ pub async fn fetch_continuity_proof(
     Ok(proof.blocks)
 }
 
-/// Generate shared continuity for batch queries
-pub async fn generate_shared_continuity(
+/// Fetch continuity proof for multiple queries (legacy interface)
+pub async fn fetch_continuity_proof_batch(
     cc3_rpc_url: &str,
     eth_rpc_url: &str,
     chain_key: u64,

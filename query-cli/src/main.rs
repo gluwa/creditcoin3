@@ -506,8 +506,9 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
     println!("\n=== Continuity Proof Generation ===");
     let continuity_blocks = continuity::fetch_continuity_proof(
         &params.cc3_rpc_url,
-        &query,
         &prompt_output.network.url(),
+        params.chain_key,
+        &query,
     )
     .await?;
     println!("Continuity blocks: {}", continuity_blocks.len());

@@ -9,6 +9,8 @@ use mmr::query_proof::MerkleProofEntry;
 use precompile_utils::testing::*;
 use sp_core::H256;
 
+use crate::verify::{GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
+
 /// Helper to create a properly formatted Merkle proof that matches the precompile's expectations
 /// The precompile expects siblings in a specific format with placeholders at offset positions
 fn create_proper_merkle_proof_for_single_tx(tx_data: &[u8]) -> MerkleProof {
@@ -118,7 +120,7 @@ fn create_tx_with_layout(segments: &[(usize, usize, u8)]) -> Vec<u8> {
     data
 }
 
-/// Helper to setup a valid attestation chain
+/// Helper to setup attestations at both ends of continuity chain
 fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
     use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
 
@@ -126,8 +128,8 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
         return;
     }
 
-    // Setup attestation for the first block's prev_digest
-    let attestation = Attestation {
+    // Setup attestation for the first block's prev_digest (start of chain)
+    let start_attestation = Attestation {
         chain_key: chain_id,
         header_number: blocks[0].block_number - 1,
         header_hash: H256::random(),
@@ -136,8 +138,8 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
     };
 
     let signature: [u8; 96] = [0u8; 96];
-    let signed_attestation = SignedAttestation {
-        attestation,
+    let signed_start_attestation = SignedAttestation {
+        attestation: start_attestation,
         signature,
         attestors: vec![Account::Alice],
         continuity_proof: AttestationFragmentSerializable::default(),
@@ -146,9 +148,33 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
     pallet_attestation_poc::Attestations::<Runtime>::insert(
         chain_id,
         blocks[0].prev_digest,
-        signed_attestation,
+        signed_start_attestation,
     );
     pallet_attestation_poc::LastDigest::<Runtime>::insert(chain_id, blocks[0].prev_digest);
+
+    // Setup attestation for the last block (end of chain)
+    if let Some(last_block) = blocks.last() {
+        let end_attestation = Attestation {
+            chain_key: chain_id,
+            header_number: last_block.block_number,
+            header_hash: H256::random(),
+            root: H256::from([0u8; 32]),
+            prev_digest: Some(H256::zero()),
+        };
+
+        let signed_end_attestation = SignedAttestation {
+            attestation: end_attestation,
+            signature,
+            attestors: vec![Account::Alice],
+            continuity_proof: AttestationFragmentSerializable::default(),
+        };
+
+        pallet_attestation_poc::Attestations::<Runtime>::insert(
+            chain_id,
+            last_block.digest,
+            signed_end_attestation,
+        );
+    }
 }
 
 /// Helper to create valid continuity blocks with proper digest chain
@@ -501,6 +527,31 @@ fn test_continuity_with_checkpoint_fallback() {
         );
         pallet_attestation_poc::LastCheckpoint::<Runtime>::insert(1, checkpoint);
 
+        // Setup end attestation
+        use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
+        if let Some(last_block) = continuity_blocks.last() {
+            let end_attestation = Attestation {
+                chain_key: 1,
+                header_number: last_block.block_number,
+                header_hash: H256::random(),
+                root: H256::from([0u8; 32]),
+                prev_digest: Some(H256::zero()),
+            };
+
+            let signed_end_attestation = SignedAttestation {
+                attestation: end_attestation,
+                signature: [0u8; 96],
+                attestors: vec![Account::Alice],
+                continuity_proof: AttestationFragmentSerializable::default(),
+            };
+
+            pallet_attestation_poc::Attestations::<Runtime>::insert(
+                1,
+                last_block.digest,
+                signed_end_attestation,
+            );
+        }
+
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -557,6 +608,30 @@ fn test_continuity_attestation_header_validation() {
         );
         pallet_attestation_poc::LastDigest::<Runtime>::insert(1, continuity_blocks[0].prev_digest);
 
+        // Setup end attestation
+        if let Some(last_block) = continuity_blocks.last() {
+            let end_attestation = Attestation {
+                chain_key: 1,
+                header_number: last_block.block_number,
+                header_hash: H256::random(),
+                root: H256::from([0u8; 32]),
+                prev_digest: Some(H256::zero()),
+            };
+
+            let signed_end_attestation = SignedAttestation {
+                attestation: end_attestation,
+                signature: [0u8; 96],
+                attestors: vec![Account::Alice],
+                continuity_proof: AttestationFragmentSerializable::default(),
+            };
+
+            pallet_attestation_poc::Attestations::<Runtime>::insert(
+                1,
+                last_block.digest,
+                signed_end_attestation,
+            );
+        }
+
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -576,7 +651,7 @@ fn test_continuity_attestation_header_validation() {
 }
 
 #[test]
-fn test_continuity_wrong_attestation_header_fails() {
+fn test_continuity_wrong_attestation_header_succeeds() {
     ExtBuilder::default().build().execute_with(|| {
         let query = Query {
             chain_id: 1,
@@ -586,13 +661,14 @@ fn test_continuity_wrong_attestation_header_fails() {
 
         let tx_data = vec![0u8; 32];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
-        let continuity_blocks = create_valid_continuity_chain(100, 1);
+        let continuity_blocks =
+            create_valid_continuity_chain_with_root(100, 1, Some(merkle_proof.root));
 
-        // Setup attestation with WRONG header number
+        // Setup attestation with WRONG header number at start (doesn't matter anymore)
         use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
         let attestation = Attestation {
             chain_key: 1,
-            header_number: continuity_blocks[0].block_number + 10, // Wrong number!
+            header_number: continuity_blocks[0].block_number + 10, // Wrong number but doesn't matter
             header_hash: H256::random(),
             root: H256::from([0u8; 32]),
             prev_digest: Some(H256::zero()),
@@ -613,6 +689,31 @@ fn test_continuity_wrong_attestation_header_fails() {
         // Also set last digest so the continuity chain can be validated
         pallet_attestation_poc::LastDigest::<Runtime>::insert(1, continuity_blocks[0].prev_digest);
 
+        // Setup end attestation correctly
+        if let Some(last_block) = continuity_blocks.last() {
+            let end_attestation = Attestation {
+                chain_key: 1,
+                header_number: last_block.block_number,
+                header_hash: H256::random(),
+                root: H256::from([0u8; 32]),
+                prev_digest: Some(H256::zero()),
+            };
+
+            let signed_end_attestation = SignedAttestation {
+                attestation: end_attestation,
+                signature: [0u8; 96],
+                attestors: vec![Account::Alice],
+                continuity_proof: AttestationFragmentSerializable::default(),
+            };
+
+            pallet_attestation_poc::Attestations::<Runtime>::insert(
+                1,
+                last_block.digest,
+                signed_end_attestation,
+            );
+        }
+
+        // Should succeed despite wrong header number at start
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -624,7 +725,10 @@ fn test_continuity_wrong_attestation_header_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain validation failed");
+            .execute_returns(QueryVerificationResult {
+                status: 0, // Success
+                result_segments: vec![],
+            });
     });
 }
 
@@ -744,7 +848,7 @@ fn test_empty_continuity_chain_reverts_with_message() {
 // ============================================================================
 
 #[test]
-fn test_no_finalized_attestation_or_checkpoint_reverts() {
+fn test_no_end_attestation_or_checkpoint_reverts() {
     ExtBuilder::default().build().execute_with(|| {
         let query = Query {
             chain_id: 1,
@@ -754,9 +858,10 @@ fn test_no_finalized_attestation_or_checkpoint_reverts() {
 
         let tx_data = vec![0u8; 32];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
-        let continuity_blocks = create_valid_continuity_chain(100, 1);
+        let continuity_blocks =
+            create_valid_continuity_chain_with_root(100, 1, Some(merkle_proof.root));
 
-        // Don't setup any attestation or checkpoint - should revert
+        // Don't setup any attestation or checkpoint - should revert because no end attestation
 
         precompiles()
             .prepare_test(
@@ -769,7 +874,7 @@ fn test_no_finalized_attestation_or_checkpoint_reverts() {
                     continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"No finalized attestation or checkpoint found");
+            .execute_reverts(|output| output == b"Continuity proof does not match checkpoint");
     });
 }
 
@@ -1013,7 +1118,7 @@ fn test_query_block_not_in_continuity_chain() {
                     continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_reverts(|output| output == b"Query block not found in continuity chain");
     });
 }
 

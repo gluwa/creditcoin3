@@ -107,7 +107,7 @@ impl BatchVerifier {
         let query_heights: Vec<u64> = self.queries.iter().map(|q| q.block_height).collect();
 
         // Use the refactored continuity module to generate shared continuity
-        let continuity_blocks = crate::continuity::generate_shared_continuity(
+        let continuity_blocks = crate::continuity::fetch_continuity_proof_batch(
             cc3_rpc_url,
             eth_rpc_url,
             chain_key,

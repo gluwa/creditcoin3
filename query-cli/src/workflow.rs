@@ -53,6 +53,20 @@ pub struct QueryResult {
 }
 
 /// Execute a single transfer with optional attestation waiting and query
+///
+/// This orchestrates the complete flow:
+/// 1. Execute an Ethereum transfer
+/// 2. Optionally wait for the transfer to be attested on Creditcoin3
+/// 3. Optionally execute a query to verify the transfer data
+///
+/// # Arguments
+/// * `eth_rpc_url` - Ethereum RPC endpoint
+/// * `eth_private_key` - Private key for Ethereum transfers
+/// * `cc3_rpc_url` - Creditcoin3 RPC endpoint
+/// * `cc3_evm_private_key` - Private key for CC3 EVM transactions
+/// * `transfer_config` - Transfer parameters
+/// * `workflow_config` - Workflow behavior settings
+/// * `chain_key` - Chain identifier for attestations
 pub async fn execute_transfer_with_query(
     eth_rpc_url: &str,
     eth_private_key: &str,
@@ -256,7 +270,7 @@ async fn execute_transfer_query(
         eth_rpc_url: Some(eth_rpc_url.to_string()),
         block_height: Some(block_height),
         txn_hash: Some(tx_hash.to_string()),
-        data_choice: Some(3), // Native transfer data choice (3 = NativeTokenTransferData)
+        data_choice: Some(4), // Native transfer data choice (4 = NativeTokenTransferData)
         chain_key,
         send_tx,
     };

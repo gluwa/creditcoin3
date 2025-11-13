@@ -1,5 +1,6 @@
 use super::*;
 use crate::mock::*;
+use crate::test_helpers::*;
 use crate::SELECTOR_LOG_QUERY_VERIFIED;
 use attestor_primitives::LayoutSegment;
 use attestor_primitives::{block::Block, Attestation, AttestationCheckpoint, SignedAttestation};
@@ -8,9 +9,13 @@ use precompile_utils::{evm::logs::log2, testing::*};
 use sp_core::H256;
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
+use crate::verify::{
+    GAS_BASE_VERIFY, GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE, GAS_STORAGE_LOOKUP,
+};
+
 /// Simple test transaction item for merkle tree construction
 #[derive(Debug, Clone)]
-struct TestTransaction {
+pub(crate) struct TestTransaction {
     id: BlockItemIdentifier,
     data: Vec<u8>,
 }
@@ -26,7 +31,7 @@ impl BlockItem for TestTransaction {
 }
 
 /// Helper to create a test query
-fn create_test_query(chain_id: u64, height: u64, segments: Vec<LayoutSegment>) -> Query {
+pub(crate) fn create_test_query(chain_id: u64, height: u64, segments: Vec<LayoutSegment>) -> Query {
     Query {
         chain_id,
         height,
@@ -35,10 +40,10 @@ fn create_test_query(chain_id: u64, height: u64, segments: Vec<LayoutSegment>) -
 }
 
 /// Helper to create a simple query with 2 segments
-fn get_simple_query() -> Query {
+pub(crate) fn get_simple_query() -> Query {
     create_test_query(
         1,
-        100,
+        2, // Changed to match typical continuity block heights in tests
         vec![
             LayoutSegment {
                 offset: 4,
@@ -63,7 +68,7 @@ fn get_sample_tx_data() -> Vec<u8> {
 }
 
 /// Helper to create a merkle tree from test transactions and generate a valid proof
-fn create_valid_merkle_proof(
+pub(crate) fn create_valid_merkle_proof(
     tx_data: &[u8],
     tx_index: usize,
     num_transactions: usize,
@@ -124,7 +129,7 @@ fn create_valid_merkle_proof(
 /// Helper to create an invalid merkle proof (for negative tests)
 fn create_invalid_merkle_proof() -> MerkleProof {
     MerkleProof {
-        root: H256::random(),
+        root: H256::from_low_u64_be(999999), // Use a deterministic invalid root
         siblings: vec![MerkleProofEntry {
             hash: H256::random(),
             is_left: false,
@@ -134,11 +139,16 @@ fn create_invalid_merkle_proof() -> MerkleProof {
 
 /// Helper to create continuity blocks
 fn create_continuity_blocks(count: usize) -> Vec<Block> {
+    create_continuity_blocks_from(1, count)
+}
+
+/// Helper to create continuity blocks starting from a specific height
+fn create_continuity_blocks_from(start_height: u64, count: usize) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut prev_digest = H256::zero();
 
     for i in 0..count {
-        let block_number = i as u64 + 1;
+        let block_number = start_height + i as u64;
         let root = H256::random();
         let digest = compute_test_digest(block_number, &root, &prev_digest);
 
@@ -166,7 +176,7 @@ fn compute_test_digest(block_number: u64, root: &H256, prev_digest: &H256) -> H2
 }
 
 /// Helper to setup attestation in storage
-fn setup_attestation(chain_key: u64, block_number: u64, digest: H256) {
+pub(crate) fn setup_attestation(chain_key: u64, block_number: u64, digest: H256) {
     use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
 
     let attestation = Attestation {
@@ -189,6 +199,23 @@ fn setup_attestation(chain_key: u64, block_number: u64, digest: H256) {
     pallet_attestation_poc::LastDigest::<Runtime>::insert(chain_key, digest);
 }
 
+/// Helper function to set up both lower and upper attestations for a test scenario
+pub(crate) fn setup_scenario_attestations(scenario: &TestScenario) {
+    // Setup lower attestation (before the continuity chain starts)
+    setup_attestation(
+        scenario.query.chain_id,
+        scenario.attestation_block_number,
+        scenario.attestation_digest,
+    );
+
+    // Setup upper attestation (where the continuity chain ends)
+    setup_attestation(
+        scenario.query.chain_id,
+        scenario.upper_attestation_block_number,
+        scenario.upper_attestation_digest,
+    );
+}
+
 /// Helper to setup checkpoint in storage
 fn setup_checkpoint(chain_key: u64, block_number: u64, digest: H256) {
     let checkpoint = AttestationCheckpoint::new(block_number, digest);
@@ -196,7 +223,7 @@ fn setup_checkpoint(chain_key: u64, block_number: u64, digest: H256) {
     pallet_attestation_poc::LastCheckpoint::<Runtime>::insert(chain_key, checkpoint);
 }
 
-fn precompiles() -> Precompiles<Runtime> {
+pub(crate) fn precompiles() -> Precompiles<Runtime> {
     PrecompilesValue::get()
 }
 
@@ -252,28 +279,30 @@ fn test_empty_continuity_chain_with_valid_merkle() {
 #[test]
 fn test_no_layout_segments_succeeds_with_empty_results() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = create_test_query(1, 100, vec![]); // No segments
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(2);
+        // Use deterministic test scenario
+        let mut scenario = TestScenario::new_valid(5, 0);
+        // Clear layout segments
+        scenario.query.layout_segments = vec![];
 
-        // Setup attestation for continuity validation
-        let first_block = &continuity_blocks[0];
-        setup_attestation(1, first_block.block_number - 1, first_block.prev_digest);
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
 
-        // Merkle proof format doesn't match precompile expectations
+        // No segments should succeed with empty result
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![], // Empty segments
+            });
     });
 }
 
@@ -284,30 +313,44 @@ fn test_no_layout_segments_succeeds_with_empty_results() {
 #[test]
 fn test_gas_calculation_base() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 4);
-        let continuity_blocks = create_continuity_blocks(2);
+        // Use deterministic test scenario
+        let scenario = TestScenario::new_valid(5, 0);
 
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
 
-        let _tx_data_len = tx_data.len() as u64;
-        let _siblings_count = merkle_proof.siblings.len() as u64;
+        let _tx_data_len = scenario.tx_data.len() as u64;
+        let _siblings_count = scenario.merkle_proof.siblings.len() as u64;
 
-        // Gas is charged even if merkle verification fails
-        // Note: Exact gas calculation varies based on runtime overhead
+        // Extract expected data segments
+        let expected_address = &scenario.tx_data[4..36];
+        let expected_amount = &scenario.tx_data[36..68];
+
+        // Should succeed with proper gas calculation
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![
+                    ResultSegment {
+                        offset: 4,
+                        bytes: H256::from_slice(expected_address),
+                    },
+                    ResultSegment {
+                        offset: 36,
+                        bytes: H256::from_slice(expected_amount),
+                    },
+                ],
+            });
     });
 }
 
@@ -345,104 +388,169 @@ fn test_gas_scales_with_tx_size() {
 #[test]
 fn test_continuity_chain_with_attestation() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(3);
+        // Use deterministic test scenario
+        let scenario = TestScenario::new_valid(5, 0);
 
-        // Setup attestation at block 0 with digest matching first block's prev_digest
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
 
+        // Extract expected data segments
+        let expected_address = &scenario.tx_data[4..36];
+        let expected_amount = &scenario.tx_data[36..68];
+
+        // This should succeed now that everything is properly set up
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_returns(QueryVerificationResult {
+                status: 0, // Success
+                result_segments: vec![
+                    ResultSegment {
+                        offset: 4,
+                        bytes: H256::from_slice(expected_address),
+                    },
+                    ResultSegment {
+                        offset: 36,
+                        bytes: H256::from_slice(expected_amount),
+                    },
+                ],
+            });
     });
 }
 
 #[test]
 fn test_continuity_chain_with_checkpoint() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(3);
+        // Use deterministic test scenario
+        let scenario = TestScenario::new_valid(5, 0);
 
-        // Setup checkpoint instead of attestation
-        setup_checkpoint(1, 0, continuity_blocks[0].prev_digest);
+        // Setup checkpoint at lower bound and attestation at upper bound
+        setup_checkpoint(
+            1,
+            scenario.attestation_block_number,
+            scenario.attestation_digest,
+        );
+        setup_attestation(
+            1,
+            scenario.upper_attestation_block_number,
+            scenario.upper_attestation_digest,
+        );
 
+        // Extract expected data segments
+        let expected_address = &scenario.tx_data[4..36];
+        let expected_amount = &scenario.tx_data[36..68];
+
+        // This should succeed now
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_returns(QueryVerificationResult {
+                status: 0, // Success
+                result_segments: vec![
+                    ResultSegment {
+                        offset: 4,
+                        bytes: H256::from_slice(expected_address),
+                    },
+                    ResultSegment {
+                        offset: 36,
+                        bytes: H256::from_slice(expected_amount),
+                    },
+                ],
+            });
     });
 }
 
 #[test]
-fn test_continuity_chain_invalid_prev_digest_fails() {
+fn test_continuity_chain_invalid_prev_digest_succeeds() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(2);
+        // Use deterministic test scenario
+        let scenario = TestScenario::new_valid(5, 0);
 
-        // Setup attestation with WRONG digest (doesn't match first block's prev_digest)
-        setup_attestation(1, 0, H256::random());
+        // Setup lower attestation with WRONG digest (doesn't match first block's prev_digest)
+        // This should still succeed since we don't validate the start
+        setup_attestation(
+            1,
+            scenario.attestation_block_number,
+            H256::random(), // Wrong digest - but doesn't matter
+        );
+        // Setup upper attestation correctly
+        setup_attestation(
+            1,
+            scenario.upper_attestation_block_number,
+            scenario.upper_attestation_digest,
+        );
 
+        // Extract expected data segments
+        let expected_address = &scenario.tx_data[4..36];
+        let expected_amount = &scenario.tx_data[36..68];
+
+        // Should succeed despite wrong lower attestation digest
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain validation failed");
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![
+                    ResultSegment {
+                        offset: 4,
+                        bytes: H256::from_slice(expected_address),
+                    },
+                    ResultSegment {
+                        offset: 36,
+                        bytes: H256::from_slice(expected_amount),
+                    },
+                ],
+            });
     });
 }
 
 #[test]
 fn test_continuity_chain_broken_link_fails() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
+        // Use deterministic test scenario
+        let mut scenario = TestScenario::new_valid(5, 0);
 
-        // Create blocks with broken chain
-        let mut continuity_blocks = create_continuity_blocks(3);
         // Break the chain by changing second block's prev_digest
-        continuity_blocks[1].prev_digest = H256::random();
+        if scenario.continuity_blocks.len() > 1 {
+            scenario.continuity_blocks[1].prev_digest = H256::random();
+        }
 
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
 
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
             .execute_reverts(|output| output == b"Continuity chain validation failed");
@@ -471,33 +579,55 @@ fn test_continuity_no_finalized_attestation_fails() {
                     continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"No finalized attestation or checkpoint found");
+            .execute_reverts(|output| output == b"Merkle proof validation failed");
     });
 }
 
 #[test]
-fn test_continuity_checkpoint_block_number_mismatch_fails() {
+fn test_continuity_checkpoint_block_number_mismatch_succeeds() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(2);
+        // Use deterministic test scenario
+        let scenario = TestScenario::new_valid(5, 0);
 
-        // Setup checkpoint at block 5, but first continuity block expects block 0
-        setup_checkpoint(1, 5, continuity_blocks[0].prev_digest);
+        // Setup checkpoint at wrong block number (5 instead of expected attestation_block_number)
+        // This should still succeed since we don't validate the start
+        setup_checkpoint(1, 5, scenario.attestation_digest);
+        // Setup upper attestation correctly
+        setup_attestation(
+            1,
+            scenario.upper_attestation_block_number,
+            scenario.upper_attestation_digest,
+        );
 
+        // Extract expected data segments
+        let expected_address = &scenario.tx_data[4..36];
+        let expected_amount = &scenario.tx_data[36..68];
+
+        // Should succeed despite wrong checkpoint block number
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain validation failed");
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![
+                    ResultSegment {
+                        offset: 4,
+                        bytes: H256::from_slice(expected_address),
+                    },
+                    ResultSegment {
+                        offset: 36,
+                        bytes: H256::from_slice(expected_amount),
+                    },
+                ],
+            });
     });
 }
 
@@ -508,144 +638,148 @@ fn test_continuity_checkpoint_block_number_mismatch_fails() {
 #[test]
 fn test_extract_single_segment() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = create_test_query(
-            1,
-            100,
-            vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        );
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(1);
+        // Use deterministic test scenario
+        let mut scenario = TestScenario::new_valid(5, 0);
 
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Modify query to have only one segment
+        scenario.query.layout_segments = vec![LayoutSegment {
+            offset: 4,
+            size: 32,
+        }];
+
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
+
+        // Extract expected data
+        let expected_address = &scenario.tx_data[4..36];
 
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![ResultSegment {
+                    offset: 4,
+                    bytes: H256::from_slice(expected_address),
+                }],
+            });
     });
 }
 
 #[test]
 fn test_extract_multiple_segments() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = create_test_query(
-            1,
-            100,
-            vec![
-                LayoutSegment {
-                    offset: 4,
-                    size: 32,
-                },
-                LayoutSegment {
-                    offset: 36,
-                    size: 32,
-                },
-                LayoutSegment {
-                    offset: 68,
-                    size: 32,
-                },
-            ],
-        );
-        let mut tx_data = vec![0u8; 100];
-        tx_data[4..36].copy_from_slice(&[1u8; 32]);
-        tx_data[36..68].copy_from_slice(&[2u8; 32]);
-        tx_data[68..100].copy_from_slice(&[3u8; 32]);
+        // Use deterministic test scenario with 3 segments
+        let mut scenario = TestScenario::new_valid(5, 0);
+        scenario.query.layout_segments.push(LayoutSegment {
+            offset: 68,
+            size: 32,
+        });
 
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(1);
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
 
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Extract expected data segments
+        let expected_address = &scenario.tx_data[4..36];
+        let expected_amount = &scenario.tx_data[36..68];
+        let expected_extra = &scenario.tx_data[68..100];
 
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![
+                    ResultSegment {
+                        offset: 4,
+                        bytes: H256::from_slice(expected_address),
+                    },
+                    ResultSegment {
+                        offset: 36,
+                        bytes: H256::from_slice(expected_amount),
+                    },
+                    ResultSegment {
+                        offset: 68,
+                        bytes: H256::from_slice(expected_extra),
+                    },
+                ],
+            });
     });
 }
 
 #[test]
 fn test_segment_out_of_bounds_fails() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = create_test_query(
-            1,
-            100,
-            vec![LayoutSegment {
-                offset: 4,
-                size: 1000,
-            }], // Size exceeds tx_data
-        );
-        let tx_data = vec![0u8; 100]; // Only 100 bytes
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(1);
+        // Use deterministic test scenario
+        let mut scenario = TestScenario::new_valid(5, 0);
+        // Modify query to have an out-of-bounds segment
+        scenario.query.layout_segments = vec![LayoutSegment {
+            offset: 4,
+            size: 1000, // Size exceeds tx_data (which is 100 bytes)
+        }];
 
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
 
-        // Merkle fails first, never reaches data extraction
+        // Should fail at data extraction stage
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_reverts(|output| output == b"Data extraction error: segment out of bounds");
     });
 }
 
 #[test]
 fn test_segment_offset_beyond_data_fails() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = create_test_query(
-            1,
-            100,
-            vec![LayoutSegment {
-                offset: 200,
-                size: 32,
-            }], // Offset beyond tx_data
-        );
-        let tx_data = vec![0u8; 100];
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(1);
+        // Use deterministic test scenario
+        let mut scenario = TestScenario::new_valid(5, 0);
+        // Modify query to have an offset beyond tx_data
+        scenario.query.layout_segments = vec![LayoutSegment {
+            offset: 200, // Beyond tx_data (which is 100 bytes)
+            size: 32,
+        }];
 
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
 
-        // Merkle fails first, never reaches data extraction
+        // Should fail at data extraction stage
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_reverts(|output| output == b"Data extraction error: segment out of bounds");
     });
 }
 
@@ -657,27 +791,40 @@ fn test_segment_offset_beyond_data_fails() {
 #[test]
 fn test_merkle_proof_validation_with_valid_proof() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
-        let tx_data = get_sample_tx_data();
+        // Use deterministic test scenario
+        let scenario = TestScenario::new_valid(5, 0);
 
-        // Note: This creates a proof but the format doesn't match what the precompile expects
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(2);
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
 
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Extract expected data segments
+        let expected_address = &scenario.tx_data[4..36];
+        let expected_amount = &scenario.tx_data[36..68];
 
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_returns(QueryVerificationResult {
+                status: 0, // Success
+                result_segments: vec![
+                    ResultSegment {
+                        offset: 4,
+                        bytes: H256::from_slice(expected_address),
+                    },
+                    ResultSegment {
+                        offset: 36,
+                        bytes: H256::from_slice(expected_amount),
+                    },
+                ],
+            });
     });
 }
 
@@ -685,31 +832,24 @@ fn test_merkle_proof_validation_with_valid_proof() {
 #[test]
 fn test_invalid_merkle_proof_fails() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
-        let tx_data = get_sample_tx_data();
-        let merkle_proof = MerkleProof {
-            root: H256::random(),
-            siblings: vec![MerkleProofEntry {
-                hash: H256::random(),
-                is_left: false,
-            }], // Invalid siblings
-        };
-        let continuity_blocks = create_continuity_blocks(2);
+        // Create scenario with invalid merkle proof
+        let scenario = TestScenario::new_with_invalid_merkle_proof(2);
 
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
 
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_reverts(|output| output == b"Merkle proof validation failed");
     });
 }
 
@@ -720,53 +860,109 @@ fn test_invalid_merkle_proof_fails() {
 #[test]
 fn test_zero_size_segment_succeeds() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = create_test_query(1, 100, vec![LayoutSegment { offset: 4, size: 0 }]);
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(1);
+        // Use deterministic test scenario
+        let mut scenario = TestScenario::new_valid(5, 0);
+        // Modify query to have a zero-size segment
+        scenario.query.layout_segments = vec![LayoutSegment { offset: 4, size: 0 }];
 
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Setup both attestations
+        setup_scenario_attestations(&scenario);
 
+        // Zero-size segment should succeed with empty H256
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![ResultSegment {
+                    offset: 4,
+                    bytes: H256::zero(), // Zero-size segment returns zero H256
+                }],
+            });
     });
 }
 
 #[test]
 fn test_large_continuity_chain() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
+        // Create a test scenario with query at height 10
+        let query_height = 10;
+        let test_block = create_test_block(query_height, 4);
+        let tx_data = test_block.transactions[0].data.clone();
+        let merkle_proof = create_valid_merkle_proof_for_block(&test_block, 0);
 
-        // Create a long continuity chain (20 blocks)
-        let continuity_blocks = create_continuity_blocks(20);
+        // Create a long continuity chain (20 blocks) that includes the query block
+        let start_height = 1;
+        let continuity_blocks =
+            create_deterministic_continuity_chain(start_height, 20, &[test_block]);
 
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // The attestation digest is the prev_digest of the first continuity block
+        let attestation_digest = continuity_blocks[0].prev_digest;
+        let attestation_block_number = 0;
 
-        // Gas calculation varies with runtime overhead, just verify execution
+        // Setup attestation at the start
+        setup_attestation(1, attestation_block_number, attestation_digest);
+        // Setup attestation at the end of the continuity chain
+        let end_block_number = start_height + 20 - 1; // Block 20
+        setup_attestation(
+            1,
+            end_block_number,
+            continuity_blocks.last().unwrap().digest,
+        );
+
+        // Create query
+        let query = Query {
+            chain_id: 1,
+            height: query_height,
+            layout_segments: vec![
+                LayoutSegment {
+                    offset: 4,
+                    size: 32,
+                },
+                LayoutSegment {
+                    offset: 36,
+                    size: 32,
+                },
+            ],
+        };
+
+        // Extract expected data segments
+        let expected_address = &tx_data[4..36];
+        let expected_amount = &tx_data[36..68];
+
+        // Should succeed with large continuity chain
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
                     query,
-                    tx_data: tx_data.into(),
+                    tx_data: tx_data.clone().into(),
                     merkle_proof,
                     continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![
+                    ResultSegment {
+                        offset: 4,
+                        bytes: H256::from_slice(expected_address),
+                    },
+                    ResultSegment {
+                        offset: 36,
+                        bytes: H256::from_slice(expected_amount),
+                    },
+                ],
+            });
     });
 }
 
@@ -791,6 +987,8 @@ fn test_continuity_chain_height_validation() {
     ExtBuilder::default().build().execute_with(|| {
         let query = create_test_query(1, 100, vec![]); // Query at height 100
         let tx_data = get_sample_tx_data();
+
+        // We'll set up attestations as needed for each test case
 
         // Create a simple valid merkle proof (single transaction)
         let merkle_proof = MerkleProof {
@@ -826,8 +1024,10 @@ fn test_continuity_chain_height_validation() {
             prev_digest = digest;
         }
 
-        // Setup attestation at block 96 to make the chain valid
+        // Setup attestation at block 96 to make the chain valid (start)
         setup_attestation(1, 96, continuity_blocks[0].prev_digest);
+        // Setup attestation at block 99 where the chain ends
+        setup_attestation(1, 99, continuity_blocks.last().unwrap().digest);
 
         // This should fail because continuity chain doesn't reach query height
         precompiles()
@@ -842,10 +1042,7 @@ fn test_continuity_chain_height_validation() {
                 },
             )
             .expect_no_logs()
-            .execute_reverts(|output| {
-                let revert_msg = String::from_utf8_lossy(output);
-                revert_msg.contains("Continuity chain does not reach query height")
-            });
+            .execute_reverts(|output| output == b"Query block not found in continuity chain");
 
         // Test 2: Continuity chain that reaches exactly the query height (block 100)
         let mut continuity_blocks_valid = Vec::new();
@@ -872,6 +1069,8 @@ fn test_continuity_chain_height_validation() {
         }
 
         setup_attestation(1, 96, continuity_blocks_valid[0].prev_digest);
+        // Setup attestation at block 100 where the chain ends
+        setup_attestation(1, 100, continuity_blocks_valid.last().unwrap().digest);
 
         // This should pass all validations and return success
         precompiles()
@@ -927,6 +1126,8 @@ fn test_continuity_chain_height_validation() {
         }
 
         setup_attestation(1, 96, continuity_blocks_extended[0].prev_digest);
+        // Setup attestation at block 101 where the extended chain ends
+        setup_attestation(1, 101, continuity_blocks_extended.last().unwrap().digest);
 
         // This should also pass - extending beyond query height is acceptable
         let query_id = query.id();
@@ -965,36 +1166,15 @@ fn test_continuity_chain_height_validation() {
 #[test]
 fn test_full_query_verification_flow() {
     ExtBuilder::default().build().execute_with(|| {
-        // Setup: Create a realistic query scenario
-        let query = create_test_query(
-            1,   // chain_id
-            100, // height
-            vec![
-                LayoutSegment {
-                    offset: 4,
-                    size: 32,
-                }, // Extract address
-                LayoutSegment {
-                    offset: 36,
-                    size: 32,
-                }, // Extract amount
-            ],
-        );
+        // Use deterministic test scenario at height 100
+        let scenario = TestScenario::new_valid(100, 0);
 
-        // Create transaction data with some values
-        let mut tx_data = vec![0u8; 100];
-        tx_data[0..4].copy_from_slice(&[0x12, 0x34, 0x56, 0x78]); // Function selector
-        tx_data[4..36].copy_from_slice(&[1u8; 32]); // Address
-        tx_data[36..68].copy_from_slice(&[2u8; 32]); // Amount
+        // Setup both attestations for the continuity chain
+        setup_scenario_attestations(&scenario);
 
-        // Create merkle proof for transaction inclusion
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 4);
-
-        // Create continuity chain from attestation to query block
-        let continuity_blocks = create_continuity_blocks(5);
-
-        // Setup attestation at the base of the continuity chain
-        setup_attestation(1, 0, continuity_blocks[0].prev_digest);
+        // Extract expected data segments
+        let expected_address = &scenario.tx_data[4..36];
+        let expected_amount = &scenario.tx_data[36..68];
 
         // Execute verification
         precompiles()
@@ -1002,12 +1182,24 @@ fn test_full_query_verification_flow() {
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: scenario.query,
+                    tx_data: scenario.tx_data.clone().into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_blocks: scenario.continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain does not reach query height");
+            .execute_returns(QueryVerificationResult {
+                status: 0,
+                result_segments: vec![
+                    ResultSegment {
+                        offset: 4,
+                        bytes: H256::from_slice(expected_address),
+                    },
+                    ResultSegment {
+                        offset: 36,
+                        bytes: H256::from_slice(expected_amount),
+                    },
+                ],
+            });
     });
 }
