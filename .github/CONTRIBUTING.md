@@ -128,7 +128,7 @@ Start by running your own solo copy of the cc3-next chain.
 > If you get any errors, remember to **[enable flakes]**.
 
 ```bash
-./target/release/creditcoin3-node -- --dev --tmp
+./target/release/creditcoin3-node --dev --tmp
 ```
 
 Once that is done navigate to [polkadot js] to see the blockchain explorer. You should see it 
