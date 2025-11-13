@@ -12,6 +12,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
 
     // Read all supported chains at the current indexed height
     const rawEntries = await (api.query as any).supportedChains.supportedChains.entries();
+    throw new Error(`Raw entries: ${rawEntries.toString()}`);
 
     const entries: [bigint, { chainId: bigint; chainName: string; chainEncoding: string; maturityStrategy: string }][] =
         rawEntries.map(([storageKey, value]: any) => {
