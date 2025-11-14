@@ -132,7 +132,9 @@ where
                 "❌ Continuity chain ends at block {final_block_number} with digest {final_digest:?}, but no matching attestation or checkpoint found at that height"
             );
                 return Err(PrecompileFailure::Revert {
-                    output: encode_revert_message("Continuity proof does not match checkpoint"),
+                    output: encode_revert_message(
+                        "Continuity proof does not match attestation or checkpoint",
+                    ),
                     exit_status: ExitRevert::Reverted,
                 });
             }

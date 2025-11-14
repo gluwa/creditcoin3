@@ -30,9 +30,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod keccak;
-pub use keccak::{
-    compute_digest, keccak_merkle_tree_from_bytes, KeccakHash, KeccakMerkleTree, SimpleMerkleTree,
-};
+pub use keccak::{compute_digest, KeccakHash, SimpleMerkleTree};
 mod prefixed;
 pub mod proof;
 pub mod query_proof;
@@ -63,6 +61,7 @@ pub const INNER_HASH_PREPEND_VALUE: u8 = 1;
 /// Binary Merkle tree (arity = 2).
 ///
 /// Uses prefixed hash blocks for compact storage. Supports proof generation and verification.
+/// NOT USED FOR NOW
 pub struct BaseTree<H: HashT> {
     root: H::Output,
     prefixed: Vec<Prefixed<H>>,

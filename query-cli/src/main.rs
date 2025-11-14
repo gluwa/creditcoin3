@@ -470,9 +470,11 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
     };
 
     // Step 5: Create the query
+    // Use chain_key (Creditcoin3 chain identifier) instead of network.id() (Ethereum chain ID)
+    // This ensures attestations are looked up correctly by chain_key
     let query = Query {
         height: prompt_output.height,
-        chain_id: prompt_output.network.id(),
+        chain_id: params.chain_key,
         layout_segments,
     };
 
@@ -512,6 +514,32 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
     )
     .await?;
     println!("Continuity blocks: {}", continuity_blocks.len());
+
+    // Debug: Check Merkle root match
+    if let Some(query_block) = continuity_blocks
+        .iter()
+        .find(|b| b.block_number == query.height)
+    {
+        println!("\n=== Merkle Root Comparison ===");
+        println!(
+            "Query block {} root (from continuity): 0x{:?}",
+            query.height, query_block.root
+        );
+        println!("Merkle proof root: 0x{:?}", merkle_proof.root);
+        if query_block.root != merkle_proof.root {
+            println!("⚠️  WARNING: Merkle root mismatch!");
+            println!("   Continuity root: 0x{:?}", query_block.root);
+            println!("   Proof root:      0x{:?}", merkle_proof.root);
+            println!("   This will cause verification to fail.");
+        } else {
+            println!("✅ Merkle roots match!");
+        }
+    } else {
+        println!(
+            "⚠️  WARNING: Query block {} not found in continuity chain!",
+            query.height
+        );
+    }
 
     // Step 9: Verify the query (using refactored module)
     println!("\n=== Query Verification ===");

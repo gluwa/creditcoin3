@@ -17,14 +17,15 @@
 //! ## Usage
 //!
 //! ```rust
-//! use utils::{BlockItemIdentifier, keccak_merkle::KeccakMerkleTree};
+//! use utils::BlockItemIdentifier;
+//! use mmr::SimpleMerkleTree;
 //!
 //! // Create a block item identifier
 //! let id = BlockItemIdentifier::new(100, 5);
 //!
-//! // Use Keccak256 Merkle trees
+//! // Use SimpleMerkleTree (matches POC implementation)
 //! let data = vec![b"hello".to_vec(), b"world".to_vec()];
-//! let tree = KeccakMerkleTree::from(&data[..]);
+//! let tree = SimpleMerkleTree::new(&data);
 //! ```
 
 // =============================================================================

@@ -4,7 +4,7 @@ use crate::test_helpers::*;
 use crate::SELECTOR_LOG_QUERY_VERIFIED;
 use attestor_primitives::LayoutSegment;
 use attestor_primitives::{block::Block, Attestation, AttestationCheckpoint, SignedAttestation};
-use mmr::{keccak::keccak_merkle_tree, query_proof::MerkleProofEntry};
+use mmr::{query_proof::MerkleProofEntry, SimpleMerkleTree};
 use precompile_utils::{evm::logs::log2, testing::*};
 use sp_core::H256;
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
@@ -92,35 +92,15 @@ pub(crate) fn create_valid_merkle_proof(
         });
     }
 
-    // Build merkle tree
-    let tree = keccak_merkle_tree(&transactions);
+    // Build merkle tree using SimpleMerkleTree (matches POC)
+    let tx_bytes: Vec<Vec<u8>> = transactions.iter().map(|tx| tx.to_bytes()).collect();
+    let tree = SimpleMerkleTree::new(&tx_bytes);
     let proof_result = tree.generate_proof(tx_index);
 
-    // Convert siblings to MerkleProofEntry format with position information
-    let mut siblings = Vec::new();
-    let mut current_index = tx_index;
-
-    for proof_item in proof_result.path() {
-        let offset = proof_item.offset();
-        for (i, hash) in proof_item.hashes().iter().enumerate() {
-            if i != offset {
-                // Determine if sibling is on left or right based on current position
-                // In a binary tree, if current_index is even, we're on left, sibling on right
-                // If current_index is odd, we're on right, sibling on left
-                let is_left = (current_index % 2) == 1;
-                siblings.push(MerkleProofEntry {
-                    hash: hash.0,
-                    is_left,
-                });
-            }
-        }
-        // Move up the tree
-        current_index /= 2;
-    }
-
+    // SimpleMerkleTree::generate_proof() already returns QueryMerkleProof with siblings populated
     let merkle_proof = MerkleProof {
-        root: tree.root().0,
-        siblings,
+        root: proof_result.root,
+        siblings: proof_result.siblings,
     };
 
     (merkle_proof, transactions)

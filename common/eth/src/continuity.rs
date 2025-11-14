@@ -82,7 +82,9 @@ impl<'a> Manager<'a> {
                 let end_block = self.end_block;
                 tokio::task::spawn_blocking(move || {
                     debug!("Merkleization of block {}/{}", block.number(), end_block);
-                    let root = crate::keccak_merkle_tree(&block);
+                    // Use simple_merkle_tree to match Merkle proof generation
+                    let tree = crate::simple_merkle_tree(&block);
+                    let root = tree.root();
                     (block, root)
                 })
             })
@@ -92,16 +94,12 @@ impl<'a> Manager<'a> {
 
         // Start building the fragment for the interval
         for block_with_root in blocks_with_roots {
-            let (block, merkle_root) = block_with_root?;
+            let (block, root) = block_with_root?;
 
-            let fragment_block = FragmentBlock::new(block.number(), merkle_root.root().0);
+            let fragment_block = FragmentBlock::new(block.number(), root);
             let fragment_block = if fragment.is_empty() {
                 debug!("Constructing first block from start block");
-                FragmentBlock::new_from_prev_digest(
-                    block.number(),
-                    merkle_root.root().0,
-                    prev_digest,
-                )
+                FragmentBlock::new_from_prev_digest(block.number(), root, prev_digest)
             } else {
                 fragment_block
             };

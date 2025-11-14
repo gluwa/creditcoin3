@@ -438,20 +438,10 @@ impl Client {
     }
 }
 
-pub fn keccak_merkle_tree(block: &OrderedBlock) -> mmr::KeccakMerkleTree {
-    // Convert block items to byte arrays and create tree
-    let bytes: Vec<Vec<u8>> = block.items().iter().map(|item| item.to_bytes()).collect();
-    mmr::keccak_merkle_tree_from_bytes(&bytes)
-}
-
 /// Build a simple Ethereum-compatible Merkle tree from a block
+///
+/// Uses `SimpleMerkleTree` which matches the POC implementation exactly.
 pub fn simple_merkle_tree(block: &OrderedBlock) -> mmr::SimpleMerkleTree {
     let tx_bytes: Vec<Vec<u8>> = block.items().iter().map(|item| item.to_bytes()).collect();
     mmr::SimpleMerkleTree::new(&tx_bytes)
-}
-
-// Deprecated: Use keccak_merkle_tree instead
-#[deprecated(note = "Use keccak_merkle_tree instead")]
-pub fn starknet_pedersen_mmr(block: &OrderedBlock) -> mmr::KeccakMerkleTree {
-    keccak_merkle_tree(block)
 }

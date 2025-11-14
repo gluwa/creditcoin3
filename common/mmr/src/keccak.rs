@@ -7,9 +7,7 @@
 use crate::traits::HashT;
 use core::fmt::{Debug, Display, Formatter};
 use sp_core::H256;
-use sp_std::vec::Vec;
-
-use utils::block_item_traits::BlockItem;
+use sp_std::{vec, vec::Vec};
 
 /// Wrapper type for H256 that implements required traits for HashT
 #[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
@@ -58,17 +56,8 @@ impl HashT for Keccak256 {
     }
 }
 
-/// Type alias for a Keccak256-based Merkle tree
-pub type KeccakMerkleTree = crate::BaseTree<Keccak256>;
-
 /// Type alias for a Keccak256-based Merkle proof
 pub type KeccakMerkleProof = crate::proof::Proof<Keccak256>;
-
-/// Create a Keccak256 Merkle tree from items that implement BlockItem trait
-pub fn keccak_merkle_tree<T: BlockItem>(items: &[T]) -> KeccakMerkleTree {
-    let bytes: Vec<Vec<u8>> = items.iter().map(|item| item.to_bytes()).collect();
-    KeccakMerkleTree::from(&bytes[..])
-}
 
 /// Compute a continuity chain digest using Keccak256
 /// digest = keccak256(block_number || root || prev_digest)
@@ -78,12 +67,6 @@ pub fn compute_digest(block_number: u64, root: H256, prev_digest: H256) -> H256 
     bytes.extend_from_slice(root.as_bytes());
     bytes.extend_from_slice(prev_digest.as_bytes());
     H256::from(sp_io::hashing::keccak_256(&bytes))
-}
-
-/// Create a Keccak256 Merkle tree from byte arrays
-pub fn keccak_merkle_tree_from_bytes(items: &[Vec<u8>]) -> KeccakMerkleTree {
-    let byte_slices: Vec<&[u8]> = items.iter().map(|v| v.as_slice()).collect();
-    KeccakMerkleTree::from(&byte_slices[..])
 }
 
 /// Simple Merkle tree that matches POC implementation exactly
@@ -96,9 +79,15 @@ pub struct SimpleMerkleTree {
 
 impl SimpleMerkleTree {
     /// Create a new Merkle tree from raw data items
+    ///
+    /// # Empty Input Handling
+    /// If `items` is empty, returns a tree with a default hash root (all zeros).
     pub fn new(items: &[Vec<u8>]) -> Self {
+        // Handle empty input: return tree with default hash root
         if items.is_empty() {
-            panic!("Cannot create Merkle tree from empty array");
+            return SimpleMerkleTree {
+                levels: vec![vec![H256::default()]],
+            };
         }
 
         let mut levels = Vec::new();
@@ -161,9 +150,18 @@ impl SimpleMerkleTree {
     }
 
     /// Generate a Merkle proof for a specific leaf index
+    ///
+    /// # Panics
+    /// Panics if `leaf_index` is out of range or if the tree is empty.
     pub fn generate_proof(&self, leaf_index: usize) -> crate::query_proof::QueryMerkleProof {
-        if self.levels.is_empty() || leaf_index >= self.levels[0].len() {
-            panic!("Leaf index out of range");
+        if self.levels.is_empty() || self.levels[0].is_empty() {
+            panic!("Cannot generate proof for empty tree");
+        }
+        if leaf_index >= self.levels[0].len() {
+            panic!(
+                "Leaf index {leaf_index} out of range (tree has {} leaves)",
+                self.levels[0].len()
+            );
         }
 
         let mut siblings = Vec::new();
@@ -202,6 +200,15 @@ impl SimpleMerkleTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_simple_merkle_tree_empty() {
+        let items: Vec<Vec<u8>> = vec![];
+        let tree = SimpleMerkleTree::new(&items);
+
+        // Empty tree should have default hash root (all zeros)
+        assert_eq!(tree.root(), H256::default());
+    }
 
     #[test]
     fn test_simple_merkle_tree_single_item() {
@@ -246,29 +253,5 @@ mod tests {
             let proof = tree.generate_proof(i);
             assert!(proof.verify(item), "Failed to verify proof for item {i}");
         }
-    }
-
-    #[test]
-    fn test_keccak_merkle_tree() {
-        // Test data
-        let data: Vec<&[u8]> = vec![b"leaf1", b"leaf2", b"leaf3", b"leaf4"];
-
-        // Create tree
-        let tree = KeccakMerkleTree::from(&data[..]);
-
-        // Generate proof for first leaf
-        let proof = tree.generate_proof(0);
-
-        // The proof should be verifiable
-        assert!(proof.validate(data[0]));
-    }
-
-    #[test]
-    fn test_single_leaf_tree() {
-        let data: Vec<&[u8]> = vec![b"single_leaf"];
-        let tree = KeccakMerkleTree::from(&data[..]);
-
-        let proof = tree.generate_proof(0);
-        assert!(proof.validate(data[0]));
     }
 }

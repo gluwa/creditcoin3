@@ -291,8 +291,9 @@ pub(crate) async fn calculate_merkle_root(
         .get_block_by_number(block_number)
         .await?
         .context("Failed to get block")?;
-    let merkle_tree = eth::keccak_merkle_tree(&ordered_block);
-    Ok(merkle_tree.root().0 .0)
+    // Use simple_merkle_tree to match attestations and continuity chains
+    let tree = eth::simple_merkle_tree(&ordered_block);
+    Ok(tree.root().0)
 }
 
 #[derive(Debug, Deserialize)]
