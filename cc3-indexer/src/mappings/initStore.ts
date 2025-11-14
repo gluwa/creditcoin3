@@ -12,7 +12,6 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
 
     // Read all supported chains at the current indexed height
     const rawEntries = await (api.query as any).supportedChains.supportedChains.entries();
-    throw new Error(`Raw entries: ${rawEntries.toString()}`);
 
     const entries: [bigint, { chainId: bigint; chainName: string; chainEncoding: string; maturityStrategy: string }][] =
         rawEntries.map(([storageKey, value]: any) => {
@@ -25,7 +24,9 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
                 (typeof j.chainName === 'string' ? j.chainName : '0x');
             const chainEncoding =
                 value?.chainEncoding?.toString?.() ?? (typeof j.chainEncoding === 'string' ? j.chainEncoding : 'V1');
-            const maturityStrategy = value?.maturityStrategy?.toString?.();
+            const maturityStrategy =
+                value?.maturityStrategy?.toString?.() ??
+                (typeof j.maturityStrategy === 'string' ? j.maturityStrategy : '');
             if (maturityStrategy == null) {
                 throw new Error(`maturityStrategy missing for chainKey= ${chainKey.toString()}`);
             }
