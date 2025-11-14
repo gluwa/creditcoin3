@@ -11,6 +11,7 @@ name: typescript-checks
       - '**package.json'
       - '**package-lock.json'
       - '**yarn.lock'
+      - '.github/workflows/typescript-checks.yml'
   workflow_dispatch:
 
 concurrency:

@@ -8,6 +8,7 @@ name: Check runtime changes
       - '**Cargo.*'
       - 'precompiles/**'
       - 'runtime/**'
+      - '.github/workflows/check-runtime-changes.yml'
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
