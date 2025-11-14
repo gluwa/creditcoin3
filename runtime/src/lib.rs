@@ -80,6 +80,8 @@ use pallet_transaction_payment::Multiplier;
 mod precompiles;
 use precompiles::FrontierPrecompiles;
 
+mod migrations;
+
 /// Type of block number.
 pub type BlockNumber = u32;
 
@@ -973,7 +975,11 @@ pub type Executive = frame_executive::Executive<
     frame_system::ChainContext<Runtime>,
     Runtime,
     AllPalletsWithSystem,
-    (pallet_identity::migration::versioned::V0ToV1<Runtime, { u64::MAX }>,),
+    (
+        pallet_identity::migration::versioned::V0ToV1<Runtime, { u64::MAX }>,
+        pallet_grandpa::migrations::MigrateV4ToV5<Runtime>,
+        migrations::staking_v13_to_v15::MigrateV13ToV15<Runtime>,
+    ),
 >;
 
 impl fp_self_contained::SelfContainedCall for RuntimeCall {
