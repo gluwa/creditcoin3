@@ -67,8 +67,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -108,8 +110,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.keccak256(smallTxData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -130,8 +134,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
                 const largeContinuityChain = [
                     {
+                        // eslint-disable-next-line @typescript-eslint/naming-convention
                         block_number: 100,
                         root: ethers.keccak256(largeTxData),
+                        // eslint-disable-next-line @typescript-eslint/naming-convention
                         prev_digest: ethers.zeroPadBytes('0x00', 32),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
@@ -179,8 +185,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -226,8 +234,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
             const shortContinuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 103,
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -235,26 +245,34 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
             const longContinuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 101,
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x01', 32),
                     digest: ethers.zeroPadBytes('0x02', 32),
                 },
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 102,
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x02', 32),
                     digest: ethers.zeroPadBytes('0x03', 32),
                 },
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 103,
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x03', 32),
                     digest: ethers.zeroPadBytes('0x04', 32),
                 },
@@ -297,8 +315,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: maxUint64, // Max uint64 for consistency
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -332,8 +352,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.zeroPadBytes('0x01', 32),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -390,8 +412,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.zeroPadBytes('0x01', 32),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -422,8 +446,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -453,8 +479,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.zeroPadBytes('0x00', 32),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -485,8 +513,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -518,8 +548,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.keccak256(txData),
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
@@ -549,8 +581,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
             const continuityChain = [
                 {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     block_number: 100,
                     root: ethers.keccak256('0xdeadbeef'), // Wrong root to match merkle proof
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
                     prev_digest: ethers.zeroPadBytes('0x00', 32),
                     digest: ethers.zeroPadBytes('0x01', 32),
                 },
