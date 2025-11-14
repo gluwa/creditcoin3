@@ -324,8 +324,7 @@ interface INativeQueryVerifier {
 /// @dev Provides convenience functions and constants
 library NativeQueryVerifierLib {
     /// @notice Address of the Native Query Verifier precompile
-    address constant PRECOMPILE_ADDRESS =
-        0x0000000000000000000000000000000000000FD2;
+    address constant PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000000FD2;
 
     /// @notice Status code: Verification successful
     uint8 constant STATUS_SUCCESS = 0;
