@@ -5,7 +5,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use log::error;
+use log::debug;
 use pallet_evm::AddressMapping;
 use precompile_utils::{prelude::*, solidity::Codec};
 use sp_core::H256;
@@ -100,12 +100,10 @@ where
 
         // Validate inputs
         if tx_bytes.is_empty() {
-            if emit_events {
-                error!(
-                    "Empty transaction data submitted for query: {:?}",
-                    query.id()
-                );
-            }
+            debug!(
+                "Empty transaction data submitted for query: {:?}",
+                query.id()
+            );
             let encoded_revert = encode_revert_message("Transaction data cannot be empty");
             return Err(PrecompileFailure::Revert {
                 output: encoded_revert,
@@ -115,9 +113,7 @@ where
 
         // Check for empty continuity chain
         if continuity_blocks.is_empty() {
-            if emit_events {
-                error!("Empty continuity chain for query: {:?}", query.id());
-            }
+            debug!("Empty continuity chain for query: {:?}", query.id());
             return Err(PrecompileFailure::Revert {
                 output: encode_revert_message("Continuity chain cannot be empty"),
                 exit_status: ExitRevert::Reverted,
@@ -159,14 +155,13 @@ where
         // Step 1: Verify merkle proof for the transaction
         let merkle_valid = merkle_proof.verify(&tx_bytes);
         if !merkle_valid {
-            if emit_events {
-                error!("Merkle proof validation failed for query: {:?}", query.id());
-            }
+            debug!("Merkle proof validation failed for query: {:?}", query.id());
             return Self::handle_verification_failure(
                 handle,
                 &query,
                 1, // MerkleProofInvalid
                 "Merkle proof validation failed",
+                emit_events,
             );
         }
 
@@ -185,6 +180,7 @@ where
                 &query,
                 4, // MerkleRootMismatch
                 "Merkle root mismatch",
+                emit_events,
             );
         }
 
@@ -195,6 +191,7 @@ where
                 &query,
                 2, // ContinuityChainInvalid
                 "Continuity chain validation failed",
+                emit_events,
             );
         }
 
@@ -217,14 +214,13 @@ where
                 Err(e)
             }
             Err(e) => {
-                if emit_events {
-                    error!("Failed to extract data segments: {e:?}");
-                }
+                debug!("Failed to extract data segments: {e:?}");
                 Self::handle_verification_failure(
                     handle,
                     &query,
                     3, // DataExtractionError
                     "Failed to extract data segments",
+                    emit_events,
                 )
             }
         }
@@ -270,9 +266,7 @@ where
         let queries: Vec<Query> = queries.into();
         let num_queries = queries.len();
 
-        if emit_events {
-            log::info!("Processing batch of {num_queries} queries");
-        }
+        log::debug!("Processing batch of {num_queries} queries");
 
         // Validate input arrays have same length
         if num_queries != tx_data_array.len() || num_queries != merkle_proofs.len() {
@@ -361,9 +355,7 @@ where
             .zip(merkle_proofs.into_iter())
             .enumerate()
         {
-            if emit_events {
-                log::info!("Processing query {}/{}", i + 1, num_queries);
-            }
+            log::debug!("Processing query {}/{}", i + 1, num_queries);
 
             // Convert bounded bytes to Vec<u8>
             let tx_bytes: Vec<u8> = tx_data.into();
@@ -388,7 +380,18 @@ where
             let merkle_valid = merkle_proof.verify(&tx_bytes);
 
             if !merkle_valid {
-                // Merkle proof failed - record failure but don't emit event
+                // Merkle proof failed - emit failure event and record failure
+                if emit_events {
+                    if let Err(e) = Self::emit_verification_failure(
+                        handle,
+                        &query,
+                        1, // MerkleProofInvalid
+                        "Merkle proof validation failed",
+                    ) {
+                        // If event emission fails, continue anyway
+                        log::debug!("Failed to emit failure event: {e:?}");
+                    }
+                }
                 let result = QueryVerificationResult {
                     status: 1, // MerkleProofInvalid
                     result_segments: Vec::new(),
@@ -434,12 +437,21 @@ where
             if let Some(query_block) = query_block {
                 // 3. Verify merkle root matches the continuity block
                 if merkle_proof.root != query_block.root {
-                    // Root mismatch
+                    // Root mismatch - emit failure event and record failure
+                    if emit_events {
+                        if let Err(e) = Self::emit_verification_failure(
+                            handle,
+                            &query,
+                            4, // MerkleRootMismatch
+                            "Merkle root mismatch",
+                        ) {
+                            log::debug!("Failed to emit failure event: {e:?}");
+                        }
+                    }
                     let result = QueryVerificationResult {
                         status: 4, // MerkleRootMismatch
                         result_segments: Vec::new(),
                     };
-                    // Root mismatch - record failure but don't emit event
                     failed_queries += 1;
                     results.push(result);
                     continue;
@@ -464,7 +476,24 @@ where
                             }
                             successful_queries += 1;
                         } else {
-                            // Verification failed with a specific status
+                            // Verification failed with a specific status - emit failure event
+                            if emit_events {
+                                let reason = match result.status {
+                                    1 => "Merkle proof validation failed",
+                                    2 => "Continuity chain validation failed",
+                                    3 => "Data extraction error",
+                                    4 => "Merkle root mismatch",
+                                    _ => "Unknown verification error",
+                                };
+                                if let Err(e) = Self::emit_verification_failure(
+                                    handle,
+                                    &query,
+                                    result.status,
+                                    reason,
+                                ) {
+                                    log::debug!("Failed to emit failure event: {e:?}");
+                                }
+                            }
                             failed_queries += 1;
                         }
                         results.push(result);
@@ -474,7 +503,17 @@ where
                         return Err(e);
                     }
                     Err(_) => {
-                        // Other errors - record failure but don't emit event
+                        // Other errors - emit failure event and record failure
+                        if emit_events {
+                            if let Err(e) = Self::emit_verification_failure(
+                                handle,
+                                &query,
+                                3, // DataExtractionError
+                                "Data extraction error",
+                            ) {
+                                log::debug!("Failed to emit failure event: {e:?}");
+                            }
+                        }
                         let result = QueryVerificationResult {
                             status: 3, // DataExtractionError
                             result_segments: Vec::new(),
@@ -484,7 +523,17 @@ where
                     }
                 }
             } else {
-                // Query block not found in continuity chain - record failure but don't emit event
+                // Query block not found in continuity chain - emit failure event and record failure
+                if emit_events {
+                    if let Err(e) = Self::emit_verification_failure(
+                        handle,
+                        &query,
+                        2, // ContinuityChainInvalid
+                        "Query block not found in continuity chain",
+                    ) {
+                        log::debug!("Failed to emit failure event: {e:?}");
+                    }
+                }
                 let result = QueryVerificationResult {
                     status: 2, // ContinuityChainInvalid
                     result_segments: Vec::new(),
@@ -496,10 +545,6 @@ where
 
         // Emit batch summary event (in addition to individual events)
         if emit_events {
-            log::info!(
-                "Batch verification completed: {successful_queries} successful, {failed_queries} failed"
-            );
-
             let event_data = ethabi::encode(&[
                 Token::Uint(successful_queries.into()),
                 Token::Uint(failed_queries.into()),
@@ -573,7 +618,7 @@ pub fn verify_single_query_internal(
     // Step 3: If we have the query block, verify merkle root matches
     if let Some(query_block) = query_block {
         if merkle_proof.root != query_block.root {
-            error!(
+            debug!(
                 "Merkle root mismatch: proof root {:?} != block root {:?}",
                 merkle_proof.root, query_block.root
             );
@@ -584,7 +629,7 @@ pub fn verify_single_query_internal(
         }
     } else {
         // Query block not in continuity chain - this is a continuity chain issue
-        error!("Query block {} not found in continuity chain", query.height);
+        debug!("Query block {} not found in continuity chain", query.height);
         return Ok(QueryVerificationResult {
             status: 2, // ContinuityChainInvalid
             result_segments: Vec::new(),
@@ -603,7 +648,7 @@ pub fn verify_single_query_internal(
         }
         Err(e) => {
             // Other extraction errors return status 3
-            error!("Failed to extract data segments: {e:?}");
+            debug!("Failed to extract data segments: {e:?}");
             Ok(QueryVerificationResult {
                 status: 3, // DataExtractionError
                 result_segments: Vec::new(),
@@ -652,7 +697,7 @@ pub fn extract_data_segments(
 
         // Validate bounds
         if end > tx_data.len() {
-            error!(
+            debug!(
                 "Layout segment out of bounds: offset={}, size={}, tx_data_len={}",
                 segment.offset,
                 segment.size,

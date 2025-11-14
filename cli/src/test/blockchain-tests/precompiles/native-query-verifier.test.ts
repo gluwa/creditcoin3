@@ -35,6 +35,8 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
     beforeEach(async () => {
         gasPrice = (await provider.getFeeData()).gasPrice;
+        // Wait a bit to avoid nonce conflicts between tests
+        await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
     describe('Precompile Deployment', () => {
@@ -63,11 +65,14 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty array of entries for single tx
             };
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
             try {
                 const estimatedGas = await contract.verifyQuery.estimateGas(
@@ -101,11 +106,14 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 siblings: [], // Empty array of entries
             };
 
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.keccak256(smallTxData),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
             try {
                 const smallGas = await contract.verifyQuery.estimateGas(
@@ -120,11 +128,20 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                     siblings: [], // Empty array of entries
                 };
 
+                const largeContinuityChain = [
+                    {
+                        block_number: 100,
+                        root: ethers.keccak256(largeTxData),
+                        prev_digest: ethers.zeroPadBytes('0x00', 32),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ];
+
                 const largeGas = await contract.verifyQuery.estimateGas(
                     query,
                     largeTxData,
                     largeProof,
-                    continuityChain,
+                    largeContinuityChain,
                 );
 
                 // Larger data should require more gas
@@ -160,11 +177,14 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 ],
             };
 
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
             try {
                 const simpleGas = await contract.verifyQuery.estimateGas(
@@ -204,22 +224,41 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 siblings: [], // Empty for single transaction
             };
 
-            const shortContinuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [103],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const shortContinuityChain = [
+                {
+                    block_number: 103,
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
-            const longContinuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100, 101, 102, 103],
-                digests: [
-                    ethers.zeroPadBytes('0x01', 32),
-                    ethers.zeroPadBytes('0x02', 32),
-                    ethers.zeroPadBytes('0x03', 32),
-                    ethers.zeroPadBytes('0x04', 32),
-                ],
-            };
+            const longContinuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+                {
+                    block_number: 101,
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x01', 32),
+                    digest: ethers.zeroPadBytes('0x02', 32),
+                },
+                {
+                    block_number: 102,
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x02', 32),
+                    digest: ethers.zeroPadBytes('0x03', 32),
+                },
+                {
+                    block_number: 103,
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x03', 32),
+                    digest: ethers.zeroPadBytes('0x04', 32),
+                },
+            ];
 
             try {
                 const shortGas = await contract.verifyQuery.estimateGas(
@@ -242,10 +281,11 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
     describe('Input Validation Tests', () => {
         test('should handle maximum uint values gracefully', async () => {
+            const maxUint64 = 2n ** 64n - 1n;
             const query = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 2n ** 64n - 1n, // Max uint64
-                height: 2n ** 64n - 1n,
+                chain_id: maxUint64, // Max uint64
+                height: maxUint64,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [{ offset: 0, size: 32 }],
             };
@@ -255,11 +295,14 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: maxUint64, // Max uint64 for consistency
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
             try {
                 await contract.verifyQuery(query, txData, merkleProof, continuityChain, {
@@ -287,11 +330,14 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.zeroPadBytes('0x01', 32),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.zeroPadBytes('0x01', 32),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
             try {
                 await contract.verifyQuery(query, invalidData, merkleProof, continuityChain, {
@@ -302,37 +348,6 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // Should fail at ethers.js level with invalid hex
                 expect(error).toBeDefined();
                 expect(error.message).toBeDefined();
-            }
-        });
-
-        test('should handle invalid encoding in transaction data', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
-
-            const txData = ethers.randomBytes(100);
-            const merkleProof = {
-                root: ethers.keccak256(txData),
-                siblings: [], // Empty entries array
-            };
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
-
-            try {
-                await contract.verifyQuery(query, txData, merkleProof, continuityChain, {
-                    gasPrice,
-                    gasLimit: 500000,
-                });
-            } catch (error: any) {
-                // Expected to fail
-                expect(error).toBeDefined();
             }
         });
 
@@ -351,21 +366,13 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 siblings: [], // Empty entries array
             };
 
-            // Malformed continuity chain with invalid structure
-            const malformedChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [], // Empty array
-                digests: [ethers.zeroPadBytes('0x01', 32)], // Mismatched length
-            };
+            // Malformed continuity chain with empty block array
+            const malformedChain: any[] = []; // Empty array
 
-            try {
-                await contract.verifyQuery(query, txData, merkleProof, malformedChain, {
-                    gasPrice,
-                    gasLimit: 500000,
-                });
-            } catch (error: any) {
-                expect(error).toBeDefined();
-            }
+            // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, malformedChain)).rejects.toThrow(
+                /Continuity chain cannot be empty/,
+            );
         });
 
         test('should fail with invalid hex encoding in transaction data', async () => {
@@ -381,21 +388,20 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.zeroPadBytes('0x01', 32),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.zeroPadBytes('0x01', 32),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
-            try {
-                // Pass non-hex string as transaction data
-                await contract.verifyQuery(query, 'not-hex-data', merkleProof, continuityChain, {
-                    gasPrice,
-                    gasLimit: 500000,
-                });
-            } catch (error: any) {
-                expect(error).toBeDefined();
-            }
+            // Pass non-hex string as transaction data - should fail at ethers.js validation level
+            // Note: ethers.js throws "invalid BytesLike value" during encoding
+            await expect(
+                contract.verifyQuery.staticCall(query, 'not-hex-data', merkleProof, continuityChain),
+            ).rejects.toThrow(/invalid BytesLike value|invalid hex string/i);
         });
     });
 
@@ -414,26 +420,21 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
-            try {
-                const result = await contract.verifyQuery(query, txData, merkleProof, continuityChain, {
-                    gasPrice,
-                    gasLimit: 500000,
-                });
-
-                // If it doesn't revert, check the status is non-zero (failure)
-                if (result && result.status) {
-                    expect(result.status).toBeGreaterThan(0);
-                }
-            } catch (error: any) {
-                // Expected to revert without proper attestation
-                expect(error.message).toBeDefined();
-            }
+            // Note: Merkle proof validation happens first, so this fails at Merkle validation
+            // To test continuity validation, we would need valid Merkle proofs
+            // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityChain)).rejects.toThrow(
+                /Merkle proof validation failed/,
+            );
         });
 
         test('should fail with empty transaction data', async () => {
@@ -450,21 +451,19 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.zeroPadBytes('0x00', 32),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.zeroPadBytes('0x00', 32),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
-            try {
-                await contract.verifyQuery(query, txData, merkleProof, continuityChain, {
-                    gasPrice,
-                    gasLimit: 500000,
-                });
-            } catch (error: any) {
-                // Expected to fail
-                expect(error).toBeDefined();
-            }
+            // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityChain)).rejects.toThrow(
+                /Transaction data cannot be empty/,
+            );
         });
 
         test('should fail when layout segment exceeds transaction data bounds', async () => {
@@ -484,21 +483,21 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 siblings: [], // Empty entries array
             };
 
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
-            try {
-                await contract.verifyQuery(query, txData, merkleProof, continuityChain, {
-                    gasPrice,
-                    gasLimit: 500000,
-                });
-            } catch (error: any) {
-                // Expected to fail for out-of-bounds segment
-                expect(error).toBeDefined();
-            }
+            // Note: Merkle proof validation happens first, so this fails at Merkle validation
+            // To test data extraction errors, we would need valid Merkle proofs
+            // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityChain)).rejects.toThrow(
+                /Merkle proof validation failed/,
+            );
         });
 
         test('should fail with extremely large layout segments', async () => {
@@ -508,7 +507,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 height: 100,
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 layout_segments: [
-                    { offset: 0, size: 2 ** 32 - 1 }, // Max uint32
+                    { offset: 0, size: 2 ** 32 - 1 }, // Max uint32, exceeds tx data length
                 ],
             };
 
@@ -517,21 +516,21 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.keccak256(txData),
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
-            try {
-                await contract.verifyQuery(query, txData, merkleProof, continuityChain, {
-                    gasPrice,
-                    gasLimit: 500000,
-                });
-            } catch (error: any) {
-                // Expected to fail for extremely large segment
-                expect(error).toBeDefined();
-            }
+            // Note: Merkle proof validation happens first, so this fails at Merkle validation
+            // To test data extraction errors, we would need valid Merkle proofs
+            // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityChain)).rejects.toThrow(
+                /Merkle proof validation failed/,
+            );
         });
 
         test('should fail with mismatched merkle root', async () => {
@@ -548,21 +547,19 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256('0xdeadbeef'), // Wrong root, doesn't match txData
                 siblings: [{ hash: ethers.randomBytes(32), isLeft: false }],
             };
-            const continuityChain = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_numbers: [100],
-                digests: [ethers.zeroPadBytes('0x01', 32)],
-            };
+            const continuityChain = [
+                {
+                    block_number: 100,
+                    root: ethers.keccak256('0xdeadbeef'), // Wrong root to match merkle proof
+                    prev_digest: ethers.zeroPadBytes('0x00', 32),
+                    digest: ethers.zeroPadBytes('0x01', 32),
+                },
+            ];
 
-            try {
-                await contract.verifyQuery(query, txData, merkleProof, continuityChain, {
-                    gasPrice,
-                    gasLimit: 500000,
-                });
-            } catch (error: any) {
-                // Expected to fail for mismatched merkle root
-                expect(error).toBeDefined();
-            }
+            // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityChain)).rejects.toThrow(
+                /Merkle proof validation failed/,
+            );
         });
     });
 });

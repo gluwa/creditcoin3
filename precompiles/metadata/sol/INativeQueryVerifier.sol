@@ -92,8 +92,9 @@ interface INativeQueryVerifier {
         QueryVerificationResult[] results;
     }
 
-    /// @notice Verify a blockchain query with Merkle proof and continuity chain
-    /// @dev This is a view function that performs native verification at runtime speed
+    /// @notice Verify a blockchain query with Merkle proof and continuity chain (view function)
+    /// @dev This is a read-only view function that performs native verification at runtime speed.
+    ///      This function does NOT emit events. Use verifyQuery() if you need event emissions.
     /// @param query The query specification defining what data to retrieve
     /// @param tx_data Raw transaction data to verify and extract from
     /// @param merkle_proof Merkle proof for transaction inclusion (with position info, no index needed)
@@ -101,13 +102,44 @@ interface INativeQueryVerifier {
     /// @return result Verification result containing status and extracted data segments
     ///
     /// Gas Costs (aligned with standard Ethereum precompiles):
-    /// - Base: 35,000 (reduced for efficiency)
+    /// - Base: 21,000 (matches Ethereum standard)
     /// - Per TX byte: 16 (matches EVM calldata cost)
-    /// - Per sibling: 3,000 (equal to ecrecover)
-    /// - Per continuity block: 5,000
+    /// - Per sibling: 200 (native efficiency)
+    /// - Per continuity block: 3,000
     /// - Storage lookup: 2,600 per attestation/checkpoint (matches cold SLOAD)
     /// - Merkle verification: 100,000 weight
     /// - Continuity verification: 50,000 weight
+    ///
+    /// Note: This function does not emit events. For event emissions, use verifyQuery() instead.
+    function verifyQueryView(
+        Query calldata query,
+        bytes calldata tx_data,
+        MerkleProof calldata merkle_proof,
+        Block[] calldata continuity_blocks
+    ) external view returns (QueryVerificationResult memory result);
+
+    /// @notice Verify a blockchain query with Merkle proof and continuity chain
+    /// @dev This is the state-changing version that emits QueryVerified or QueryVerificationFailed events.
+    ///      For read-only verification without events, use verifyQueryView() instead.
+    /// @param query The query specification defining what data to retrieve
+    /// @param tx_data Raw transaction data to verify and extract from
+    /// @param merkle_proof Merkle proof for transaction inclusion (with position info, no index needed)
+    /// @param continuity_blocks Array of blocks for continuity verification
+    /// @return result Verification result containing status and extracted data segments
+    ///
+    /// Events Emitted:
+    /// - QueryVerified on successful verification
+    /// - QueryVerificationFailed on verification failure (before revert)
+    ///
+    /// Gas Costs (aligned with standard Ethereum precompiles):
+    /// - Base: 21,000 (matches Ethereum standard)
+    /// - Per TX byte: 16 (matches EVM calldata cost)
+    /// - Per sibling: 200 (native efficiency)
+    /// - Per continuity block: 3,000
+    /// - Storage lookup: 2,600 per attestation/checkpoint (matches cold SLOAD)
+    /// - Merkle verification: 100,000 weight
+    /// - Continuity verification: 50,000 weight
+    /// - Event emission: Additional gas for log costs
     ///
     /// Example Usage:
     /// ```solidity
@@ -135,7 +167,7 @@ interface INativeQueryVerifier {
     ///     siblings: siblings
     /// });
     ///
-    /// // Verify
+    /// // Verify (emits QueryVerified event on success)
     /// INativeQueryVerifier.QueryVerificationResult memory result = verifier.verifyQuery(
     ///     query,
     ///     txData,
@@ -151,11 +183,40 @@ interface INativeQueryVerifier {
         bytes calldata tx_data,
         MerkleProof calldata merkle_proof,
         Block[] calldata continuity_blocks
-    ) external view returns (QueryVerificationResult memory result);
+    ) external returns (QueryVerificationResult memory result);
+
+    /// @notice Verify a batch of queries with shared continuity proof (view function)
+    /// @dev This is a read-only view function that optimizes gas costs by verifying the continuity
+    ///      chain only once for all queries. Maximum batch size is 10 queries.
+    ///      This function does NOT emit events. Use verifyBatchQueries() if you need event emissions.
+    /// @param queries Array of queries to verify (max 10)
+    /// @param tx_data_array Transaction data for each query
+    /// @param merkle_proofs Merkle proofs for each query
+    /// @param shared_continuity_blocks Shared continuity chain covering all query heights
+    /// @return result Batch verification result with statistics and individual results
+    ///
+    /// Gas Optimization:
+    /// - Continuity chain is verified once for all queries instead of per-query
+    /// - For 5 queries with 20-block continuity: saves ~240,000 gas (80% reduction)
+    ///
+    /// Note: This function does not emit events. For event emissions, use verifyBatchQueries() instead.
+    ///
+    /// Requirements:
+    /// - All input arrays must have the same length
+    /// - Batch size must not exceed 10 queries
+    /// - Continuity chain must cover min to max query heights
+    /// - Each query's merkle root must match its block in the continuity chain
+    function verifyBatchQueriesView(
+        Query[] calldata queries,
+        bytes[] calldata tx_data_array,
+        MerkleProof[] calldata merkle_proofs,
+        Block[] calldata shared_continuity_blocks
+    ) external view returns (BatchQueryVerificationResult memory result);
 
     /// @notice Verify a batch of queries with shared continuity proof
-    /// @dev This function optimizes gas costs by verifying the continuity chain only once
-    ///      for all queries in the batch. Maximum batch size is 10 queries.
+    /// @dev This is the state-changing version that emits events. This function optimizes gas costs
+    ///      by verifying the continuity chain only once for all queries in the batch.
+    ///      Maximum batch size is 10 queries.
     ///      IMPORTANT: Individual QueryVerified/QueryVerificationFailed events are emitted
     ///      for each query in addition to the BatchQueriesVerified summary event.
     /// @param queries Array of queries to verify (max 10)
@@ -196,7 +257,7 @@ interface INativeQueryVerifier {
     /// // Use shared continuity chain covering blocks 100-102
     /// INativeQueryVerifier.Block[] memory sharedBlocks = getBlocks(100, 102);
     ///
-    /// // Batch verify
+    /// // Batch verify (emits events for each query + summary)
     /// INativeQueryVerifier.BatchQueryVerificationResult memory result = verifier.verifyBatchQueries(
     ///     queries,
     ///     txDataArray,
@@ -211,7 +272,7 @@ interface INativeQueryVerifier {
         bytes[] calldata tx_data_array,
         MerkleProof[] calldata merkle_proofs,
         Block[] calldata shared_continuity_blocks
-    ) external view returns (BatchQueryVerificationResult memory result);
+    ) external returns (BatchQueryVerificationResult memory result);
 
     /// @notice Emitted when a query is successfully verified
     /// @param caller The address that initiated the verification
@@ -306,28 +367,5 @@ library NativeQueryVerifierLib {
         if (status == STATUS_MERKLE_ROOT_MISMATCH)
             return "Merkle root mismatch";
         return "Unknown error";
-    }
-
-    /// @notice Create a simple query for a single data segment
-    /// @param chainId The chain identifier
-    /// @param height The block height
-    /// @param offset The byte offset in the transaction
-    /// @param size The number of bytes to extract
-    /// @return query The constructed query
-    function createSimpleQuery(
-        uint64 chainId,
-        uint64 height,
-        uint64 offset,
-        uint64 size
-    ) internal pure returns (INativeQueryVerifier.Query memory query) {
-        INativeQueryVerifier.LayoutSegment[]
-            memory segments = new INativeQueryVerifier.LayoutSegment[](1);
-        segments[0] = INativeQueryVerifier.LayoutSegment(offset, size);
-
-        query = INativeQueryVerifier.Query({
-            chain_id: chainId,
-            height: height,
-            layout_segments: segments
-        });
     }
 }

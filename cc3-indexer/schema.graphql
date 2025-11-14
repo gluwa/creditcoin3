@@ -534,13 +534,13 @@ type BatchQueryVerification @entity {
     transactionHash: String! @index
 
     # Number of successful queries in the batch
-    successfulQueries: Int!
+    successfulQueries: Int! # this-is-expected
 
     # Number of failed queries in the batch
-    failedQueries: Int!
+    failedQueries: Int! # this-is-expected
 
     # Total number of queries in the batch
-    totalQueries: Int!
+    totalQueries: Int! # this-is-expected
 
     # Block number when batch verification occurred
     blockNumber: BigInt!

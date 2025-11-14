@@ -224,7 +224,10 @@ mmr = { version = "3.66.0", default-features = false }
 
 ### Tree Construction
 - **Sequential**: O(n log n) for n leaves
-- **Parallel** (with `par_mmr`): O(n) with sufficient cores
+- **Parallel** (with `par_mmr`): O(log n) with sufficient cores
+  - All nodes at each level can be processed in parallel
+  - With sufficient parallelism, each of the log n levels takes O(1) time
+  - Total: O(log n) sequential steps × O(1) parallel work per step
 - Memory: O(n) for storing intermediate hashes
 
 ### Proof Generation

@@ -4,7 +4,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use log::error;
+use log::debug;
 use pallet_evm::AddressMapping;
 use precompile_utils::{prelude::*, solidity::Codec};
 use sp_core::H256;
@@ -84,7 +84,7 @@ where
 
             // Verify the link continues exactly
             if prev_digest != block_prev_digest {
-                error!(
+                debug!(
                     "❌ Continuity proof break: expected prev_digest {prev_digest:?}, got {block_prev_digest:?}"
                 );
                 return Ok(false);
@@ -99,7 +99,7 @@ where
         // Validate the continuity chain reaches the query height
         if let Some(head) = continuity_blocks.last() {
             if head.block_number < query.height {
-                error!(
+                debug!(
                     "❌ Continuity chain ends at block {}, but query requires block {}",
                     head.block_number, query.height
                 );
@@ -128,7 +128,7 @@ where
                 .unwrap_or(false);
 
             if !attestation_matches && !checkpoint_matches {
-                error!(
+                debug!(
                 "❌ Continuity chain ends at block {final_block_number} with digest {final_digest:?}, but no matching attestation or checkpoint found at that height"
             );
                 return Err(PrecompileFailure::Revert {

@@ -2,10 +2,13 @@
 
 use crate::mock::*;
 use crate::tests::{precompiles, setup_attestation};
-use crate::{BatchQueryVerificationResult, QueryVerificationResult, ResultSegment};
+use crate::{
+    BatchQueryVerificationResult, QueryVerificationResult, ResultSegment,
+    SELECTOR_LOG_BATCH_QUERIES_VERIFIED, SELECTOR_LOG_QUERY_VERIFIED,
+};
 use attestor_primitives::query::Query;
 use attestor_primitives::{block::Block, LayoutSegment};
-use precompile_utils::testing::*;
+use precompile_utils::{evm::logs::log2, testing::*};
 use sp_core::H256;
 
 // Helper to create a simple merkle proof for a single transaction
@@ -81,6 +84,7 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
                     continuity_blocks: continuity_blocks.clone(),
                 },
             )
+            .expect_no_logs() // Verify no events are emitted
             .execute_returns(QueryVerificationResult {
                 status: 0,
                 result_segments: vec![ResultSegment {
@@ -95,12 +99,27 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_query {
-                    query,
-                    tx_data: tx_data.into(),
-                    merkle_proof,
-                    continuity_blocks,
+                    query: query.clone(),
+                    tx_data: tx_data.clone().into(),
+                    merkle_proof: merkle_proof.clone(),
+                    continuity_blocks: continuity_blocks.clone(),
                 },
             )
+            .expect_log(log2(
+                Account::Precompile,
+                SELECTOR_LOG_QUERY_VERIFIED,
+                Account::Alice,
+                ethabi::encode(&[
+                    ethabi::Token::FixedBytes(query.id().0.to_vec()),
+                    ethabi::Token::Uint(query.chain_id.into()),
+                    ethabi::Token::Uint(query.height.into()),
+                    ethabi::Token::Uint(0u8.into()), // Success status
+                    ethabi::Token::Array(vec![ethabi::Token::Tuple(vec![
+                        ethabi::Token::Uint(0u64.into()),
+                        ethabi::Token::FixedBytes(H256::from([42u8; 32]).0.to_vec()),
+                    ])]),
+                ]),
+            ))
             .execute_returns(QueryVerificationResult {
                 status: 0,
                 result_segments: vec![ResultSegment {
@@ -276,18 +295,92 @@ fn test_verify_batch_queries_view_success() {
         // Setup end attestation
         setup_attestation(1, 100, continuity_blocks.last().unwrap().digest);
 
-        // Test batch view function
+        // Test batch view function - should not emit events
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_batch_queries_view {
-                    queries: vec![query1, query2].try_into().unwrap(),
-                    tx_data_array: vec![tx_data1.into(), tx_data2.into()],
-                    merkle_proofs: vec![merkle_proof1, merkle_proof2],
-                    shared_continuity_blocks: continuity_blocks,
+                    queries: vec![query1.clone(), query2.clone()].try_into().unwrap(),
+                    tx_data_array: vec![tx_data1.clone().into(), tx_data2.clone().into()],
+                    merkle_proofs: vec![merkle_proof1.clone(), merkle_proof2.clone()],
+                    shared_continuity_blocks: continuity_blocks.clone(),
                 },
             )
+            .expect_no_logs() // Verify no events are emitted for view function
+            .execute_returns(BatchQueryVerificationResult {
+                successful_queries: 2,
+                failed_queries: 0,
+                results: vec![
+                    QueryVerificationResult {
+                        status: 0,
+                        result_segments: vec![ResultSegment {
+                            offset: 0,
+                            bytes: H256::from([1u8; 32]),
+                        }],
+                    },
+                    QueryVerificationResult {
+                        status: 0,
+                        result_segments: vec![ResultSegment {
+                            offset: 0,
+                            bytes: H256::from([2u8; 32]),
+                        }],
+                    },
+                ],
+            });
+
+        // Test batch non-view function - should emit events
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_batch_queries {
+                    queries: vec![query1.clone(), query2.clone()].try_into().unwrap(),
+                    tx_data_array: vec![tx_data1.clone().into(), tx_data2.clone().into()],
+                    merkle_proofs: vec![merkle_proof1.clone(), merkle_proof2.clone()],
+                    shared_continuity_blocks: continuity_blocks.clone(),
+                },
+            )
+            .expect_log(log2(
+                Account::Precompile,
+                SELECTOR_LOG_QUERY_VERIFIED,
+                Account::Alice,
+                ethabi::encode(&[
+                    ethabi::Token::FixedBytes(query1.id().0.to_vec()),
+                    ethabi::Token::Uint(query1.chain_id.into()),
+                    ethabi::Token::Uint(query1.height.into()),
+                    ethabi::Token::Uint(0u8.into()),
+                    ethabi::Token::Array(vec![ethabi::Token::Tuple(vec![
+                        ethabi::Token::Uint(0u64.into()),
+                        ethabi::Token::FixedBytes(H256::from([1u8; 32]).0.to_vec()),
+                    ])]),
+                ]),
+            ))
+            .expect_log(log2(
+                Account::Precompile,
+                SELECTOR_LOG_QUERY_VERIFIED,
+                Account::Alice,
+                ethabi::encode(&[
+                    ethabi::Token::FixedBytes(query2.id().0.to_vec()),
+                    ethabi::Token::Uint(query2.chain_id.into()),
+                    ethabi::Token::Uint(query2.height.into()),
+                    ethabi::Token::Uint(0u8.into()),
+                    ethabi::Token::Array(vec![ethabi::Token::Tuple(vec![
+                        ethabi::Token::Uint(0u64.into()),
+                        ethabi::Token::FixedBytes(H256::from([2u8; 32]).0.to_vec()),
+                    ])]),
+                ]),
+            ))
+            .expect_log(log2(
+                Account::Precompile,
+                SELECTOR_LOG_BATCH_QUERIES_VERIFIED,
+                Account::Alice,
+                ethabi::encode(&[
+                    ethabi::Token::Uint(2u32.into()),
+                    ethabi::Token::Uint(0u32.into()),
+                    ethabi::Token::Uint(2u32.into()),
+                ]),
+            ))
             .execute_returns(BatchQueryVerificationResult {
                 successful_queries: 2,
                 failed_queries: 0,

@@ -17,7 +17,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use log::error;
+use log::debug;
 use pallet_evm::AddressMapping;
 use precompile_utils::{evm::logs::log2, keccak256, prelude::*, solidity::Codec};
 use sp_core::H256;
@@ -34,6 +34,9 @@ type MerkleProof = QueryMerkleProof;
 /// QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])
 pub const SELECTOR_LOG_QUERY_VERIFIED: [u8; 32] =
     keccak256!("QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])");
+/// QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)
+pub const SELECTOR_LOG_QUERY_VERIFICATION_FAILED: [u8; 32] =
+    keccak256!("QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)");
 /// BatchQueriesVerified(uint256,uint256,uint256)
 pub const SELECTOR_LOG_BATCH_QUERIES_VERIFIED: [u8; 32] =
     keccak256!("BatchQueriesVerified(uint256,uint256,uint256)");
@@ -282,21 +285,59 @@ where
         )
     }
 
+    /// Emit failure event for failed query verification
+    ///
+    /// Emits a QueryVerificationFailed event with the query details and failure reason.
+    /// This event allows off-chain systems to track failed verifications.
+    fn emit_verification_failure(
+        handle: &mut impl PrecompileHandle,
+        query: &Query,
+        status: u8,
+        reason: &str,
+    ) -> Result<(), PrecompileFailure> {
+        // Encode the event data: queryId, chainKey, height, status, reason
+        let event_data = ethabi::encode(&[
+            Token::FixedBytes(query.id().0.to_vec()),
+            Token::Uint(query.chain_id.into()),
+            Token::Uint(query.height.into()),
+            Token::Uint(status.into()),
+            Token::String(reason.into()),
+        ]);
+
+        log2(
+            handle.context().address,
+            SELECTOR_LOG_QUERY_VERIFICATION_FAILED,
+            handle.context().caller,
+            event_data,
+        )
+        .record(handle)?;
+
+        Ok(())
+    }
+
     /// Generic handler for verification failures
     ///
-    /// Logs the error and returns a revert with a descriptive message.
-    /// In the current implementation, all failures revert rather than
-    /// returning error status codes, making verification results binary
-    /// (success with data or revert with error message).
+    /// Emits a failure event (if emit_events is true) and returns a revert with a descriptive message.
+    /// Events are emitted before reverting, so they will be included in the transaction log.
     fn handle_verification_failure(
-        _handle: &mut impl PrecompileHandle,
+        handle: &mut impl PrecompileHandle,
         query: &Query,
-        _status: u8,
+        status: u8,
         message: &str,
+        emit_events: bool,
     ) -> EvmResult<QueryVerificationResult> {
-        error!("{} for query: {:?}", message, query.id());
+        debug!("{} for query: {:?}", message, query.id());
 
-        // Revert with the error message instead of emitting an event
+        // Emit failure event before reverting (events before revert are still emitted)
+        if emit_events && Self::emit_verification_failure(handle, query, status, message).is_err() {
+            // If event emission fails, still revert with the original message
+            return Err(PrecompileFailure::Revert {
+                output: encode_revert_message(message),
+                exit_status: ExitRevert::Reverted,
+            });
+        }
+
+        // Revert with the error message
         Err(PrecompileFailure::Revert {
             output: encode_revert_message(message),
             exit_status: ExitRevert::Reverted,
