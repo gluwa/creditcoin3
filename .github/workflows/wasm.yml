@@ -6,17 +6,11 @@ name: Build WASM Runtime
     branches: [dev]
   pull_request:
     branches: [main, testnet, poc_external_attestation_network]
-    paths-ignore:
-      - '**.md'
-      - '**.yml'
-      - '!**wasm.yml'
-      - '**.yaml'
-      - '**Dockerfile'
-      - '**docker-compose.*'
-      - 'cli/**'
-      - 'cc3-indexer/**'
-      - 'data/**'
-      - 'docs/**'
+    paths:
+      - '**.rs'
+      - '**.toml'
+      - '**Cargo**'
+      - '.github/workflows/wasm.yml'
   workflow_dispatch:
 
 concurrency:
