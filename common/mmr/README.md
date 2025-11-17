@@ -41,18 +41,32 @@ let root = tree.root();
 let proof = tree.generate_proof(1);
 ```
 
-#### 2. **HashT Trait** (`traits.rs`)
+#### 2. **HashT Trait** ([`traits.rs`](https://github.com/gluwa/creditcoin3-next/blob/main/common/mmr/src/traits.rs#L18-L42))
 Defines the interface for hash functions used in the Merkle tree:
-- Hashing of single values
-- Hashing of concatenated values
-- Domain separation support
+- Hashing of arbitrary byte slices
+- Domain separation support via `From<u8>` for prefixes
+- Output type requirements for use in Merkle trees
+
+The trait abstracts over a hashing algorithm whose output type is provided via the associated `Output` type. Implementors should ensure that:
+- `Output::default()` represents the hash of an empty (or domain-separated) input
+- `From<u8>` is implemented to support domain separation prefixes
+
+The tree implementation will:
+- Prefix leaves and internal nodes using `From<u8>` conversions
+- Pass raw byte slices directly to `hash`
 
 ```rust
 pub trait HashT {
-    type Output: Hash + Default + Copy + From<u8> + Send + Sync + PartialEq + Debug;
+    type Output: core::hash::Hash
+        + Default
+        + Copy
+        + PartialEq
+        + core::fmt::Debug
+        + From<u8>
+        + Send
+        + Sync;
 
-    fn hash(data: &[u8]) -> Self::Output;
-    fn hash2(left: &Self::Output, right: &Self::Output) -> Self::Output;
+    fn hash(input: &[u8]) -> Self::Output;
 }
 ```
 

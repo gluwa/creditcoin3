@@ -123,7 +123,8 @@ impl Block {
 
     pub fn hash_payload(block_number: &u64, root: &H256, prev_digest: &H256) -> H256 {
         use sp_io::hashing::keccak_256;
-        let mut bytes = Vec::new();
+        // Pre-allocate: 8 bytes (u64) + 32 bytes (H256) + 32 bytes (H256) = 72 bytes
+        let mut bytes = Vec::with_capacity(8 + 32 + 32);
         bytes.extend_from_slice(&block_number.to_be_bytes());
         bytes.extend_from_slice(root.as_bytes());
         bytes.extend_from_slice(prev_digest.as_bytes());

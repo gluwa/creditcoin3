@@ -239,7 +239,13 @@ where
         use sp_io::hashing::keccak_256;
 
         // Build input bytes: header_number || root || prev_digest (if exists)
-        let mut bytes = Vec::new();
+        // Pre-allocate: 8 bytes (u64) + 32 bytes (H256) + 32 bytes (H256 if exists) = max 72 bytes
+        let capacity = if self.prev_digest.is_some() {
+            8 + 32 + 32
+        } else {
+            8 + 32
+        };
+        let mut bytes = Vec::with_capacity(capacity);
         bytes.extend_from_slice(&self.header_number.to_be_bytes());
         bytes.extend_from_slice(self.root.as_bytes());
 

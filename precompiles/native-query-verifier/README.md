@@ -11,10 +11,13 @@ This precompile enables smart contracts to verify blockchain data from external 
 - **Native Speed Verification**: Runs at compiled Rust speed rather than EVM interpretation
 - **Merkle Proof Verification**: Validates transaction inclusion in blocks using Merkle trees
 - **Continuity Chain Validation**: Verifies block attestation chains for data continuity
+- **Query Block Digest Verification**: Validates block digests using previous block's digest to prevent fake roots
 - **Data Extraction**: Extracts specific data segments from verified transactions
 - **Gas Efficient**: Optimized gas costs for verification operations
-- **POC-Optimized Batch Verification**: Relaxed mode for batch queries that verifies continuity once
-- **Implicit Block Numbering**: Efficient index-based block number computation for sequential chains
+- **Batch Verification**: Supports up to 10 queries with shared continuity proof for significant gas savings
+- **View Functions**: Read-only functions (`verifyQueryView`, `verifyBatchQueriesView`) that don't emit events
+- **Event Emission**: Non-view functions emit detailed events for indexers and monitoring
+- **Optimized Block Lookups**: Efficient O(1) lookup for sequential blocks, O(log n) binary search fallback
 
 ## Architecture
 
@@ -28,10 +31,18 @@ User Query Request
 ┌─────────────────────────────────────┐
 │   Native Precompile Functions       │
 ├─────────────────────────────────────┤
-│ verify_query()                      │
+│ verifyQuery() / verifyQueryView()   │
 │    - Merkle proof verification      │
+│    - Query block digest validation  │
 │    - Continuity chain validation    │
 │    - Data extraction                │
+│    - Event emission (non-view only) │
+│                                      │
+│ verifyBatchQueries() /              │
+│ verifyBatchQueriesView()            │
+│    - Shared continuity verification │
+│    - Per-query Merkle verification  │
+│    - Batch event emission           │
 └─────────────────────────────────────┘
         ↓
 [Validators Consensus]
@@ -49,140 +60,45 @@ The precompile is accessible at address `0x0FD2` (4050 in decimal).
 
 ### Solidity Interface
 
-```solidity
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
-
-/// @title Native Query Verifier Precompile Interface
-/// @notice Interface for the native precompile at address 0x0BEA
-interface INativeQueryVerifier {
-    /// Query structure defining what data to retrieve
-    struct Query {
-        uint64 chain_id;      // Chain identifier (e.g., 1 for Ethereum)
-        uint64 height;        // Block height
-        uint64 index;         // Transaction index in block
-        LayoutSegment[] layout_segments;  // Data segments to extract
-    }
-
-    /// Layout segment defining data location
-    struct LayoutSegment {
-        uint64 offset;        // Byte offset in transaction
-        uint64 size;          // Number of bytes to extract
-    }
-
-    /// Merkle proof for transaction inclusion
-    struct MerkleProof {
-        bytes32 root;         // Merkle root hash
-        bytes32[] siblings;   // Sibling hashes for proof path
-    }
-
-    /// Continuity chain for block attestations
-    struct ContinuityChain {
-        uint64[] block_numbers;  // Block numbers in chain
-        bytes32[] digests;       // Block digests (hashes)
-    }
-
-    /// Result of verification
-    struct QueryVerificationResult {
-        uint8 status;            // 0=Success, 1=MerkleInvalid, 2=ContinuityInvalid, 3=DataError
-        ResultSegment[] result_segments;  // Extracted data
-    }
-
-    /// Extracted data segment
-    struct ResultSegment {
-        uint64 offset;        // Offset in transaction
-        bytes32 bytes;        // Extracted bytes
-    }
-
-    /// Verify a blockchain query
-    /// @param query The query specification
-    /// @param tx_data Raw transaction data
-    /// @param merkle_proof Merkle proof for transaction inclusion
-    /// @param continuity_chain Block attestation chain
-    /// @return result Verification result with extracted data
-    function verifyQuery(
-        Query calldata query,
-        bytes calldata tx_data,
-        MerkleProof calldata merkle_proof,
-        ContinuityChain calldata continuity_chain
-    ) external view returns (QueryVerificationResult memory result);
-}
-```
+See the [INativeQueryVerifier interface](https://github.com/gluwa/creditcoin3-next/blob/main/precompiles/metadata/sol/INativeQueryVerifier.sol) for the complete Solidity interface definition.
 
 ### Usage Example
 
-```solidity
-contract MyContract {
-    INativeQueryVerifier constant VERIFIER = INativeQueryVerifier(0x0000000000000000000000000000000000000BEA);
+See [ExampleUsage.sol](https://github.com/gluwa/creditcoin3-next/blob/main/precompiles/native-query-verifier/ExampleUsage.sol) for complete usage examples including:
+- Single query verification
+- Batch query verification
+- Cross-chain bridge implementation
+- Best practices for storing verification results
 
-    function verifyEthereumTransaction(
-        bytes calldata txData,
-        bytes32 merkleRoot,
-        bytes32[] calldata siblings,
-        uint64[] calldata blockNumbers,
-        bytes32[] calldata digests
-    ) external view returns (bool) {
-        // Define what data to extract (e.g., ERC20 transfer)
-        INativeQueryVerifier.LayoutSegment[] memory segments = new INativeQueryVerifier.LayoutSegment[](2);
-        segments[0] = INativeQueryVerifier.LayoutSegment(192, 32);  // from address
-        segments[1] = INativeQueryVerifier.LayoutSegment(224, 32);  // to address
+## Key Optimizations
 
-        // Create query
-        INativeQueryVerifier.Query memory query = INativeQueryVerifier.Query({
-            chain_id: 1,        // Ethereum mainnet
-            height: 18000000,
-            index: 42,
-            layout_segments: segments
-        });
+### 1. Batch Verification with Shared Continuity Proof
 
-        // Create Merkle proof
-        INativeQueryVerifier.MerkleProof memory proof = INativeQueryVerifier.MerkleProof({
-            root: merkleRoot,
-            siblings: siblings
-        });
-
-        // Create continuity chain
-        INativeQueryVerifier.ContinuityChain memory continuity = INativeQueryVerifier.ContinuityChain({
-            block_numbers: blockNumbers,
-            digests: digests
-        });
-
-        // Verify query
-        INativeQueryVerifier.QueryVerificationResult memory result = VERIFIER.verifyQuery(
-            query,
-            txData,
-            proof,
-            continuity
-        );
-
-        return result.status == 0;  // 0 = Success
-    }
-}
-```
-
-## POC Optimizations
-
-The precompile includes two key optimizations from the POC (Proof of Concept) implementation:
-
-### 1. Relaxed Batch Verification Mode
-
-For batch queries, the precompile uses a relaxed verification approach:
+For batch queries, the precompile uses an optimized verification approach:
 - The continuity proof chain is verified **once** upfront (shared across all queries)
 - Each individual query only needs to verify:
   - Merkle proof for transaction inclusion
+  - Query block digest using previous block's digest
   - Query block exists in the continuity chain
   - Merkle root matches the continuity block
 
-This is significantly more efficient than strict verification which would validate the entire continuity chain for each query. The relaxed mode is safe because the primary goal is proving **inclusion** - as long as the transaction is in the block and the block's merkle root is validated against a checkpoint, full sequential chain verification per query is not necessary.
+This is significantly more efficient than strict verification which would validate the entire continuity chain for each query. The optimized mode is safe because the primary goal is proving **inclusion** - as long as the transaction is in the block and the block's digest is validated against the previous block and ultimately against a checkpoint, full sequential chain verification per query is not necessary.
 
-### 2. Implicit Block Numbering
+### 2. Optimized Block Lookups
 
-The precompile optimizes block lookups by computing block numbers from indices:
-- For sequential continuity chains, block number = start_block + index
-- This allows O(1) lookup instead of O(n) linear search
-- Falls back to linear search if blocks aren't sequential
+The precompile optimizes block lookups using multiple strategies:
+- **Sequential blocks**: O(1) lookup using computed index (block_number = start_block + index)
+- **Sorted blocks**: O(log n) binary search for non-sequential but sorted blocks
+- **Unsorted blocks**: O(n) linear search fallback
 
 This optimization reduces computational overhead when processing large continuity chains.
+
+### 3. Query Block Digest Verification
+
+The precompile implements a critical security check: query block digest verification. This ensures that:
+- The query block's digest is computed using the previous block's digest
+- Prevents attackers from sending fake Merkle roots
+- Requires at least 2 blocks in the continuity chain (queryHeight-1 and queryHeight)
 
 ## Gas Costs
 
@@ -208,6 +124,24 @@ The precompile uses the following gas cost model (aligned with standard Ethereum
 | 3 | DataExtractionError | Error extracting data from transaction |
 | 4 | MerkleRootMismatch | Merkle proof root doesn't match continuity block |
 
+**Note**: Non-view functions (`verifyQuery`, `verifyBatchQueries`) revert on failure with descriptive error messages. View functions (`verifyQueryView`, `verifyBatchQueriesView`) return status codes in the result structure.
+
+## Functions
+
+### View Functions (No Events)
+
+- **`verifyQueryView`**: Read-only verification without event emission
+- **`verifyBatchQueriesView`**: Read-only batch verification without events
+
+Use view functions when you only need verification results and don't need on-chain event logs.
+
+### Non-View Functions (With Events)
+
+- **`verifyQuery`**: Verification with event emission
+- **`verifyBatchQueries`**: Batch verification with events
+
+Use non-view functions when you need events for indexers, monitoring, or on-chain event listeners.
+
 ## Batch Query Verification
 
 The precompile supports batch verification of up to 10 queries with a shared continuity proof, providing significant gas savings:
@@ -216,125 +150,67 @@ The precompile supports batch verification of up to 10 queries with a shared con
 
 - **Shared Continuity Proof**: Verifies the continuity chain once for all queries
 - **Gas Optimization**: For 5 queries with 20-block continuity, saves ~240,000 gas (80% reduction)
-- **Individual Event Emission**: Emits `QueryVerified` or `QueryVerificationFailed` for each query
-- **Summary Event**: Emits `BatchQueriesVerified` with aggregate statistics
+- **Individual Event Emission**: Emits `QueryVerified` or `QueryVerificationFailed` for each query (non-view only)
+- **Summary Event**: Emits `BatchQueriesVerified` with aggregate statistics (non-view only)
 
 ### Usage Example
 
-```solidity
-// Prepare multiple queries
-Query[] memory queries = new Query[](3);
-bytes[] memory txDataArray = new bytes[](3);
-MerkleProof[] memory proofs = new MerkleProof[](3);
-
-// ... populate arrays ...
-
-// Shared continuity blocks covering all query heights
-Block[] memory sharedBlocks = getBlocks(100, 102);
-
-// Batch verify
-BatchQueryVerificationResult memory result = verifier.verifyBatchQueries(
-    queries,
-    txDataArray,
-    proofs,
-    sharedBlocks
-);
-
-// Check results
-require(result.failed_queries == 0, "Some queries failed");
-```
+See [ExampleUsage.sol](https://github.com/gluwa/creditcoin3-next/blob/main/precompiles/native-query-verifier/ExampleUsage.sol) for batch verification examples.
 
 ### Events
 
-When calling `verifyBatchQueries`, the following events are emitted:
-1. **Individual Events**: `QueryVerified` or `QueryVerificationFailed` for each query
-2. **Summary Event**: `BatchQueriesVerified(successful, failed, total)` at the end
+When calling `verifyQuery` or `verifyBatchQueries` (non-view functions), the following events are emitted:
 
-This ensures full data availability in indexers while providing summary statistics.
+#### QueryVerified
+```solidity
+event QueryVerified(
+    address indexed caller,
+    bytes32 queryId,
+    uint64 chainKey,
+    uint64 height,
+    uint8 status,
+    ResultSegment[] resultSegments
+);
+```
+
+#### QueryVerificationFailed
+```solidity
+event QueryVerificationFailed(
+    address indexed caller,
+    bytes32 queryId,
+    uint64 chainKey,
+    uint64 height,
+    uint8 status,
+    string reason
+);
+```
+
+#### BatchQueriesVerified
+```solidity
+event BatchQueriesVerified(
+    uint256 successful,
+    uint256 failed,
+    uint256 total
+);
+```
+
+**Note**: View functions (`verifyQueryView`, `verifyBatchQueriesView`) do NOT emit events. This ensures read-only operations don't modify state or generate logs.
 
 ## Implementation Status
 
-### ✅ Completed
+### ✅ Fully Implemented
 
-- Precompile structure and interface
-- Gas cost accounting
-- Input validation
-- Error handling
-- Test framework
-- Merkle proof to continuity chain verification (critical security check)
-
-### 🚧 TODO - Fill in Core Logic
-
-The following functions need implementation:
-
-**Note**: The verification that the merkle proof root matches the continuity chain block has been implemented. This ensures that the transaction being verified is actually from the attested block, not just any block with a valid merkle tree.
-
-#### 1. `verify_merkle_proof()` (Line ~244)
-
-Implement Merkle tree verification:
-- Hash the transaction data (Keccak256 or Pedersen)
-- Traverse the Merkle tree using sibling hashes
-- Verify computed root matches provided root
-
-```rust
-// TODO: Replace placeholder with actual implementation
-// Example structure:
-let mut current_hash = sp_io::hashing::keccak_256(tx_data);
-for sibling in &merkle_proof.siblings {
-    current_hash = compute_parent_hash(&current_hash, sibling);
-}
-Ok(H256::from(current_hash) == merkle_proof.root)
-```
-
-#### 2. `verify_continuity_chain()` (Line ~292)
-
-Implement continuity chain validation:
-- Verify block numbers are properly ordered
-- Check each digest matches an attestation or checkpoint
-- Verify the chain connects to the queried block height
-
-```rust
-// TODO: Replace placeholder with actual implementation
-// Example structure:
-for (block_num, digest) in block_numbers.iter().zip(digests.iter()) {
-    if let Some(attestation) = Runtime::Attestations::get_attestation(chain_id, *digest) {
-        verify attestation.header_number == *block_num
-    } else if let Some(checkpoint) = Runtime::Checkpoints::get_checkpoint(chain_id, *digest) {
-        verify checkpoint == *block_num
-    } else {
-        return Ok(false);
-    }
-}
-```
-
-#### 3. `extract_data_segments()` (Line ~368)
-
-Implement data extraction from verified transaction:
-- Validate segment offsets and sizes
-- Extract bytes at specified offsets
-- Convert to H256 format (pad if necessary)
-
-```rust
-// TODO: Replace placeholder with actual implementation
-// Example structure:
-for segment in &query.layout_segments {
-    let start = segment.offset as usize;
-    let end = start + segment.size as usize;
-
-    if end > tx_data.len() {
-        return Err(out_of_bounds_error);
-    }
-
-    let bytes = &tx_data[start..end];
-    let mut padded = [0u8; 32];
-    padded[..bytes.len()].copy_from_slice(bytes);
-
-    result_segments.push(ResultSegment {
-        offset: segment.offset,
-        bytes: H256::from(padded),
-    });
-}
-```
+- **Precompile Structure**: Complete interface with view and non-view functions
+- **Merkle Proof Verification**: Full Keccak256 Merkle tree verification with position-aware siblings
+- **Query Block Digest Verification**: Validates block digests using previous block's digest
+- **Continuity Chain Validation**: Verifies chains against attestations and checkpoints
+- **Data Extraction**: Extracts and validates data segments from verified transactions
+- **Batch Verification**: Optimized batch processing with shared continuity proof
+- **Gas Cost Accounting**: Comprehensive gas cost model for all operations
+- **Input Validation**: Bounds checking and validation for all inputs
+- **Error Handling**: Descriptive error messages with proper revert encoding
+- **Event Emission**: Complete event system for monitoring and indexing
+- **Test Coverage**: Comprehensive test suite including edge cases and gas tests
 
 ## Testing
 
@@ -346,14 +222,19 @@ cargo test -p pallet-evm-precompile-native-query-verifier
 
 ### Test Coverage
 
-- ✅ Empty transaction data validation
-- ✅ Empty Merkle proof validation
-- ✅ Continuity chain length mismatch
-- ✅ Valid inputs success case
-- ✅ Gas cost calculations
-- ✅ Out of bounds segment handling
-- ✅ Multiple segments extraction
-- ✅ Error message encoding
+The test suite includes comprehensive coverage:
+
+- ✅ **Single Query Verification**: Success and failure cases
+- ✅ **Batch Query Verification**: Shared continuity proof optimization
+- ✅ **View Functions**: Read-only verification without events
+- ✅ **Merkle Proof Validation**: Invalid proofs, root mismatches
+- ✅ **Continuity Chain Validation**: Broken links, missing attestations
+- ✅ **Query Block Digest Verification**: Digest mismatch detection
+- ✅ **Data Extraction**: Out of bounds, multiple segments
+- ✅ **Edge Cases**: Empty inputs, queries at attestation/checkpoint heights
+- ✅ **Gas Cost Calculations**: Accurate gas accounting
+- ✅ **Event Emission**: Correct events for success and failure
+- ✅ **Error Handling**: Descriptive error messages
 
 ## Integration
 
@@ -409,32 +290,70 @@ std = [
 
 ```
 native-query-verifier/
-├── Cargo.toml          # Dependencies and features
-├── README.md           # This file
+├── Cargo.toml                    # Dependencies and features
+├── README.md                     # This file
+├── ExampleUsage.sol              # Solidity usage examples
 └── src/
-    ├── lib.rs          # Main precompile implementation
-    ├── mock.rs         # Test runtime configuration
-    └── tests.rs        # Unit tests
+    ├── lib.rs                    # Main precompile implementation
+    ├── verify.rs                 # Core verification logic
+    ├── continuity.rs             # Continuity chain validation
+    ├── mock.rs                   # Test runtime configuration
+    ├── test_helpers.rs           # Test utilities and helpers
+    ├── tests.rs                  # Basic unit tests
+    ├── tests_view.rs             # View function tests
+    ├── tests_full_coverage.rs    # Comprehensive coverage tests
+    └── tests_gas_security.rs     # Gas and security tests
 ```
 
 ### Dependencies
 
 - `precompile-utils`: Precompile macros and utilities
-- `pallet-prover-primitives`: Query and result structures
-- `attestor-primitives`: Chain and attestation types
+- `attestor-primitives`: Block, query, and attestation types
+- `mmr`: Merkle tree and proof generation
 - `sp-core`, `sp-io`, `sp-std`: Substrate primitives
 - `frame-support`, `frame-system`: Frame system support
 - `pallet-evm`: EVM pallet integration
+- `ethabi`: ABI encoding/decoding
+
+## Security Considerations
+
+### Query Block Digest Verification
+
+The precompile implements a critical security check: query block digest verification. This prevents attackers from sending fake Merkle roots by requiring:
+
+1. At least 2 blocks in the continuity chain (queryHeight-1 and queryHeight)
+2. The query block's digest is computed using: `hash_payload(queryHeight, merkleRoot, prevBlockDigest)`
+3. The computed digest must match the query block's stored digest
+
+This ensures that the Merkle root being verified actually belongs to the attested block, not just any block with a valid Merkle tree.
+
+### Continuity Chain Validation
+
+The continuity chain must:
+- Start at `queryHeight - 1` (required for digest verification)
+- End at an attestation or checkpoint height
+- Have all digests validated against on-chain attestations/checkpoints
+- Have properly linked digests (each block's digest uses the previous block's digest)
+
+### Input Validation
+
+- Transaction data: Maximum 10MB
+- Merkle proof siblings: Bounded by tree depth
+- Batch queries: Maximum 10 queries per batch
+- Layout segments: Validated for bounds and overlap
 
 ## Contributing
 
-When implementing the core verification logic:
+When contributing to this precompile:
 
 1. Maintain deterministic behavior (required for consensus)
 2. Add comprehensive tests for edge cases
 3. Document gas cost impacts of changes
 4. Ensure error messages are descriptive
 5. Follow existing code style and patterns
+6. Update this README when adding new features
+7. Ensure view functions never emit events
+8. Ensure non-view functions always emit appropriate events
 
 ## License
 

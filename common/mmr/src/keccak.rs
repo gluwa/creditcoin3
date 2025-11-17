@@ -41,7 +41,7 @@ impl Debug for KeccakHash {
 
 impl Display for KeccakHash {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{:?}", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
