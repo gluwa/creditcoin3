@@ -258,9 +258,11 @@ impl ContinuityBuilder {
         // 1. Query is at checkpoint height (need previous checkpoint)
         // 2. No attestation found before required_before (need to check checkpoints)
         let checkpoint_lower = if is_at_checkpoint || attestation_lower.is_none() {
+            // Use max_needed to get checkpoints BEFORE required_before (not min_needed which filters them out!)
             let checkpoints = self
-                .fetch_checkpoints_smart(None, Some(required_before))
+                .fetch_checkpoints_smart(Some(required_before), None)
                 .await?;
+
             checkpoints
                 .into_iter()
                 .filter(|c| c.block_number < required_before)
@@ -293,10 +295,18 @@ impl ContinuityBuilder {
                 digest: c.digest,
             },
             (None, None) => {
-                return Err(anyhow!(
-                    "No attestation or checkpoint found before block {}. Need an earlier consensus point to build continuity.",
-                    required_before
-                ));
+                // Provide helpful error message with suggestions
+                let error_msg = format!(
+                    "No attestation or checkpoint found before block {required_before} (query height: {min_query}).\n\
+                    The continuity proof requires a consensus point (attestation or checkpoint) \
+                    before block {required_before} to start the continuity chain.\n\n\
+                    Possible solutions:\n\
+                    1. Ensure checkpoints are imported for chain_key {} using import_checkpoints\n\
+                    2. Wait for an attestation at a block before the query height\n\
+                    3. Query a block height that has an earlier attestation/checkpoint",
+                    self.config.chain_key
+                );
+                return Err(anyhow!(error_msg));
             }
         };
 
