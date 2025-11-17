@@ -27,6 +27,7 @@ use sp_runtime::{
     BuildStorage,
 };
 use sp_staking::SessionIndex;
+use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 
 pub const PRECOMPILE_ADDRESS: u64 = 4050; // 0x0FD2
 
@@ -239,7 +240,7 @@ impl pallet_evm::Config for Runtime {
     type GasLimitStorageGrowthRatio = GasLimitStorageGrowthRatio;
 }
 
-use attestor_primitives::{ChainEncodingVersion, ChainId, ChainKey};
+use attestor_primitives::ChainEncodingVersion;
 use sp_staking::EraIndex;
 
 parameter_types! {
@@ -281,30 +282,16 @@ impl pallet_attestation_poc::Config for Runtime {
     type DefaultVoteAcceptanceWindow = DefaultVoteAcceptanceWindow;
 }
 
+parameter_types! {
+    pub const DefaultMaturityStrategy: &'static str = MATURITY_FIXED_DELAY_10;
+}
+
 impl pallet_supported_chains::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
-    type EventListeners = ();
-    type ChainRegistrationHandler = DummyRegistrationHandler;
-}
-
-pub struct DummyRegistrationHandler;
-
-impl supported_chains_primitives::provider::OnRegisterChainProvider for DummyRegistrationHandler {
-    fn on_register_chain(
-        _chain_key: ChainKey,
-        _chain_id: ChainId,
-        _chain_name: Vec<u8>,
-        _target_sample_size: Option<u32>,
-        _chain_attestation_interval: Option<u64>,
-        _attestation_checkpoint_interval: Option<u32>,
-        _max_attestors: Option<u32>,
-        _max_invulnerables: Option<u32>,
-        _attestation_chain_genesis_block_number: Option<u64>,
-        _vote_acceptance_window: Option<u64>,
-        _encoding: ChainEncodingVersion,
-    ) {
-    }
+    type EventListeners = Attestation;
+    type ChainRegistrationHandler = Attestation;
+    type DefaultMaturityStrategy = DefaultMaturityStrategy;
 }
 
 pub const SLASHING_DISABLING_FACTOR: usize = 3;
@@ -448,7 +435,12 @@ impl ExtBuilder {
         .expect("Pallet balances storage can be assimilated");
 
         let chains = pallet_supported_chains::GenesisConfig::<Runtime> {
-            supported_chains: vec![(1, "Ethereum".as_bytes().to_vec(), ChainEncodingVersion::V1)],
+            supported_chains: vec![(
+                1,
+                "Ethereum".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                MATURITY_FIXED_DELAY_10.to_string(),
+            )],
             _phantom: Default::default(),
         };
         chains.assimilate_storage(&mut t).unwrap();

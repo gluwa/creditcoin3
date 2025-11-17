@@ -114,12 +114,9 @@ pub fn create_deterministic_continuity_chain(
                 H256::from_low_u64_be(block_number * 12345)
             });
 
-        // Compute digest deterministically
-        let mut digest_input = Vec::new();
-        digest_input.extend_from_slice(&block_number.to_le_bytes());
-        digest_input.extend_from_slice(root.as_bytes());
-        digest_input.extend_from_slice(prev_digest.as_bytes());
-        let digest = H256::from(keccak_256(&digest_input));
+        // Compute digest using Block::hash_payload to match production code
+        use attestor_primitives::block::Block as FragmentBlock;
+        let digest = FragmentBlock::hash_payload(&block_number, &root, &prev_digest);
 
         continuity_blocks.push(Block {
             block_number,

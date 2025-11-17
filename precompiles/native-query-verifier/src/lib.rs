@@ -329,12 +329,8 @@ where
         debug!("{} for query: {:?}", message, query.id());
 
         // Emit failure event before reverting (events before revert are still emitted)
-        if emit_events && Self::emit_verification_failure(handle, query, status, message).is_err() {
-            // If event emission fails, still revert with the original message
-            return Err(PrecompileFailure::Revert {
-                output: encode_revert_message(message),
-                exit_status: ExitRevert::Reverted,
-            });
+        if emit_events {
+            Self::emit_verification_failure(handle, query, status, message)?;
         }
 
         // Revert with the error message

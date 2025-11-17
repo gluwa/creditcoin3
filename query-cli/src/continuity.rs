@@ -9,7 +9,7 @@
 //! - POC compliance: Chains must start at queryHeight-1 and end at next attestation
 
 use anyhow::{anyhow, Result};
-use attestor_primitives::{block::Block, Query, SignedAttestation};
+use attestor_primitives::{block::Block, AttestationCheckpoint, Query, SignedAttestation};
 use cc_client::{AccountId32, Client as CcClient};
 use ccnext_abi_encoding::abi::EncodingVersion;
 use eth::{continuity::Manager as ContinuityManager, Client as EthClient};
@@ -104,7 +104,7 @@ impl ContinuityBuilder {
 
     /// Core logic for building continuity proof for given heights
     async fn build_for_heights(&self, query_heights: &[u64]) -> Result<ContinuityProof> {
-        // Fetch attestations once
+        // Fetch attestations (always needed)
         let attestations = self.fetch_attestations().await?;
         if attestations.is_empty() {
             return Err(anyhow!(
@@ -117,8 +117,11 @@ impl ContinuityBuilder {
         let min_query = *query_heights.iter().min().unwrap();
         let max_query = *query_heights.iter().max().unwrap();
 
-        // Find attestation bounds
-        let (lower, upper) = self.find_attestation_bounds(min_query, max_query, &attestations)?;
+        // Find attestation bounds (handles queries at attestation/checkpoint heights)
+        // Checkpoints are fetched lazily only when needed
+        let (lower, upper) = self
+            .find_attestation_bounds(min_query, max_query, &attestations)
+            .await?;
 
         // Build and trim continuity blocks
         let blocks = self
@@ -136,42 +139,228 @@ impl ContinuityBuilder {
             .map_err(|e| anyhow!("Failed to fetch attestations: {}", e))
     }
 
+    /// Check if query is at a checkpoint height by checking the last checkpoint
+    async fn check_if_at_checkpoint_height(
+        &self,
+        query_height: u64,
+    ) -> Result<Option<AttestationCheckpoint>> {
+        let last_checkpoint = self
+            .cc_client
+            .get_last_checkpoint(self.config.chain_key)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {}", e))?;
+
+        if let Some(checkpoint) = last_checkpoint {
+            if checkpoint.block_number == query_height {
+                return Ok(Some(checkpoint));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Fetch checkpoints with optional filtering
+    ///
+    /// Since iteration order is not guaranteed, we fetch all checkpoints
+    /// and then filter them. Returns checkpoints sorted highest to lowest (newest first).
+    async fn fetch_checkpoints_smart(
+        &self,
+        max_needed: Option<u64>,
+        min_needed: Option<u64>,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        // Start with last checkpoint (most efficient single query)
+        let last_checkpoint = self
+            .cc_client
+            .get_last_checkpoint(self.config.chain_key)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {}", e))?;
+
+        // If we only need to check the last checkpoint, we're done
+        if max_needed.is_none() && min_needed.is_none() {
+            return Ok(last_checkpoint.into_iter().collect());
+        }
+
+        // Fetch all checkpoints (iteration order is not guaranteed, so we need all)
+        let all_checkpoints = self
+            .cc_client
+            .get_checkpoints_for_chain(self.config.chain_key)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch checkpoints: {}", e))?;
+
+        // Filter checkpoints based on block number range
+        let filtered: Vec<AttestationCheckpoint> = all_checkpoints
+            .into_iter()
+            .filter(|c| {
+                if let Some(max) = max_needed {
+                    if c.block_number >= max {
+                        return false;
+                    }
+                }
+                if let Some(min) = min_needed {
+                    if c.block_number <= min {
+                        return false;
+                    }
+                }
+                true
+            })
+            .collect();
+
+        Ok(filtered)
+    }
+
     /// Find optimal attestation bounds for the query range
-    fn find_attestation_bounds(
+    ///
+    /// Handles special case: when query is at an attestation or checkpoint height,
+    /// we need to fetch the previous attestation/checkpoint to compute the continuity proof.
+    async fn find_attestation_bounds(
         &self,
         min_query: u64,
         max_query: u64,
         attestations: &[SignedAttestation<H256, AccountId32>],
     ) -> Result<(AttestationInfo, Option<AttestationInfo>)> {
-        // Find lower bound: closest attestation before min_query
-        // POC requires continuity to start at queryHeight - 1, so we need attestation before that
+        // Check if query is exactly at an attestation height
+        let is_at_attestation = attestations
+            .iter()
+            .any(|a| a.attestation.header_number == min_query);
+
+        // Check if query is at checkpoint height (lazy check - only queries last checkpoint)
+        let is_at_checkpoint = self
+            .check_if_at_checkpoint_height(min_query)
+            .await?
+            .is_some();
+
+        if is_at_attestation || is_at_checkpoint {
+            println!(
+                "Query is at {} height (attestation: {}, checkpoint: {})",
+                if is_at_attestation {
+                    "attestation"
+                } else {
+                    "checkpoint"
+                },
+                is_at_attestation,
+                is_at_checkpoint
+            );
+            println!("Fetching previous attestation/checkpoint to build continuity proof...");
+        }
+
+        // Find lower bound: closest attestation or checkpoint before min_query
+        // Requires continuity to start at queryHeight - 1, so we need consensus point before that
+        // If query is at an attestation/checkpoint height, we need the previous one
         let required_before = min_query.saturating_sub(1);
 
-        let lower = attestations
+        // Find best lower bound from attestations
+        let attestation_lower = attestations
             .iter()
             .filter(|a| a.attestation.header_number < required_before)
-            .max_by_key(|a| a.attestation.header_number)
-            .ok_or_else(|| {
-                anyhow!(
-                    "No attestation found before block {}. Need an earlier attestation to build continuity.",
-                    required_before
-                )
-            })?;
+            .max_by_key(|a| a.attestation.header_number);
 
-        let lower_info = AttestationInfo {
-            block_number: lower.attestation.header_number,
-            digest: lower.attestation.digest(),
+        // Only fetch checkpoints if:
+        // 1. Query is at checkpoint height (need previous checkpoint)
+        // 2. No attestation found before required_before (need to check checkpoints)
+        let checkpoint_lower = if is_at_checkpoint || attestation_lower.is_none() {
+            let checkpoints = self
+                .fetch_checkpoints_smart(None, Some(required_before))
+                .await?;
+            checkpoints
+                .into_iter()
+                .filter(|c| c.block_number < required_before)
+                .max_by_key(|c| c.block_number)
+        } else {
+            None
         };
 
-        // Find upper bound: closest attestation after max_query
-        let upper_info = attestations
-            .iter()
-            .filter(|a| a.attestation.header_number > max_query)
-            .min_by_key(|a| a.attestation.header_number)
-            .map(|a| AttestationInfo {
+        // Choose the closest one (highest block number) before required_before
+        let lower_info = match (attestation_lower, checkpoint_lower) {
+            (Some(a), Some(c)) => {
+                if a.attestation.header_number > c.block_number {
+                    AttestationInfo {
+                        block_number: a.attestation.header_number,
+                        digest: a.attestation.digest(),
+                    }
+                } else {
+                    AttestationInfo {
+                        block_number: c.block_number,
+                        digest: c.digest,
+                    }
+                }
+            }
+            (Some(a), None) => AttestationInfo {
                 block_number: a.attestation.header_number,
                 digest: a.attestation.digest(),
-            });
+            },
+            (None, Some(c)) => AttestationInfo {
+                block_number: c.block_number,
+                digest: c.digest,
+            },
+            (None, None) => {
+                return Err(anyhow!(
+                    "No attestation or checkpoint found before block {}. Need an earlier consensus point to build continuity.",
+                    required_before
+                ));
+            }
+        };
+
+        // Find upper bound: if query is at an attestation/checkpoint height, use that as upper bound
+        // Otherwise, find the next attestation/checkpoint after max_query
+        let upper_info = if is_at_attestation {
+            // Query is at an attestation height - use that attestation as upper bound
+            attestations
+                .iter()
+                .find(|a| a.attestation.header_number == max_query)
+                .map(|a| AttestationInfo {
+                    block_number: a.attestation.header_number,
+                    digest: a.attestation.digest(),
+                })
+        } else if is_at_checkpoint {
+            // Query is at a checkpoint height - use that checkpoint as upper bound
+            let checkpoints = self.fetch_checkpoints_smart(None, None).await?;
+            checkpoints
+                .into_iter()
+                .find(|c| c.block_number == max_query)
+                .map(|c| AttestationInfo {
+                    block_number: c.block_number,
+                    digest: c.digest,
+                })
+        } else {
+            // Query is not at an attestation/checkpoint height - find next one after max_query
+            let attestation_upper = attestations
+                .iter()
+                .filter(|a| a.attestation.header_number > max_query)
+                .min_by_key(|a| a.attestation.header_number)
+                .map(|a| AttestationInfo {
+                    block_number: a.attestation.header_number,
+                    digest: a.attestation.digest(),
+                });
+
+            // Only fetch checkpoints for upper bound if no attestation found after max_query
+            let checkpoint_upper = if attestation_upper.is_none() {
+                let checkpoints = self.fetch_checkpoints_smart(Some(max_query), None).await?;
+                checkpoints
+                    .into_iter()
+                    .filter(|c| c.block_number > max_query)
+                    .min_by_key(|c| c.block_number)
+                    .map(|c| AttestationInfo {
+                        block_number: c.block_number,
+                        digest: c.digest,
+                    })
+            } else {
+                None
+            };
+
+            // Choose the closest one (lowest block number) after max_query
+            match (attestation_upper, checkpoint_upper) {
+                (Some(a), Some(c)) => {
+                    if a.block_number < c.block_number {
+                        Some(a)
+                    } else {
+                        Some(c)
+                    }
+                }
+                (Some(a), None) => Some(a),
+                (None, Some(c)) => Some(c),
+                (None, None) => None,
+            }
+        };
 
         // Log the bounds for debugging
         println!(

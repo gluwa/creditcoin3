@@ -43,18 +43,22 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
         let merkle_proof = create_simple_merkle_proof(&tx_data);
 
         // Create continuity blocks that reach the query height
+        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
         let mut continuity_blocks = Vec::new();
         let mut prev_digest = H256::zero();
 
-        for i in 97..=100 {
-            let block_number = i;
-            // Use merkle root for block 100 so merkle verification passes
+        // Create blocks 99 and 100 (minimum required: queryHeight-1 and queryHeight)
+        for i in 0..2 {
+            let block_number = 99 + i; // Blocks 99, 100
+                                       // Use merkle root for block 100 so merkle verification passes
             let root = if block_number == 100 {
                 merkle_proof.root
             } else {
                 H256::random()
             };
-            let digest = H256::from_low_u64_be(block_number);
+            // Compute digest correctly using Block::hash_payload
+            use attestor_primitives::block::Block as FragmentBlock;
+            let digest = FragmentBlock::hash_payload(&block_number, &root, &prev_digest);
 
             continuity_blocks.push(Block {
                 block_number,
@@ -67,7 +71,7 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
         }
 
         // Setup attestation at block before first continuity block (start)
-        setup_attestation(1, 96, continuity_blocks[0].prev_digest);
+        setup_attestation(1, 98, continuity_blocks[0].prev_digest);
 
         // Setup attestation at the end of continuity chain
         setup_attestation(1, 100, continuity_blocks.last().unwrap().digest);
@@ -215,12 +219,38 @@ fn test_verify_query_view_no_attestation() {
         let tx_data = vec![0u8; 32];
         let merkle_proof = create_simple_merkle_proof(&tx_data);
 
-        let continuity_blocks = vec![Block {
-            block_number: 100,
-            root: merkle_proof.root,
-            digest: H256::from_low_u64_be(100),
-            prev_digest: H256::from_low_u64_be(99),
-        }];
+        // Need at least 2 blocks: queryHeight-1 and queryHeight
+        let prev_height = 99;
+        let prev_root = H256::random();
+        let prev_prev_digest = H256::zero();
+        let prev_digest = attestor_primitives::block::Block::hash_payload(
+            &prev_height,
+            &prev_root,
+            &prev_prev_digest,
+        );
+
+        let query_height = 100;
+        let query_root = merkle_proof.root;
+        let query_digest = attestor_primitives::block::Block::hash_payload(
+            &query_height,
+            &query_root,
+            &prev_digest,
+        );
+
+        let continuity_blocks = vec![
+            Block {
+                block_number: prev_height,
+                root: prev_root,
+                prev_digest: prev_prev_digest,
+                digest: prev_digest,
+            },
+            Block {
+                block_number: query_height,
+                root: query_root,
+                prev_digest,
+                digest: query_digest,
+            },
+        ];
 
         // No attestation setup - should fail
         precompiles()
@@ -234,7 +264,9 @@ fn test_verify_query_view_no_attestation() {
                     continuity_blocks,
                 },
             )
-            .execute_reverts(|output| output == b"Continuity proof does not match checkpoint");
+            .execute_reverts(|output| {
+                output == b"Continuity proof does not match attestation or checkpoint"
+            });
     });
 }
 
@@ -266,7 +298,9 @@ fn test_verify_batch_queries_view_success() {
         let merkle_proof1 = create_simple_merkle_proof(&tx_data1);
         let merkle_proof2 = create_simple_merkle_proof(&tx_data2);
 
-        // Create continuity blocks for both queries
+        // Create continuity blocks for both queries (97-100, includes queryHeight - 1 for digest verification)
+        // Compute digests correctly using Block::hash_payload
+        use attestor_primitives::block::Block as FragmentBlock;
         let mut continuity_blocks = Vec::new();
         let mut prev_digest = H256::zero();
 
@@ -279,7 +313,7 @@ fn test_verify_batch_queries_view_success() {
             } else {
                 H256::random()
             };
-            let digest = H256::from_low_u64_be(block_number);
+            let digest = FragmentBlock::hash_payload(&block_number, &root, &prev_digest);
 
             continuity_blocks.push(Block {
                 block_number,
@@ -435,7 +469,9 @@ fn test_verify_batch_queries_view_mixed_results() {
             siblings: vec![],
         };
 
-        // Create continuity blocks
+        // Create continuity blocks (97-100, includes queryHeight - 1 for digest verification)
+        // Compute digests correctly using Block::hash_payload
+        use attestor_primitives::block::Block as FragmentBlock;
         let mut continuity_blocks = Vec::new();
         let mut prev_digest = H256::zero();
 
@@ -446,7 +482,7 @@ fn test_verify_batch_queries_view_mixed_results() {
             } else {
                 H256::random()
             };
-            let digest = H256::from_low_u64_be(block_number);
+            let digest = FragmentBlock::hash_payload(&block_number, &root, &prev_digest);
 
             continuity_blocks.push(Block {
                 block_number,

@@ -1,4 +1,4 @@
 fn main() {
-    // Build script for common/eth crate
-    // Currently no build-time dependencies to track
+    // Path is relative to the crate root
+    println!("cargo::rerun-if-changed=contracts/native_query_verifier.json");
 }
