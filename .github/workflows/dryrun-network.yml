@@ -1,0 +1,342 @@
+---
+name: Deploy Dryrun Network
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment (dev/test/main)'
+        required: true
+        type: choice
+        options:
+          - dev
+          - test
+          - main
+      node_count:
+        description: 'Number of validator nodes'
+        required: true
+        type: number
+        default: 4
+  push:
+    tags:
+      - 'dryrun-*'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AZURE_RESOURCE_GROUP: creditcoin-dryrun-${{ github.run_id }}
+  AZURE_LOCATION: eastus
+  AKS_CLUSTER_NAME: cc3-dryrun-${{ github.run_id }}
+  NODE_COUNT: 4
+
+jobs:
+  setup-environment:
+    name: Setup Environment
+    runs-on: ubuntu-24.04
+    outputs:
+      environment: ${{ steps.parse.outputs.environment }}
+      chainspec: ${{ steps.parse.outputs.chainspec }}
+      node_count: ${{ steps.parse.outputs.node_count }}
+      resource_group: ${{ steps.parse.outputs.resource_group }}
+      cluster_name: ${{ steps.parse.outputs.cluster_name }}
+    steps:
+      - name: Parse tag or input
+        id: parse
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="${{ inputs.environment }}"
+            NODE_COUNT="${{ inputs.node_count }}"
+          else
+            # Extract environment from tag (e.g., dryrun-dev -> dev)
+            TAG="${GITHUB_REF#refs/tags/dryrun-}"
+            if [[ "$TAG" == "dev" ]] || [[ "$TAG" == "test" ]] || [[ "$TAG" == "main" ]]; then
+              ENV="$TAG"
+            else
+              echo "Invalid tag format. Expected: dryrun-{dev|test|main}"
+              exit 1
+            fi
+            NODE_COUNT=4
+          fi
+
+          # Set chainspec based on environment
+          case "$ENV" in
+            dev)
+              CHAINSPEC="devnetSpecRaw.json"
+              ;;
+            test)
+              CHAINSPEC="testnetSpecRaw.json"
+              ;;
+            main)
+              CHAINSPEC="mainnetSpecRaw.json"
+              ;;
+          esac
+
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "chainspec=$CHAINSPEC" >> $GITHUB_OUTPUT
+          echo "node_count=$NODE_COUNT" >> $GITHUB_OUTPUT
+          echo "resource_group=creditcoin-dryrun-${{ github.run_id }}" >> $GITHUB_OUTPUT
+          echo "cluster_name=cc3-dryrun-${{ github.run_id }}" >> $GITHUB_OUTPUT
+
+          echo "Environment: $ENV"
+          echo "Chainspec: $CHAINSPEC"
+          echo "Node Count: $NODE_COUNT"
+
+  build-and-push-image:
+    name: Build and Push Docker Image
+    needs: setup-environment
+    runs-on: ubuntu-24.04
+    outputs:
+      image_tag: ${{ steps.image.outputs.tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Set image tag
+        id: image
+        run: |
+          TAG="dryrun-${{ needs.setup-environment.outputs.environment }}-${{ github.run_id }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Image tag: $TAG"
+
+      - name: Build docker image
+        run: |
+          BUILD_ARGS="--features fast-runtime,${{ needs.setup-environment.outputs.environment }}net"
+          docker build -t gluwa/creditcoin3:${{ steps.image.outputs.tag }} --build-arg="BUILD_ARGS=$BUILD_ARGS" .
+          docker images
+
+      - name: Log in to Docker Hub
+        run: |
+          echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
+
+      - name: Push docker image
+        run: |
+          docker push gluwa/creditcoin3:${{ steps.image.outputs.tag }}
+          docker logout
+
+  provision-azure-cluster:
+    name: Provision Azure Kubernetes Cluster
+    needs: [setup-environment, build-and-push-image]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create Resource Group
+        run: |
+          az group create \
+            --name ${{ needs.setup-environment.outputs.resource_group }} \
+            --location ${{ env.AZURE_LOCATION }} \
+            --tags \
+              "purpose=dryrun" \
+              "environment=${{ needs.setup-environment.outputs.environment }}" \
+              "run_id=${{ github.run_id }}" \
+              "created_by=github-actions"
+
+      - name: Create AKS Cluster
+        run: |
+          az aks create \
+            --resource-group ${{ needs.setup-environment.outputs.resource_group }} \
+            --name ${{ needs.setup-environment.outputs.cluster_name }} \
+            --node-count 2 \
+            --node-vm-size Standard_D4s_v3 \
+            --enable-managed-identity \
+            --generate-ssh-keys \
+            --network-plugin azure \
+            --enable-addons monitoring \
+            --tags \
+              "purpose=dryrun" \
+              "environment=${{ needs.setup-environment.outputs.environment }}"
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ needs.setup-environment.outputs.resource_group }} \
+            --name ${{ needs.setup-environment.outputs.cluster_name }} \
+            --overwrite-existing
+
+      - name: Verify cluster connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+  deploy-blockchain-nodes:
+    name: Deploy Blockchain Nodes
+    needs: [setup-environment, build-and-push-image, provision-azure-cluster]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ needs.setup-environment.outputs.resource_group }} \
+            --name ${{ needs.setup-environment.outputs.cluster_name }} \
+            --overwrite-existing
+
+      - name: Create namespace
+        run: |
+          kubectl create namespace creditcoin-dryrun || true
+
+      - name: Deploy blockchain nodes
+        run: |
+          export IMAGE_TAG="${{ needs.build-and-push-image.outputs.image_tag }}"
+          export CHAINSPEC="${{ needs.setup-environment.outputs.chainspec }}"
+          export NODE_COUNT="${{ needs.setup-environment.outputs.node_count }}"
+
+          # Create ConfigMap for chainspec
+          kubectl create configmap chainspec \
+            --from-file=chainspec.json=chainspecs/$CHAINSPEC \
+            --namespace=creditcoin-dryrun \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Deploy nodes using the manifests
+          envsubst < .github/k8s/dryrun-deployment.yaml | kubectl apply -f -
+
+      - name: Wait for nodes to be ready
+        run: |
+          echo "Waiting for blockchain nodes to be ready..."
+          kubectl wait --for=condition=ready pod \
+            --selector=app=creditcoin-node \
+            --namespace=creditcoin-dryrun \
+            --timeout=600s
+
+      - name: Get node status
+        run: |
+          kubectl get pods -n creditcoin-dryrun -o wide
+          kubectl get services -n creditcoin-dryrun
+
+  initialize-network:
+    name: Initialize Blockchain Network
+    needs: [setup-environment, build-and-push-image, deploy-blockchain-nodes]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ needs.setup-environment.outputs.resource_group }} \
+            --name ${{ needs.setup-environment.outputs.cluster_name }} \
+            --overwrite-existing
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install CLI dependencies
+        run: |
+          cd cli
+          yarn install
+          yarn build
+
+      - name: Port forward to access nodes
+        run: |
+          # Port forward to the first node (bootnode/sudo node)
+          kubectl port-forward -n creditcoin-dryrun svc/creditcoin-node-0 9944:9944 &
+          sleep 5
+
+      - name: Initialize validators
+        run: |
+          export NODE_COUNT="${{ needs.setup-environment.outputs.node_count }}"
+          chmod +x .github/scripts/initialize-dryrun-network.sh
+          .github/scripts/initialize-dryrun-network.sh
+
+      - name: Display network information
+        run: |
+          echo "==================================="
+          echo "Dryrun Network Deployed Successfully"
+          echo "==================================="
+          echo ""
+          echo "Environment: ${{ needs.setup-environment.outputs.environment }}"
+          echo "Resource Group: ${{ needs.setup-environment.outputs.resource_group }}"
+          echo "AKS Cluster: ${{ needs.setup-environment.outputs.cluster_name }}"
+          echo "Number of Nodes: ${{ needs.setup-environment.outputs.node_count }}"
+          echo ""
+          echo "To connect to the network:"
+          echo "1. Get AKS credentials:"
+          echo "   az aks get-credentials --resource-group ${{ needs.setup-environment.outputs.resource_group }} --name ${{ needs.setup-environment.outputs.cluster_name }}"
+          echo ""
+          echo "2. Port forward to access nodes:"
+          echo "   kubectl port-forward -n creditcoin-dryrun svc/creditcoin-node-0 9944:9944"
+          echo ""
+          echo "3. Connect via WebSocket: ws://localhost:9944"
+          echo ""
+          echo "To cleanup when done:"
+          echo "   az group delete --name ${{ needs.setup-environment.outputs.resource_group }} --yes --no-wait"
+          echo ""
+          echo "==================================="
+
+      - name: Save network info to artifact
+        run: |
+          mkdir -p network-info
+          cat > network-info/README.md << EOF
+          # Dryrun Network Information
+
+          ## Deployment Details
+          - **Environment**: ${{ needs.setup-environment.outputs.environment }}
+          - **Resource Group**: ${{ needs.setup-environment.outputs.resource_group }}
+          - **AKS Cluster**: ${{ needs.setup-environment.outputs.cluster_name }}
+          - **Number of Nodes**: ${{ needs.setup-environment.outputs.node_count }}
+          - **Image Tag**: ${{ needs.build-and-push-image.outputs.image_tag }}
+          - **Deployed At**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          ## Access Instructions
+
+          ### Get AKS Credentials
+          \`\`\`bash
+          az aks get-credentials \\
+            --resource-group ${{ needs.setup-environment.outputs.resource_group }} \\
+            --name ${{ needs.setup-environment.outputs.cluster_name }}
+          \`\`\`
+
+          ### Port Forward to Access Nodes
+          \`\`\`bash
+          kubectl port-forward -n creditcoin-dryrun svc/creditcoin-node-0 9944:9944
+          \`\`\`
+
+          ### Connect via WebSocket
+          \`\`\`
+          ws://localhost:9944
+          \`\`\`
+
+          ### View Node Logs
+          \`\`\`bash
+          kubectl logs -n creditcoin-dryrun -l app=creditcoin-node --tail=100 -f
+          \`\`\`
+
+          ## Cleanup
+
+          When you're done with the dryrun network, delete the resource group:
+
+          \`\`\`bash
+          az group delete --name ${{ needs.setup-environment.outputs.resource_group }} --yes --no-wait
+          \`\`\`
+
+          This will delete the AKS cluster and all associated resources.
+          EOF
+
+      - name: Upload network info
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-info-${{ github.run_id }}
+          path: network-info/
+          retention-days: 30
