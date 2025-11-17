@@ -242,7 +242,6 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
                 [TEST - 1] ⬛ TEST\n\
                 ❌ Attestation block heights diff: 100 (200|100)\n\
                 ✅ Attestation header hash matches correct Ethereum block: (100|100)\n\
-                ✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n\
                 ✅ All signed attestors are elected:  (0|2)\n\
                 ✅ Last checkpoint number found in GraphQL: (50|50)\n\
@@ -337,7 +336,6 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
                 [TEST - 1] ⬛ TEST\n\
                 ✅ Attestation block heights diff: 50 (200|150)\n\
                 ❌ Attestation header hash does not match correct Ethereum block: (100|150)\n\
-                ✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last checkpoint creation is within checkpoint range: 70 (200|130)\n\
                 ✅ All signed attestors are elected:  (2|2)\n\
                 ✅ Last checkpoint number found in GraphQL: (130|130)\n\
@@ -392,97 +390,98 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
     assert_eq!(expected_result, result);
 }
 
-#[test]
-fn create_message_returns_chain_status_and_group_notification_when_slack_group_is_some_and_merkle_root_check_fails(
-) {
-    let supported_chain_info = SupportedChainInfo {
-        chain_id: 1,
-        chain_name: "TEST".to_string(),
-        chain_key: 2,
-    };
-    let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
-            chain_key: 2,
-            header_number: 150, // block diff is 50 (passes)
-            header_hash: H256::from_slice(&[0u8; 32]),
-            root: hex!("736f6d6563616c63756c617465646d65726b6c65000000000000000000000000"),
-            prev_digest: Some(H256::from_slice(&[0u8; 32])),
-        },
-        signature: [0u8; 96],
-        attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([1u8; 32])],
-    };
-    let slack_alert_group = Some("S_TEST_GROUP".to_string());
-    let calculated_ethereum_block_merkle_root = "somecalculatedmerkle".to_string(); // mismatch
-    let fetched_ethereum_block_number_by_hash = Some(U64::from(150u64)); // matches header_number
-    let latest_ethereum_block_number = 200_u64;
-    let maybe_elected_attestors = Some(vec![
-        AccountId32::from([0u8; 32]),
-        AccountId32::from([1u8; 32]),
-    ]);
+// Re-enable when rpc runtimes are upgraded
+// #[test]
+// fn create_message_returns_chain_status_and_group_notification_when_slack_group_is_some_and_merkle_root_check_fails(
+// ) {
+//     let supported_chain_info = SupportedChainInfo {
+//         chain_id: 1,
+//         chain_name: "TEST".to_string(),
+//         chain_key: 2,
+//     };
+//     let last_signed_attestation = SignedAttestation {
+//         attestation: attestor_primitives::Attestation {
+//             chain_key: 2,
+//             header_number: 150, // block diff is 50 (passes)
+//             header_hash: H256::from_slice(&[0u8; 32]),
+//             root: hex!("736f6d6563616c63756c617465646d65726b6c65000000000000000000000000"),
+//             prev_digest: Some(H256::from_slice(&[0u8; 32])),
+//         },
+//         signature: [0u8; 96],
+//         attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([1u8; 32])],
+//     };
+//     let slack_alert_group = Some("S_TEST_GROUP".to_string());
+//     let calculated_ethereum_block_merkle_root = "somecalculatedmerkle".to_string(); // mismatch
+//     let fetched_ethereum_block_number_by_hash = Some(U64::from(150u64)); // matches header_number
+//     let latest_ethereum_block_number = 200_u64;
+//     let maybe_elected_attestors = Some(vec![
+//         AccountId32::from([0u8; 32]),
+//         AccountId32::from([1u8; 32]),
+//     ]);
 
-    let expected_result = (
-        json!({
-            "username": "usc-audit-automation",
-            "icon_emoji": ":shield:",
-            "text": "```\
-                [TEST - 1] ⬛ TEST\n\
-                ✅ Attestation block heights diff: 50 (200|150)\n\
-                ✅ Attestation header hash matches correct Ethereum block: (150|150)\n\
-                ❌ Calculated merkle root does not match attestation root: (somecalculatedmerkle|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
-                ✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n\
-                ✅ All signed attestors are elected:  (2|2)\n\
-                ✅ Last checkpoint number found in GraphQL: (50|50)\n\
-                ✅ Last attestation header number found in GraphQL: (150|150)\n\
-                ✅ Last attestation root found in GraphQL: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
-                ✅ Last attestation prev digest found in GraphQL: (0000000000000000000000000000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)\n\
-                ✅ Last attestation digest found in GraphQL: (033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1|033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1)\
-                ```"
-        }),
-        Some(json!({
-            "username": "usc-audit-automation",
-            "icon_emoji": ":rotating_light:",
-            "text": "<!subteam^S_TEST_GROUP> The following issues were detected:\nCalculated merkle root does not match attestation root!"
-        })),
-    );
+//     let expected_result = (
+//         json!({
+//             "username": "usc-audit-automation",
+//             "icon_emoji": ":shield:",
+//             "text": "```\
+//                 [TEST - 1] ⬛ TEST\n\
+//                 ✅ Attestation block heights diff: 50 (200|150)\n\
+//                 ✅ Attestation header hash matches correct Ethereum block: (150|150)\n\
+//                 ❌ Calculated merkle root does not match attestation root: (somecalculatedmerkle|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
+//                 ✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n\
+//                 ✅ All signed attestors are elected:  (2|2)\n\
+//                 ✅ Last checkpoint number found in GraphQL: (50|50)\n\
+//                 ✅ Last attestation header number found in GraphQL: (150|150)\n\
+//                 ✅ Last attestation root found in GraphQL: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
+//                 ✅ Last attestation prev digest found in GraphQL: (0000000000000000000000000000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)\n\
+//                 ✅ Last attestation digest found in GraphQL: (033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1|033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1)\
+//                 ```"
+//         }),
+//         Some(json!({
+//             "username": "usc-audit-automation",
+//             "icon_emoji": ":rotating_light:",
+//             "text": "<!subteam^S_TEST_GROUP> The following issues were detected:\nCalculated merkle root does not match attestation root!"
+//         })),
+//     );
 
-    let attestation_check_result = compute_attestation_check_result(
-        &last_signed_attestation,
-        latest_ethereum_block_number,
-        calculated_ethereum_block_merkle_root.as_str(),
-        fetched_ethereum_block_number_by_hash,
-        CheckpointCreatedWithinRangeResult {
-            last_checkpoint_block_number: 50,
-            latest_ethereum_block_number,
-            checkpoint_created_within_range: true,
-        },
-        maybe_elected_attestors,
-        Some(crate::GraphQLAttestationCheckResult {
-            checkpoint_chain_node: AttestationCheckpointChainNode {
-                checkpoint_number: "50".to_string(),
-                last_attested_digest:
-                    "05e2c55e28e608eece12b96332c13fed26ab5d14f4850fe2f2a3041a39386e6f".to_string(),
-            },
-            attestation_node: AttestationNode {
-                header_number: "150".to_string(),
-                root: "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000"
-                    .to_string(),
-                prev_digest: "0000000000000000000000000000000000000000000000000000000000000000"
-                    .to_string(),
-                digest: "033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1"
-                    .to_string(),
-            },
-        }),
-    );
+//     let attestation_check_result = compute_attestation_check_result(
+//         &last_signed_attestation,
+//         latest_ethereum_block_number,
+//         calculated_ethereum_block_merkle_root.as_str(),
+//         fetched_ethereum_block_number_by_hash,
+//         CheckpointCreatedWithinRangeResult {
+//             last_checkpoint_block_number: 50,
+//             latest_ethereum_block_number,
+//             checkpoint_created_within_range: true,
+//         },
+//         maybe_elected_attestors,
+//         Some(crate::GraphQLAttestationCheckResult {
+//             checkpoint_chain_node: AttestationCheckpointChainNode {
+//                 checkpoint_number: "50".to_string(),
+//                 last_attested_digest:
+//                     "05e2c55e28e608eece12b96332c13fed26ab5d14f4850fe2f2a3041a39386e6f".to_string(),
+//             },
+//             attestation_node: AttestationNode {
+//                 header_number: "150".to_string(),
+//                 root: "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000"
+//                     .to_string(),
+//                 prev_digest: "0000000000000000000000000000000000000000000000000000000000000000"
+//                     .to_string(),
+//                 digest: "033a4fb6eb4d25411d206b84e4434c7ec6db054fdf0f8281b1cbd17f35dbbce1"
+//                     .to_string(),
+//             },
+//         }),
+//     );
 
-    let result = create_json_message(
-        &supported_chain_info,
-        attestation_check_result,
-        "TEST",
-        &slack_alert_group,
-    );
+//     let result = create_json_message(
+//         &supported_chain_info,
+//         attestation_check_result,
+//         "TEST",
+//         &slack_alert_group,
+//     );
 
-    assert_eq!(expected_result, result);
-}
+//     assert_eq!(expected_result, result);
+// }
 
 #[test]
 fn create_message_returns_chain_status_and_group_notification_with_u_slack_id_when_a_check_fails() {
@@ -522,7 +521,6 @@ fn create_message_returns_chain_status_and_group_notification_with_u_slack_id_wh
                 [TEST - 1] ⬛ TEST\n\
                 ✅ Attestation block heights diff: 20 (200|180)\n\
                 ❌ Attestation header hash does not match correct Ethereum block: (100|180)\n\
-                ✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last checkpoint creation is within checkpoint range: 20 (200|180)\n\
                 ✅ All signed attestors are elected:  (0|2)\n\
                 ✅ Last checkpoint number found in GraphQL: (180|180)\n\
@@ -613,7 +611,6 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
                 [TEST - 1] ⬛ TEST\n\
                 ❌ Attestation block heights diff: 60 (200|140)\n\
                 ❌ Attestation header hash does not match correct Ethereum block: (100|140)\n\
-                ❌ Calculated merkle root does not match attestation root: (somecalculatedmerkle|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ❌ Last checkpoint creation is outside checkpoint range: 150 (200|50)\n\
                 ❌ Found unelected attestors in signed attestors: 5CHsKQwQDWKMqk3gLCvb2oftFQ7MyVMUDzZhNg9w45t1WCTL, 5CKBfVFwvXyYUArQ4VRSrCczG12ASZwjMYPpEAyAKCfryDeD (2|2)\n\
                 ❌ Last checkpoint number not found in GraphQL: (0|50)\n\
@@ -688,7 +685,6 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
                 [TEST - 1] ⬛ TEST\n\
                 ❌ Attestation block heights diff: 100 (200|100)\n\
                 ✅ Attestation header hash matches correct Ethereum block: (100|100)\n\
-                ✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n\
                 ✅ All signed attestors are elected:  (0|2)\n\
                 ✅ Last checkpoint number found in GraphQL: (50|50)\n\
@@ -777,7 +773,6 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
                 [TEST - 1] ⬛ TEST\n\
                 ✅ Attestation block heights diff: 50 (200|150)\n\
                 ❌ Attestation header hash does not match correct Ethereum block: (100|150)\n\
-                ✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n\
                 ✅ All signed attestors are elected:  (0|2)\n\
                 ✅ Last checkpoint number found in GraphQL: (50|50)\n\
@@ -864,7 +859,6 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
                 [TEST - 1] ⬛ TEST\n\
                 ✅ Attestation block heights diff: 50 (200|150)\n\
                 ✅ Attestation header hash matches correct Ethereum block: (150|150)\n\
-                ❌ Calculated merkle root does not match attestation root: (somecalculatedmerkle|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n\
                 ✅ All signed attestors are elected:  (0|2)\n\
                 ✅ Last checkpoint number found in GraphQL: (50|50)\n\
@@ -957,7 +951,6 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
                 [TEST - 1] ⬛ TEST\n\
                 ✅ Attestation block heights diff: 50 (200|150)\n\
                 ✅ Attestation header hash matches correct Ethereum block: (150|150)\n\
-                ✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n\
                 ✅ All signed attestors are elected:  (0|2)\n\
                 ✅ Last checkpoint number found in GraphQL: (50|50)\n\
@@ -1046,7 +1039,6 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
                 [TEST - 1] ⬛ TEST\n\
                 ✅ Attestation block heights diff: 20 (200|180)\n\
                 ✅ Attestation header hash matches correct Ethereum block: (180|180)\n\
-                ✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n\
                 ❌ Last checkpoint creation is outside checkpoint range: 190 (200|10)\n\
                 ✅ All signed attestors are elected:  (0|2)\n\
                 ✅ Last checkpoint number found in GraphQL: (10|10)\n\

@@ -25,7 +25,7 @@ fn slack_payload(text: impl Into<String>, icon: &str) -> Value {
 struct AlertConditions {
     pub exceeded: bool,
     pub header_hash_match: bool,
-    pub roots_match: bool,
+    pub _roots_match: bool,
     pub checkpoint_created_within_range: bool,
     pub elected_attestors_found: bool,
     pub attestation_found_in_graphql: bool,
@@ -44,9 +44,10 @@ fn alert_reasons(conditions: &AlertConditions) -> Vec<&'static str> {
     if !conditions.header_hash_match {
         reasons.push("Attestation header hash does not match correct Ethereum block!");
     }
-    if !conditions.roots_match {
-        reasons.push("Calculated merkle root does not match attestation root!");
-    }
+    // Re-enable when rpc runtimes are upgraded
+    // if !conditions.roots_match {
+    //     reasons.push("Calculated merkle root does not match attestation root!");
+    // }
     if !conditions.checkpoint_created_within_range {
         reasons.push("Last checkpoint creation out of range!");
     }
@@ -118,15 +119,15 @@ pub fn create_json_message(
         )
     };
 
-    let (roots_match_emoji, roots_match_verdict) = if attestation_check_result.merkle_roots_match()
-    {
-        ("✅", "Calculated merkle root matches attestation root")
-    } else {
-        (
-            "❌",
-            "Calculated merkle root does not match attestation root",
-        )
-    };
+    // let (roots_match_emoji, roots_match_verdict) = if attestation_check_result.merkle_roots_match()
+    // {
+    //     ("✅", "Calculated merkle root matches attestation root")
+    // } else {
+    //     (
+    //         "❌",
+    //         "Calculated merkle root does not match attestation root",
+    //     )
+    // };
 
     let (checkpoint_creation_in_range_emoji, checkpoint_creation_in_range_verdict) =
         if attestation_check_result.is_checkpoint_in_range() {
@@ -232,13 +233,14 @@ pub fn create_json_message(
         .attestor_best_block_number
         .to_formatted_string(&Locale::en);
 
+    // re-add when rpc runtimes are upgraded
     // calculated and attestation merkle roots
-    let calculated_eth_merkle_root_str = &attestation_check_result
-        .ethereum_block_info
-        .calculated_ethereum_block_merkle_root;
-    let attestation_merkle_root_str = &attestation_check_result
-        .attestation_info
-        .attestation_merkle_root;
+    // let calculated_eth_merkle_root_str = &attestation_check_result
+    //     .ethereum_block_info
+    //     .calculated_ethereum_block_merkle_root;
+    // let attestation_merkle_root_str = &attestation_check_result
+    //     .attestation_info
+    //     .attestation_merkle_root;
 
     // checkpoint interval diff and block numbers
     let checkpoint_interval_diff_str = &attestation_check_result
@@ -362,9 +364,10 @@ pub fn create_json_message(
         "{attestation_header_matches_correct_fetched_ethereum_block_number_by_hash_emoji} {attestation_header_matches_correct_fetched_ethereum_block_number_by_hash_verdict}: ({fetch_eth_block_number_by_hash_str}|{attestor_best_block_number_str})"
     );
 
-    let merkle_roots_str = format!(
-        "{roots_match_emoji} {roots_match_verdict}: ({calculated_eth_merkle_root_str}|{attestation_merkle_root_str})"
-    );
+    // re-add when rpc runtimes are upgraded
+    // let merkle_roots_str = format!(
+    //     "{roots_match_emoji} {roots_match_verdict}: ({calculated_eth_merkle_root_str}|{attestation_merkle_root_str})"
+    // );
 
     let checkpoint_in_range_str = format!(
         "{checkpoint_creation_in_range_emoji} {checkpoint_creation_in_range_verdict}: {checkpoint_interval_diff_str} ({latest_ethereum_block_number_str}|{last_checkpoint_block_number_str})"
@@ -398,7 +401,6 @@ pub fn create_json_message(
         "{network_str}\n\
          {attestation_block_height_str}\n\
          {header_hash_str}\n\
-         {merkle_roots_str}\n\
          {checkpoint_in_range_str}\n\
          {attestors_elected_str}\n\
          {graphql_checkpoint_number_found_str}\n\
@@ -439,7 +441,7 @@ pub fn create_json_message(
             let alert_conditions = AlertConditions {
                 exceeded: attestation_check_result.is_block_height_exceeded(),
                 header_hash_match: attestation_check_result.header_hash_matches(),
-                roots_match: attestation_check_result.merkle_roots_match(),
+                _roots_match: attestation_check_result.merkle_roots_match(),
                 checkpoint_created_within_range: attestation_check_result.is_checkpoint_in_range(),
                 elected_attestors_found: attestation_check_result
                     .get_unelected_attestors()
