@@ -5,7 +5,8 @@
 //! verification throughput.
 
 use anyhow::{anyhow, Result};
-use attestor_primitives::{block::Block, query::Query};
+use attestor_primitives::block::{Block, ContinuityProof};
+use attestor_primitives::query::Query;
 use mmr::query_proof::QueryMerkleProof;
 use sp_core::H256;
 
@@ -169,6 +170,9 @@ impl BatchVerifier {
         let verifier =
             eth::evm::native_query_verifier::NativeQueryVerifierContract::new(&eth_client);
 
+        // Convert Vec<Block> to ContinuityProof for the optimized API
+        let shared_continuity_proof = ContinuityProof::from_blocks(shared_continuity);
+
         // Process queries individually and collect results
         let mut successful = 0u32;
         let mut failed = 0u32;
@@ -185,7 +189,7 @@ impl BatchVerifier {
                     query,
                     &tx_data_array[i],
                     merkle_proofs[i].clone(),
-                    shared_continuity.clone(),
+                    shared_continuity_proof.clone(),
                 )
                 .await;
 

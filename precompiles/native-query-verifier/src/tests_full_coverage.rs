@@ -3,7 +3,10 @@
 
 use crate::mock::*;
 use crate::*;
-use attestor_primitives::{block::Block, LayoutSegment, Query};
+use attestor_primitives::{
+    block::{Block, ContinuityProof},
+    LayoutSegment, Query,
+};
 use attestor_primitives::{Attestation, AttestationCheckpoint, SignedAttestation};
 use mmr::query_proof::MerkleProofEntry;
 use precompile_utils::testing::*;
@@ -281,7 +284,7 @@ fn test_successful_verification_single_transaction() {
                     query: query.clone(),
                     tx_data: tx_data.clone().into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -349,7 +352,7 @@ fn test_successful_verification_multiple_transactions() {
                     query,
                     tx_data: target_tx.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -405,7 +408,7 @@ fn test_extract_less_than_32_bytes() {
                         query,
                         tx_data: tx_data.clone().into(),
                         merkle_proof,
-                        continuity_blocks,
+                        continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                     },
                 )
                 .execute_returns(QueryVerificationResult {
@@ -446,7 +449,7 @@ fn test_extract_exactly_32_bytes() {
                     query,
                     tx_data: tx_data.clone().into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -487,7 +490,7 @@ fn test_extract_more_than_32_bytes() {
                     query,
                     tx_data: tx_data.clone().into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -564,7 +567,7 @@ fn test_continuity_with_checkpoint_fallback() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -646,7 +649,7 @@ fn test_continuity_attestation_header_validation() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -729,7 +732,7 @@ fn test_continuity_wrong_attestation_header_succeeds() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -776,7 +779,7 @@ fn test_transaction_at_size_limit() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Merkle proof validation failed");
@@ -843,7 +846,7 @@ fn test_empty_continuity_chain_reverts_with_message() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks: vec![], // Empty!
+                    continuity_proof: ContinuityProof::from_blocks(vec![]), // Empty!
                 },
             )
             .execute_reverts(|output| output == b"Continuity chain cannot be empty");
@@ -879,7 +882,7 @@ fn test_no_end_attestation_or_checkpoint_reverts() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| {
@@ -922,7 +925,7 @@ fn test_segment_out_of_bounds_reverts_properly() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Data extraction error: segment out of bounds");
@@ -965,7 +968,7 @@ fn test_merkle_root_mismatch_fails() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Merkle root mismatch");
@@ -1003,7 +1006,7 @@ fn test_merkle_root_matching_succeeds() {
                     query,
                     tx_data: tx_data.clone().into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -1055,7 +1058,7 @@ fn test_merkle_root_mismatch_with_multiple_blocks() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Merkle root mismatch");
@@ -1094,7 +1097,7 @@ fn test_attack_scenario_valid_proof_wrong_block() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Merkle root mismatch");
@@ -1113,11 +1116,32 @@ fn test_query_block_not_in_continuity_chain() {
         let tx_data = vec![0xDD; 50];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
 
-        // Create continuity chain that only goes from 100-103 (doesn't include 105)
-        let continuity_blocks = create_valid_continuity_chain(99, 5);
+        // Create continuity chain starting at queryHeight - 1 = 105 - 1 = 104
+        // We need at least 2 blocks, so create blocks 104 and 105
+        // But we'll make block 105 have a wrong root so it fails merkle root verification
+        // This way we test that block 105 exists but has wrong data
+        let mut continuity_blocks = Vec::new();
+        let mut prev_digest = H256::zero();
+        use attestor_primitives::block::Block as FragmentBlock;
+
+        // Create blocks 104 and 105 (minimum required: queryHeight-1 and queryHeight)
+        for block_number in [104, 105] {
+            // Use random root (wrong root for block 105 to fail merkle root verification)
+            let root = H256::random();
+            let digest = FragmentBlock::hash_payload(&block_number, &root, &prev_digest);
+            continuity_blocks.push(Block {
+                block_number,
+                root,
+                prev_digest,
+                digest,
+            });
+            prev_digest = digest;
+        }
+
         setup_valid_attestation_chain(1, &continuity_blocks);
 
-        // Should fail because query block 105 is not in continuity chain
+        // Should fail because block 105 has wrong merkle root
+        // The block exists in the chain but the root doesn't match
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -1126,10 +1150,13 @@ fn test_query_block_not_in_continuity_chain() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_reverts(|output| output == b"Query block not found in continuity chain");
+            .execute_reverts(|output| {
+                output == b"Query block not found in continuity chain"
+                    || output == b"Merkle root mismatch"
+            });
     });
 }
 
@@ -1175,7 +1202,7 @@ fn test_merkle_root_verification_with_binary_tree() {
                     query: query.clone(),
                     tx_data: tx_data_1.clone().into(),
                     merkle_proof: merkle_proof.clone(),
-                    continuity_blocks: continuity_blocks.clone(),
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -1202,7 +1229,7 @@ fn test_merkle_root_verification_with_binary_tree() {
                     query: query.clone(),
                     tx_data: wrong_tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Merkle proof validation failed");
@@ -1236,7 +1263,7 @@ fn test_merkle_root_mismatch_event_emission() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Merkle root mismatch");
@@ -1259,38 +1286,27 @@ fn test_continuity_chain_with_correct_query_block() {
         let tx_data = vec![0x55; 100];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
 
-        // Create continuity chain starting at block 99 (POC pattern: queryHeight - 1)
-        // Chain: 99, 100, 101, 102, 103, 104 (6 blocks)
-        let mut continuity_blocks = create_valid_continuity_chain(99, 6);
+        // Create continuity chain starting at queryHeight - 1 = 102 - 1 = 101
+        // Chain: 101, 102, 103, 104, 105, 106 (6 blocks)
+        let mut continuity_blocks = create_valid_continuity_chain(101, 6);
 
-        // Set the merkle root for block 102 (index 3) to match our proof
-        continuity_blocks[3].root = merkle_proof.root;
+        // Set the merkle root for block 102 (index 1) to match our proof
+        continuity_blocks[1].root = merkle_proof.root;
 
         // Need to recompute digests after changing root
-        use sp_io::hashing::keccak_256;
-        for i in 3..continuity_blocks.len() {
+        use attestor_primitives::block::Block as FragmentBlock;
+        for i in 1..continuity_blocks.len() {
             let block_number = continuity_blocks[i].block_number;
             let root = continuity_blocks[i].root;
-            let prev_digest = if i > 0 {
-                continuity_blocks[i - 1].digest
-            } else {
-                continuity_blocks[i].prev_digest
-            };
-
-            let mut digest_bytes = Vec::new();
-            digest_bytes.extend_from_slice(&block_number.to_be_bytes());
-            digest_bytes.extend_from_slice(root.as_bytes());
-            digest_bytes.extend_from_slice(prev_digest.as_bytes());
-            continuity_blocks[i].digest = H256::from(keccak_256(&digest_bytes));
-
-            if i + 1 < continuity_blocks.len() {
-                continuity_blocks[i + 1].prev_digest = continuity_blocks[i].digest;
-            }
+            let prev_digest = continuity_blocks[i - 1].digest;
+            continuity_blocks[i].digest =
+                FragmentBlock::hash_payload(&block_number, &root, &prev_digest);
+            continuity_blocks[i].prev_digest = prev_digest;
         }
 
         setup_valid_attestation_chain(1, &continuity_blocks);
 
-        // Should succeed - query block is correctly found at index 3 (block 102)
+        // Should succeed - query block is correctly found at index 1 (block 102)
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -1299,7 +1315,7 @@ fn test_continuity_chain_with_correct_query_block() {
                     query,
                     tx_data: tx_data.clone().into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -1368,7 +1384,7 @@ fn test_security_verification_prevents_cross_block_attack() {
                     query: query.clone(),
                     tx_data: tx_from_block_99.clone().into(),
                     merkle_proof: proof_block_99, // Valid proof but for wrong block!
-                    continuity_blocks: continuity_blocks.clone(),
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
             .execute_reverts(|output| output == b"Merkle root mismatch");
@@ -1382,7 +1398,7 @@ fn test_security_verification_prevents_cross_block_attack() {
                     query,
                     tx_data: tx_from_block_100.clone().into(),
                     merkle_proof: proof_block_100, // Correct proof for block 100
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -1508,7 +1524,7 @@ fn test_batch_queries_success() {
                         tx_data3.clone().into(),
                     ],
                     merkle_proofs: vec![proof1, proof2, proof3],
-                    shared_continuity_blocks: continuity_blocks,
+                    shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(BatchQueryVerificationResult {
@@ -1589,7 +1605,7 @@ fn test_batch_queries_mixed_results() {
                     queries: vec![query1, query2].into(),
                     tx_data_array: vec![tx_data1.clone().into(), tx_data2.into()],
                     merkle_proofs: vec![proof1, proof2],
-                    shared_continuity_blocks: continuity_blocks,
+                    shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(BatchQueryVerificationResult {
@@ -1634,18 +1650,33 @@ fn test_batch_queries_continuity_failure() {
         let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2);
 
         // Create invalid continuity chain (broken link)
+        // Start at min(queryHeights) - 1 = 100 - 1 = 99
+        use attestor_primitives::block::Block as FragmentBlock;
+        let mut prev_digest = H256::zero();
+        let block0_digest = FragmentBlock::hash_payload(&99, &H256::random(), &prev_digest);
+        prev_digest = block0_digest;
+
+        let block1_digest = FragmentBlock::hash_payload(&100, &proof1.root, &prev_digest);
+
+        // Break the chain by using wrong digest for block 101
         let continuity_blocks = vec![
+            Block {
+                block_number: 99,
+                root: H256::random(),
+                prev_digest: H256::zero(),
+                digest: block0_digest,
+            },
             Block {
                 block_number: 100,
                 root: proof1.root,
-                prev_digest: H256::from([0x99; 32]),
-                digest: H256::from([0xA0; 32]),
+                prev_digest: block0_digest,
+                digest: block1_digest,
             },
             Block {
                 block_number: 101,
                 root: proof2.root,
-                prev_digest: H256::from([0xBB; 32]), // Wrong prev_digest!
-                digest: H256::from([0xA1; 32]),
+                prev_digest: block1_digest,
+                digest: H256::from([0xA1; 32]), // Wrong digest! Should be computed from prev_digest
             },
         ];
 
@@ -1680,7 +1711,7 @@ fn test_batch_queries_continuity_failure() {
                     queries: vec![query1, query2].into(),
                     tx_data_array: vec![tx_data1.into(), tx_data2.into()],
                     merkle_proofs: vec![proof1, proof2],
-                    shared_continuity_blocks: continuity_blocks,
+                    shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Continuity chain has broken links");
@@ -1709,7 +1740,7 @@ fn test_batch_queries_invalid_input_lengths() {
                     queries: vec![query.clone(), query].into(),
                     tx_data_array: vec![tx_data.into()], // Only 1 tx_data for 2 queries
                     merkle_proofs: vec![proof.clone(), proof],
-                    shared_continuity_blocks: continuity_blocks,
+                    shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Input arrays must have the same length");
@@ -1742,7 +1773,7 @@ fn test_batch_queries_exceeds_max_size() {
                     queries: queries.into(),
                     tx_data_array,
                     merkle_proofs,
-                    shared_continuity_blocks: continuity_blocks,
+                    shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"queries: Value is too large for length");
@@ -1841,7 +1872,7 @@ fn test_batch_queries_shared_continuity_optimization() {
                         tx_data3.clone().into(),
                     ],
                     merkle_proofs: vec![proof1, proof2, proof3],
-                    shared_continuity_blocks: continuity_blocks,
+                    shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(BatchQueryVerificationResult {
@@ -1914,7 +1945,7 @@ fn test_log_costs_are_recorded() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {

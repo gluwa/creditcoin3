@@ -13,8 +13,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use std::time::Duration;
-use tokio::time::sleep;
+use tokio::task::JoinHandle;
 use tracing::info;
 
 /// Configuration for a native token transfer
@@ -139,30 +138,113 @@ impl TransferExecutor {
         })
     }
 
-    /// Execute multiple transfers sequentially
+    /// Execute multiple transfers in parallel
+    ///
+    /// Transactions are sent sequentially to ensure proper nonce ordering,
+    /// but receipts are awaited concurrently to maximize throughput.
     pub async fn execute_batch_transfers(
         &self,
         configs: Vec<TransferConfig>,
     ) -> Result<Vec<TransferResult>> {
-        info!("Executing {} native token transfers", configs.len());
+        info!("Executing {} native token transfers (sending sequentially, awaiting receipts in parallel)", configs.len());
 
-        let mut results = Vec::new();
-        let total = configs.len();
-
-        for (i, config) in configs.into_iter().enumerate() {
-            info!("Processing transfer {}/{}", i + 1, total);
-
-            let result = self.execute_transfer(config).await?;
-            results.push(result);
-
-            // Small delay between transfers to avoid nonce issues
-            if i < total - 1 {
-                sleep(Duration::from_secs(2)).await;
-            }
+        if configs.is_empty() {
+            return Ok(Vec::new());
         }
 
-        info!("All transfers completed successfully");
-        Ok(results)
+        let total = configs.len();
+
+        // Create provider once for reuse
+        let signer = PrivateKeySigner::from_str(&self.eth_private_key)?;
+        let wallet = EthereumWallet::from(signer);
+        let provider = ProviderBuilder::new()
+            .wallet(wallet)
+            .on_http(self.eth_rpc_url.parse()?);
+
+        // Send all transactions sequentially to ensure proper nonce ordering
+        let mut pending_txs_with_hashes = Vec::new();
+        for (i, config) in configs.into_iter().enumerate() {
+            info!("Sending transfer {}/{}", i + 1, total);
+
+            let to_address =
+                Address::from_str(&config.to_address).context("Invalid recipient address")?;
+
+            // Build transaction request
+            let mut tx = TransactionRequest::default()
+                .with_to(to_address)
+                .with_value(config.amount)
+                .with_from(self.signer_address)
+                .with_chain_id(self.chain_id);
+
+            // Apply optional gas settings
+            if let Some(gas_price) = config.gas_price {
+                tx = tx.with_gas_price(gas_price.to::<u128>());
+            }
+
+            if let Some(gas_limit) = config.gas_limit {
+                tx = tx.with_gas_limit(gas_limit.to::<u64>());
+            }
+
+            info!(
+                "Sending {} wei from {} to {}",
+                config.amount, self.signer_address, config.to_address
+            );
+
+            // Send transaction (NonceFiller handles nonces automatically)
+            let pending_tx = provider
+                .send_transaction(tx)
+                .await
+                .context("Failed to send transaction")?;
+
+            let tx_hash = *pending_tx.tx_hash();
+            info!("Transaction sent: 0x{:x}", tx_hash);
+
+            pending_txs_with_hashes.push((pending_tx, tx_hash));
+        }
+
+        info!(
+            "All {} transactions sent, waiting for confirmations in parallel...",
+            pending_txs_with_hashes.len()
+        );
+
+        // Wait for all receipts concurrently
+        let receipt_handles: Vec<JoinHandle<Result<TransferResult>>> = pending_txs_with_hashes
+            .into_iter()
+            .map(|(pending_tx, tx_hash)| {
+                tokio::spawn(async move {
+                    info!("Waiting for transaction confirmation: 0x{:x}", tx_hash);
+                    let receipt = pending_tx
+                        .get_receipt()
+                        .await
+                        .context("Failed to get transaction receipt")?;
+
+                    let block_number = receipt
+                        .block_number
+                        .ok_or_else(|| anyhow::anyhow!("Block number not found in receipt"))?;
+
+                    info!(
+                        "Transaction confirmed: 0x{:x} in block {}",
+                        tx_hash, block_number
+                    );
+
+                    Ok(TransferResult {
+                        tx_hash,
+                        block_number,
+                    })
+                })
+            })
+            .collect();
+
+        let mut transfer_results = Vec::new();
+        for handle in receipt_handles {
+            transfer_results.push(handle.await.context("Task join error")??);
+        }
+
+        info!(
+            "All {} transfers completed successfully",
+            transfer_results.len()
+        );
+        Ok(transfer_results)
     }
 }
 

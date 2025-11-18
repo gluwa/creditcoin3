@@ -126,8 +126,13 @@ where
     ///
     /// # Parameters
     /// - `handle`: EVM precompile handle for gas accounting
-    /// - `continuity_blocks`: Chain of blocks to validate
+    /// - `continuity_blocks`: Chain of blocks to validate (converted from ContinuityProof internally)
     /// - `query`: Query specification (used to verify chain covers query height)
+    ///
+    /// # Note
+    /// This function receives Vec<Block> which is converted from ContinuityProof in the caller.
+    /// The ContinuityProof structure optimizes calldata by removing block_number and prev_digest
+    /// from individual blocks, but internally we work with full Block structures for verification.
     ///
     /// # Returns
     /// - `Ok(true)`: Chain is valid and ends at attestation/checkpoint
@@ -170,6 +175,17 @@ where
                 );
                 return Err(ContinuityVerificationError::ChainLinkBroken);
             }
+
+            // Verify the stored digest matches what would be computed using the prev_digest
+            // This catches cases where prev_digest was wrong but digest wasn't recomputed
+            let computed_digest = Block::hash_payload(&cb.block_number, &cb.root, &prev_digest);
+            if computed_digest != block_digest {
+                debug!(
+                    "❌ Continuity proof digest mismatch: computed {computed_digest:?}, got {block_digest:?}"
+                );
+                return Err(ContinuityVerificationError::ChainLinkBroken);
+            }
+
             // Charge for the block verification
             handle.record_cost(GAS_STORAGE_LOOKUP).map_err(|_| {
                 ContinuityVerificationError::ChainLinkBroken // Use a generic error if gas recording fails
@@ -236,9 +252,13 @@ where
     ///
     /// # Parameters
     /// - `handle`: EVM precompile handle for gas accounting
-    /// - `continuity_blocks`: Chain of blocks containing query block
+    /// - `continuity_blocks`: Chain of blocks containing query block (converted from ContinuityProof internally)
     /// - `query`: Query specification
     /// - `merkle_root`: Merkle root from the merkle proof (must match query block root)
+    ///
+    /// # Note
+    /// This function receives Vec<Block> which is converted from ContinuityProof in the caller.
+    /// Block numbers are inferred from the ContinuityProof structure (blocks[0] = queryHeight-1).
     ///
     /// # Returns
     /// - `Ok(())`: Query block digest is valid

@@ -9,7 +9,7 @@
 //!
 //! The precompile is accessible at address 0x0FD2 (4050 in decimal)
 
-use attestor_primitives::{block::Block, query::Query};
+use attestor_primitives::{block::ContinuityProof, query::Query};
 use core::marker::PhantomData;
 use ethabi::{encode, Token};
 use fp_evm::{ExitRevert, PrecompileFailure, PrecompileHandle};
@@ -132,7 +132,7 @@ where
     /// - `query`: The query specification (chain_id, block height, data layout segments)
     /// - `tx_data`: The raw transaction data to verify
     /// - `merkle_proof`: Merkle proof for transaction inclusion in the block
-    /// - `continuity_blocks`: Chain of blocks from queryHeight-1 to next attestation/checkpoint
+    /// - `continuity_proof`: Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
     /// `QueryVerificationResult` with status (0) and extracted data segments
@@ -143,21 +143,21 @@ where
     /// - If merkle root doesn't match continuity block
     /// - If query block not found in continuity chain
     /// - If continuity chain doesn't end at a valid attestation/checkpoint
-    #[precompile::public("verifyQueryView((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(uint64,bytes32,bytes32,bytes32)[])")]
+    #[precompile::public("verifyQueryView((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))")]
     #[precompile::view]
     fn verify_query_view(
         handle: &mut impl PrecompileHandle,
         query: Query,
         tx_data: BoundedBytes<ConstU10MB>,
         merkle_proof: MerkleProof,
-        continuity_blocks: Vec<Block>,
+        continuity_proof: ContinuityProof,
     ) -> EvmResult<QueryVerificationResult> {
         Self::verify_query_impl(
             handle,
             query,
             tx_data,
             merkle_proof,
-            continuity_blocks,
+            continuity_proof,
             false, // don't emit events (view function)
         )
     }
@@ -171,7 +171,7 @@ where
     /// - `query`: The query specification (chain_id, block height, data layout segments)
     /// - `tx_data`: The raw transaction data to verify
     /// - `merkle_proof`: Merkle proof for transaction inclusion in the block
-    /// - `continuity_blocks`: Chain of blocks from queryHeight-1 to next attestation/checkpoint
+    /// - `continuity_proof`: Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
     /// `QueryVerificationResult` with status (0) and extracted data segments
@@ -185,20 +185,20 @@ where
     /// - If merkle root doesn't match continuity block
     /// - If query block not found in continuity chain
     /// - If continuity chain doesn't end at a valid attestation/checkpoint
-    #[precompile::public("verifyQuery((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(uint64,bytes32,bytes32,bytes32)[])")]
+    #[precompile::public("verifyQuery((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))")]
     fn verify_query(
         handle: &mut impl PrecompileHandle,
         query: Query,
         tx_data: BoundedBytes<ConstU10MB>,
         merkle_proof: MerkleProof,
-        continuity_blocks: Vec<Block>,
+        continuity_proof: ContinuityProof,
     ) -> EvmResult<QueryVerificationResult> {
         Self::verify_query_impl(
             handle,
             query,
             tx_data,
             merkle_proof,
-            continuity_blocks,
+            continuity_proof,
             true, // emit events (non-view function)
         )
     }
@@ -213,7 +213,7 @@ where
     /// * `queries` - Vector of queries to verify (max 10)
     /// * `tx_data_array` - Transaction data for each query (must match queries length)
     /// * `merkle_proofs` - Merkle proofs for each query (must match queries length)
-    /// * `shared_continuity_blocks` - Shared continuity chain covering all query heights
+    /// * `shared_continuity_proof` - Shared continuity proof covering all query heights
     ///
     /// # Returns
     /// `BatchQueryVerificationResult` with success/failure counts and individual results
@@ -221,21 +221,21 @@ where
     /// # Reverts
     /// - If input arrays have mismatched lengths
     /// - If shared continuity chain is invalid
-    #[precompile::public("verifyBatchQueriesView((uint64,uint64,(uint64,uint64)[])[],bytes[],(bytes32,(bytes32,bool)[])[],(uint64,bytes32,bytes32,bytes32)[])")]
+    #[precompile::public("verifyBatchQueriesView((uint64,uint64,(uint64,uint64)[])[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,(bytes32,bytes32)[]))")]
     #[precompile::view]
     fn verify_batch_queries_view(
         handle: &mut impl PrecompileHandle,
         queries: BoundedVec<Query, MaxBatchSize>,
         tx_data_array: Vec<BoundedBytes<ConstU10MB>>,
         merkle_proofs: Vec<MerkleProof>,
-        shared_continuity_blocks: Vec<Block>,
+        shared_continuity_proof: ContinuityProof,
     ) -> EvmResult<BatchQueryVerificationResult> {
         Self::verify_batch_queries_impl(
             handle,
             queries,
             tx_data_array,
             merkle_proofs,
-            shared_continuity_blocks,
+            shared_continuity_proof,
             false, // don't emit events (view function)
         )
     }
@@ -255,7 +255,7 @@ where
     /// * `queries` - Vector of queries to verify (max 10)
     /// * `tx_data_array` - Transaction data for each query (must match queries length)
     /// * `merkle_proofs` - Merkle proofs for each query (must match queries length)
-    /// * `shared_continuity_blocks` - Shared continuity chain covering all query heights
+    /// * `shared_continuity_proof` - Shared continuity proof covering all query heights
     ///
     /// # Returns
     /// `BatchQueryVerificationResult` with success/failure counts and individual results
@@ -267,20 +267,20 @@ where
     /// # Reverts
     /// - If input arrays have mismatched lengths
     /// - If shared continuity chain is invalid
-    #[precompile::public("verifyBatchQueries((uint64,uint64,(uint64,uint64)[])[],bytes[],(bytes32,(bytes32,bool)[])[],(uint64,bytes32,bytes32,bytes32)[])")]
+    #[precompile::public("verifyBatchQueries((uint64,uint64,(uint64,uint64)[])[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,(bytes32,bytes32)[]))")]
     fn verify_batch_queries(
         handle: &mut impl PrecompileHandle,
         queries: BoundedVec<Query, MaxBatchSize>,
         tx_data_array: Vec<BoundedBytes<ConstU10MB>>,
         merkle_proofs: Vec<MerkleProof>,
-        shared_continuity_blocks: Vec<Block>,
+        shared_continuity_proof: ContinuityProof,
     ) -> EvmResult<BatchQueryVerificationResult> {
         Self::verify_batch_queries_impl(
             handle,
             queries,
             tx_data_array,
             merkle_proofs,
-            shared_continuity_blocks,
+            shared_continuity_proof,
             true, // emit events (non-view function)
         )
     }

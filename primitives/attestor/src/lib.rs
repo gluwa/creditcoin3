@@ -18,6 +18,9 @@ pub mod query;
 // Re-export query types for convenience
 pub use query::{LayoutSegment, Query, ResultSegment};
 
+// Re-export block types for convenience
+pub use block::{Block, ContinuityBlock, ContinuityProof};
+
 use crate::attestation_fragment::AttestationFragmentSerializable;
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]

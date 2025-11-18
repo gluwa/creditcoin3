@@ -4,7 +4,7 @@
 //! precompile and displays the results.
 
 use anyhow::Result;
-use attestor_primitives::block::Block;
+use attestor_primitives::block::{Block, ContinuityProof};
 use attestor_primitives::{Query, ResultSegment};
 use eth::{evm, Client};
 use mmr::query_proof::QueryMerkleProof;
@@ -41,13 +41,16 @@ pub async fn verify_query(
     let eth_client = Client::new(&config.cc3_rpc_url, Some(&config.cc3_evm_private_key)).await?;
     let verifier = evm::native_query_verifier::NativeQueryVerifierContract::new(&eth_client);
 
+    // Convert Vec<Block> to ContinuityProof for the optimized API
+    let continuity_proof = ContinuityProof::from_blocks(continuity_blocks.clone());
+
     // Try to estimate gas (optional, may fail if continuity is not ready)
     let gas_estimate = verifier
         .estimate_gas(
             query,
             tx_data,
             merkle_proof.clone(),
-            continuity_blocks.clone(),
+            continuity_proof.clone(),
         )
         .await
         .ok();
@@ -60,11 +63,11 @@ pub async fn verify_query(
     // Call the verifier (as transaction if requested to emit events)
     let verification_result = if send_tx {
         verifier
-            .verify_query_with_tx(query, tx_data, merkle_proof, continuity_blocks)
+            .verify_query_with_tx(query, tx_data, merkle_proof, continuity_proof.clone())
             .await
     } else {
         verifier
-            .verify_query(query, tx_data, merkle_proof, continuity_blocks)
+            .verify_query(query, tx_data, merkle_proof, continuity_proof)
             .await
     };
 

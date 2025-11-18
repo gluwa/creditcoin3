@@ -4,7 +4,7 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 use attestor_primitives::{
-    block::Block,
+    block::ContinuityProof,
     query::{Query, ResultSegment},
 };
 use mmr::query_proof::QueryMerkleProof;
@@ -17,7 +17,6 @@ use alloy::{
     primitives::{Address, FixedBytes, U256},
     sol,
 };
-use attestor_primitives::block::Block as AttestorBlock;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -45,17 +44,23 @@ sol! {
     "contracts/native_query_verifier.json",
 }
 
-// Helper function to convert attestor Blocks to Solidity Block structs
-fn convert_to_solidity_blocks(blocks: Vec<AttestorBlock>) -> Vec<INativeQueryVerifier::Block> {
-    blocks
+// Helper function to convert ContinuityProof to Solidity ContinuityProof
+fn convert_to_solidity_continuity_proof(
+    proof: ContinuityProof,
+) -> INativeQueryVerifier::ContinuityProof {
+    let continuity_blocks: Vec<INativeQueryVerifier::ContinuityBlock> = proof
+        .blocks
         .into_iter()
-        .map(|b| INativeQueryVerifier::Block {
-            block_number: b.block_number,
-            root: FixedBytes::from(b.root.to_fixed_bytes()),
-            prev_digest: FixedBytes::from(b.prev_digest.to_fixed_bytes()),
-            digest: FixedBytes::from(b.digest.to_fixed_bytes()),
+        .map(|cb| INativeQueryVerifier::ContinuityBlock {
+            root: FixedBytes::from(cb.root.to_fixed_bytes()),
+            digest: FixedBytes::from(cb.digest.to_fixed_bytes()),
         })
-        .collect()
+        .collect();
+
+    INativeQueryVerifier::ContinuityProof {
+        lowerEndpointDigest: FixedBytes::from(proof.lower_endpoint_digest.to_fixed_bytes()),
+        blocks: continuity_blocks,
+    }
 }
 
 /// Native Query Verifier precompile address (0x0FD2 = 4050)
@@ -105,7 +110,7 @@ fn decode_result_segment(
     segment: INativeQueryVerifier::ResultSegment,
 ) -> Result<ResultSegment, Error> {
     let offset = segment.offset;
-    let bytes = H256::from(segment.bytes.0);
+    let bytes = H256::from(segment.data.0);
     Ok(ResultSegment { offset, bytes })
 }
 
@@ -171,7 +176,7 @@ impl NativeQueryVerifierContract {
     /// * `query` - The query specification
     /// * `tx_data` - Raw transaction data to verify
     /// * `merkle_proof` - Merkle proof for transaction inclusion
-    /// * `continuity_blocks` - Chain of block attestations
+    /// * `continuity_proof` - Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
     /// `QueryVerificationResult` with status and extracted data segments
@@ -180,7 +185,7 @@ impl NativeQueryVerifierContract {
         query: &Query,
         tx_data: &[u8],
         merkle_proof: QueryMerkleProof,
-        continuity_blocks: Vec<Block>,
+        continuity_proof: ContinuityProof,
     ) -> Result<QueryVerificationResult, Error> {
         debug!(
             "Calling native query verifier for query: chain_id={}, height={}",
@@ -189,12 +194,17 @@ impl NativeQueryVerifierContract {
 
         let sol_query = Self::to_solidity_query(query);
         let sol_proof = merkle_proof.into();
-        let sol_blocks = convert_to_solidity_blocks(continuity_blocks);
+        let sol_proof_struct = convert_to_solidity_continuity_proof(continuity_proof);
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
         let result = contract
-            .verifyQuery(sol_query, tx_data.to_vec().into(), sol_proof, sol_blocks)
+            .verifyQuery(
+                sol_query,
+                tx_data.to_vec().into(),
+                sol_proof,
+                sol_proof_struct,
+            )
             .call()
             .await
             .map_err(|e| {
@@ -235,7 +245,7 @@ impl NativeQueryVerifierContract {
     /// * `query` - The query specification
     /// * `tx_data` - Raw transaction data to verify
     /// * `merkle_proof` - Merkle proof for transaction inclusion
-    /// * `continuity_blocks` - Chain of block attestations
+    /// * `continuity_proof` - Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
     /// `QueryVerificationResult` with status and extracted data segments
@@ -244,7 +254,7 @@ impl NativeQueryVerifierContract {
         query: &Query,
         tx_data: &[u8],
         merkle_proof: QueryMerkleProof,
-        continuity_blocks: Vec<Block>,
+        continuity_proof: ContinuityProof,
     ) -> Result<QueryVerificationResult, Error> {
         debug!(
             "Sending native query verifier transaction for query: chain_id={}, height={} id={}",
@@ -256,7 +266,7 @@ impl NativeQueryVerifierContract {
         let sol_query = Self::to_solidity_query(query);
         let sol_proof: crate::evm::native_query_verifier::INativeQueryVerifier::MerkleProof =
             merkle_proof.into();
-        let sol_blocks = convert_to_solidity_blocks(continuity_blocks);
+        let sol_proof_struct = convert_to_solidity_continuity_proof(continuity_proof.clone());
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
@@ -266,7 +276,7 @@ impl NativeQueryVerifierContract {
             sol_query.clone(),
             tx_data.to_vec().into(),
             sol_proof.clone(),
-            sol_blocks.clone(),
+            sol_proof_struct.clone(),
         );
 
         let pending_tx = tx_builder.send().await?;
@@ -279,7 +289,12 @@ impl NativeQueryVerifierContract {
 
         // Now call to get the result
         let result = contract
-            .verifyQuery(sol_query, tx_data.to_vec().into(), sol_proof, sol_blocks)
+            .verifyQuery(
+                sol_query,
+                tx_data.to_vec().into(),
+                sol_proof,
+                sol_proof_struct,
+            )
             .call()
             .await
             .map_err(|e| {
@@ -320,16 +335,21 @@ impl NativeQueryVerifierContract {
         query: &Query,
         tx_data: &[u8],
         merkle_proof: QueryMerkleProof,
-        continuity_blocks: Vec<Block>,
+        continuity_proof: ContinuityProof,
     ) -> Result<u64, Error> {
         let sol_query = Self::to_solidity_query(query);
         let sol_proof = merkle_proof.into();
-        let sol_blocks = convert_to_solidity_blocks(continuity_blocks);
+        let sol_proof_struct = convert_to_solidity_continuity_proof(continuity_proof);
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
         let gas = contract
-            .verifyQuery(sol_query, tx_data.to_vec().into(), sol_proof, sol_blocks)
+            .verifyQuery(
+                sol_query,
+                tx_data.to_vec().into(),
+                sol_proof,
+                sol_proof_struct,
+            )
             .estimate_gas()
             .await?;
 

@@ -198,10 +198,12 @@ pub struct BlockSerializable {
     pub digest: H256,
 }
 
-#[derive(Debug, Clone, Default)]
+/// Optimized continuity block structure for native query verifier
+/// Contains only root and digest (block_number and prev_digest are inferred from continuity proof structure)
+#[derive(Debug, Clone, Default, Codec)]
 pub struct ContinuityBlock {
-    root: H256,
-    digest: H256,
+    pub root: H256,
+    pub digest: H256,
 }
 
 #[derive(
@@ -246,6 +248,84 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
             root: block.root,
             digest: block.digest,
         })
+    }
+}
+
+/// Optimized continuity proof structure for native query verifier
+///
+/// Reduces calldata size by:
+/// - Block numbers are inferred from query height(s) and index
+///   - Single query: blocks[0] is at queryHeight - 1
+///   - Batch queries: blocks[0] is at min(queryHeights) - 1
+/// - prev_digest is reconstructed from the chain (using lower_endpoint_digest and computed digests)
+/// - Keeping only root and digest per block
+#[derive(Debug, Clone, Default, Codec)]
+pub struct ContinuityProof {
+    /// The digest of the block before the continuity chain starts
+    /// This is the prev_digest of the first block
+    pub lower_endpoint_digest: H256,
+    /// Array of continuity blocks (each containing only root and digest)
+    /// Block numbers are inferred: blocks[i] is at (queryHeight - 1) + i for single query
+    pub blocks: Vec<ContinuityBlock>,
+}
+
+impl ContinuityProof {
+    /// Create a new continuity proof from a lower endpoint digest and blocks
+    pub fn new(lower_endpoint_digest: H256, blocks: Vec<ContinuityBlock>) -> Self {
+        Self {
+            lower_endpoint_digest,
+            blocks,
+        }
+    }
+
+    /// Convert from Vec<Block> to ContinuityProof
+    /// Extracts the prev_digest from the first block
+    pub fn from_blocks(blocks: Vec<Block>) -> Self {
+        if blocks.is_empty() {
+            return Self::default();
+        }
+
+        // The lower_endpoint_digest is the prev_digest of the first block
+        let lower_endpoint_digest = blocks[0].prev_digest;
+
+        // Convert blocks to ContinuityBlocks (dropping block_number and prev_digest)
+        // prev_digest will be reconstructed from the chain when converting back
+        let continuity_blocks: Vec<ContinuityBlock> = blocks
+            .into_iter()
+            .map(|b| ContinuityBlock {
+                root: b.root,
+                digest: b.digest,
+            })
+            .collect();
+
+        Self {
+            lower_endpoint_digest,
+            blocks: continuity_blocks,
+        }
+    }
+
+    /// Convert ContinuityProof back to Vec<Block> given the starting block number
+    /// Reconstructs prev_digest from the chain using lower_endpoint_digest and computed digests
+    pub fn to_blocks(&self, start_block_number: u64) -> Vec<Block> {
+        let mut blocks = Vec::with_capacity(self.blocks.len());
+        let mut prev_digest = self.lower_endpoint_digest;
+
+        for (idx, cb) in self.blocks.iter().enumerate() {
+            let block_number = start_block_number + idx as u64;
+            // Reconstruct prev_digest from the chain
+            // Start with lower_endpoint_digest, then use each block's computed digest
+            let block = Block {
+                block_number,
+                root: cb.root,
+                prev_digest,
+                digest: cb.digest,
+            };
+            // Use the stored digest as the next block's prev_digest
+            prev_digest = cb.digest;
+            blocks.push(block);
+        }
+
+        blocks
     }
 }
 

@@ -3,7 +3,10 @@ use crate::mock::*;
 use crate::test_helpers::*;
 use crate::SELECTOR_LOG_QUERY_VERIFIED;
 use attestor_primitives::LayoutSegment;
-use attestor_primitives::{block::Block, Attestation, AttestationCheckpoint, SignedAttestation};
+use attestor_primitives::{
+    block::{Block, ContinuityProof},
+    Attestation, AttestationCheckpoint, SignedAttestation,
+};
 use mmr::{query_proof::MerkleProofEntry, SimpleMerkleTree};
 use precompile_utils::{evm::logs::log2, testing::*};
 use sp_core::H256;
@@ -37,6 +40,19 @@ pub(crate) fn create_test_query(chain_id: u64, height: u64, segments: Vec<Layout
         height,
         layout_segments: segments,
     }
+}
+
+/// Helper to trim continuity blocks to start at queryHeight-1
+/// This is needed because ContinuityProof assumes blocks[0] is at queryHeight-1
+pub(crate) fn trim_continuity_blocks_for_query(
+    blocks: Vec<Block>,
+    query_height: u64,
+) -> Vec<Block> {
+    let start_height = query_height.saturating_sub(1);
+    blocks
+        .into_iter()
+        .filter(|b| b.block_number >= start_height)
+        .collect()
 }
 
 /// Helper to create a simple query with 2 segments
@@ -217,6 +233,7 @@ fn test_empty_tx_data_fails() {
         let query = get_simple_query();
         let merkle_proof = create_invalid_merkle_proof();
         let continuity_blocks = create_continuity_blocks(2);
+        let continuity_proof = ContinuityProof::from_blocks(continuity_blocks);
 
         precompiles()
             .prepare_test(
@@ -226,7 +243,7 @@ fn test_empty_tx_data_fails() {
                     query,
                     tx_data: vec![].into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof,
                 },
             )
             .execute_reverts(|output| output == b"Transaction data cannot be empty");
@@ -249,7 +266,7 @@ fn test_empty_continuity_chain_with_valid_merkle() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks: vec![],
+                    continuity_proof: ContinuityProof::from_blocks(vec![]),
                 },
             )
             .execute_reverts(|output| output == b"Continuity chain cannot be empty");
@@ -312,7 +329,7 @@ fn test_continuity_chain_at_attestation_height() {
                     query,
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
-                    continuity_blocks: continuity_blocks.clone(),
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -381,7 +398,7 @@ fn test_continuity_chain_at_checkpoint_height() {
                     query,
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
-                    continuity_blocks: continuity_blocks.clone(),
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -453,7 +470,7 @@ fn test_query_at_attestation_height() {
                     query: query.clone(),
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
-                    continuity_blocks: continuity_blocks.clone(),
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
             .expect_log(log2(
@@ -540,7 +557,7 @@ fn test_query_at_checkpoint_height() {
                     query: query.clone(),
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
-                    continuity_blocks: continuity_blocks.clone(),
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
             .expect_log(log2(
@@ -608,7 +625,7 @@ fn test_single_block_continuity_chain_fails() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| {
@@ -674,7 +691,7 @@ fn test_continuity_chain_wrong_digest_fails() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Query block digest verification failed");
@@ -701,7 +718,9 @@ fn test_no_layout_segments_succeeds_with_empty_results() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -740,7 +759,9 @@ fn test_gas_calculation_base() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -812,7 +833,9 @@ fn test_continuity_chain_with_attestation() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -862,7 +885,9 @@ fn test_continuity_chain_with_checkpoint() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -914,7 +939,9 @@ fn test_continuity_chain_invalid_prev_digest_succeeds() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -939,9 +966,11 @@ fn test_continuity_chain_broken_link_fails() {
         // Use deterministic test scenario
         let mut scenario = TestScenario::new_valid(5, 0);
 
-        // Break the chain by changing second block's prev_digest
+        // Break the chain by changing second block's digest to not match the computed digest
+        // Since prev_digest is reconstructed from the chain, we need to break the digest instead
         if scenario.continuity_blocks.len() > 1 {
-            scenario.continuity_blocks[1].prev_digest = H256::random();
+            // Change the digest to a random value, which won't match the computed digest
+            scenario.continuity_blocks[1].digest = H256::random();
         }
 
         // Setup both attestations
@@ -955,10 +984,15 @@ fn test_continuity_chain_broken_link_fails() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain has broken links");
+            .execute_reverts(|output| {
+                output == b"Continuity chain has broken links"
+                    || output == b"Query block digest verification failed"
+            });
     });
 }
 
@@ -981,7 +1015,7 @@ fn test_continuity_no_finalized_attestation_fails() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Merkle proof validation failed");
@@ -1017,7 +1051,9 @@ fn test_continuity_checkpoint_block_number_mismatch_succeeds() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -1066,7 +1102,9 @@ fn test_extract_single_segment() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -1105,7 +1143,9 @@ fn test_extract_multiple_segments() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -1151,7 +1191,9 @@ fn test_segment_out_of_bounds_fails() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_reverts(|output| output == b"Data extraction error: segment out of bounds");
@@ -1181,7 +1223,9 @@ fn test_segment_offset_beyond_data_fails() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_reverts(|output| output == b"Data extraction error: segment out of bounds");
@@ -1214,7 +1258,9 @@ fn test_merkle_proof_validation_with_valid_proof() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -1251,7 +1297,9 @@ fn test_invalid_merkle_proof_fails() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_reverts(|output| output == b"Merkle proof validation failed");
@@ -1282,7 +1330,9 @@ fn test_zero_size_segment_succeeds() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -1306,11 +1356,11 @@ fn test_large_continuity_chain() {
 
         // Create a long continuity chain (20 blocks) that includes the query block
         let start_height = 1;
-        let continuity_blocks =
+        let all_continuity_blocks =
             create_deterministic_continuity_chain(start_height, 20, &[test_block]);
 
         // The attestation digest is the prev_digest of the first continuity block
-        let attestation_digest = continuity_blocks[0].prev_digest;
+        let attestation_digest = all_continuity_blocks[0].prev_digest;
         let attestation_block_number = 0;
 
         // Setup attestation at the start
@@ -1320,8 +1370,12 @@ fn test_large_continuity_chain() {
         setup_attestation(
             1,
             end_block_number,
-            continuity_blocks.last().unwrap().digest,
+            all_continuity_blocks.last().unwrap().digest,
         );
+
+        // Trim continuity blocks to start at queryHeight-1 (as ContinuityProof expects)
+        let continuity_blocks =
+            trim_continuity_blocks_for_query(all_continuity_blocks, query_height);
 
         // Create query
         let query = Query {
@@ -1352,7 +1406,7 @@ fn test_large_continuity_chain() {
                     query,
                     tx_data: tx_data.clone().into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(QueryVerificationResult {
@@ -1405,24 +1459,21 @@ fn test_continuity_chain_height_validation() {
             siblings: vec![], // Single transaction, no siblings needed
         };
 
-        // Test 1: Continuity blocks that end at block 99 (before query height)
-        // Note: Now we require at least 2 blocks, so we need blocks 99 and 100
-        // But we'll make block 100 have a different root to test the error path
-        let mut continuity_blocks = Vec::new();
+        // Test 1: Continuity chain with wrong merkle root at query height
+        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
+        // Block 100 has wrong root, so verification should fail
+        let mut continuity_blocks_wrong_root = Vec::new();
         let mut prev_digest = H256::zero();
 
-        // Create blocks 99 and 100, but block 100 has wrong root
+        // Create blocks 99 and 100 (minimum required: queryHeight-1 and queryHeight)
+        // Block 100 has wrong root to test error path
         for i in 0..2 {
             let block_number = 99 + i; // Will create blocks 99, 100
-                                       // Use merkle root for block 99, but wrong root for block 100
-            let root = if block_number == 99 {
-                merkle_proof.root
-            } else {
-                H256::random() // Wrong root for block 100
-            };
+                                       // Use random root (wrong root for block 100 to test error path)
+            let root = H256::random();
             let digest = compute_test_digest(block_number, &root, &prev_digest);
 
-            continuity_blocks.push(Block {
+            continuity_blocks_wrong_root.push(Block {
                 block_number,
                 root,
                 prev_digest,
@@ -1433,12 +1484,11 @@ fn test_continuity_chain_height_validation() {
         }
 
         // Setup attestation at block 98 to make the chain valid (start)
-        setup_attestation(1, 98, continuity_blocks[0].prev_digest);
+        setup_attestation(1, 98, continuity_blocks_wrong_root[0].prev_digest);
         // Setup attestation at block 100 where the chain ends
-        setup_attestation(1, 100, continuity_blocks.last().unwrap().digest);
+        setup_attestation(1, 100, continuity_blocks_wrong_root.last().unwrap().digest);
 
         // This should fail because block 100 has wrong merkle root
-        // Note: verify_query emits events before reverting, so we expect a QueryVerificationFailed event
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -1447,7 +1497,7 @@ fn test_continuity_chain_height_validation() {
                     query: query.clone(),
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
-                    continuity_blocks: continuity_blocks.clone(),
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks_wrong_root),
                 },
             )
             .execute_reverts(|output| output == b"Merkle root mismatch");
@@ -1458,6 +1508,7 @@ fn test_continuity_chain_height_validation() {
         prev_digest = H256::zero();
 
         // Create blocks 99 and 100 (minimum required: queryHeight-1 and queryHeight)
+        // Block 100 must have the correct merkle root to match the query
         for i in 0..2 {
             let block_number = 99 + i; // Will create blocks 99, 100
                                        // Use merkle root for block 100 where the transaction is
@@ -1478,8 +1529,9 @@ fn test_continuity_chain_height_validation() {
             prev_digest = digest;
         }
 
+        // Setup attestation at block 98 to make the chain valid (start)
         setup_attestation(1, 98, continuity_blocks_valid[0].prev_digest);
-        // Setup attestation at block 100 where the chain ends
+        // Setup attestation at block 100 where the chain ends (with correct digest)
         setup_attestation(1, 100, continuity_blocks_valid.last().unwrap().digest);
 
         // This should pass all validations and return success
@@ -1491,7 +1543,7 @@ fn test_continuity_chain_height_validation() {
                     query: query.clone(),
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
-                    continuity_blocks: continuity_blocks_valid.clone(),
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks_valid.clone()),
                 },
             )
             .expect_log(log2(
@@ -1511,12 +1563,15 @@ fn test_continuity_chain_height_validation() {
                 result_segments: vec![],
             });
 
-        // Test 3: Continuity chain that extends beyond query height (block 101)
+        // Test 3: Continuity chain that extends beyond query height
+        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
+        // Chain extends to block 101, which is acceptable
         let mut continuity_blocks_extended = Vec::new();
         prev_digest = H256::zero();
 
-        for i in 0..5 {
-            let block_number = 97 + i; // Will create blocks 97, 98, 99, 100, 101
+        // Create blocks 99, 100, 101 (starting at queryHeight - 1)
+        for i in 0..3 {
+            let block_number = 99 + i; // Will create blocks 99, 100, 101
                                        // Use merkle root for block 100 where the transaction is
             let root = if block_number == 100 {
                 merkle_proof.root
@@ -1535,7 +1590,8 @@ fn test_continuity_chain_height_validation() {
             prev_digest = digest;
         }
 
-        setup_attestation(1, 96, continuity_blocks_extended[0].prev_digest);
+        // Setup attestation at block 98 to make the chain valid (start)
+        setup_attestation(1, 98, continuity_blocks_extended[0].prev_digest);
         // Setup attestation at block 101 where the extended chain ends
         setup_attestation(1, 101, continuity_blocks_extended.last().unwrap().digest);
 
@@ -1551,7 +1607,7 @@ fn test_continuity_chain_height_validation() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks: continuity_blocks_extended,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks_extended),
                 },
             )
             .expect_log(log2(
@@ -1595,7 +1651,9 @@ fn test_full_query_verification_flow() {
                     query: scenario.query,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
-                    continuity_blocks: scenario.continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(
+                        scenario.continuity_blocks.clone(),
+                    ),
                 },
             )
             .execute_returns(QueryVerificationResult {

@@ -1,4 +1,4 @@
-use attestor_primitives::{block::Block, query::Query};
+use attestor_primitives::{block::ContinuityProof, query::Query};
 use ethabi::Token;
 use fp_evm::{ExitError, ExitRevert, PrecompileFailure, PrecompileHandle};
 use frame_support::{
@@ -96,7 +96,7 @@ where
     /// - `query`: Query specification with chain_id, block height, and data layout
     /// - `tx_data`: Raw transaction data to verify and extract from
     /// - `merkle_proof`: Proof of transaction inclusion in the block
-    /// - `continuity_blocks`: Chain of blocks linking queryHeight-1 to next attestation
+    /// - `continuity_proof`: Optimized continuity proof (blocks[0] is at queryHeight-1)
     /// - `emit_events`: Whether to emit QueryVerified event (true for non-view functions)
     ///
     /// # Returns
@@ -115,9 +115,13 @@ where
         query: Query,
         tx_data: BoundedBytes<ConstU10MB>,
         merkle_proof: MerkleProof,
-        continuity_blocks: Vec<Block>,
+        continuity_proof: ContinuityProof,
         emit_events: bool,
     ) -> EvmResult<QueryVerificationResult> {
+        // Convert ContinuityProof to Vec<Block> for internal processing
+        // For single query: blocks[0] is at queryHeight-1
+        let start_block_number = query.height.saturating_sub(1);
+        let continuity_blocks = continuity_proof.to_blocks(start_block_number);
         // Log costs only for non-view functions
         if emit_events {
             handle.record_log_costs_manual(3, 32)?;
@@ -261,7 +265,7 @@ where
     /// - `queries`: Vector of queries to verify (bounded to max 10)
     /// - `tx_data_array`: Transaction data for each query
     /// - `merkle_proofs`: Merkle proofs for each query
-    /// - `shared_continuity_blocks`: Single continuity chain covering all query heights
+    /// - `shared_continuity_proof`: Single continuity proof covering all query heights
     /// - `emit_events`: Whether to emit BatchQueriesVerified event
     ///
     /// # Returns
@@ -284,7 +288,7 @@ where
         queries: BoundedVec<Query, MaxBatchSize>,
         tx_data_array: Vec<BoundedBytes<ConstU10MB>>,
         merkle_proofs: Vec<MerkleProof>,
-        mut shared_continuity_blocks: Vec<Block>,
+        shared_continuity_proof: ContinuityProof,
         emit_events: bool,
     ) -> EvmResult<BatchQueryVerificationResult> {
         let queries: Vec<Query> = queries.into();
@@ -326,14 +330,19 @@ where
 
         let max_height = max_height.unwrap(); // Safe because we already checked for non-empty
 
-        // Check for empty continuity chain (same as single query verification)
-        if shared_continuity_blocks.is_empty() {
-            debug!("Empty continuity chain for batch queries");
+        // Check for empty continuity proof
+        if shared_continuity_proof.blocks.is_empty() {
+            debug!("Empty continuity proof for batch queries");
             return Err(PrecompileFailure::Revert {
-                output: encode_revert_message("Continuity chain cannot be empty"),
+                output: encode_revert_message("Continuity proof cannot be empty"),
                 exit_status: ExitRevert::Reverted,
             });
         }
+
+        // Convert ContinuityProof to Vec<Block> for internal processing
+        // For batch queries: blocks[0] is at min(queryHeights)-1
+        let start_block_number = min_height.saturating_sub(1);
+        let mut shared_continuity_blocks = shared_continuity_proof.to_blocks(start_block_number);
 
         // Verify shared continuity chain once (more efficient than verifying per query)
         let continuity_gas = GAS_PER_CONTINUITY_BLOCK

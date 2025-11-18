@@ -7,7 +7,10 @@ use crate::{
     SELECTOR_LOG_BATCH_QUERIES_VERIFIED, SELECTOR_LOG_QUERY_VERIFIED,
 };
 use attestor_primitives::query::Query;
-use attestor_primitives::{block::Block, LayoutSegment};
+use attestor_primitives::{
+    block::{Block, ContinuityProof},
+    LayoutSegment,
+};
 use precompile_utils::{evm::logs::log2, testing::*};
 use sp_core::H256;
 
@@ -85,7 +88,7 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
                     query: query.clone(),
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
-                    continuity_blocks: continuity_blocks.clone(),
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
             .expect_no_logs() // Verify no events are emitted
@@ -106,7 +109,7 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
                     query: query.clone(),
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
-                    continuity_blocks: continuity_blocks.clone(),
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
             .expect_log(log2(
@@ -160,7 +163,7 @@ fn test_verify_query_view_empty_continuity_chain() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Continuity chain cannot be empty");
@@ -200,7 +203,7 @@ fn test_verify_query_view_empty_tx_data() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Transaction data cannot be empty");
@@ -261,7 +264,7 @@ fn test_verify_query_view_no_attestation() {
                     query,
                     tx_data: tx_data.into(),
                     merkle_proof,
-                    continuity_blocks,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| {
@@ -298,13 +301,14 @@ fn test_verify_batch_queries_view_success() {
         let merkle_proof1 = create_simple_merkle_proof(&tx_data1);
         let merkle_proof2 = create_simple_merkle_proof(&tx_data2);
 
-        // Create continuity blocks for both queries (97-100, includes queryHeight - 1 for digest verification)
+        // Create continuity blocks for both queries (98-100, starts at min(queryHeights) - 1)
         // Compute digests correctly using Block::hash_payload
         use attestor_primitives::block::Block as FragmentBlock;
         let mut continuity_blocks = Vec::new();
         let mut prev_digest = H256::zero();
 
-        for i in 97..=100 {
+        // Start at min(queryHeights) - 1 = 99 - 1 = 98
+        for i in 98..=100 {
             let block_number = i;
             let root = if block_number == 99 {
                 merkle_proof1.root
@@ -325,7 +329,7 @@ fn test_verify_batch_queries_view_success() {
             prev_digest = digest;
         }
 
-        setup_attestation(1, 96, continuity_blocks[0].prev_digest);
+        setup_attestation(1, 97, continuity_blocks[0].prev_digest);
         // Setup end attestation
         setup_attestation(1, 100, continuity_blocks.last().unwrap().digest);
 
@@ -338,7 +342,9 @@ fn test_verify_batch_queries_view_success() {
                     queries: vec![query1.clone(), query2.clone()].try_into().unwrap(),
                     tx_data_array: vec![tx_data1.clone().into(), tx_data2.clone().into()],
                     merkle_proofs: vec![merkle_proof1.clone(), merkle_proof2.clone()],
-                    shared_continuity_blocks: continuity_blocks.clone(),
+                    shared_continuity_proof: ContinuityProof::from_blocks(
+                        continuity_blocks.clone(),
+                    ),
                 },
             )
             .expect_no_logs() // Verify no events are emitted for view function
@@ -372,7 +378,9 @@ fn test_verify_batch_queries_view_success() {
                     queries: vec![query1.clone(), query2.clone()].try_into().unwrap(),
                     tx_data_array: vec![tx_data1.clone().into(), tx_data2.clone().into()],
                     merkle_proofs: vec![merkle_proof1.clone(), merkle_proof2.clone()],
-                    shared_continuity_blocks: continuity_blocks.clone(),
+                    shared_continuity_proof: ContinuityProof::from_blocks(
+                        continuity_blocks.clone(),
+                    ),
                 },
             )
             .expect_log(log2(
@@ -469,13 +477,14 @@ fn test_verify_batch_queries_view_mixed_results() {
             siblings: vec![],
         };
 
-        // Create continuity blocks (97-100, includes queryHeight - 1 for digest verification)
+        // Create continuity blocks (98-100, starts at min(queryHeights) - 1)
         // Compute digests correctly using Block::hash_payload
         use attestor_primitives::block::Block as FragmentBlock;
         let mut continuity_blocks = Vec::new();
         let mut prev_digest = H256::zero();
 
-        for i in 97..=100 {
+        // Start at min(queryHeights) - 1 = 99 - 1 = 98
+        for i in 98..=100 {
             let block_number = i;
             let root = if block_number == 99 {
                 merkle_proof1.root
@@ -494,7 +503,7 @@ fn test_verify_batch_queries_view_mixed_results() {
             prev_digest = digest;
         }
 
-        setup_attestation(1, 96, continuity_blocks[0].prev_digest);
+        setup_attestation(1, 97, continuity_blocks[0].prev_digest);
         // Setup end attestation
         setup_attestation(1, 100, continuity_blocks.last().unwrap().digest);
 
@@ -507,7 +516,7 @@ fn test_verify_batch_queries_view_mixed_results() {
                     queries: vec![query1, query2].try_into().unwrap(),
                     tx_data_array: vec![tx_data1.into(), tx_data2.into()],
                     merkle_proofs: vec![merkle_proof1, merkle_proof2],
-                    shared_continuity_blocks: continuity_blocks,
+                    shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_returns(BatchQueryVerificationResult {
@@ -561,7 +570,7 @@ fn test_verify_batch_queries_view_mismatched_arrays() {
                     queries: vec![query1, query2].try_into().unwrap(),
                     tx_data_array: vec![tx_data1.into()], // Only one tx_data for two queries
                     merkle_proofs: vec![merkle_proof1, merkle_proof2],
-                    shared_continuity_blocks: continuity_blocks,
+                    shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| output == b"Input arrays must have the same length");
@@ -617,7 +626,7 @@ fn test_verify_batch_queries_view_continuity_doesnt_cover_range() {
                     queries: vec![query1, query2].try_into().unwrap(),
                     tx_data_array: vec![tx_data1.into(), tx_data2.into()],
                     merkle_proofs: vec![merkle_proof1, merkle_proof2],
-                    shared_continuity_blocks: continuity_blocks,
+                    shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
             .execute_reverts(|output| {

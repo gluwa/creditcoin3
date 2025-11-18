@@ -43,17 +43,28 @@ interface INativeQueryVerifier {
         MerkleProofEntry[] siblings;
     }
 
-    /// @notice Block structure for continuity verification
-    /// @dev Represents a block in the continuity chain
-    struct Block {
-        /// Block number
-        uint64 block_number;
+    /// @notice Optimized continuity block structure
+    /// @dev Contains only root and digest (block_number and prev_digest are inferred)
+    struct ContinuityBlock {
         /// Block root hash
         bytes32 root;
-        /// Previous block digest
-        bytes32 prev_digest;
         /// Current block digest
         bytes32 digest;
+    }
+
+    /// @notice Optimized continuity proof structure
+    /// @dev Reduces calldata size by removing redundant fields:
+    ///      - block_number is inferred from query height(s) and index
+    ///        Single query: blocks[0] is at queryHeight - 1
+    ///        Batch queries: blocks[0] is at min(queryHeights) - 1
+    struct ContinuityProof {
+        /// The digest of the block before the continuity chain starts
+        /// This is the prev_digest of the first block
+        bytes32 lowerEndpointDigest;
+        /// Array of continuity blocks (each containing only root and digest)
+        /// Block numbers are inferred: blocks[i] is at (queryHeight - 1) + i for single query
+        /// prev_digest is reconstructed from the chain (using lowerEndpointDigest and computed digests)
+        ContinuityBlock[] blocks;
     }
 
     /// @notice Result of query verification
@@ -98,7 +109,7 @@ interface INativeQueryVerifier {
     /// @param query The query specification defining what data to retrieve
     /// @param tx_data Raw transaction data to verify and extract from
     /// @param merkle_proof Merkle proof for transaction inclusion (with position info, no index needed)
-    /// @param continuity_blocks Array of blocks for continuity verification
+    /// @param continuity_proof Optimized continuity proof (blocks[0] is at queryHeight-1)
     /// @return result Verification result containing status and extracted data segments
     ///
     /// Gas Costs (aligned with standard Ethereum precompiles):
@@ -115,7 +126,7 @@ interface INativeQueryVerifier {
         Query calldata query,
         bytes calldata tx_data,
         MerkleProof calldata merkle_proof,
-        Block[] calldata continuity_blocks
+        ContinuityProof calldata continuity_proof
     ) external view returns (QueryVerificationResult memory result);
 
     /// @notice Verify a blockchain query with Merkle proof and continuity chain
@@ -124,7 +135,7 @@ interface INativeQueryVerifier {
     /// @param query The query specification defining what data to retrieve
     /// @param tx_data Raw transaction data to verify and extract from
     /// @param merkle_proof Merkle proof for transaction inclusion (with position info, no index needed)
-    /// @param continuity_blocks Array of blocks for continuity verification
+    /// @param continuity_proof Optimized continuity proof (blocks[0] is at queryHeight-1)
     /// @return result Verification result containing status and extracted data segments
     ///
     /// Events Emitted:
@@ -172,7 +183,7 @@ interface INativeQueryVerifier {
     ///     query,
     ///     txData,
     ///     proof,
-    ///     blocks
+    ///     continuityProof
     /// );
     ///
     /// require(result.status == 0, "Verification failed");
@@ -182,7 +193,7 @@ interface INativeQueryVerifier {
         Query calldata query,
         bytes calldata tx_data,
         MerkleProof calldata merkle_proof,
-        Block[] calldata continuity_blocks
+        ContinuityProof calldata continuity_proof
     ) external returns (QueryVerificationResult memory result);
 
     /// @notice Verify a batch of queries with shared continuity proof (view function)
@@ -192,7 +203,7 @@ interface INativeQueryVerifier {
     /// @param queries Array of queries to verify (max 10)
     /// @param tx_data_array Transaction data for each query
     /// @param merkle_proofs Merkle proofs for each query
-    /// @param shared_continuity_blocks Shared continuity chain covering all query heights
+    /// @param shared_continuity_proof Shared continuity proof covering all query heights
     /// @return result Batch verification result with statistics and individual results
     ///
     /// Gas Optimization:
@@ -210,7 +221,7 @@ interface INativeQueryVerifier {
         Query[] calldata queries,
         bytes[] calldata tx_data_array,
         MerkleProof[] calldata merkle_proofs,
-        Block[] calldata shared_continuity_blocks
+        ContinuityProof calldata shared_continuity_proof
     ) external view returns (BatchQueryVerificationResult memory result);
 
     /// @notice Verify a batch of queries with shared continuity proof
@@ -222,7 +233,7 @@ interface INativeQueryVerifier {
     /// @param queries Array of queries to verify (max 10)
     /// @param tx_data_array Transaction data for each query
     /// @param merkle_proofs Merkle proofs for each query
-    /// @param shared_continuity_blocks Shared continuity chain covering all query heights
+    /// @param shared_continuity_proof Shared continuity proof covering all query heights
     /// @return result Batch verification result with statistics and individual results
     ///
     /// Gas Optimization:
@@ -254,8 +265,8 @@ interface INativeQueryVerifier {
     /// INativeQueryVerifier.MerkleProof[] memory proofs = new INativeQueryVerifier.MerkleProof[](3);
     /// // ... fill arrays ...
     ///
-    /// // Use shared continuity chain covering blocks 100-102
-    /// INativeQueryVerifier.Block[] memory sharedBlocks = getBlocks(100, 102);
+    /// // Use shared continuity proof covering blocks 100-102
+    /// INativeQueryVerifier.ContinuityProof memory sharedProof = getContinuityProof(100, 102);
     ///
     /// // Batch verify (emits events for each query + summary)
     /// INativeQueryVerifier.BatchQueryVerificationResult memory result = verifier.verifyBatchQueries(
@@ -271,7 +282,7 @@ interface INativeQueryVerifier {
         Query[] calldata queries,
         bytes[] calldata tx_data_array,
         MerkleProof[] calldata merkle_proofs,
-        Block[] calldata shared_continuity_blocks
+        ContinuityProof calldata shared_continuity_proof
     ) external returns (BatchQueryVerificationResult memory result);
 
     /// @notice Emitted when a query is successfully verified

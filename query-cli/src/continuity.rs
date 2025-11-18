@@ -33,6 +33,13 @@ pub struct ContinuityProof {
     pub blocks: Vec<Block>,
 }
 
+impl ContinuityProof {
+    /// Create from Vec<Block>
+    pub fn from_blocks(blocks: Vec<Block>) -> Self {
+        Self { blocks }
+    }
+}
+
 /// Information about an attestation
 #[derive(Debug, Clone)]
 struct AttestationInfo {
@@ -128,7 +135,7 @@ impl ContinuityBuilder {
             .build_and_trim_continuity(lower, upper, min_query)
             .await?;
 
-        Ok(ContinuityProof { blocks })
+        Ok(ContinuityProof::from_blocks(blocks))
     }
 
     /// Fetch attestations from Creditcoin3
