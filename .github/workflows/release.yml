@@ -265,7 +265,6 @@ jobs:
       - build-native-runtime
       - build-wasm-runtime
       - build-usc-audit-automation
-      - build-npm-package
       - docker-build
     steps:
       - uses: actions/checkout@v5
