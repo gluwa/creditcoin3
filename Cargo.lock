@@ -10304,6 +10304,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "proof"
+version = "3.66.0"
+dependencies = [
+ "anyhow",
+ "attestor-primitives",
+ "colored",
+ "either",
+ "eth",
+ "ethereum 0.18.2",
+ "ethereum-types 0.14.1",
+ "fs2",
+ "futures 0.3.31",
+ "mmr",
+ "pallet-attestation-poc",
+ "prover-primitives",
+ "rlp 0.5.2",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "sp-io",
+ "starknet-crypto",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "utils",
+]
+
+[[package]]
+name = "proof-verifier"
+version = "3.66.0"
+dependencies = [
+ "anyhow",
+ "hashbrown 0.14.5",
+ "hex",
+ "log",
+ "pallet-prover-primitives",
+ "prover-primitives",
+ "serde_json",
+ "sp-core",
+ "sp-io",
+ "sp-runtime-interface",
+ "sp-std",
+ "tempfile",
+ "thiserror 1.0.69",
+ "utils",
+ "verifier-core",
+]
+
+[[package]]
 name = "proptest"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
