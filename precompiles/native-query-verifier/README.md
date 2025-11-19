@@ -106,13 +106,15 @@ The precompile uses the following gas cost model (aligned with standard Ethereum
 
 | Operation | Gas Cost | Description | Comparison |
 |-----------|----------|-------------|------------|
-| Base | 35,000 | Base overhead for entering precompile | ~12x ecrecover (3,000) |
+| Base | 21,000 | Base transaction cost | Matches Ethereum standard transaction cost |
 | Per TX byte | 16 | Per byte of transaction data | Matches EVM calldata cost |
-| Per sibling | 3,000 | Per Merkle sibling hash verification | Equal to ecrecover |
-| Per continuity block | 5,000 | Per block in continuity chain | ~2x SLOAD |
+| Per sibling | 200 | Per Merkle sibling hash verification | Native efficiency vs ~166 in Solidity |
+| Per continuity block | 400 | Per block verification (hash + overhead) | Covers hash computation (~48 gas) + comparisons/overhead (~350 gas) |
+| Hash computation | 48 | Keccak-256 hash (72 bytes = 3 words) | 30 base + 6 per word (matches Ethereum KECCAK256) |
 | Storage lookup | 2,600 | Each attestation/checkpoint read | Matches cold SLOAD |
-| Merkle verification | 100,000 weight | Fixed cost for Merkle tree traversal |
-| Continuity verification | 50,000 weight | Fixed cost for continuity validation |
+| Merkle verification weight | 100,000 | Fixed weight for Merkle tree traversal | Converted to gas via runtime weight-to-gas mapping |
+| Continuity verification weight | 50,000 | Fixed weight for continuity validation | Converted to gas via runtime weight-to-gas mapping |
+| Event emission (non-view only) | ~1,000 | Per event log (3 topics × 32 bytes) | Charged only for non-view functions |
 
 ## Status Codes
 
@@ -149,7 +151,7 @@ The precompile supports batch verification of up to 10 queries with a shared con
 ### Features
 
 - **Shared Continuity Proof**: Verifies the continuity chain once for all queries
-- **Gas Optimization**: For 5 queries with 20-block continuity, saves ~240,000 gas (80% reduction)
+- **Gas Optimization**: For 5 queries with 20-block continuity, saves ~3,200 gas per additional query (shared continuity verification)
 - **Individual Event Emission**: Emits `QueryVerified` or `QueryVerificationFailed` for each query (non-view only)
 - **Summary Event**: Emits `BatchQueriesVerified` with aggregate statistics (non-view only)
 

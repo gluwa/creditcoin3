@@ -6,7 +6,6 @@ use frame_support::{
 };
 use log::debug;
 use pallet_evm::AddressMapping;
-use precompile_utils::{prelude::*, solidity::Codec};
 use sp_core::H256;
 
 use crate::NativeQueryVerifierPrecompile;
@@ -64,15 +63,6 @@ impl ContinuityVerificationError {
             Self::ChainLinkBroken => "Continuity chain has broken links",
         }
     }
-}
-
-/// A segment of extracted data from the verified transaction
-#[derive(Debug, Clone, PartialEq, Eq, Codec)]
-pub struct ResultSegment {
-    /// Offset in the transaction data
-    pub offset: u64,
-    /// Extracted bytes at this offset
-    pub bytes: H256,
 }
 
 impl<Runtime> NativeQueryVerifierPrecompile<Runtime>
