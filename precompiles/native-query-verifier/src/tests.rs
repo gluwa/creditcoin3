@@ -12,9 +12,8 @@ use precompile_utils::{evm::logs::log2, testing::*};
 use sp_core::H256;
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
-use crate::verify::{
-    GAS_BASE_VERIFY, GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE, GAS_STORAGE_LOOKUP,
-};
+use crate::continuity::GAS_STORAGE_LOOKUP;
+use crate::verify::{GAS_BASE_VERIFY, GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
 
 /// Simple test transaction item for merkle tree construction
 #[derive(Debug, Clone)]

@@ -1,10 +1,9 @@
 // Gas security tests for native-query-verifier precompile
 // Ensures gas costs prevent DoS attacks and align with Ethereum standards
 
+use crate::continuity::GAS_STORAGE_LOOKUP;
 use crate::mock::*;
-use crate::verify::{
-    GAS_BASE_VERIFY, GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE, GAS_STORAGE_LOOKUP,
-};
+use crate::verify::{GAS_BASE_VERIFY, GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
 use crate::*;
 // ============================================================================
 // GAS SECURITY AND DOS PREVENTION TESTS
@@ -81,18 +80,25 @@ fn test_gas_prevents_dos_with_long_continuity_chain() {
         ];
 
         for blocks in test_cases {
-            // Each block costs GAS_PER_CONTINUITY_BLOCK + GAS_STORAGE_LOOKUP
-            let gas_cost = GAS_BASE_VERIFY
-                + (blocks * GAS_PER_CONTINUITY_BLOCK)
-                + (blocks * GAS_STORAGE_LOOKUP);
+            // Each block costs GAS_PER_CONTINUITY_BLOCK (gas charged upfront)
+            // Plus attestation/checkpoint lookups (GAS_STORAGE_LOOKUP * 2)
+            let gas_cost =
+                GAS_BASE_VERIFY + (blocks * GAS_PER_CONTINUITY_BLOCK) + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
             println!("{blocks} block chain costs {gas_cost} gas");
 
             // Long chains should be expensive but not prohibitive
+            // With GAS_PER_CONTINUITY_BLOCK = 400, even 500 blocks = 200,000 gas (affordable)
+            // The cost scales linearly, preventing abuse while remaining practical
             if blocks <= 100 {
-                assert!(gas_cost < 1_000_000, "Normal chains should be affordable");
+                assert!(gas_cost < 100_000, "Normal chains should be affordable");
             } else {
-                assert!(gas_cost > 1_000_000, "Very long chains should be expensive");
+                // Very long chains (500+) should be expensive but still practical
+                assert!(gas_cost > 50_000, "Very long chains should be expensive");
+                assert!(
+                    gas_cost < 500_000,
+                    "Even very long chains should be practical"
+                );
             }
         }
     });
@@ -141,7 +147,7 @@ fn test_gas_for_typical_use_cases() {
             + (200 * GAS_PER_TX_BYTE)
             + (4 * GAS_PER_SIBLING)
             + (3 * GAS_PER_CONTINUITY_BLOCK)
-            + (3 * GAS_STORAGE_LOOKUP);
+            + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
         println!("ERC20 transfer verification: {erc20_gas} gas");
         assert!(erc20_gas < 50_000, "Simple transfers should be < 50k gas");
@@ -154,7 +160,7 @@ fn test_gas_for_typical_use_cases() {
             + (1000 * GAS_PER_TX_BYTE)
             + (20 * GAS_PER_SIBLING)
             + (10 * GAS_PER_CONTINUITY_BLOCK)
-            + (10 * GAS_STORAGE_LOOKUP);
+            + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
         println!("DeFi transaction verification: {defi_gas} gas");
         assert!(defi_gas < 100_000, "Complex DeFi should be < 100k gas");
@@ -167,7 +173,7 @@ fn test_gas_for_typical_use_cases() {
             + (500 * GAS_PER_TX_BYTE)
             + (8 * GAS_PER_SIBLING)
             + (5 * GAS_PER_CONTINUITY_BLOCK)
-            + (5 * GAS_STORAGE_LOOKUP);
+            + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
         println!("NFT mint verification: {nft_gas} gas");
         assert!(nft_gas < 60_000, "NFT operations should be < 60k gas");
@@ -184,10 +190,10 @@ fn test_gas_cost_boundaries() {
                      GAS_PER_TX_BYTE +  // 1 byte tx
                      // No siblings (single tx block)
                      GAS_PER_CONTINUITY_BLOCK + // 1 block
-                     GAS_STORAGE_LOOKUP; // 1 lookup
+                     (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
         println!("Minimum gas cost: {min_gas}");
-        assert_eq!(min_gas, 21_000 + 16 + 3_000 + 2_600);
+        assert_eq!(min_gas, 21_000 + 16 + 400 + (2_600 * 2));
         assert_eq!(min_gas, 26_616, "Minimum should be ~27k gas");
 
         // Reasonable maximum: large but valid query
@@ -195,7 +201,7 @@ fn test_gas_cost_boundaries() {
                            (100_000 * GAS_PER_TX_BYTE) +  // 100KB tx
                            (40 * GAS_PER_SIBLING) +        // 20 level tree
                            (50 * GAS_PER_CONTINUITY_BLOCK) + // 50 blocks
-                           (50 * GAS_STORAGE_LOOKUP); // 50 lookups
+                           (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
         println!("Reasonable maximum gas cost: {reasonable_max}");
         assert!(reasonable_max < 10_000_000, "Should be under 10M gas");
@@ -215,7 +221,7 @@ fn test_gas_incentivizes_efficient_queries() {
             + (1000 * GAS_PER_TX_BYTE)
             + (10 * GAS_PER_SIBLING)
             + (10 * GAS_PER_CONTINUITY_BLOCK)
-            + (10 * GAS_STORAGE_LOOKUP);
+            + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
         // Efficient: Extracting fewer, well-designed segments
         let _efficient_segments = 3; // Only 3 segments
@@ -223,7 +229,7 @@ fn test_gas_incentivizes_efficient_queries() {
                           (1000 * GAS_PER_TX_BYTE) +
                           (10 * GAS_PER_SIBLING) +
                           (5 * GAS_PER_CONTINUITY_BLOCK) + // Shorter chain
-                          (5 * GAS_STORAGE_LOOKUP);
+                          (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
         // Efficient queries should cost less
         assert!(
@@ -232,10 +238,11 @@ fn test_gas_incentivizes_efficient_queries() {
         );
 
         // The difference should be significant enough to incentivize optimization
+        // Savings come from shorter continuity chain: 5 fewer blocks * 400 gas = 2,000 gas
         let savings = inefficient_gas - efficient_gas;
         assert!(
-            savings > 20_000,
-            "Should save significant gas with optimization"
+            savings >= 2_000,
+            "Should save significant gas with optimization (expected at least 2k from shorter chain)"
         );
 
         println!("Inefficient query: {inefficient_gas} gas");

@@ -816,8 +816,8 @@ fn test_gas_costs_scale_correctly() {
         assert!(expected_gas_diff > 0, "Should have gas difference");
         assert_eq!(
             expected_gas_diff,
-            tx_size_diff * 16 + siblings_diff * 200 + continuity_diff * 3_000,
-            "Gas should scale correctly with input sizes (16 gas per byte, 200 per sibling, 3000 per block)"
+            tx_size_diff * 16 + siblings_diff * 200 + continuity_diff * 400,
+            "Gas should scale correctly with input sizes (16 gas per byte, 200 per sibling, 400 per block)"
         );
     });
 }

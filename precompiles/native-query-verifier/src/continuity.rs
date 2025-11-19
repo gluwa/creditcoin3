@@ -12,6 +12,7 @@ use sp_core::H256;
 use crate::NativeQueryVerifierPrecompile;
 
 // Gas cost constants
+pub const GAS_KECCAK256_HASH: u64 = 48; // Keccak-256 hash cost: 30 base + 6 per word (72 bytes = 3 words)
 pub const GAS_STORAGE_LOOKUP: u64 = 2_600; // Each storage read (matches cold SLOAD)
 
 /// Error type for continuity verification (both query block digest and chain validation)
@@ -84,15 +85,15 @@ where
     Runtime::AccountId: From<[u8; 32]>,
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
 {
-    /// Find query block in continuity chain using optimized search
+    /// Find query block index in continuity chain using optimized search
     ///
+    /// Returns the index of the block with the given height, or None if not found.
     /// First tries computed index (O(1) for sequential blocks), then falls back
-    /// to binary search if blocks are sorted. Assumes blocks are sorted if
-    /// computed index fails.
-    pub(crate) fn find_query_block(
+    /// to binary search if blocks are sorted.
+    pub(crate) fn find_query_block_index(
         continuity_blocks: &[Block],
         query_height: u64,
-    ) -> Option<&Block> {
+    ) -> Option<usize> {
         // Try computed index first (O(1) for sequential blocks)
         if let (Some(first_block), Some(last_block)) =
             (continuity_blocks.first(), continuity_blocks.last())
@@ -105,7 +106,7 @@ where
                 if index < continuity_blocks.len() {
                     let block = &continuity_blocks[index];
                     if block.block_number == query_height {
-                        return Some(block);
+                        return Some(index);
                     }
                 }
             }
@@ -115,7 +116,6 @@ where
         continuity_blocks
             .binary_search_by_key(&query_height, |b| b.block_number)
             .ok()
-            .map(|idx| &continuity_blocks[idx])
     }
     /// Verify the continuity chain of block attestations
     ///
@@ -139,8 +139,9 @@ where
     /// - `Err(ContinuityVerificationError)`: Structured error with status code and message
     ///
     /// # Gas Costs
-    /// - `GAS_STORAGE_LOOKUP` (2600) per block validation
-    /// - Additional `GAS_STORAGE_LOOKUP` for attestation/checkpoint lookups
+    /// - Gas is charged upfront per block in `verify_query_impl` using `GAS_PER_CONTINUITY_BLOCK`
+    /// - `GAS_STORAGE_LOOKUP` (2600) for attestation lookup
+    /// - Additional `GAS_STORAGE_LOOKUP` for checkpoint lookup (only if attestation doesn't match)
     ///
     /// # Note
     /// For POC optimization compatibility, batch verification uses implicit block
@@ -186,11 +187,6 @@ where
                 return Err(ContinuityVerificationError::ChainLinkBroken);
             }
 
-            // Charge for the block verification
-            handle.record_cost(GAS_STORAGE_LOOKUP).map_err(|_| {
-                ContinuityVerificationError::ChainLinkBroken // Use a generic error if gas recording fails
-            })?;
-
             // Update the last block digest to the current block's digest
             prev_digest = block_digest;
         }
@@ -210,7 +206,7 @@ where
             let final_digest = head.digest;
             let final_block_number = head.block_number;
 
-            // Charge for storage lookup
+            // Charge for attestation storage lookup
             handle
                 .record_cost(GAS_STORAGE_LOOKUP)
                 .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?;
@@ -220,10 +216,19 @@ where
                 .map(|a| a.attestation.header_number == final_block_number)
                 .unwrap_or(false);
 
-            // Check if there's a checkpoint at this exact block height with matching digest
-            let checkpoint_matches = Self::get_checkpoint(query.chain_id, final_digest)
-                .map(|block_num| block_num == final_block_number)
-                .unwrap_or(false);
+            // Only check checkpoint if attestation doesn't match (saves storage read in common case)
+            let checkpoint_matches = if attestation_matches {
+                false // No need to check checkpoint if attestation matches
+            } else {
+                // Charge for checkpoint storage lookup only if we need to check it
+                handle
+                    .record_cost(GAS_STORAGE_LOOKUP)
+                    .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?;
+
+                Self::get_checkpoint(query.chain_id, final_digest)
+                    .map(|block_num| block_num == final_block_number)
+                    .unwrap_or(false)
+            };
 
             // Special case: If the continuity chain ends at query.height and query.height
             // is a checkpoint/attestation, that's valid (allows queries at checkpoint/attestation heights)
@@ -263,6 +268,9 @@ where
     /// # Returns
     /// - `Ok(())`: Query block digest is valid
     /// - `Err(ContinuityVerificationError)`: Structured error with status code and message
+    ///
+    /// # Gas Costs
+    /// - `GAS_KECCAK256_HASH` (48) for hash computation (Keccak-256 on 72 bytes)
     pub fn verify_query_block_digest(
         handle: &mut impl PrecompileHandle,
         continuity_blocks: &[Block],
@@ -275,23 +283,38 @@ where
             return Err(ContinuityVerificationError::InsufficientBlocks);
         }
 
-        // Find the query block using optimized search
-        let query_block = Self::find_query_block(continuity_blocks, query.height)
+        // Find the query block index using optimized search
+        let query_block_idx = Self::find_query_block_index(continuity_blocks, query.height)
             .ok_or(ContinuityVerificationError::QueryBlockNotFound)?;
+
+        let query_block = &continuity_blocks[query_block_idx];
 
         // Verify merkle root matches
         if query_block.root != merkle_root {
             return Err(ContinuityVerificationError::MerkleRootMismatch);
         }
 
-        // Find the previous block (queryHeight - 1) using optimized search
-        let prev_block = Self::find_query_block(continuity_blocks, query.height.saturating_sub(1))
-            .ok_or(ContinuityVerificationError::PreviousBlockNotFound)?;
+        // Optimize: Use the query block index to directly access the previous block
+        // Since blocks are sequential (queryHeight-1, queryHeight), prev is at index - 1
+        if query_block_idx == 0 {
+            return Err(ContinuityVerificationError::PreviousBlockNotFound);
+        }
+        let prev_block = &continuity_blocks[query_block_idx - 1];
+
+        // Verify the previous block is actually at queryHeight - 1 (safety check)
+        if prev_block.block_number != query.height.saturating_sub(1) {
+            return Err(ContinuityVerificationError::PreviousBlockNotFound);
+        }
 
         // Compute expected digest for query block using previous block's digest
         use attestor_primitives::block::Block as FragmentBlock;
         let expected_digest =
             FragmentBlock::hash_payload(&query.height, &query_block.root, &prev_block.digest);
+
+        // Charge for hash computation (Keccak-256 on 72 bytes)
+        handle.record_cost(GAS_KECCAK256_HASH).map_err(|_| {
+            ContinuityVerificationError::DigestMismatch // Use a generic error if gas recording fails
+        })?;
 
         // Verify computed digest matches the query block's digest
         if expected_digest != query_block.digest {
@@ -301,11 +324,6 @@ where
             );
             return Err(ContinuityVerificationError::DigestMismatch);
         }
-
-        // Charge for the verification
-        handle.record_cost(GAS_STORAGE_LOOKUP).map_err(|_| {
-            ContinuityVerificationError::DigestMismatch // Use a generic error if gas recording fails
-        })?;
 
         Ok(())
     }

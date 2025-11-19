@@ -24,8 +24,7 @@ use crate::{
 pub const GAS_BASE_VERIFY: u64 = 21_000; // Base transaction cost (matches Ethereum standard)
 pub const GAS_PER_TX_BYTE: u64 = 16; // Per byte cost for transaction data (matches calldata cost)
 pub const GAS_PER_SIBLING: u64 = 200; // Per Merkle sibling verification (native efficiency vs ~166 in Solidity)
-pub const GAS_PER_CONTINUITY_BLOCK: u64 = 3_000; // Per block verification (storage + hash check)
-pub const GAS_STORAGE_LOOKUP: u64 = 2_600; // Each storage read (matches cold SLOAD)
+pub const GAS_PER_CONTINUITY_BLOCK: u64 = 400; // Per block verification (hash ~48 gas + comparisons/overhead ~350 gas)
 pub const WEIGHT_MERKLE_VERIFY: u64 = 100_000; // Merkle verification work
 pub const WEIGHT_CONTINUITY_VERIFY: u64 = 50_000; // Continuity verification work
 
@@ -177,8 +176,6 @@ where
                 exit_status: ExitError::OutOfGas,
             })?;
         handle.record_cost(merkle_gas)?;
-
-        handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         // Record weights
         let continuity_weight = sp_weights::Weight::from_parts(WEIGHT_CONTINUITY_VERIFY, 0);

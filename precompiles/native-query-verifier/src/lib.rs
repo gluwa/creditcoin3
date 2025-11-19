@@ -390,15 +390,6 @@ where
         pallet_attestation_poc::Pallet::<Runtime>::attestations(chain_key, digest)
     }
 
-    /// Get the last finalized digest for a chain
-    ///
-    /// Returns the most recent attestation digest for the specified chain.
-    /// Currently unused but kept for potential future optimizations.
-    #[allow(dead_code)]
-    fn last_digest(chain_key: u64) -> Option<H256> {
-        pallet_attestation_poc::Pallet::<Runtime>::last_attestation_digest(chain_key)
-    }
-
     /// Get the last checkpoint for a chain
     ///
     /// Returns the most recent checkpoint for the specified chain.
