@@ -29,7 +29,7 @@
     "license": "MIT",
     "devDependencies": {
         "@polkadot/api": "16.5.2",
-        "@subql/cli": "6.5.0",
+        "@subql/cli": "6.6.0",
         "@subql/common-substrate": "4.5.2",
         "@subql/frontier-evm-processor": "1.0.3",
         "@subql/node": "6.4.0",
@@ -37,7 +37,7 @@
         "@subql/types": "3.15.0",
         "@typechain/ethers-v5": "^11.1.2",
         "@typescript-eslint/eslint-plugin": "8.40.0",
-        "@typescript-eslint/parser": "8.46.0",
+        "@typescript-eslint/parser": "8.47.0",
         "dotenv": "17.2.0",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",
