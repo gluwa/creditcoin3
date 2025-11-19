@@ -28,4 +28,5 @@ sp-core = { workspace = true }
 anyhow.workspace = true
 ccnext-abi-encoding = { workspace = true }
 ccnext-query-builder = { workspace = true }
+continuity = { path = "../common/continuity" }
 utils = { path = "../common/utils" }

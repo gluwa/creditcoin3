@@ -5,7 +5,6 @@ use utils::block_item_traits::BlockItem;
 
 mod attestation;
 mod batch_verification;
-mod continuity;
 mod merkle;
 mod native_transfer;
 mod prompt;
@@ -448,7 +447,7 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
     // Step 8: Generate continuity proof (using refactored module)
     println!("\n=== Continuity Proof Generation ===");
     println!("Configured chain key: {}", params.chain_key);
-    let continuity_blocks = continuity::fetch_continuity_proof(
+    let continuity_blocks = continuity::builder::fetch_continuity_proof(
         &params.cc3_rpc_url,
         &prompt_output.network.url(),
         params.chain_key,

@@ -1,0 +1,26 @@
+[package]
+edition = "2021"
+license = "MIT"
+name = "continuity"
+publish = false
+version = "0.1.0"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+
+# --- Creditcoin / USC dependencies (required for real functionality) ---
+attestor-primitives = { workspace = true }
+cc-client = { workspace = true }
+ccnext-abi-encoding = { workspace = true }
+eth = { workspace = true }
+sp-core = { workspace = true }
+
+# (Optional) Keep mmr if you later integrate the QueryMerkleProof layer
+mmr = { workspace = true }
+
+# (Optional) Utils if you end up depending on Felt, hashing helpers, etc.
+utils = { workspace = true }

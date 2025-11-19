@@ -2576,6 +2576,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 
 [[package]]
+name = "continuity"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "attestor-primitives",
+ "cc-client",
+ "ccnext-abi-encoding",
+ "eth",
+ "mmr",
+ "serde",
+ "sp-core",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "utils",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10572,6 +10590,7 @@ dependencies = [
  "ccnext-abi-encoding",
  "ccnext-query-builder",
  "clap",
+ "continuity",
  "eth",
  "hex",
  "merkle",
