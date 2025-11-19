@@ -2,6 +2,7 @@
 
 When debugging and fixing issues in this repository, please follow these guidelines:
 
+- **Code Quality** The project adheres to high code quality standards.
 - **Compilation**: The project always needs to compile as a whole. Ensure any fixes don't break the build.
 - **Unit Tests**: We have many unit tests that need to work. Verify that fixes don't break existing tests.
 - **Integration Tests**: We have many integration tests that need to work. Check that fixes maintain integration test compatibility.
