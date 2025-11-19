@@ -4,15 +4,16 @@ This document describes how to deploy a temporary dryrun blockchain network on A
 
 ## Overview
 
-The dryrun network deployment workflow automatically provisions an Azure Kubernetes cluster, deploys 4-5 Creditcoin blockchain validator nodes, and initializes the network with funded validators ready to produce blocks.
+The dryrun network deployment workflow deploys 4-5 Creditcoin blockchain validator nodes to an existing shared AKS cluster using isolated namespaces, and initializes the network with funded validators ready to produce blocks. Multiple dryrun deployments can coexist on the same cluster.
 
 ## Features
 
-- Automated Azure AKS cluster provisioning
+- Uses existing shared AKS cluster (no provisioning delay)
+- Isolated namespaces for concurrent deployments
 - Configurable number of validator nodes (default: 4)
 - Environment-specific chainspec selection (dev/test/main)
 - Automatic validator setup and key rotation
-- Manual cleanup for cost control
+- Quick namespace-based cleanup
 - Comprehensive logging and status reporting
 
 ## Triggering a Dryrun Deployment
@@ -55,10 +56,12 @@ You can also manually trigger the workflow from GitHub Actions:
 
 ### Infrastructure
 
-- **Azure Resource Group**: Unique per deployment (creditcoin-dryrun-{run_id})
-- **AKS Cluster**: 2 Standard_D4s_v3 nodes
+- **Azure Resource Group**: Shared (creditcoin-dryrun)
+- **AKS Cluster**: Shared (cc3-dryrun-devnet-cluster) with multiple Standard_D4s_v3 nodes
+- **Namespace**: Unique per deployment (dryrun-{environment}-{run_id})
 - **Storage**: 50Gi persistent volumes per blockchain node
 - **Networking**: Azure CNI with ClusterIP services
+- **Isolation**: Each deployment runs in its own namespace, allowing multiple concurrent dryrun networks
 
 ### Blockchain Nodes
 
@@ -89,18 +92,21 @@ After deployment, the workflow automatically:
 
 ## Accessing the Network
 
-After successful deployment, you'll receive connection information in the workflow output and as an artifact.
+After successful deployment, you'll receive connection information in the workflow output and as an artifact. The namespace name will be in the format `dryrun-{environment}-{run_id}` (e.g., `dryrun-dev-12345`).
 
 ### Connect to the Bootnode
 
 ```bash
 # Get AKS credentials
 az aks get-credentials \
-  --resource-group <resource-group-name> \
-  --name <cluster-name>
+  --resource-group creditcoin-dryrun \
+  --name cc3-dryrun-devnet-cluster
 
-# Port forward to access the bootnode
-kubectl port-forward -n creditcoin-dryrun svc/creditcoin-node-0 9944:9944
+# List all dryrun deployments
+kubectl get namespaces -l purpose=dryrun
+
+# Port forward to access the bootnode (replace NAMESPACE with your deployment's namespace)
+kubectl port-forward -n <NAMESPACE> svc/creditcoin-node-0 9944:9944
 
 # Connect via WebSocket
 ws://localhost:9944
@@ -109,21 +115,21 @@ ws://localhost:9944
 ### View Node Logs
 
 ```bash
-# All nodes
-kubectl logs -n creditcoin-dryrun -l app=creditcoin-node --tail=100 -f
+# All nodes (replace NAMESPACE with your deployment's namespace)
+kubectl logs -n <NAMESPACE> -l app=creditcoin-node --tail=100 -f
 
 # Specific node
-kubectl logs -n creditcoin-dryrun creditcoin-node-0-0 -f
+kubectl logs -n <NAMESPACE> creditcoin-node-0-0 -f
 ```
 
 ### Check Node Status
 
 ```bash
 # Get pods
-kubectl get pods -n creditcoin-dryrun -o wide
+kubectl get pods -n <NAMESPACE> -o wide
 
 # Get services
-kubectl get services -n creditcoin-dryrun
+kubectl get services -n <NAMESPACE>
 
 # Check validator status
 cd cli
@@ -147,7 +153,7 @@ http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kube
 Each node exposes Prometheus metrics on port 9615:
 
 ```bash
-kubectl port-forward -n creditcoin-dryrun svc/creditcoin-node-0 9615:9615
+kubectl port-forward -n <NAMESPACE> svc/creditcoin-node-0 9615:9615
 
 # Access metrics
 curl http://localhost:9615/metrics
@@ -157,14 +163,14 @@ curl http://localhost:9615/metrics
 
 ### Manual Cleanup (Recommended)
 
-To delete the dryrun network and all associated resources:
+To delete a dryrun network deployment (this removes only the namespace and its resources, keeping the shared cluster intact):
 
 ```bash
 # List all dryrun deployments
 .github/scripts/cleanup-dryrun.sh list
 
 # Delete a specific deployment
-.github/scripts/cleanup-dryrun.sh delete <resource-group-name>
+.github/scripts/cleanup-dryrun.sh delete <namespace-name>
 
 # Or delete all dryrun deployments
 .github/scripts/cleanup-dryrun.sh delete-all
@@ -173,30 +179,47 @@ To delete the dryrun network and all associated resources:
 .github/scripts/cleanup-dryrun.sh status
 ```
 
-Alternatively, use Azure CLI directly:
+Alternatively, use kubectl directly:
 
 ```bash
-az group delete --name <resource-group-name> --yes --no-wait
+# Delete a specific namespace
+kubectl delete namespace <namespace-name>
+
+# Or list all dryrun namespaces first
+kubectl get namespaces -l purpose=dryrun
 ```
 
 ### Automatic Cleanup
 
-Currently, the workflow does not include automatic cleanup. This is intentional to:
-- Allow extended testing periods
-- Prevent accidental deletion of active test networks
-- Give you control over cost management
+The workflow includes automatic namespace cleanup at the start of each deployment:
+- If a namespace with the same name exists, it will be deleted before creating a new one
+- This ensures a fresh deployment each time
+- The shared AKS cluster is never deleted, only namespaces are managed
+
+### Cleanup Considerations
+
+- Deleting a namespace removes all pods, services, persistent volumes, and data within it
+- The shared AKS cluster remains available for future deployments
+- Multiple dryrun deployments can coexist on the same cluster
+- Cleanup is much faster than full cluster deletion (~30 seconds vs ~15 minutes)
 
 ## Cost Considerations
 
-The dryrun network uses the following Azure resources:
+The dryrun network uses shared Azure resources:
 
-- **AKS Cluster**: 2 × Standard_D4s_v3 VMs (~$0.24/hour each)
-- **Storage**: 5 × 50Gi managed disks (~$0.005/GB/month)
-- **Network**: Standard Azure networking costs
+- **Shared AKS Cluster**: Fixed cost regardless of number of deployments
+- **Per-deployment Storage**: 4-5 × 50Gi managed disks (~$0.005/GB/month per deployment)
+- **Network**: Standard Azure networking costs (shared)
 
-**Estimated cost**: ~$0.50-0.60/hour or ~$12-15/day
+**Key Benefits**:
+- No cluster provisioning/deletion costs (faster deployments)
+- Shared control plane reduces overhead
+- Only pay for storage and compute used by your specific deployment
+- Multiple teams can use the same cluster concurrently
 
-**Important**: Always delete resource groups when not in use to avoid unnecessary charges.
+**Estimated per-deployment cost**: ~$0.10-0.15/day for storage (cluster costs are shared)
+
+**Important**: Always delete namespaces when not in use to free up storage and cluster resources.
 
 ## Troubleshooting
 
@@ -210,13 +233,13 @@ The dryrun network uses the following Azure resources:
 
 ```bash
 # Check pod status
-kubectl get pods -n creditcoin-dryrun
+kubectl get pods -n <NAMESPACE>
 
 # Check pod events
-kubectl describe pod -n creditcoin-dryrun <pod-name>
+kubectl describe pod -n <NAMESPACE> <pod-name>
 
 # Check logs
-kubectl logs -n creditcoin-dryrun <pod-name>
+kubectl logs -n <NAMESPACE> <pod-name>
 ```
 
 ### Initialization Fails
@@ -228,10 +251,17 @@ kubectl logs -n creditcoin-dryrun <pod-name>
 
 ### Network Not Producing Blocks
 
-1. Check validator status: `kubectl logs -n creditcoin-dryrun -l app=creditcoin-node --tail=50`
+1. Check validator status: `kubectl logs -n <NAMESPACE> -l app=creditcoin-node --tail=50`
 2. Verify validators are active (wait 1-2 eras after initialization)
 3. Check session keys are correctly set
 4. Ensure nodes can communicate (check P2P connectivity)
+
+### Namespace Already Exists
+
+If you see errors about namespace already existing:
+- The workflow automatically cleans up existing namespaces with the same name
+- If manual cleanup is needed: `kubectl delete namespace <NAMESPACE>`
+- Wait for the namespace to be fully deleted before redeploying
 
 ## Configuration
 
@@ -255,8 +285,17 @@ kubectl logs -n creditcoin-dryrun <pod-name>
 ### Environment Variables
 
 In the workflow:
+- `AZURE_RESOURCE_GROUP`: Shared resource group (default: creditcoin-dryrun)
+- `AKS_CLUSTER_NAME`: Shared cluster name (default: cc3-dryrun-devnet-cluster)
 - `AZURE_LOCATION`: Azure region (default: eastus)
 - `NODE_COUNT`: Number of validators (default: 4)
+
+### Prerequisites
+
+Before using the workflow, ensure:
+1. The shared AKS cluster (`cc3-dryrun-devnet-cluster`) exists in the resource group (`creditcoin-dryrun`)
+2. The cluster has sufficient capacity for additional deployments
+3. Azure credentials have access to the cluster
 
 ## Advanced Usage
 

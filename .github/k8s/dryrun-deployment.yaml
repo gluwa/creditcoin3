@@ -3,7 +3,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: creditcoin-node-0
-  namespace: creditcoin-dryrun
+  namespace: ${NAMESPACE}
   labels:
     app: creditcoin-node
     node-id: "0"
@@ -34,7 +34,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: creditcoin-node-1
-  namespace: creditcoin-dryrun
+  namespace: ${NAMESPACE}
   labels:
     app: creditcoin-node
     node-id: "1"
@@ -65,7 +65,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: creditcoin-node-2
-  namespace: creditcoin-dryrun
+  namespace: ${NAMESPACE}
   labels:
     app: creditcoin-node
     node-id: "2"
@@ -96,7 +96,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: creditcoin-node-3
-  namespace: creditcoin-dryrun
+  namespace: ${NAMESPACE}
   labels:
     app: creditcoin-node
     node-id: "3"
@@ -127,7 +127,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: creditcoin-node-4
-  namespace: creditcoin-dryrun
+  namespace: ${NAMESPACE}
   labels:
     app: creditcoin-node
     node-id: "4"
@@ -159,7 +159,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: creditcoin-node-0
-  namespace: creditcoin-dryrun
+  namespace: ${NAMESPACE}
 spec:
   serviceName: creditcoin-node-0
   replicas: 1
@@ -246,7 +246,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: creditcoin-node-1
-  namespace: creditcoin-dryrun
+  namespace: ${NAMESPACE}
 spec:
   serviceName: creditcoin-node-1
   replicas: 1
@@ -290,7 +290,7 @@ spec:
             - --port=30333
             - --rpc-port=9933
             - --ws-port=9944
-            - --bootnodes=/dns/creditcoin-node-0.creditcoin-dryrun.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+            - --bootnodes=/dns/creditcoin-node-0.${NAMESPACE}.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
           volumeMounts:
             - name: data
               mountPath: /data
@@ -334,7 +334,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: creditcoin-node-2
-  namespace: creditcoin-dryrun
+  namespace: ${NAMESPACE}
 spec:
   serviceName: creditcoin-node-2
   replicas: 1
@@ -378,7 +378,7 @@ spec:
             - --port=30333
             - --rpc-port=9933
             - --ws-port=9944
-            - --bootnodes=/dns/creditcoin-node-0.creditcoin-dryrun.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+            - --bootnodes=/dns/creditcoin-node-0.${NAMESPACE}.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
           volumeMounts:
             - name: data
               mountPath: /data
@@ -422,7 +422,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: creditcoin-node-3
-  namespace: creditcoin-dryrun
+  namespace: ${NAMESPACE}
 spec:
   serviceName: creditcoin-node-3
   replicas: 1
@@ -466,7 +466,7 @@ spec:
             - --port=30333
             - --rpc-port=9933
             - --ws-port=9944
-            - --bootnodes=/dns/creditcoin-node-0.creditcoin-dryrun.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+            - --bootnodes=/dns/creditcoin-node-0.${NAMESPACE}.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
           volumeMounts:
             - name: data
               mountPath: /data
@@ -510,7 +510,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: creditcoin-node-4
-  namespace: creditcoin-dryrun
+  namespace: ${NAMESPACE}
 spec:
   serviceName: creditcoin-node-4
   replicas: 1
@@ -554,7 +554,7 @@ spec:
             - --port=30333
             - --rpc-port=9933
             - --ws-port=9944
-            - --bootnodes=/dns/creditcoin-node-0.creditcoin-dryrun.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+            - --bootnodes=/dns/creditcoin-node-0.${NAMESPACE}.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
           volumeMounts:
             - name: data
               mountPath: /data

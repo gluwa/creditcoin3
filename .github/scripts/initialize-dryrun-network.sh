@@ -13,6 +13,7 @@ CLI_PATH="cli/dist/cli.js"
 ALICE_URL="ws://localhost:9944"
 BOND_AMOUNT="10000"
 FUND_AMOUNT="50000"
+NAMESPACE="${NAMESPACE:-creditcoin-dryrun}"  # Use env var or default
 
 # Well-known development accounts
 declare -A ACCOUNTS=(
@@ -84,7 +85,7 @@ setup_port_forward() {
     sleep 1
 
     # Start port forward in background
-    kubectl port-forward -n creditcoin-dryrun "svc/creditcoin-node-$node_id" "$local_port:9944" &
+    kubectl port-forward -n "$NAMESPACE" "svc/creditcoin-node-$node_id" "$local_port:9944" &
     local pf_pid=$!
 
     # Wait for port forward to be ready
@@ -312,7 +313,7 @@ main() {
     log "Next steps:"
     log "  1. Wait for the next era for validators to become active"
     log "  2. Monitor validator status with: node $CLI_PATH status --url $ALICE_URL"
-    log "  3. Check logs: kubectl logs -n creditcoin-dryrun -l app=creditcoin-node --tail=50"
+    log "  3. Check logs: kubectl logs -n $NAMESPACE -l app=creditcoin-node --tail=50"
     log ""
 
     # Cleanup port forwards
