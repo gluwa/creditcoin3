@@ -2,8 +2,7 @@
     "permissions": {
         "deny": [
             "Shell(git push)",
-            "Shell(gh pr create)",
-            "Write(**)"
+            "Shell(gh pr create)"
         ]
     }
 }
