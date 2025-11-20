@@ -1,6 +1,6 @@
 use anyhow::Result;
 use config::Config;
-use db::{DbManager, ProofsDbEntry};
+use db::{DbManager, QueryProofs};
 use sp_core::H256;
 use tokio::time::{sleep, Duration};
 use tracing::debug;
@@ -68,10 +68,10 @@ impl Server {
         // TODO: Remove this
         self.db_manager.create_example_table().await?;
 
-        let mock_entry = ProofsDbEntry {
+        let mock_entry = QueryProofs {
             chain_key: 1,
             header_number: 1,
-            tx_index: Some(1),
+            tx_index: None,
             tx_hash: Some(H256::zero()),
             continuity_proof: None,
             merkle_proof: None,
@@ -83,7 +83,10 @@ impl Server {
             // Test insert
             self.db_manager.insert_proofs_entry(mock_entry.clone());
             // Test read
-            self.db_manager.get_proof().await?;
+            println!("Waiting on insert before read...");
+            sleep(Duration::from_secs(1)).await;
+            let maybe_entry = self.db_manager.get_proofs_entry(1, 1).await?;
+            println!("Entry: {maybe_entry:?}");
             // Wait a bit to avoid spam
             println!("Waiting...");
             sleep(Duration::from_secs(20)).await;

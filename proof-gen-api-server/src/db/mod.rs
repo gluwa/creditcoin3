@@ -1,20 +1,24 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod};
+use serde_json::Value;
 use sp_core::H256;
 use tokio_postgres::NoTls;
 use tracing::debug;
 
-const V1_DOWN_SQL: &str = include_str!("../../migrations/v1/down.sql");
+use type_conversions::{to_storage_int, ProofsDbEntry};
+
+mod type_conversions;
+
 const V1_UP_SQL: &str = include_str!("../../migrations/v1/up.sql");
 
 #[derive(Debug, Clone)]
-pub struct ProofsDbEntry {
+pub struct QueryProofs {
     pub chain_key: u64,
     pub header_number: u64,
     pub tx_index: Option<u64>,
     pub tx_hash: Option<H256>,
-    pub continuity_proof: Option<()>,
-    pub merkle_proof: Option<()>,
+    pub continuity_proof: Option<Value>,
+    pub merkle_proof: Option<Value>,
     pub merkle_root: Option<H256>,
 }
 
@@ -52,7 +56,6 @@ impl DbManager {
     pub async fn run_migrations(&self) -> Result<()> {
         let client = self.pool.get().await?;
 
-        client.batch_execute(V1_DOWN_SQL).await?;
         client.batch_execute(V1_UP_SQL).await?;
 
         Ok(())
@@ -75,15 +78,38 @@ impl DbManager {
     }
 
     // Because we don't need to wait on the insert result, we spawn a task to insert in the background
-    pub fn insert_proofs_entry(&self, entry: ProofsDbEntry) {
-        // Converting ProofsDbEntry into tokio::postgres friendly items
-        let unpacked_data = "I'm a proof!".to_string();
+    pub fn insert_proofs_entry(&self, entry: QueryProofs) {
         let pool = self.pool.clone();
         tokio::spawn(async move {
             match pool.get().await {
                 Ok(client) => {
+                    // Converting QueryProofs contents into postgres friendly items
+                    let entry = ProofsDbEntry::from(entry);
+
                     if let Err(e) = client
-                        .execute("INSERT INTO example (name) VALUES ($1)", &[&unpacked_data])
+                        .execute(
+                            r#"
+                            INSERT INTO proofs (
+                                chain_key,
+                                header_number,
+                                tx_index,
+                                tx_hash,
+                                continuity_proof,
+                                merkle_proof,
+                                merkle_root
+                            )
+                            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                            "#,
+                            &[
+                                &entry.chain_key,
+                                &entry.header_number,
+                                &entry.tx_index,
+                                &entry.tx_hash,
+                                &entry.continuity_proof,
+                                &entry.merkle_proof,
+                                &entry.merkle_root,
+                            ],
+                        )
                         .await
                     {
                         eprintln!("Failed to insert proof {entry:?}, error: {e}");
@@ -96,15 +122,45 @@ impl DbManager {
         });
     }
 
-    pub async fn get_proof(&self) -> Result<()> {
+    pub async fn get_proofs_entry(
+        &self,
+        chain_key: u64,
+        header_number: u64,
+    ) -> Result<Option<ProofsDbEntry>> {
         let client = self.pool.get().await?;
-        let rows = client.query("SELECT id, name FROM example", &[]).await?;
-        for row in rows {
-            let id: i32 = row.get(0);
-            let name: String = row.get(1);
-            println!("row: id={id}, name={name}");
+        let rows = client
+            .query(
+                r#"
+            SELECT id, header_number
+            FROM proofs
+            WHERE chain_key = $1
+              AND header_number = $2
+              AND tx_index IS NULL
+            LIMIT 2
+            "#,
+                &[
+                    &(to_storage_int(chain_key)),
+                    &(to_storage_int(header_number)),
+                ],
+            )
+            .await?;
+
+        if rows.is_empty() {
+            return Ok(None);
         }
-        Ok(())
+
+        if rows.len() > 1 {
+            bail!(
+                "Expected at most one proof, but found {} for chain_key={} header_number={} with tx_index IS NULL",
+                rows.len(),
+                chain_key,
+                header_number
+            );
+        }
+
+        let entry = ProofsDbEntry::try_from(&rows[0])?;
+
+        Ok(Some(entry))
     }
 
     pub async fn reset_db(&self) -> Result<()> {
