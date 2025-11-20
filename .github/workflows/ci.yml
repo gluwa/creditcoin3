@@ -1189,6 +1189,7 @@ jobs:
           fi
 
       - name: Compare to pallet storage versions from Testnet
+        if: always()
         working-directory: ./cli
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.usc-testnet.creditcoin.network/ws 2>/dev/null | sort > /var/tmp/pallet_storage.testnet
@@ -1201,6 +1202,7 @@ jobs:
           fi
 
       - name: Run blockchain tests
+        if: always()
         working-directory: ./cli
         run: |
           yarn test:blockchain
