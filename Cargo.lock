@@ -2584,13 +2584,11 @@ dependencies = [
  "cc-client",
  "ccnext-abi-encoding",
  "eth",
- "mmr",
  "serde",
  "sp-core",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
- "utils",
 ]
 
 [[package]]
