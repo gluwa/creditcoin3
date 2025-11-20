@@ -65,23 +65,23 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty array of entries for single tx
             };
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             try {
                 const estimatedGas = await contract.verifyQuery.estimateGas(
                     query,
                     txData,
                     merkleProof,
-                    continuityChain,
+                    continuityProof,
                 );
                 expect(estimatedGas).toBeGreaterThan(0n);
                 expect(estimatedGas).toBeLessThan(10000000n); // Reasonable upper bound
@@ -108,23 +108,23 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 siblings: [], // Empty array of entries
             };
 
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.keccak256(smallTxData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.keccak256(smallTxData),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             try {
                 const smallGas = await contract.verifyQuery.estimateGas(
                     query,
                     smallTxData,
                     merkleProof,
-                    continuityChain,
+                    continuityProof,
                 );
 
                 const largeProof = {
@@ -132,22 +132,22 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                     siblings: [], // Empty array of entries
                 };
 
-                const largeContinuityChain = [
-                    {
-                        // eslint-disable-next-line @typescript-eslint/naming-convention
-                        block_number: 100,
-                        root: ethers.keccak256(largeTxData),
-                        // eslint-disable-next-line @typescript-eslint/naming-convention
-                        prev_digest: ethers.zeroPadBytes('0x00', 32),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                ];
+                const largeContinuityProof = {
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
+                    lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                    blocks: [
+                        {
+                            root: ethers.keccak256(largeTxData),
+                            digest: ethers.zeroPadBytes('0x01', 32),
+                        },
+                    ],
+                };
 
                 const largeGas = await contract.verifyQuery.estimateGas(
                     query,
                     largeTxData,
                     largeProof,
-                    largeContinuityChain,
+                    largeContinuityProof,
                 );
 
                 // Larger data should require more gas
@@ -183,30 +183,30 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 ],
             };
 
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             try {
                 const simpleGas = await contract.verifyQuery.estimateGas(
                     query,
                     txData,
                     simpleMerkleProof,
-                    continuityChain,
+                    continuityProof,
                 );
 
                 const complexGas = await contract.verifyQuery.estimateGas(
                     query,
                     txData,
                     complexMerkleProof,
-                    continuityChain,
+                    continuityProof,
                 );
 
                 // More siblings should require more gas
@@ -232,61 +232,49 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 siblings: [], // Empty for single transaction
             };
 
-            const shortContinuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 103,
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const shortContinuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
-            const longContinuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 101,
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x01', 32),
-                    digest: ethers.zeroPadBytes('0x02', 32),
-                },
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 102,
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x02', 32),
-                    digest: ethers.zeroPadBytes('0x03', 32),
-                },
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 103,
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x03', 32),
-                    digest: ethers.zeroPadBytes('0x04', 32),
-                },
-            ];
+            const longContinuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x02', 32),
+                    },
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x03', 32),
+                    },
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x04', 32),
+                    },
+                ],
+            };
 
             try {
                 const shortGas = await contract.verifyQuery.estimateGas(
                     query,
                     txData,
                     merkleProof,
-                    shortContinuityChain,
+                    shortContinuityProof,
                 );
 
-                const longGas = await contract.verifyQuery.estimateGas(query, txData, merkleProof, longContinuityChain);
+                const longGas = await contract.verifyQuery.estimateGas(query, txData, merkleProof, longContinuityProof);
 
                 // Longer continuity chain should require more gas
                 expect(longGas).toBeGreaterThan(shortGas);
@@ -313,19 +301,19 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: maxUint64, // Max uint64 for consistency
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             try {
-                await contract.verifyQuery(query, txData, merkleProof, continuityChain, {
+                await contract.verifyQuery(query, txData, merkleProof, continuityProof, {
                     gasPrice,
                     gasLimit: 500000,
                 });
@@ -350,19 +338,19 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.zeroPadBytes('0x01', 32),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.zeroPadBytes('0x01', 32),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.zeroPadBytes('0x01', 32),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             try {
-                await contract.verifyQuery(query, invalidData, merkleProof, continuityChain, {
+                await contract.verifyQuery(query, invalidData, merkleProof, continuityProof, {
                     gasPrice,
                     gasLimit: 500000,
                 });
@@ -388,11 +376,15 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 siblings: [], // Empty entries array
             };
 
-            // Malformed continuity chain with empty block array
-            const malformedChain: any[] = []; // Empty array
+            // Malformed continuity proof with empty block array
+            const malformedProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [], // Empty array
+            };
 
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, malformedChain)).rejects.toThrow(
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, malformedProof)).rejects.toThrow(
                 /Continuity chain cannot be empty/,
             );
         });
@@ -410,21 +402,21 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.zeroPadBytes('0x01', 32),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.zeroPadBytes('0x01', 32),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.zeroPadBytes('0x01', 32),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             // Pass non-hex string as transaction data - should fail at ethers.js validation level
             // Note: ethers.js throws "invalid BytesLike value" during encoding
             await expect(
-                contract.verifyQuery.staticCall(query, 'not-hex-data', merkleProof, continuityChain),
+                contract.verifyQuery.staticCall(query, 'not-hex-data', merkleProof, continuityProof),
             ).rejects.toThrow(/invalid BytesLike value|invalid hex string/i);
         });
     });
@@ -444,21 +436,21 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             // Note: Merkle proof validation happens first, so this fails at Merkle validation
             // To test continuity validation, we would need valid Merkle proofs
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityChain)).rejects.toThrow(
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof)).rejects.toThrow(
                 /Merkle proof validation failed/,
             );
         });
@@ -477,19 +469,19 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.zeroPadBytes('0x00', 32),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.zeroPadBytes('0x00', 32),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.zeroPadBytes('0x00', 32),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityChain)).rejects.toThrow(
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof)).rejects.toThrow(
                 /Transaction data cannot be empty/,
             );
         });
@@ -511,21 +503,21 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 siblings: [], // Empty entries array
             };
 
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             // Note: Merkle proof validation happens first, so this fails at Merkle validation
             // To test data extraction errors, we would need valid Merkle proofs
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityChain)).rejects.toThrow(
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof)).rejects.toThrow(
                 /Merkle proof validation failed/,
             );
         });
@@ -546,21 +538,21 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty entries array
             };
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.keccak256(txData),
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             // Note: Merkle proof validation happens first, so this fails at Merkle validation
             // To test data extraction errors, we would need valid Merkle proofs
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityChain)).rejects.toThrow(
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof)).rejects.toThrow(
                 /Merkle proof validation failed/,
             );
         });
@@ -579,19 +571,19 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256('0xdeadbeef'), // Wrong root, doesn't match txData
                 siblings: [{ hash: ethers.randomBytes(32), isLeft: false }],
             };
-            const continuityChain = [
-                {
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    block_number: 100,
-                    root: ethers.keccak256('0xdeadbeef'), // Wrong root to match merkle proof
-                    // eslint-disable-next-line @typescript-eslint/naming-convention
-                    prev_digest: ethers.zeroPadBytes('0x00', 32),
-                    digest: ethers.zeroPadBytes('0x01', 32),
-                },
-            ];
+            const continuityProof = {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
+                blocks: [
+                    {
+                        root: ethers.keccak256('0xdeadbeef'), // Wrong root to match merkle proof
+                        digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                ],
+            };
 
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityChain)).rejects.toThrow(
+            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof)).rejects.toThrow(
                 /Merkle proof validation failed/,
             );
         });
