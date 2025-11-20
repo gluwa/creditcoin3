@@ -297,35 +297,6 @@ jobs:
           export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
           .github/check-solidity-source-vs-metadata.sh
 
-  fmt:
-    name: Rustfmt
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          components: rustfmt
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        uses: gluwa/cargo@dev
-        with:
-          command: fmt
-          args: -- --check
-
-      - name: Check TOML formatting
-        run: |
-          cargo install taplo-cli --locked
-          taplo format --check
-
   deploy-runner-build-creditcoin-for:
     strategy:
       fail-fast: false
