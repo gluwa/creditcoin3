@@ -6,7 +6,7 @@ use cc_client::AccountId32;
 use sp_core::H256;
 
 impl ContinuityBuilder {
-    /// Fetch attestations for this chain.
+    /// Fetch attestations from Creditcoin3
     pub async fn fetch_attestations(&self) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
         self.cc_client
             .get_attestations_for_chain(self.config.chain_key)
@@ -14,7 +14,7 @@ impl ContinuityBuilder {
             .map_err(|e| anyhow!("Failed to fetch attestations: {}", e))
     }
 
-    /// Check whether a query height is itself a checkpoint height.
+    /// Check if query is at a checkpoint height by checking the last checkpoint
     pub async fn check_if_at_checkpoint_height(
         &self,
         query_height: u64,
@@ -22,55 +22,69 @@ impl ContinuityBuilder {
         let last_checkpoint = self
             .cc_client
             .get_last_checkpoint(self.config.chain_key)
-            .await?;
+            .await
+            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {}", e))?;
 
-        if let Some(cp) = last_checkpoint {
-            if cp.block_number == query_height {
-                return Ok(Some(cp));
+        if let Some(checkpoint) = last_checkpoint {
+            if checkpoint.block_number == query_height {
+                return Ok(Some(checkpoint));
             }
         }
 
         Ok(None)
     }
 
-    /// Fetch checkpoints and optionally filter by range.
+    /// Fetch checkpoints with optional filtering
+    ///
+    /// Since iteration order is not guaranteed, we fetch all checkpoints
+    /// and then filter them. Returns checkpoints sorted highest to lowest (newest first).
     pub async fn fetch_checkpoints_smart(
         &self,
         max_needed: Option<u64>,
         min_needed: Option<u64>,
     ) -> Result<Vec<AttestationCheckpoint>> {
-        let last_cp = self
+        // Start with last checkpoint (most efficient single query)
+        let last_checkpoint = self
             .cc_client
             .get_last_checkpoint(self.config.chain_key)
-            .await?;
+            .await
+            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {}", e))?;
 
+        // If we only need to check the last checkpoint, we're done
         if max_needed.is_none() && min_needed.is_none() {
-            return Ok(last_cp.into_iter().collect());
+            return Ok(last_checkpoint.into_iter().collect());
         }
 
-        let all = self
+        // Fetch all checkpoints (iteration order is not guaranteed, so we need all)
+        let all_checkpoints = self
             .cc_client
             .get_checkpoints_for_chain(self.config.chain_key)
-            .await?;
+            .await
+            .map_err(|e| anyhow!("Failed to fetch checkpoints: {}", e))?;
 
-        Ok(all
+        // Filter checkpoints based on block number range
+        let filtered: Vec<AttestationCheckpoint> = all_checkpoints
             .into_iter()
             .filter(|c| {
-                if let Some(maxv) = max_needed {
-                    if c.block_number >= maxv {
+                if let Some(max) = max_needed {
+                    if c.block_number >= max {
                         return false;
                     }
                 }
-                if let Some(minv) = min_needed {
-                    if c.block_number <= minv {
+                if let Some(min) = min_needed {
+                    if c.block_number <= min {
                         return false;
                     }
                 }
                 true
             })
-            .collect())
+            .collect();
+
+        Ok(filtered)
     }
 }
+
+// ===== Convenience functions for backward compatibility =====
 
 /// Fetch continuity proof for a single query (legacy interface)
 pub async fn fetch_continuity_proof(

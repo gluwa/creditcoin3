@@ -47,3 +47,6 @@ tokio-postgres = { version = "0.7", features = [
 ] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Creditcoin / USC dependencies
+continuity = { path = "../common/continuity" }

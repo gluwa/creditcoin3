@@ -8,41 +8,66 @@ use ccnext_abi_encoding::abi::EncodingVersion;
 use eth::continuity::Manager as ContinuityManager;
 
 impl ContinuityBuilder {
-    pub async fn build_and_trim_continuity(
+    /// Build continuity blocks and trim to required range
+    async fn build_and_trim_continuity(
         &self,
         lower: AttestationInfo,
         upper: Option<AttestationInfo>,
         min_query: u64,
     ) -> Result<Vec<Block>> {
+        // POC pattern: continuity chain ALWAYS starts at queryHeight - 1
         let required_start = min_query.saturating_sub(1);
+
+        // Determine end height (next consensus point or fallback)
         let end_height = upper
             .map(|u| u.block_number)
             .unwrap_or_else(|| min_query + 10);
 
+        // Build from attestation to end to get correct digests
         let build_start = lower.block_number + 1;
 
+        println!(
+            "Building continuity chain from {build_start} to {end_height} (will trim to start at {required_start})"
+        );
+
+        // Create continuity fragment
         let manager = ContinuityManager::new(build_start, end_height, &self.eth_client);
-        let fragment = manager.create(lower.digest, EncodingVersion::V1).await?;
+        let fragment = manager
+            .create(lower.digest, EncodingVersion::V1)
+            .await
+            .map_err(|e| anyhow!("Failed to create continuity fragment: {}", e))?;
 
-        let blocks: Vec<Block> = fragment.blocks().to_vec();
+        let all_blocks: Vec<Block> = fragment.blocks().to_vec();
 
+        // If we built from the required start, no trimming needed
         if build_start == required_start {
-            return Ok(blocks);
+            println!("Generated {} continuity blocks", all_blocks.len());
+            return Ok(all_blocks);
         }
 
-        let idx = blocks
+        // Trim to start at required_start
+        let start_index = all_blocks
             .iter()
             .position(|b| b.block_number == required_start)
             .ok_or_else(|| {
                 anyhow!(
-                    "Block {} missing in continuity chain ({:?} → {:?})",
+                    "Block {} not found in continuity chain (range: {}-{})",
                     required_start,
-                    blocks.first().map(|b| b.block_number),
-                    blocks.last().map(|b| b.block_number)
+                    all_blocks.first().map(|b| b.block_number).unwrap_or(0),
+                    all_blocks.last().map(|b| b.block_number).unwrap_or(0)
                 )
             })?;
 
-        Ok(blocks[idx..].to_vec())
+        let trimmed = all_blocks[start_index..].to_vec();
+
+        println!(
+            "Trimmed continuity chain from {} to {} blocks (starting at block {})",
+            all_blocks.len(),
+            trimmed.len(),
+            required_start
+        );
+
+        Ok(trimmed)
     }
 
     /// Core logic for building continuity proof for given heights
