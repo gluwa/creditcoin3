@@ -8793,7 +8793,6 @@ dependencies = [
 name = "pallet-attestation-poc"
 version = "3.66.0"
 dependencies = [
- "assert_matches",
  "attestor-primitives",
  "bls-signatures",
  "env_logger 0.11.8",

@@ -34,7 +34,6 @@ serde = { workspace = true, default-features = false, features = ["derive"] }
 supported-chains-primitives = { workspace = true }
 
 [dev-dependencies]
-assert_matches = { workspace = true }
 env_logger = { workspace = true }
 extend = "1.2.0"
 frame-election-provider-support = { workspace = true }

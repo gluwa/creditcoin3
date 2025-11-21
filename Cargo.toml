@@ -31,10 +31,6 @@ repository = "https://github.com/gluwa/creditcoin3-next/"
 version = "3.66.0"
 
 [workspace.dependencies]
-assert_matches = "1.5.0"
-
-# Substrate Clientassert_matches = "1.5.0"
-
 affix = "0.1"
 anyhow = { version = "1.0.68", default-features = false }
 async-trait = { version = "0.1.42" }
