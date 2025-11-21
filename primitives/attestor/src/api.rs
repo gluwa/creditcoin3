@@ -21,7 +21,7 @@ sp_api::decl_runtime_apis! {
 
         fn get(chain_key: ChainKey, digest: Digest) -> Option<SignedAttestation<H, AccountId>>;
 
-        fn contains_digest(chain_key: ChainKey, digest: Digest) -> bool;
+        fn contains_digest(chain_key: ChainKey, digest: Digest, block_number: u64) -> bool;
 
         fn attestor_bls_pubkey(chain_key: ChainKey, attestor: &AccountId) -> Option<BlsPublicKey>;
 

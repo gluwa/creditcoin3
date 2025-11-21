@@ -71,7 +71,8 @@ where
 
         let runtime = self.runtime.runtime_api();
 
-        let exists = runtime.contains_digest(block_hash, chain_key, attestation.digest())?;
+        let exists =
+            runtime.contains_digest(block_hash, chain_key, attestation.digest(), header_number)?;
         if exists {
             debug!(target: LOG_TARGET, "📝 Attestation already exists, discarding");
             return Err(Error::AttestationExists);
@@ -145,7 +146,12 @@ where
             let block_prev_digest = block.prev_digest;
             if block_prev_digest != last_block_digest {
                 // Check if we have the block_prev_digest in storage
-                let exists = runtime.contains_digest(block_hash, chain_key, block_prev_digest)?;
+                let exists = runtime.contains_digest(
+                    block_hash,
+                    chain_key,
+                    block_prev_digest,
+                    block.block_number.saturating_sub(1),
+                )?;
                 if !exists {
                     error!(target: LOG_TARGET, "❌ Continuity proof tail prev digest mismatch, expected {last_block_digest:?}, got {block_prev_digest:?}, and we don't have it in storage");
                     return Err(Error::InvalidAttestationContinuityProof);

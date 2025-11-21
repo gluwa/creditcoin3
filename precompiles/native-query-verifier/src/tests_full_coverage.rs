@@ -153,7 +153,10 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
         blocks[0].prev_digest,
         signed_start_attestation,
     );
-    pallet_attestation_poc::LastDigest::<Runtime>::insert(chain_id, blocks[0].prev_digest);
+    pallet_attestation_poc::LastDigest::<Runtime>::insert(
+        chain_id,
+        (blocks[0].block_number, blocks[0].prev_digest),
+    );
 
     // Setup attestation for the last block (end of chain)
     if let Some(last_block) = blocks.last() {
@@ -529,8 +532,8 @@ fn test_continuity_with_checkpoint_fallback() {
         );
         pallet_attestation_poc::Checkpoints::<Runtime>::insert(
             1,
-            continuity_blocks[0].prev_digest,
             continuity_blocks[0].block_number - 1,
+            continuity_blocks[0].prev_digest,
         );
         pallet_attestation_poc::LastCheckpoint::<Runtime>::insert(1, checkpoint);
 
@@ -615,7 +618,13 @@ fn test_continuity_attestation_header_validation() {
             continuity_blocks[0].prev_digest,
             signed_attestation,
         );
-        pallet_attestation_poc::LastDigest::<Runtime>::insert(1, continuity_blocks[0].prev_digest);
+        pallet_attestation_poc::LastDigest::<Runtime>::insert(
+            1,
+            (
+                continuity_blocks[0].block_number,
+                continuity_blocks[0].prev_digest,
+            ),
+        );
 
         // Setup end attestation
         if let Some(last_block) = continuity_blocks.last() {
@@ -697,7 +706,13 @@ fn test_continuity_wrong_attestation_header_succeeds() {
             signed_attestation,
         );
         // Also set last digest so the continuity chain can be validated
-        pallet_attestation_poc::LastDigest::<Runtime>::insert(1, continuity_blocks[0].prev_digest);
+        pallet_attestation_poc::LastDigest::<Runtime>::insert(
+            1,
+            (
+                continuity_blocks[0].block_number,
+                continuity_blocks[0].prev_digest,
+            ),
+        );
 
         // Setup end attestation correctly
         if let Some(last_block) = continuity_blocks.last() {
@@ -1700,7 +1715,13 @@ fn test_batch_queries_continuity_failure() {
             continuity_blocks[0].prev_digest,
             signed_attestation,
         );
-        pallet_attestation_poc::LastDigest::<Runtime>::insert(1, continuity_blocks[0].prev_digest);
+        pallet_attestation_poc::LastDigest::<Runtime>::insert(
+            1,
+            (
+                continuity_blocks[0].block_number,
+                continuity_blocks[0].prev_digest,
+            ),
+        );
 
         // Batch should revert due to continuity chain failure
         precompiles()

@@ -167,8 +167,8 @@ describe('BlockAttested events', (): void => {
             // a checkpoint for the genesis block of the ingested chain
             let checkpointsForGenesis = 0;
             const checkpoints = await api.query.attestation.checkpoints.entries(chain_Anvil1_Key);
-            checkpoints.forEach(([_key, attestation]) => {
-                if (attestation.unwrap().toNumber() === 0) {
+            checkpoints.forEach(([key, _attestation]) => {
+                if (key.args[1].toNumber() === 0) {
                     checkpointsForGenesis++;
                 }
             });

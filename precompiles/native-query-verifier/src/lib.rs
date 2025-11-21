@@ -402,9 +402,9 @@ where
 
     /// Check if a digest corresponds to a checkpoint
     ///
-    /// Returns the block number if the digest matches a checkpoint,
+    /// Returns the digest if the block number matches a checkpoint,
     /// None otherwise. Used as a fallback when attestation lookup fails.
-    fn get_checkpoint(chain_key: u64, digest: H256) -> Option<u64> {
-        pallet_attestation_poc::Pallet::<Runtime>::checkpoints(chain_key, digest)
+    fn get_checkpoint(chain_key: u64, block_number: u64) -> Option<H256> {
+        pallet_attestation_poc::Pallet::<Runtime>::checkpoints(chain_key, block_number)
     }
 }

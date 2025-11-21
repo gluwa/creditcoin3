@@ -18,10 +18,8 @@ use crate::{
 
 // Gas cost constants
 // Based on realistic Solidity implementation costs with precompile efficiency gains:
-// - Base transaction: 21,000 gas
 // - Keccak256 in Solidity: ~30 + 6/word, in precompile: ~10x faster
 // - SLOAD: 2,100 (warm) / 2,600 (cold)
-pub const GAS_BASE_VERIFY: u64 = 21_000; // Base transaction cost (matches Ethereum standard)
 pub const GAS_PER_TX_BYTE: u64 = 16; // Per byte cost for transaction data (matches calldata cost)
 pub const GAS_PER_SIBLING: u64 = 200; // Per Merkle sibling verification (native efficiency vs ~166 in Solidity)
 pub const GAS_PER_CONTINUITY_BLOCK: u64 = 400; // Per block verification (hash ~48 gas + comparisons/overhead ~350 gas)
@@ -125,9 +123,6 @@ where
         if emit_events {
             handle.record_log_costs_manual(3, 32)?;
         }
-
-        // Base cost
-        handle.record_cost(GAS_BASE_VERIFY)?;
 
         // Convert bounded bytes to Vec<u8>
         let tx_bytes: Vec<u8> = tx_data.into();
@@ -300,15 +295,6 @@ where
                 exit_status: ExitRevert::Reverted,
             });
         }
-
-        // Calculate gas for batch operation
-        let total_base_gas =
-            GAS_BASE_VERIFY
-                .checked_mul(num_queries as u64)
-                .ok_or(PrecompileFailure::Error {
-                    exit_status: ExitError::OutOfGas,
-                })?;
-        handle.record_cost(total_base_gas)?;
 
         // Find min and max block heights from all queries in a single pass
         let mut min_height: Option<u64> = None;

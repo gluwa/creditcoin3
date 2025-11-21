@@ -3562,7 +3562,7 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'Active' | 'Idle' | 'Waiting';
     }
 
-    /** @name PalletAttestationPocLedgerAttestorLedger (411) */
+    /** @name PalletAttestationPocLedgerAttestorLedger (412) */
     interface PalletAttestationPocLedgerAttestorLedger extends Struct {
         readonly stash: AccountId32;
         readonly totalStaked: Compact<u128>;
@@ -3570,13 +3570,13 @@ declare module '@polkadot/types/lookup' {
         readonly unlocking: Vec<PalletAttestationPocLedgerUnlockChunk>;
     }
 
-    /** @name PalletAttestationPocLedgerUnlockChunk (413) */
+    /** @name PalletAttestationPocLedgerUnlockChunk (414) */
     interface PalletAttestationPocLedgerUnlockChunk extends Struct {
         readonly value: Compact<u128>;
         readonly era: Compact<u32>;
     }
 
-    /** @name PalletAttestationPocError (415) */
+    /** @name PalletAttestationPocError (416) */
     interface PalletAttestationPocError extends Enum {
         readonly isAlreadyAttestor: boolean;
         readonly isAttestorListFull: boolean;
@@ -3667,7 +3667,7 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidAttestationPrevDigest';
     }
 
-    /** @name SupportedChainsPrimitivesSupportedChain (416) */
+    /** @name SupportedChainsPrimitivesSupportedChain (417) */
     interface SupportedChainsPrimitivesSupportedChain extends Struct {
         readonly chainId: u64;
         readonly chainName: Bytes;
@@ -3675,7 +3675,7 @@ declare module '@polkadot/types/lookup' {
         readonly maturityStrategy: Text;
     }
 
-    /** @name PalletSupportedChainsError (418) */
+    /** @name PalletSupportedChainsError (419) */
     interface PalletSupportedChainsError extends Enum {
         readonly isChainAlreadyRegistered: boolean;
         readonly isChainNotSupported: boolean;
@@ -3684,30 +3684,30 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported' | 'Arithmetic' | 'InvalidMaturityStrategy';
     }
 
-    /** @name PalletRandomnessError (419) */
+    /** @name PalletRandomnessError (420) */
     type PalletRandomnessError = Null;
 
-    /** @name FrameSystemExtensionsCheckNonZeroSender (422) */
+    /** @name FrameSystemExtensionsCheckNonZeroSender (423) */
     type FrameSystemExtensionsCheckNonZeroSender = Null;
 
-    /** @name FrameSystemExtensionsCheckSpecVersion (423) */
+    /** @name FrameSystemExtensionsCheckSpecVersion (424) */
     type FrameSystemExtensionsCheckSpecVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckTxVersion (424) */
+    /** @name FrameSystemExtensionsCheckTxVersion (425) */
     type FrameSystemExtensionsCheckTxVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckGenesis (425) */
+    /** @name FrameSystemExtensionsCheckGenesis (426) */
     type FrameSystemExtensionsCheckGenesis = Null;
 
-    /** @name FrameSystemExtensionsCheckNonce (428) */
+    /** @name FrameSystemExtensionsCheckNonce (429) */
     interface FrameSystemExtensionsCheckNonce extends Compact<u32> {}
 
-    /** @name FrameSystemExtensionsCheckWeight (429) */
+    /** @name FrameSystemExtensionsCheckWeight (430) */
     type FrameSystemExtensionsCheckWeight = Null;
 
-    /** @name PalletTransactionPaymentChargeTransactionPayment (430) */
+    /** @name PalletTransactionPaymentChargeTransactionPayment (431) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name Creditcoin3RuntimeRuntime (432) */
+    /** @name Creditcoin3RuntimeRuntime (433) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module

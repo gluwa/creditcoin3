@@ -1,9 +1,9 @@
 // Gas security tests for native-query-verifier precompile
 // Ensures gas costs prevent DoS attacks and align with Ethereum standards
+use precompiles_primitives::GAS_STORAGE_LOOKUP;
 
-use crate::continuity::GAS_STORAGE_LOOKUP;
 use crate::mock::*;
-use crate::verify::{GAS_BASE_VERIFY, GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
+use crate::verify::{GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
 use crate::*;
 // ============================================================================
 // GAS SECURITY AND DOS PREVENTION TESTS
@@ -22,7 +22,7 @@ fn test_gas_prevents_dos_with_large_tx_data() {
         ];
 
         for (size, label) in test_cases {
-            let gas_cost = GAS_BASE_VERIFY + (GAS_PER_TX_BYTE * size);
+            let gas_cost = GAS_PER_TX_BYTE * size;
 
             // Ensure gas cost scales appropriately
             println!("{label} transaction costs {gas_cost} gas");
@@ -30,7 +30,7 @@ fn test_gas_prevents_dos_with_large_tx_data() {
             // For 10MB (max size), gas should be prohibitively expensive
             if size == 10_485_760 {
                 // 21,000 + (16 * 10,485,760) = 167,793,160 gas
-                assert_eq!(gas_cost, 167_793_160, "10MB should cost ~168M gas");
+                assert_eq!(gas_cost, 167_772_160, "10MB should cost ~168M gas");
 
                 // This exceeds typical block gas limits (30M), preventing DoS
                 assert!(gas_cost > 30_000_000, "Should exceed block gas limit");
@@ -52,7 +52,7 @@ fn test_gas_prevents_dos_with_deep_merkle_tree() {
         ];
 
         for (levels, siblings) in test_cases {
-            let gas_cost = GAS_BASE_VERIFY + (GAS_PER_SIBLING * siblings);
+            let gas_cost = GAS_PER_SIBLING * siblings;
 
             println!("{levels} level tree costs {gas_cost} gas");
 
@@ -61,7 +61,7 @@ fn test_gas_prevents_dos_with_deep_merkle_tree() {
 
             // But cost should scale to prevent abuse
             if levels > 20 {
-                assert!(gas_cost > 30_000, "Very deep trees should be expensive");
+                assert!(gas_cost > 10_000, "Very deep trees should be expensive");
             }
         }
     });
@@ -82,8 +82,7 @@ fn test_gas_prevents_dos_with_long_continuity_chain() {
         for blocks in test_cases {
             // Each block costs GAS_PER_CONTINUITY_BLOCK (gas charged upfront)
             // Plus attestation/checkpoint lookups (GAS_STORAGE_LOOKUP * 2)
-            let gas_cost =
-                GAS_BASE_VERIFY + (blocks * GAS_PER_CONTINUITY_BLOCK) + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
+            let gas_cost = (blocks * GAS_PER_CONTINUITY_BLOCK) + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
             println!("{blocks} block chain costs {gas_cost} gas");
 
@@ -112,14 +111,6 @@ fn test_gas_comparison_with_ethereum_precompiles() {
         // ecrecover costs 3,000 gas
         let ecrecover_gas = 3_000u64;
 
-        // Our base cost should match standard transaction cost
-        // (precompile efficiency offsets the complex verification work)
-        let tx_base = 21_000u64;
-        assert_eq!(
-            GAS_BASE_VERIFY, tx_base,
-            "Base gas should match standard transaction cost"
-        );
-
         // Per-byte cost should match calldata
         assert_eq!(GAS_PER_TX_BYTE, 16, "Should match EVM calldata cost");
 
@@ -143,8 +134,7 @@ fn test_gas_for_typical_use_cases() {
         // - 200 byte transaction
         // - 4 siblings (2 levels)
         // - 3 continuity blocks
-        let erc20_gas = GAS_BASE_VERIFY
-            + (200 * GAS_PER_TX_BYTE)
+        let erc20_gas = (200 * GAS_PER_TX_BYTE)
             + (4 * GAS_PER_SIBLING)
             + (3 * GAS_PER_CONTINUITY_BLOCK)
             + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
@@ -156,8 +146,7 @@ fn test_gas_for_typical_use_cases() {
         // - 1000 byte transaction
         // - 20 siblings (10 levels)
         // - 10 continuity blocks
-        let defi_gas = GAS_BASE_VERIFY
-            + (1000 * GAS_PER_TX_BYTE)
+        let defi_gas = (1000 * GAS_PER_TX_BYTE)
             + (20 * GAS_PER_SIBLING)
             + (10 * GAS_PER_CONTINUITY_BLOCK)
             + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
@@ -169,8 +158,7 @@ fn test_gas_for_typical_use_cases() {
         // - 500 byte transaction
         // - 8 siblings (4 levels)
         // - 5 continuity blocks
-        let nft_gas = GAS_BASE_VERIFY
-            + (500 * GAS_PER_TX_BYTE)
+        let nft_gas = (500 * GAS_PER_TX_BYTE)
             + (8 * GAS_PER_SIBLING)
             + (5 * GAS_PER_CONTINUITY_BLOCK)
             + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
@@ -186,19 +174,17 @@ fn test_gas_cost_boundaries() {
         // Test minimum and maximum gas costs
 
         // Minimum: smallest possible query
-        let min_gas = GAS_BASE_VERIFY +
-                     GAS_PER_TX_BYTE +  // 1 byte tx
+        let min_gas = GAS_PER_TX_BYTE +  // 1 byte tx
                      // No siblings (single tx block)
                      GAS_PER_CONTINUITY_BLOCK + // 1 block
                      (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
         println!("Minimum gas cost: {min_gas}");
-        assert_eq!(min_gas, 21_000 + 16 + 400 + (2_600 * 2));
-        assert_eq!(min_gas, 26_616, "Minimum should be ~27k gas");
+        assert_eq!(min_gas, 16 + 400 + (2_600 * 2));
+        assert_eq!(min_gas, 5616, "Minimum should be ~5.6k gas");
 
         // Reasonable maximum: large but valid query
-        let reasonable_max = GAS_BASE_VERIFY +
-                           (100_000 * GAS_PER_TX_BYTE) +  // 100KB tx
+        let reasonable_max = (100_000 * GAS_PER_TX_BYTE) +  // 100KB tx
                            (40 * GAS_PER_SIBLING) +        // 20 level tree
                            (50 * GAS_PER_CONTINUITY_BLOCK) + // 50 blocks
                            (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
@@ -217,16 +203,14 @@ fn test_gas_incentivizes_efficient_queries() {
 
         // Inefficient: Extracting many small segments
         let _inefficient_segments = 20; // 20 segments to extract
-        let inefficient_gas = GAS_BASE_VERIFY
-            + (1000 * GAS_PER_TX_BYTE)
+        let inefficient_gas = (1000 * GAS_PER_TX_BYTE)
             + (10 * GAS_PER_SIBLING)
             + (10 * GAS_PER_CONTINUITY_BLOCK)
             + (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
         // Efficient: Extracting fewer, well-designed segments
         let _efficient_segments = 3; // Only 3 segments
-        let efficient_gas = GAS_BASE_VERIFY +
-                          (1000 * GAS_PER_TX_BYTE) +
+        let efficient_gas = (1000 * GAS_PER_TX_BYTE) +
                           (10 * GAS_PER_SIBLING) +
                           (5 * GAS_PER_CONTINUITY_BLOCK) + // Shorter chain
                           (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups

@@ -46,6 +46,9 @@ pub mod pallet {
 
     pub const MAX_CHECKPOINTS_CLEARED_PER_BLOCK: u8 = 40;
 
+    // Amount of blocks tracked in a single checkpoint bucket
+    pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
+
     /// The balance type of this pallet.
     pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
     pub type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
@@ -228,7 +231,19 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn checkpoints)]
     pub type Checkpoints<T: Config> =
-        StorageDoubleMap<_, Blake2_128Concat, ChainKey, Blake2_128Concat, Digest, u64, OptionQuery>;
+        StorageDoubleMap<_, Blake2_128Concat, ChainKey, Identity, u64, Digest, OptionQuery>;
+
+    #[pallet::storage]
+    pub type CheckpointBuckets<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Blake2_128Concat, ChainKey>, // ChainKey
+            NMapKey<Blake2_128Concat, u64>,      // Block number pivot see: CHECKPOINT_BUCKET_SIZE
+            NMapKey<Blake2_128Concat, u64>,      // Block number
+        ),
+        (),
+        ValueQuery,
+    >;
 
     #[pallet::storage]
     #[pallet::getter(fn last_checkpoint)]
@@ -241,7 +256,8 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn last_attestation_digest)]
-    pub type LastDigest<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, Digest, OptionQuery>;
+    pub type LastDigest<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, (u64, Digest), OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn pending_target_sample_size)]
@@ -461,8 +477,16 @@ pub mod pallet {
                 for checkpoint in chain_configuration.checkpoints.iter() {
                     Checkpoints::<T>::insert(
                         chain_configuration.chain_key,
-                        checkpoint.digest,
                         checkpoint.block_number,
+                        checkpoint.digest,
+                    );
+                    CheckpointBuckets::<T>::insert(
+                        (
+                            chain_configuration.chain_key,
+                            Pallet::<T>::compute_block_index_for(checkpoint.block_number),
+                            checkpoint.block_number,
+                        ),
+                        (),
                     );
                 }
             }
@@ -1143,8 +1167,8 @@ pub mod pallet {
     }
 
     impl<T: Config> CheckpointProvider for Pallet<T> {
-        fn get_checkpoint(chain_key: ChainKey, digest: Digest) -> Option<u64> {
-            Checkpoints::<T>::get(chain_key, digest)
+        fn get_checkpoint(chain_key: ChainKey, block_number: u64) -> Option<Digest> {
+            Checkpoints::<T>::get(chain_key, block_number)
         }
 
         fn get_checkpoint_interval(chain_key: ChainKey) -> u64 {

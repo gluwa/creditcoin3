@@ -289,7 +289,7 @@ impl Client {
             .fetch(&storage_query)
             .await?;
 
-        Ok(result.map(|d| Digest::from(d.0)))
+        Ok(result.map(|(_, d)| Digest::from(d.0)))
     }
 
     /// Check the clients membership in the attestor pallet
@@ -541,34 +541,6 @@ impl Client {
         Ok(result.map(Into::into))
     }
 
-    pub async fn get_checkpoint_by_digest(
-        &self,
-        chain_key: ChainKey,
-        digest: Digest,
-    ) -> Result<Option<AttestationCheckpoint>> {
-        let storage_query = cc3::storage()
-            .attestation()
-            .checkpoints(chain_key, subxt::utils::H256::from(digest.0));
-
-        let result = self
-            .api()
-            .await?
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&storage_query)
-            .await?;
-
-        if result.is_none() {
-            return Ok(None);
-        }
-
-        Ok(Some(AttestationCheckpoint {
-            block_number: result.unwrap(),
-            digest,
-        }))
-    }
-
     pub async fn get_last_checkpoint(
         &self,
         chain_key: ChainKey,
@@ -647,24 +619,24 @@ impl Client {
             .await?;
 
         while let Some(Ok(kv)) = iter.next().await {
-            if kv.key_bytes.len() < 32 {
+            if kv.key_bytes.len() < 8 {
                 error!(
-                    "Storage key for chainkey {} is less than 32 bytes, checkpoint: {:?}",
+                    "Storage key for chainkey {} is less than 8 bytes, checkpoint: {:?}",
                     chain_key, kv
                 );
                 continue;
             }
-            let last_32: Result<[u8; 32], _> = kv.key_bytes[kv.key_bytes.len() - 32..].try_into();
-            if let Ok(digest_bytes) = last_32 {
-                let digest = Digest::from(digest_bytes);
+            let last_8: Result<[u8; 8], _> = kv.key_bytes[kv.key_bytes.len() - 8..].try_into();
+            if let Ok(block_number_byes) = last_8 {
+                let block_number = u64::from_be_bytes(block_number_byes);
                 let checkpoint = AttestationCheckpoint {
-                    block_number: kv.value,
-                    digest,
+                    block_number,
+                    digest: sp_core::H256::from(kv.value.0),
                 };
                 checkpoints.push(checkpoint);
             } else {
                 error!(
-                    "Failed to get last 32 bytes of storage key for chainkey {}, checkpoint: {:?}",
+                    "Failed to get last 8 bytes of storage key for chainkey {}, checkpoint: {:?}",
                     chain_key, kv
                 );
             }

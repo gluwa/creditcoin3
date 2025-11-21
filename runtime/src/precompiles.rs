@@ -10,6 +10,7 @@ use pallet_evm_precompile_modexp::Modexp;
 use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
 
+use pallet_evm_precompile_chain_info::ChainInfoPrecompile;
 use pallet_evm_precompile_native_query_verifier::NativeQueryVerifierPrecompile;
 use pallet_evm_precompile_signature_verifier::SignatureVerifierPrecompile;
 use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
@@ -23,7 +24,7 @@ where
     pub fn new() -> Self {
         Self(Default::default())
     }
-    pub fn used_addresses() -> [H160; 10] {
+    pub fn used_addresses() -> [H160; 11] {
         used_addresses()
         // see fn execute() below for an address-->precompile map
     }
@@ -47,6 +48,7 @@ where
             // Gluwa specific
             a if a == hash(4049) => Some(SubstrateTransferPrecompile::<R, ()>::execute(handle)),
             a if a == hash(4050) => Some(NativeQueryVerifierPrecompile::<Runtime>::execute(handle)),
+            a if a == hash(4051) => Some(ChainInfoPrecompile::<Runtime>::execute(handle)),
             a if a == hash(5049) => Some(SignatureVerifierPrecompile::<R>::execute(handle)),
             _ => None,
         }
@@ -65,7 +67,7 @@ fn hash(a: u64) -> H160 {
     H160::from_low_u64_be(a)
 }
 
-pub fn used_addresses() -> [H160; 10] {
+pub fn used_addresses() -> [H160; 11] {
     [
         hash(1),    // 0x0000000000000000000000000000000000000001
         hash(2),    // 0x0000000000000000000000000000000000000002
@@ -76,6 +78,7 @@ pub fn used_addresses() -> [H160; 10] {
         hash(1025), // 0x0000000000000000000000000000000000000401
         hash(4049), // 0x0000000000000000000000000000000000000Fd1
         hash(4050), // 0x0000000000000000000000000000000000000Fd2
+        hash(4051), // 0x0000000000000000000000000000000000000fD3
         hash(5049), // 0x00000000000000000000000000000000000013B9
     ]
     // see fn execute() below for an address-->precompile map

@@ -9,11 +9,11 @@ use attestor_primitives::{
 };
 use mmr::{query_proof::MerkleProofEntry, SimpleMerkleTree};
 use precompile_utils::{evm::logs::log2, testing::*};
+use precompiles_primitives::GAS_STORAGE_LOOKUP;
 use sp_core::H256;
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
-use crate::continuity::GAS_STORAGE_LOOKUP;
-use crate::verify::{GAS_BASE_VERIFY, GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
+use crate::verify::{GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
 
 /// Simple test transaction item for merkle tree construction
 #[derive(Debug, Clone)]
@@ -191,7 +191,7 @@ pub(crate) fn setup_attestation(chain_key: u64, block_number: u64, digest: H256)
     };
 
     pallet_attestation_poc::Attestations::<Runtime>::insert(chain_key, digest, signed_attestation);
-    pallet_attestation_poc::LastDigest::<Runtime>::insert(chain_key, digest);
+    pallet_attestation_poc::LastDigest::<Runtime>::insert(chain_key, (block_number, digest));
 }
 
 /// Helper function to set up both lower and upper attestations for a test scenario
@@ -214,7 +214,7 @@ pub(crate) fn setup_scenario_attestations(scenario: &TestScenario) {
 /// Helper to setup checkpoint in storage
 fn setup_checkpoint(chain_key: u64, block_number: u64, digest: H256) {
     let checkpoint = AttestationCheckpoint::new(block_number, digest);
-    pallet_attestation_poc::Checkpoints::<Runtime>::insert(chain_key, digest, block_number);
+    pallet_attestation_poc::Checkpoints::<Runtime>::insert(chain_key, block_number, digest);
     pallet_attestation_poc::LastCheckpoint::<Runtime>::insert(chain_key, checkpoint);
 }
 
@@ -782,13 +782,11 @@ fn test_gas_calculation_base() {
 #[test]
 fn test_gas_scales_with_tx_size() {
     ExtBuilder::default().build().execute_with(|| {
-        let small_gas = GAS_BASE_VERIFY
-            + (GAS_PER_TX_BYTE * 100)
+        let small_gas = (GAS_PER_TX_BYTE * 100)
             + GAS_PER_SIBLING
             + GAS_PER_CONTINUITY_BLOCK
             + (GAS_STORAGE_LOOKUP * 2);
-        let large_gas = GAS_BASE_VERIFY
-            + (GAS_PER_TX_BYTE * 1000)
+        let large_gas = (GAS_PER_TX_BYTE * 1000)
             + GAS_PER_SIBLING
             + GAS_PER_CONTINUITY_BLOCK
             + (GAS_STORAGE_LOOKUP * 2);
@@ -797,7 +795,6 @@ fn test_gas_scales_with_tx_size() {
         assert_eq!(large_gas - small_gas, GAS_PER_TX_BYTE * 900);
 
         // Verify new gas costs are reasonable
-        assert_eq!(GAS_BASE_VERIFY, 21_000, "Base gas should be 21k");
         assert_eq!(GAS_PER_TX_BYTE, 16, "Per byte should match calldata cost");
         assert_eq!(
             GAS_STORAGE_LOOKUP, 2_600,

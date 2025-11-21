@@ -213,7 +213,7 @@ impl<T: Config> Pallet<T> {
         Attestations::<T>::insert(chain_key, digest, &attestation);
 
         // Update last digest
-        LastDigest::<T>::set(chain_key, Some(digest));
+        LastDigest::<T>::set(chain_key, Some((header_number, digest)));
 
         Self::deposit_event(Event::<T>::BlockAttested(
             chain_key,
@@ -238,7 +238,15 @@ impl<T: Config> Pallet<T> {
 
                 Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-                Checkpoints::<T>::insert(chain_key, checkpoint.digest, header_number);
+                Checkpoints::<T>::insert(chain_key, header_number, checkpoint.digest);
+                CheckpointBuckets::<T>::insert(
+                    (
+                        chain_key,
+                        Self::compute_block_index_for(header_number),
+                        header_number,
+                    ),
+                    (),
+                );
                 LastCheckpoint::<T>::insert(chain_key, &checkpoint);
                 // Add first attestation to removal queue, since first checkpoint was already created
                 AttestationRemovalQueues::<T>::mutate(chain_key, |queue| {
@@ -278,7 +286,7 @@ impl<T: Config> Pallet<T> {
         Attestations::<T>::insert(chain_key, digest, &attestation);
 
         // Update last digest
-        LastDigest::<T>::set(chain_key, Some(digest));
+        LastDigest::<T>::set(chain_key, Some((header_number, digest)));
 
         // Emit event
         Self::deposit_event(Event::<T>::BlockAttested(chain_key, attestation, digest));
@@ -299,7 +307,15 @@ impl<T: Config> Pallet<T> {
 
             Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-            Checkpoints::<T>::insert(chain_key, checkpoint.digest, header_number);
+            Checkpoints::<T>::insert(chain_key, header_number, checkpoint.digest);
+            CheckpointBuckets::<T>::insert(
+                (
+                    chain_key,
+                    Self::compute_block_index_for(header_number),
+                    header_number,
+                ),
+                (),
+            );
             LastCheckpoint::<T>::insert(chain_key, &checkpoint);
             // Add first attestation to removal queue, since first checkpoint was already created
             AttestationRemovalQueues::<T>::mutate(chain_key, |queue| {
@@ -658,12 +674,13 @@ impl<T: Config> Pallet<T> {
 
     pub fn last_digest(chain_key: ChainKey) -> Option<Digest> {
         LastDigest::<T>::get(chain_key)
+            .map(|(_, digest)| digest)
             .or_else(|| LastCheckpoint::<T>::get(chain_key).map(|c| c.digest))
     }
 
-    pub fn contains_digest(chain_key: ChainKey, digest: Digest) -> bool {
+    pub fn contains_digest(chain_key: ChainKey, digest: Digest, block_number: u64) -> bool {
         Attestations::<T>::contains_key(chain_key, digest)
-            || Checkpoints::<T>::contains_key(chain_key, digest)
+            || Checkpoints::<T>::get(chain_key, block_number) == Some(digest)
     }
 
     pub fn attestor_bls_pubkey(
@@ -841,7 +858,15 @@ impl<T: Config> Pallet<T> {
 
                 Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-                Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint.block_number);
+                Checkpoints::<T>::insert(chain_key, checkpoint.block_number, checkpoint.digest);
+                CheckpointBuckets::<T>::insert(
+                    (
+                        chain_key,
+                        Self::compute_block_index_for(checkpoint.block_number),
+                        checkpoint.block_number,
+                    ),
+                    (),
+                );
                 LastCheckpoint::<T>::insert(chain_key, &checkpoint);
             }
         }
@@ -866,20 +891,32 @@ impl<T: Config> Pallet<T> {
         let mut last_checkpoint = LastCheckpoint::<T>::get(chain_key).unwrap_or_default();
 
         for checkpoint in checkpoints {
-            if Checkpoints::<T>::contains_key(chain_key, checkpoint.digest) {
+            if Checkpoints::<T>::contains_key(chain_key, checkpoint.block_number) {
                 continue;
             }
 
             if checkpoint.block_number >= last_checkpoint.block_number {
                 last_checkpoint = checkpoint.clone();
             }
-            Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint.block_number);
-
+            Checkpoints::<T>::insert(chain_key, checkpoint.block_number, checkpoint.digest);
+            CheckpointBuckets::<T>::insert(
+                (
+                    chain_key,
+                    Self::compute_block_index_for(checkpoint.block_number),
+                    checkpoint.block_number,
+                ),
+                (),
+            );
             Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint));
         }
 
         LastCheckpoint::<T>::insert(chain_key, last_checkpoint);
         Ok(())
+    }
+
+    #[inline]
+    pub fn compute_block_index_for(block_number: u64) -> u64 {
+        block_number - (block_number % CHECKPOINT_BUCKET_SIZE)
     }
 }
 // helper functions for checking inherent data

@@ -1864,7 +1864,7 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
         // storage
         assert_eq!(
             Attestation::last_attestation_digest(SUPPORTED_CHAIN_KEY),
-            Some(attestation.digest())
+            Some((attestation.header_number(), attestation.digest()))
         );
         // Should be none because the first attestation was already processed and removed
         assert_eq!(
@@ -1896,7 +1896,10 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
         // storage
         assert_eq!(
             Attestation::last_attestation_digest(SUPPORTED_CHAIN_KEY),
-            Some(attestation_for_block_10.digest())
+            Some((
+                attestation_for_block_10.header_number(),
+                attestation_for_block_10.digest()
+            ))
         );
         assert_eq!(
             Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation_for_block_10.digest()),
@@ -1967,8 +1970,8 @@ fn commit_attestation_interval_10_works() {
             digest: attestation_1.digest(),
         };
         assert_eq!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.digest),
-            Some(expected_checkpoint.block_number)
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.block_number),
+            Some(expected_checkpoint.digest)
         );
         // assert last checkpoint
         assert_eq!(
@@ -2038,8 +2041,8 @@ fn commit_attestation_interval_1_works() {
             digest: attestation_1.digest(),
         };
         assert_eq!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.digest),
-            Some(expected_checkpoint.block_number)
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.block_number),
+            Some(expected_checkpoint.digest)
         );
         // assert last checkpoint
         assert_eq!(
@@ -2114,8 +2117,8 @@ fn commit_attestation_interval_1_fails_with_wrong_prev_digest() {
             digest: attestation_1.digest(),
         };
         assert_eq!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.digest),
-            Some(expected_checkpoint.block_number)
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.block_number),
+            Some(expected_checkpoint.digest)
         );
         // assert last checkpoint
         assert_eq!(
@@ -2927,8 +2930,8 @@ fn creating_checkpoint_works() {
                 .into(),
         );
         assert_eq!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, resulting_checkpoint.digest),
-            Some(resulting_checkpoint.block_number)
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, resulting_checkpoint.block_number),
+            Some(resulting_checkpoint.digest)
         );
         assert_eq!(
             Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
@@ -3460,11 +3463,14 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
                     block_number: i as u64, // Mimic gap between checkpoint blocks
                     digest: attestation.digest(),
                 };
-                Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, attestation.digest(), i as u64);
+                Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, i as u64, attestation.digest());
                 LastCheckpoint::<Test>::insert(SUPPORTED_CHAIN_KEY, checkpoint);
             }
             if i == max_attestations - 1 {
-                LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, attestation.digest());
+                LastDigest::<Test>::insert(
+                    SUPPORTED_CHAIN_KEY,
+                    (attestation.header_number(), attestation.digest()),
+                );
             }
         }
 
@@ -3580,8 +3586,8 @@ fn on_supported_chain_removed_cleans_up_checkpoints() {
                 };
                 crate::Checkpoints::<Test>::insert(
                     SUPPORTED_CHAIN_KEY,
-                    checkpoint_digest,
                     checkpoint.block_number,
+                    checkpoint_digest,
                 );
             }
             System::set_block_number(1);
@@ -3717,6 +3723,9 @@ fn batch_attestations_works() {
             attestor2.signature
         ));
 
+        // We attested the previous block
+        let attestation_block = System::block_number() - 1;
+
         progress_to_block(5);
 
         let attestation1 = create_signed_attestation(
@@ -3742,9 +3751,16 @@ fn batch_attestations_works() {
         ));
 
         // Checkpoint is created for the first attestation
-        let checkpoint_block_number =
-            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation1.digest()).unwrap();
-        assert_eq!(checkpoint_block_number, 0);
+        let checkpoint_digest =
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation_block).unwrap();
+        assert_eq!(checkpoint_digest, attestation1.digest());
+
+        // Checkpoint buckets contains reference to checkpoint
+        assert!(CheckpointBuckets::<Test>::contains_key((
+            SUPPORTED_CHAIN_KEY,
+            0,
+            attestation_block
+        )));
     });
 }
 
@@ -3783,6 +3799,9 @@ fn batch_attestations_duplicate_fails() {
             attestor2.signature
         ));
 
+        // We attested the previous block
+        let attestation_block = System::block_number() - 1;
+
         progress_to_block(5);
 
         let attestation1 = create_signed_attestation(
@@ -3808,9 +3827,16 @@ fn batch_attestations_duplicate_fails() {
         ));
 
         // Checkpoint is created for the first attestation
-        let checkpoint_block_number =
-            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation1.digest()).unwrap();
-        assert_eq!(checkpoint_block_number, 0);
+        let checkpoint_digest =
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation_block).unwrap();
+        assert_eq!(checkpoint_digest, attestation1.digest());
+
+        // Checkpoint buckets contains reference to checkpoint
+        assert!(CheckpointBuckets::<Test>::contains_key((
+            SUPPORTED_CHAIN_KEY,
+            0,
+            attestation_block
+        )));
 
         let result = Attestation::validate_attestation(attestation1.chain_key(), &attestation1);
         assert_err!(result, Error::<Test>::AttestationExists);
@@ -3855,6 +3881,9 @@ fn batch_attestations_adding_one_on_duplicates_fails() {
             attestor2.signature
         ));
 
+        // We attested the previous block
+        let attestation_block = System::block_number() - 1;
+
         progress_to_block(5);
 
         let attestation1 = create_signed_attestation(
@@ -3880,9 +3909,16 @@ fn batch_attestations_adding_one_on_duplicates_fails() {
         ));
 
         // Checkpoint is created for the first attestation
-        let checkpoint_block_number =
-            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation1.digest()).unwrap();
-        assert_eq!(checkpoint_block_number, 0);
+        let checkpoint_digest =
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation_block).unwrap();
+        assert_eq!(checkpoint_digest, attestation1.digest());
+
+        // Checkpoint buckets contains reference to checkpoint
+        assert!(CheckpointBuckets::<Test>::contains_key((
+            SUPPORTED_CHAIN_KEY,
+            0,
+            attestation_block
+        )));
 
         let attestation3 = create_signed_attestation(
             vec![attestor.clone(), attestor2.clone()],
@@ -4660,9 +4696,16 @@ fn import_checkpoints_works() {
         ));
 
         for checkpoint in checkpoints {
-            let stored_block_number =
-                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, checkpoint.digest).unwrap();
-            assert_eq!(stored_block_number, checkpoint.block_number);
+            let stored_digest =
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, checkpoint.block_number).unwrap();
+            assert_eq!(stored_digest, checkpoint.digest);
+
+            // Checkpoint buckets contains reference to checkpoint
+            assert!(CheckpointBuckets::<Test>::contains_key((
+                SUPPORTED_CHAIN_KEY,
+                Pallet::<Test>::compute_block_index_for(checkpoint.block_number),
+                checkpoint.block_number
+            )));
         }
     });
 }
@@ -4721,9 +4764,16 @@ fn import_checkpoints_ignores_duplicate_digests() {
         ));
 
         for checkpoint in checkpoints {
-            let stored_block_number =
-                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, checkpoint.digest).unwrap();
-            assert_eq!(stored_block_number, checkpoint.block_number);
+            let stored_digest =
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, checkpoint.block_number).unwrap();
+            assert_eq!(stored_digest, checkpoint.digest);
+
+            // Checkpoint buckets contains reference to checkpoint
+            assert!(CheckpointBuckets::<Test>::contains_key((
+                SUPPORTED_CHAIN_KEY,
+                Pallet::<Test>::compute_block_index_for(checkpoint.block_number),
+                checkpoint.block_number
+            )));
         }
 
         // Assert checkpoint total lengths
@@ -4770,9 +4820,16 @@ fn import_checkpoints_called_twice_works() {
         ));
 
         for checkpoint in checkpoints1.into_iter().chain(checkpoints2.into_iter()) {
-            let stored_block_number =
-                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, checkpoint.digest).unwrap();
-            assert_eq!(stored_block_number, checkpoint.block_number);
+            let stored_digest =
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, checkpoint.block_number).unwrap();
+            assert_eq!(stored_digest, checkpoint.digest);
+
+            // Checkpoint buckets contains reference to checkpoint
+            assert!(CheckpointBuckets::<Test>::contains_key((
+                SUPPORTED_CHAIN_KEY,
+                Pallet::<Test>::compute_block_index_for(checkpoint.block_number),
+                checkpoint.block_number
+            )));
         }
     });
 }

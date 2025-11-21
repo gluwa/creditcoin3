@@ -2,7 +2,7 @@ use crate::{ChainKey, Digest, SignedAttestation};
 use parity_scale_codec::{Codec, Decode};
 
 pub trait CheckpointProvider {
-    fn get_checkpoint(chain_key: ChainKey, digest: Digest) -> Option<u64>;
+    fn get_checkpoint(chain_key: ChainKey, block_number: u64) -> Option<Digest>;
 
     fn get_checkpoint_interval(chain_key: ChainKey) -> u64;
 

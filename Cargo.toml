@@ -8,8 +8,10 @@ members = [
     "pallets/supported-chains",
     "attestor",
     "primitives/attestor",
+    "primitives/precompiles",
     "primitives/supported-chains",
     "primitives/randomness",
+    "precompiles/chain-info",
     "precompiles/signature-verifier",
     "precompiles/substrate-transfer",
     "precompiles/native-query-verifier",
@@ -222,6 +224,7 @@ pallet-supported-chains = { path = "pallets/supported-chains", default-features 
 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }
+pallet-evm-precompile-chain-info = { path = "precompiles/chain-info", default-features = false }
 pallet-evm-precompile-native-query-verifier = { path = "precompiles/native-query-verifier", default-features = false }
 pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verifier", default-features = false }
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
@@ -261,6 +264,9 @@ supported-chains-primitives = { path = "primitives/supported-chains", default-fe
 # Randomness
 pallet-randomness = { path = "pallets/randomness", default-features = false }
 randomness-primitives = { path = "primitives/randomness", default-features = false }
+
+# Precompiles
+precompiles-primitives = { path = "primitives/precompiles", default-features = false }
 
 # Common
 bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-features = false, features = [

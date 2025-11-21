@@ -70,11 +70,15 @@ where
         while valid_attestations.len() < x {
             match self.attestation_queue.pop_front() {
                 Some(att) => {
-                    let is_valid =
-                        match runtime.contains_digest(block_hash, att.chain_key(), att.digest()) {
-                            Ok(exists) => !exists,
-                            Err(_) => false, // Treat errors as invalid
-                        };
+                    let is_valid = runtime
+                        .contains_digest(
+                            block_hash,
+                            att.chain_key(),
+                            att.digest(),
+                            att.header_number(),
+                        )
+                        .map(|exists| !exists)
+                        .unwrap_or(false);
 
                     if is_valid {
                         valid_attestations.push(att);

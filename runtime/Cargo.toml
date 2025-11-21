@@ -89,6 +89,7 @@ pallet-randomness = { workspace = true }
 pallet-supported-chains = { workspace = true }
 
 attestor-primitives = { workspace = true }
+pallet-evm-precompile-chain-info = { workspace = true }
 pallet-evm-precompile-native-query-verifier = { workspace = true }
 pallet-evm-precompile-signature-verifier = { workspace = true }
 # pallet-evm-precompile-proof-verifier = { workspace = true }
@@ -123,16 +124,15 @@ runtime-benchmarks = [
     "pallet-staking/runtime-benchmarks",
     "pallet-sudo/runtime-benchmarks",
     "pallet-supported-chains/runtime-benchmarks",
-    "pallet-timestamp/runtime-benchmarks",
     "pallet-utility/runtime-benchmarks",
     "pallet-proxy/runtime-benchmarks",
     "pallet-ethereum/runtime-benchmarks",
     "pallet-evm/runtime-benchmarks",
     "pallet-hotfix-sufficients/runtime-benchmarks",
-    "pallet-supported-chains/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
     "sp-staking/runtime-benchmarks",
     "pallet-randomness/runtime-benchmarks",
+    "pallet-evm-precompile-chain-info/runtime-benchmarks",
 ]
 std = [
     "parity-scale-codec/std",
@@ -201,6 +201,7 @@ std = [
     "ethereum/std",
     "attestor-primitives/std",
     "supported-chains-primitives/std",
+    "pallet-evm-precompile-chain-info/std",
     "pallet-evm-precompile-signature-verifier/std",
     "pallet-evm-precompile-native-query-verifier/std",
     "pallet-evm-precompile-substrate-transfer/std",

@@ -62,6 +62,7 @@ updates:
       - "/pallets/attestation-poc"
       - "/pallets/randomness"
       - "/pallets/supported-chains"
+      - "/precompiles/chain-info"
       - "/precompiles/native-query-verifier"
       - "/precompiles/substrate-transfer"
       - "/precompiles/signature-verifier"

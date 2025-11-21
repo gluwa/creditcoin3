@@ -164,6 +164,16 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
+            checkpointBuckets: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: u64 | AnyNumber | Uint8Array,
+                    arg3: u64 | AnyNumber | Uint8Array,
+                ) => Observable<Null>,
+                [u64, u64, u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64, u64, u64]>;
             /**
              * Progress markers for removing the checkpoints associated with source chains that are
              * no longer supported. Maps from a chain_key to a cursor representing the point up to which
@@ -183,10 +193,10 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [u64]>;
             checkpoints: AugmentedQuery<
                 ApiType,
-                (arg1: u64 | AnyNumber | Uint8Array, arg2: H256 | string | Uint8Array) => Observable<Option<u64>>,
-                [u64, H256]
+                (arg1: u64 | AnyNumber | Uint8Array, arg2: u64 | AnyNumber | Uint8Array) => Observable<Option<H256>>,
+                [u64, u64]
             > &
-                QueryableStorageEntry<ApiType, [u64, H256]>;
+                QueryableStorageEntry<ApiType, [u64, u64]>;
             invulnerables: AugmentedQuery<
                 ApiType,
                 (
@@ -204,7 +214,7 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [u64]>;
             lastDigest: AugmentedQuery<
                 ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<H256>>,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<ITuple<[u64, H256]>>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;

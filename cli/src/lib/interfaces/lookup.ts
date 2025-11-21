@@ -3043,7 +3043,7 @@ export default {
         _enum: ['Active', 'Idle', 'Waiting'],
     },
     /**
-     * Lookup411: pallet_attestation_poc::ledger::AttestorLedger<T>
+     * Lookup412: pallet_attestation_poc::ledger::AttestorLedger<T>
      **/
     PalletAttestationPocLedgerAttestorLedger: {
         stash: 'AccountId32',
@@ -3052,14 +3052,14 @@ export default {
         unlocking: 'Vec<PalletAttestationPocLedgerUnlockChunk>',
     },
     /**
-     * Lookup413: pallet_attestation_poc::ledger::UnlockChunk<Balance>
+     * Lookup414: pallet_attestation_poc::ledger::UnlockChunk<Balance>
      **/
     PalletAttestationPocLedgerUnlockChunk: {
         value: 'Compact<u128>',
         era: 'Compact<u32>',
     },
     /**
-     * Lookup415: pallet_attestation_poc::pallet::Error<T>
+     * Lookup416: pallet_attestation_poc::pallet::Error<T>
      **/
     PalletAttestationPocError: {
         _enum: [
@@ -3109,7 +3109,7 @@ export default {
         ],
     },
     /**
-     * Lookup416: supported_chains_primitives::SupportedChain
+     * Lookup417: supported_chains_primitives::SupportedChain
      **/
     SupportedChainsPrimitivesSupportedChain: {
         chainId: 'u64',
@@ -3118,45 +3118,45 @@ export default {
         maturityStrategy: 'Text',
     },
     /**
-     * Lookup418: pallet_supported_chains::pallet::Error<T>
+     * Lookup419: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
         _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic', 'InvalidMaturityStrategy'],
     },
     /**
-     * Lookup419: pallet_randomness::pallet::Error<T>
+     * Lookup420: pallet_randomness::pallet::Error<T>
      **/
     PalletRandomnessError: 'Null',
     /**
-     * Lookup422: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
+     * Lookup423: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
      **/
     FrameSystemExtensionsCheckNonZeroSender: 'Null',
     /**
-     * Lookup423: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
+     * Lookup424: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
      **/
     FrameSystemExtensionsCheckSpecVersion: 'Null',
     /**
-     * Lookup424: frame_system::extensions::check_tx_version::CheckTxVersion<T>
+     * Lookup425: frame_system::extensions::check_tx_version::CheckTxVersion<T>
      **/
     FrameSystemExtensionsCheckTxVersion: 'Null',
     /**
-     * Lookup425: frame_system::extensions::check_genesis::CheckGenesis<T>
+     * Lookup426: frame_system::extensions::check_genesis::CheckGenesis<T>
      **/
     FrameSystemExtensionsCheckGenesis: 'Null',
     /**
-     * Lookup428: frame_system::extensions::check_nonce::CheckNonce<T>
+     * Lookup429: frame_system::extensions::check_nonce::CheckNonce<T>
      **/
     FrameSystemExtensionsCheckNonce: 'Compact<u32>',
     /**
-     * Lookup429: frame_system::extensions::check_weight::CheckWeight<T>
+     * Lookup430: frame_system::extensions::check_weight::CheckWeight<T>
      **/
     FrameSystemExtensionsCheckWeight: 'Null',
     /**
-     * Lookup430: pallet_transaction_payment::ChargeTransactionPayment<T>
+     * Lookup431: pallet_transaction_payment::ChargeTransactionPayment<T>
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup432: creditcoin3_runtime::Runtime
+     * Lookup433: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };

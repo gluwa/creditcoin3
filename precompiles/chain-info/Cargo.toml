@@ -1,15 +1,14 @@
 [package]
 authors = { workspace = true }
-description = "A Precompile to expose native query verification with Merkle proofs and continuity chains"
+description = "A precompile to fetch attestation data and expose it in the evm"
 edition = "2021"
-name = "pallet-evm-precompile-native-query-verifier"
+name = "pallet-evm-precompile-chain-info"
 version = "0.1.0"
 
 [lints.clippy]
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 no_effect_underscore_binding = "allow"
-too_many_arguments = "allow"
 type_complexity = "allow"
 
 [dependencies]
@@ -22,17 +21,12 @@ precompile-utils = { workspace = true }
 attestor-primitives = { workspace = true }
 precompiles-primitives = { workspace = true }
 
-# Pallets
-pallet-attestation-poc = { workspace = true, default-features = false }
-
-# Utils
-mmr = { workspace = true, default-features = false }
-utils = { workspace = true, default-features = false }
-
 # Substrate
 frame-support = { workspace = true }
 frame-system = { workspace = true }
+pallet-attestation-poc = { workspace = true }
 pallet-balances = { workspace = true }
+pallet-supported-chains = { workspace = true }
 pallet-timestamp = { workspace = true }
 parity-scale-codec = { workspace = true, features = [
     "max-encoded-len",
@@ -42,7 +36,6 @@ sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
-sp-weights = { workspace = true }
 
 # Frontier
 fp-account = { workspace = true }
@@ -56,12 +49,10 @@ derive_more = { workspace = true }
 env_logger = { workspace = true }
 frame-election-provider-support = { workspace = true }
 hex = { workspace = true }
-pallet-attestation-poc = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
 pallet-staking-reward-curve = { workspace = true, default-features = false }
-pallet-supported-chains = { workspace = true }
 precompile-utils = { workspace = true, features = ["std", "testing"] }
 serde = { workspace = true }
 sp-staking = { workspace = true }
@@ -69,6 +60,7 @@ supported-chains-primitives = { workspace = true }
 
 [features]
 default = ["std"]
+runtime-benchmarks = []
 std = [
     "log/std",
     "precompile-utils/std",
@@ -85,14 +77,11 @@ std = [
     "sp-io/std",
     "sp-runtime/std",
     "sp-std/std",
-    "sp-weights/std",
     "pallet-supported-chains/std",
-    "pallet-attestation-poc/std",
     "attestor-primitives/std",
     "precompiles-primitives/std",
+    "pallet-attestation-poc/std",
     "pallet-babe/std",
-    "utils/std",
-    "mmr/std",
     "sp-staking/std",
     "pallet-staking/std",
     "supported-chains-primitives/std",
