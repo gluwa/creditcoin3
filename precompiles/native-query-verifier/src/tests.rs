@@ -1853,3 +1853,142 @@ fn test_full_query_verification_flow() {
             });
     });
 }
+
+#[test]
+fn test_verify_query_block_digest_errors_when_find_query_block_index_returns_0() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Query at an attestation height - requires at least 2 blocks (queryHeight-1 and queryHeight)
+        let query_height = 100;
+        let test_block = create_test_block(query_height, 4);
+
+        // Create continuity chain with 2 blocks: queryHeight-1 and queryHeight
+        let prev_height = query_height - 1;
+        let prev_test_block = create_test_block(prev_height, 4);
+        let prev_root = prev_test_block.merkle_root;
+        let prev_prev_digest = H256::zero();
+        let prev_digest = compute_test_digest(prev_height, &prev_root, &prev_prev_digest);
+
+        let root = test_block.merkle_root;
+        let digest = compute_test_digest(query_height, &root, &prev_digest);
+
+        // will be used to trick SUT that merkle_root is correct so it can
+        // trigger the next error condition
+        let merkle_proof = create_valid_merkle_proof_for_block(&prev_test_block, 0);
+
+        let continuity_blocks = vec![
+            Block {
+                block_number: prev_height,
+                root: prev_root,
+                prev_digest: prev_prev_digest,
+                digest: prev_digest,
+            },
+            Block {
+                block_number: query_height,
+                root,
+                prev_digest,
+                digest,
+            },
+        ];
+
+        // Setup attestation at query.height
+        setup_attestation(1, query_height, digest);
+
+        // Bogus query
+        let query = Query {
+            chain_id: 1,
+            height: query_height - 1, // <-- will cause internal block idx == 0
+            layout_segments: vec![LayoutSegment {
+                offset: 4,
+                size: 32,
+            }],
+        };
+
+        let mut handle = MockHandle::new(
+            Account::Precompile.into(),
+            Context {
+                address: Account::Precompile.into(),
+                caller: Account::Alice.into(),
+                apparent_value: U256::zero(),
+            },
+        );
+
+        assert_err!(
+            NativeQueryVerifierPrecompile::<Runtime>::verify_query_block_digest(
+                &mut handle,
+                &continuity_blocks,
+                &query,
+                merkle_proof.root,
+            ),
+            ContinuityVerificationError::PreviousBlockNotFound
+        );
+    });
+}
+
+#[test]
+fn test_verify_query_block_digest_errors_when_prev_block_is_not_minus_1() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Query at an attestation height - requires at least 2 blocks (queryHeight-1 and queryHeight)
+        let query_height = 100;
+        let test_block = create_test_block(query_height, 4);
+        let merkle_proof = create_valid_merkle_proof_for_block(&test_block, 0);
+
+        // Create continuity chain with 2 blocks: queryHeight-1 and queryHeight
+        let prev_height = query_height - 1;
+        let prev_test_block = create_test_block(prev_height, 4);
+        let prev_root = prev_test_block.merkle_root;
+        let prev_prev_digest = H256::zero();
+        let prev_digest = compute_test_digest(prev_height, &prev_root, &prev_prev_digest);
+
+        let root = test_block.merkle_root;
+        let digest = compute_test_digest(query_height, &root, &prev_digest);
+
+        let continuity_blocks = vec![
+            Block {
+                // IMPORTANT: will trigger the safety check:
+                // Verify the previous block is actually at queryHeight - 1
+                block_number: prev_height - 1,
+                root: prev_root,
+                prev_digest: prev_prev_digest,
+                digest: prev_digest,
+            },
+            Block {
+                block_number: query_height,
+                root,
+                prev_digest,
+                digest,
+            },
+        ];
+
+        // Setup attestation at query.height
+        setup_attestation(1, query_height, digest);
+
+        // Create query
+        let query = Query {
+            chain_id: 1,
+            height: query_height,
+            layout_segments: vec![LayoutSegment {
+                offset: 4,
+                size: 32,
+            }],
+        };
+
+        let mut handle = MockHandle::new(
+            Account::Precompile.into(),
+            Context {
+                address: Account::Precompile.into(),
+                caller: Account::Alice.into(),
+                apparent_value: U256::zero(),
+            },
+        );
+
+        assert_err!(
+            NativeQueryVerifierPrecompile::<Runtime>::verify_query_block_digest(
+                &mut handle,
+                &continuity_blocks,
+                &query,
+                merkle_proof.root,
+            ),
+            ContinuityVerificationError::PreviousBlockNotFound
+        );
+    });
+}
