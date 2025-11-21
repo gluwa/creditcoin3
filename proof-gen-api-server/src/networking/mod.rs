@@ -3,9 +3,12 @@ use routes::{continuity, health};
 use std::net::SocketAddr;
 use thiserror::Error;
 use tokio::net::TcpListener;
+use tokio::sync::oneshot::Receiver;
 
 pub mod routes;
 
+// TODO: Figure out whether to use thiserror or anyhow throughout the whole server. Dylan's usual pattern is to use anyhow first
+#[allow(unused)]
 #[derive(Error, Debug)]
 pub enum ApiError {
     #[error("Invalid request: {0}")]
@@ -35,41 +38,20 @@ pub fn build_app() -> Router {
         )
 }
 
-pub async fn run_http_server(app: Router, addr: &str) -> anyhow::Result<()> {
+pub async fn run_http_server(
+    app: Router,
+    addr: &str,
+    shutdown_rx: Receiver<()>,
+) -> anyhow::Result<()> {
     let addr: SocketAddr = addr.parse().expect("Invalid BIND_ADDR format");
     // Bind address (default in config.rs = 0.0.0.0:3100)
     let listener = TcpListener::bind(addr).await?;
+    let shutdown_closure = async move {
+        // this future completes when we send on http_shutdown_tx
+        let _ = shutdown_rx.await;
+    };
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown_closure)
         .await?;
     Ok(())
-}
-
-pub async fn shutdown_signal() {
-    use tokio::signal;
-
-    // Ctrl+C
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut sigterm =
-            signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
-        sigterm.recv().await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {}
-        _ = terminate => {}
-    }
-
-    tracing::info!("Shutdown signal received");
 }

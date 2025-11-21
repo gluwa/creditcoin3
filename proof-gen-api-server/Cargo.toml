@@ -50,5 +50,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Creditcoin / USC dependencies
 attestor-primitives = { workspace = true }
+cc-client = { workspace = true }
 continuity = { workspace = true }
+eth = { workspace = true }
 mmr = { workspace = true }
+prometheus = { workspace = true }
+
+[dev-dependencies]
+tower = { workspace = true }

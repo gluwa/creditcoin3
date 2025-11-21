@@ -6,7 +6,7 @@ use mmr::query_proof::QueryMerkleProof;
 use serde_json::Value;
 use sp_core::H256;
 use tokio_postgres::NoTls;
-use tracing::debug;
+use tracing::{debug, info};
 
 use type_conversions::to_storage_int;
 
@@ -77,7 +77,7 @@ impl DbManager {
 
     pub async fn run_migrations(&self) -> Result<()> {
         let client = self.pool.get().await?;
-
+        info!("Running all UP migrations to establish tables.");
         client.batch_execute(V1_UP_SQL).await?;
 
         Ok(())
