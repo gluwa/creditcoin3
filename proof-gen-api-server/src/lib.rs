@@ -1,10 +1,13 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use config::Config;
 use db::{DbManager, QueryProofs};
-use networking::build_app;
+use networking::{build_app, run_http_server, shutdown_signal};
 use sp_core::H256;
-use std::net::SocketAddr;
-use tokio::time::{sleep, Duration};
+use tokio::{
+    select,
+    sync::mpsc::{unbounded_channel, UnboundedSender},
+    time::{sleep, Duration},
+};
 use tracing::debug;
 use tracing::{error, info};
 
@@ -12,6 +15,14 @@ pub mod config;
 pub mod db;
 pub mod networking;
 pub mod services;
+
+// TODO: Implement this event types enum based on all the cc3 attestation
+// events we want to listen for.
+// Probably want to implement in a different file
+#[derive(Debug)]
+pub enum AttestationEvent {
+    NewAttestation,
+}
 
 pub struct Server {
     // proof-gen-api-server is configured using `Config`
@@ -69,29 +80,46 @@ impl Server {
         debug!("Running proof-gen-api-server!");
         self.db_manager.run_migrations().await?;
 
-        // Bind address (default in config.rs = 0.0.0.0:3100)
-        let addr: SocketAddr = self
-            .config
-            .bind_addr
-            .parse()
-            .expect("Invalid BIND_ADDR format");
-
-        // Build app
+        // Define server future
         let app = build_app();
+        let server = run_http_server(app, &self.config.bind_addr);
+        tokio::pin!(server);
 
-        // Start server
-        info!("🚀 Starting Continuity Proof API Server on http://{addr}");
+        // Define attestation event listening channel
+        // Eventually this would be where we listen for new attestations/checkpoints
+        let (attestation_events_tx, mut attestation_events_rx) =
+            unbounded_channel::<AttestationEvent>();
 
-        // Spawn networking task
-        tokio::spawn(async move {
-            if let Err(err) =
-                axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(), app).await
-            {
-                error!("❌ Server error: {}", err);
+        loop {
+            select! {
+                // Attestation event received
+                event = attestation_events_rx.recv() => {
+                    info!("Event: {event:?}");
+                }
+                // HTTP server completed (only on error or manual shutdown)
+                res = &mut server => {
+                    if let Err(err) = res {
+                        error!("❌ HTTP server exited with error: {err}");
+                    }
+                    return Err(anyhow!("API HTTP server exited!"));
+                }
+                // Run DB Tests
+                res = self.run_db_tests(attestation_events_tx.clone()) => {
+                    return Err(anyhow!("Db tests completed: {res:?}"))
+                }
+                // Global shutdown (Ctrl+C / SIGTERM)
+                _ = shutdown_signal() => {
+                    tracing::info!("🛑 Global shutdown requested, exiting main loop");
+                    return Ok(())
+                }
             }
-            // TODO: Set up channel for messages from newtorking or similar
-        });
+        }
+    }
 
+    async fn run_db_tests(
+        &self,
+        attestation_events_sender: UnboundedSender<AttestationEvent>,
+    ) -> Result<()> {
         let mock_entry = QueryProofs {
             chain_key: 1,
             header_number: 1,
@@ -102,7 +130,6 @@ impl Server {
             merkle_root: Some(H256::zero()),
         };
 
-        // This should really be a select! loop
         loop {
             // Test insert
             self.db_manager.insert_proofs_entry(mock_entry.clone());
@@ -113,6 +140,7 @@ impl Server {
             info!("Entry: {maybe_entry:?}");
             // Wait a bit to avoid spam
             info!("Waiting...");
+            let _ = attestation_events_sender.send(AttestationEvent::NewAttestation);
             sleep(Duration::from_secs(20)).await;
         }
     }

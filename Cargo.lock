@@ -10390,12 +10390,14 @@ name = "proof-gen-api-server"
 version = "3.66.0"
 dependencies = [
  "anyhow",
+ "attestor-primitives",
  "axum",
  "chrono",
  "clap",
  "continuity",
  "deadpool-postgres",
  "dotenvy",
+ "mmr",
  "serde",
  "serde_json",
  "sp-core",

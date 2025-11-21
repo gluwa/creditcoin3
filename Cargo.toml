@@ -266,6 +266,7 @@ bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-feat
     "pairing",
 ] }
 cc-client = { path = "common/cc-client" }
+continuity = { path = "common/continuity", default-features = false }
 eth = { path = "common/eth", default-features = false }
 merkle = { path = "common/merkle", default-features = false }
 prometheus = { path = "common/prometheus" }

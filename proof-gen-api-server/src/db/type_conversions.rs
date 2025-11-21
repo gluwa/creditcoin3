@@ -1,24 +1,10 @@
-use super::QueryProofs;
+use super::{ProofsDbEntry, QueryProofs};
 use anyhow::Result;
 use chrono::NaiveDateTime;
 use serde_json::Value;
 use sp_core::H256;
 use std::str::FromStr;
 use tokio_postgres::Row;
-
-#[derive(Debug)]
-pub struct ProofsDbEntry {
-    pub id: i32,
-    pub chain_key: i64,
-    pub header_number: i64,
-    pub tx_index: Option<i64>,
-    pub tx_hash: Option<String>,
-    pub continuity_proof: Option<Value>,
-    pub merkle_proof: Option<Value>,
-    pub merkle_root: Option<String>,
-    pub created_at: Option<NaiveDateTime>,
-    pub updated_at: Option<NaiveDateTime>,
-}
 
 impl TryFrom<&Row> for ProofsDbEntry {
     type Error = anyhow::Error;
@@ -47,8 +33,8 @@ impl From<QueryProofs> for ProofsDbEntry {
             header_number: to_storage_int(proofs.header_number),
             tx_index: proofs.tx_index.map(to_storage_int),
             tx_hash: proofs.tx_hash.map(|h| format!("{h:#x}")),
-            continuity_proof: proofs.continuity_proof,
-            merkle_proof: proofs.merkle_proof,
+            continuity_proof: None,
+            merkle_proof: None,
             merkle_root: proofs.merkle_root.map(|h| format!("{h:#x}")),
             created_at: Some(NaiveDateTime::default()), // Only used on read. Generated on insert
             updated_at: Some(NaiveDateTime::default()), // Only used on read. Generated on insert
