@@ -45,7 +45,7 @@ impl From<QueryProofs> for ProofsDbEntry {
             id: i32::default(), // Only actually used when fetching items from db, automatically assigned on insert
             chain_key: to_storage_int(proofs.chain_key),
             header_number: to_storage_int(proofs.header_number),
-            tx_index: proofs.tx_index.map(|i| to_storage_int(i)),
+            tx_index: proofs.tx_index.map(to_storage_int),
             tx_hash: proofs.tx_hash.map(|h| format!("{:#x}", h)),
             continuity_proof: proofs.continuity_proof,
             merkle_proof: proofs.merkle_proof,
@@ -61,7 +61,7 @@ impl Into<QueryProofs> for ProofsDbEntry {
         QueryProofs {
             chain_key: from_storage_int(self.chain_key),
             header_number: from_storage_int(self.header_number),
-            tx_index: self.tx_index.map(|i| from_storage_int(i)),
+            tx_index: self.tx_index.map(from_storage_int),
             tx_hash: self.tx_hash.map(|s| from_storage_hash(&s)),
             continuity_proof: None,
             merkle_proof: None,
