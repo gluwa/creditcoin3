@@ -1,16 +1,23 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use app::build_app;
 use config::Config;
 use db::{DbManager, QueryProofs};
 use sp_core::H256;
+use std::net::SocketAddr;
 use tokio::time::{sleep, Duration};
 use tracing::debug;
+use tracing::{error, info};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+pub mod app;
 pub mod config;
 pub mod db;
+pub mod routes;
+pub mod services;
 
 pub struct Server {
     // proof-gen-api-server is configured using `Config`
-    _config: Config,
+    config: Config,
     // The db manager, which owns a connection thread pool
     db_manager: DbManager,
 }
@@ -56,16 +63,42 @@ impl Server {
             chain_name, config.chain_key
         );*/
 
-        Ok(Server {
-            _config: config,
-            db_manager,
-        })
+        Ok(Server { config, db_manager })
     }
 
     /// Runs the server in the background, will start following the configured source chain
     pub async fn run(&mut self) -> Result<()> {
         debug!("Running proof-gen-api-server!");
         self.db_manager.run_migrations().await?;
+
+        // Setup Tracing
+        if let Err(e) = setup_tracing() {
+            eprintln!("Failed to initialize tracing: {e}");
+            return Err(anyhow!("Failed to initialize tracing: {e}"));
+        }
+
+        // Bind address (default in config.rs = 0.0.0.0:3100)
+        let addr: SocketAddr = self
+            .config
+            .bind_addr
+            .parse()
+            .expect("Invalid BIND_ADDR format");
+
+        // Build app
+        let app = build_app();
+
+        // Start server
+        info!("🚀 Starting Continuity Proof API Server on http://{addr}");
+
+        // Spawn networking task
+        tokio::spawn(async move {
+            if let Err(err) =
+                axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(), app).await
+            {
+                error!("❌ Server error: {}", err);
+            }
+            // TODO: Set up channel for messages from newtorking or similar
+        });
 
         let mock_entry = QueryProofs {
             chain_key: 1,
@@ -91,4 +124,17 @@ impl Server {
             sleep(Duration::from_secs(20)).await;
         }
     }
+}
+
+// TODO: Maybe replace this with tracing level specified in binary
+// Tracing Setup
+fn setup_tracing() -> Result<()> {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::layer())
+        .try_init()?;
+
+    Ok(())
 }

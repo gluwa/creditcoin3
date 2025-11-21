@@ -1,5 +1,6 @@
 use clap::Parser;
 use proof_gen_api_server::{config::Config, db::DbManager, Server};
+use std::env;
 use tokio::signal;
 use tracing::{debug, info};
 
@@ -78,6 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_init();
 
     let config = Config {
+        bind_addr: env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3100".to_string()),
         cc3_rpc_url: args.cc3_rpc_url,
         chain_key: args.chain_key,
         eth_rpc_url: args.eth_rpc_url,

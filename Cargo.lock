@@ -10453,13 +10453,14 @@ dependencies = [
 
 [[package]]
 name = "proof-gen-api-server"
-version = "0.1.0"
+version = "3.66.0"
 dependencies = [
  "anyhow",
  "clap",
  "deadpool-postgres",
  "dotenvy",
  "sp-core",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-postgres",
  "tracing",

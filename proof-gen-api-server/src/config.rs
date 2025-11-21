@@ -7,6 +7,7 @@
 /// - `prometheus_host`:
 /// - `prometheus_port`:
 pub struct Config {
+    pub bind_addr: String,
     pub cc3_rpc_url: String,
     pub chain_key: u64,
     pub eth_rpc_url: String,

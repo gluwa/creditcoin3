@@ -1,9 +1,11 @@
 [package]
-edition = "2021"
-license = "MIT"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
 name = "proof-gen-api-server"
-publish = false
-version = "0.1.0"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
 
 [lib]
 path = "src/lib.rs"
@@ -29,6 +31,7 @@ release = false
 
 [dependencies]
 anyhow = { workspace = true }
+axum = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive", "deprecated", "env"] }
 deadpool-postgres = "0.12"
@@ -36,10 +39,11 @@ dotenvy = "0.15"
 serde = { workspace = true, default-features = false, features = ["derive"] }
 serde_json = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
-tokio = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-postgres = { version = "0.7", features = [
     "with-serde_json-1",
     "with-chrono-0_4",
 ] }
-tracing = "0.1"
+tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
