@@ -90,6 +90,7 @@ impl Server {
         let (attestation_events_tx, mut attestation_events_rx) =
             unbounded_channel::<AttestationEvent>();
 
+        // Main server loop
         loop {
             select! {
                 // Attestation event received
