@@ -9,6 +9,7 @@ use type_conversions::{to_storage_int, ProofsDbEntry};
 
 mod type_conversions;
 
+const V1_DOWN_SQL: &str = include_str!("../../migrations/v1/down.sql");
 const V1_UP_SQL: &str = include_str!("../../migrations/v1/up.sql");
 
 #[derive(Debug, Clone)]
@@ -78,16 +79,17 @@ impl DbManager {
     }
 
     // Because we don't need to wait on the insert result, we spawn a task to insert in the background
-    pub fn insert_proofs_entry(&self, entry: QueryProofs) {
+    pub fn insert_proofs_entry(&self, proofs: QueryProofs) {
         let pool = self.pool.clone();
         tokio::spawn(async move {
             match pool.get().await {
                 Ok(client) => {
                     // Converting QueryProofs contents into postgres friendly items
-                    let entry = ProofsDbEntry::from(entry);
+                    let entry = ProofsDbEntry::from(proofs);
 
-                    if let Err(e) = client
-                        .execute(
+                    let result = if entry.tx_index.is_some() {
+                        // Non-null tx_index → use (chain_key, header_number, tx_index)
+                        client.execute(
                             r#"
                             INSERT INTO proofs (
                                 chain_key,
@@ -99,6 +101,13 @@ impl DbManager {
                                 merkle_root
                             )
                             VALUES ($1, $2, $3, $4, $5, $6, $7)
+                            ON CONFLICT (chain_key, header_number, tx_index) WHERE tx_index IS NOT NULL
+                            DO UPDATE SET
+                                tx_hash = EXCLUDED.tx_hash,
+                                continuity_proof = EXCLUDED.continuity_proof,
+                                merkle_proof = EXCLUDED.merkle_proof,
+                                merkle_root = EXCLUDED.merkle_root,
+                                updated_at = now()
                             "#,
                             &[
                                 &entry.chain_key,
@@ -109,14 +118,48 @@ impl DbManager {
                                 &entry.merkle_proof,
                                 &entry.merkle_root,
                             ],
-                        )
-                        .await
-                    {
+                        ).await
+                    } else {
+                        // NULL tx_index → use (chain_key, header_number)
+                        client
+                            .execute(
+                                r#"
+                            INSERT INTO proofs (
+                                chain_key,
+                                header_number,
+                                tx_index,
+                                tx_hash,
+                                continuity_proof,
+                                merkle_proof,
+                                merkle_root
+                            )
+                            VALUES ($1, $2, NULL, $3, $4, $5, $6)
+                            ON CONFLICT (chain_key, header_number) WHERE tx_index IS NULL
+                            DO UPDATE SET
+                                tx_hash = EXCLUDED.tx_hash,
+                                continuity_proof = EXCLUDED.continuity_proof,
+                                merkle_proof = EXCLUDED.merkle_proof,
+                                merkle_root = EXCLUDED.merkle_root,
+                                updated_at = now()
+                            "#,
+                                &[
+                                    &entry.chain_key,
+                                    &entry.header_number,
+                                    &entry.tx_hash,
+                                    &entry.continuity_proof,
+                                    &entry.merkle_proof,
+                                    &entry.merkle_root,
+                                ],
+                            )
+                            .await
+                    };
+
+                    if let Err(e) = result {
                         eprintln!("Failed to insert proof {entry:?}, error: {e}");
                     }
                 }
                 Err(e) => {
-                    eprintln!("Failed to insert proof: {entry:?}, Couldn't get DB connection from pool. Error: {e}");
+                    eprintln!("Failed to insert proofs: {proofs:?}, Couldn't get DB connection from pool. Error: {e}");
                 }
             }
         });
@@ -131,7 +174,17 @@ impl DbManager {
         let rows = client
             .query(
                 r#"
-            SELECT id, header_number
+            SELECT
+                id,
+                chain_key,
+                header_number,
+                tx_index,
+                tx_hash,
+                continuity_proof,
+                merkle_proof,
+                merkle_root,
+                created_at,
+                updated_at
             FROM proofs
             WHERE chain_key = $1
               AND header_number = $2
@@ -166,16 +219,17 @@ impl DbManager {
     pub async fn reset_db(&self) -> Result<()> {
         debug!("Connecting to database to reset...");
         let client = self.pool.get().await?;
-        tokio::task::spawn_blocking(async move || {
-            client
-                .query("DROP SCHEMA public CASCADE;", &[])
-                .await
-                .expect("Failed to drop schema");
-            client
-                .query("CREATE SCHEMA public;", &[])
-                .await
-                .expect("Failed to create schema");
-        });
+        client
+            .query("DROP SCHEMA public CASCADE;", &[])
+            .await
+            .expect("Failed to drop schema");
+        client
+            .query("CREATE SCHEMA public;", &[])
+            .await
+            .expect("Failed to create schema");
+
+        client.batch_execute(V1_DOWN_SQL).await?;
+        client.batch_execute(V1_UP_SQL).await?;
 
         Ok(())
     }

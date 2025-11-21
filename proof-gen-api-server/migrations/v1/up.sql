@@ -12,6 +12,6 @@ CREATE TABLE IF NOT EXISTS proofs (
     updated_at TIMESTAMP DEFAULT now()
 );
 
--- Create indexes
-CREATE INDEX proofs_idx_chain_and_height ON proofs (chain_key, header_number);
-CREATE UNIQUE INDEX proofs_idx_chain_height_and_tx_idx on proofs (chain_key, header_number, tx_index);
+-- Create indeces
+CREATE UNIQUE INDEX IF NOT EXISTS proofs_unique_null_tx_index ON proofs (chain_key, header_number) WHERE tx_index IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS proofs_unique_nonnull_tx_index ON proofs (chain_key, header_number, tx_index) WHERE tx_index IS NOT NULL;

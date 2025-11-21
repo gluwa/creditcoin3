@@ -18,6 +18,8 @@ pub struct Server {
 impl Server {
     /// Create a new server based on `Config`
     pub async fn new(config: Config, db_manager: DbManager) -> Result<Self> {
+        // TODO: Use these config fields once the networking side of the server is merged
+
         /*let cc3_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key).await?;
 
         let supported_chain = cc3_client
