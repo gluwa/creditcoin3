@@ -1,17 +1,16 @@
 use anyhow::Result;
-use app::build_app;
 use config::Config;
 use db::{DbManager, QueryProofs};
+use networking::build_app;
 use sp_core::H256;
 use std::net::SocketAddr;
 use tokio::time::{sleep, Duration};
 use tracing::debug;
 use tracing::{error, info};
 
-pub mod app;
 pub mod config;
 pub mod db;
-pub mod routes;
+pub mod networking;
 pub mod services;
 
 pub struct Server {

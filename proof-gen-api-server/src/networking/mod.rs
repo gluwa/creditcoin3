@@ -1,5 +1,20 @@
-use crate::routes::{continuity, health};
 use axum::{routing::get, Router};
+use routes::{continuity, health};
+use thiserror::Error;
+
+pub mod routes;
+
+#[derive(Error, Debug)]
+pub enum ApiError {
+    #[error("Invalid request: {0}")]
+    BadRequest(String),
+
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Internal server error")]
+    InternalError,
+}
 
 pub fn build_app() -> Router {
     Router::new()
