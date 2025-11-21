@@ -62,22 +62,6 @@ impl DbManager {
         Ok(())
     }
 
-    /// Creates all tables necessary for our proofs DB if not already present
-    pub async fn create_example_table(&self) -> Result<()> {
-        let client = self.pool.get().await?;
-        // TODO: Remove this after testing
-        client
-            .execute(
-                "CREATE TABLE IF NOT EXISTS example (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT NOT NULL
-                )",
-                &[],
-            )
-            .await?;
-        Ok(())
-    }
-
     // Because we don't need to wait on the insert result, we spawn a task to insert in the background
     pub fn insert_proofs_entry(&self, proofs: QueryProofs) {
         let pool = self.pool.clone();

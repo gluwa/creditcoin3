@@ -67,9 +67,6 @@ impl Server {
         debug!("Running proof-gen-api-server!");
         self.db_manager.run_migrations().await?;
 
-        // TODO: Remove this
-        self.db_manager.create_example_table().await?;
-
         let mock_entry = QueryProofs {
             chain_key: 1,
             header_number: 1,
