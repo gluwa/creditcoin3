@@ -1,4 +1,5 @@
 use super::*;
+use crate::continuity::ContinuityVerificationError;
 use crate::mock::*;
 use crate::test_helpers::*;
 use crate::SELECTOR_LOG_QUERY_VERIFIED;
@@ -7,10 +8,12 @@ use attestor_primitives::{
     block::{Block, ContinuityProof},
     Attestation, AttestationCheckpoint, SignedAttestation,
 };
+use fp_evm::Context;
+use frame_support::assert_err;
 use mmr::{query_proof::MerkleProofEntry, SimpleMerkleTree};
 use precompile_utils::{evm::logs::log2, testing::*};
 use precompiles_primitives::GAS_STORAGE_LOOKUP;
-use sp_core::H256;
+use sp_core::{H256, U256};
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
 use crate::verify::{GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
@@ -269,6 +272,189 @@ fn test_empty_continuity_chain_with_valid_merkle() {
                 },
             )
             .execute_reverts(|output| output == b"Continuity chain cannot be empty");
+    });
+}
+
+#[test]
+fn test_verify_continuity_chain_errors_with_less_than_2_blocks() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Query at an attestation height - requires at least 2 blocks (queryHeight-1 and queryHeight)
+        let query_height = 100;
+        let test_block = create_test_block(query_height, 4);
+
+        // Create continuity chain with 1 block
+        let prev_digest = H256::zero();
+        let root = test_block.merkle_root;
+        let digest = compute_test_digest(query_height, &root, &prev_digest);
+
+        let continuity_blocks = vec![Block {
+            block_number: query_height,
+            root,
+            prev_digest,
+            digest,
+        }];
+
+        // Setup attestation at query.height
+        setup_attestation(1, query_height, digest);
+
+        // Create query
+        let query = Query {
+            chain_id: 1,
+            height: query_height,
+            layout_segments: vec![LayoutSegment {
+                offset: 4,
+                size: 32,
+            }],
+        };
+
+        let mut handle = MockHandle::new(
+            Account::Precompile.into(),
+            Context {
+                address: Account::Precompile.into(),
+                caller: Account::Alice.into(),
+                apparent_value: U256::zero(),
+            },
+        );
+
+        assert_err!(
+            NativeQueryVerifierPrecompile::<Runtime>::verify_continuity_chain(
+                &mut handle,
+                &continuity_blocks,
+                &query,
+            ),
+            ContinuityVerificationError::InsufficientBlocks
+        );
+    });
+}
+
+#[test]
+fn test_verify_continuity_chain_errors_when_prev_digest_not_linked() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Query at an attestation height - requires at least 2 blocks (queryHeight-1 and queryHeight)
+        let query_height = 100;
+        let test_block = create_test_block(query_height, 4);
+
+        // Create continuity chain with 2 blocks: queryHeight-1 and queryHeight
+        let prev_height = query_height - 1;
+        let prev_test_block = create_test_block(prev_height, 4);
+        let prev_root = prev_test_block.merkle_root;
+        let prev_prev_digest = H256::zero();
+        let prev_digest = compute_test_digest(prev_height, &prev_root, &prev_prev_digest);
+
+        let root = test_block.merkle_root;
+        let digest = compute_test_digest(query_height, &root, &prev_digest);
+
+        // 2nd block doesn't link to the first one
+        let continuity_blocks = vec![
+            Block {
+                block_number: prev_height,
+                root: prev_root,
+                prev_digest: prev_prev_digest,
+                digest: prev_digest,
+            },
+            Block {
+                block_number: query_height,
+                root,
+                prev_digest: H256::zero(), // this is the broken link
+                digest,
+            },
+        ];
+
+        // Setup attestation at query.height
+        setup_attestation(1, query_height, digest);
+
+        // Create query
+        let query = Query {
+            chain_id: 1,
+            height: query_height,
+            layout_segments: vec![LayoutSegment {
+                offset: 4,
+                size: 32,
+            }],
+        };
+
+        let mut handle = MockHandle::new(
+            Account::Precompile.into(),
+            Context {
+                address: Account::Precompile.into(),
+                caller: Account::Alice.into(),
+                apparent_value: U256::zero(),
+            },
+        );
+
+        assert_err!(
+            NativeQueryVerifierPrecompile::<Runtime>::verify_continuity_chain(
+                &mut handle,
+                &continuity_blocks,
+                &query,
+            ),
+            ContinuityVerificationError::ChainLinkBroken
+        );
+    });
+}
+
+#[test]
+fn test_verify_continuity_chain_errors_when_continuity_chain_doesnt_reach_query_height() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Query at an attestation height - requires at least 2 blocks (queryHeight-1 and queryHeight)
+        let query_height = 100;
+        let test_block = create_test_block(query_height, 4);
+
+        // Create continuity chain with 2 blocks: queryHeight-1 and queryHeight
+        let prev_height = query_height - 1;
+        let prev_test_block = create_test_block(prev_height, 4);
+        let prev_root = prev_test_block.merkle_root;
+        let prev_prev_digest = H256::zero();
+        let prev_digest = compute_test_digest(prev_height, &prev_root, &prev_prev_digest);
+
+        let root = test_block.merkle_root;
+        let digest = compute_test_digest(query_height, &root, &prev_digest);
+
+        let continuity_blocks = vec![
+            Block {
+                block_number: prev_height,
+                root: prev_root,
+                prev_digest: prev_prev_digest,
+                digest: prev_digest,
+            },
+            Block {
+                block_number: query_height,
+                root,
+                prev_digest,
+                digest,
+            },
+        ];
+
+        // Setup attestation at query.height
+        setup_attestation(1, query_height, digest);
+
+        // Bogus query
+        let query = Query {
+            chain_id: 1,
+            height: query_height + 1, // height > continuity chain last block height
+            layout_segments: vec![LayoutSegment {
+                offset: 4,
+                size: 32,
+            }],
+        };
+
+        let mut handle = MockHandle::new(
+            Account::Precompile.into(),
+            Context {
+                address: Account::Precompile.into(),
+                caller: Account::Alice.into(),
+                apparent_value: U256::zero(),
+            },
+        );
+
+        assert_err!(
+            NativeQueryVerifierPrecompile::<Runtime>::verify_continuity_chain(
+                &mut handle,
+                &continuity_blocks,
+                &query,
+            ),
+            ContinuityVerificationError::ChainDoesNotReachQueryHeight
+        );
     });
 }
 

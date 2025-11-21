@@ -15,7 +15,7 @@ use crate::NativeQueryVerifierPrecompile;
 pub const GAS_KECCAK256_HASH: u64 = 48; // Keccak-256 hash cost: 30 base + 6 per word (72 bytes = 3 words)
 
 /// Error type for continuity verification (both query block digest and chain validation)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ContinuityVerificationError {
     /// Continuity chain doesn't have enough blocks
     InsufficientBlocks,
