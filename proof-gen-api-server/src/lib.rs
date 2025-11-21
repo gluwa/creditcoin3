@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use app::build_app;
 use config::Config;
 use db::{DbManager, QueryProofs};
@@ -7,7 +7,6 @@ use std::net::SocketAddr;
 use tokio::time::{sleep, Duration};
 use tracing::debug;
 use tracing::{error, info};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 pub mod app;
 pub mod config;
@@ -71,12 +70,6 @@ impl Server {
         debug!("Running proof-gen-api-server!");
         self.db_manager.run_migrations().await?;
 
-        // Setup Tracing
-        if let Err(e) = setup_tracing() {
-            eprintln!("Failed to initialize tracing: {e}");
-            return Err(anyhow!("Failed to initialize tracing: {e}"));
-        }
-
         // Bind address (default in config.rs = 0.0.0.0:3100)
         let addr: SocketAddr = self
             .config
@@ -115,26 +108,13 @@ impl Server {
             // Test insert
             self.db_manager.insert_proofs_entry(mock_entry.clone());
             // Test read
-            println!("Waiting on insert before read...");
+            info!("Waiting on insert before read...");
             sleep(Duration::from_secs(1)).await;
             let maybe_entry = self.db_manager.get_proofs_entry(1, 1).await?;
-            println!("Entry: {maybe_entry:?}");
+            info!("Entry: {maybe_entry:?}");
             // Wait a bit to avoid spam
-            println!("Waiting...");
+            info!("Waiting...");
             sleep(Duration::from_secs(20)).await;
         }
     }
-}
-
-// TODO: Maybe replace this with tracing level specified in binary
-// Tracing Setup
-fn setup_tracing() -> Result<()> {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer())
-        .try_init()?;
-
-    Ok(())
 }

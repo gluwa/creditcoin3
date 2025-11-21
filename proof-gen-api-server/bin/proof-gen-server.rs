@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         debug!("debug mode enabled!");
         "debug"
     } else {
-        "prover=info"
+        "info"
     };
 
     let _ = tracing_subscriber::fmt()
