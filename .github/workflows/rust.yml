@@ -239,7 +239,7 @@ jobs:
           cargo llvm-cov \
               --release \
               --workspace --html --show-missing-lines --hide-instantiations \
-              --ignore-filename-regex "(benchmarking.rs|mock.rs|tests.rs|weights.rs)"
+              --ignore-filename-regex "(benchmarking.rs|mock.rs|tests(.*).rs|weights.rs)"
 
       - name: Upload coverage report as artifact
         uses: actions/upload-artifact@v5
