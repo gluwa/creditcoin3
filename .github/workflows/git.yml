@@ -17,7 +17,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           # checks out the branch of the PR, not in a detached state,
@@ -124,7 +124,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -168,7 +168,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}

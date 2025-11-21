@@ -42,7 +42,7 @@ jobs:
     name: proxy=${{ inputs.proxy }} / ${{ inputs.secret }} / type=${{ inputs.proxy_type }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create inputs.txt

@@ -21,7 +21,7 @@ jobs:
     if: github.base_ref == 'dev'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -62,7 +62,7 @@ jobs:
   cargo-fmt:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Configure rustc version
         run: |
@@ -95,7 +95,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -146,7 +146,7 @@ jobs:
       - deploy-runner-clippy
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-clippy"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -182,7 +182,7 @@ jobs:
   cargo-machete:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Configure rustc version
         run: |
@@ -209,7 +209,7 @@ jobs:
         "proxy-unit-test-creditcoin",
       ]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3

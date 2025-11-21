@@ -21,7 +21,7 @@ jobs:
     outputs:
       needs-bench: ${{ steps.version-check.outputs.needs_bench }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           lfs: true
@@ -40,7 +40,7 @@ jobs:
     needs:
       - deploy-github-runner
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
           # don't persist b/c next job authenticates itself
@@ -99,7 +99,7 @@ jobs:
       runner_vm_name: ${{ steps.get-env.outputs.runner_vm_name }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -134,7 +134,7 @@ jobs:
       - deploy-github-runner
       - build-benchmarks
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 10
           repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -214,7 +214,7 @@ jobs:
     if: ${{ always() && needs.deploy-github-runner.result != 'skipped' }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 

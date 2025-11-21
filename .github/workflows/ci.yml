@@ -41,7 +41,7 @@ jobs:
           docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
           docker images
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Start a Devnet container from image
         run: |
@@ -137,7 +137,7 @@ jobs:
   sanity-tests:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -186,7 +186,7 @@ jobs:
   sanity-test-npm-packages:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -233,7 +233,7 @@ jobs:
   sanity-test-solidity:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install Solidity compiler
         run: |
@@ -372,7 +372,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install Node Dependencies
         uses: actions/setup-node@v6
         with:
@@ -412,7 +412,7 @@ jobs:
   unit-test-cli:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -613,7 +613,7 @@ jobs:
       - deploy-runner-attestator-network
     runs-on: [self-hosted, "proxy-attestator-network"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download binaries
         uses: actions/download-artifact@v6
@@ -877,7 +877,7 @@ jobs:
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -1104,7 +1104,7 @@ jobs:
       - deploy-runner-blockchain
     runs-on: [self-hosted, "proxy-blockchain"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v6
@@ -1229,7 +1229,7 @@ jobs:
     name: integration-test-chainspec-${{ matrix.chainspec }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v6
@@ -1304,7 +1304,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v6
@@ -1449,7 +1449,7 @@ jobs:
       - deploy-runner-benchmark
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-benchmark"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Inspect benchmark CI config
         run: |
@@ -1554,7 +1554,7 @@ jobs:
       - deploy-runner-cc3-indexer
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-cc3-indexer"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download binaries
         uses: actions/download-artifact@v6
@@ -1788,7 +1788,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
   deploy-runner-attestor-cli:
     needs:
@@ -1850,7 +1850,7 @@ jobs:
         "type-${{ matrix.proxy_type }}",
       ]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download binaries
         uses: actions/download-artifact@v6

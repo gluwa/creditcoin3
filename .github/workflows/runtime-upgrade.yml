@@ -26,7 +26,7 @@ jobs:
       last_block_number: ${{ steps.last-block-info.outputs.last_block_number }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Set-Up
         run: |
@@ -102,7 +102,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Set-Up
         run: |
@@ -167,7 +167,7 @@ jobs:
       [self-hosted, "workflow-${{ github.run_id }}", "type-runtime-upgrade"]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
@@ -254,7 +254,7 @@ jobs:
       [self-hosted, "workflow-${{ github.run_id }}", "type-runtime-upgrade"]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install azure-cli
         run: |
@@ -346,7 +346,7 @@ jobs:
       [self-hosted, "workflow-${{ github.run_id }}", "type-runtime-upgrade"]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download creditcoin3-node from current PR
         uses: actions/download-artifact@v6
@@ -467,7 +467,7 @@ jobs:
       [self-hosted, "workflow-${{ github.run_id }}", "type-runtime-upgrade"]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download creditcoin3-node from current PR
         uses: actions/download-artifact@v6
