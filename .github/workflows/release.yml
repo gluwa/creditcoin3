@@ -161,16 +161,6 @@ jobs:
           cat /var/tmp/changelog.md
           echo "===== END ====="
 
-      - name: Download smart-contract artifact(s) for release ${{ needs.setup.outputs.previous_release }}
-        uses: i3h/download-release-asset@v1
-        with:
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          tag: ${{ needs.setup.outputs.previous_release }}
-          file: /(.*)\.sol/
-          path: common/eth/contracts/sol/
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Upload changelog
         uses: actions/upload-artifact@v5
         with:
@@ -276,25 +266,12 @@ jobs:
         with:
           pattern: changelog
 
-      - name: Download smart contract(s)
-        uses: actions/download-artifact@v6
-        with:
-          path: artifact
-          pattern: smart-contracts
-          merge-multiple: true
-
       - name: Download USC audit binary
         uses: actions/download-artifact@v6
         with:
           path: artifact
           name: usc_audit_automation
           merge-multiple: true
-
-      - name: Rename files to improve visibility
-        shell: bash
-        run: |
-          mv artifact/prover.json artifact/Prover-ABI.json
-          mv artifact/.bytecode.hash artifact/Prover-bytecode-hash.txt
 
       - name: Compress native binaries
         shell: bash
