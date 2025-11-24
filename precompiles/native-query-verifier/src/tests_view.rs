@@ -92,13 +92,10 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
                 },
             )
             .expect_no_logs() // Verify no events are emitted
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![ResultSegment {
-                    offset: 0,
-                    bytes: H256::from([42u8; 32]),
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 0,
+                bytes: H256::from([42u8; 32]),
+            }]);
 
         // Execute non-view function - should emit events
         precompiles()
@@ -127,13 +124,10 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
                     ])]),
                 ]),
             ))
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![ResultSegment {
-                    offset: 0,
-                    bytes: H256::from([42u8; 32]),
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 0,
+                bytes: H256::from([42u8; 32]),
+            }]);
     });
 }
 

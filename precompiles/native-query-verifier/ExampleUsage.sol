@@ -68,27 +68,20 @@ contract SimpleQueryExample {
         // - The transaction is in the block (Merkle proof)
         // - The block is part of an attested chain (continuity proof)
         // - Extracts the requested data segments
-        INativeQueryVerifier.QueryVerificationResult memory result = verifier.verifyQuery(
+        // Note: This function reverts on failure, so if it returns, verification succeeded
+        INativeQueryVerifier.ResultSegment[] memory segments = verifier.verifyQuery(
             query,
             txData,
             proof,
             continuityBlocks
         );
 
-        // Step 4: Check the result
-        if (result.status == 0) {
-            // Success! Extract the data
-            require(result.result_segments.length == 1, "Invalid result segments");
-            extractedData = result.result_segments[0].data;
-            
-            emit VerificationSuccess(chainId, blockHeight, extractedData);
-            return (true, extractedData);
-        } else {
-            // Verification failed - get error message
-            string memory reason = NativeQueryVerifierLib.getErrorMessage(result.status);
-            emit VerificationFailed(result.status, reason);
-            return (false, bytes32(0));
-        }
+        // Step 4: Extract the data (function already verified successfully)
+        require(segments.length == 1, "Invalid result segments");
+        extractedData = segments[0].data;
+        
+        emit VerificationSuccess(chainId, blockHeight, extractedData);
+        return (true, extractedData);
     }
 
     /// @notice Example: Extract multiple values from a transaction (e.g., ERC20 Transfer event)
@@ -134,22 +127,19 @@ contract SimpleQueryExample {
         });
 
         // Verify using view function (no events, cheaper gas)
-        INativeQueryVerifier.QueryVerificationResult memory result = verifier.verifyQueryView(
+        // Note: This function reverts on failure, so if it returns, verification succeeded
+        INativeQueryVerifier.ResultSegment[] memory segments = verifier.verifyQueryView(
             query,
             txData,
             proof,
             continuityBlocks
         );
 
-        if (result.status == 0 && result.result_segments.length == 3) {
-            value1 = result.result_segments[0].data;
-            value2 = result.result_segments[1].data;
-            value3 = result.result_segments[2].data;
-            return (true, value1, value2, value3);
-        } else {
-            emit VerificationFailed(result.status, NativeQueryVerifierLib.getErrorMessage(result.status));
-            return (false, bytes32(0), bytes32(0), bytes32(0));
-        }
+        require(segments.length == 3, "Invalid result segments");
+        value1 = segments[0].data;
+        value2 = segments[1].data;
+        value3 = segments[2].data;
+        return (true, value1, value2, value3);
     }
 }
 
@@ -157,8 +147,6 @@ contract SimpleQueryExample {
 /// @notice Practical example: Verify an ERC20 Transfer event and extract transfer details
 /// @dev Shows real-world usage for cross-chain bridges or token tracking
 contract ERC20TransferVerifier {
-    using NativeQueryVerifierLib for INativeQueryVerifier.QueryVerificationResult;
-
     INativeQueryVerifier public immutable verifier;
 
     /// @notice Transfer details extracted from verified transaction
@@ -215,22 +203,21 @@ contract ERC20TransferVerifier {
         });
 
         // Verify the query
-        INativeQueryVerifier.QueryVerificationResult memory result = verifier.verifyQuery(
+        // Note: This function reverts on failure, so if it returns, verification succeeded
+        INativeQueryVerifier.ResultSegment[] memory segments = verifier.verifyQuery(
             query,
             txData,
             proof,
             continuityBlocks
         );
 
-        // Check result using helper library
-        require(result.isSuccess(), NativeQueryVerifierLib.getErrorMessage(result.status));
-        require(result.result_segments.length == 3, "Invalid result segments");
+        require(segments.length == 3, "Invalid result segments");
 
         // Extract and convert to Solidity types
         transfer = TransferDetails({
-            from: address(uint160(uint256(result.result_segments[0].data))),
-            to: address(uint160(uint256(result.result_segments[1].data))),
-            amount: uint256(result.result_segments[2].data),
+            from: address(uint160(uint256(segments[0].data))),
+            to: address(uint160(uint256(segments[1].data))),
+            amount: uint256(segments[2].data),
             chainId: chainId,
             blockHeight: blockHeight
         });

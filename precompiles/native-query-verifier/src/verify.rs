@@ -22,9 +22,16 @@ use crate::{
 // - SLOAD: 2,100 (warm) / 2,600 (cold)
 pub const GAS_PER_TX_BYTE: u64 = 16; // Per byte cost for transaction data (matches calldata cost)
 pub const GAS_PER_SIBLING: u64 = 200; // Per Merkle sibling verification (native efficiency vs ~166 in Solidity)
+                                      // GAS_PER_CONTINUITY_BLOCK = 400 breakdown:
+                                      // - Hash computation (Keccak-256 on 72 bytes): ~48 gas
+                                      // - Two H256 comparisons (prev_digest, computed_digest): ~12 gas
+                                      // - Loop overhead and control flow: ~10 gas
+                                      // - Safety margin: ~330 gas (for Substrate runtime overhead, future changes)
 pub const GAS_PER_CONTINUITY_BLOCK: u64 = 400; // Per block verification (hash ~48 gas + comparisons/overhead ~350 gas)
 pub const WEIGHT_MERKLE_VERIFY: u64 = 100_000; // Merkle verification work
 pub const WEIGHT_CONTINUITY_VERIFY: u64 = 50_000; // Continuity verification work
+pub const GAS_PER_EXTRACTION_SEGMENT: u64 = 100; // Per segment overhead (bounds check, loop)
+pub const GAS_PER_EXTRACTED_BYTE: u64 = 3; // Per byte copied (memory operations)
 
 // Size constraints
 type ConstU10MB = sp_core::ConstU32<10_485_760>; // Type alias for bounded vec
@@ -97,7 +104,7 @@ where
     /// - `emit_events`: Whether to emit QueryVerified event (true for non-view functions)
     ///
     /// # Returns
-    /// `QueryVerificationResult` with status 0 and extracted data segments on success
+    /// Vector of extracted data segments on success
     ///
     /// # Reverts with specific error messages
     /// - "Continuity chain cannot be empty"
@@ -114,7 +121,7 @@ where
         merkle_proof: MerkleProof,
         continuity_proof: ContinuityProof,
         emit_events: bool,
-    ) -> EvmResult<QueryVerificationResult> {
+    ) -> EvmResult<Vec<ResultSegment>> {
         // Convert ContinuityProof to Vec<Block> for internal processing
         // For single query: blocks[0] is at queryHeight-1
         let start_block_number = query.height.saturating_sub(1);
@@ -218,16 +225,13 @@ where
         }
 
         // Step 4: Extract data segments
-        match extract_data_segments(&tx_bytes, &query) {
+        match extract_data_segments(handle, &tx_bytes, &query) {
             Ok(segments) => {
                 // Emit success event only for non-view functions
                 if emit_events {
                     Self::emit_verification_success(handle, &query, &segments)?;
                 }
-                Ok(QueryVerificationResult {
-                    status: 0, // Success
-                    result_segments: segments,
-                })
+                Ok(segments)
             }
             Err(e @ PrecompileFailure::Revert { .. }) => {
                 // Propagate revert errors (like segment out of bounds)
@@ -444,7 +448,7 @@ where
             }
 
             // 3. Extract data segments (continuity chain already verified for batch)
-            match extract_data_segments(&tx_bytes, &query) {
+            match extract_data_segments(handle, &tx_bytes, &query) {
                 Ok(segments) => {
                     // Success - emit success event
                     if emit_events {
@@ -514,6 +518,7 @@ where
 /// needing to process the entire transaction on-chain.
 ///
 /// # Parameters
+/// - `handle`: EVM precompile handle for gas accounting
 /// - `tx_data`: Raw transaction data to extract from
 /// - `query`: Query containing layout segments specifying what to extract
 ///
@@ -530,15 +535,38 @@ where
 ///
 /// # Reverts
 /// - If any segment would read beyond tx_data bounds
+/// - If insufficient gas for extraction operations
 ///
 /// # Example
 /// Query with segment {offset: 4, size: 20} on tx_data of 100 bytes:
 /// - Extracts bytes 4-23 (20 bytes)
 /// - Returns as H256 with 12 zero bytes on left, 20 data bytes on right
 pub fn extract_data_segments(
+    handle: &mut impl PrecompileHandle,
     tx_data: &[u8],
     query: &Query,
 ) -> Result<Vec<ResultSegment>, PrecompileFailure> {
+    // Calculate total bytes to extract
+    let total_bytes: u64 = query.layout_segments.iter().map(|s| s.size).sum();
+
+    // Charge upfront for all extraction work (security: prevent out-of-gas attacks)
+    let extraction_gas = GAS_PER_EXTRACTION_SEGMENT
+        .checked_mul(query.layout_segments.len() as u64)
+        .and_then(|seg_gas| {
+            GAS_PER_EXTRACTED_BYTE
+                .checked_mul(total_bytes)
+                .and_then(|byte_gas| seg_gas.checked_add(byte_gas))
+        })
+        .ok_or(PrecompileFailure::Error {
+            exit_status: ExitError::OutOfGas,
+        })?;
+
+    handle
+        .record_cost(extraction_gas)
+        .map_err(|_| PrecompileFailure::Error {
+            exit_status: ExitError::OutOfGas,
+        })?;
+
     let mut result_segments = Vec::new();
 
     for segment in &query.layout_segments {

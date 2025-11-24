@@ -517,13 +517,10 @@ fn test_continuity_chain_at_attestation_height() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(&tx_data[4..36]),
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 4,
+                bytes: H256::from_slice(&tx_data[4..36]),
+            }]);
     });
 }
 
@@ -586,13 +583,10 @@ fn test_continuity_chain_at_checkpoint_height() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(&tx_data[4..36]),
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 4,
+                bytes: H256::from_slice(&tx_data[4..36]),
+            }]);
     });
 }
 
@@ -673,13 +667,10 @@ fn test_query_at_attestation_height() {
                     ])]),
                 ]),
             ))
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(&tx_data[4..36]),
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 4,
+                bytes: H256::from_slice(&tx_data[4..36]),
+            }]);
     });
 }
 
@@ -760,13 +751,10 @@ fn test_query_at_checkpoint_height() {
                     ])]),
                 ]),
             ))
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(&tx_data[4..36]),
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 4,
+                bytes: H256::from_slice(&tx_data[4..36]),
+            }]);
     });
 }
 
@@ -908,10 +896,7 @@ fn test_no_layout_segments_succeeds_with_empty_results() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![], // Empty segments
-            });
+            .execute_returns(Vec::<ResultSegment>::new()); // Empty segments
     });
 }
 
@@ -949,19 +934,16 @@ fn test_gas_calculation_base() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![
-                    ResultSegment {
-                        offset: 4,
-                        bytes: H256::from_slice(expected_address),
-                    },
-                    ResultSegment {
-                        offset: 36,
-                        bytes: H256::from_slice(expected_amount),
-                    },
-                ],
-            });
+            .execute_returns(vec![
+                ResultSegment {
+                    offset: 4,
+                    bytes: H256::from_slice(expected_address),
+                },
+                ResultSegment {
+                    offset: 36,
+                    bytes: H256::from_slice(expected_amount),
+                },
+            ]);
     });
 }
 
@@ -1020,19 +1002,16 @@ fn test_continuity_chain_with_attestation() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![
-                    ResultSegment {
-                        offset: 4,
-                        bytes: H256::from_slice(expected_address),
-                    },
-                    ResultSegment {
-                        offset: 36,
-                        bytes: H256::from_slice(expected_amount),
-                    },
-                ],
-            });
+            .execute_returns(vec![
+                ResultSegment {
+                    offset: 4,
+                    bytes: H256::from_slice(expected_address),
+                },
+                ResultSegment {
+                    offset: 36,
+                    bytes: H256::from_slice(expected_amount),
+                },
+            ]);
     });
 }
 
@@ -1072,19 +1051,16 @@ fn test_continuity_chain_with_checkpoint() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![
-                    ResultSegment {
-                        offset: 4,
-                        bytes: H256::from_slice(expected_address),
-                    },
-                    ResultSegment {
-                        offset: 36,
-                        bytes: H256::from_slice(expected_amount),
-                    },
-                ],
-            });
+            .execute_returns(vec![
+                ResultSegment {
+                    offset: 4,
+                    bytes: H256::from_slice(expected_address),
+                },
+                ResultSegment {
+                    offset: 36,
+                    bytes: H256::from_slice(expected_amount),
+                },
+            ]);
     });
 }
 
@@ -1126,19 +1102,16 @@ fn test_continuity_chain_invalid_prev_digest_succeeds() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![
-                    ResultSegment {
-                        offset: 4,
-                        bytes: H256::from_slice(expected_address),
-                    },
-                    ResultSegment {
-                        offset: 36,
-                        bytes: H256::from_slice(expected_amount),
-                    },
-                ],
-            });
+            .execute_returns(vec![
+                ResultSegment {
+                    offset: 4,
+                    bytes: H256::from_slice(expected_address),
+                },
+                ResultSegment {
+                    offset: 36,
+                    bytes: H256::from_slice(expected_amount),
+                },
+            ]);
     });
 }
 
@@ -1238,19 +1211,16 @@ fn test_continuity_checkpoint_block_number_mismatch_succeeds() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![
-                    ResultSegment {
-                        offset: 4,
-                        bytes: H256::from_slice(expected_address),
-                    },
-                    ResultSegment {
-                        offset: 36,
-                        bytes: H256::from_slice(expected_amount),
-                    },
-                ],
-            });
+            .execute_returns(vec![
+                ResultSegment {
+                    offset: 4,
+                    bytes: H256::from_slice(expected_address),
+                },
+                ResultSegment {
+                    offset: 36,
+                    bytes: H256::from_slice(expected_amount),
+                },
+            ]);
     });
 }
 
@@ -1289,13 +1259,10 @@ fn test_extract_single_segment() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(expected_address),
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 4,
+                bytes: H256::from_slice(expected_address),
+            }]);
     });
 }
 
@@ -1330,23 +1297,20 @@ fn test_extract_multiple_segments() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![
-                    ResultSegment {
-                        offset: 4,
-                        bytes: H256::from_slice(expected_address),
-                    },
-                    ResultSegment {
-                        offset: 36,
-                        bytes: H256::from_slice(expected_amount),
-                    },
-                    ResultSegment {
-                        offset: 68,
-                        bytes: H256::from_slice(expected_extra),
-                    },
-                ],
-            });
+            .execute_returns(vec![
+                ResultSegment {
+                    offset: 4,
+                    bytes: H256::from_slice(expected_address),
+                },
+                ResultSegment {
+                    offset: 36,
+                    bytes: H256::from_slice(expected_amount),
+                },
+                ResultSegment {
+                    offset: 68,
+                    bytes: H256::from_slice(expected_extra),
+                },
+            ]);
     });
 }
 
@@ -1445,19 +1409,16 @@ fn test_merkle_proof_validation_with_valid_proof() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![
-                    ResultSegment {
-                        offset: 4,
-                        bytes: H256::from_slice(expected_address),
-                    },
-                    ResultSegment {
-                        offset: 36,
-                        bytes: H256::from_slice(expected_amount),
-                    },
-                ],
-            });
+            .execute_returns(vec![
+                ResultSegment {
+                    offset: 4,
+                    bytes: H256::from_slice(expected_address),
+                },
+                ResultSegment {
+                    offset: 36,
+                    bytes: H256::from_slice(expected_amount),
+                },
+            ]);
     });
 }
 
@@ -1517,13 +1478,10 @@ fn test_zero_size_segment_succeeds() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![ResultSegment {
-                    offset: 4,
-                    bytes: H256::zero(), // Zero-size segment returns zero H256
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 4,
+                bytes: H256::zero(), // Zero-size segment returns zero H256
+            }]);
     });
 }
 
@@ -1591,19 +1549,16 @@ fn test_large_continuity_chain() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![
-                    ResultSegment {
-                        offset: 4,
-                        bytes: H256::from_slice(expected_address),
-                    },
-                    ResultSegment {
-                        offset: 36,
-                        bytes: H256::from_slice(expected_amount),
-                    },
-                ],
-            });
+            .execute_returns(vec![
+                ResultSegment {
+                    offset: 4,
+                    bytes: H256::from_slice(expected_address),
+                },
+                ResultSegment {
+                    offset: 36,
+                    bytes: H256::from_slice(expected_amount),
+                },
+            ]);
     });
 }
 
@@ -1740,10 +1695,7 @@ fn test_continuity_chain_height_validation() {
                     ethabi::Token::Array(vec![]),
                 ]),
             ))
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![],
-            });
+            .execute_returns(Vec::<ResultSegment>::new());
 
         // Test 3: Continuity chain that extends beyond query height
         // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
@@ -1804,10 +1756,7 @@ fn test_continuity_chain_height_validation() {
                     ethabi::Token::Array(vec![]),
                 ]),
             ))
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![],
-            });
+            .execute_returns(Vec::<ResultSegment>::new());
     });
 }
 
@@ -1838,19 +1787,16 @@ fn test_full_query_verification_flow() {
                     ),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![
-                    ResultSegment {
-                        offset: 4,
-                        bytes: H256::from_slice(expected_address),
-                    },
-                    ResultSegment {
-                        offset: 36,
-                        bytes: H256::from_slice(expected_amount),
-                    },
-                ],
-            });
+            .execute_returns(vec![
+                ResultSegment {
+                    offset: 4,
+                    bytes: H256::from_slice(expected_address),
+                },
+                ResultSegment {
+                    offset: 36,
+                    bytes: H256::from_slice(expected_amount),
+                },
+            ]);
     });
 }
 

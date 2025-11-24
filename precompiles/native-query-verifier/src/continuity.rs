@@ -296,15 +296,15 @@ where
             return Err(ContinuityVerificationError::PreviousBlockNotFound);
         }
 
+        // Charge for hash computation BEFORE computing (security: prevent out-of-gas attacks)
+        handle.record_cost(GAS_KECCAK256_HASH).map_err(|_| {
+            ContinuityVerificationError::DigestMismatch // Use a generic error if gas recording fails
+        })?;
+
         // Compute expected digest for query block using previous block's digest
         use attestor_primitives::block::Block as FragmentBlock;
         let expected_digest =
             FragmentBlock::hash_payload(&query.height, &query_block.root, &prev_block.digest);
-
-        // Charge for hash computation (Keccak-256 on 72 bytes)
-        handle.record_cost(GAS_KECCAK256_HASH).map_err(|_| {
-            ContinuityVerificationError::DigestMismatch // Use a generic error if gas recording fails
-        })?;
 
         // Verify computed digest matches the query block's digest
         if expected_digest != query_block.digest {

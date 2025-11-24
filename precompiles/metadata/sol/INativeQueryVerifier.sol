@@ -106,11 +106,12 @@ interface INativeQueryVerifier {
     /// @notice Verify a blockchain query with Merkle proof and continuity chain (view function)
     /// @dev This is a read-only view function that performs native verification at runtime speed.
     ///      This function does NOT emit events. Use verifyQuery() if you need event emissions.
+    ///      Reverts on failure, returns extracted data segments on success.
     /// @param query The query specification defining what data to retrieve
     /// @param tx_data Raw transaction data to verify and extract from
     /// @param merkle_proof Merkle proof for transaction inclusion (with position info, no index needed)
     /// @param continuity_proof Optimized continuity proof (blocks[0] is at queryHeight-1)
-    /// @return result Verification result containing status and extracted data segments
+    /// @return result_segments Extracted data segments (reverts on failure)
     ///
     /// Gas Costs (aligned with standard Ethereum precompiles):
     /// - Base: 21,000 (matches Ethereum standard)
@@ -127,16 +128,17 @@ interface INativeQueryVerifier {
         bytes calldata tx_data,
         MerkleProof calldata merkle_proof,
         ContinuityProof calldata continuity_proof
-    ) external view returns (QueryVerificationResult memory result);
+    ) external view returns (ResultSegment[] memory result_segments);
 
     /// @notice Verify a blockchain query with Merkle proof and continuity chain
     /// @dev This is the state-changing version that emits QueryVerified or QueryVerificationFailed events.
     ///      For read-only verification without events, use verifyQueryView() instead.
+    ///      Reverts on failure, returns extracted data segments on success.
     /// @param query The query specification defining what data to retrieve
     /// @param tx_data Raw transaction data to verify and extract from
     /// @param merkle_proof Merkle proof for transaction inclusion (with position info, no index needed)
     /// @param continuity_proof Optimized continuity proof (blocks[0] is at queryHeight-1)
-    /// @return result Verification result containing status and extracted data segments
+    /// @return result_segments Extracted data segments (reverts on failure)
     ///
     /// Events Emitted:
     /// - QueryVerified on successful verification
@@ -178,23 +180,22 @@ interface INativeQueryVerifier {
     ///     siblings: siblings
     /// });
     ///
-    /// // Verify (emits QueryVerified event on success)
-    /// INativeQueryVerifier.QueryVerificationResult memory result = verifier.verifyQuery(
+    /// // Verify (emits QueryVerified event on success, reverts on failure)
+    /// ResultSegment[] memory segments = verifier.verifyQuery(
     ///     query,
     ///     txData,
     ///     proof,
     ///     continuityProof
     /// );
     ///
-    /// require(result.status == 0, "Verification failed");
-    /// // Use result.result_segments...
+    /// // Use segments...
     /// ```
     function verifyQuery(
         Query calldata query,
         bytes calldata tx_data,
         MerkleProof calldata merkle_proof,
         ContinuityProof calldata continuity_proof
-    ) external returns (QueryVerificationResult memory result);
+    ) external returns (ResultSegment[] memory result_segments);
 
     /// @notice Verify a batch of queries with shared continuity proof (view function)
     /// @dev This is a read-only view function that optimizes gas costs by verifying the continuity

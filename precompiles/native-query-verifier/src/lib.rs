@@ -76,15 +76,16 @@ type ConstU10MB = sp_core::ConstU32<10_485_760>; // Type alias for bounded vec
 // Batch queries constraint
 type MaxBatchSize = sp_core::ConstU32<10>;
 
-/// Result of query verification
+/// Result of query verification (used only for batch queries)
 ///
 /// Contains the verification status and any extracted data segments.
-/// Note: In the current implementation, functions revert on failure rather than
-/// returning error status codes, so status will always be 0 (Success) if returned.
+/// For single queries (`verify_query` and `verify_query_view`), the functions
+/// return `Vec<ResultSegment>` directly and revert on failure.
+/// For batch queries, individual queries can fail without reverting the entire batch,
+/// so this struct is used to track success/failure status.
 #[derive(Debug, Clone, PartialEq, Eq, Codec)]
 pub struct QueryVerificationResult {
-    /// Verification status (always 0 = Success in current implementation)
-    /// Legacy status codes: 1 = MerkleProofInvalid, 2 = ContinuityChainInvalid,
+    /// Verification status: 0 = Success, 1 = MerkleProofInvalid, 2 = ContinuityChainInvalid,
     /// 3 = DataExtractionError, 4 = MerkleRootMismatch
     pub status: u8,
     /// Extracted data segments from the verified transaction
@@ -135,7 +136,7 @@ where
     /// - `continuity_proof`: Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
-    /// `QueryVerificationResult` with status (0) and extracted data segments
+    /// Vector of extracted data segments
     ///
     /// # Reverts
     /// - If continuity chain is empty or invalid
@@ -151,7 +152,7 @@ where
         tx_data: BoundedBytes<ConstU10MB>,
         merkle_proof: MerkleProof,
         continuity_proof: ContinuityProof,
-    ) -> EvmResult<QueryVerificationResult> {
+    ) -> EvmResult<Vec<ResultSegment>> {
         Self::verify_query_impl(
             handle,
             query,
@@ -174,7 +175,7 @@ where
     /// - `continuity_proof`: Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
-    /// `QueryVerificationResult` with status (0) and extracted data segments
+    /// Vector of extracted data segments
     ///
     /// # Events
     /// Emits `QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])`
@@ -192,7 +193,7 @@ where
         tx_data: BoundedBytes<ConstU10MB>,
         merkle_proof: MerkleProof,
         continuity_proof: ContinuityProof,
-    ) -> EvmResult<QueryVerificationResult> {
+    ) -> EvmResult<Vec<ResultSegment>> {
         Self::verify_query_impl(
             handle,
             query,
@@ -325,7 +326,7 @@ where
         status: u8,
         message: &str,
         emit_events: bool,
-    ) -> EvmResult<QueryVerificationResult> {
+    ) -> EvmResult<Vec<ResultSegment>> {
         debug!("{} for query: {:?}", message, query.id());
 
         // Emit failure event before reverting (events before revert are still emitted)

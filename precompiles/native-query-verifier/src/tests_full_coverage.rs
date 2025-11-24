@@ -290,31 +290,28 @@ fn test_successful_verification_single_transaction() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![
-                    ResultSegment {
-                        offset: 0,
-                        bytes: {
-                            let mut expected = [0u8; 32];
-                            expected[28..32].copy_from_slice(&[0xAB; 4]);
-                            H256::from(expected)
-                        },
+            .execute_returns(vec![
+                ResultSegment {
+                    offset: 0,
+                    bytes: {
+                        let mut expected = [0u8; 32];
+                        expected[28..32].copy_from_slice(&[0xAB; 4]);
+                        H256::from(expected)
                     },
-                    ResultSegment {
-                        offset: 4,
-                        bytes: H256::from([0x11; 32]),
+                },
+                ResultSegment {
+                    offset: 4,
+                    bytes: H256::from([0x11; 32]),
+                },
+                ResultSegment {
+                    offset: 36,
+                    bytes: {
+                        let mut expected = [0u8; 32];
+                        expected[12..32].copy_from_slice(&[0x22; 20]);
+                        H256::from(expected)
                     },
-                    ResultSegment {
-                        offset: 36,
-                        bytes: {
-                            let mut expected = [0u8; 32];
-                            expected[12..32].copy_from_slice(&[0x22; 20]);
-                            H256::from(expected)
-                        },
-                    },
-                ],
-            });
+                },
+            ]);
     });
 }
 
@@ -358,13 +355,10 @@ fn test_successful_verification_multiple_transactions() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![ResultSegment {
-                    offset: 0,
-                    bytes: H256::from([0x42; 32]),
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 0,
+                bytes: H256::from([0x42; 32]),
+            }]);
     });
 }
 
@@ -414,13 +408,10 @@ fn test_extract_less_than_32_bytes() {
                         continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                     },
                 )
-                .execute_returns(QueryVerificationResult {
-                    status: 0, // Success
-                    result_segments: vec![ResultSegment {
-                        offset: 0,
-                        bytes: H256::from(expected),
-                    }],
-                });
+                .execute_returns(vec![ResultSegment {
+                    offset: 0,
+                    bytes: H256::from(expected),
+                }]);
         }
     });
 }
@@ -455,13 +446,10 @@ fn test_extract_exactly_32_bytes() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![ResultSegment {
-                    offset: 0,
-                    bytes: H256::from_slice(&tx_data),
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 0,
+                bytes: H256::from_slice(&tx_data),
+            }]);
     });
 }
 
@@ -496,13 +484,10 @@ fn test_extract_more_than_32_bytes() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![ResultSegment {
-                    offset: 0,
-                    bytes: H256::from_slice(&tx_data[0..32]), // Truncated to 32 bytes
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 0,
+                bytes: H256::from_slice(&tx_data[0..32]), // Truncated to 32 bytes
+            }]);
     });
 }
 
@@ -573,10 +558,7 @@ fn test_continuity_with_checkpoint_fallback() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success with checkpoint fallback
-                result_segments: vec![],
-            });
+            .execute_returns(Vec::<ResultSegment>::new()); // Success with checkpoint fallback
     });
 }
 
@@ -661,10 +643,7 @@ fn test_continuity_attestation_header_validation() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success with correct header number
-                result_segments: vec![],
-            });
+            .execute_returns(Vec::<ResultSegment>::new()); // Success with correct header number
     });
 }
 
@@ -750,10 +729,7 @@ fn test_continuity_wrong_attestation_header_succeeds() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![],
-            });
+            .execute_returns(Vec::<ResultSegment>::new());
     });
 }
 
@@ -1024,17 +1000,14 @@ fn test_merkle_root_matching_succeeds() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![ResultSegment {
-                    offset: 0,
-                    bytes: {
-                        let mut expected = [0u8; 32];
-                        expected.copy_from_slice(&tx_data[0..32]);
-                        H256::from(expected)
-                    },
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 0,
+                bytes: {
+                    let mut expected = [0u8; 32];
+                    expected.copy_from_slice(&tx_data[0..32]);
+                    H256::from(expected)
+                },
+            }]);
     });
 }
 
@@ -1220,17 +1193,14 @@ fn test_merkle_root_verification_with_binary_tree() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![ResultSegment {
-                    offset: 0,
-                    bytes: {
-                        let mut expected = [0u8; 32];
-                        expected.copy_from_slice(&tx_data_1[0..32]);
-                        H256::from(expected)
-                    },
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 0,
+                bytes: {
+                    let mut expected = [0u8; 32];
+                    expected.copy_from_slice(&tx_data_1[0..32]);
+                    H256::from(expected)
+                },
+            }]);
 
         // Now try with wrong transaction data but valid proof structure
         // This simulates trying to claim a different transaction is in the tree
@@ -1333,17 +1303,14 @@ fn test_continuity_chain_with_correct_query_block() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success
-                result_segments: vec![ResultSegment {
-                    offset: 0,
-                    bytes: {
-                        let mut expected = [0u8; 32];
-                        expected[22..32].copy_from_slice(&tx_data[0..10]);
-                        H256::from(expected)
-                    },
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 0,
+                bytes: {
+                    let mut expected = [0u8; 32];
+                    expected[22..32].copy_from_slice(&tx_data[0..10]);
+                    H256::from(expected)
+                },
+            }]);
     });
 }
 
@@ -1416,17 +1383,14 @@ fn test_security_verification_prevents_cross_block_attack() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0, // Success - legitimate transaction verified
-                result_segments: vec![ResultSegment {
-                    offset: 0,
-                    bytes: {
-                        let mut expected = [0u8; 32];
-                        expected.copy_from_slice(&tx_from_block_100[0..32]);
-                        H256::from(expected)
-                    },
-                }],
-            });
+            .execute_returns(vec![ResultSegment {
+                offset: 0,
+                bytes: {
+                    let mut expected = [0u8; 32];
+                    expected.copy_from_slice(&tx_from_block_100[0..32]);
+                    H256::from(expected)
+                },
+            }]); // Success - legitimate transaction verified
     });
 }
 
@@ -2106,10 +2070,7 @@ fn test_log_costs_are_recorded() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(QueryVerificationResult {
-                status: 0,
-                result_segments: vec![],
-            });
+            .execute_returns(Vec::<ResultSegment>::new());
 
         // The test framework handles log cost verification internally
     });

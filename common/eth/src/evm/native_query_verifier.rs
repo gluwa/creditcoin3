@@ -179,14 +179,14 @@ impl NativeQueryVerifierContract {
     /// * `continuity_proof` - Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
-    /// `QueryVerificationResult` with status and extracted data segments
+    /// Vector of extracted data segments (reverts on failure)
     pub async fn verify_query(
         &self,
         query: &Query,
         tx_data: &[u8],
         merkle_proof: QueryMerkleProof,
         continuity_proof: ContinuityProof,
-    ) -> Result<QueryVerificationResult, Error> {
+    ) -> Result<Vec<ResultSegment>, Error> {
         debug!(
             "Calling native query verifier for query: chain_id={}, height={}",
             query.chain_id, query.height
@@ -212,15 +212,7 @@ impl NativeQueryVerifierContract {
                 Error::AlloyContractError(e)
             })?;
 
-        let status = VerificationStatus::try_from(result.result.status)?;
-
-        if status != VerificationStatus::Success {
-            error!("Query verification failed with status: {}", status);
-            return Err(Error::VerificationFailed(result.result.status));
-        }
-
         let result_segments: Result<Vec<ResultSegment>, Error> = result
-            .result
             .result_segments
             .into_iter()
             .map(decode_result_segment)
@@ -233,10 +225,7 @@ impl NativeQueryVerifierContract {
             result_segments.len()
         );
 
-        Ok(QueryVerificationResult {
-            status,
-            result_segments,
-        })
+        Ok(result_segments)
     }
 
     /// Verify a blockchain query with Merkle proof and continuity chain (transaction that emits events)
@@ -248,14 +237,14 @@ impl NativeQueryVerifierContract {
     /// * `continuity_proof` - Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
-    /// `QueryVerificationResult` with status and extracted data segments
+    /// Vector of extracted data segments (reverts on failure)
     pub async fn verify_query_with_tx(
         &self,
         query: &Query,
         tx_data: &[u8],
         merkle_proof: QueryMerkleProof,
         continuity_proof: ContinuityProof,
-    ) -> Result<QueryVerificationResult, Error> {
+    ) -> Result<Vec<ResultSegment>, Error> {
         debug!(
             "Sending native query verifier transaction for query: chain_id={}, height={} id={}",
             query.chain_id,
@@ -302,15 +291,7 @@ impl NativeQueryVerifierContract {
                 Error::AlloyContractError(e)
             })?;
 
-        let status = VerificationStatus::try_from(result.result.status)?;
-
-        if status != VerificationStatus::Success {
-            error!("Query verification failed with status: {}", status);
-            return Err(Error::VerificationFailed(result.result.status));
-        }
-
         let result_segments: Result<Vec<ResultSegment>, Error> = result
-            .result
             .result_segments
             .into_iter()
             .map(decode_result_segment)
@@ -323,10 +304,7 @@ impl NativeQueryVerifierContract {
             result_segments.len()
         );
 
-        Ok(QueryVerificationResult {
-            status,
-            result_segments,
-        })
+        Ok(result_segments)
     }
 
     /// Estimate gas for a query verification

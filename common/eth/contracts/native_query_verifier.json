@@ -532,31 +532,19 @@
         {
           "components": [
             {
-              "internalType": "uint8",
-              "name": "status",
-              "type": "uint8"
+              "internalType": "uint64",
+              "name": "offset",
+              "type": "uint64"
             },
             {
-              "components": [
-                {
-                  "internalType": "uint64",
-                  "name": "offset",
-                  "type": "uint64"
-                },
-                {
-                  "internalType": "bytes32",
-                  "name": "data",
-                  "type": "bytes32"
-                }
-              ],
-              "internalType": "struct INativeQueryVerifier.ResultSegment[]",
-              "name": "result_segments",
-              "type": "tuple[]"
+              "internalType": "bytes32",
+              "name": "data",
+              "type": "bytes32"
             }
           ],
-          "internalType": "struct INativeQueryVerifier.QueryVerificationResult",
-          "name": "result",
-          "type": "tuple"
+          "internalType": "struct INativeQueryVerifier.ResultSegment[]",
+          "name": "result_segments",
+          "type": "tuple[]"
         }
       ],
       "stateMutability": "nonpayable",
@@ -667,31 +655,19 @@
         {
           "components": [
             {
-              "internalType": "uint8",
-              "name": "status",
-              "type": "uint8"
+              "internalType": "uint64",
+              "name": "offset",
+              "type": "uint64"
             },
             {
-              "components": [
-                {
-                  "internalType": "uint64",
-                  "name": "offset",
-                  "type": "uint64"
-                },
-                {
-                  "internalType": "bytes32",
-                  "name": "data",
-                  "type": "bytes32"
-                }
-              ],
-              "internalType": "struct INativeQueryVerifier.ResultSegment[]",
-              "name": "result_segments",
-              "type": "tuple[]"
+              "internalType": "bytes32",
+              "name": "data",
+              "type": "bytes32"
             }
           ],
-          "internalType": "struct INativeQueryVerifier.QueryVerificationResult",
-          "name": "result",
-          "type": "tuple"
+          "internalType": "struct INativeQueryVerifier.ResultSegment[]",
+          "name": "result_segments",
+          "type": "tuple[]"
         }
       ],
       "stateMutability": "view",

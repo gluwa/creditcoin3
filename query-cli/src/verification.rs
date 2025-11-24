@@ -72,9 +72,9 @@ pub async fn verify_query(
     };
 
     match verification_result {
-        Ok(result) => Ok(VerificationResult {
+        Ok(segments) => Ok(VerificationResult {
             success: true,
-            segments: result.result_segments,
+            segments,
             gas_estimate,
             merkle_siblings_count,
             continuity_blocks_count,

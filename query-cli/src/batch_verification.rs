@@ -194,12 +194,11 @@ impl BatchVerifier {
                 .await;
 
             match result {
-                Ok(verification_result) => {
+                Ok(segments_vec) => {
                     successful += 1;
 
                     // Extract segments from the verification result
-                    let segments: Vec<(u64, sp_core::H256)> = verification_result
-                        .result_segments
+                    let segments: Vec<(u64, sp_core::H256)> = segments_vec
                         .iter()
                         .map(|seg| (seg.offset, seg.bytes))
                         .collect();
