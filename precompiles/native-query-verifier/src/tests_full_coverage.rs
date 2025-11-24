@@ -1510,35 +1510,26 @@ fn test_batch_queries_success() {
                 successful_queries: 3,
                 failed_queries: 0,
                 results: vec![
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: H256::from_slice(&tx_data1[0..32]),
-                        }],
-                    },
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: {
-                                let mut expected = [0u8; 32];
-                                expected[12..32].copy_from_slice(&tx_data2[0..20]);
-                                H256::from(expected)
-                            },
-                        }],
-                    },
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: {
-                                let mut expected = [0u8; 32];
-                                expected[22..32].copy_from_slice(&tx_data3[0..10]);
-                                H256::from(expected)
-                            },
-                        }],
-                    },
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: H256::from_slice(&tx_data1[0..32]),
+                    }],
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: {
+                            let mut expected = [0u8; 32];
+                            expected[12..32].copy_from_slice(&tx_data2[0..20]);
+                            H256::from(expected)
+                        },
+                    }],
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: {
+                            let mut expected = [0u8; 32];
+                            expected[22..32].copy_from_slice(&tx_data3[0..10]);
+                            H256::from(expected)
+                        },
+                    }],
                 ],
             });
     });
@@ -1591,17 +1582,11 @@ fn test_batch_queries_mixed_results() {
                 successful_queries: 1,
                 failed_queries: 1,
                 results: vec![
-                    QueryVerificationResult {
-                        status: 0, // Success
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: H256::from_slice(&tx_data1[0..32]),
-                        }],
-                    },
-                    QueryVerificationResult {
-                        status: 4, // MerkleRootMismatch - proof2.root doesn't match continuity block root (which is proof1.root)
-                        result_segments: vec![],
-                    },
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: H256::from_slice(&tx_data1[0..32]),
+                    }],
+                    Vec::new(), // Failure: MerkleRootMismatch - proof2.root doesn't match continuity block root (which is proof1.root)
                 ],
             });
     });
@@ -1864,39 +1849,30 @@ fn test_batch_queries_shared_continuity_optimization() {
                 successful_queries: 3,
                 failed_queries: 0,
                 results: vec![
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: {
-                                let mut expected = [0u8; 32];
-                                expected[28..32].copy_from_slice(&tx_data1[0..4]);
-                                H256::from(expected)
-                            },
-                        }],
-                    },
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: {
-                                let mut expected = [0u8; 32];
-                                expected[28..32].copy_from_slice(&tx_data2[0..4]);
-                                H256::from(expected)
-                            },
-                        }],
-                    },
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: {
-                                let mut expected = [0u8; 32];
-                                expected[28..32].copy_from_slice(&tx_data3[0..4]);
-                                H256::from(expected)
-                            },
-                        }],
-                    },
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: {
+                            let mut expected = [0u8; 32];
+                            expected[28..32].copy_from_slice(&tx_data1[0..4]);
+                            H256::from(expected)
+                        },
+                    }],
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: {
+                            let mut expected = [0u8; 32];
+                            expected[28..32].copy_from_slice(&tx_data2[0..4]);
+                            H256::from(expected)
+                        },
+                    }],
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: {
+                            let mut expected = [0u8; 32];
+                            expected[28..32].copy_from_slice(&tx_data3[0..4]);
+                            H256::from(expected)
+                        },
+                    }],
                 ],
             });
     });

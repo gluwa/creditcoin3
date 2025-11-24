@@ -130,13 +130,6 @@ impl From<QueryMerkleProof> for INativeQueryVerifier::MerkleProof {
     }
 }
 
-/// Query verification result
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct QueryVerificationResult {
-    pub status: VerificationStatus,
-    pub result_segments: Vec<ResultSegment>,
-}
-
 /// Native Query Verifier contract interface
 #[derive(Debug, Clone)]
 pub struct NativeQueryVerifierContract {

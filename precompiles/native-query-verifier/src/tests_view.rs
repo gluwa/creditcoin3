@@ -3,8 +3,8 @@
 use crate::mock::*;
 use crate::tests::{precompiles, setup_attestation};
 use crate::{
-    BatchQueryVerificationResult, QueryVerificationResult, ResultSegment,
-    SELECTOR_LOG_BATCH_QUERIES_VERIFIED, SELECTOR_LOG_QUERY_VERIFIED,
+    BatchQueryVerificationResult, ResultSegment, SELECTOR_LOG_BATCH_QUERIES_VERIFIED,
+    SELECTOR_LOG_QUERY_VERIFIED,
 };
 use attestor_primitives::query::Query;
 use attestor_primitives::{
@@ -346,20 +346,14 @@ fn test_verify_batch_queries_view_success() {
                 successful_queries: 2,
                 failed_queries: 0,
                 results: vec![
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: H256::from([1u8; 32]),
-                        }],
-                    },
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: H256::from([2u8; 32]),
-                        }],
-                    },
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: H256::from([1u8; 32]),
+                    }],
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: H256::from([2u8; 32]),
+                    }],
                 ],
             });
 
@@ -421,20 +415,14 @@ fn test_verify_batch_queries_view_success() {
                 successful_queries: 2,
                 failed_queries: 0,
                 results: vec![
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: H256::from([1u8; 32]),
-                        }],
-                    },
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: H256::from([2u8; 32]),
-                        }],
-                    },
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: H256::from([1u8; 32]),
+                    }],
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: H256::from([2u8; 32]),
+                    }],
                 ],
             });
     });
@@ -517,17 +505,11 @@ fn test_verify_batch_queries_view_mixed_results() {
                 successful_queries: 1,
                 failed_queries: 1,
                 results: vec![
-                    QueryVerificationResult {
-                        status: 0,
-                        result_segments: vec![ResultSegment {
-                            offset: 0,
-                            bytes: H256::from([1u8; 32]),
-                        }],
-                    },
-                    QueryVerificationResult {
-                        status: 1, // MerkleProofInvalid
-                        result_segments: vec![],
-                    },
+                    vec![ResultSegment {
+                        offset: 0,
+                        bytes: H256::from([1u8; 32]),
+                    }],
+                    Vec::new(), // Failure: empty vector
                 ],
             });
     });

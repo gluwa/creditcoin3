@@ -49,9 +49,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             expect(code).toBeDefined();
         });
 
-        test('should verify interface returns ResultSegment[] directly (not QueryVerificationResult)', async () => {
-            // This test verifies the interface change: verifyQuery now returns ResultSegment[] directly
-            // instead of QueryVerificationResult with status field
+        test('should verify interface returns ResultSegment[] directly', async () => {
             const query = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 chain_id: 1,
@@ -80,18 +78,16 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 // Note: This will likely fail without proper attestation data, but we're testing the interface
                 const result = await contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof);
                 // ethers.js returns named outputs as objects, so result will be { result_segments: [...] }
-                // Verify it returns result_segments array directly (not wrapped in QueryVerificationResult with status)
+                // Verify it returns result_segments array directly
                 expect(result).toBeDefined();
                 expect(result).toHaveProperty('result_segments');
                 expect(Array.isArray(result.result_segments)).toBe(true);
-                // Result should be an array of ResultSegment objects, not QueryVerificationResult
                 if (result.result_segments.length > 0) {
                     expect(result.result_segments[0]).toHaveProperty('offset');
                     expect(result.result_segments[0]).toHaveProperty('data');
                     // Should NOT have status property (old interface)
                     expect(result.result_segments[0]).not.toHaveProperty('status');
                 }
-                // Verify the result object does NOT have a status property (old interface)
                 expect(result).not.toHaveProperty('status');
             } catch (error: any) {
                 // Expected to fail without proper attestation data

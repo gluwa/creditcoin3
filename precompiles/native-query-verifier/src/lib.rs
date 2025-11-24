@@ -82,16 +82,6 @@ type MaxBatchSize = sp_core::ConstU32<10>;
 /// For single queries (`verify_query` and `verify_query_view`), the functions
 /// return `Vec<ResultSegment>` directly and revert on failure.
 /// For batch queries, individual queries can fail without reverting the entire batch,
-/// so this struct is used to track success/failure status.
-#[derive(Debug, Clone, PartialEq, Eq, Codec)]
-pub struct QueryVerificationResult {
-    /// Verification status: 0 = Success, 1 = MerkleProofInvalid, 2 = ContinuityChainInvalid,
-    /// 3 = DataExtractionError, 4 = MerkleRootMismatch
-    pub status: u8,
-    /// Extracted data segments from the verified transaction
-    pub result_segments: Vec<ResultSegment>,
-}
-
 /// Result of batch query verification
 #[derive(Debug, Clone, PartialEq, Eq, Codec)]
 pub struct BatchQueryVerificationResult {
@@ -99,8 +89,9 @@ pub struct BatchQueryVerificationResult {
     pub successful_queries: u32,
     /// Number of failed queries
     pub failed_queries: u32,
-    /// Individual results for each query
-    pub results: Vec<QueryVerificationResult>,
+    /// Individual results for each query.
+    /// Empty vector indicates failure, non-empty vector contains extracted data segments.
+    pub results: Vec<Vec<ResultSegment>>,
 }
 
 /// Helper function to encode revert messages in Solidity format

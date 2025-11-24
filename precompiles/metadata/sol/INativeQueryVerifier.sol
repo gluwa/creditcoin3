@@ -69,18 +69,6 @@ interface INativeQueryVerifier {
 
     /// @notice Result of query verification
     /// @dev Contains the verification status and extracted data segments
-    struct QueryVerificationResult {
-        /// Verification status code:
-        /// 0 = Success
-        /// 1 = MerkleProofInvalid
-        /// 2 = ContinuityChainInvalid
-        /// 3 = DataExtractionError
-        /// 4 = MerkleRootMismatch
-        uint8 status;
-        /// Extracted data segments from the verified transaction
-        ResultSegment[] result_segments;
-    }
-
     /// @notice A segment of extracted data from a verified transaction
     /// @dev Contains the offset and extracted bytes
     struct ResultSegment {
@@ -93,14 +81,16 @@ interface INativeQueryVerifier {
     }
 
     /// @notice Result of batch query verification
-    /// @dev Contains statistics and individual results for each query
+    /// @dev Contains statistics and individual results for each query.
+    /// Empty arrays indicate failure, non-empty arrays contain extracted data segments.
     struct BatchQueryVerificationResult {
         /// Number of successfully verified queries
         uint32 successful_queries;
         /// Number of failed queries
         uint32 failed_queries;
-        /// Individual results for each query in the batch
-        QueryVerificationResult[] results;
+        /// Individual results for each query in the batch.
+        /// Empty array indicates failure, non-empty array contains extracted data segments.
+        ResultSegment[][] results;
     }
 
     /// @notice Verify a blockchain query with Merkle proof and continuity chain (view function)
@@ -353,15 +343,6 @@ library NativeQueryVerifierLib {
     /// @return The INativeQueryVerifier interface instance
     function getVerifier() internal pure returns (INativeQueryVerifier) {
         return INativeQueryVerifier(PRECOMPILE_ADDRESS);
-    }
-
-    /// @notice Check if a verification result is successful
-    /// @param result The verification result to check
-    /// @return True if verification was successful
-    function isSuccess(
-        INativeQueryVerifier.QueryVerificationResult memory result
-    ) internal pure returns (bool) {
-        return result.status == STATUS_SUCCESS;
     }
 
     /// @notice Get a human-readable error message for a status code

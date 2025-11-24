@@ -13,7 +13,7 @@ use sp_std::vec::Vec;
 
 use crate::{
     encode_revert_message, BatchQueryVerificationResult, MaxBatchSize, MerkleProof,
-    NativeQueryVerifierPrecompile, QueryVerificationResult, SELECTOR_LOG_BATCH_QUERIES_VERIFIED,
+    NativeQueryVerifierPrecompile, SELECTOR_LOG_BATCH_QUERIES_VERIFIED,
 };
 
 // Gas cost constants
@@ -411,12 +411,9 @@ where
                         log::debug!("Failed to emit failure event: {e:?}");
                     }
                 }
-                let result = QueryVerificationResult {
-                    status: 1, // MerkleProofInvalid
-                    result_segments: Vec::new(),
-                };
+                // Failure: push empty vector
                 failed_queries += 1;
-                results.push(result);
+                results.push(Vec::new());
                 continue;
             }
 
@@ -438,12 +435,9 @@ where
                         log::debug!("Failed to emit failure event: {e:?}");
                     }
                 }
-                let result = QueryVerificationResult {
-                    status: err.status(),
-                    result_segments: Vec::new(),
-                };
+                // Failure: push empty vector
                 failed_queries += 1;
-                results.push(result);
+                results.push(Vec::new());
                 continue;
             }
 
@@ -455,10 +449,7 @@ where
                         Self::emit_verification_success(handle, &query, &segments)?;
                     }
                     successful_queries += 1;
-                    results.push(QueryVerificationResult {
-                        status: 0, // Success
-                        result_segments: segments,
-                    });
+                    results.push(segments);
                 }
                 Err(e @ PrecompileFailure::Revert { .. }) => {
                     // Propagate revert errors (like segment out of bounds)
@@ -476,12 +467,9 @@ where
                             log::debug!("Failed to emit failure event: {e:?}");
                         }
                     }
-                    let result = QueryVerificationResult {
-                        status: 3, // DataExtractionError
-                        result_segments: Vec::new(),
-                    };
+                    // Failure: push empty vector
                     failed_queries += 1;
-                    results.push(result);
+                    results.push(Vec::new());
                 }
             }
         }
