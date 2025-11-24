@@ -26,7 +26,7 @@ async fn mock_providers_refused_in_production() {
     );
 
     let db = DbManager::new().expect("db manager init");
-    let mut server = Server::new(cfg, db).await.expect("server create");
+    let server = Server::new(cfg, db).await.expect("server create");
 
     let err = server.run().await.expect_err("should refuse startup");
     let msg = format!("{err}");

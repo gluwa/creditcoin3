@@ -193,58 +193,10 @@ impl ContinuityService {
 
     pub async fn continuity_proof_by_tx_hash(
         &self,
-        chain_key: u64,
+        _chain_key: u64,
         tx_hash: String,
     ) -> std::result::Result<ContinuityResponse, ServiceError> {
-        // Placeholder mapping: derive header_number & tx_index from hash bytes
-        let header_number = 1; // TODO real lookup
-        let tx_index = 0; // TODO real lookup
-        let query = Query {
-            chain_id: chain_key,
-            height: header_number,
-            layout_segments: vec![],
-        };
-        let proof: RawContinuityProof = self
-            .builder
-            .build_for_single_query(&query)
-            .await
-            .map_err(ServiceError::from)?;
-        let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
-
-        // If we had a mapping from tx_hash -> (header_number, tx_index) we'd call the tx_index variant.
-        // For now, we try to fetch tx bytes and produce an empty-proof root if possible.
-        let tx_bytes = self
-            .builder
-            .get_block_tx_bytes(header_number)
-            .await
-            .map_err(|e| ServiceError::RpcUnavailable {
-                message: e.to_string(),
-            })?;
-        let tree = mmr::SimpleMerkleTree::new(&tx_bytes);
-        let merkle_root = tree.root();
-        let merkle_proof = QueryMerkleProof::new(merkle_root, vec![]);
-
-        let entry = QueryProofs {
-            chain_key,
-            header_number,
-            tx_index: Some(tx_index),
-            tx_hash: Some(H256::from_low_u64_be(0)), // placeholder
-            continuity_proof: Some(continuity_out.clone()),
-            merkle_proof: Some(merkle_proof.clone()),
-            merkle_root: Some(merkle_root),
-        };
-        self.db.insert_proofs_entry(entry);
-
-        Ok(ContinuityResponse {
-            chain_key,
-            header_number,
-            tx_index: Some(tx_index),
-            tx_hash: Some(tx_hash),
-            continuity_proof: continuity_out,
-            merkle_proof: Some(merkle_proof.clone()),
-            merkle_root: Some(h256_to_hex(&merkle_root)),
-            cached: false,
-            generated_at: Utc::now(),
-        })
+        // Endpoint temporarily disabled until reverse lookup (tx_hash -> (header_number, tx_index)) is implemented.
+        Err(ServiceError::TxHashLookupUnavailable { tx_hash })
     }
 }

@@ -19,6 +19,8 @@ pub enum ServiceError {
     InvalidParameter { message: String },
     #[error("internal error: {message}")]
     Internal { message: String },
+    #[error("tx hash reverse lookup unavailable for {tx_hash}")]
+    TxHashLookupUnavailable { tx_hash: String },
 }
 
 impl ServiceError {
@@ -38,6 +40,7 @@ impl ServiceError {
             ServiceError::MerkleError { .. } => "MerkleError",
             ServiceError::InvalidParameter { .. } => "InvalidParameter",
             ServiceError::Internal { .. } => "Internal",
+            ServiceError::TxHashLookupUnavailable { .. } => "TxHashLookupUnavailable",
         }
     }
 }

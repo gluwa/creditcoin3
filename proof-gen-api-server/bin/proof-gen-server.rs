@@ -1,7 +1,6 @@
 use clap::Parser;
 use proof_gen_api_server::{config::Config, db::DbManager, Server};
 use std::env;
-use tokio::signal;
 use tracing::{debug, info};
 
 #[derive(Parser, Debug)]
@@ -115,12 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let mut server = Server::new(config, manager).await?;
+    let server = Server::new(config, manager).await?;
+    // Run blocks until graceful shutdown signal.
     server.run().await?;
-
-    // Wait for Ctrl+C signal
-    signal::ctrl_c().await?;
-    info!("🛑 Ctrl+C received, shutting down...");
+    info!("🛑 Server exited");
 
     Ok(())
 }

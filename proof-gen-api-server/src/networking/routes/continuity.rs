@@ -22,6 +22,9 @@ fn map_service_error(err: ServiceError) -> (StatusCode, Json<Value>) {
         ServiceError::RpcUnavailable { .. } => {
             (StatusCode::SERVICE_UNAVAILABLE, err.code(), err.retriable())
         }
+        ServiceError::TxHashLookupUnavailable { .. } => {
+            (StatusCode::NOT_IMPLEMENTED, err.code(), err.retriable())
+        }
         ServiceError::DbError { .. } => (
             StatusCode::INTERNAL_SERVER_ERROR,
             err.code(),
