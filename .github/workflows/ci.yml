@@ -245,9 +245,10 @@ jobs:
         working-directory: ./precompiles/metadata
         run: |
           ./generate-metadata-json.sh
-          if ! git diff --quiet precompiles-creditcoin3-devnet.json precompiles-creditcoin3-testnet.json; then
+          cd ../..
+          if ! git diff --quiet precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json; then
             echo "ERROR: Metadata JSON files are out of date. Please run './generate-metadata-json.sh' and commit the changes."
-            git diff precompiles-creditcoin3-devnet.json precompiles-creditcoin3-testnet.json
+            git diff precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json
             exit 1
           fi
 

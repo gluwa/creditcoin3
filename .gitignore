@@ -51,7 +51,6 @@ attestor/scripts/checkpoints.json
 **/cache/
 **/typechain-types/
 **/ignition/deployments/
-precompiles/metadata/abi/*.json
 docs/smart-contract-development/with-hardhat/artifacts/*
 
 # Bridge usage example
