@@ -1,5 +1,4 @@
 use crate::db::{DbManager, QueryProofs};
-use anyhow::Result;
 use attestor_primitives::block::ContinuityProof;
 use attestor_primitives::Query;
 use chrono::{DateTime, Utc};
@@ -34,6 +33,8 @@ pub struct ContinuityResponse {
     pub generated_at: DateTime<Utc>,
 }
 
+use crate::services::errors::ServiceError;
+
 pub struct ContinuityService {
     builder: Arc<ContinuityBuilder>,
     db: Arc<DbManager>,
@@ -48,11 +49,15 @@ impl ContinuityService {
         &self,
         chain_key: u64,
         header_number: u64,
-    ) -> Result<ContinuityResponse> {
+    ) -> std::result::Result<ContinuityResponse, ServiceError> {
         // Attempt cache lookup
         let cached = match self.db.get_proofs_entry(chain_key, header_number).await {
             Ok(c) => c,
-            Err(_) => None, // treat DB errors as cache miss for phase 1
+            Err(e) => {
+                // Log DB error, continue as cache miss
+                tracing::warn!(error=?e, "db read error for continuity cache");
+                None
+            }
         };
         if let Some(entry) = cached {
             if let Some(cp_json) = entry.continuity_proof {
@@ -78,7 +83,11 @@ impl ContinuityService {
             height: header_number,
             layout_segments: vec![],
         };
-        let proof: RawContinuityProof = self.builder.build_for_single_query(&query).await?;
+        let proof: RawContinuityProof = self
+            .builder
+            .build_for_single_query(&query)
+            .await
+            .map_err(ServiceError::from)?;
         // Convert raw blocks into optimized ContinuityProof (attestor primitives)
         let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
 
@@ -112,22 +121,42 @@ impl ContinuityService {
         chain_key: u64,
         header_number: u64,
         tx_index: u64,
-    ) -> Result<ContinuityResponse> {
+    ) -> std::result::Result<ContinuityResponse, ServiceError> {
         // Build continuity proof (ignore cache for now for tx variant)
         let query = Query {
             chain_id: chain_key,
             height: header_number,
             layout_segments: vec![],
         };
-        let proof: RawContinuityProof = self.builder.build_for_single_query(&query).await?;
+        let proof: RawContinuityProof = self
+            .builder
+            .build_for_single_query(&query)
+            .await
+            .map_err(ServiceError::from)?;
         let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
 
-        // Mock merkle proof generation – deterministic siblings from tx_index
-        // Fetch transaction payloads for the block and build a merkle tree
-        let tx_bytes = match self.builder.get_block_tx_bytes(header_number).await {
-            Ok(b) => b,
-            Err(_) => vec![],
-        };
+        // Build a merkle proof for `tx_index` over the block's transaction bytes.
+        // Mock providers yield deterministic fixture bytes; real providers yield live block transactions.
+        // Returned siblings allow reconstruction of the merkle root.
+        let tx_bytes = self
+            .builder
+            .get_block_tx_bytes(header_number)
+            .await
+            .map_err(|e| ServiceError::RpcUnavailable {
+                message: e.to_string(),
+            })?;
+
+        if tx_bytes.is_empty() {
+            // Allow tx_index == 0 for empty blocks and produce an empty merkle proof/root.
+            if tx_index != 0 {
+                return Err(ServiceError::TxIndexOutOfBounds { tx_index, len: 0 });
+            }
+        } else if tx_index as usize >= tx_bytes.len() {
+            return Err(ServiceError::TxIndexOutOfBounds {
+                tx_index,
+                len: tx_bytes.len(),
+            });
+        }
 
         let tree = mmr::SimpleMerkleTree::new(&tx_bytes);
         let merkle_proof = if tx_bytes.is_empty() {
@@ -166,7 +195,7 @@ impl ContinuityService {
         &self,
         chain_key: u64,
         tx_hash: String,
-    ) -> Result<ContinuityResponse> {
+    ) -> std::result::Result<ContinuityResponse, ServiceError> {
         // Placeholder mapping: derive header_number & tx_index from hash bytes
         let header_number = 1; // TODO real lookup
         let tx_index = 0; // TODO real lookup
@@ -175,15 +204,22 @@ impl ContinuityService {
             height: header_number,
             layout_segments: vec![],
         };
-        let proof: RawContinuityProof = self.builder.build_for_single_query(&query).await?;
+        let proof: RawContinuityProof = self
+            .builder
+            .build_for_single_query(&query)
+            .await
+            .map_err(ServiceError::from)?;
         let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
 
         // If we had a mapping from tx_hash -> (header_number, tx_index) we'd call the tx_index variant.
-        // For now, try to fetch tx bytes and produce an empty-proof root if possible.
-        let tx_bytes = match self.builder.get_block_tx_bytes(header_number).await {
-            Ok(b) => b,
-            Err(_) => vec![],
-        };
+        // For now, we try to fetch tx bytes and produce an empty-proof root if possible.
+        let tx_bytes = self
+            .builder
+            .get_block_tx_bytes(header_number)
+            .await
+            .map_err(|e| ServiceError::RpcUnavailable {
+                message: e.to_string(),
+            })?;
         let tree = mmr::SimpleMerkleTree::new(&tx_bytes);
         let merkle_root = tree.root();
         let merkle_proof = QueryMerkleProof::new(merkle_root, vec![]);

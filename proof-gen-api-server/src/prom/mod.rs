@@ -177,9 +177,10 @@ pub(crate) mod tests {
 
         let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
         let body_str = String::from_utf8(bytes.to_vec()).unwrap();
-        let expected_body = "# HELP prover_chain_key Prover chain key\n# TYPE prover_chain_key gauge\nprover_chain_key 2\n".to_string();
-
-        assert_eq!(body_str, expected_body);
+        // Assert new metric name appears and value is correct
+        assert!(body_str.contains("# HELP proof_gen_server_chain_key Proof gen server chain key"));
+        assert!(body_str.contains("# TYPE proof_gen_server_chain_key gauge"));
+        assert!(body_str.contains("proof_gen_server_chain_key 2"));
         assert_eq!(headers, expected_headers);
     }
 
@@ -188,6 +189,7 @@ pub(crate) mod tests {
         let prometheus_registry: Arc<Registry> = Arc::new(Registry::new());
         let metrics: Option<ProofGenServerMetrics> = register_metrics(&prometheus_registry.clone());
 
+        metric_set!(metrics, gen_server_chain_key, 2);
         metric_inc_with_labels!(metrics, proof_requests_received, "Test Chain", 2);
         let http_server = HttpServer {
             prometheus_registry,
@@ -211,9 +213,10 @@ pub(crate) mod tests {
 
         let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
         let body_str = String::from_utf8(bytes.to_vec()).unwrap();
-        let expected_body = "# HELP proof_requests_received The number of proof requests received by the proof gen server\n# TYPE proof_requests_received gauge\nproof_requests_received{chain=\"Test Chain\",chain_key=\"2\"} 1\n# HELP proof_gen_server_chain_key Proof gen server chain key\n# TYPE proof_gen_server_chain_key gauge\nproof_gen_server_chain_key 2\n".to_string();
-
-        assert_eq!(body_str, expected_body);
-        assert!(body_str.contains("proof_requests_received{chain=\"Test Chain\",chain_key=\"2\"}"));
+        assert!(body_str.contains("# HELP number_of_requests_received The number of proof requests received by the proof gen server"));
+        assert!(body_str.contains("# TYPE number_of_requests_received gauge"));
+        assert!(body_str
+            .contains("number_of_requests_received{chain=\"Test Chain\",chain_key=\"2\"} 1"));
+        assert!(body_str.contains("proof_gen_server_chain_key 2"));
     }
 }

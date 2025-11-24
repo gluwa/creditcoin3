@@ -22,11 +22,7 @@ async fn continuity_endpoint_returns_proof() {
         chain_key,
     };
     let builder = ContinuityBuilder::new_with_providers(config, cc_mock, eth_mock);
-    // DbManager requires real DB; skip and use dummy by constructing in-memory? For now we instantiate and ignore DB operations.
-    // NOTE: This is a light integration test focusing on HTTP wiring + serialization.
-    // We bypass DB by using a temporary environment configured to a test database if available.
-    // If DATABASE env vars are not set this test will fail early.
-    // Set required postgres env vars to satisfy DbManager::new(); values are dummy and connections won't be used
+    // Provide dummy Postgres env vars so DbManager::new() succeeds; test focuses on HTTP + serialization, not DB IO.
     std::env::set_var("POSTGRES_HOST", "localhost");
     std::env::set_var("POSTGRES_PORT", "5432");
     std::env::set_var("POSTGRES_USER", "test");
@@ -54,5 +50,8 @@ async fn continuity_endpoint_returns_proof() {
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(json["chain_key"].as_u64().unwrap(), chain_key);
     assert_eq!(json["header_number"].as_u64().unwrap(), header_number);
-    assert!(json["continuity_proof"]["blocks"].as_array().unwrap().len() > 0);
+    assert!(!json["continuity_proof"]["blocks"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }

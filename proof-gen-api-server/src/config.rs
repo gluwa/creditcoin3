@@ -17,6 +17,9 @@ pub struct Config {
     pub cc3_key: String,
     pub chain_key: u64,
     pub eth_rpc_url: String,
+    /// When true, server will construct continuity builder with mock RPC providers.
+    /// Useful for local development without live chains. Not allowed when RUST_LOG=production.
+    pub use_mock_providers: bool,
     pub enable_prometheus_metrics: bool,
     pub prometheus_host: String,
     pub prometheus_port: u16,
@@ -49,6 +52,11 @@ impl Config {
             .parse::<bool>()
             .context("Invalid ENABLE_PROMETHEUS_METRICS: expected true/false")?;
 
+        // Mock providers flag (accepts 1 / true / yes)
+        let use_mock_providers = env::var("USE_MOCK_PROVIDERS")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+
         // Host/Port for metrics
         let prometheus_host = env::var("PROMETHEUS_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
 
@@ -63,6 +71,7 @@ impl Config {
             cc3_key,
             chain_key,
             eth_rpc_url,
+            use_mock_providers,
             enable_prometheus_metrics,
             prometheus_host,
             prometheus_port,

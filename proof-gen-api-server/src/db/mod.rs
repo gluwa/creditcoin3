@@ -124,9 +124,9 @@ impl DbManager {
                                 updated_at = now()
                             "#,
                             &[
-                                &(entry.chain_key as i64),
-                                &(entry.header_number as i64),
-                                &entry.tx_index.map(|v| v as i64),
+                                &(entry.chain_key),
+                                &(entry.header_number),
+                                &entry.tx_index,
                                 &entry.tx_hash,
                                 &entry.continuity_proof,
                                 &entry.merkle_proof,
@@ -157,8 +157,8 @@ impl DbManager {
                                 updated_at = now()
                             "#,
                                 &[
-                                    &(entry.chain_key as i64),
-                                    &(entry.header_number as i64),
+                                    &(entry.chain_key),
+                                    &(entry.header_number),
                                     &entry.tx_hash,
                                     &entry.continuity_proof,
                                     &entry.merkle_proof,

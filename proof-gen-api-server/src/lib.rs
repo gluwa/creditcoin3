@@ -24,9 +24,9 @@ use tracing::{error, info};
 
 pub mod config;
 pub mod db;
-mod networking;
+pub mod networking;
 mod prom;
-mod services;
+pub mod services;
 
 // Re-exports for integration tests and external callers
 pub use networking::build_app;

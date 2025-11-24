@@ -3,24 +3,12 @@ use axum::{routing::get, Extension, Router};
 use routes::{continuity, health};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot::Receiver;
 
 pub mod routes;
 
-// TODO: Figure out whether to use thiserror or anyhow throughout the whole server. Dylan's usual pattern is to use anyhow first
-#[derive(Error, Debug)]
-pub enum ApiError {
-    #[error("Invalid request: {0}")]
-    BadRequest(String),
-
-    #[error("Not found: {0}")]
-    NotFound(String),
-
-    #[error("Internal server error")]
-    InternalError,
-}
+// Legacy ApiError removed; structured errors handled in routes via ServiceError.
 
 pub fn build_app(service: Arc<ContinuityService>) -> Router {
     Router::new()
@@ -40,6 +28,7 @@ pub fn build_app(service: Arc<ContinuityService>) -> Router {
         .layer(Extension(service))
 }
 
+#[allow(dead_code)]
 pub async fn run_http_server(
     app: Router,
     addr: &str,

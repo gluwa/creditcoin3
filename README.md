@@ -15,7 +15,6 @@ The following directories correspond to major components:
 
 See individual README files for more information
 
-
 ## Supported operating system
 
 The only supported OS is Linux / x86_64 - see the `runs-on:` sections in
@@ -24,11 +23,10 @@ The only supported OS is Linux / x86_64 - see the `runs-on:` sections in
 **WARNING:** this repository makes heavy use of symbolic links to account for
 inter-dependencies between various components and to avoid artifacts in different
 directories diverging from one another. This works well on Linux and MacOS, however
-symbolic links are not supported on Windows!  If you see a symlink file being removed
+symbolic links are not supported on Windows! If you see a symlink file being removed
 by git and replaced by its content that is most likely the reason.
 
 This is a mistake and should be corrected before merging!
-
 
 ## Dev environment setup
 
@@ -61,6 +59,49 @@ To execute the chain, run:
 ./target/release/creditcoin3-node --dev
 ```
 
+### Continuity Proof API (proof-gen-api-server)
+
+This repository includes a Continuity Proof API server providing endpoints for continuity and transaction merkle proofs.
+
+Key environment variables:
+
+- `USE_MOCK_PROVIDERS` ("1" / "true" / "yes"): run the API with deterministic mock RPC providers (no live chain needed). Automatically refused when `RUST_LOG=production`.
+- `CC3_RPC_URL`, `ETH_RPC_URL`: URLs for live Creditcoin3 and source chain RPC when not using mocks.
+- `CHAIN_KEY`: Source chain key used in continuity queries.
+- Postgres: `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` (required for caching proofs).
+
+Safety guard:
+
+The server will abort startup if `USE_MOCK_PROVIDERS` is truthy and `RUST_LOG=production` to prevent accidental production deployment with mock data.
+
+Example (mock mode):
+
+```bash
+export USE_MOCK_PROVIDERS=1
+export CC3_KEY="dummy mnemonic"
+export POSTGRES_HOST=localhost POSTGRES_PORT=5432 POSTGRES_USER=test POSTGRES_PASSWORD=test POSTGRES_DB=test
+cargo run -p proof-gen-api-server
+```
+
+Example (real providers):
+
+```bash
+unset USE_MOCK_PROVIDERS
+export CC3_KEY="your mnemonic"
+export CC3_RPC_URL=ws://127.0.0.1:9944
+export ETH_RPC_URL=http://127.0.0.1:8545
+export POSTGRES_HOST=localhost POSTGRES_PORT=5432 POSTGRES_USER=test POSTGRES_PASSWORD=test POSTGRES_DB=test
+cargo run -p proof-gen-api-server
+```
+
+Endpoints (base path: `/api/v1`):
+
+- `GET /proof/{chain_key}/{header_number}`: continuity proof for a header.
+- `GET /proof/{chain_key}/{header_number}/{tx_index}`: continuity + merkle proof for transaction index.
+- `GET /proof-by-tx/{chain_key}/{tx_hash}`: placeholder (future real lookup).
+
+Error responses include fields: `code`, `message`, `retriable`.
+
 _WARNING: running natively on Windows [is unsupported](https://github.com/gluwa/creditcoin/security/advisories/GHSA-cx5c-xwcv-vhmq)._
 
 The node also supports to use manual seal (to produce block manually through RPC).
@@ -81,13 +122,11 @@ a number of checks locally before pushing a PR:
 2. `yarn format` and `yarn lint` and `yarn typecheck` when working on any component written in TypeScript
 3. Execute the primary test(s) for the affected component - see individual README files for more information
 
-
 It is also advisable that pull requests be:
 
 1. relatively small and related to a single feature / change request so they are easier to review
 2. up-to-date aka rebased onto latest development branch
 3. not contain "Merge" commits
-
 
 ### Docker Based Development
 
@@ -110,7 +149,6 @@ docker run -t creditcoin3-node-dev
 **WARNING:** when running multiple components in containers, especially when some of them
 may be running directly on the host OS make sure that you have your networking setup configured
 correctly! `ws://localhost:9944` is interpreted differently when a process executes inside a container!
-
 
 ## Testing
 
@@ -151,7 +189,6 @@ The rule of thumb for naming and directory structure usually is:
 - longer > shorter
 - more verbose is better
 
-
 ### How to help yourself with various failures in CI jobs
 
 See documentation & screenshots at
@@ -161,7 +198,6 @@ https://gluwa.atlassian.net/wiki/spaces/CB/pages/1699119122/How+to+help+yourself
 this is what we see in the GitHub interface, as well as logs from running various components in the background.
 At the end of execution these are uploaded as artifacts for later use. Can be found under the
 `Uploading logs` step or on the summary page.
-
 
 ### Running locally
 
@@ -174,7 +210,6 @@ There are 2 primary entry-points one should be concerned with:
    - these are defined in YAML files under `.github/workflows/`. The main one is `ci.yml`
    - Individual CI jobs are defined under the `jobs:` section. Their entry-point is the first
      items under the `steps:` section
-
 
 2. Entry point to a particular test suite within that CI job - this is usually the command
    which triggers execution of said test suite. Could be

@@ -87,6 +87,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cc3_key: args.cc3_key,
         chain_key: args.chain_key,
         eth_rpc_url: args.eth_rpc_url,
+        use_mock_providers: env::var("USE_MOCK_PROVIDERS")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false),
         enable_prometheus_metrics: args.enable_prometheus_metrics,
         prometheus_host: args.prometheus_host,
         prometheus_port: args.prometheus_port,
