@@ -44,6 +44,9 @@ RUN source ~/.cargo/env && \
 
 
 FROM devel-base AS cli-builder
+USER 0
+RUN apt-get install -y --no-install-recommends jq
+USER creditcoin
 WORKDIR /creditcoin-node/precompiles/metadata
 RUN solc --version && ./abi-creator.sh
 
