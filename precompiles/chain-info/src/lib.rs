@@ -18,7 +18,7 @@ use pallet_attestation_poc::{
 use pallet_evm::AddressMapping;
 use pallet_supported_chains::SupportedChains;
 use precompile_utils::{prelude::*, solidity::Codec};
-use precompiles_primitives::GAS_STORAGE_LOOKUP;
+use precompiles_primitives::{GAS_PER_ITERATION_ITEM, GAS_STORAGE_LOOKUP};
 
 #[cfg(test)]
 mod mock;
@@ -181,16 +181,14 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<HeightHashResult> {
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
         let maybe_last_checkpoint_height =
             LastCheckpoint::<Runtime>::get(chain_key).map(|cp| cp.block_number);
 
-        let mut storage_lookups = 1;
-
         // We first check if the latest checkpoint height is higher or equal to the target height.
-        let result = if matches!(maybe_last_checkpoint_height, Some(height) if height >= target_height)
-        {
+        if matches!(maybe_last_checkpoint_height, Some(height) if height >= target_height) {
             // If it is search through the checkpoints to find the highest attested height below the target.
-
             // We search through the bucket of the block corresponding to target_height - 1 for any checkpoints.
             let mut block_pivot = PalletAttestationPoc::<Runtime>::compute_block_index_for(
                 target_height.saturating_sub(1),
@@ -200,26 +198,34 @@ where
 
             // We limit the number of bucket searches to avoid excessive computation.
             for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
+                let mut items_processed = 0_u64;
+
                 // We search the checkpoint bucket for the highest checkpoint below the target height.
                 maybe_highest =
                     CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, block_pivot))
+                        .inspect(|_| {
+                            items_processed += 1;
+                        })
                         .filter(|block_number| *block_number < target_height)
                         .max_by_key(|block_number| *block_number)
                         .map(|block_number| {
+                            handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
                             // At this point, we know the checkpoint exists. So we can safely unwrap.
                             let digest =
                                 Checkpoints::<Runtime>::get(chain_key, block_number).unwrap();
 
-                            storage_lookups += 1;
-
-                            HeightHashResult {
+                            <EvmResult<HeightHashResult>>::Ok(HeightHashResult {
                                 height: block_number,
                                 hash: digest,
                                 exists: true,
-                            }
-                        });
+                            })
+                        })
+                        .transpose()?;
 
-                storage_lookups += 1;
+                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
 
                 if maybe_highest.is_some() {
                     break;
@@ -231,11 +237,15 @@ where
 
             Ok(maybe_highest.unwrap_or_default())
         } else {
-            // This is the lookup of the first iter_prefix below.
-            storage_lookups += 1;
+            handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
+            let mut items_processed = 0_u64;
 
             // If the target height is lower than the last checkpoint height, we first search through the attestations directly.
             let highest = if let Some(highest) = Attestations::<Runtime>::iter_prefix(chain_key)
+                .inspect(|_| {
+                    items_processed += 1;
+                })
                 .filter(|(_, attestation)| attestation.header_number() < target_height)
                 .max_by_key(|(height, _)| *height)
                 .map(|(hash, attestation)| HeightHashResult {
@@ -245,11 +255,11 @@ where
                 }) {
                 highest
             } else if let Some(last_checkpoint_height) = maybe_last_checkpoint_height {
+                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
                 // If we didn't find any attestations below the target height, we fall back to the last checkpoint.
                 let digest = Checkpoints::<Runtime>::get(chain_key, last_checkpoint_height)
                     .unwrap_or_default();
-
-                storage_lookups += 1;
 
                 HeightHashResult {
                     height: last_checkpoint_height,
@@ -261,12 +271,10 @@ where
                 HeightHashResult::default()
             };
 
+            handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+
             Ok(highest)
-        };
-
-        handle.record_cost(GAS_STORAGE_LOOKUP * storage_lookups)?;
-
-        result
+        }
     }
 
     #[precompile::public("find_lowest_attested_after(uint64,uint64)")]
@@ -275,14 +283,13 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<HeightHashResult> {
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
         let maybe_last_checkpoint_height =
             LastCheckpoint::<Runtime>::get(chain_key).map(|cp| cp.block_number);
 
-        let mut storage_lookups = 1;
-
         // We first check if the latest checkpoint height is higher to the target height.
-        let result = if matches!(maybe_last_checkpoint_height, Some(height) if height > target_height)
-        {
+        if matches!(maybe_last_checkpoint_height, Some(height) if height > target_height) {
             // If it is search through the checkpoints to find the lowest attested height above the target.
 
             // We search through the bucket of the block corresponding to target_height for any checkpoints.
@@ -293,26 +300,33 @@ where
 
             // We limit the number of bucket searches to avoid excessive computation.
             for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
+                let mut items_processed = 0_u64;
+
                 // We search the checkpoint bucket for the lowest checkpoint above the target height.
                 maybe_lowest =
                     CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, block_pivot))
+                        .inspect(|_| {
+                            items_processed += 1;
+                        })
                         .filter(|block_number| *block_number >= target_height)
                         .min_by_key(|block_number| *block_number)
                         .map(|block_number| {
+                            handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
                             // At this point, we know the checkpoint exists. So we can safely unwrap.
                             let digest =
                                 Checkpoints::<Runtime>::get(chain_key, block_number).unwrap();
-
-                            storage_lookups += 1;
-
-                            HeightHashResult {
+                            <EvmResult<HeightHashResult>>::Ok(HeightHashResult {
                                 height: block_number,
                                 hash: digest,
                                 exists: true,
-                            }
-                        });
+                            })
+                        })
+                        .transpose()?;
 
-                storage_lookups += 1;
+                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
 
                 if maybe_lowest.is_some() {
                     break;
@@ -325,10 +339,15 @@ where
             Ok(maybe_lowest.unwrap_or_default())
         } else {
             // This is the lookup of the first iter_prefix below.
-            storage_lookups += 1;
+            handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
+            let mut items_processed = 0_u64;
 
             // Otherwise if the latest checkpoint is below or at the target height, we search through the attestations directly.
             let lowest = Attestations::<Runtime>::iter_prefix(chain_key)
+                .inspect(|_| {
+                    items_processed += 1;
+                })
                 .filter(|(_, attestation)| attestation.header_number() >= target_height)
                 .min_by_key(|(height, _)| *height)
                 .map(|(hash, attestation)| HeightHashResult {
@@ -338,12 +357,10 @@ where
                 })
                 .unwrap_or_default();
 
+            handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+
             Ok(lowest)
-        };
-
-        handle.record_cost(GAS_STORAGE_LOOKUP * storage_lookups)?;
-
-        result
+        }
     }
 
     #[precompile::public("is_height_attested(uint64,uint64)")]
@@ -352,18 +369,25 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<bool> {
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
         let maybe_last_checkpoint_height =
             LastCheckpoint::<Runtime>::get(chain_key).map(|cp| cp.block_number);
 
-        let mut storage_lookups = 1;
-
         let (found_prev, found_next) = match maybe_last_checkpoint_height {
             Some(last_checkpoint_height) if last_checkpoint_height < target_height => {
-                storage_lookups += 1;
+                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
+                let mut items_processed = 0_u64;
 
                 // We check through the attestations for any attestation above (or at) the target height.
                 let found_next_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    .inspect(|_| {
+                        items_processed += 1;
+                    })
                     .any(|(_, attestation)| attestation.header_number() >= target_height);
+
+                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
 
                 // Since the last checkpoint is below the target height, if we found any attestation above (or at) the target height,
                 // we can be sure that target height is attested.
@@ -379,10 +403,18 @@ where
 
                 // We limit the number of bucket searches to avoid excessive computation.
                 for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+                    handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
+                    let mut items_processed = 0_u64;
+
                     found_prev_checkpoint =
                         CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, block_pivot))
+                            .inspect(|_| {
+                                items_processed += 1;
+                            })
                             .any(|block_number| block_number <= target_height);
-                    storage_lookups += 1;
+
+                    handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
 
                     if found_prev_checkpoint {
                         break;
@@ -402,30 +434,49 @@ where
             }
             None => {
                 // We have no checkpoints, so we check through the attestations directly.
-                storage_lookups += 1;
+                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                let mut items_processed = 0_u64;
 
-                if Attestations::<Runtime>::iter_prefix(chain_key)
-                    .any(|(_, attestation)| attestation.header_number() == target_height)
-                {
+                let found_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    .inspect(|_| {
+                        items_processed += 1;
+                    })
+                    .any(|(_, attestation)| attestation.header_number() == target_height);
+
+                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+
+                if found_attestation {
                     // If we found an attestation exactly at the target height, we can be sure that target height is attested.
                     return Ok(true);
                 }
 
+                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                items_processed = 0_u64;
+
                 // We check through the attestations for any attestation above (or at) the target height.
                 let found_next_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    .inspect(|_| {
+                        items_processed += 1;
+                    })
                     .any(|(_, attestation)| attestation.header_number() > target_height);
+
+                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+
+                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                items_processed = 0_u64;
 
                 // We check through the attestations for any attestation above (or at) the target height.
                 let found_prev_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    .inspect(|_| {
+                        items_processed += 1;
+                    })
                     .any(|(_, attestation)| attestation.header_number() < target_height);
 
-                storage_lookups += 2;
+                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
 
                 (found_next_attestation, found_prev_attestation)
             }
         };
-
-        handle.record_cost(GAS_STORAGE_LOOKUP * storage_lookups)?;
 
         Ok(found_prev && found_next)
     }
