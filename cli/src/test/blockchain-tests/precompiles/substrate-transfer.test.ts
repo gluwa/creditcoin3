@@ -1,13 +1,13 @@
 import { WebSocketProvider, ethers, parseEther } from 'ethers';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../artifacts/substrate_transfer.json');
 import { Keyring } from '@polkadot/keyring';
 import { mnemonicGenerate } from '@polkadot/util-crypto';
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
 
-const contractABI = contractABIJSON.contracts['sol/substrate_transfer.sol:SubstrateTransfer'].abi;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import contractABIJSON = require('../artifacts/substrate_transfer.json');
+const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 
 describe('Precompile: transfer_substrate()', (): void => {
     let contract: any;

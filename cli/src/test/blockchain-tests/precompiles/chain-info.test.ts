@@ -1,12 +1,13 @@
 import { WebSocketProvider, ethers } from 'ethers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../artifacts/chain_info.json');
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../pallets/supported-chains/consts';
 
-const contractABI = contractABIJSON.contracts['sol/chain_info.sol:ChainInfoContract'].abi;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import contractABIJSON = require('../artifacts/chain_info.json');
+const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 
 const supportedChainKey = chain_Anvil2_Key;
 const unknownChainKey = 42732;

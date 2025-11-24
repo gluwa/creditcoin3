@@ -41,7 +41,7 @@ pub enum Error {
 sol! {
     #[sol(rpc)]
     INativeQueryVerifier,
-    "contracts/native_query_verifier.json",
+    "contracts/nativeQueryVerifier.abi.json",
 }
 
 // Helper function to convert ContinuityProof to Solidity ContinuityProof
@@ -68,42 +68,6 @@ pub const NATIVE_QUERY_VERIFIER_ADDRESS: Address = Address::new([
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x0F, 0xD2,
 ]);
-
-/// Verification status codes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VerificationStatus {
-    Success = 0,
-    MerkleProofInvalid = 1,
-    ContinuityChainInvalid = 2,
-    DataExtractionError = 3,
-}
-
-impl TryFrom<u8> for VerificationStatus {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(VerificationStatus::Success),
-            1 => Ok(VerificationStatus::MerkleProofInvalid),
-            2 => Ok(VerificationStatus::ContinuityChainInvalid),
-            3 => Ok(VerificationStatus::DataExtractionError),
-            _ => Err(Error::Other(format!(
-                "Unknown verification status: {value}"
-            ))),
-        }
-    }
-}
-
-impl std::fmt::Display for VerificationStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VerificationStatus::Success => write!(f, "Success"),
-            VerificationStatus::MerkleProofInvalid => write!(f, "Merkle proof invalid"),
-            VerificationStatus::ContinuityChainInvalid => write!(f, "Continuity chain invalid"),
-            VerificationStatus::DataExtractionError => write!(f, "Data extraction error"),
-        }
-    }
-}
 
 /// Convert from Solidity ResultSegment to primitive ResultSegment
 fn decode_result_segment(

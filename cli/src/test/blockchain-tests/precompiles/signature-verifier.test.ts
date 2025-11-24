@@ -7,8 +7,7 @@ import { fundFromSudo } from '../../integration-tests/helpers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABIJSON = require('../artifacts/signature_verifier.json');
-
-const contractABI = contractABIJSON.contracts['sol/signature_verifier.sol:SignatureVerifier'].abi;
+const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 
 describe('Precompile: SignatureVerifier.verify()', (): void => {
     let contract: any;

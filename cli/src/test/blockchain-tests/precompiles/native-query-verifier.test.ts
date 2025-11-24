@@ -4,8 +4,7 @@ import { fundFromSudo } from '../../integration-tests/helpers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABIJSON = require('../artifacts/INativeQueryVerifier.json');
-
-const contractABI = contractABIJSON.contracts['sol/INativeQueryVerifier.sol:INativeQueryVerifier'].abi;
+const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 const PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 
 describe('Precompile: Native Query Verifier Integration Tests', (): void => {
