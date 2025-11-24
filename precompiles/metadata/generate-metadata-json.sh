@@ -29,7 +29,8 @@ generate_precompile_json() {
     local address="$3"
     
     # Get source file name (remove .json extension and find corresponding .sol file)
-    local abi_basename=$(basename "$abi_file" .json)
+    local abi_basename
+    abi_basename=$(basename "$abi_file" .json)
     local source_file=""
     
     # Find the corresponding source file
@@ -64,10 +65,12 @@ generate_precompile_json() {
     
     # Read source and convert to JSON string (single line, escaped)
     # Strip trailing newline from source file before converting to JSON string
-    local source_content=$(cat "$source_file" | perl -pe 'chomp if eof' | jq -Rs '.')
+    local source_content
+    source_content=$(cat "$source_file" | perl -pe 'chomp if eof' | jq -Rs '.')
     
     # Read ABI and convert to JSON string (compact, single line, escaped)
-    local abi_content=$(cat "$abi_file" | jq -Rs '.')
+    local abi_content
+    abi_content=$(cat "$abi_file" | jq -Rs '.')
     
     # Generate JSON entry
     jq -n \
@@ -108,7 +111,7 @@ fi
 # Create JSON array from entries
 json_array="["
 for i in "${!entries[@]}"; do
-    if [ $i -gt 0 ]; then
+    if [ "$i" -gt 0 ]; then
         json_array+=","
     fi
     json_array+="${entries[$i]}"
