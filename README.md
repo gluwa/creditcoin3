@@ -59,49 +59,6 @@ To execute the chain, run:
 ./target/release/creditcoin3-node --dev
 ```
 
-### Continuity Proof API (proof-gen-api-server)
-
-This repository includes a Continuity Proof API server providing endpoints for continuity and transaction merkle proofs.
-
-Key environment variables:
-
-- `USE_MOCK_PROVIDERS` ("1" / "true" / "yes"): run the API with deterministic mock RPC providers (no live chain needed). Automatically refused when `RUST_LOG=production`.
-- `CC3_RPC_URL`, `ETH_RPC_URL`: URLs for live Creditcoin3 and source chain RPC when not using mocks.
-- `CHAIN_KEY`: Source chain key used in continuity queries.
-- Postgres: `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` (required for caching proofs).
-
-Safety guard:
-
-The server will abort startup if `USE_MOCK_PROVIDERS` is truthy and `RUST_LOG=production` to prevent accidental production deployment with mock data.
-
-Example (mock mode):
-
-```bash
-export USE_MOCK_PROVIDERS=1
-export CC3_KEY="dummy mnemonic"
-export POSTGRES_HOST=localhost POSTGRES_PORT=5432 POSTGRES_USER=test POSTGRES_PASSWORD=test POSTGRES_DB=test
-cargo run -p proof-gen-api-server
-```
-
-Example (real providers):
-
-```bash
-unset USE_MOCK_PROVIDERS
-export CC3_KEY="your mnemonic"
-export CC3_RPC_URL=ws://127.0.0.1:9944
-export ETH_RPC_URL=http://127.0.0.1:8545
-export POSTGRES_HOST=localhost POSTGRES_PORT=5432 POSTGRES_USER=test POSTGRES_PASSWORD=test POSTGRES_DB=test
-cargo run -p proof-gen-api-server
-```
-
-Endpoints (base path: `/api/v1`):
-
-- `GET /proof/{chain_key}/{header_number}`: continuity proof for a header.
-- `GET /proof/{chain_key}/{header_number}/{tx_index}`: continuity + merkle proof for transaction index.
-- `GET /proof-by-tx/{chain_key}/{tx_hash}`: placeholder (future real lookup).
-
-Error responses include fields: `code`, `message`, `retriable`.
-
 _WARNING: running natively on Windows [is unsupported](https://github.com/gluwa/creditcoin/security/advisories/GHSA-cx5c-xwcv-vhmq)._
 
 The node also supports to use manual seal (to produce block manually through RPC).

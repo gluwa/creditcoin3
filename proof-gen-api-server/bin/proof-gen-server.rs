@@ -20,8 +20,12 @@ pub struct ProofGenApiServer {
     #[arg(long, default_value = "ws://localhost:9944")]
     cc3_rpc_url: String,
 
-    #[arg(long, required = true)]
-    cc3_key: String,
+    #[arg(
+        long,
+        required = false,
+        help = "Creditcoin3 mnemonic/seed. If omitted, falls back to CC3_KEY env var."
+    )]
+    cc3_key: Option<String>,
 
     #[arg(
         long,
@@ -81,10 +85,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(env_filter)
         .try_init();
 
+    // Resolve cc3_key: prefer CLI, fallback to env var for backward compatibility with README examples
+    let resolved_cc3_key = args
+        .cc3_key
+        .or_else(|| env::var("CC3_KEY").ok())
+        .unwrap_or_else(|| {
+            eprintln!("Missing Creditcoin key: pass --cc3-key or set CC3_KEY env var");
+            std::process::exit(1);
+        });
+
     let config = Config {
         bind_addr: env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3100".to_string()),
         cc3_rpc_url: args.cc3_rpc_url,
-        cc3_key: args.cc3_key,
+        cc3_key: resolved_cc3_key,
         chain_key: args.chain_key,
         eth_rpc_url: args.eth_rpc_url,
         use_mock_providers: env::var("USE_MOCK_PROVIDERS")
