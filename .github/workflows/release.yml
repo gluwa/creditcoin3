@@ -60,11 +60,6 @@ jobs:
           solc --version
           ./abi-creator.sh
 
-      - name: Install openzeppelin dependencies
-        working-directory: ./common/eth/contracts/
-        run: |
-          npm install
-
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
