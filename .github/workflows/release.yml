@@ -5,7 +5,6 @@ name: Build Release Artifacts
   push:
     tags:
       - "*"
-  pull_request:
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -15,7 +14,6 @@ permissions: read-all
 
 jobs:
   sanity-check:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     outputs:
       TAG_NAME: ${{ steps.identify-tag.outputs.TAG_NAME }}
@@ -68,7 +66,6 @@ jobs:
           node dist/scripts/npm-semver-check.js "${{ env.TAG_NAME }}"
 
   setup:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     needs: sanity-check
     outputs:
@@ -128,7 +125,6 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
   generate-changelog:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     needs: setup
     steps:
@@ -163,7 +159,6 @@ jobs:
           if-no-files-found: error
 
   deploy-github-runner:
-    if: github.event_name != 'pull_request'
     needs:
       - sanity-check
       - setup
@@ -184,7 +179,6 @@ jobs:
     secrets: inherit
 
   build-native-runtime:
-    if: github.event_name != 'pull_request'
     needs:
       - sanity-check
       - setup
@@ -197,7 +191,6 @@ jobs:
     secrets: inherit
 
   build-wasm-runtime:
-    if: github.event_name != 'pull_request'
     needs:
       - sanity-check
       - setup
@@ -209,7 +202,6 @@ jobs:
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-wasm']"
 
   build-usc-audit-automation:
-    if: github.event_name != 'pull_request'
     needs:
       - sanity-check
       - setup
@@ -221,7 +213,6 @@ jobs:
     secrets: inherit
 
   docker-build:
-    if: github.event_name != 'pull_request'
     needs:
       - sanity-check
       - setup
@@ -234,7 +225,6 @@ jobs:
     secrets: inherit
 
   create-release:
-    if: github.event_name != 'pull_request'
     permissions:
       contents: write
     runs-on: ubuntu-24.04
@@ -299,7 +289,6 @@ jobs:
           message: "Release pipeline finished! cc <@U028EMRHS3S>"
 
   rm-gh-runner-docker:
-    if: github.event_name != 'pull_request'
     needs:
       - docker-build
     uses: ./.github/workflows/remove-runner.yml
@@ -309,7 +298,6 @@ jobs:
     secrets: inherit
 
   rm-gh-runner-native:
-    if: github.event_name != 'pull_request'
     needs:
       - build-native-runtime
     uses: ./.github/workflows/remove-runner.yml
@@ -319,7 +307,6 @@ jobs:
     secrets: inherit
 
   rm-gh-runner-wasm:
-    if: github.event_name != 'pull_request'
     needs:
       - build-wasm-runtime
     uses: ./.github/workflows/remove-runner.yml
