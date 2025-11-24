@@ -26,10 +26,10 @@ permissions:
   id-token: write
 
 env:
-  AZURE_RESOURCE_GROUP: creditcoin-dryrun  # Static - reuse existing resource group
+  AZURE_RESOURCE_GROUP: cc3-dryrun-devnet  # Static - reuse existing resource group
   AZURE_LOCATION: eastus
   AKS_CLUSTER_NAME: cc3-dryrun-devnet-cluster  # Static - reuse existing cluster
-  NODE_COUNT: 4
+  NODE_COUNT: 4 # Default creditcoin node count for dryrun deployments
 
 jobs:
   setup-environment:
