@@ -1938,6 +1938,143 @@ fn test_batch_queries_shared_continuity_optimization() {
     });
 }
 
+#[test]
+fn test_verify_batch_queries_with_mismatched_proof_order_returns_2_failed_queries() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Create multiple queries at different heights
+        let query1 = Query {
+            chain_id: 1,
+            height: 100,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 32,
+            }],
+        };
+
+        let query2 = Query {
+            chain_id: 1,
+            height: 101,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 20,
+            }],
+        };
+
+        let query3 = Query {
+            chain_id: 1,
+            height: 102,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 10,
+            }],
+        };
+
+        // Create transaction data for each query
+        let tx_data1 = vec![0x11; 100];
+        let tx_data2 = vec![0x22; 100];
+        let tx_data3 = vec![0x33; 100];
+
+        // Create merkle proofs
+        let proof1 = create_proper_merkle_proof_for_single_tx(&tx_data1);
+        let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2);
+        let proof3 = create_proper_merkle_proof_for_single_tx(&tx_data3);
+
+        // Create continuity chain covering blocks 99-102 (must include queryHeight - 1 for digest verification)
+        // Compute digests correctly using Block::hash_payload
+        use attestor_primitives::block::Block as FragmentBlock;
+        let mut prev_digest = H256::from([0x88; 32]); // Starting digest
+
+        let block99_root = H256::from([0x88; 32]); // Dummy root for previous block
+        let block99_digest = FragmentBlock::hash_payload(&99, &block99_root, &prev_digest);
+        prev_digest = block99_digest;
+
+        let block100_digest = FragmentBlock::hash_payload(&100, &proof1.root, &prev_digest);
+        prev_digest = block100_digest;
+
+        let block101_digest = FragmentBlock::hash_payload(&101, &proof2.root, &prev_digest);
+        prev_digest = block101_digest;
+
+        let block102_digest = FragmentBlock::hash_payload(&102, &proof3.root, &prev_digest);
+
+        let continuity_blocks = vec![
+            // Block 99 (required for query at height 100)
+            Block {
+                block_number: 99,
+                root: block99_root,
+                prev_digest: H256::from([0x88; 32]),
+                digest: block99_digest,
+            },
+            // Block 100
+            Block {
+                block_number: 100,
+                root: proof1.root,
+                prev_digest: block99_digest,
+                digest: block100_digest,
+            },
+            // Block 101
+            Block {
+                block_number: 101,
+                root: proof2.root,
+                prev_digest: block100_digest,
+                digest: block101_digest,
+            },
+            // Block 102
+            Block {
+                block_number: 102,
+                root: proof3.root,
+                prev_digest: block101_digest,
+                digest: block102_digest,
+            },
+        ];
+
+        // Setup attestation for the continuity chain
+        setup_valid_attestation_chain(1, &continuity_blocks);
+
+        // Execute batch verification
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_batch_queries {
+                    queries: vec![query1, query2, query3].into(),
+                    tx_data_array: vec![
+                        tx_data1.clone().into(),
+                        tx_data2.clone().into(),
+                        tx_data3.clone().into(),
+                    ],
+                    // NOTE: proofs are in the wrong order
+                    merkle_proofs: vec![proof3, proof2, proof1],
+                    shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
+                },
+            )
+            .execute_returns(BatchQueryVerificationResult {
+                successful_queries: 1,
+                failed_queries: 2,
+                results: vec![
+                    QueryVerificationResult {
+                        status: 1, // MerkleProofInvalid
+                        result_segments: vec![],
+                    },
+                    QueryVerificationResult {
+                        status: 0,
+                        result_segments: vec![ResultSegment {
+                            offset: 0,
+                            bytes: {
+                                let mut expected = [0u8; 32];
+                                expected[12..32].copy_from_slice(&tx_data2[0..20]);
+                                H256::from(expected)
+                            },
+                        }],
+                    },
+                    QueryVerificationResult {
+                        status: 1, // MerkleProofInvalid
+                        result_segments: vec![],
+                    },
+                ],
+            });
+    });
+}
+
 // ============================================================================
 // LOG RECORDING TEST
 // ============================================================================
