@@ -1,52 +1,60 @@
 # Steps for Updating Metadata After Precompile Changes
 
-## 1. Run abi creator 
+## Automated Workflow (Recommended)
+
+After making changes to a precompile's Solidity source code:
+
+### 1. Generate ABI Files
 
 ```sh
 cd precompiles/metadata
 ./abi-creator.sh
 ```
 
-## 2. Condense the Json File of the Changed Precompile to a Single Line
+This generates compact JSON array files in the `abi/` directory for each Solidity contract.
+
+### 2. Generate Metadata JSON Files
 
 ```sh
-jq -c '.contracts["sol/INativeQueryVerifier.sol:INativeQueryVerifier"].abi' < abi/INativeQueryVerifier.json | jq -Rsa
+./generate-metadata-json.sh
 ```
 
-## 3. Copy Resulting Text Into Final Json
+This automatically:
+- Reads all Solidity source files from `sol/`
+- Reads all ABI files from `abi/`
+- Generates/updates `precompiles-creditcoin3-devnet.json` and `precompiles-creditcoin3-testnet.json`
+- Formats sources as JSON strings and ABIs as compact JSON strings
+- Ensures proper ordering and formatting
 
-Resulting line in `precompiles-creditcoin3-devnet.json` should look like:
-```json
-"abi": "[{\"inputs\":[{\"internalType\":\"QueryId\"......
-```
-
-## 4. Condense Source Code to Single Line
+### 3. Verify the Changes
 
 ```sh
-cat sol/INativeQueryVerifier.sol | jq -Rs '.'
+cd ../..
+.github/check-solidity-source-vs-metadata.sh
 ```
 
-## 5. Copy Resulting Text Into Final Json
+This validates that:
+- Sources in the JSON files match the on-disk Solidity files
+- ABIs in the JSON files match the generated ABI files
+- Addresses are correct
 
-Resulting line in `precompiles-creditcoin3-devnet.json` should look like:
-```json
-"source": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;
-```
+## Manual Workflow (If Needed)
 
-## 6. Check Json was Updated Successfully
+If you need to manually update the metadata JSON files:
 
-```sh
-cp .github/check-solidity-source-vs-metadata.sh .
-./check-solidity-source-vs-metadata.sh
-```
+1. **Generate ABI**: Run `./abi-creator.sh` to create ABI files
+2. **Convert ABI to JSON string**: `cat abi/YourContract.json | jq -Rs '.'`
+3. **Convert source to JSON string**: `cat sol/YourContract.sol | jq -Rs '.'`
+4. **Update the JSON files**: Copy the results into the appropriate fields in `precompiles-creditcoin3-devnet.json` and `precompiles-creditcoin3-testnet.json`
 
-## 7. Maybe remove extra newline if check fails
+**Note**: The automated workflow (`generate-metadata-json.sh`) handles all of this automatically and is recommended to avoid formatting issues.
 
-There may be an extra newline at the end of your new `source` line. It would look like 
-```json
-"source": "// SPDX-License-Identifier: MIT...........external returns (ResultSegment[] memory);\n}\n"
-```
-If so, then remove the extra new line, resulting in
-```json
-"source": "// SPDX-License-Identifier: MIT...........external returns (ResultSegment[] memory);\n}"
-```
+## CI Checks
+
+The CI pipeline automatically:
+- Generates ABI files from Solidity sources
+- Generates metadata JSON files
+- Verifies that committed JSON files match the generated ones
+- Fails if the metadata JSON files are out of date
+
+This ensures that metadata JSON files are always kept in sync with the source code.

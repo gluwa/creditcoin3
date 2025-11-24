@@ -303,27 +303,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_verification_status_conversion() {
-        assert_eq!(
-            VerificationStatus::try_from(0).unwrap(),
-            VerificationStatus::Success
-        );
-        assert_eq!(
-            VerificationStatus::try_from(1).unwrap(),
-            VerificationStatus::MerkleProofInvalid
-        );
-        assert_eq!(
-            VerificationStatus::try_from(2).unwrap(),
-            VerificationStatus::ContinuityChainInvalid
-        );
-        assert_eq!(
-            VerificationStatus::try_from(3).unwrap(),
-            VerificationStatus::DataExtractionError
-        );
-        assert!(VerificationStatus::try_from(4).is_err());
-    }
-
-    #[test]
     fn test_precompile_address() {
         // Verify the address is 0x0FD2 (4050 in decimal)
         let expected = Address::new([

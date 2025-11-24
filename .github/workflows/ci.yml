@@ -241,6 +241,16 @@ jobs:
           name: precompiles-abi
           path: precompiles/metadata/abi/*.json
 
+      - name: Check metadata JSON files are up to date
+        working-directory: ./precompiles/metadata
+        run: |
+          ./generate-metadata-json.sh
+          if ! git diff --quiet precompiles-creditcoin3-devnet.json precompiles-creditcoin3-testnet.json; then
+            echo "ERROR: Metadata JSON files are out of date. Please run './generate-metadata-json.sh' and commit the changes."
+            git diff precompiles-creditcoin3-devnet.json precompiles-creditcoin3-testnet.json
+            exit 1
+          fi
+
       - name: Prepare ENV for Devnet
         id: devnet-env
         if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'

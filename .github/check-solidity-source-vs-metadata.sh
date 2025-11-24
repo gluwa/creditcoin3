@@ -6,9 +6,13 @@ set -euo pipefail
 TARGET_CHAIN=${TARGET_CHAIN:-devnet}
 echo "INFO: will inspect 'precompiles/metadata/precompiles-creditcoin3-$TARGET_CHAIN.json' file"
 
+# Concatenate all source files in alphabetical order (matching cat sol/*.sol behavior)
+# cat naturally preserves newlines between files, so just use it directly
 SRC_FROM_DISK=$(cat precompiles/metadata/sol/*.sol)
+# Extract all sources from JSON and concatenate them
 # NOTE: jq will interpret escape sequences so this value should equal to the raw code on disk
-SRC_FROM_JSON=$(jq -r .[].source "precompiles/metadata/precompiles-creditcoin3-$TARGET_CHAIN.json")
+# Each source ends with a newline, so concatenating them naturally preserves separation
+SRC_FROM_JSON=$(jq -r '.[].source' "precompiles/metadata/precompiles-creditcoin3-$TARGET_CHAIN.json")
 
 if [ "$SRC_FROM_DISK" == "$SRC_FROM_JSON" ]; then
     echo "INFO: Sources on disk match sources in JSON file"
@@ -43,10 +47,14 @@ fi
 
 
 # NOTE: requires that abi-creator.sh was executed beforehand
-# NOTE2: both representations are multi-line
+# NOTE2: ABI files are now compact JSON arrays (single line)
 # NOTE3: filter out empty ABIs (e.g., from libraries with no external functions)
-ABI_FROM_DISK=$(jq -r '.contracts | .[] | .abi | select(length > 0)' precompiles/metadata/abi/*.json | jq -r)
-ABI_FROM_JSON=$(jq -r .[].abi "precompiles/metadata/precompiles-creditcoin3-$TARGET_CHAIN.json" | jq -r)
+# NOTE4: ABI in metadata JSON is stored as a JSON string, so decode it before comparing
+# Flatten all ABIs from disk into a single array for comparison
+ABI_FROM_DISK=$(jq -s '[.[] | select(length > 0)] | flatten' precompiles/metadata/abi/*.json | jq -r)
+# Extract each ABI string, decode it, and collect into a single array
+# Use jq to decode each ABI string and flatten into a single array
+ABI_FROM_JSON=$(jq -r '[.[].abi | fromjson] | flatten' "precompiles/metadata/precompiles-creditcoin3-$TARGET_CHAIN.json" | jq -r)
 
 if [ "$ABI_FROM_DISK" == "$ABI_FROM_JSON" ]; then
     echo "INFO: ABI on disk matches ABI in JSON file"
