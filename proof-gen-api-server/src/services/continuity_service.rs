@@ -61,7 +61,7 @@ impl ContinuityService {
         };
         if let Some(entry) = cached {
             if let Some(cp_json) = entry.continuity_proof {
-                // Return cached continuity proof only (no merkle)
+                // Deserialize cached JSON continuity proof
                 let continuity_proof_out: ContinuityProof = serde_json::from_value(cp_json)?;
                 return Ok(ContinuityResponse {
                     chain_key,
@@ -70,7 +70,7 @@ impl ContinuityService {
                     tx_hash: None,
                     continuity_proof: continuity_proof_out,
                     merkle_proof: None,
-                    merkle_root: entry.merkle_root,
+                    merkle_root: entry.merkle_root, // already a hex string if present
                     cached: true,
                     generated_at: Utc::now(),
                 });
@@ -97,7 +97,7 @@ impl ContinuityService {
             header_number,
             tx_index: None,
             tx_hash: None,
-            continuity_proof: Some(serde_json::to_value(&continuity_out)?),
+            continuity_proof: Some(continuity_out.clone()),
             merkle_proof: None,
             merkle_root: None,
         };
@@ -172,8 +172,8 @@ impl ContinuityService {
             header_number,
             tx_index: Some(tx_index),
             tx_hash: None,
-            continuity_proof: Some(serde_json::to_value(&continuity_out)?),
-            merkle_proof: Some(serde_json::to_value(&merkle_proof)?),
+            continuity_proof: Some(continuity_out.clone()),
+            merkle_proof: Some(merkle_proof.clone()),
             merkle_root: Some(merkle_root),
         };
         self.db.insert_proofs_entry(entry);
@@ -229,8 +229,8 @@ impl ContinuityService {
             header_number,
             tx_index: Some(tx_index),
             tx_hash: Some(H256::from_low_u64_be(0)), // placeholder
-            continuity_proof: Some(serde_json::to_value(&continuity_out)?),
-            merkle_proof: Some(serde_json::to_value(&merkle_proof)?),
+            continuity_proof: Some(continuity_out.clone()),
+            merkle_proof: Some(merkle_proof.clone()),
             merkle_root: Some(merkle_root),
         };
         self.db.insert_proofs_entry(entry);

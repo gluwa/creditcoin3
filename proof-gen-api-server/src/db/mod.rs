@@ -1,7 +1,9 @@
 use anyhow::{bail, Result};
+use attestor_primitives::block::ContinuityProof;
 use chrono::NaiveDateTime;
 use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod};
-use serde_json::Value;
+use mmr::query_proof::QueryMerkleProof;
+use serde_json::Value; // Still used internally for persistence serialization
 use sp_core::H256;
 use tokio_postgres::NoTls;
 use tracing::{debug, info};
@@ -23,8 +25,9 @@ pub struct QueryProofs {
     pub header_number: u64,
     pub tx_index: Option<u64>,
     pub tx_hash: Option<H256>,
-    pub continuity_proof: Option<Value>,
-    pub merkle_proof: Option<Value>,
+    // Use concrete types for downstream consumers; we'll serialize only at DB boundary.
+    pub continuity_proof: Option<ContinuityProof>,
+    pub merkle_proof: Option<QueryMerkleProof>,
     pub merkle_root: Option<H256>,
 }
 

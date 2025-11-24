@@ -1,6 +1,8 @@
 use super::{ProofsDbEntry, QueryProofs};
 use anyhow::Result;
+use attestor_primitives::block::ContinuityProof;
 use chrono::NaiveDateTime;
+use mmr::query_proof::QueryMerkleProof;
 use serde_json::Value;
 use sp_core::H256;
 use std::str::FromStr;
@@ -54,8 +56,12 @@ impl Into<QueryProofs> for ProofsDbEntry {
             header_number: from_storage_int(self.header_number),
             tx_index: self.tx_index.map(from_storage_int),
             tx_hash: self.tx_hash.map(|s| from_storage_hash(&s)),
-            continuity_proof: self.continuity_proof,
-            merkle_proof: self.merkle_proof,
+            continuity_proof: self
+                .continuity_proof
+                .and_then(|v| serde_json::from_value::<ContinuityProof>(v).ok()),
+            merkle_proof: self
+                .merkle_proof
+                .and_then(|v| serde_json::from_value::<QueryMerkleProof>(v).ok()),
             merkle_root: self.merkle_root.map(|s| from_storage_hash(&s)),
         }
     }
