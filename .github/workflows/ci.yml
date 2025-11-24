@@ -246,11 +246,12 @@ jobs:
         run: |
           ./generate-metadata-json.sh
           cd ../..
-          # Normalize both files with jq before comparing to avoid formatting differences
-          jq -S '.' precompiles/metadata/precompiles-creditcoin3-devnet.json > /tmp/devnet-generated.json
-          jq -S '.' precompiles/metadata/precompiles-creditcoin3-testnet.json > /tmp/testnet-generated.json
-          git show HEAD:precompiles/metadata/precompiles-creditcoin3-devnet.json | jq -S '.' > /tmp/devnet-committed.json
-          git show HEAD:precompiles/metadata/precompiles-creditcoin3-testnet.json | jq -S '.' > /tmp/testnet-committed.json
+          # Normalize both files by decoding ABI JSON strings and normalizing the entire structure
+          # This ensures we compare semantic content, not string formatting differences
+          jq -S '.[] |= (.abi = (.abi | fromjson))' precompiles/metadata/precompiles-creditcoin3-devnet.json > /tmp/devnet-generated.json
+          jq -S '.[] |= (.abi = (.abi | fromjson))' precompiles/metadata/precompiles-creditcoin3-testnet.json > /tmp/testnet-generated.json
+          git show HEAD:precompiles/metadata/precompiles-creditcoin3-devnet.json | jq -S '.[] |= (.abi = (.abi | fromjson))' > /tmp/devnet-committed.json
+          git show HEAD:precompiles/metadata/precompiles-creditcoin3-testnet.json | jq -S '.[] |= (.abi = (.abi | fromjson))' > /tmp/testnet-committed.json
           if ! diff -q /tmp/devnet-generated.json /tmp/devnet-committed.json > /dev/null || ! diff -q /tmp/testnet-generated.json /tmp/testnet-committed.json > /dev/null; then
             echo "ERROR: Metadata JSON files are out of date. Please run './generate-metadata-json.sh' and commit the changes."
             echo "Devnet differences:"

@@ -71,6 +71,7 @@ updates:
       - "/primitives/core"
       - "/primitives/randomness"
       - "/primitives/supported-chains"
+      - "/primitives/precompiles"
       - "/query-cli"
       - "/runtime"
       - "/runtime/generate-bags"
