@@ -50,30 +50,30 @@ impl ContinuityService {
         chain_key: u64,
         header_number: u64,
     ) -> std::result::Result<ContinuityResponse, ServiceError> {
-        // Attempt cache lookup
-        let cached = match self.db.get_proofs_entry(chain_key, header_number).await {
-            Ok(c) => c,
-            Err(e) => {
-                // Log DB error, continue as cache miss
-                tracing::warn!(error=?e, "db read error for continuity cache");
-                None
+        // Attempt cache lookup using block-level retrieval (tx_index IS NULL)
+        match self.db.get_proofs_for_block(chain_key, header_number).await {
+            Ok(Some(entry)) => {
+                if let Some(cp_json) = entry.continuity_proof.clone() {
+                    if let Ok(continuity_proof_out) =
+                        serde_json::from_value::<ContinuityProof>(cp_json)
+                    {
+                        return Ok(ContinuityResponse {
+                            chain_key,
+                            header_number,
+                            tx_index: None,
+                            tx_hash: None,
+                            continuity_proof: continuity_proof_out,
+                            merkle_proof: None,
+                            merkle_root: entry.merkle_root.clone(),
+                            cached: true,
+                            generated_at: Utc::now(),
+                        });
+                    }
+                }
             }
-        };
-        if let Some(entry) = cached {
-            if let Some(cp_json) = entry.continuity_proof {
-                // Deserialize cached JSON continuity proof
-                let continuity_proof_out: ContinuityProof = serde_json::from_value(cp_json)?;
-                return Ok(ContinuityResponse {
-                    chain_key,
-                    header_number,
-                    tx_index: None,
-                    tx_hash: None,
-                    continuity_proof: continuity_proof_out,
-                    merkle_proof: None,
-                    merkle_root: entry.merkle_root, // already a hex string if present
-                    cached: true,
-                    generated_at: Utc::now(),
-                });
+            Ok(None) => { /* cache miss, build new */ }
+            Err(e) => {
+                tracing::warn!(error=?e, chain_key, header_number, "DB error during continuity_proof cache lookup; proceeding to build new proof");
             }
         }
 
@@ -122,7 +122,42 @@ impl ContinuityService {
         header_number: u64,
         tx_index: u64,
     ) -> std::result::Result<ContinuityResponse, ServiceError> {
-        // Build continuity proof (ignore cache for now for tx variant)
+        // Attempt cache lookup for tx-specific proof
+        match self
+            .db
+            .get_proofs_for_tx(chain_key, header_number, tx_index)
+            .await
+        {
+            Ok(Some(entry)) => {
+                let continuity_opt = entry
+                    .continuity_proof
+                    .clone()
+                    .and_then(|v| serde_json::from_value::<ContinuityProof>(v).ok());
+                let merkle_opt = entry
+                    .merkle_proof
+                    .clone()
+                    .and_then(|v| serde_json::from_value::<QueryMerkleProof>(v).ok());
+                if let (Some(continuity_out), Some(merkle_proof)) = (continuity_opt, merkle_opt) {
+                    return Ok(ContinuityResponse {
+                        chain_key,
+                        header_number,
+                        tx_index: Some(tx_index),
+                        tx_hash: None, // tx_hash reverse lookup not implemented
+                        continuity_proof: continuity_out,
+                        merkle_proof: Some(merkle_proof.clone()),
+                        merkle_root: entry.merkle_root.clone(),
+                        cached: true,
+                        generated_at: Utc::now(),
+                    });
+                }
+            }
+            Ok(None) => { /* cache miss */ }
+            Err(e) => {
+                tracing::warn!(error=?e, chain_key, header_number, tx_index, "DB error during continuity_proof_with_tx cache lookup; building new proof");
+            }
+        }
+
+        // Build continuity proof (cache miss or decode failure)
         let query = Query {
             chain_id: chain_key,
             height: header_number,
@@ -135,9 +170,7 @@ impl ContinuityService {
             .map_err(ServiceError::from)?;
         let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
 
-        // Build a merkle proof for `tx_index` over the block's transaction bytes.
-        // Mock providers yield deterministic fixture bytes; real providers yield live block transactions.
-        // Returned siblings allow reconstruction of the merkle root.
+        // Fetch transactions for merkle tree construction
         let tx_bytes = self
             .builder
             .get_block_tx_bytes(header_number)
@@ -147,7 +180,6 @@ impl ContinuityService {
             })?;
 
         if tx_bytes.is_empty() {
-            // Allow tx_index == 0 for empty blocks and produce an empty merkle proof/root.
             if tx_index != 0 {
                 return Err(ServiceError::TxIndexOutOfBounds { tx_index, len: 0 });
             }
@@ -166,7 +198,7 @@ impl ContinuityService {
         };
         let merkle_root = tree.root();
 
-        // Insert into DB
+        // Insert new tx-specific proof into DB
         let entry = QueryProofs {
             chain_key,
             header_number,

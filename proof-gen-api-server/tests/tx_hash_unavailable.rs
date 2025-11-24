@@ -10,6 +10,12 @@ use tower::ServiceExt; // for `oneshot`
 
 #[tokio::test]
 async fn tx_hash_endpoint_reports_unavailable() {
+    // Minimal env vars so DbManager::new does not panic; we don't actually connect
+    std::env::set_var("POSTGRES_HOST", "localhost");
+    std::env::set_var("POSTGRES_PORT", "5432");
+    std::env::set_var("POSTGRES_USER", "test");
+    std::env::set_var("POSTGRES_PASSWORD", "test");
+    std::env::set_var("POSTGRES_DB", "test");
     // Setup mock builder/service
     let (cc_mock, eth_mock) = make_mock_providers(2);
     let builder = ContinuityBuilder::new_with_providers(
@@ -22,7 +28,6 @@ async fn tx_hash_endpoint_reports_unavailable() {
         eth_mock,
     );
     let db = DbManager::new().expect("db manager");
-    db.run_migrations().await.expect("migrations");
     let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
     let app = build_app(service);
 
