@@ -90,7 +90,15 @@ impl DbManager {
             match pool.get().await {
                 Ok(client) => {
                     // Converting QueryProofs contents into postgres friendly items
-                    let entry = ProofsDbEntry::from(proofs);
+                    let entry = match ProofsDbEntry::try_from(proofs) {
+                        Ok(entry) => entry,
+                        Err(e) => {
+                            eprintln!(
+                                "Failed to convert QueryProofs into ProofsDbEntry, error: {e}"
+                            );
+                            return;
+                        }
+                    };
 
                     let result = if entry.tx_index.is_some() {
                         // Non-null tx_index → use (chain_key, header_number, tx_index)
@@ -170,7 +178,7 @@ impl DbManager {
         });
     }
 
-    pub async fn get_proofs_entry(
+    pub async fn get_proofs_for_block(
         &self,
         chain_key: u64,
         header_number: u64,
@@ -213,6 +221,60 @@ impl DbManager {
                 rows.len(),
                 chain_key,
                 header_number
+            );
+        }
+
+        let entry = ProofsDbEntry::try_from(&rows[0])?;
+
+        Ok(Some(entry))
+    }
+
+    pub async fn get_proofs_for_tx(
+        &self,
+        chain_key: u64,
+        header_number: u64,
+        tx_index: u64,
+    ) -> Result<Option<ProofsDbEntry>> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                r#"
+            SELECT
+                id,
+                chain_key,
+                header_number,
+                tx_index,
+                tx_hash,
+                continuity_proof,
+                merkle_proof,
+                merkle_root,
+                created_at,
+                updated_at
+            FROM proofs
+            WHERE chain_key = $1
+              AND header_number = $2
+              AND tx_index = $3
+            LIMIT 2
+            "#,
+                &[
+                    &(to_storage_int(chain_key)),
+                    &(to_storage_int(header_number)),
+                    &(to_storage_int(tx_index)),
+                ],
+            )
+            .await?;
+
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        if rows.len() > 1 {
+            bail!(
+                "Expected at most one proof, but found {} for chain_key={} header_number={}, tx_index={}",
+                rows.len(),
+                chain_key,
+                header_number,
+                tx_index
             );
         }
 

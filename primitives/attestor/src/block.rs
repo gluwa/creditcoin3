@@ -200,7 +200,7 @@ pub struct BlockSerializable {
 
 /// Optimized continuity block structure for native query verifier
 /// Contains only root and digest (block_number and prev_digest are inferred from continuity proof structure)
-#[derive(Debug, Clone, Default, Codec)]
+#[derive(Debug, Clone, Default, Codec, Serialize, Deserialize)]
 pub struct ContinuityBlock {
     pub merkle_root: H256,
     pub digest: H256,
@@ -259,7 +259,7 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
 ///   - Batch queries: blocks[0] is at min(queryHeights) - 1
 /// - prev_digest is reconstructed from the chain (using lower_endpoint_digest and computed digests)
 /// - Keeping only root and digest per block
-#[derive(Debug, Clone, Default, Codec)]
+#[derive(Debug, Clone, Default, Codec, Serialize, Deserialize)]
 pub struct ContinuityProof {
     /// The digest of the block before the continuity chain starts
     /// This is the prev_digest of the first block

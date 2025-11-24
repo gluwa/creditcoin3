@@ -25,20 +25,28 @@ impl TryFrom<&Row> for ProofsDbEntry {
     }
 }
 
-impl From<QueryProofs> for ProofsDbEntry {
-    fn from(proofs: QueryProofs) -> Self {
-        ProofsDbEntry {
+impl TryFrom<QueryProofs> for ProofsDbEntry {
+    type Error = anyhow::Error;
+
+    fn try_from(proofs: QueryProofs) -> Result<Self> {
+        Ok(ProofsDbEntry {
             id: i32::default(), // Only actually used when fetching items from db, automatically assigned on insert
             chain_key: to_storage_int(proofs.chain_key),
             header_number: to_storage_int(proofs.header_number),
             tx_index: proofs.tx_index.map(to_storage_int),
             tx_hash: proofs.tx_hash.map(|h| format!("{h:#x}")),
-            continuity_proof: None,
-            merkle_proof: None,
+            continuity_proof: proofs
+                .continuity_proof
+                .map(|p| serde_json::to_value(p))
+                .transpose()?,
+            merkle_proof: proofs
+                .merkle_proof
+                .map(|p| serde_json::to_value(p))
+                .transpose()?,
             merkle_root: proofs.merkle_root.map(|h| format!("{h:#x}")),
             created_at: Some(NaiveDateTime::default()), // Only used on read. Generated on insert
             updated_at: Some(NaiveDateTime::default()), // Only used on read. Generated on insert
-        }
+        })
     }
 }
 

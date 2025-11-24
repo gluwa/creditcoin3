@@ -1,8 +1,10 @@
 use anyhow::{anyhow, Result};
+use attestor_primitives::{block::ContinuityProof, ContinuityBlock};
 use cc_client::Client as CcClient;
 use config::Config;
 use db::{DbManager, QueryProofs};
 use eth::Client as EthClient;
+use mmr::query_proof::{MerkleProofEntry, QueryMerkleProof};
 use networking::{build_app, run_http_server};
 use sp_core::H256;
 use tokio::{
@@ -40,6 +42,7 @@ pub struct Server {
     #[allow(unused)]
     cc3_client: CcClient,
     // Client which lets us retrieve source chain blocks
+    // TODO: Use this to get blocks and construct proofs!
     #[allow(unused)]
     source_chain_client: EthClient,
     // Prometheus metrics server, if enabled
@@ -149,24 +152,51 @@ impl Server {
         &self,
         attestation_events_sender: UnboundedSender<AttestationEvent>,
     ) -> Result<()> {
-        let mock_entry = QueryProofs {
+        let continuity_proof = ContinuityProof {
+            lower_endpoint_digest: H256::random(),
+            blocks: vec![ContinuityBlock {
+                root: H256::random(),
+                digest: H256::random(),
+            }],
+        };
+        let merkle_proof = QueryMerkleProof {
+            root: H256::random(),
+            siblings: vec![MerkleProofEntry {
+                hash: H256::random(),
+                is_left: false,
+            }],
+        };
+        let mock_full_block = QueryProofs {
             chain_key: 1,
             header_number: 1,
             tx_index: None,
             tx_hash: Some(H256::zero()),
-            continuity_proof: None,
-            merkle_proof: None,
+            continuity_proof: Some(continuity_proof.clone()),
+            merkle_proof: Some(merkle_proof.clone()),
+            merkle_root: Some(H256::zero()),
+        };
+        let mock_tx_proofs = QueryProofs {
+            chain_key: 1,
+            header_number: 1,
+            tx_index: Some(1),
+            tx_hash: Some(H256::zero()),
+            continuity_proof: Some(continuity_proof),
+            merkle_proof: Some(merkle_proof),
             merkle_root: Some(H256::zero()),
         };
 
         loop {
             // Test insert
-            self.db_manager.insert_proofs_entry(mock_entry.clone());
+            self.db_manager.insert_proofs_entry(mock_full_block.clone());
+            self.db_manager.insert_proofs_entry(mock_tx_proofs.clone());
             // Test read
             info!("Waiting on insert before read...");
             sleep(Duration::from_secs(1)).await;
-            let maybe_entry = self.db_manager.get_proofs_entry(1, 1).await?;
-            info!("Entry: {maybe_entry:?}");
+            let maybe_entry = self.db_manager.get_proofs_for_block(1, 1).await?;
+            let maybe_id = maybe_entry.map(|e| e.id);
+            info!("Full block entry id: {maybe_id:?}");
+            let maybe_entry = self.db_manager.get_proofs_for_tx(1, 1, 1).await?;
+            info!("Tx full entry: {maybe_entry:?}");
             // Wait a bit to avoid spam
             info!("Waiting...");
             sleep(Duration::from_secs(20)).await;
