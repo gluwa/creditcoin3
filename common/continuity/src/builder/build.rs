@@ -4,8 +4,9 @@ use crate::proof::ContinuityProof;
 
 use anyhow::{anyhow, Result};
 use attestor_primitives::block::Block;
-use ccnext_abi_encoding::abi::EncodingVersion;
-use eth::continuity::Manager as ContinuityManager;
+// ccnext_abi_encoding::abi::EncodingVersion is currently unused but may be
+// required in later enhancements. Keep import commented to avoid warnings.
+// use ccnext_abi_encoding::abi::EncodingVersion;
 
 impl ContinuityBuilder {
     /// Build continuity blocks and trim to required range
@@ -31,13 +32,11 @@ impl ContinuityBuilder {
         );
 
         // Create continuity fragment
-        let manager = ContinuityManager::new(build_start, end_height, &self.eth_client);
-        let fragment = manager
-            .create(lower.digest, EncodingVersion::V1)
+        let all_blocks: Vec<Block> = self
+            .eth
+            .build_continuity_blocks(lower.digest, build_start, end_height)
             .await
-            .map_err(|e| anyhow!("Failed to create continuity fragment: {}", e))?;
-
-        let all_blocks: Vec<Block> = fragment.blocks().to_vec();
+            .map_err(|e| anyhow!("Failed to build continuity blocks: {e}"))?;
 
         // If we built from the required start, no trimming needed
         if build_start == required_start {

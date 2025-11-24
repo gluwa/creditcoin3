@@ -14,38 +14,47 @@ mod fetch;
 
 pub use fetch::*;
 
-use crate::config::ContinuityConfig;
-use crate::proof::ContinuityProof;
-
+use crate::{
+    config::ContinuityConfig,
+    proof::ContinuityProof,
+    rpc::{SharedCcProvider, SharedEthProvider},
+};
+use anyhow::{anyhow, Result};
 use attestor_primitives::Query;
 use cc_client::Client as CcClient;
 use eth::Client as EthClient;
+use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
-
-/// Main continuity proof builder.
+/// Continuity proof builder backed by abstract RPC providers.
 pub struct ContinuityBuilder {
-    pub config: ContinuityConfig,
-    pub cc_client: CcClient,
-    pub eth_client: EthClient,
+    pub(crate) config: ContinuityConfig,
+    pub(crate) cc: SharedCcProvider,
+    pub(crate) eth: SharedEthProvider,
 }
 
 impl ContinuityBuilder {
-    /// Create a new continuity builder
+    /// Create a new builder with real RPC clients.
     pub async fn new(config: ContinuityConfig) -> Result<Self> {
         let cc_client = CcClient::new(&config.cc3_rpc_url, "")
             .await
-            .map_err(|e| anyhow!("Failed to create CC client: {}", e))?;
-
+            .map_err(|e| anyhow!("Failed to create CC client: {e}"))?;
         let eth_client = EthClient::new(&config.eth_rpc_url, None)
             .await
-            .map_err(|e| anyhow!("Failed to create ETH client: {}", e))?;
-
-        Ok(Self {
+            .map_err(|e| anyhow!("Failed to create ETH client: {e}"))?;
+        Ok(Self::new_with_providers(
             config,
-            cc_client,
-            eth_client,
-        })
+            Arc::new(cc_client),
+            Arc::new(eth_client),
+        ))
+    }
+
+    /// Create a builder using injected (possibly mocked) providers.
+    pub fn new_with_providers(
+        config: ContinuityConfig,
+        cc: SharedCcProvider,
+        eth: SharedEthProvider,
+    ) -> Self {
+        Self { config, cc, eth }
     }
 
     /// Build continuity proof for a single query
@@ -82,5 +91,10 @@ impl ContinuityBuilder {
         );
 
         self.build_for_heights(query_heights).await
+    }
+
+    /// Helper to fetch raw transaction bytes for a block using the underlying Eth provider.
+    pub async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>> {
+        self.eth.get_block_tx_bytes(block_number).await
     }
 }

@@ -7,14 +7,17 @@ version = "0.1.0"
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 
 # Creditcoin / USC dependencies
+attestor = { path = "../../attestor" }
 attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 ccnext-abi-encoding = { workspace = true }
 eth = { workspace = true }
 sp-core = { workspace = true }
+utils = { workspace = true }

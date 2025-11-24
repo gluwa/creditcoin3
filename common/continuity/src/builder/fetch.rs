@@ -8,10 +8,10 @@ use sp_core::H256;
 impl ContinuityBuilder {
     /// Fetch attestations from Creditcoin3
     pub async fn fetch_attestations(&self) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
-        self.cc_client
+        self.cc
             .get_attestations_for_chain(self.config.chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch attestations: {}", e))
+            .map_err(|e| anyhow!("Failed to fetch attestations: {e}"))
     }
 
     /// Check if query is at a checkpoint height by checking the last checkpoint
@@ -20,10 +20,10 @@ impl ContinuityBuilder {
         query_height: u64,
     ) -> Result<Option<AttestationCheckpoint>> {
         let last_checkpoint = self
-            .cc_client
+            .cc
             .get_last_checkpoint(self.config.chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {}", e))?;
+            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {e}"))?;
 
         if let Some(checkpoint) = last_checkpoint {
             if checkpoint.block_number == query_height {
@@ -45,10 +45,10 @@ impl ContinuityBuilder {
     ) -> Result<Vec<AttestationCheckpoint>> {
         // Start with last checkpoint (most efficient single query)
         let last_checkpoint = self
-            .cc_client
+            .cc
             .get_last_checkpoint(self.config.chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {}", e))?;
+            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {e}"))?;
 
         // If we only need to check the last checkpoint, we're done
         if max_needed.is_none() && min_needed.is_none() {
@@ -57,10 +57,10 @@ impl ContinuityBuilder {
 
         // Fetch all checkpoints (iteration order is not guaranteed, so we need all)
         let all_checkpoints = self
-            .cc_client
+            .cc
             .get_checkpoints_for_chain(self.config.chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch checkpoints: {}", e))?;
+            .map_err(|e| anyhow!("Failed to fetch checkpoints: {e}"))?;
 
         // Filter checkpoints based on block number range
         let filtered: Vec<AttestationCheckpoint> = all_checkpoints

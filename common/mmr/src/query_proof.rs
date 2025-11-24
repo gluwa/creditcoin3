@@ -7,6 +7,10 @@
 use crate::keccak::Keccak256;
 use crate::traits::HashT;
 use crate::{INNER_HASH_PREPEND_VALUE, LEAF_HASH_PREPEND_VALUE};
+use core::fmt::Display;
+use hex::{FromHex, ToHex};
+extern crate alloc;
+use alloc::format;
 use parity_scale_codec::{Decode, Encode};
 use precompile_utils::{prelude::String, solidity::Codec};
 use scale_info::TypeInfo;
@@ -34,6 +38,10 @@ use sp_std::vec::Vec;
 )]
 pub struct QueryMerkleProof {
     /// The Merkle root hash
+    #[serde(
+        serialize_with = "h256_serialize_as_hex",
+        deserialize_with = "h256_deserialize_from_hex"
+    )]
     pub root: H256,
     /// Sibling hashes with position information
     pub siblings: Vec<MerkleProofEntry>,
@@ -56,6 +64,10 @@ pub struct QueryMerkleProof {
 )]
 pub struct MerkleProofEntry {
     /// The sibling hash
+    #[serde(
+        serialize_with = "h256_serialize_as_hex",
+        deserialize_with = "h256_deserialize_from_hex"
+    )]
     pub hash: H256,
     /// Whether this sibling is on the left (true) or right (false)
     pub is_left: bool,
@@ -120,6 +132,31 @@ impl QueryMerkleProof {
     pub fn is_single_transaction(&self) -> bool {
         self.siblings.is_empty()
     }
+}
+
+// === Serde hex helpers for H256 ===
+fn h256_serialize_as_hex<S>(value: &H256, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let mut s = String::from("0x");
+    s.push_str(value.as_bytes().encode_hex::<String>().as_str());
+    serializer.serialize_str(&s)
+}
+
+fn h256_deserialize_from_hex<'de, D>(deserializer: D) -> Result<H256, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: &str = serde::Deserialize::deserialize(deserializer)?;
+    let without_prefix = s.strip_prefix("0x").unwrap_or(s);
+    let bytes = <[u8; 32]>::from_hex(without_prefix)
+        .map_err(|e| serde::de::Error::custom(format_hex_err(e)))?;
+    Ok(H256(bytes))
+}
+
+fn format_hex_err<E: Display>(e: E) -> String {
+    format!("{}", e)
 }
 
 #[cfg(test)]

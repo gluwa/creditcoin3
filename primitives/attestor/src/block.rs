@@ -263,6 +263,10 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
 pub struct ContinuityProof {
     /// The digest of the block before the continuity chain starts
     /// This is the prev_digest of the first block
+    #[serde(
+        serialize_with = "h256_serialize_as_hex",
+        deserialize_with = "h256_deserialize_from_hex"
+    )]
     pub lower_endpoint_digest: H256,
     /// Array of continuity blocks (each containing only root and digest)
     /// Block numbers are inferred: blocks[i] is at (queryHeight - 1) + i for single query

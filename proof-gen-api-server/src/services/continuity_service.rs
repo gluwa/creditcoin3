@@ -1,70 +1,214 @@
-use serde_json::json;
+use crate::db::{DbManager, QueryProofs};
+use anyhow::Result;
+use attestor_primitives::block::ContinuityProof;
+use attestor_primitives::Query;
+use chrono::{DateTime, Utc};
+use continuity::{ContinuityBuilder, ContinuityProof as RawContinuityProof};
+use mmr::query_proof::QueryMerkleProof;
+use serde::{Deserialize, Serialize};
+use sp_core::H256;
+use std::sync::Arc;
 
-pub fn get_mock_continuity_proof(chain_key: u64, header_number: u64) -> serde_json::Value {
-    json!({
-        "chain_key": chain_key,
-        "header_number": header_number,
-        "continuity_proof": {
-            "lower_endpoint_digest": "0x1111",
-            "blocks": [
-                { "root": "0xaaaa", "digest": "0xbbbb" },
-                { "root": "0xcccc", "digest": "0xdddd" }
-            ]
-        },
-        "cached": false,
-        "generated_at": "2025-01-01T00:00:00Z"
-    })
+// === Serialization helpers ===
+fn h256_to_hex(h: &H256) -> String {
+    // still used for merkle proof output wrapping
+    format!("0x{}", hex::encode(h.as_bytes()))
 }
 
-pub fn get_mock_continuity_proof_with_tx(
-    chain_key: u64,
-    header_number: u64,
-    tx_index: u64,
-) -> serde_json::Value {
-    json!({
-        "chain_key": chain_key,
-        "header_number": header_number,
-        "tx_index": tx_index,
-        "continuity_proof": {
-            "lower_endpoint_digest": "0x1111",
-            "blocks": [
-                { "root": "0xaaaa", "digest": "0xbbbb" },
-                { "root": "0xcccc", "digest": "0xdddd" }
-            ]
-        },
-        "merkle_proof": {
-            "root": "0xeeee",
-            "siblings": [
-                { "hash": "0xffff", "is_left": false }
-            ]
-        },
-        "merkle_root": "0xeeee",
-        "cached": false,
-        "generated_at": "2025-01-01T00:00:00Z"
-    })
+// Removed ContinuityBlockOut / ContinuityProofOut wrappers; we now reuse attestor primitives ContinuityProof directly.
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ContinuityResponse {
+    pub chain_key: u64,
+    pub header_number: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_index: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_hash: Option<String>,
+    pub continuity_proof: ContinuityProof,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merkle_proof: Option<QueryMerkleProof>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merkle_root: Option<String>,
+    pub cached: bool,
+    pub generated_at: DateTime<Utc>,
 }
 
-pub fn get_mock_proof_by_tx_hash(chain_key: u64, tx_hash: String) -> serde_json::Value {
-    json!({
-        "chain_key": chain_key,
-        "tx_hash": tx_hash,
-        "header_number": 12345,
-        "tx_index": 0,
-        "continuity_proof": {
-            "lower_endpoint_digest": "0x9999",
-            "blocks": [
-                { "root": "0xaaaa", "digest": "0xbbbb" },
-                { "root": "0xcccc", "digest": "0xdddd" }
-            ]
-        },
-        "merkle_proof": {
-            "root": "0xeeee",
-            "siblings": [
-                { "hash": "0xffff", "is_left": false }
-            ]
-        },
-        "merkle_root": "0xeeee",
-        "cached": false,
-        "generated_at": "2025-01-01T00:00:00Z"
-    })
+pub struct ContinuityService {
+    builder: Arc<ContinuityBuilder>,
+    db: Arc<DbManager>,
+}
+
+impl ContinuityService {
+    pub fn new(builder: Arc<ContinuityBuilder>, db: Arc<DbManager>) -> Self {
+        Self { builder, db }
+    }
+
+    pub async fn continuity_proof(
+        &self,
+        chain_key: u64,
+        header_number: u64,
+    ) -> Result<ContinuityResponse> {
+        // Attempt cache lookup
+        let cached = match self.db.get_proofs_entry(chain_key, header_number).await {
+            Ok(c) => c,
+            Err(_) => None, // treat DB errors as cache miss for phase 1
+        };
+        if let Some(entry) = cached {
+            if let Some(cp_json) = entry.continuity_proof {
+                // Return cached continuity proof only (no merkle)
+                let continuity_proof_out: ContinuityProof = serde_json::from_value(cp_json)?;
+                return Ok(ContinuityResponse {
+                    chain_key,
+                    header_number,
+                    tx_index: None,
+                    tx_hash: None,
+                    continuity_proof: continuity_proof_out,
+                    merkle_proof: None,
+                    merkle_root: entry.merkle_root,
+                    cached: true,
+                    generated_at: Utc::now(),
+                });
+            }
+        }
+
+        // Build new continuity proof
+        let query = Query {
+            chain_id: chain_key,
+            height: header_number,
+            layout_segments: vec![],
+        };
+        let proof: RawContinuityProof = self.builder.build_for_single_query(&query).await?;
+        // Convert raw blocks into optimized ContinuityProof (attestor primitives)
+        let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
+
+        // Insert into DB (async)
+        let entry = QueryProofs {
+            chain_key,
+            header_number,
+            tx_index: None,
+            tx_hash: None,
+            continuity_proof: Some(serde_json::to_value(&continuity_out)?),
+            merkle_proof: None,
+            merkle_root: None,
+        };
+        self.db.insert_proofs_entry(entry);
+
+        Ok(ContinuityResponse {
+            chain_key,
+            header_number,
+            tx_index: None,
+            tx_hash: None,
+            continuity_proof: continuity_out,
+            merkle_proof: None,
+            merkle_root: None,
+            cached: false,
+            generated_at: Utc::now(),
+        })
+    }
+
+    pub async fn continuity_proof_with_tx(
+        &self,
+        chain_key: u64,
+        header_number: u64,
+        tx_index: u64,
+    ) -> Result<ContinuityResponse> {
+        // Build continuity proof (ignore cache for now for tx variant)
+        let query = Query {
+            chain_id: chain_key,
+            height: header_number,
+            layout_segments: vec![],
+        };
+        let proof: RawContinuityProof = self.builder.build_for_single_query(&query).await?;
+        let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
+
+        // Mock merkle proof generation – deterministic siblings from tx_index
+        // Fetch transaction payloads for the block and build a merkle tree
+        let tx_bytes = match self.builder.get_block_tx_bytes(header_number).await {
+            Ok(b) => b,
+            Err(_) => vec![],
+        };
+
+        let tree = mmr::SimpleMerkleTree::new(&tx_bytes);
+        let merkle_proof = if tx_bytes.is_empty() {
+            QueryMerkleProof::new(tree.root(), vec![])
+        } else {
+            tree.generate_proof(tx_index as usize)
+        };
+        let merkle_root = tree.root();
+
+        // Insert into DB
+        let entry = QueryProofs {
+            chain_key,
+            header_number,
+            tx_index: Some(tx_index),
+            tx_hash: None,
+            continuity_proof: Some(serde_json::to_value(&continuity_out)?),
+            merkle_proof: Some(serde_json::to_value(&merkle_proof)?),
+            merkle_root: Some(merkle_root),
+        };
+        self.db.insert_proofs_entry(entry);
+
+        Ok(ContinuityResponse {
+            chain_key,
+            header_number,
+            tx_index: Some(tx_index),
+            tx_hash: None,
+            continuity_proof: continuity_out,
+            merkle_proof: Some(merkle_proof.clone()),
+            merkle_root: Some(h256_to_hex(&merkle_root)),
+            cached: false,
+            generated_at: Utc::now(),
+        })
+    }
+
+    pub async fn continuity_proof_by_tx_hash(
+        &self,
+        chain_key: u64,
+        tx_hash: String,
+    ) -> Result<ContinuityResponse> {
+        // Placeholder mapping: derive header_number & tx_index from hash bytes
+        let header_number = 1; // TODO real lookup
+        let tx_index = 0; // TODO real lookup
+        let query = Query {
+            chain_id: chain_key,
+            height: header_number,
+            layout_segments: vec![],
+        };
+        let proof: RawContinuityProof = self.builder.build_for_single_query(&query).await?;
+        let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
+
+        // If we had a mapping from tx_hash -> (header_number, tx_index) we'd call the tx_index variant.
+        // For now, try to fetch tx bytes and produce an empty-proof root if possible.
+        let tx_bytes = match self.builder.get_block_tx_bytes(header_number).await {
+            Ok(b) => b,
+            Err(_) => vec![],
+        };
+        let tree = mmr::SimpleMerkleTree::new(&tx_bytes);
+        let merkle_root = tree.root();
+        let merkle_proof = QueryMerkleProof::new(merkle_root, vec![]);
+
+        let entry = QueryProofs {
+            chain_key,
+            header_number,
+            tx_index: Some(tx_index),
+            tx_hash: Some(H256::from_low_u64_be(0)), // placeholder
+            continuity_proof: Some(serde_json::to_value(&continuity_out)?),
+            merkle_proof: Some(serde_json::to_value(&merkle_proof)?),
+            merkle_root: Some(merkle_root),
+        };
+        self.db.insert_proofs_entry(entry);
+
+        Ok(ContinuityResponse {
+            chain_key,
+            header_number,
+            tx_index: Some(tx_index),
+            tx_hash: Some(tx_hash),
+            continuity_proof: continuity_out,
+            merkle_proof: Some(merkle_proof.clone()),
+            merkle_root: Some(h256_to_hex(&merkle_root)),
+            cached: false,
+            generated_at: Utc::now(),
+        })
+    }
 }

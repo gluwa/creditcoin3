@@ -1,0 +1,100 @@
+use anyhow::{anyhow, Result};
+use async_trait::async_trait;
+use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
+use cc_client::{AccountId32, Client as CcClient};
+use eth::continuity::Manager as ContinuityManager;
+use sp_core::H256;
+use std::sync::Arc;
+
+use attestor_primitives::block::Block;
+use ccnext_abi_encoding::abi::EncodingVersion;
+use utils::block_item_traits::BlockItem;
+
+/// Abstraction over Creditcoin RPC required for continuity proof generation.
+#[async_trait]
+pub trait CcRpcProvider: Send + Sync {
+    async fn get_attestations_for_chain(
+        &self,
+        chain_key: u64,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>>;
+
+    async fn get_last_checkpoint(&self, chain_key: u64) -> Result<Option<AttestationCheckpoint>>;
+
+    async fn get_checkpoints_for_chain(&self, chain_key: u64)
+        -> Result<Vec<AttestationCheckpoint>>;
+}
+
+/// Abstraction over source chain (ETH) RPC required to build continuity fragments.
+#[async_trait]
+pub trait EthRpcProvider: Send + Sync {
+    async fn build_continuity_blocks(
+        &self,
+        lower_digest: H256,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<Block>>;
+
+    /// Fetch raw transaction payload bytes for a block number.
+    /// Returned vector contains one Vec<u8> per transaction in canonical order.
+    async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>>;
+}
+
+#[async_trait]
+impl CcRpcProvider for CcClient {
+    async fn get_attestations_for_chain(
+        &self,
+        chain_key: u64,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
+        self.get_attestations_for_chain(chain_key)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch attestations: {e}"))
+    }
+
+    async fn get_last_checkpoint(&self, chain_key: u64) -> Result<Option<AttestationCheckpoint>> {
+        self.get_last_checkpoint(chain_key)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {e}"))
+    }
+
+    async fn get_checkpoints_for_chain(
+        &self,
+        chain_key: u64,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        self.get_checkpoints_for_chain(chain_key)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch checkpoints: {e}"))
+    }
+}
+
+#[async_trait]
+impl EthRpcProvider for eth::Client {
+    async fn build_continuity_blocks(
+        &self,
+        lower_digest: H256,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<Block>> {
+        let manager = ContinuityManager::new(start, end, self);
+        let fragment = manager
+            .create(lower_digest, EncodingVersion::V1)
+            .await
+            .map_err(|e| anyhow!("Failed to create continuity fragment: {e}"))?;
+        Ok(fragment.blocks().to_vec())
+    }
+
+    async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>> {
+        // Use encoding V1 for consistency with continuity payload encoding
+        let ordered = self
+            .get_block(block_number, EncodingVersion::V1)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch block transactions: {e}"))?;
+
+        let tx_bytes: Vec<Vec<u8>> = ordered.items().iter().map(|item| item.to_bytes()).collect();
+
+        Ok(tx_bytes)
+    }
+}
+
+/// Simple boxed trait object helpers.
+pub type SharedCcProvider = Arc<dyn CcRpcProvider>;
+pub type SharedEthProvider = Arc<dyn EthRpcProvider>;

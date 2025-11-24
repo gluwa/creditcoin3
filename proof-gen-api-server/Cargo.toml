@@ -32,6 +32,7 @@ release = false
 [dependencies]
 alloy = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive", "deprecated", "env"] }
@@ -54,8 +55,15 @@ attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 continuity = { workspace = true }
 eth = { workspace = true }
+hex = { workspace = true }
 mmr = { workspace = true }
 prometheus = { workspace = true }
 
 [dev-dependencies]
+continuity = { path = "../common/continuity" }
+mmr = { workspace = true }
+# Needed for ServiceExt::oneshot in integration tests
 tower = { workspace = true }
+
+# utils if you already used it in phase 0
+# utils = { path = "../common/utils" }

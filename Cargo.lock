@@ -2580,6 +2580,8 @@ name = "continuity"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "attestor",
  "attestor-primitives",
  "cc-client",
  "ccnext-abi-encoding",
@@ -2589,6 +2591,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "utils",
 ]
 
 [[package]]
@@ -7970,6 +7973,7 @@ dependencies = [
 name = "mmr"
 version = "3.66.0"
 dependencies = [
+ "hex",
  "parity-scale-codec",
  "precompile-utils",
  "rayon",
@@ -10406,6 +10410,7 @@ version = "3.66.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "async-trait",
  "attestor-primitives",
  "axum",
  "cc-client",
@@ -10415,6 +10420,7 @@ dependencies = [
  "deadpool-postgres",
  "dotenvy",
  "eth",
+ "hex",
  "mmr",
  "prometheus 3.66.0",
  "serde",

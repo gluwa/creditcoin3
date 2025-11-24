@@ -9,6 +9,7 @@ use crate::metric_set;
 
 /// Starts the Prometheus metrics server and registers the prover metrics.
 /// returns an optional `ProverMetrics` instance if registration is successful.
+#[allow(dead_code)]
 pub fn start_prom_server(config: &Config) -> Option<ProofGenServerMetrics> {
     let prometheus_registry: Arc<Registry> = Arc::new(Registry::new());
     let metrics: Option<ProofGenServerMetrics> = register_metrics(&prometheus_registry.clone());

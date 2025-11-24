@@ -1,8 +1,6 @@
 use anyhow::{bail, Result};
-use attestor_primitives::block::ContinuityProof;
 use chrono::NaiveDateTime;
 use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod};
-use mmr::query_proof::QueryMerkleProof;
 use serde_json::Value;
 use sp_core::H256;
 use tokio_postgres::NoTls;
@@ -25,8 +23,8 @@ pub struct QueryProofs {
     pub header_number: u64,
     pub tx_index: Option<u64>,
     pub tx_hash: Option<H256>,
-    pub continuity_proof: Option<ContinuityProof>,
-    pub merkle_proof: Option<QueryMerkleProof>,
+    pub continuity_proof: Option<Value>,
+    pub merkle_proof: Option<Value>,
     pub merkle_root: Option<H256>,
 }
 
@@ -46,6 +44,7 @@ pub struct ProofsDbEntry {
     pub updated_at: Option<NaiveDateTime>,
 }
 
+#[derive(Clone)]
 pub struct DbManager {
     pool: Pool,
 }
@@ -125,9 +124,9 @@ impl DbManager {
                                 updated_at = now()
                             "#,
                             &[
-                                &entry.chain_key,
-                                &entry.header_number,
-                                &entry.tx_index,
+                                &(entry.chain_key as i64),
+                                &(entry.header_number as i64),
+                                &entry.tx_index.map(|v| v as i64),
                                 &entry.tx_hash,
                                 &entry.continuity_proof,
                                 &entry.merkle_proof,
@@ -158,8 +157,8 @@ impl DbManager {
                                 updated_at = now()
                             "#,
                                 &[
-                                    &entry.chain_key,
-                                    &entry.header_number,
+                                    &(entry.chain_key as i64),
+                                    &(entry.header_number as i64),
                                     &entry.tx_hash,
                                     &entry.continuity_proof,
                                     &entry.merkle_proof,

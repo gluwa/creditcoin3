@@ -54,8 +54,8 @@ impl Into<QueryProofs> for ProofsDbEntry {
             header_number: from_storage_int(self.header_number),
             tx_index: self.tx_index.map(from_storage_int),
             tx_hash: self.tx_hash.map(|s| from_storage_hash(&s)),
-            continuity_proof: None,
-            merkle_proof: None,
+            continuity_proof: self.continuity_proof,
+            merkle_proof: self.merkle_proof,
             merkle_root: self.merkle_root.map(|s| from_storage_hash(&s)),
         }
     }
