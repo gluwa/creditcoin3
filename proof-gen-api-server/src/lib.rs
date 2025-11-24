@@ -170,7 +170,7 @@ impl Server {
             chain_key: 1,
             header_number: 1,
             tx_index: None,
-            tx_hash: Some(H256::zero()),
+            tx_hash: None,
             continuity_proof: Some(continuity_proof.clone()),
             merkle_proof: Some(merkle_proof.clone()),
             merkle_root: Some(H256::zero()),
@@ -195,6 +195,12 @@ impl Server {
             let maybe_entry = self.db_manager.get_proofs_for_block(1, 1).await?;
             let maybe_id = maybe_entry.map(|e| e.id);
             info!("Full block entry id: {maybe_id:?}");
+            let maybe_entry = self
+                .db_manager
+                .get_proofs_by_tx_hash(1, H256::zero())
+                .await?;
+            let maybe_id = maybe_entry.map(|e| e.id);
+            info!("By hash entry id: {maybe_id:?}");
             let maybe_entry = self.db_manager.get_proofs_for_tx(1, 1, 1).await?;
             info!("Tx full entry: {maybe_entry:?}");
             // Wait a bit to avoid spam

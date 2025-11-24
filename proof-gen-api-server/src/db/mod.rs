@@ -10,6 +10,8 @@ use tracing::{debug, info};
 
 use type_conversions::to_storage_int;
 
+use crate::db::type_conversions::to_storage_hash;
+
 mod type_conversions;
 
 const V1_DOWN_SQL: &str = include_str!("../../migrations/v1/down.sql");
@@ -275,6 +277,53 @@ impl DbManager {
                 chain_key,
                 header_number,
                 tx_index
+            );
+        }
+
+        let entry = ProofsDbEntry::try_from(&rows[0])?;
+
+        Ok(Some(entry))
+    }
+
+    pub async fn get_proofs_by_tx_hash(
+        &self,
+        chain_key: u64,
+        tx_hash: H256,
+    ) -> Result<Option<ProofsDbEntry>> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                r#"
+            SELECT
+                id,
+                chain_key,
+                header_number,
+                tx_index,
+                tx_hash,
+                continuity_proof,
+                merkle_proof,
+                merkle_root,
+                created_at,
+                updated_at
+            FROM proofs
+            WHERE chain_key = $1
+              AND tx_hash = $2
+            LIMIT 2
+            "#,
+                &[&(to_storage_int(chain_key)), &(to_storage_hash(tx_hash))],
+            )
+            .await?;
+
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        if rows.len() > 1 {
+            bail!(
+                "Expected at most one proof, but found {} for chain_key={}, tx_hash={}",
+                rows.len(),
+                chain_key,
+                tx_hash,
             );
         }
 

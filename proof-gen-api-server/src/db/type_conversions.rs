@@ -34,16 +34,13 @@ impl TryFrom<QueryProofs> for ProofsDbEntry {
             chain_key: to_storage_int(proofs.chain_key),
             header_number: to_storage_int(proofs.header_number),
             tx_index: proofs.tx_index.map(to_storage_int),
-            tx_hash: proofs.tx_hash.map(|h| format!("{h:#x}")),
+            tx_hash: proofs.tx_hash.map(to_storage_hash),
             continuity_proof: proofs
                 .continuity_proof
-                .map(|p| serde_json::to_value(p))
+                .map(serde_json::to_value)
                 .transpose()?,
-            merkle_proof: proofs
-                .merkle_proof
-                .map(|p| serde_json::to_value(p))
-                .transpose()?,
-            merkle_root: proofs.merkle_root.map(|h| format!("{h:#x}")),
+            merkle_proof: proofs.merkle_proof.map(serde_json::to_value).transpose()?,
+            merkle_root: proofs.merkle_root.map(to_storage_hash),
             created_at: Some(NaiveDateTime::default()), // Only used on read. Generated on insert
             updated_at: Some(NaiveDateTime::default()), // Only used on read. Generated on insert
         })
@@ -72,6 +69,11 @@ pub fn to_storage_int(num: u64) -> i64 {
 #[must_use]
 pub fn from_storage_int(num: i64) -> u64 {
     u64::from_ne_bytes(num.to_ne_bytes())
+}
+
+#[must_use]
+pub fn to_storage_hash(hash: H256) -> String {
+    format!("{hash:#x}")
 }
 
 /// @param hash: A 0x prefixed hex representation of a hash

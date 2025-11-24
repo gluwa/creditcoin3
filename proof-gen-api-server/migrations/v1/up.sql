@@ -15,3 +15,5 @@ CREATE TABLE IF NOT EXISTS proofs (
 -- Create indeces
 CREATE UNIQUE INDEX IF NOT EXISTS proofs_unique_null_tx_index ON proofs (chain_key, header_number) WHERE tx_index IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS proofs_unique_nonnull_tx_index ON proofs (chain_key, header_number, tx_index) WHERE tx_index IS NOT NULL;
+CREATE INDEX IF NOT EXISTS proofs_by_tx_hash ON proofs (chain_key, tx_hash);
+CREATE INDEX IF NOT EXISTS proofs_by_created_at ON proofs (created_at);
