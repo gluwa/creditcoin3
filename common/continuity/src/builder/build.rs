@@ -4,9 +4,6 @@ use crate::proof::ContinuityProof;
 
 use anyhow::{anyhow, Result};
 use attestor_primitives::block::Block;
-// ccnext_abi_encoding::abi::EncodingVersion is currently unused but may be
-// required in later enhancements. Keep import commented to avoid warnings.
-// use ccnext_abi_encoding::abi::EncodingVersion;
 
 impl ContinuityBuilder {
     /// Build continuity blocks and trim to required range
