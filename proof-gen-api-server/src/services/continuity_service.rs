@@ -45,6 +45,25 @@ impl ContinuityService {
         Self { builder, db }
     }
 
+    // Helper: build continuity proof for a single (chain_key, header_number) query
+    async fn build_continuity(
+        &self,
+        chain_key: u64,
+        header_number: u64,
+    ) -> Result<ContinuityProof, ServiceError> {
+        let query = Query {
+            chain_id: chain_key,
+            height: header_number,
+            layout_segments: vec![],
+        };
+        let proof: RawContinuityProof = self
+            .builder
+            .build_for_single_query(&query)
+            .await
+            .map_err(ServiceError::from)?;
+        Ok(ContinuityProof::from_blocks(proof.blocks.clone()))
+    }
+
     pub async fn continuity_proof(
         &self,
         chain_key: u64,
@@ -122,55 +141,54 @@ impl ContinuityService {
         header_number: u64,
         tx_index: u64,
     ) -> std::result::Result<ContinuityResponse, ServiceError> {
-        // Attempt cache lookup for tx-specific proof
-        match self
+        // 1. Attempt tx-specific cache hit.
+        if let Ok(Some(entry)) = self
             .db
             .get_proofs_for_tx(chain_key, header_number, tx_index)
             .await
         {
-            Ok(Some(entry)) => {
-                let continuity_opt = entry
-                    .continuity_proof
-                    .clone()
-                    .and_then(|v| serde_json::from_value::<ContinuityProof>(v).ok());
-                let merkle_opt = entry
-                    .merkle_proof
-                    .clone()
-                    .and_then(|v| serde_json::from_value::<QueryMerkleProof>(v).ok());
-                if let (Some(continuity_out), Some(merkle_proof)) = (continuity_opt, merkle_opt) {
-                    return Ok(ContinuityResponse {
-                        chain_key,
-                        header_number,
-                        tx_index: Some(tx_index),
-                        tx_hash: None, // tx_hash reverse lookup not implemented
-                        continuity_proof: continuity_out,
-                        merkle_proof: Some(merkle_proof.clone()),
-                        merkle_root: entry.merkle_root.clone(),
-                        cached: true,
-                        generated_at: Utc::now(),
-                    });
-                }
-            }
-            Ok(None) => { /* cache miss */ }
-            Err(e) => {
-                tracing::warn!(error=?e, chain_key, header_number, tx_index, "DB error during continuity_proof_with_tx cache lookup; building new proof");
+            let continuity_opt = entry
+                .continuity_proof
+                .clone()
+                .and_then(|v| serde_json::from_value::<ContinuityProof>(v).ok());
+            let merkle_opt = entry
+                .merkle_proof
+                .clone()
+                .and_then(|v| serde_json::from_value::<QueryMerkleProof>(v).ok());
+            if let (Some(continuity_out), Some(merkle_proof)) = (continuity_opt, merkle_opt) {
+                return Ok(ContinuityResponse {
+                    chain_key,
+                    header_number,
+                    tx_index: Some(tx_index),
+                    tx_hash: None,
+                    continuity_proof: continuity_out,
+                    merkle_proof: Some(merkle_proof.clone()),
+                    merkle_root: entry.merkle_root.clone(),
+                    cached: true,
+                    generated_at: Utc::now(),
+                });
             }
         }
 
-        // Build continuity proof (cache miss or decode failure)
-        let query = Query {
-            chain_id: chain_key,
-            height: header_number,
-            layout_segments: vec![],
+        // 2. Try block-level continuity cache.
+        let continuity_out = if let Ok(Some(block_entry)) =
+            self.db.get_proofs_for_block(chain_key, header_number).await
+        {
+            if let Some(cp_json) = block_entry.continuity_proof.clone() {
+                if let Ok(cp) = serde_json::from_value::<ContinuityProof>(cp_json) {
+                    cp
+                } else {
+                    // Fall back to build if deserialization fails
+                    self.build_continuity(chain_key, header_number).await?
+                }
+            } else {
+                self.build_continuity(chain_key, header_number).await?
+            }
+        } else {
+            self.build_continuity(chain_key, header_number).await?
         };
-        let proof: RawContinuityProof = self
-            .builder
-            .build_for_single_query(&query)
-            .await
-            .map_err(ServiceError::from)?;
-        let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
 
-        // Fetch transactions for merkle tree construction
+        // 3. Fetch tx bytes & validate index.
         let tx_bytes = self
             .builder
             .get_block_tx_bytes(header_number)
@@ -178,7 +196,6 @@ impl ContinuityService {
             .map_err(|e| ServiceError::RpcUnavailable {
                 message: e.to_string(),
             })?;
-
         if tx_bytes.is_empty() {
             if tx_index != 0 {
                 return Err(ServiceError::TxIndexOutOfBounds { tx_index, len: 0 });
@@ -190,6 +207,7 @@ impl ContinuityService {
             });
         }
 
+        // 4. Merkle proof creation.
         let tree = mmr::SimpleMerkleTree::new(&tx_bytes);
         let merkle_proof = if tx_bytes.is_empty() {
             QueryMerkleProof::new(tree.root(), vec![])
@@ -198,7 +216,7 @@ impl ContinuityService {
         };
         let merkle_root = tree.root();
 
-        // Insert new tx-specific proof into DB
+        // 5. Insert tx-specific entry.
         let entry = QueryProofs {
             chain_key,
             header_number,
@@ -210,6 +228,7 @@ impl ContinuityService {
         };
         self.db.insert_proofs_entry(entry);
 
+        // 6. Return response (cached=false because tx-specific entry was missing).
         Ok(ContinuityResponse {
             chain_key,
             header_number,

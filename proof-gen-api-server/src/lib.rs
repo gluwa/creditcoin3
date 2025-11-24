@@ -49,11 +49,8 @@ impl Server {
             eth_rpc_url: self.config.eth_rpc_url.clone(),
             chain_key: self.config.chain_key,
         };
-        let use_mocks = std::env::var("USE_MOCK_PROVIDERS")
-            .ok()
-            .map(|v| v == "1")
-            .unwrap_or(false);
-        let builder = if use_mocks {
+        // Use the normalized config flag (accepts 1/true/yes) to decide mock vs real providers.
+        let builder = if self.config.use_mock_providers {
             let (cc_mock, eth_mock) =
                 services::mock_providers::make_mock_providers(self.config.chain_key);
             continuity::ContinuityBuilder::new_with_providers(continuity_config, cc_mock, eth_mock)
