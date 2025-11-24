@@ -1992,3 +1992,43 @@ fn test_verify_query_block_digest_errors_when_prev_block_is_not_minus_1() {
         );
     });
 }
+
+#[test]
+fn test_verify_batch_queries_impl_errors_with_empty_queries() {
+    ExtBuilder::default().build().execute_with(|| {
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_batch_queries {
+                    queries: vec![].into(),
+                    tx_data_array: vec![],
+                    merkle_proofs: vec![],
+                    shared_continuity_proof: ContinuityProof::from_blocks(vec![]),
+                },
+            )
+            .execute_reverts(|output| output == b"Empty queries array");
+    });
+}
+
+#[test]
+fn test_verify_batch_queries_impl_errors_with_empty_continuity_proof() {
+    ExtBuilder::default().build().execute_with(|| {
+        let query = get_simple_query();
+        let tx_data = get_sample_tx_data();
+        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
+
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify_batch_queries {
+                    queries: vec![query].into(),
+                    tx_data_array: vec![tx_data.into()],
+                    merkle_proofs: vec![merkle_proof],
+                    shared_continuity_proof: ContinuityProof::from_blocks(vec![]),
+                },
+            )
+            .execute_reverts(|output| output == b"Continuity proof cannot be empty");
+    });
+}
