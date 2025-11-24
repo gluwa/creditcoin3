@@ -204,12 +204,6 @@ jobs:
           solc --version
           ./abi-creator.sh
 
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
-
       - name: Build and install creditcoin-cli
         working-directory: ./cli
         run: |
@@ -424,12 +418,6 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
-
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
 
       - name: Execute tests
         working-directory: ./cli
@@ -708,12 +696,6 @@ jobs:
         run: |
           sudo .github/install-solidity-compiler.sh
 
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
-
       - name: Generate precompiles ABI from source code
         working-directory: ./precompiles/metadata
         run: |
@@ -929,12 +911,6 @@ jobs:
           solc --version
           ./abi-creator.sh
 
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
-
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
         run: |
@@ -1125,12 +1101,6 @@ jobs:
           solc --version
           ./abi-creator.sh
 
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
-
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
         run: |
@@ -1240,12 +1210,6 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
-
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
 
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
@@ -1633,12 +1597,6 @@ jobs:
           solc --version
           ./abi-creator.sh
 
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
-
       - name: Start Attestation Zombienet for Charlie - Anvil 3
         run: |
           chmod a+x ./target/release/attestor*
@@ -1873,12 +1831,6 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
-
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
 
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
