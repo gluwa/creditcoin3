@@ -9,9 +9,6 @@ pub mod staking_v13_to_v15 {
     use pallet_staking::SessionInterface;
     use sp_std::vec::Vec;
 
-    #[cfg(feature = "try-runtime")]
-    use sp_runtime::TryRuntimeError;
-
     type DefaultDisablingStrategy = pallet_staking::UpToLimitDisablingStrategy;
 
     #[frame_support::storage_alias]
@@ -42,41 +39,6 @@ pub mod staking_v13_to_v15 {
 
             log::info!("Staking v13->v15 migration applied successfully.");
             T::DbWeight::get().reads_writes(2, 2)
-        }
-
-        #[cfg(feature = "try-runtime")]
-        fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
-            use codec::Encode;
-
-            let offending_count = OffendingValidatorsV13::<T>::get().len();
-            log::info!(
-                "Pre-upgrade: Found {} offending validators",
-                offending_count
-            );
-
-            Ok(offending_count.encode())
-        }
-
-        #[cfg(feature = "try-runtime")]
-        fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
-            use codec::Decode;
-
-            frame_support::ensure!(
-                OffendingValidatorsV13::<T>::decode_len().is_none(),
-                "OffendingValidators (old format) is not empty after migration"
-            );
-
-            let pre_count =
-                usize::decode(&mut &state[..]).map_err(|_| "Failed to decode pre-upgrade state")?;
-            let post_count = DisabledValidators::<T>::get().len();
-
-            log::info!(
-                "Post-upgrade: Migrated {} validators, now {} disabled validators",
-                pre_count,
-                post_count
-            );
-
-            Ok(())
         }
     }
 
