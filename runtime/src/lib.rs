@@ -975,6 +975,7 @@ pub type Executive = frame_executive::Executive<
     frame_system::ChainContext<Runtime>,
     Runtime,
     AllPalletsWithSystem,
+    // Can be removed after the migration is applied
     (
         pallet_identity::migration::versioned::V0ToV1<Runtime, { u64::MAX }>,
         pallet_grandpa::migrations::MigrateV4ToV5<Runtime>,
