@@ -31,7 +31,7 @@ async fn tx_endpoint_returns_merkle_and_verifies() {
     let service = Arc::new(ContinuityService::new(arc_builder.clone(), Arc::new(db)));
     let app = build_app(service.clone());
 
-    let uri = format!("/api/v1/proof/{}/{}/{}", chain_key, header_number, tx_index);
+    let uri = format!("/api/v1/proof/{chain_key}/{header_number}/{tx_index}");
     let request = Request::builder()
         .uri(uri)
         .method("GET")

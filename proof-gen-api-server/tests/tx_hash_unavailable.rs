@@ -31,7 +31,8 @@ async fn tx_hash_endpoint_reports_unavailable() {
     let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
     let app = build_app(service);
 
-    let tx_hash = "0xdeadbeef"; // arbitrary
+    // Provide an invalid-length tx hash to trigger Bad Request (InvalidParameter)
+    let tx_hash = "0xdeadbeef"; // too short (not 32 bytes)
     let uri = format!("/api/v1/proof-by-tx/2/{tx_hash}");
     let response = app
         .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
@@ -40,10 +41,10 @@ async fn tx_hash_endpoint_reports_unavailable() {
 
     assert_eq!(
         response.status().as_u16(),
-        501,
-        "Should return 501 Not Implemented style status"
+        400,
+        "Should return 400 Bad Request for invalid tx hash format"
     );
     let body_bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
     let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-    assert_eq!(body["code"], "TxHashLookupUnavailable");
+    assert_eq!(body["code"], "InvalidParameter");
 }

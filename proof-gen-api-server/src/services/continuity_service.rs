@@ -5,13 +5,15 @@ use chrono::{DateTime, Utc};
 use continuity::{ContinuityBuilder, ContinuityProof as RawContinuityProof};
 use mmr::query_proof::QueryMerkleProof;
 use serde::{Deserialize, Serialize};
+use sp_core::hashing::keccak_256;
 use sp_core::H256;
 use std::sync::Arc;
 
 // === Serialization helpers ===
 fn h256_to_hex(h: &H256) -> String {
     // still used for merkle proof output wrapping
-    format!("0x{}", hex::encode(h.as_bytes()))
+    let hex_bytes = hex::encode(h.as_bytes());
+    format!("0x{hex_bytes}")
 }
 
 // Removed ContinuityBlockOut / ContinuityProofOut wrappers; we now reuse attestor primitives ContinuityProof directly.
@@ -207,7 +209,7 @@ impl ContinuityService {
             });
         }
 
-        // 4. Merkle proof creation.
+        // 4. Merkle proof creation and tx hash computation.
         let tree = mmr::SimpleMerkleTree::new(&tx_bytes);
         let merkle_proof = if tx_bytes.is_empty() {
             QueryMerkleProof::new(tree.root(), vec![])
@@ -216,12 +218,20 @@ impl ContinuityService {
         };
         let merkle_root = tree.root();
 
+        // Compute tx_hash if there is at least one transaction
+        let tx_hash_opt = if tx_bytes.is_empty() {
+            None
+        } else {
+            let bytes = &tx_bytes[tx_index as usize];
+            Some(H256::from(keccak_256(bytes)))
+        };
+
         // 5. Insert tx-specific entry.
         let entry = QueryProofs {
             chain_key,
             header_number,
             tx_index: Some(tx_index),
-            tx_hash: None,
+            tx_hash: tx_hash_opt,
             continuity_proof: Some(continuity_out.clone()),
             merkle_proof: Some(merkle_proof.clone()),
             merkle_root: Some(merkle_root),
@@ -233,7 +243,7 @@ impl ContinuityService {
             chain_key,
             header_number,
             tx_index: Some(tx_index),
-            tx_hash: None,
+            tx_hash: tx_hash_opt.map(|h| h256_to_hex(&h)),
             continuity_proof: continuity_out,
             merkle_proof: Some(merkle_proof.clone()),
             merkle_root: Some(h256_to_hex(&merkle_root)),
@@ -242,12 +252,90 @@ impl ContinuityService {
         })
     }
 
+    fn parse_tx_hash(&self, tx_hash: &str) -> Result<H256, ServiceError> {
+        let clean = tx_hash.trim_start_matches("0x");
+        let bytes = hex::decode(clean).map_err(|e| ServiceError::InvalidParameter {
+            message: format!("invalid tx_hash hex: {e}"),
+        })?;
+        if bytes.len() != 32 {
+            let len = bytes.len();
+            return Err(ServiceError::InvalidParameter {
+                message: format!("tx_hash must be 32 bytes, got {len}"),
+            });
+        }
+        Ok(H256::from_slice(&bytes))
+    }
+
     pub async fn continuity_proof_by_tx_hash(
         &self,
-        _chain_key: u64,
+        chain_key: u64,
         tx_hash: String,
     ) -> std::result::Result<ContinuityResponse, ServiceError> {
-        // Endpoint temporarily disabled until reverse lookup (tx_hash -> (header_number, tx_index)) is implemented.
-        Err(ServiceError::TxHashLookupUnavailable { tx_hash })
+        // 0. Parse tx_hash
+        let tx_h256 = self.parse_tx_hash(&tx_hash)?;
+
+        // 1. Try DB lookup by tx_hash
+        match self.db.get_proofs_by_tx_hash(chain_key, tx_h256).await {
+            Ok(Some(entry)) => {
+                // Deserialize cached proofs.
+                let continuity_out_opt = entry
+                    .continuity_proof
+                    .as_ref()
+                    .map(|v| serde_json::from_value::<ContinuityProof>(v.clone()))
+                    .transpose()
+                    .map_err(|e| {
+                        tracing::error!(%tx_hash, chain_key, error=%e, "Cached continuity_proof deserialization failed");
+                        ServiceError::DbError { message: e.to_string() }
+                    })?;
+                let merkle_out_opt = entry
+                    .merkle_proof
+                    .as_ref()
+                    .map(|v| serde_json::from_value::<QueryMerkleProof>(v.clone()))
+                    .transpose()
+                    .map_err(|e| {
+                        tracing::error!(%tx_hash, chain_key, error=%e, "Cached merkle_proof deserialization failed");
+                        ServiceError::DbError { message: e.to_string() }
+                    })?;
+
+                if let (Some(continuity_out), Some(merkle_proof)) =
+                    (continuity_out_opt.clone(), merkle_out_opt.clone())
+                {
+                    tracing::debug!(%tx_hash, chain_key, header_number=entry.header_number, "Cache hit: returning cached proofs");
+                    return Ok(ContinuityResponse {
+                        chain_key,
+                        header_number: entry.header_number as u64,
+                        tx_index: entry.tx_index.map(|i| i as u64),
+                        tx_hash: Some(tx_hash),
+                        continuity_proof: continuity_out,
+                        merkle_proof: Some(merkle_proof.clone()),
+                        merkle_root: entry.merkle_root.clone(),
+                        cached: true,
+                        generated_at: Utc::now(),
+                    });
+                }
+
+                // Rebuild path: either missing continuity or merkle proof
+                if let Some(tx_index_i64) = entry.tx_index {
+                    tracing::debug!(%tx_hash, chain_key, header_number=entry.header_number, "Partial cache entry; rebuilding proofs");
+                    let header_number_u64 = entry.header_number as u64;
+                    let tx_index_u64 = tx_index_i64 as u64;
+                    let rebuilt = self
+                        .continuity_proof_with_tx(chain_key, header_number_u64, tx_index_u64)
+                        .await?;
+                    return Ok(ContinuityResponse {
+                        cached: false,
+                        ..rebuilt
+                    });
+                }
+
+                // Neither full proofs nor tx index: treat as not found
+                tracing::warn!(%tx_hash, chain_key, header_number=entry.header_number, "Cache entry missing required data for rebuild");
+                Err(ServiceError::TxHashNotFound { tx_hash })
+            }
+            Ok(None) => Err(ServiceError::TxHashNotFound { tx_hash }),
+            Err(e) => Err(ServiceError::DbError {
+                message: e.to_string(),
+            }),
+        }
     }
 }

@@ -148,8 +148,9 @@ fn h256_deserialize_from_hex<'de, D>(deserializer: D) -> Result<H256, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let s: &str = serde::Deserialize::deserialize(deserializer)?;
-    let without_prefix = s.strip_prefix("0x").unwrap_or(s);
+    // Use owned String to be compatible with serde_json::Value deserialization (borrowed &str fails)
+    let s: String = serde::Deserialize::deserialize(deserializer)?;
+    let without_prefix = s.strip_prefix("0x").unwrap_or(&s);
     let bytes = <[u8; 32]>::from_hex(without_prefix)
         .map_err(|e| serde::de::Error::custom(format_hex_err(e)))?;
     Ok(H256(bytes))

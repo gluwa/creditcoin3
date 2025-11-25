@@ -58,6 +58,23 @@ Endpoints:
 - `GET /proof/{chain_key}/{header_number}/{tx_index}` – continuity + merkle proof for the transaction at `tx_index` (supports empty block with index 0).
 - `GET /proof-by-tx/{chain_key}/{tx_hash}` – currently disabled (returns TxHashLookupUnavailable) until reverse lookup is implemented.
 
+## Caching
+
+The server caches generated proofs in Postgres to avoid recomputation on subsequent requests.
+
+- Storage: the `proofs` table persists continuity and transaction merkle proofs (JSONB), plus `merkle_root` and `tx_hash` (hex strings).
+- Keys:
+  - Block-level continuity (no tx index): `(chain_key, header_number)` where `tx_index IS NULL`.
+  - Tx-level continuity + merkle: `(chain_key, header_number, tx_index)` where `tx_index IS NOT NULL`.
+  - Reverse lookup by tx-hash: matches on `tx_hash`.
+- Writes: inserts are performed asynchronously (fire-and-forget) with upsert semantics, so concurrent requests race safely.
+- Reads: endpoints first attempt to deserialize cached JSON; if successful, responses include `"cached": true`. If cache is missing or deserialization fails, proofs are rebuilt and `"cached": false` is returned.
+
+Development/testing fallback:
+
+- When `INMEM_DB_FALLBACK=true|1` is set, and Postgres is unavailable, proofs are stored in an in-memory cache for the process lifetime. This is intended only for local/tests and should not be enabled in production or CI.
+- In containers, rely on Postgres; `.env.docker` does not set the fallback.
+
 ### Environment Configuration (.env)
 
 Instead of exporting all variables manually, you can create a `.env` file (not committed) based on the provided `.env.example` in this directory:
