@@ -74,7 +74,7 @@ yarn start:docker
 The indexer tracks query verification events from the Native Query Verifier precompile at address `0x0FD2`:
 
 - **TransactionVerified**: Emitted when a transaction is successfully verified
-  - Event signature: `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint8 txIndex)`
+  - Event signature: `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint64 txIndex)`
   - Stores the chain key, block height, transaction index, and verification metadata
   - This event only fires on successful verification (the precompile reverts on failure)
 

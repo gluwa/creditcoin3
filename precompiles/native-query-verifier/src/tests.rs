@@ -1714,12 +1714,12 @@ fn test_transaction_verified_event_with_correct_tx_index() {
         // The calculate_tx_index function reconstructs it from siblings
         let expected_tx_index = {
             if merkle_proof.siblings.is_empty() {
-                0u8
+                0u64
             } else {
-                let mut tx_idx = 0u8;
+                let mut tx_idx = 0u64;
                 for (bit_position, sibling) in merkle_proof.siblings.iter().enumerate() {
                     if sibling.is_left {
-                        tx_idx |= 1u8 << bit_position;
+                        tx_idx |= 1u64 << bit_position;
                     }
                 }
                 tx_idx
@@ -1727,7 +1727,7 @@ fn test_transaction_verified_event_with_correct_tx_index() {
         };
 
         // Verify expected_tx_index matches the actual tx_index
-        assert_eq!(expected_tx_index, tx_index as u8);
+        assert_eq!(expected_tx_index, tx_index as u64);
 
         // Encode event data: only tx_index (chain_key and height are indexed topics)
         let event_data = solidity::encode_event_data(expected_tx_index);
@@ -1778,19 +1778,19 @@ fn test_transaction_verified_event_batch_with_correct_tx_indices() {
             // Calculate expected transaction index from merkle proof
             let expected_tx_index = {
                 if merkle_proof.siblings.is_empty() {
-                    0u8
+                    0u64
                 } else {
-                    let mut tx_idx = 0u8;
+                    let mut tx_idx = 0u64;
                     for (bit_position, sibling) in merkle_proof.siblings.iter().enumerate() {
                         if sibling.is_left {
-                            tx_idx |= 1u8 << bit_position;
+                            tx_idx |= 1u64 << bit_position;
                         }
                     }
                     tx_idx
                 }
             };
 
-            assert_eq!(expected_tx_index, tx_index as u8);
+            assert_eq!(expected_tx_index, tx_index as u64);
 
             tx_data_array.push(tx_data);
             merkle_proofs.push(merkle_proof);

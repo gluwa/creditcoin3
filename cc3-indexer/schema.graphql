@@ -504,10 +504,10 @@ type TransactionVerified @entity {
     height: BigInt! @index
 
     # Transaction index within the block (from Merkle proof)
-    txIndex: Int!
+    txIndex: BigInt!
 
-    # Block number when verification occurred
-    blockNumber: BigInt!
+    # Creditcoin3 block number when verification occurred
+    ccBlockNumber: BigInt!
 
     # Timestamp of verification
     timestamp: BigInt!

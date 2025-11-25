@@ -28,10 +28,10 @@ use mmr::query_proof::QueryMerkleProof;
 type MerkleProof = QueryMerkleProof;
 
 // Event selectors (keccak256 of event signatures)
-// TransactionVerified(uint64 indexed,uint64 indexed,uint8)
+// TransactionVerified(uint64 indexed,uint64 indexed,uint64)
 // ChainKey (indexed), Height (indexed), TxIndex (data)
 pub const SELECTOR_LOG_TRANSACTION_VERIFIED: [u8; 32] =
-    keccak256!("TransactionVerified(uint64,uint64,uint8)");
+    keccak256!("TransactionVerified(uint64,uint64,uint64)");
 
 #[cfg(test)]
 mod mock;
@@ -149,7 +149,7 @@ where
     /// `true` on successful verification
     ///
     /// # Events
-    /// Emits `TransactionVerified(uint64,uint64,uint8)` with chain_key, height, and txIndex
+    /// Emits `TransactionVerified(uint64,uint64,uint64)` with chain_key, height, and txIndex
     ///
     /// # Reverts
     /// - If continuity chain is empty or invalid

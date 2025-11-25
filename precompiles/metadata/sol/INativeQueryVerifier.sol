@@ -54,7 +54,7 @@ interface INativeQueryVerifier {
     event TransactionVerified(
         uint64 indexed chainKey,
         uint64 indexed height,
-        uint8 txIndex
+        uint64 txIndex
     );
 
     /// @notice Verify a blockchain query with Merkle proof and continuity chain
@@ -68,7 +68,7 @@ interface INativeQueryVerifier {
     /// @return true on successful verification (reverts on failure)
     ///
     /// Events Emitted:
-    /// - TransactionVerified(uint64 chainKey, uint64 height, uint8 txIndex) on success
+    /// - TransactionVerified(uint64 chainKey, uint64 height, uint64 txIndex) on success
     ///
     /// Gas Costs (aligned with standard Ethereum precompiles):
     /// - Base: 21,000 (matches Ethereum standard)
@@ -123,7 +123,7 @@ interface INativeQueryVerifier {
     /// @return true if all verifications succeed (reverts on any failure)
     ///
     /// Events Emitted:
-    /// - TransactionVerified(uint64 chainKey, uint64 height, uint8 txIndex) for each successfully verified transaction
+    /// - TransactionVerified(uint64 chainKey, uint64 height, uint64 txIndex) for each successfully verified transaction
     ///
     /// Gas Optimization:
     /// - Continuity chain is verified once for all queries instead of per-query

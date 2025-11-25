@@ -21,7 +21,7 @@ USER 0
 # NOTE: only devel releated dependencies here
 RUN apt-get install -y --no-install-recommends \
     software-properties-common \
-    gcc libpq-dev make
+    gcc libpq-dev make jq
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 RUN .github/install-solidity-compiler.sh
 
@@ -44,9 +44,6 @@ RUN source ~/.cargo/env && \
 
 
 FROM devel-base AS cli-builder
-USER 0
-RUN apt-get install -y --no-install-recommends jq
-USER creditcoin
 WORKDIR /creditcoin-node/precompiles/metadata
 RUN solc --version && ./abi-creator.sh
 

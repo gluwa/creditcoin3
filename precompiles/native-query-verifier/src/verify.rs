@@ -85,7 +85,7 @@ where
     /// - If sibling is right (`is_left = false`), current node was left, so bit = 0
     ///
     /// Returns the transaction index (leaf position in the Merkle tree).
-    fn calculate_tx_index(merkle_proof: &MerkleProof) -> u8 {
+    fn calculate_tx_index(merkle_proof: &MerkleProof) -> u64 {
         if merkle_proof.siblings.is_empty() {
             // Single transaction case
             return 0;
@@ -94,7 +94,7 @@ where
         // Reconstruct the index by working from leaf to root
         // Siblings are stored from leaf level (first) to root level (last)
         // The least significant bit corresponds to the leaf level
-        let mut tx_index = 0u8;
+        let mut tx_index = 0u64;
 
         // Process siblings from leaf to root (forward order)
         for (bit_position, sibling) in merkle_proof.siblings.iter().enumerate() {
@@ -102,7 +102,7 @@ where
             // If sibling is on the right, current node was on the left (bit = 0)
             if sibling.is_left {
                 // Sibling is left, so we were right - set bit to 1
-                tx_index |= 1u8 << bit_position;
+                tx_index |= 1u64 << bit_position;
             }
             // If sibling is right, we were left - bit stays 0
         }

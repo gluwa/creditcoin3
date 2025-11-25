@@ -270,7 +270,7 @@ export const nativeQueryVerifierDatasource: FrontierEvmDatasource = {
                 handler: 'handleTransactionVerified',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: ['TransactionVerified(uint64 indexed chain_key,uint64 indexed height,uint8 txIndex)'],
+                    topics: ['TransactionVerified(uint64,uint64,uint64)'],
                 },
             },
         ],

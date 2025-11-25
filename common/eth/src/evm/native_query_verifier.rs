@@ -160,7 +160,7 @@ impl NativeQueryVerifierContract {
     /// `true` on successful verification (reverts on failure)
     ///
     /// # Events
-    /// Emits `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint8 txIndex)` event
+    /// Emits `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint64 txIndex)` event
     pub async fn verify_and_emit(
         &self,
         chain_key: u64,
@@ -286,7 +286,7 @@ impl NativeQueryVerifierContract {
     /// `true` if all verifications succeed (reverts on any failure)
     ///
     /// # Events
-    /// Emits `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint8 txIndex)` event for each successfully verified transaction
+    /// Emits `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint64 txIndex)` event for each successfully verified transaction
     pub async fn verify_batch_and_emit(
         &self,
         chain_key: u64,
