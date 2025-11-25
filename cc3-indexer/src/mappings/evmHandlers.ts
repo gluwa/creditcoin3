@@ -30,7 +30,7 @@ export async function handleTransactionVerified(event: FrontierEvmEvent<Transact
         id,
         chainId: BigInt(chainKey),
         height: BigInt(height),
-        txIndex: txIndex, // Transaction index from the event
+        txIndex, // Transaction index from the event
         blockNumber: BigInt(event.blockNumber),
         timestamp: event.blockTimestamp ? BigInt(event.blockTimestamp.getTime()) : BigInt(Date.now()),
     });
