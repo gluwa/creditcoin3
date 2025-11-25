@@ -156,7 +156,7 @@ where
 }
 
 fn format_hex_err<E: Display>(e: E) -> String {
-    format!("{}", e)
+    format!("{e}")
 }
 
 #[cfg(test)]
