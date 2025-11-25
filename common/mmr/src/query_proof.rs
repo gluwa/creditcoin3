@@ -4,9 +4,7 @@
 //! query verification in the native query verifier precompile. It wraps the
 //! generic MMR proof implementation with a query-specific interface.
 
-use crate::keccak::Keccak256;
-use crate::traits::HashT;
-use crate::{INNER_HASH_PREPEND_VALUE, LEAF_HASH_PREPEND_VALUE};
+use crate::keccak::{hash_inner, hash_leaf};
 use parity_scale_codec::{Decode, Encode};
 use precompile_utils::{prelude::String, solidity::Codec};
 use scale_info::TypeInfo;
@@ -30,7 +28,7 @@ pub struct QueryMerkleProof {
 pub struct MerkleProofEntry {
     /// The sibling hash
     pub hash: H256,
-    /// Whether this sibling is on the left (true) or right (false)
+    /// Indicates the relative position with respect to its sibling
     pub is_left: bool,
 }
 
@@ -41,47 +39,22 @@ impl QueryMerkleProof {
     }
 
     /// Verify the Merkle proof for transaction inclusion using Keccak256 hash
-    ///
-    /// This implements the MMR Merkle tree verification with:
-    /// 1. Leaf hashing: prepend LEAF_HASH_PREFIX (0x00) to tx_data and hash with Keccak256
-    /// 2. Inner node hashing: prepend INNER_HASH_PREFIX (0x01) to concatenated children and hash with Keccak256
-    /// 3. Tree traversal: use sibling position information (no index needed)
     pub fn verify(&self, tx_data: &[u8]) -> bool {
-        // Step 1: Hash the transaction data as a leaf node
-        // Prepend LEAF_HASH_PREFIX to tx_data before hashing
-        let mut prefixed_leaf = sp_std::vec![0u8; tx_data.len() + 1];
-        prefixed_leaf[0] = LEAF_HASH_PREPEND_VALUE;
-        prefixed_leaf[1..].copy_from_slice(tx_data);
+        let mut current_hash = hash_leaf(tx_data);
 
-        let mut current_hash = Keccak256::hash(&prefixed_leaf);
-
-        // Step 2: Handle single-transaction case (no siblings)
-        if self.siblings.is_empty() {
-            let result = current_hash.0 == self.root;
-            return result;
-        }
-
-        // Step 3: Traverse the Merkle tree using siblings with position information
+        // Traverse the Merkle path using siblings with position information
         for entry in &self.siblings {
-            // Build the hash input with inner node prefix
-            let mut hash_input = sp_std::vec![INNER_HASH_PREPEND_VALUE];
-
-            if entry.is_left {
-                // Sibling is on the left, current hash on the right
-                hash_input.extend_from_slice(entry.hash.as_bytes());
-                hash_input.extend_from_slice(current_hash.0.as_bytes());
+            let (left, right) = if entry.is_left {
+                (entry.hash.as_bytes(), current_hash.as_bytes())
             } else {
-                // Current hash on the left, sibling on the right
-                hash_input.extend_from_slice(current_hash.0.as_bytes());
-                hash_input.extend_from_slice(entry.hash.as_bytes());
-            }
+                (current_hash.as_bytes(), entry.hash.as_bytes())
+            };
 
-            // Hash with Keccak256
-            current_hash = Keccak256::hash(&hash_input);
+            current_hash = hash_inner(left, right);
         }
 
-        // Step 4: Compare computed root with provided root
-        current_hash.0 == self.root
+        // Compare computed root with provided root
+        current_hash == self.root
     }
 
     /// Get the number of levels in the Merkle tree based on siblings

@@ -69,6 +69,25 @@ pub fn compute_digest(block_number: u64, root: H256, prev_digest: H256) -> H256 
     H256::from(sp_io::hashing::keccak_256(&bytes))
 }
 
+#[inline]
+pub fn hash_leaf(input: &[u8]) -> H256 {
+    let mut prefixed = sp_std::vec![crate::LEAF_HASH_PREPEND_VALUE; input.len() + 1];
+
+    prefixed[1..].copy_from_slice(input);
+
+    sp_io::hashing::keccak_256(&prefixed).into()
+}
+
+#[inline]
+pub fn hash_inner(left: &[u8], right: &[u8]) -> H256 {
+    let mut prefixed = [crate::INNER_HASH_PREPEND_VALUE; 1 + 2 * size_of::<H256>()];
+
+    prefixed[1..1 + size_of::<H256>()].copy_from_slice(left);
+    prefixed[1 + size_of::<H256>()..1 + 2 * size_of::<H256>()].copy_from_slice(right);
+
+    sp_io::hashing::keccak_256(&prefixed).into()
+}
+
 /// Simple Merkle tree that matches POC implementation exactly
 /// This duplicates the last node when odd number of nodes at a level
 #[derive(Debug, Clone)]
@@ -78,62 +97,37 @@ pub struct SimpleMerkleTree {
 }
 
 impl SimpleMerkleTree {
+    const PAD_HASH: H256 = H256([0; 32]);
     /// Create a new Merkle tree from raw data items
-    ///
-    /// # Empty Input Handling
-    /// If `items` is empty, returns a tree with a default hash root (all zeros).
     pub fn new(items: &[Vec<u8>]) -> Self {
-        // Handle empty input: return tree with default hash root
-        if items.is_empty() {
-            return SimpleMerkleTree {
-                levels: vec![vec![H256::default()]],
-            };
-        }
-
-        let mut levels = Vec::new();
-
-        // Level 0: Hash all leaves with prefix
-        let leaf_hashes: Vec<H256> = items
+        let mut levels = vec![];
+        let mut current_level = items
             .iter()
-            .map(|item| {
-                let mut prefixed = Vec::with_capacity(item.len() + 1);
-                prefixed.push(0x00); // LEAF_PREFIX
-                prefixed.extend_from_slice(item);
-                H256::from(sp_io::hashing::keccak_256(&prefixed))
-            })
-            .collect();
+            .map(|item| hash_leaf(&item[..]))
+            .collect::<Vec<_>>();
 
-        levels.push(leaf_hashes.clone());
+        while !current_level.is_empty() {
+            let current_len = current_level.len();
 
-        // Build tree level by level
-        let mut current_level = leaf_hashes;
+            let next_level = if current_len > 1 {
+                (0..current_len)
+                    .step_by(2)
+                    .map(|i| {
+                        let left = current_level[i].as_bytes();
+                        let right = current_level
+                            .get(i + 1)
+                            .unwrap_or(&Self::PAD_HASH)
+                            .as_bytes();
 
-        while current_level.len() > 1 {
-            let mut next_level = Vec::new();
+                        hash_inner(left, right)
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
 
-            // Process pairs
-            let mut i = 0;
-            while i < current_level.len() {
-                let left = current_level[i];
-                let right = if i + 1 < current_level.len() {
-                    current_level[i + 1]
-                } else {
-                    // Odd number: duplicate the last node (matches POC implementation)
-                    current_level[i]
-                };
+            levels.push(current_level);
 
-                // Hash inner node with prefix
-                let mut prefixed = Vec::with_capacity(65);
-                prefixed.push(0x01); // INNER_PREFIX
-                prefixed.extend_from_slice(left.as_bytes());
-                prefixed.extend_from_slice(right.as_bytes());
-                let parent = H256::from(sp_io::hashing::keccak_256(&prefixed));
-                next_level.push(parent);
-
-                i += 2;
-            }
-
-            levels.push(next_level.clone());
             current_level = next_level;
         }
 
@@ -154,46 +148,37 @@ impl SimpleMerkleTree {
     /// # Panics
     /// Panics if `leaf_index` is out of range or if the tree is empty.
     pub fn generate_proof(&self, leaf_index: usize) -> crate::query_proof::QueryMerkleProof {
-        if self.levels.is_empty() || self.levels[0].is_empty() {
-            panic!("Cannot generate proof for empty tree");
-        }
-        if leaf_index >= self.levels[0].len() {
-            panic!(
-                "Leaf index {leaf_index} out of range (tree has {} leaves)",
-                self.levels[0].len()
-            );
-        }
-
-        let mut siblings = Vec::new();
         let mut current_index = leaf_index;
 
-        // Traverse from leaves to root (excluding the root level)
-        for level in &self.levels[..self.levels.len() - 1] {
-            let is_left_node = current_index % 2 == 0;
-            let sibling = if is_left_node {
-                // Current is left, sibling is right
-                if current_index + 1 < level.len() {
-                    level[current_index + 1]
-                } else {
-                    // No right sibling, duplicate current (matches POC)
-                    level[current_index]
+        // Traverse from leaf to root (excluding the root level)
+        let path = self
+            .levels
+            .iter()
+            // this is needed just because for some reason it was decided to not include the root in the path
+            .rev()
+            .skip(1)
+            .rev()
+            .map(|level| {
+                // sibling_offset is opposite to the item's offset which is (current_index % 2):
+                // 0 -> 1
+                // 1 -> 0
+                let sibling_offset = 1 - (current_index % 2);
+                // transform sibling offset to sibling index in the current level:
+                // 0 -> current_index - 1
+                // 1 -> current_index + 1
+                let sibling_index = current_index + 2 * sibling_offset - 1;
+
+                // Move to parent index
+                current_index /= 2;
+
+                crate::query_proof::MerkleProofEntry {
+                    hash: *level.get(sibling_index).unwrap_or(&Self::PAD_HASH),
+                    is_left: sibling_offset == 0,
                 }
-            } else {
-                // Current is right, sibling is left
-                level[current_index - 1]
-            };
-            let is_sibling_left = !is_left_node;
+            })
+            .collect();
 
-            siblings.push(crate::query_proof::MerkleProofEntry {
-                hash: sibling,
-                is_left: is_sibling_left,
-            });
-
-            // Move to parent index
-            current_index /= 2;
-        }
-
-        crate::query_proof::QueryMerkleProof::new(self.root(), siblings)
+        crate::query_proof::QueryMerkleProof::new(self.root(), path)
     }
 }
 
@@ -253,5 +238,22 @@ mod tests {
             let proof = tree.generate_proof(i);
             assert!(proof.verify(item), "Failed to verify proof for item {i}");
         }
+    }
+
+    #[test]
+    fn tampered_proof_test() {
+        let items = vec![vec![0x11; 32], vec![0x22; 32], vec![0x33; 32]];
+        let tree = SimpleMerkleTree::new(&items);
+
+        let mut proof = tree.generate_proof(2);
+
+        // sibling swapped
+        proof.siblings[0].is_left = !proof.siblings[0].is_left;
+
+        assert_eq!(
+            proof.verify(&items[2]),
+            false,
+            "Expected to fail due to tampered proof."
+        );
     }
 }
