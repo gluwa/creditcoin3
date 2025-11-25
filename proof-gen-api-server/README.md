@@ -47,8 +47,7 @@ Endpoints:
 
 Environment variables (subject to change):
 
-- `USE_MOCK_PROVIDERS` – truthy values (`1`, `true`, `yes`) enable deterministic mock RPC providers.
-- `RUST_LOG` – if set to `production` while mocks are enabled, startup is refused as a safety guard.
+- `RUST_LOG` – if set to `production` while the CLI flag `--use-mock-providers` is passed, startup is refused as a safety guard.
 - `CC3_RPC_URL`, `ETH_RPC_URL` – real chain RPC endpoints when not using mocks.
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` – required for proof caching.
 - `CC3_KEY` – mnemonic / key used for chain interactions where required.
@@ -78,30 +77,27 @@ Production notes:
 Safety Guard:
 Startup aborts if mocks are enabled alongside `RUST_LOG=production` to prevent accidental production deployment of synthetic data.
 
-Example (mock mode) using env var for the key (matching docker-compose defaults):
+Example (mock mode via CLI flag) using env var for the key (matching docker-compose defaults):
 
 ```bash
 docker compose -f proof-gen-api-server/docker-compose.yaml up -d
-export USE_MOCK_PROVIDERS=1
 export CC3_KEY="dummy mnemonic"
 export POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_PASSWORD=password POSTGRES_DB=proofs_db
-cargo run -p proof-gen-api-server
+cargo run -p proof-gen-api-server -- --use-mock-providers
 ```
 
-Example (mock mode) using CLI arg for the key:
+Example (mock mode) overriding key via CLI arg:
 
 ```bash
 docker compose -f proof-gen-api-server/docker-compose.yaml up -d
-export USE_MOCK_PROVIDERS=1
 export POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_PASSWORD=password POSTGRES_DB=proofs_db
-cargo run -p proof-gen-api-server -- --cc3-key "dummy mnemonic"
+cargo run -p proof-gen-api-server -- --cc3-key "dummy mnemonic" --use-mock-providers
 ```
 
-Example (real providers) using env var for the key:
+Example (real providers) using env var for the key (omit mock flag):
 
 ```bash
 docker compose -f proof-gen-api-server/docker-compose.yaml up -d
-unset USE_MOCK_PROVIDERS
 export CC3_KEY="your mnemonic"
 export CC3_RPC_URL=ws://127.0.0.1:9944
 export ETH_RPC_URL=http://127.0.0.1:8545
@@ -109,11 +105,10 @@ export POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRE
 cargo run -p proof-gen-api-server
 ```
 
-Example (real providers) using CLI arg for the key:
+Example (real providers) using CLI arg for the key (omit mock flag):
 
 ```bash
 docker compose -f proof-gen-api-server/docker-compose.yaml up -d
-unset USE_MOCK_PROVIDERS
 export CC3_RPC_URL=ws://127.0.0.1:9944
 export ETH_RPC_URL=http://127.0.0.1:8545
 export POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_PASSWORD=password POSTGRES_DB=proofs_db

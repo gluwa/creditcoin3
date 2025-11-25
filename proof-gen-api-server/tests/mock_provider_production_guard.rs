@@ -9,7 +9,6 @@ async fn mock_providers_refused_in_production() {
     std::env::set_var("ETH_RPC_URL", "http://mock");
     std::env::set_var("CC3_KEY", "dummy mnemonic words for testing");
     std::env::set_var("CHAIN_KEY", "2");
-    std::env::set_var("USE_MOCK_PROVIDERS", "1");
     std::env::set_var("RUST_LOG", "production");
 
     // Postgres vars (builder stops before migrations so connection not used here)
@@ -19,11 +18,8 @@ async fn mock_providers_refused_in_production() {
     std::env::set_var("POSTGRES_PASSWORD", "test");
     std::env::set_var("POSTGRES_DB", "test");
 
-    let cfg = Config::from_env().expect("config load");
-    assert!(
-        cfg.use_mock_providers,
-        "config should enable mock providers"
-    );
+    let mut cfg = Config::from_env().expect("config load");
+    cfg.use_mock_providers = true; // simulate CLI flag
 
     let db = DbManager::new().expect("db manager init");
     let server = Server::new(cfg, db).await.expect("server create");

@@ -57,6 +57,13 @@ pub struct ProofGenApiServer {
         help = "Port to expose the Prometheus metrics endpoint on. Defaults to 9100."
     )]
     prometheus_port: u16,
+
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Enable deterministic mock RPC providers instead of real chain RPC endpoints"
+    )]
+    use_mock_providers: bool,
 }
 
 #[tokio::main]
@@ -93,19 +100,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         });
 
-    let config = Config {
+    let mut config = Config {
         bind_addr: env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3100".to_string()),
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: resolved_cc3_key,
         chain_key: args.chain_key,
         eth_rpc_url: args.eth_rpc_url,
-        use_mock_providers: env::var("USE_MOCK_PROVIDERS")
-            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-            .unwrap_or(false),
+        use_mock_providers: false, // will override below from CLI
         enable_prometheus_metrics: args.enable_prometheus_metrics,
         prometheus_host: args.prometheus_host,
         prometheus_port: args.prometheus_port,
     };
+
+    // Override mock provider selection from CLI flag
+    config.use_mock_providers = args.use_mock_providers;
 
     if args.reset_db {
         info!("Resetting database...");

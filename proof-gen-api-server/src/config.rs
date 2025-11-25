@@ -52,10 +52,8 @@ impl Config {
             .parse::<bool>()
             .context("Invalid ENABLE_PROMETHEUS_METRICS: expected true/false")?;
 
-        // Mock providers flag (accepts 1 / true / yes)
-        let use_mock_providers = env::var("USE_MOCK_PROVIDERS")
-            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-            .unwrap_or(false);
+        // Mock providers now controlled via CLI flag; default false when loading from env.
+        let use_mock_providers = false;
 
         // Host/Port for metrics
         let prometheus_host = env::var("PROMETHEUS_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
