@@ -8,7 +8,7 @@ use sp_core::H256;
 impl ContinuityBuilder {
     /// Fetch attestations from Creditcoin3
     pub async fn fetch_attestations(&self) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
-        self.cc
+        self.cc_provider
             .get_attestations_for_chain(self.config.chain_key)
             .await
             .map_err(|e| anyhow!("Failed to fetch attestations: {e}"))
@@ -20,7 +20,7 @@ impl ContinuityBuilder {
         query_height: u64,
     ) -> Result<Option<AttestationCheckpoint>> {
         let last_checkpoint = self
-            .cc
+            .cc_provider
             .get_last_checkpoint(self.config.chain_key)
             .await
             .map_err(|e| anyhow!("Failed to fetch last checkpoint: {e}"))?;
@@ -45,7 +45,7 @@ impl ContinuityBuilder {
     ) -> Result<Vec<AttestationCheckpoint>> {
         // Start with last checkpoint (most efficient single query)
         let last_checkpoint = self
-            .cc
+            .cc_provider
             .get_last_checkpoint(self.config.chain_key)
             .await
             .map_err(|e| anyhow!("Failed to fetch last checkpoint: {e}"))?;
@@ -57,7 +57,7 @@ impl ContinuityBuilder {
 
         // Fetch all checkpoints (iteration order is not guaranteed, so we need all)
         let all_checkpoints = self
-            .cc
+            .cc_provider
             .get_checkpoints_for_chain(self.config.chain_key)
             .await
             .map_err(|e| anyhow!("Failed to fetch checkpoints: {e}"))?;

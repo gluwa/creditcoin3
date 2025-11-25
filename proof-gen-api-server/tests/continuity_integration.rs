@@ -15,13 +15,13 @@ async fn continuity_endpoint_returns_proof() {
     // Arrange: mock providers & builder
     let chain_key = 2u64;
     let header_number = 10u64; // falls between mock attestations 5 and 15
-    let (cc_mock, eth_mock) = make_mock_providers(chain_key);
+    let (cc_provider, eth_provider) = make_mock_providers(chain_key);
     let config = ContinuityConfig {
         cc3_rpc_url: "ws://mock".into(),
         eth_rpc_url: "ws://mock".into(),
         chain_key,
     };
-    let builder = ContinuityBuilder::new_with_providers(config, cc_mock, eth_mock);
+    let builder = ContinuityBuilder::new_with_providers(config, cc_provider, eth_provider);
     // Provide dummy Postgres env vars so DbManager::new() succeeds; test focuses on HTTP + serialization, not DB IO.
     std::env::set_var("POSTGRES_HOST", "localhost");
     std::env::set_var("POSTGRES_PORT", "5432");

@@ -42,6 +42,6 @@ async fn tx_index_out_of_bounds_maps_to_bad_request() {
         .await
         .unwrap();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(body["error"], "TxIndexOutOfBounds");
+    assert_eq!(body["code"], "TxIndexOutOfBounds");
     assert!(body["message"].as_str().unwrap().contains("out of bounds"));
 }

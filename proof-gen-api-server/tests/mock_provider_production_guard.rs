@@ -21,6 +21,8 @@ async fn mock_providers_refused_in_production() {
     let mut cfg = Config::from_env().expect("config load");
     cfg.use_mock_providers = true; // simulate CLI flag
 
+    // No explicit builder construction needed; Server::run will attempt to build providers and should fail fast.
+
     let db = DbManager::new().expect("db manager init");
     let server = Server::new(cfg, db).await.expect("server create");
 

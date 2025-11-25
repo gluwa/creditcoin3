@@ -29,12 +29,16 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<()> {
-        // Production guard: disallow mock providers when running with production log profile BEFORE touching the DB.
-        if self.config.use_mock_providers
-            && std::env::var("RUST_LOG")
-                .map(|v| v.to_ascii_lowercase().contains("production"))
-                .unwrap_or(false)
-        {
+        // Production guard: Only trigger when RUST_LOG explicitly set to "production" / "prod" (case-insensitive).
+        // Avoid substring matches that could falsely trigger (e.g. "reproduction_steps=trace").
+        let is_prod_log = std::env::var("RUST_LOG")
+            .ok()
+            .map(|v| {
+                let v = v.trim().to_ascii_lowercase();
+                matches!(v.as_str(), "production" | "prod")
+            })
+            .unwrap_or(false);
+        if self.config.use_mock_providers && is_prod_log {
             return Err(anyhow!(
                 "Refusing to start with mock providers in production"
             ));
@@ -51,9 +55,13 @@ impl Server {
         };
         // Use the normalized config flag (accepts 1/true/yes) to decide mock vs real providers.
         let builder = if self.config.use_mock_providers {
-            let (cc_mock, eth_mock) =
+            let (cc_provider, eth_provider) =
                 services::mock_providers::make_mock_providers(self.config.chain_key);
-            continuity::ContinuityBuilder::new_with_providers(continuity_config, cc_mock, eth_mock)
+            continuity::ContinuityBuilder::new_with_providers(
+                continuity_config,
+                cc_provider,
+                eth_provider,
+            )
         } else {
             continuity::ContinuityBuilder::new(continuity_config).await?
         };

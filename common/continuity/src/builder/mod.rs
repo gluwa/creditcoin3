@@ -28,8 +28,8 @@ use std::sync::Arc;
 /// Continuity proof builder backed by abstract RPC providers.
 pub struct ContinuityBuilder {
     pub(crate) config: ContinuityConfig,
-    pub(crate) cc: SharedCcProvider,
-    pub(crate) eth: SharedEthProvider,
+    pub(crate) cc_provider: SharedCcProvider,
+    pub(crate) eth_provider: SharedEthProvider,
 }
 
 impl ContinuityBuilder {
@@ -51,10 +51,14 @@ impl ContinuityBuilder {
     /// Create a builder using injected (possibly mocked) providers.
     pub fn new_with_providers(
         config: ContinuityConfig,
-        cc: SharedCcProvider,
-        eth: SharedEthProvider,
+        cc_provider: SharedCcProvider,
+        eth_provider: SharedEthProvider,
     ) -> Self {
-        Self { config, cc, eth }
+        Self {
+            config,
+            cc_provider,
+            eth_provider,
+        }
     }
 
     /// Build continuity proof for a single query
@@ -95,6 +99,6 @@ impl ContinuityBuilder {
 
     /// Helper to fetch raw transaction bytes for a block using the underlying Eth provider.
     pub async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>> {
-        self.eth.get_block_tx_bytes(block_number).await
+        self.eth_provider.get_block_tx_bytes(block_number).await
     }
 }

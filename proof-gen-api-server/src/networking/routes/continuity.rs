@@ -44,7 +44,7 @@ fn map_service_error(err: ServiceError) -> (StatusCode, Json<Value>) {
     (
         status,
         Json(json!({
-            "error": code,
+            "code": code,
             "message": err.to_string(),
             "retriable": retriable
         })),

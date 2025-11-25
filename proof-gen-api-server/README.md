@@ -58,13 +58,6 @@ Endpoints:
 - `GET /proof/{chain_key}/{header_number}/{tx_index}` – continuity + merkle proof for the transaction at `tx_index` (supports empty block with index 0).
 - `GET /proof-by-tx/{chain_key}/{tx_hash}` – currently disabled (returns TxHashLookupUnavailable) until reverse lookup is implemented.
 
-Minimal environment variables (see `.env.example`):
-
-- `BIND_ADDR` – HTTP listen address.
-- `CC3_KEY` – mnemonic / key (or override via `--cc3-key`).
-- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` – proof cache database.
-- `RUST_LOG` – set to `production` (or `prod`) in production; with `--use-mock-providers` this aborts startup.
-
 ### Environment Configuration (.env)
 
 Instead of exporting all variables manually, you can create a `.env` file (not committed) based on the provided `.env.example` in this directory:

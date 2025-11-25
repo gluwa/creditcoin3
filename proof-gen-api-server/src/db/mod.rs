@@ -3,7 +3,7 @@ use attestor_primitives::block::ContinuityProof;
 use chrono::NaiveDateTime;
 use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod};
 use mmr::query_proof::QueryMerkleProof;
-use serde_json::Value; // Still used internally for persistence serialization
+use serde_json::Value;
 use sp_core::H256;
 use tokio_postgres::NoTls;
 use tracing::{debug, info};
@@ -127,8 +127,8 @@ impl DbManager {
                                 updated_at = now()
                             "#,
                             &[
-                                &(entry.chain_key),
-                                &(entry.header_number),
+                                &entry.chain_key,
+                                &entry.header_number,
                                 &entry.tx_index,
                                 &entry.tx_hash,
                                 &entry.continuity_proof,
@@ -160,8 +160,8 @@ impl DbManager {
                                 updated_at = now()
                             "#,
                                 &[
-                                    &(entry.chain_key),
-                                    &(entry.header_number),
+                                    &entry.chain_key,
+                                    &entry.header_number,
                                     &entry.tx_hash,
                                     &entry.continuity_proof,
                                     &entry.merkle_proof,
@@ -208,10 +208,7 @@ impl DbManager {
               AND tx_index IS NULL
             LIMIT 2
             "#,
-                &[
-                    &(to_storage_int(chain_key)),
-                    &(to_storage_int(header_number)),
-                ],
+                &[&to_storage_int(chain_key), &to_storage_int(header_number)],
             )
             .await?;
 
@@ -261,9 +258,9 @@ impl DbManager {
             LIMIT 2
             "#,
                 &[
-                    &(to_storage_int(chain_key)),
-                    &(to_storage_int(header_number)),
-                    &(to_storage_int(tx_index)),
+                    &to_storage_int(chain_key),
+                    &to_storage_int(header_number),
+                    &to_storage_int(tx_index),
                 ],
             )
             .await?;
@@ -312,7 +309,7 @@ impl DbManager {
               AND tx_hash = $2
             LIMIT 2
             "#,
-                &[&(to_storage_int(chain_key)), &(to_storage_hash(tx_hash))],
+                &[&to_storage_int(chain_key), &to_storage_hash(tx_hash)],
             )
             .await?;
 

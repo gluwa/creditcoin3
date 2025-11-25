@@ -10,13 +10,14 @@ async fn tx_endpoint_returns_merkle_and_verifies() {
     let chain_key = 2u64;
     let header_number = 10u64; // falls between mock attestations 5 and 15
     let tx_index = 0usize;
-    let (cc_mock, eth_mock) = make_mock_providers(chain_key);
+    let (cc_provider, eth_provider) = make_mock_providers(chain_key);
     let config = ContinuityConfig {
         cc3_rpc_url: "ws://mock".into(),
         eth_rpc_url: "ws://mock".into(),
         chain_key,
     };
-    let builder = ContinuityBuilder::new_with_providers(config, cc_mock.clone(), eth_mock.clone());
+    let builder =
+        ContinuityBuilder::new_with_providers(config, cc_provider.clone(), eth_provider.clone());
     let arc_builder = Arc::new(builder);
 
     // Set dummy postgres envs so DbManager::new() doesn't panic; tests assume DB is reachable but not used deeply here

@@ -30,7 +30,7 @@ impl ContinuityBuilder {
 
         // Create continuity fragment
         let all_blocks: Vec<Block> = self
-            .eth
+            .eth_provider
             .build_continuity_blocks(lower.digest, build_start, end_height)
             .await
             .map_err(|e| anyhow!("Failed to build continuity blocks: {e}"))?;

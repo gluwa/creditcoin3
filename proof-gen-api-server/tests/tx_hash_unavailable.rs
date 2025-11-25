@@ -17,15 +17,15 @@ async fn tx_hash_endpoint_reports_unavailable() {
     std::env::set_var("POSTGRES_PASSWORD", "test");
     std::env::set_var("POSTGRES_DB", "test");
     // Setup mock builder/service
-    let (cc_mock, eth_mock) = make_mock_providers(2);
+    let (cc_provider, eth_provider) = make_mock_providers(2);
     let builder = ContinuityBuilder::new_with_providers(
         continuity::ContinuityConfig {
             cc3_rpc_url: "ws://localhost:9944".into(),
             eth_rpc_url: "http://localhost:8545".into(),
             chain_key: 2,
         },
-        cc_mock,
-        eth_mock,
+        cc_provider,
+        eth_provider,
     );
     let db = DbManager::new().expect("db manager");
     let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
@@ -44,9 +44,6 @@ async fn tx_hash_endpoint_reports_unavailable() {
         "Should return 501 Not Implemented style status"
     );
     let body_bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
-    let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
-    assert!(
-        body_str.contains("TxHashLookupUnavailable"),
-        "Body should contain error code"
-    );
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(body["code"], "TxHashLookupUnavailable");
 }
