@@ -5,7 +5,6 @@
 
 use anyhow::Result;
 use attestor_primitives::block::{Block, ContinuityProof};
-use attestor_primitives::{Query, ResultSegment};
 use eth::{evm, Client};
 use mmr::query_proof::QueryMerkleProof;
 
@@ -21,7 +20,6 @@ pub struct VerificationConfig {
 /// Result of query verification
 pub struct VerificationResult {
     pub success: bool,
-    pub segments: Vec<ResultSegment>,
     pub gas_estimate: Option<u64>,
     pub merkle_siblings_count: usize,
     pub continuity_blocks_count: usize,
@@ -31,7 +29,8 @@ pub struct VerificationResult {
 /// Verify a query using the native query verifier precompile
 pub async fn verify_query(
     config: &VerificationConfig,
-    query: &Query,
+    chain_key: u64,
+    height: u64,
     tx_data: &[u8],
     merkle_proof: QueryMerkleProof,
     continuity_blocks: Vec<Block>,
@@ -47,7 +46,8 @@ pub async fn verify_query(
     // Try to estimate gas (optional, may fail if continuity is not ready)
     let gas_estimate = verifier
         .estimate_gas(
-            query,
+            chain_key,
+            height,
             tx_data,
             merkle_proof.clone(),
             continuity_proof.clone(),
@@ -63,18 +63,23 @@ pub async fn verify_query(
     // Call the verifier (as transaction if requested to emit events)
     let verification_result = if send_tx {
         verifier
-            .verify_query_with_tx(query, tx_data, merkle_proof, continuity_proof.clone())
+            .verify_and_emit(
+                chain_key,
+                height,
+                tx_data,
+                merkle_proof,
+                continuity_proof.clone(),
+            )
             .await
     } else {
         verifier
-            .verify_query(query, tx_data, merkle_proof, continuity_proof)
+            .verify(chain_key, height, tx_data, merkle_proof, continuity_proof)
             .await
     };
 
     match verification_result {
-        Ok(segments) => Ok(VerificationResult {
-            success: true,
-            segments,
+        Ok(success) => Ok(VerificationResult {
+            success,
             gas_estimate,
             merkle_siblings_count,
             continuity_blocks_count,
@@ -85,7 +90,6 @@ pub async fn verify_query(
             eprintln!("Verification failed: {e:?}");
             Ok(VerificationResult {
                 success: false,
-                segments: vec![],
                 gas_estimate,
                 merkle_siblings_count,
                 continuity_blocks_count,
@@ -96,7 +100,7 @@ pub async fn verify_query(
 }
 
 /// Display verification results
-pub fn display_results(query: &Query, result: &VerificationResult) {
+pub fn display_results(chain_key: u64, height: u64, result: &VerificationResult) {
     // Display gas estimate if available
     if let Some(gas) = result.gas_estimate {
         println!("\n⛽ Gas Estimation:");
@@ -130,42 +134,19 @@ pub fn display_results(query: &Query, result: &VerificationResult) {
             "     • Data extraction from transaction ({} bytes)",
             result.tx_data_size
         );
-        println!(
-            "     • Result segment processing ({} segments)",
-            query.layout_segments.len()
-        );
 
         println!("\n   This query parameters:");
-        println!("     • Chain ID: {}", query.chain_id);
-        println!("     • Block height: {}", query.height);
-
-        println!("     • Layout segments: {}", query.layout_segments.len());
+        println!("     • Chain ID: {chain_key}");
+        println!("     • Block height: {height}");
 
         println!("\n   Comparison with Solidity smart contract:");
         println!("     Native Precompile (0x0FD2): {gas} gas");
-        let estimated_solidity_gas = estimate_solidity_equivalent(
-            result.merkle_siblings_count,
-            result.continuity_blocks_count,
-            result.tx_data_size,
-            query.layout_segments.len(),
-        );
-        println!("     Solidity Contract (est.): ~{estimated_solidity_gas} gas");
-        let savings = ((estimated_solidity_gas as f64 - gas as f64) / estimated_solidity_gas as f64
-            * 100.0) as i32;
-        if savings > 0 {
-            println!("     Savings: ~{savings}% lower cost");
-        }
-
-        println!("\n   Note: Native precompile provides optimized");
-        println!("         verification with reduced gas costs");
     }
 
     if result.success {
         println!("\n✅ Verification successful!");
-        display_extracted_data(&result.segments);
     } else {
         println!("\n❌ Verification failed");
-        println!("Query ID: {:?}", query.id());
         println!("Note: This may be due to missing continuity chain data");
     }
 }
@@ -178,76 +159,5 @@ fn format_eth(eth: f64) -> String {
         format!("{eth:.6}")
     } else {
         format!("{eth:.4}")
-    }
-}
-
-/// Estimate gas cost for equivalent Solidity smart contract implementation
-fn estimate_solidity_equivalent(
-    merkle_siblings: usize,
-    continuity_blocks: usize,
-    tx_data_size: usize,
-    layout_segments: usize,
-) -> u64 {
-    // Rough estimates based on typical Solidity operations:
-    // - Storage reads: ~2100 gas each
-    // - Hash operations (keccak256): ~30 gas + 6 gas per word
-    // - Memory operations: ~3 gas per word
-    // - CALL overhead: ~700 gas
-
-    let base_cost = 21000u64; // Transaction base cost
-
-    // Merkle proof verification in Solidity
-    // Each sibling requires a hash operation (keccak256)
-    let merkle_cost = merkle_siblings as u64 * 50; // ~50 gas per hash with memory ops
-
-    // Continuity chain validation
-    // Each block requires hash computation and comparisons
-    let continuity_cost = continuity_blocks as u64 * 100; // ~100 gas per block validation
-
-    // Data extraction and ABI decoding in Solidity
-    // More expensive due to calldata processing and memory allocation
-    let data_extraction_cost = (tx_data_size as u64 / 32) * 10; // ~10 gas per word
-
-    // Result segment processing
-    let segment_cost = layout_segments as u64 * 50; // ~50 gas per segment processing
-
-    // Solidity overhead (stack operations, jumps, etc.)
-    let overhead = 5000;
-
-    base_cost + merkle_cost + continuity_cost + data_extraction_cost + segment_cost + overhead
-}
-
-/// Display extracted data segments
-fn display_extracted_data(segments: &[ResultSegment]) {
-    if segments.is_empty() {
-        println!("No data segments extracted");
-        return;
-    }
-
-    println!("Result segments count: {}", segments.len());
-    for (i, segment) in segments.iter().enumerate() {
-        println!(
-            "  Segment {}: offset={}, bytes=0x{}",
-            i,
-            segment.offset,
-            hex::encode(segment.bytes.as_bytes())
-        );
-
-        // Try to interpret common patterns
-        let bytes = segment.bytes.as_bytes();
-        // Check if it looks like an address (20 bytes with 12 bytes padding)
-        if bytes[0..12] == [0u8; 12] {
-            let address = &bytes[12..32];
-            if address.iter().any(|&b| b != 0) {
-                println!("    (Possible address: 0x{})", hex::encode(address));
-            }
-        }
-        // Check if it looks like a uint256
-        else if bytes[0..16] == [0u8; 16] {
-            let value = &bytes[16..32];
-            if value.iter().any(|&b| b != 0) {
-                println!("    (Possible value: 0x{})", hex::encode(value));
-            }
-        }
     }
 }

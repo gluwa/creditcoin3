@@ -110,13 +110,31 @@ impl AttestationMonitor {
         }
 
         // Also check checkpoints
+        // Note: We need to be careful here - checkpoint.block_number refers to the Ethereum block
+        // that was checkpointed, not the Creditcoin3 block where the checkpoint was created.
+        // A checkpoint at block X means that block X (and all previous blocks) have been checkpointed.
         let checkpoints = self
             .cc3_client
             .get_checkpoints_for_chain(chain_key)
             .await
             .unwrap_or_default();
 
+        // Filter out invalid/corrupted checkpoint block numbers
+        // Checkpoints shouldn't be unreasonably large (e.g., > 10 billion blocks)
+        // This filters out corrupted data like 2163135196021391360
+        const MAX_REASONABLE_BLOCK: u64 = 10_000_000_000; // 10 billion blocks
+
         for checkpoint in checkpoints {
+            // Validate checkpoint block number is reasonable
+            if checkpoint.block_number > MAX_REASONABLE_BLOCK {
+                debug!(
+                    "Skipping invalid checkpoint with block number {} (too large, likely corrupted)",
+                    checkpoint.block_number
+                );
+                continue;
+            }
+
+            // A checkpoint at block X means block X and all previous blocks are checkpointed
             if checkpoint.block_number >= block_number {
                 return Ok(Some(AttestationResult {
                     attested_block: checkpoint.block_number,
@@ -236,7 +254,13 @@ impl AttestationMonitor {
                     checkpoint.block_number, checkpoint_chain
                 );
 
-                if checkpoint_chain == chain_key && checkpoint.block_number >= block_number {
+                // Validate checkpoint block number is reasonable before using it
+                const MAX_REASONABLE_BLOCK: u64 = 10_000_000_000; // 10 billion blocks
+
+                if checkpoint_chain == chain_key
+                    && checkpoint.block_number <= MAX_REASONABLE_BLOCK
+                    && checkpoint.block_number >= block_number
+                {
                     info!(
                         "Checkpoint reached at block {}, covers our block {} (elapsed: {:?})",
                         checkpoint.block_number, block_number, elapsed
@@ -246,6 +270,11 @@ impl AttestationMonitor {
                         attested_block: checkpoint.block_number,
                         wait_duration: elapsed,
                     }));
+                } else if checkpoint.block_number > MAX_REASONABLE_BLOCK {
+                    debug!(
+                        "Ignoring invalid checkpoint with block number {} (too large, likely corrupted)",
+                        checkpoint.block_number
+                    );
                 }
             }
             CcEvent::RandomnessChanged(_) | CcEvent::AttestationIntervalChanged(_, _) => {

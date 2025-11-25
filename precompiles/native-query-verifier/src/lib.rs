@@ -3,13 +3,12 @@
 //! Native Query Verifier Precompile
 //!
 //! This precompile provides native-speed verification of blockchain queries using:
-//! - Merkle proof verification for transaction inclusion
+//! - Merkle proof verification for transaction inclusion in blocks
 //! - Continuity chain validation for block attestations
-//! - Data extraction from verified transactions
 //!
 //! The precompile is accessible at address 0x0FD2 (4050 in decimal)
 
-use attestor_primitives::{block::ContinuityProof, query::Query};
+use attestor_primitives::block::ContinuityProof;
 use core::marker::PhantomData;
 use ethabi::{encode, Token};
 use fp_evm::{ExitRevert, PrecompileFailure, PrecompileHandle};
@@ -17,11 +16,9 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use log::debug;
 use pallet_evm::AddressMapping;
-use precompile_utils::{evm::logs::log2, keccak256, prelude::*, solidity::Codec};
+use precompile_utils::{keccak256, prelude::*};
 use sp_core::H256;
-use sp_std::vec;
 use sp_std::vec::Vec;
 
 // Use the QueryMerkleProof from the mmr crate
@@ -31,15 +28,10 @@ use mmr::query_proof::QueryMerkleProof;
 type MerkleProof = QueryMerkleProof;
 
 // Event selectors (keccak256 of event signatures)
-/// QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])
-pub const SELECTOR_LOG_QUERY_VERIFIED: [u8; 32] =
-    keccak256!("QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])");
-/// QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)
-pub const SELECTOR_LOG_QUERY_VERIFICATION_FAILED: [u8; 32] =
-    keccak256!("QueryVerificationFailed(address,bytes32,uint64,uint64,uint8,string)");
-/// BatchQueriesVerified(uint256,uint256,uint256)
-pub const SELECTOR_LOG_BATCH_QUERIES_VERIFIED: [u8; 32] =
-    keccak256!("BatchQueriesVerified(uint256,uint256,uint256)");
+// TransactionVerified(uint64 indexed,uint64 indexed,uint8)
+// ChainKey (indexed), Height (indexed), TxIndex (data)
+pub const SELECTOR_LOG_TRANSACTION_VERIFIED: [u8; 32] =
+    keccak256!("TransactionVerified(uint64,uint64,uint8)");
 
 #[cfg(test)]
 mod mock;
@@ -55,16 +47,14 @@ mod tests_gas_security;
 #[cfg(test)]
 mod tests_view;
 
-mod verify;
-use verify::ResultSegment;
 mod continuity;
+mod verify;
 
 /// Native Query Verifier Precompile
 ///
 /// Provides efficient, native-speed verification of blockchain queries by validating:
 /// 1. Merkle proofs for transaction inclusion in blocks
 /// 2. Continuity chains linking blocks to attested checkpoints
-/// 3. Data extraction from verified transactions
 ///
 /// This precompile enables trustless cross-chain data verification without requiring
 /// the full blockchain state, making it ideal for bridges and oracles.
@@ -75,24 +65,6 @@ type ConstU10MB = sp_core::ConstU32<10_485_760>; // Type alias for bounded vec
 
 // Batch queries constraint
 type MaxBatchSize = sp_core::ConstU32<10>;
-
-/// Result of query verification (used only for batch queries)
-///
-/// Contains the verification status and any extracted data segments.
-/// For single queries (`verify_query` and `verify_query_view`), the functions
-/// return `Vec<ResultSegment>` directly and revert on failure.
-/// For batch queries, individual queries can fail without reverting the entire batch,
-/// Result of batch query verification
-#[derive(Debug, Clone, PartialEq, Eq, Codec)]
-pub struct BatchQueryVerificationResult {
-    /// Number of successfully verified queries
-    pub successful_queries: u32,
-    /// Number of failed queries
-    pub failed_queries: u32,
-    /// Individual results for each query.
-    /// Empty vector indicates failure, non-empty vector contains extracted data segments.
-    pub results: Vec<Vec<ResultSegment>>,
-}
 
 /// Helper function to encode revert messages in Solidity format
 pub fn encode_revert_message(message: &str) -> Vec<u8> {
@@ -116,18 +88,19 @@ where
 {
     /// Verify a blockchain query with Merkle proof and continuity chain (view function)
     ///
-    /// This is a read-only version that doesn't emit events. It charges the same gas
+    /// This is a read-only view function that doesn't emit events. It charges the same gas
     /// as the non-view function but doesn't modify state or emit logs.
     /// Useful for off-chain verification or when events are not needed.
     ///
     /// # Parameters
-    /// - `query`: The query specification (chain_id, block height, data layout segments)
+    /// - `chain_key`: The chain key
+    /// - `height`: The block height
     /// - `tx_data`: The raw transaction data to verify
     /// - `merkle_proof`: Merkle proof for transaction inclusion in the block
     /// - `continuity_proof`: Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
-    /// Vector of extracted data segments
+    /// `true` on successful verification
     ///
     /// # Reverts
     /// - If continuity chain is empty or invalid
@@ -135,18 +108,24 @@ where
     /// - If merkle root doesn't match continuity block
     /// - If query block not found in continuity chain
     /// - If continuity chain doesn't end at a valid attestation/checkpoint
-    #[precompile::public("verifyQueryView((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))")]
+    ///
+    /// Note: This function does not emit events. For event emissions, use verifyAndEmit() instead.
+    #[precompile::public(
+        "verify(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))"
+    )]
     #[precompile::view]
-    fn verify_query_view(
+    fn verify(
         handle: &mut impl PrecompileHandle,
-        query: Query,
+        chain_key: u64,
+        height: u64,
         tx_data: BoundedBytes<ConstU10MB>,
         merkle_proof: MerkleProof,
         continuity_proof: ContinuityProof,
-    ) -> EvmResult<Vec<ResultSegment>> {
-        Self::verify_query_impl(
+    ) -> EvmResult<bool> {
+        Self::verify_impl(
             handle,
-            query,
+            chain_key,
+            height,
             tx_data,
             merkle_proof,
             continuity_proof,
@@ -156,20 +135,21 @@ where
 
     /// Verify a blockchain query with Merkle proof and continuity chain
     ///
-    /// This is the state-changing version that emits a `QueryVerified` event on success.
-    /// The event contains the query ID, chain ID, height, status, and extracted segments.
+    /// This is the state-changing version that emits a `TransactionVerified` event on success.
+    /// Reverts on failure, returns true on success.
     ///
     /// # Parameters
-    /// - `query`: The query specification (chain_id, block height, data layout segments)
+    /// - `chain_key`: The chain key
+    /// - `height`: The block height
     /// - `tx_data`: The raw transaction data to verify
     /// - `merkle_proof`: Merkle proof for transaction inclusion in the block
     /// - `continuity_proof`: Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
-    /// Vector of extracted data segments
+    /// `true` on successful verification
     ///
     /// # Events
-    /// Emits `QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])`
+    /// Emits `TransactionVerified(uint64,uint64,uint8)` with chain_key, height, and txIndex
     ///
     /// # Reverts
     /// - If continuity chain is empty or invalid
@@ -177,21 +157,23 @@ where
     /// - If merkle root doesn't match continuity block
     /// - If query block not found in continuity chain
     /// - If continuity chain doesn't end at a valid attestation/checkpoint
-    #[precompile::public("verifyQuery((uint64,uint64,(uint64,uint64)[]),bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))")]
-    fn verify_query(
+    #[precompile::public("verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))")]
+    fn verify_and_emit(
         handle: &mut impl PrecompileHandle,
-        query: Query,
+        chain_key: u64,
+        height: u64,
         tx_data: BoundedBytes<ConstU10MB>,
         merkle_proof: MerkleProof,
         continuity_proof: ContinuityProof,
-    ) -> EvmResult<Vec<ResultSegment>> {
-        Self::verify_query_impl(
+    ) -> EvmResult<bool> {
+        Self::verify_impl(
             handle,
-            query,
+            chain_key,
+            height,
             tx_data,
             merkle_proof,
             continuity_proof,
-            true, // emit events (non-view function)
+            true, // emit events (state-changing function)
         )
     }
 
@@ -202,29 +184,32 @@ where
     /// This can save ~40% gas compared to individual verifications.
     ///
     /// # Arguments
-    /// * `queries` - Vector of queries to verify (max 10)
-    /// * `tx_data_array` - Transaction data for each query (must match queries length)
-    /// * `merkle_proofs` - Merkle proofs for each query (must match queries length)
+    /// * `chain_key` - Chain key
+    /// * `heights` - Vector of block heights to verify
+    /// * `tx_data_array` - Transaction data for each query (must match heights length)
+    /// * `merkle_proofs` - Merkle proofs for each query (must match heights length)
     /// * `shared_continuity_proof` - Shared continuity proof covering all query heights
     ///
     /// # Returns
-    /// `BatchQueryVerificationResult` with success/failure counts and individual results
+    /// `bool` indicating whether the batch verification was successful
     ///
     /// # Reverts
     /// - If input arrays have mismatched lengths
     /// - If shared continuity chain is invalid
-    #[precompile::public("verifyBatchQueriesView((uint64,uint64,(uint64,uint64)[])[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,(bytes32,bytes32)[]))")]
+    #[precompile::public("verify(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,(bytes32,bytes32)[]))")]
     #[precompile::view]
-    fn verify_batch_queries_view(
+    fn verify_batch(
         handle: &mut impl PrecompileHandle,
-        queries: BoundedVec<Query, MaxBatchSize>,
+        chain_key: u64,
+        heights: Vec<u64>,
         tx_data_array: Vec<BoundedBytes<ConstU10MB>>,
         merkle_proofs: Vec<MerkleProof>,
         shared_continuity_proof: ContinuityProof,
-    ) -> EvmResult<BatchQueryVerificationResult> {
-        Self::verify_batch_queries_impl(
+    ) -> EvmResult<bool> {
+        Self::verify_batch_impl(
             handle,
-            queries,
+            chain_key,
+            heights,
             tx_data_array,
             merkle_proofs,
             shared_continuity_proof,
@@ -234,141 +219,61 @@ where
 
     /// Verify a batch of queries with shared continuity proof
     ///
-    /// This is the state-changing version that emits a `BatchQueriesVerified` event.
+    /// This is the state-changing version that emits a `TransactionVerified` event for each successful transaction.
     /// Optimized for batch verification:
     /// 1. Validates the continuity chain once (shared across all queries)
     /// 2. For each query, verifies:
     ///    - Merkle proof for transaction inclusion
     ///    - Query block exists in continuity chain
     ///    - Merkle root matches the continuity block
-    ///    - Data extraction from transaction
     ///
     /// # Arguments
-    /// * `queries` - Vector of queries to verify (max 10)
-    /// * `tx_data_array` - Transaction data for each query (must match queries length)
+    /// * `chain_key` - Chain key
+    /// * `heights` - Vector of block heights to verify
+    /// * `tx_data_array` - Transaction data for each query (must match heights length)
     /// * `merkle_proofs` - Merkle proofs for each query (must match queries length)
     /// * `shared_continuity_proof` - Shared continuity proof covering all query heights
     ///
     /// # Returns
-    /// `BatchQueryVerificationResult` with success/failure counts and individual results
+    /// `bool` indicating whether the batch verification was successful
     ///
     /// # Events
-    /// Emits `BatchQueriesVerified(uint256,uint256,uint256)` with total queries,
-    /// successful queries, and failed queries counts
+    /// Emits `TransactionVerified(uint64,uint64,uint8)` for each successfully verified transaction,
+    /// with chain_key, height, and txIndex (transaction index calculated from Merkle proof siblings)
     ///
     /// # Reverts
     /// - If input arrays have mismatched lengths
     /// - If shared continuity chain is invalid
-    #[precompile::public("verifyBatchQueries((uint64,uint64,(uint64,uint64)[])[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,(bytes32,bytes32)[]))")]
-    fn verify_batch_queries(
+    #[precompile::public("verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,(bytes32,bytes32)[]))")]
+    fn verify_batch_and_emit(
         handle: &mut impl PrecompileHandle,
-        queries: BoundedVec<Query, MaxBatchSize>,
+        chain_key: u64,
+        heights: BoundedVec<u64, MaxBatchSize>,
         tx_data_array: Vec<BoundedBytes<ConstU10MB>>,
         merkle_proofs: Vec<MerkleProof>,
         shared_continuity_proof: ContinuityProof,
-    ) -> EvmResult<BatchQueryVerificationResult> {
-        Self::verify_batch_queries_impl(
+    ) -> EvmResult<bool> {
+        Self::verify_batch_impl(
             handle,
-            queries,
+            chain_key,
+            heights.into(),
             tx_data_array,
             merkle_proofs,
             shared_continuity_proof,
-            true, // emit events (non-view function)
+            true, // emit events (state-changing function)
         )
-    }
-
-    /// Emit failure event for failed query verification
-    ///
-    /// Emits a QueryVerificationFailed event with the query details and failure reason.
-    /// This event allows off-chain systems to track failed verifications.
-    fn emit_verification_failure(
-        handle: &mut impl PrecompileHandle,
-        query: &Query,
-        status: u8,
-        reason: &str,
-    ) -> Result<(), PrecompileFailure> {
-        // Encode the event data: queryId, chainKey, height, status, reason
-        let event_data = ethabi::encode(&[
-            Token::FixedBytes(query.id().0.to_vec()),
-            Token::Uint(query.chain_id.into()),
-            Token::Uint(query.height.into()),
-            Token::Uint(status.into()),
-            Token::String(reason.into()),
-        ]);
-
-        log2(
-            handle.context().address,
-            SELECTOR_LOG_QUERY_VERIFICATION_FAILED,
-            handle.context().caller,
-            event_data,
-        )
-        .record(handle)?;
-
-        Ok(())
     }
 
     /// Generic handler for verification failures
     ///
-    /// Emits a failure event (if emit_events is true) and returns a revert with a descriptive message.
-    /// Events are emitted before reverting, so they will be included in the transaction log.
-    fn handle_verification_failure(
-        handle: &mut impl PrecompileHandle,
-        query: &Query,
-        status: u8,
-        message: &str,
-        emit_events: bool,
-    ) -> EvmResult<Vec<ResultSegment>> {
-        debug!("{} for query: {:?}", message, query.id());
-
-        // Emit failure event before reverting (events before revert are still emitted)
-        if emit_events {
-            Self::emit_verification_failure(handle, query, status, message)?;
-        }
-
+    /// Returns a revert with a descriptive error message.
+    /// No events are emitted on failure (as per design requirement).
+    pub fn revert_with_message(message: &str) -> EvmResult<bool> {
         // Revert with the error message
         Err(PrecompileFailure::Revert {
             output: encode_revert_message(message),
             exit_status: ExitRevert::Reverted,
         })
-    }
-
-    /// Emit success event for verified query
-    ///
-    /// Emits a QueryVerified event with the query details and extracted data segments.
-    /// This event allows off-chain systems to track successful verifications.
-    fn emit_verification_success(
-        handle: &mut impl PrecompileHandle,
-        query: &Query,
-        result_segments: &[ResultSegment],
-    ) -> Result<(), PrecompileFailure> {
-        let result_tokens: Vec<Token> = result_segments
-            .iter()
-            .map(|segment| {
-                Token::Tuple(vec![
-                    Token::Uint(segment.offset.into()),
-                    Token::FixedBytes(segment.bytes.0.to_vec()),
-                ])
-            })
-            .collect();
-
-        // Emit the success event directly
-        let event_data = ethabi::encode(&[
-            Token::FixedBytes(query.id().0.to_vec()),
-            Token::Uint(query.chain_id.into()),
-            Token::Uint(query.height.into()),
-            Token::Uint(0u8.into()), // Success status
-            Token::Array(result_tokens),
-        ]);
-
-        log2(
-            handle.context().address,
-            SELECTOR_LOG_QUERY_VERIFIED,
-            handle.context().caller,
-            event_data,
-        )
-        .record(handle)?;
-
-        Ok(())
     }
 
     /// Get an attestation from storage by chain key and digest

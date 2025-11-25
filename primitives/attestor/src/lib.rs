@@ -13,11 +13,6 @@ pub mod attestation_fragment;
 pub mod block;
 pub mod bls;
 pub mod provider;
-pub mod query;
-
-// Re-export query types for convenience
-pub use query::{LayoutSegment, Query, ResultSegment};
-
 // Re-export block types for convenience
 pub use block::{Block, ContinuityBlock, ContinuityProof};
 

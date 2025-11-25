@@ -2,9 +2,8 @@
 // Ensures gas costs prevent DoS attacks and align with Ethereum standards
 use precompiles_primitives::GAS_STORAGE_LOOKUP;
 
-use crate::mock::*;
+use crate::mock::ExtBuilder;
 use crate::verify::{GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
-use crate::*;
 // ============================================================================
 // GAS SECURITY AND DOS PREVENTION TESTS
 // ============================================================================

@@ -84,11 +84,17 @@ pub async fn execute_transfer_with_query(
     );
 
     // Step 1: Execute the transfer
+    println!("Creating transfer executor...");
     info!("Creating transfer executor...");
     let executor = TransferExecutor::new(eth_rpc_url, eth_private_key).await?;
+    println!("Executing transfer...");
     info!("Executing transfer...");
     let transfer_result = executor.execute_transfer(transfer_config).await?;
 
+    println!(
+        "Transfer completed: 0x{:x} in block {}",
+        transfer_result.tx_hash, transfer_result.block_number
+    );
     info!(
         "Transfer completed: 0x{:x} in block {}",
         transfer_result.tx_hash, transfer_result.block_number
@@ -102,6 +108,11 @@ pub async fn execute_transfer_with_query(
 
     // Step 2: Wait for attestation if requested
     if workflow_config.wait_for_attestation {
+        println!("\n=== Waiting for Attestation ===");
+        println!(
+            "Waiting for block {} to be attested on Creditcoin3...",
+            transfer_result.block_number
+        );
         info!(
             "Waiting for block {} to be attested...",
             transfer_result.block_number
@@ -117,6 +128,10 @@ pub async fn execute_transfer_with_query(
         .context("Failed to wait for attestation")?;
 
         result.attestation_block = Some(attestation_block);
+        println!(
+            "✓ Block {} attested at Creditcoin3 block {}",
+            transfer_result.block_number, attestation_block
+        );
         info!(
             "Block {} attested at Creditcoin block {}",
             transfer_result.block_number, attestation_block
@@ -126,9 +141,12 @@ pub async fn execute_transfer_with_query(
     // Step 3: Execute query if requested
     if workflow_config.auto_query {
         if !workflow_config.wait_for_attestation {
+            println!("⚠️  Warning: Auto-query requested but attestation waiting disabled. Query may fail if block not yet attested.");
             warn!("Auto-query requested but attestation waiting disabled. Query may fail if block not yet attested.");
         }
 
+        println!("\n=== Executing Query ===");
+        println!("Executing query for transfer transaction...");
         info!("Executing query for transfer transaction");
 
         // Call the native query submission

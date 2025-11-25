@@ -1,4 +1,4 @@
-use attestor_primitives::{block::Block, query::Query};
+use attestor_primitives::block::Block;
 use fp_evm::PrecompileHandle;
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
@@ -117,7 +117,8 @@ where
     /// # Parameters
     /// - `handle`: EVM precompile handle for gas accounting
     /// - `continuity_blocks`: Chain of blocks to validate (converted from ContinuityProof internally)
-    /// - `query`: Query specification (used to verify chain covers query height)
+    /// - `chain_key`: Chain key identifier
+    /// - `height`: Query block height (used to verify chain covers query height)
     ///
     /// # Note
     /// This function receives Vec<Block> which is converted from ContinuityProof in the caller.
@@ -129,7 +130,7 @@ where
     /// - `Err(ContinuityVerificationError)`: Structured error with status code and message
     ///
     /// # Gas Costs
-    /// - Gas is charged upfront per block in `verify_query_impl` using `GAS_PER_CONTINUITY_BLOCK`
+    /// - Gas is charged upfront per block in `verify_impl` using `GAS_PER_CONTINUITY_BLOCK`
     /// - `GAS_STORAGE_LOOKUP` (2600) for attestation lookup
     /// - Additional `GAS_STORAGE_LOOKUP` for checkpoint lookup (only if attestation doesn't match)
     ///
@@ -140,7 +141,8 @@ where
     pub fn verify_continuity_chain(
         handle: &mut impl PrecompileHandle,
         continuity_blocks: &[Block],
-        query: &Query,
+        chain_key: u64,
+        height: u64,
     ) -> Result<bool, ContinuityVerificationError> {
         // Security: Always require at least 2 blocks (queryHeight-1 and queryHeight)
         // This is required to verify the query block's digest using the previous block's digest
@@ -183,10 +185,10 @@ where
 
         // Validate the continuity chain reaches the query height
         if let Some(head) = continuity_blocks.last() {
-            if head.block_number < query.height {
+            if head.block_number < height {
                 debug!(
                     "❌ Continuity chain ends at block {}, but query requires block {}",
-                    head.block_number, query.height
+                    head.block_number, height
                 );
                 return Err(ContinuityVerificationError::ChainDoesNotReachQueryHeight);
             }
@@ -202,7 +204,7 @@ where
                 .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?;
 
             // Check if there's an attestation at this exact block height with matching digest
-            let attestation_matches = Self::get_attestation(query.chain_id, final_digest)
+            let attestation_matches = Self::get_attestation(chain_key, final_digest)
                 .map(|a| a.attestation.header_number == final_block_number)
                 .unwrap_or(false);
 
@@ -215,17 +217,16 @@ where
                     .record_cost(GAS_STORAGE_LOOKUP)
                     .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?;
 
-                Self::get_checkpoint(query.chain_id, final_block_number)
+                Self::get_checkpoint(chain_key, final_block_number)
                     .map(|digest| digest == final_digest)
                     .unwrap_or(false)
             };
 
             // Special case: If the continuity chain ends at query.height and query.height
             // is a checkpoint/attestation, that's valid (allows queries at checkpoint/attestation heights)
-            if final_block_number == query.height && (attestation_matches || checkpoint_matches) {
+            if final_block_number == height && (attestation_matches || checkpoint_matches) {
                 debug!(
-                    "✅ Continuity chain ends at query height {} which is a checkpoint/attestation",
-                    query.height
+                    "✅ Continuity chain ends at query height {height} which is a checkpoint/attestation"
                 );
             } else if !attestation_matches && !checkpoint_matches {
                 // Chain must end at a checkpoint/attestation
@@ -248,7 +249,7 @@ where
     /// # Parameters
     /// - `handle`: EVM precompile handle for gas accounting
     /// - `continuity_blocks`: Chain of blocks containing query block (converted from ContinuityProof internally)
-    /// - `query`: Query specification
+    /// - `height`: Query block height
     /// - `merkle_root`: Merkle root from the merkle proof (must match query block root)
     ///
     /// # Note
@@ -264,7 +265,7 @@ where
     pub fn verify_query_block_digest(
         handle: &mut impl PrecompileHandle,
         continuity_blocks: &[Block],
-        query: &Query,
+        height: u64,
         merkle_root: H256,
     ) -> Result<(), ContinuityVerificationError> {
         // Security: Always require at least 2 blocks (queryHeight-1 and queryHeight)
@@ -274,7 +275,7 @@ where
         }
 
         // Find the query block index using optimized search
-        let query_block_idx = Self::find_query_block_index(continuity_blocks, query.height)
+        let query_block_idx = Self::find_query_block_index(continuity_blocks, height)
             .ok_or(ContinuityVerificationError::QueryBlockNotFound)?;
 
         let query_block = &continuity_blocks[query_block_idx];
@@ -292,7 +293,7 @@ where
         let prev_block = &continuity_blocks[query_block_idx - 1];
 
         // Verify the previous block is actually at queryHeight - 1 (safety check)
-        if prev_block.block_number != query.height.saturating_sub(1) {
+        if prev_block.block_number != height.saturating_sub(1) {
             return Err(ContinuityVerificationError::PreviousBlockNotFound);
         }
 
@@ -304,7 +305,7 @@ where
         // Compute expected digest for query block using previous block's digest
         use attestor_primitives::block::Block as FragmentBlock;
         let expected_digest =
-            FragmentBlock::hash_payload(&query.height, &query_block.root, &prev_block.digest);
+            FragmentBlock::hash_payload(&height, &query_block.root, &prev_block.digest);
 
         // Verify computed digest matches the query block's digest
         if expected_digest != query_block.digest {

@@ -1,1 +1,375 @@
-[{"anonymous":false,"inputs":[{"indexed":false,"internalType":"uint256","name":"successful","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"failed","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"total","type":"uint256"}],"name":"BatchQueriesVerified","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"caller","type":"address"},{"indexed":false,"internalType":"bytes32","name":"queryId","type":"bytes32"},{"indexed":false,"internalType":"uint64","name":"chainKey","type":"uint64"},{"indexed":false,"internalType":"uint64","name":"height","type":"uint64"},{"indexed":false,"internalType":"uint8","name":"status","type":"uint8"},{"indexed":false,"internalType":"string","name":"reason","type":"string"}],"name":"QueryVerificationFailed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"caller","type":"address"},{"indexed":false,"internalType":"bytes32","name":"queryId","type":"bytes32"},{"indexed":false,"internalType":"uint64","name":"chainKey","type":"uint64"},{"indexed":false,"internalType":"uint64","name":"height","type":"uint64"},{"indexed":false,"internalType":"uint8","name":"status","type":"uint8"},{"components":[{"internalType":"uint64","name":"offset","type":"uint64"},{"internalType":"bytes32","name":"data","type":"bytes32"}],"indexed":false,"internalType":"struct INativeQueryVerifier.ResultSegment[]","name":"resultSegments","type":"tuple[]"}],"name":"QueryVerified","type":"event"},{"inputs":[{"components":[{"internalType":"uint64","name":"chain_id","type":"uint64"},{"internalType":"uint64","name":"height","type":"uint64"},{"components":[{"internalType":"uint64","name":"offset","type":"uint64"},{"internalType":"uint64","name":"size","type":"uint64"}],"internalType":"struct INativeQueryVerifier.LayoutSegment[]","name":"layout_segments","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.Query[]","name":"queries","type":"tuple[]"},{"internalType":"bytes[]","name":"tx_data_array","type":"bytes[]"},{"components":[{"internalType":"bytes32","name":"root","type":"bytes32"},{"components":[{"internalType":"bytes32","name":"hash","type":"bytes32"},{"internalType":"bool","name":"isLeft","type":"bool"}],"internalType":"struct INativeQueryVerifier.MerkleProofEntry[]","name":"siblings","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.MerkleProof[]","name":"merkle_proofs","type":"tuple[]"},{"components":[{"internalType":"bytes32","name":"lowerEndpointDigest","type":"bytes32"},{"components":[{"internalType":"bytes32","name":"root","type":"bytes32"},{"internalType":"bytes32","name":"digest","type":"bytes32"}],"internalType":"struct INativeQueryVerifier.ContinuityBlock[]","name":"blocks","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.ContinuityProof","name":"shared_continuity_proof","type":"tuple"}],"name":"verifyBatchQueries","outputs":[{"components":[{"internalType":"uint32","name":"successful_queries","type":"uint32"},{"internalType":"uint32","name":"failed_queries","type":"uint32"},{"components":[{"internalType":"uint64","name":"offset","type":"uint64"},{"internalType":"bytes32","name":"data","type":"bytes32"}],"internalType":"struct INativeQueryVerifier.ResultSegment[][]","name":"results","type":"tuple[][]"}],"internalType":"struct INativeQueryVerifier.BatchQueryVerificationResult","name":"result","type":"tuple"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"components":[{"internalType":"uint64","name":"chain_id","type":"uint64"},{"internalType":"uint64","name":"height","type":"uint64"},{"components":[{"internalType":"uint64","name":"offset","type":"uint64"},{"internalType":"uint64","name":"size","type":"uint64"}],"internalType":"struct INativeQueryVerifier.LayoutSegment[]","name":"layout_segments","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.Query[]","name":"queries","type":"tuple[]"},{"internalType":"bytes[]","name":"tx_data_array","type":"bytes[]"},{"components":[{"internalType":"bytes32","name":"root","type":"bytes32"},{"components":[{"internalType":"bytes32","name":"hash","type":"bytes32"},{"internalType":"bool","name":"isLeft","type":"bool"}],"internalType":"struct INativeQueryVerifier.MerkleProofEntry[]","name":"siblings","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.MerkleProof[]","name":"merkle_proofs","type":"tuple[]"},{"components":[{"internalType":"bytes32","name":"lowerEndpointDigest","type":"bytes32"},{"components":[{"internalType":"bytes32","name":"root","type":"bytes32"},{"internalType":"bytes32","name":"digest","type":"bytes32"}],"internalType":"struct INativeQueryVerifier.ContinuityBlock[]","name":"blocks","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.ContinuityProof","name":"shared_continuity_proof","type":"tuple"}],"name":"verifyBatchQueriesView","outputs":[{"components":[{"internalType":"uint32","name":"successful_queries","type":"uint32"},{"internalType":"uint32","name":"failed_queries","type":"uint32"},{"components":[{"internalType":"uint64","name":"offset","type":"uint64"},{"internalType":"bytes32","name":"data","type":"bytes32"}],"internalType":"struct INativeQueryVerifier.ResultSegment[][]","name":"results","type":"tuple[][]"}],"internalType":"struct INativeQueryVerifier.BatchQueryVerificationResult","name":"result","type":"tuple"}],"stateMutability":"view","type":"function"},{"inputs":[{"components":[{"internalType":"uint64","name":"chain_id","type":"uint64"},{"internalType":"uint64","name":"height","type":"uint64"},{"components":[{"internalType":"uint64","name":"offset","type":"uint64"},{"internalType":"uint64","name":"size","type":"uint64"}],"internalType":"struct INativeQueryVerifier.LayoutSegment[]","name":"layout_segments","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.Query","name":"query","type":"tuple"},{"internalType":"bytes","name":"tx_data","type":"bytes"},{"components":[{"internalType":"bytes32","name":"root","type":"bytes32"},{"components":[{"internalType":"bytes32","name":"hash","type":"bytes32"},{"internalType":"bool","name":"isLeft","type":"bool"}],"internalType":"struct INativeQueryVerifier.MerkleProofEntry[]","name":"siblings","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.MerkleProof","name":"merkle_proof","type":"tuple"},{"components":[{"internalType":"bytes32","name":"lowerEndpointDigest","type":"bytes32"},{"components":[{"internalType":"bytes32","name":"root","type":"bytes32"},{"internalType":"bytes32","name":"digest","type":"bytes32"}],"internalType":"struct INativeQueryVerifier.ContinuityBlock[]","name":"blocks","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.ContinuityProof","name":"continuity_proof","type":"tuple"}],"name":"verifyQuery","outputs":[{"components":[{"internalType":"uint64","name":"offset","type":"uint64"},{"internalType":"bytes32","name":"data","type":"bytes32"}],"internalType":"struct INativeQueryVerifier.ResultSegment[]","name":"result_segments","type":"tuple[]"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"components":[{"internalType":"uint64","name":"chain_id","type":"uint64"},{"internalType":"uint64","name":"height","type":"uint64"},{"components":[{"internalType":"uint64","name":"offset","type":"uint64"},{"internalType":"uint64","name":"size","type":"uint64"}],"internalType":"struct INativeQueryVerifier.LayoutSegment[]","name":"layout_segments","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.Query","name":"query","type":"tuple"},{"internalType":"bytes","name":"tx_data","type":"bytes"},{"components":[{"internalType":"bytes32","name":"root","type":"bytes32"},{"components":[{"internalType":"bytes32","name":"hash","type":"bytes32"},{"internalType":"bool","name":"isLeft","type":"bool"}],"internalType":"struct INativeQueryVerifier.MerkleProofEntry[]","name":"siblings","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.MerkleProof","name":"merkle_proof","type":"tuple"},{"components":[{"internalType":"bytes32","name":"lowerEndpointDigest","type":"bytes32"},{"components":[{"internalType":"bytes32","name":"root","type":"bytes32"},{"internalType":"bytes32","name":"digest","type":"bytes32"}],"internalType":"struct INativeQueryVerifier.ContinuityBlock[]","name":"blocks","type":"tuple[]"}],"internalType":"struct INativeQueryVerifier.ContinuityProof","name":"continuity_proof","type":"tuple"}],"name":"verifyQueryView","outputs":[{"components":[{"internalType":"uint64","name":"offset","type":"uint64"},{"internalType":"bytes32","name":"data","type":"bytes32"}],"internalType":"struct INativeQueryVerifier.ResultSegment[]","name":"result_segments","type":"tuple[]"}],"stateMutability":"view","type":"function"}]
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint64",
+        "name": "chain_key",
+        "type": "uint64"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint64",
+        "name": "height",
+        "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "txIndex",
+        "type": "uint8"
+      }
+    ],
+    "name": "TransactionVerified",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chain_key",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64[]",
+        "name": "heights",
+        "type": "uint64[]"
+      },
+      {
+        "internalType": "bytes[]",
+        "name": "tx_data_array",
+        "type": "bytes[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "hash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bool",
+                "name": "isLeft",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
+            "name": "siblings",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.MerkleProof[]",
+        "name": "merkle_proofs",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "lowerEndpointDigest",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "root",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "digest",
+                "type": "bytes32"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.ContinuityBlock[]",
+            "name": "blocks",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.ContinuityProof",
+        "name": "shared_continuity_proof",
+        "type": "tuple"
+      }
+    ],
+    "name": "verify",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chain_key",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "height",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bytes",
+        "name": "tx_data",
+        "type": "bytes"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "hash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bool",
+                "name": "isLeft",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
+            "name": "siblings",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.MerkleProof",
+        "name": "merkle_proof",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "lowerEndpointDigest",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "root",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "digest",
+                "type": "bytes32"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.ContinuityBlock[]",
+            "name": "blocks",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.ContinuityProof",
+        "name": "continuity_proof",
+        "type": "tuple"
+      }
+    ],
+    "name": "verify",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chain_key",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "height",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bytes",
+        "name": "tx_data",
+        "type": "bytes"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "hash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bool",
+                "name": "isLeft",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
+            "name": "siblings",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.MerkleProof",
+        "name": "merkle_proof",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "lowerEndpointDigest",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "root",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "digest",
+                "type": "bytes32"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.ContinuityBlock[]",
+            "name": "blocks",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.ContinuityProof",
+        "name": "continuity_proof",
+        "type": "tuple"
+      }
+    ],
+    "name": "verifyAndEmit",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chain_key",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64[]",
+        "name": "heights",
+        "type": "uint64[]"
+      },
+      {
+        "internalType": "bytes[]",
+        "name": "tx_data_array",
+        "type": "bytes[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "hash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bool",
+                "name": "isLeft",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
+            "name": "siblings",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.MerkleProof[]",
+        "name": "merkle_proofs",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "lowerEndpointDigest",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "root",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "digest",
+                "type": "bytes32"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.ContinuityBlock[]",
+            "name": "blocks",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.ContinuityProof",
+        "name": "shared_continuity_proof",
+        "type": "tuple"
+      }
+    ],
+    "name": "verifyAndEmit",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

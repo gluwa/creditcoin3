@@ -9,7 +9,7 @@
 //! - POC compliance: Chains must start at queryHeight-1 and end at next attestation
 
 use anyhow::{anyhow, Result};
-use attestor_primitives::{block::Block, AttestationCheckpoint, Query, SignedAttestation};
+use attestor_primitives::{block::Block, AttestationCheckpoint, SignedAttestation};
 use cc_client::{AccountId32, Client as CcClient};
 use ccnext_abi_encoding::abi::EncodingVersion;
 use eth::{continuity::Manager as ContinuityManager, Client as EthClient};
@@ -77,12 +77,9 @@ impl ContinuityBuilder {
     /// Fetches attestations and builds the minimal continuity chain needed
     /// to verify the query. The chain starts at queryHeight-1 and extends
     /// to the next attestation/checkpoint after the query.
-    pub async fn build_for_single_query(&self, query: &Query) -> Result<ContinuityProof> {
-        println!(
-            "Building continuity proof for single query at height {}",
-            query.height
-        );
-        self.build_for_heights(&[query.height]).await
+    pub async fn build_for_single_query(&self, height: u64) -> Result<ContinuityProof> {
+        println!("Building continuity proof for single query at height {height}");
+        self.build_for_heights(&[height]).await
     }
 
     /// Build continuity proof for multiple queries (batch)
@@ -375,7 +372,11 @@ impl ContinuityBuilder {
                 }
                 (Some(a), None) => Some(a),
                 (None, Some(c)) => Some(c),
-                (None, None) => None,
+                (None, None) => {
+                    // No attestation/checkpoint found after query height
+                    // Will be handled in build_and_trim_continuity
+                    None
+                }
             }
         };
 
@@ -402,10 +403,76 @@ impl ContinuityBuilder {
         // POC pattern: continuity chain ALWAYS starts at queryHeight - 1
         let required_start = min_query.saturating_sub(1);
 
+        // Check current block height on Ethereum chain first
+        let current_block = self
+            .eth_client
+            .get_last_block()
+            .await
+            .map_err(|e| anyhow!("Failed to get current block number: {}", e))?;
+
+        // Ensure we have at least the query block
+        if current_block < min_query {
+            return Err(anyhow!(
+                "Query block {} does not exist yet. Current block height is {}.",
+                min_query,
+                current_block
+            ));
+        }
+
         // Determine end height (next consensus point or fallback)
-        let end_height = upper
-            .map(|u| u.block_number)
-            .unwrap_or_else(|| min_query + 10);
+        // The precompile REQUIRES the chain to end at an attestation/checkpoint
+        let end_height = if let Some(upper_info) = &upper {
+            // Validate that the checkpoint block number is reasonable (not corrupted data)
+            // Checkpoints shouldn't be way beyond current block (allow 1000 block buffer for lag)
+            if upper_info.block_number > current_block.saturating_add(1000) {
+                return Err(anyhow!(
+                    "Invalid checkpoint block number {} (current block: {}). This appears to be corrupted data. \
+                    Please check your checkpoint data or wait for a valid attestation.",
+                    upper_info.block_number, current_block
+                ));
+            }
+
+            // If upper attestation/checkpoint doesn't exist yet, we need to wait or error
+            if upper_info.block_number > current_block {
+                return Err(anyhow!(
+                    "Upper attestation/checkpoint at block {} does not exist yet. Current block height is {}. \
+                    Please wait for more blocks to be produced or query a block that has been attested.",
+                    upper_info.block_number, current_block
+                ));
+            }
+            // Use the upper attestation/checkpoint height
+            upper_info.block_number
+        } else {
+            // No upper attestation/checkpoint found - check if query height itself is one
+            // The precompile allows ending at query.height if it's an attestation/checkpoint
+            let is_query_at_checkpoint = self
+                .check_if_at_checkpoint_height(min_query)
+                .await?
+                .is_some();
+
+            let is_query_at_attestation = self
+                .cc_client
+                .get_attestations_for_chain(self.config.chain_key)
+                .await
+                .map_err(|e| anyhow!("Failed to fetch attestations: {}", e))?
+                .iter()
+                .any(|a| a.attestation.header_number == min_query);
+
+            if is_query_at_attestation || is_query_at_checkpoint {
+                // Query height is an attestation/checkpoint - use it as the end
+                println!("No upper attestation/checkpoint found, but query height {min_query} is an attestation/checkpoint. Using it as the end.");
+                min_query
+            } else {
+                // No attestation/checkpoint found after query height, and query height is not one
+                // This is an error - we need an attestation/checkpoint to end the continuity chain
+                return Err(anyhow!(
+                    "No attestation or checkpoint found at or after query height {}. \
+                    The continuity proof must end at an attestation or checkpoint. \
+                    Please wait for an attestation to be produced or query a block that has been attested.",
+                    min_query
+                ));
+            }
+        };
 
         // Build from attestation to end to get correct digests
         let build_start = lower.block_number + 1;
@@ -429,7 +496,8 @@ impl ContinuityBuilder {
             return Ok(all_blocks);
         }
 
-        // Trim to start at required_start
+        // Trim to start at required_start, but keep the full chain to the end
+        // (we need the chain to end at an attestation/checkpoint)
         let start_index = all_blocks
             .iter()
             .position(|b| b.block_number == required_start)
@@ -445,10 +513,11 @@ impl ContinuityBuilder {
         let trimmed = all_blocks[start_index..].to_vec();
 
         println!(
-            "Trimmed continuity chain from {} to {} blocks (starting at block {})",
+            "Trimmed continuity chain from {} to {} blocks (starting at block {}, ending at block {})",
             all_blocks.len(),
             trimmed.len(),
-            required_start
+            required_start,
+            trimmed.last().map(|b| b.block_number).unwrap_or(0)
         );
 
         Ok(trimmed)
@@ -457,12 +526,12 @@ impl ContinuityBuilder {
 
 // ===== Convenience functions for backward compatibility =====
 
-/// Fetch continuity proof for a single query (legacy interface)
+/// Fetch continuity proof for a single query
 pub async fn fetch_continuity_proof(
     cc3_rpc_url: &str,
     eth_rpc_url: &str,
     chain_key: u64,
-    query: &Query,
+    height: u64,
 ) -> Result<Vec<Block>> {
     let config = ContinuityConfig {
         cc3_rpc_url: cc3_rpc_url.to_string(),
@@ -471,12 +540,12 @@ pub async fn fetch_continuity_proof(
     };
 
     let builder = ContinuityBuilder::new(config).await?;
-    let proof = builder.build_for_single_query(query).await?;
+    let proof = builder.build_for_single_query(height).await?;
 
     Ok(proof.blocks)
 }
 
-/// Fetch continuity proof for multiple queries (legacy interface)
+/// Fetch continuity proof for multiple queries
 pub async fn fetch_continuity_proof_batch(
     cc3_rpc_url: &str,
     eth_rpc_url: &str,

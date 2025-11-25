@@ -1,73 +1,39 @@
 import { FrontierEvmEvent } from '@subql/frontier-evm-processor';
-import { QueryVerification, BatchQueryVerification } from '../types';
+import { TransactionVerified } from '../types';
 
-// Event signatures for Native Query Verifier precompile
-// QueryVerified(address indexed caller, bytes32 queryId, uint64 chainKey, uint64 height, uint8 status, (uint64,bytes32)[] resultSegments)
-type QueryVerifiedArgs = [string, string, bigint, bigint, number, [bigint, string][]];
+// Event signature for Native Query Verifier precompile
+// TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint8 txIndex)
+// Note: chain_key and height are indexed (in topics), txIndex is in data
+type TransactionVerifiedArgs = [bigint, bigint, number];
 
-// BatchQueriesVerified(uint256 successful, uint256 failed, uint256 total)
-type BatchQueriesVerifiedArgs = [bigint, bigint, bigint];
-
-export async function handleQueryVerified(event: FrontierEvmEvent<QueryVerifiedArgs>): Promise<void> {
+export async function handleTransactionVerified(event: FrontierEvmEvent<TransactionVerifiedArgs>): Promise<void> {
     if (!event.args) {
-        logger.error(`No args found for QueryVerified event`);
+        logger.error(`No args found for TransactionVerified event`);
         return;
     }
 
-    const [caller, queryId, chainKey, height, status, resultSegments] = event.args;
+    // Event structure: TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint8 txIndex)
+    // Topics[0] = event signature hash
+    // Topics[1] = chain_key (indexed)
+    // Topics[2] = height (indexed)
+    // Data = txIndex (uint8)
+    const [chainKey, height, txIndex] = event.args;
 
-    logger.info(
-        `Query verified: caller=${caller}, queryId=${queryId}, chainKey=${chainKey}, height=${height}, status=${status}`,
-    );
+    logger.info(`Transaction verified: chainKey=${chainKey}, height=${height}, txIndex=${txIndex}`);
 
     // Create a unique ID for this verification event
     const id = `${event.blockNumber}-${event.transactionIndex}-${event.logIndex || 0}`;
 
-    // Parse the queryId to extract query details if possible
-    // The queryId is a hash of the query parameters, so we store it as-is
-    const verification = QueryVerification.create({
+    // Store the verification event
+    // The TransactionVerified event contains: chain_key, height, and txIndex
+    const verification = TransactionVerified.create({
         id,
-        caller: caller.toLowerCase(),
-        queryId,
         chainId: BigInt(chainKey),
         height: BigInt(height),
-        status,
-        failureReason: undefined,
+        txIndex: txIndex, // Transaction index from the event
         blockNumber: BigInt(event.blockNumber),
         timestamp: event.blockTimestamp ? BigInt(event.blockTimestamp.getTime()) : BigInt(Date.now()),
-        resultSegments: resultSegments
-            ? resultSegments.map((segment) => ({
-                  offset: segment[0].toString(),
-                  bytes: segment[1],
-              }))
-            : [],
     });
 
     await verification.save();
-}
-
-export async function handleBatchQueriesVerified(event: FrontierEvmEvent<BatchQueriesVerifiedArgs>): Promise<void> {
-    if (!event.args) {
-        logger.error(`No args found for BatchQueriesVerified event`);
-        return;
-    }
-
-    const [successful, failed, total] = event.args;
-
-    logger.info(`Batch queries verified: successful=${successful}, failed=${failed}, total=${total}`);
-
-    // Create a unique ID for this batch verification event
-    const id = `${event.blockNumber}-${event.transactionIndex}-${event.logIndex || 0}`;
-
-    const batchVerification = BatchQueryVerification.create({
-        id,
-        transactionHash: event.transactionHash || '',
-        successfulQueries: Number(successful),
-        failedQueries: Number(failed),
-        totalQueries: Number(total),
-        blockNumber: BigInt(event.blockNumber),
-        timestamp: event.blockTimestamp ? BigInt(event.blockTimestamp.getTime()) : BigInt(Date.now()),
-    });
-
-    await batchVerification.save();
 }

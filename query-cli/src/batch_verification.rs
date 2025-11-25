@@ -6,17 +6,18 @@
 
 use anyhow::{anyhow, Result};
 use attestor_primitives::block::{Block, ContinuityProof};
-use attestor_primitives::query::Query;
 use mmr::query_proof::QueryMerkleProof;
-use sp_core::H256;
 
+use ccnext_abi_encoding::abi::EncodingVersion;
+use eth::Client;
+use utils::block_item_traits::BlockItem;
+
+use crate::merkle;
 use crate::verification::VerificationConfig;
 
 /// Represents a single query in a batch
 #[derive(Debug, Clone)]
 pub struct BatchQueryItem {
-    /// The query specification
-    pub query: Query,
     /// Transaction data to verify
     pub tx_data: Vec<u8>,
     /// Merkle proof for the transaction
@@ -56,12 +57,8 @@ pub struct BatchVerificationResult {
 /// Individual result for a single query in the batch
 #[derive(Debug)]
 pub struct IndividualResult {
-    /// Query ID
-    pub query_id: H256,
     /// Whether verification succeeded
     pub success: bool,
-    /// Extracted data segments if successful
-    pub segments: Vec<(u64, H256)>,
     /// Error message if failed
     pub error: Option<String>,
 }
@@ -155,7 +152,7 @@ impl BatchVerifier {
         let mut merkle_proofs = Vec::new();
 
         for item in &self.queries {
-            queries.push(item.query.clone());
+            queries.push(item.block_height);
             tx_data_array.push(item.tx_data.clone());
             merkle_proofs.push(item.merkle_proof.clone());
         }
@@ -179,14 +176,13 @@ impl BatchVerifier {
         let mut individual_results = Vec::new();
 
         for (i, query) in queries.iter().enumerate() {
-            let query_id = query.id();
-
             println!("Verifying query {}/{}", i + 1, queries.len());
 
             // Call the native query verifier for this query
             let result = verifier
-                .verify_query(
-                    query,
+                .verify(
+                    chain_key,
+                    *query,
                     &tx_data_array[i],
                     merkle_proofs[i].clone(),
                     shared_continuity_proof.clone(),
@@ -194,28 +190,18 @@ impl BatchVerifier {
                 .await;
 
             match result {
-                Ok(segments_vec) => {
+                Ok(_) => {
                     successful += 1;
 
-                    // Extract segments from the verification result
-                    let segments: Vec<(u64, sp_core::H256)> = segments_vec
-                        .iter()
-                        .map(|seg| (seg.offset, seg.bytes))
-                        .collect();
-
                     individual_results.push(IndividualResult {
-                        query_id,
                         success: true,
-                        segments,
                         error: None,
                     });
                 }
                 Err(e) => {
                     failed += 1;
                     individual_results.push(IndividualResult {
-                        query_id,
                         success: false,
-                        segments: Vec::new(),
                         error: Some(format!("Verification failed: {e}")),
                     });
                 }
@@ -300,19 +286,9 @@ pub fn display_batch_results(results: &BatchVerificationResult) {
 
     println!("\n📋 Individual Results:");
     for (i, result) in results.results.iter().enumerate() {
-        println!("\n   Query #{} (ID: 0x{:x}):", i + 1, result.query_id);
+        println!("\n   Query #{}:", i + 1);
         if result.success {
             println!("      Status: ✅ Success");
-            println!("      Segments extracted: {}", result.segments.len());
-            for (j, (offset, data)) in result.segments.iter().enumerate() {
-                // Display first 8 bytes of data for readability
-                let display_data = if data == &sp_core::H256::zero() {
-                    "0x00000000... (empty)".to_string()
-                } else {
-                    format!("0x{}...", hex::encode(&data.as_bytes()[..8]))
-                };
-                println!("        [{j}] offset={offset}, data={display_data}");
-            }
         } else {
             println!("      Status: ❌ Failed");
             if let Some(error) = &result.error {
@@ -332,12 +308,6 @@ pub async fn execute_batch_query(
     chain_key: u64,
     send_tx: bool,
 ) -> Result<()> {
-    use crate::merkle;
-    use crate::query_builder::get_native_token_transfer_segments;
-    use ccnext_abi_encoding::abi::EncodingVersion;
-    use eth::Client;
-    use utils::block_item_traits::BlockItem;
-
     println!("\n=== Batch Query Execution ===");
     println!("Processing {} queries", tx_hashes.len());
 
@@ -378,35 +348,13 @@ pub async fn execute_batch_query(
         let tx_rx = &block.items()[tx_index];
         let full_tx_data = tx_rx.to_bytes();
 
-        // Get native token transfer segments
-        let mut segments = get_native_token_transfer_segments(
-            crate::Network::Custom(eth_client.chain_id(), eth_rpc_url.clone()),
-            tx_rx.tx().clone(),
-            tx_rx.rx().clone(),
-            encoding,
-        )
-        .await?;
-
-        // Adjust offsets
-        for segment in &mut segments {
-            segment.offset += 0; // identifier_size is 0
-        }
-
-        // Create query
-        let query = Query {
-            height: *block_height,
-            chain_id: chain_key,
-            layout_segments: segments,
-        };
-
         // Generate Merkle proof
         let merkle_proof = merkle::generate_merkle_proof(&block, tx_index)?;
 
         // Add to batch
         let batch_item = BatchQueryItem {
-            query,
-            tx_data: full_tx_data,
-            merkle_proof,
+            tx_data: full_tx_data.clone(),
+            merkle_proof: merkle_proof.clone(),
             block_height: *block_height,
         };
 

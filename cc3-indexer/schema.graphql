@@ -490,70 +490,27 @@ type PendingTargetSampleSizeSet @entity {
     targetSampleSize: BigInt!
 }
 
-type QueryVerification @entity {
+type TransactionVerified @entity {
     """
-    Query verification event from the Native Query Verifier precompile
+    Transaction verification event from the Native Query Verifier precompile.
+    Emitted when a transaction is successfully verified via the TransactionVerified event.
     """
     id: ID!
 
-    # Caller address who initiated the verification
-    caller: String! @index
-
-    # Unique query identifier (hash)
-    queryId: String! @index
-
-    # Chain ID from the query
+    # Chain key from the verified transaction
     chainId: BigInt! @index
 
-    # Block height for the query
-    height: BigInt!
+    # Block height for the verified transaction
+    height: BigInt! @index
 
-    # Verification status: 0 = Success, 1 = MerkleProofInvalid, 2 = ContinuityChainInvalid, 3 = DataExtractionError, 4 = MerkleRootMismatch
-    status: Int! # this-is-expected
-
-    # Failure reason if verification failed
-    failureReason: String
+    # Transaction index within the block (from Merkle proof)
+    txIndex: Int!
 
     # Block number when verification occurred
     blockNumber: BigInt!
 
     # Timestamp of verification
     timestamp: BigInt!
-
-    # Result segments if verification succeeded
-    resultSegments: [QueryResultSegment]
-}
-
-type BatchQueryVerification @entity {
-    """
-    Batch query verification event from the Native Query Verifier precompile
-    """
-    id: ID!
-
-    # Transaction hash that triggered the batch verification
-    transactionHash: String! @index
-
-    # Number of successful queries in the batch
-    successfulQueries: Int! # this-is-expected
-
-    # Number of failed queries in the batch
-    failedQueries: Int! # this-is-expected
-
-    # Total number of queries in the batch
-    totalQueries: Int! # this-is-expected
-
-    # Block number when batch verification occurred
-    blockNumber: BigInt!
-
-    # Timestamp of batch verification
-    timestamp: BigInt!
-}
-
-type QueryResultSegment @jsonField {
-    # Offset in the transaction data
-    offset: String!
-    # Extracted bytes at this offset
-    bytes: String!
 }
 
 type SupportedChain @entity {

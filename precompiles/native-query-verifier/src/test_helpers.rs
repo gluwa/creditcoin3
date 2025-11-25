@@ -1,7 +1,6 @@
 // Test helpers for creating deterministic test data for native query verifier
 use crate::*;
 use attestor_primitives::block::Block;
-use attestor_primitives::LayoutSegment;
 use mmr::query_proof::MerkleProofEntry;
 use mmr::SimpleMerkleTree;
 use sp_core::H256;
@@ -133,7 +132,8 @@ pub fn create_deterministic_continuity_chain(
 
 /// Creates a complete test scenario with block, transaction, merkle proof, and continuity chain
 pub struct TestScenario {
-    pub query: Query,
+    pub chain_key: u64,
+    pub height: u64,
     pub tx_data: Vec<u8>,
     pub merkle_proof: MerkleProof,
     pub continuity_blocks: Vec<Block>,
@@ -183,24 +183,9 @@ impl TestScenario {
         // This represents the digest AT the upper attestation block
         let upper_attestation_digest = continuity_blocks.last().unwrap().digest;
 
-        // Create query with layout segments
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![
-                LayoutSegment {
-                    offset: 4,
-                    size: 32,
-                }, // Extract address
-                LayoutSegment {
-                    offset: 36,
-                    size: 32,
-                }, // Extract amount
-            ],
-        };
-
         TestScenario {
-            query,
+            chain_key: 1,
+            height: query_height,
             tx_data,
             merkle_proof,
             continuity_blocks,

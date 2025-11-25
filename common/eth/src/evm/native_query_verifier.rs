@@ -3,13 +3,8 @@ use anyhow::Result;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use attestor_primitives::{
-    block::ContinuityProof,
-    query::{Query, ResultSegment},
-};
+use attestor_primitives::block::ContinuityProof;
 use mmr::query_proof::QueryMerkleProof;
-use sp_core::H256;
-// Removed Felt import - no longer using Felt type
 
 use crate::{Client, Error as ClientError};
 use alloy::{
@@ -30,8 +25,8 @@ pub enum Error {
     AlloyContractError(#[from] AlloyContractError),
     #[error(transparent)]
     TransportError(#[from] RpcError<TransportErrorKind>),
-    #[error("Verification failed with status: {0}")]
-    VerificationFailed(u8),
+    #[error("Verification failed")]
+    VerificationFailed,
     #[error("Couldn't parse contract address: {0}")]
     AddressParse(#[from] hex::FromHexError),
     #[error("Error: {0}")]
@@ -69,15 +64,6 @@ pub const NATIVE_QUERY_VERIFIER_ADDRESS: Address = Address::new([
     0x00, 0x00, 0x0F, 0xD2,
 ]);
 
-/// Convert from Solidity ResultSegment to primitive ResultSegment
-fn decode_result_segment(
-    segment: INativeQueryVerifier::ResultSegment,
-) -> Result<ResultSegment, Error> {
-    let offset = segment.offset;
-    let bytes = H256::from(segment.data.0);
-    Ok(ResultSegment { offset, bytes })
-}
-
 impl From<QueryMerkleProof> for INativeQueryVerifier::MerkleProof {
     fn from(proof: QueryMerkleProof) -> Self {
         Self {
@@ -111,53 +97,40 @@ impl NativeQueryVerifierContract {
         }
     }
 
-    /// Convert Query to Solidity Query type
-    fn to_solidity_query(query: &Query) -> INativeQueryVerifier::Query {
-        INativeQueryVerifier::Query {
-            chain_id: query.chain_id,
-            height: query.height,
-            layout_segments: query
-                .layout_segments
-                .iter()
-                .map(|seg| INativeQueryVerifier::LayoutSegment {
-                    offset: seg.offset,
-                    size: seg.size,
-                })
-                .collect(),
-        }
-    }
-
-    /// Verify a blockchain query with Merkle proof and continuity chain (read-only call)
+    /// Verify a blockchain query with Merkle proof and continuity chain (view function)
     ///
     /// # Arguments
-    /// * `query` - The query specification
+    /// * `chain_key` - The chain key identifier
+    /// * `height` - The block height to verify
     /// * `tx_data` - Raw transaction data to verify
     /// * `merkle_proof` - Merkle proof for transaction inclusion
     /// * `continuity_proof` - Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
-    /// Vector of extracted data segments (reverts on failure)
-    pub async fn verify_query(
+    /// `true` on successful verification (reverts on failure)
+    pub async fn verify(
         &self,
-        query: &Query,
+        chain_key: u64,
+        height: u64,
         tx_data: &[u8],
         merkle_proof: QueryMerkleProof,
         continuity_proof: ContinuityProof,
-    ) -> Result<Vec<ResultSegment>, Error> {
+    ) -> Result<bool, Error> {
         debug!(
-            "Calling native query verifier for query: chain_id={}, height={}",
-            query.chain_id, query.height
+            "Calling native query verifier (view): chain_key={}, height={}",
+            chain_key, height
         );
 
-        let sol_query = Self::to_solidity_query(query);
         let sol_proof = merkle_proof.into();
         let sol_proof_struct = convert_to_solidity_continuity_proof(continuity_proof);
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
+        // Use verify_1 for single query (second verify function in ABI)
         let result = contract
-            .verifyQuery(
-                sol_query,
+            .verify_1(
+                chain_key,
+                height,
                 tx_data.to_vec().into(),
                 sol_proof,
                 sol_proof_struct,
@@ -169,57 +142,49 @@ impl NativeQueryVerifierContract {
                 Error::AlloyContractError(e)
             })?;
 
-        let result_segments: Result<Vec<ResultSegment>, Error> = result
-            .result_segments
-            .into_iter()
-            .map(decode_result_segment)
-            .collect();
+        info!("Query verification successful (view)");
 
-        let result_segments = result_segments?;
-
-        info!(
-            "Query verification successful. Extracted {} segments",
-            result_segments.len()
-        );
-
-        Ok(result_segments)
+        Ok(result._0)
     }
 
     /// Verify a blockchain query with Merkle proof and continuity chain (transaction that emits events)
     ///
     /// # Arguments
-    /// * `query` - The query specification
+    /// * `chain_key` - The chain key identifier
+    /// * `height` - The block height to verify
     /// * `tx_data` - Raw transaction data to verify
     /// * `merkle_proof` - Merkle proof for transaction inclusion
     /// * `continuity_proof` - Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
     /// # Returns
-    /// Vector of extracted data segments (reverts on failure)
-    pub async fn verify_query_with_tx(
+    /// `true` on successful verification (reverts on failure)
+    ///
+    /// # Events
+    /// Emits `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint8 txIndex)` event
+    pub async fn verify_and_emit(
         &self,
-        query: &Query,
+        chain_key: u64,
+        height: u64,
         tx_data: &[u8],
         merkle_proof: QueryMerkleProof,
         continuity_proof: ContinuityProof,
-    ) -> Result<Vec<ResultSegment>, Error> {
+    ) -> Result<bool, Error> {
         debug!(
-            "Sending native query verifier transaction for query: chain_id={}, height={} id={}",
-            query.chain_id,
-            query.height,
-            query.id()
+            "Sending native query verifier transaction: chain_key={}, height={}",
+            chain_key, height
         );
 
-        let sol_query = Self::to_solidity_query(query);
-        let sol_proof: crate::evm::native_query_verifier::INativeQueryVerifier::MerkleProof =
-            merkle_proof.into();
+        let sol_proof: INativeQueryVerifier::MerkleProof = merkle_proof.into();
         let sol_proof_struct = convert_to_solidity_continuity_proof(continuity_proof.clone());
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
 
         // Send as a transaction to emit events
-        let tx_builder = contract.verifyQuery(
-            sol_query.clone(),
+        // Use verifyAndEmit_0 for single query (first verifyAndEmit function in ABI)
+        let tx_builder = contract.verifyAndEmit_0(
+            chain_key,
+            height,
             tx_data.to_vec().into(),
             sol_proof.clone(),
             sol_proof_struct.clone(),
@@ -235,8 +200,9 @@ impl NativeQueryVerifierContract {
 
         // Now call to get the result
         let result = contract
-            .verifyQuery(
-                sol_query,
+            .verifyAndEmit_0(
+                chain_key,
+                height,
                 tx_data.to_vec().into(),
                 sol_proof,
                 sol_proof_struct,
@@ -248,39 +214,161 @@ impl NativeQueryVerifierContract {
                 Error::AlloyContractError(e)
             })?;
 
-        let result_segments: Result<Vec<ResultSegment>, Error> = result
-            .result_segments
-            .into_iter()
-            .map(decode_result_segment)
-            .collect();
+        info!("Query verification successful (with events)");
 
-        let result_segments = result_segments?;
+        Ok(result._0)
+    }
 
-        info!(
-            "Query verification successful. Extracted {} segments",
-            result_segments.len()
+    /// Verify a batch of queries with shared continuity proof (view function)
+    ///
+    /// # Arguments
+    /// * `chain_key` - The chain key identifier (same for all queries)
+    /// * `heights` - Array of block heights to verify
+    /// * `tx_data_array` - Transaction data for each query
+    /// * `merkle_proofs` - Merkle proofs for each query
+    /// * `shared_continuity_proof` - Shared continuity proof covering all query heights
+    ///
+    /// # Returns
+    /// `true` if all verifications succeed (reverts on any failure)
+    pub async fn verify_batch(
+        &self,
+        chain_key: u64,
+        heights: Vec<u64>,
+        tx_data_array: Vec<Vec<u8>>,
+        merkle_proofs: Vec<QueryMerkleProof>,
+        shared_continuity_proof: ContinuityProof,
+    ) -> Result<bool, Error> {
+        debug!(
+            "Calling native query verifier batch (view): chain_key={}, {} queries",
+            chain_key,
+            heights.len()
         );
 
-        Ok(result_segments)
+        let sol_proofs: Vec<INativeQueryVerifier::MerkleProof> =
+            merkle_proofs.into_iter().map(|p| p.into()).collect();
+        let sol_proof_struct = convert_to_solidity_continuity_proof(shared_continuity_proof);
+        let tx_data_bytes: Vec<alloy::primitives::Bytes> =
+            tx_data_array.into_iter().map(|d| d.into()).collect();
+
+        let provider = self.client.get_wallet_ws_provider().await?;
+        let contract = INativeQueryVerifier::new(self.address, provider);
+        // Use verify_0 for batch query (first verify function in ABI - has arrays)
+        let result = contract
+            .verify_0(
+                chain_key,
+                heights,
+                tx_data_bytes,
+                sol_proofs,
+                sol_proof_struct,
+            )
+            .call()
+            .await
+            .map_err(|e| {
+                error!("Native query verifier batch call failed: {:?}", e);
+                Error::AlloyContractError(e)
+            })?;
+
+        info!("Batch query verification successful (view)");
+
+        Ok(result._0)
+    }
+
+    /// Verify a batch of queries with shared continuity proof (transaction that emits events)
+    ///
+    /// # Arguments
+    /// * `chain_key` - The chain key identifier (same for all queries)
+    /// * `heights` - Array of block heights to verify
+    /// * `tx_data_array` - Transaction data for each query
+    /// * `merkle_proofs` - Merkle proofs for each query
+    /// * `shared_continuity_proof` - Shared continuity proof covering all query heights
+    ///
+    /// # Returns
+    /// `true` if all verifications succeed (reverts on any failure)
+    ///
+    /// # Events
+    /// Emits `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint8 txIndex)` event for each successfully verified transaction
+    pub async fn verify_batch_and_emit(
+        &self,
+        chain_key: u64,
+        heights: Vec<u64>,
+        tx_data_array: Vec<Vec<u8>>,
+        merkle_proofs: Vec<QueryMerkleProof>,
+        shared_continuity_proof: ContinuityProof,
+    ) -> Result<bool, Error> {
+        debug!(
+            "Sending native query verifier batch transaction: chain_key={}, {} queries",
+            chain_key,
+            heights.len()
+        );
+
+        let sol_proofs: Vec<INativeQueryVerifier::MerkleProof> =
+            merkle_proofs.into_iter().map(|p| p.into()).collect();
+        let sol_proof_struct =
+            convert_to_solidity_continuity_proof(shared_continuity_proof.clone());
+        let tx_data_bytes: Vec<alloy::primitives::Bytes> =
+            tx_data_array.iter().map(|d| d.clone().into()).collect();
+
+        let provider = self.client.get_wallet_ws_provider().await?;
+        let contract = INativeQueryVerifier::new(self.address, provider);
+
+        // Send as a transaction to emit events
+        // Use verifyAndEmit_1 for batch query (second verifyAndEmit function in ABI - overloaded)
+        let tx_builder = contract.verifyAndEmit_1(
+            chain_key,
+            heights.clone(),
+            tx_data_bytes.clone(),
+            sol_proofs.clone(),
+            sol_proof_struct.clone(),
+        );
+
+        let pending_tx = tx_builder.send().await?;
+        let receipt = pending_tx.get_receipt().await.unwrap();
+
+        info!(
+            "Batch query verification transaction sent. Hash: {:?}, Gas used: {:?}",
+            receipt.transaction_hash, receipt.gas_used
+        );
+
+        // Now call to get the result
+        let result = contract
+            .verifyAndEmit_1(
+                chain_key,
+                heights,
+                tx_data_bytes,
+                sol_proofs,
+                sol_proof_struct,
+            )
+            .call()
+            .await
+            .map_err(|e| {
+                error!("Native query verifier batch call failed: {:?}", e);
+                Error::AlloyContractError(e)
+            })?;
+
+        info!("Batch query verification successful (with events)");
+
+        Ok(result._0)
     }
 
     /// Estimate gas for a query verification
     pub async fn estimate_gas(
         &self,
-        query: &Query,
+        chain_key: u64,
+        height: u64,
         tx_data: &[u8],
         merkle_proof: QueryMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> Result<u64, Error> {
-        let sol_query = Self::to_solidity_query(query);
         let sol_proof = merkle_proof.into();
         let sol_proof_struct = convert_to_solidity_continuity_proof(continuity_proof);
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
+        // Use verify_1 for single query (second verify function in ABI)
         let gas = contract
-            .verifyQuery(
-                sol_query,
+            .verify_1(
+                chain_key,
+                height,
                 tx_data.to_vec().into(),
                 sol_proof,
                 sol_proof_struct,

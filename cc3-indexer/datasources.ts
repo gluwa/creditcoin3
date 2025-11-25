@@ -267,17 +267,10 @@ export const nativeQueryVerifierDatasource: FrontierEvmDatasource = {
         file: './dist/index.js',
         handlers: [
             {
-                handler: 'handleQueryVerified',
+                handler: 'handleTransactionVerified',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: ['QueryVerified(address,bytes32,uint64,uint64,uint8,(uint64,bytes32)[])'],
-                },
-            },
-            {
-                handler: 'handleBatchQueriesVerified',
-                kind: 'substrate/FrontierEvmEvent',
-                filter: {
-                    topics: ['BatchQueriesVerified(uint256,uint256,uint256)'],
+                    topics: ['TransactionVerified(uint64 indexed chain_key,uint64 indexed height,uint8 txIndex)'],
                 },
             },
         ],

@@ -10,7 +10,6 @@ pub(crate) struct PromptOutput {
     pub height: u64,
     pub tx_hash: String,
     pub selected_data: SelectedData,
-    pub offsets_and_sizes: Vec<(u64, u64)>,
     pub encoding: EncodingVersion,
 }
 
@@ -54,7 +53,6 @@ pub(crate) fn prompt(args: PromptArgs) -> Result<PromptOutput> {
         network,
         tx_hash: tx_hash.trim().to_string(),
         selected_data,
-        offsets_and_sizes,
         encoding,
     })
 }

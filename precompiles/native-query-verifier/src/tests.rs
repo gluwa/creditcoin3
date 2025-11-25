@@ -2,8 +2,7 @@ use super::*;
 use crate::continuity::ContinuityVerificationError;
 use crate::mock::*;
 use crate::test_helpers::*;
-use crate::SELECTOR_LOG_QUERY_VERIFIED;
-use attestor_primitives::LayoutSegment;
+use crate::SELECTOR_LOG_TRANSACTION_VERIFIED;
 use attestor_primitives::{
     block::{Block, ContinuityProof},
     Attestation, AttestationCheckpoint, SignedAttestation,
@@ -11,7 +10,7 @@ use attestor_primitives::{
 use fp_evm::Context;
 use frame_support::assert_err;
 use mmr::{query_proof::MerkleProofEntry, SimpleMerkleTree};
-use precompile_utils::{evm::logs::log2, testing::*};
+use precompile_utils::{evm::logs::log3, solidity, testing::*};
 use precompiles_primitives::GAS_STORAGE_LOOKUP;
 use sp_core::{H256, U256};
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
@@ -35,14 +34,7 @@ impl BlockItem for TestTransaction {
     }
 }
 
-/// Helper to create a test query
-pub(crate) fn create_test_query(chain_id: u64, height: u64, segments: Vec<LayoutSegment>) -> Query {
-    Query {
-        chain_id,
-        height,
-        layout_segments: segments,
-    }
-}
+// Helper functions removed - no longer using Query type
 
 /// Helper to trim continuity blocks to start at queryHeight-1
 /// This is needed because ContinuityProof assumes blocks[0] is at queryHeight-1
@@ -57,23 +49,7 @@ pub(crate) fn trim_continuity_blocks_for_query(
         .collect()
 }
 
-/// Helper to create a simple query with 2 segments
-pub(crate) fn get_simple_query() -> Query {
-    create_test_query(
-        1,
-        2, // Changed to match typical continuity block heights in tests
-        vec![
-            LayoutSegment {
-                offset: 4,
-                size: 32,
-            },
-            LayoutSegment {
-                offset: 36,
-                size: 32,
-            },
-        ],
-    )
-}
+// Helper function removed - no longer using Query type
 
 /// Helper to create sample transaction data with proper ABI encoding
 fn get_sample_tx_data() -> Vec<u8> {
@@ -201,14 +177,14 @@ pub(crate) fn setup_attestation(chain_key: u64, block_number: u64, digest: H256)
 pub(crate) fn setup_scenario_attestations(scenario: &TestScenario) {
     // Setup lower attestation (before the continuity chain starts)
     setup_attestation(
-        scenario.query.chain_id,
+        scenario.chain_key,
         scenario.attestation_block_number,
         scenario.attestation_digest,
     );
 
     // Setup upper attestation (where the continuity chain ends)
     setup_attestation(
-        scenario.query.chain_id,
+        scenario.chain_key,
         scenario.upper_attestation_block_number,
         scenario.upper_attestation_digest,
     );
@@ -232,7 +208,8 @@ pub(crate) fn precompiles() -> Precompiles<Runtime> {
 #[test]
 fn test_empty_tx_data_fails() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
+        let chain_key = 1;
+        let height = 2;
         let merkle_proof = create_invalid_merkle_proof();
         let continuity_blocks = create_continuity_blocks(2);
         let continuity_proof = ContinuityProof::from_blocks(continuity_blocks);
@@ -241,8 +218,9 @@ fn test_empty_tx_data_fails() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query,
+                PCall::verify {
+                    chain_key,
+                    height,
                     tx_data: vec![].into(),
                     merkle_proof,
                     continuity_proof,
@@ -255,7 +233,8 @@ fn test_empty_tx_data_fails() {
 #[test]
 fn test_empty_continuity_chain_with_valid_merkle() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
+        let chain_key = 1;
+        let height = 2;
         let tx_data = get_sample_tx_data();
         let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
 
@@ -264,8 +243,9 @@ fn test_empty_continuity_chain_with_valid_merkle() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query,
+                PCall::verify {
+                    chain_key,
+                    height,
                     tx_data: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(vec![]),
@@ -297,16 +277,6 @@ fn test_verify_continuity_chain_errors_with_less_than_2_blocks() {
         // Setup attestation at query.height
         setup_attestation(1, query_height, digest);
 
-        // Create query
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         let mut handle = MockHandle::new(
             Account::Precompile.into(),
             Context {
@@ -320,7 +290,8 @@ fn test_verify_continuity_chain_errors_with_less_than_2_blocks() {
             NativeQueryVerifierPrecompile::<Runtime>::verify_continuity_chain(
                 &mut handle,
                 &continuity_blocks,
-                &query,
+                1, // chain_key
+                query_height,
             ),
             ContinuityVerificationError::InsufficientBlocks
         );
@@ -363,16 +334,6 @@ fn test_verify_continuity_chain_errors_when_prev_digest_not_linked() {
         // Setup attestation at query.height
         setup_attestation(1, query_height, digest);
 
-        // Create query
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         let mut handle = MockHandle::new(
             Account::Precompile.into(),
             Context {
@@ -386,7 +347,8 @@ fn test_verify_continuity_chain_errors_when_prev_digest_not_linked() {
             NativeQueryVerifierPrecompile::<Runtime>::verify_continuity_chain(
                 &mut handle,
                 &continuity_blocks,
-                &query,
+                1, // chain_key
+                query_height,
             ),
             ContinuityVerificationError::ChainLinkBroken
         );
@@ -428,16 +390,6 @@ fn test_verify_continuity_chain_errors_when_continuity_chain_doesnt_reach_query_
         // Setup attestation at query.height
         setup_attestation(1, query_height, digest);
 
-        // Bogus query
-        let query = Query {
-            chain_id: 1,
-            height: query_height + 1, // height > continuity chain last block height
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         let mut handle = MockHandle::new(
             Account::Precompile.into(),
             Context {
@@ -451,7 +403,8 @@ fn test_verify_continuity_chain_errors_when_continuity_chain_doesnt_reach_query_
             NativeQueryVerifierPrecompile::<Runtime>::verify_continuity_chain(
                 &mut handle,
                 &continuity_blocks,
-                &query,
+                1,                // chain_key
+                query_height + 1, // height > continuity chain last block height
             ),
             ContinuityVerificationError::ChainDoesNotReachQueryHeight
         );
@@ -495,32 +448,20 @@ fn test_continuity_chain_at_attestation_height() {
         // Setup attestation at query.height
         setup_attestation(1, query_height, digest);
 
-        // Create query
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         // This should succeed - continuity chain at attestation height
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query,
+                PCall::verify {
+                    chain_key: 1,
+                    height: query_height,
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
-            .execute_returns(vec![ResultSegment {
-                offset: 4,
-                bytes: H256::from_slice(&tx_data[4..36]),
-            }]);
+            .execute_returns(true);
     });
 }
 
@@ -561,32 +502,20 @@ fn test_continuity_chain_at_checkpoint_height() {
         // Setup checkpoint at query.height
         setup_checkpoint(1, query_height, digest);
 
-        // Create query
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         // This should succeed - continuity chain at checkpoint height
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query,
+                PCall::verify {
+                    chain_key: 1,
+                    height: query_height,
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
-            .execute_returns(vec![ResultSegment {
-                offset: 4,
-                bytes: H256::from_slice(&tx_data[4..36]),
-            }]);
+            .execute_returns(true);
     });
 }
 
@@ -629,48 +558,20 @@ fn test_query_at_attestation_height() {
         // Setup attestation at query.height (the query is ON the attestation height)
         setup_attestation(1, query_height, digest);
 
-        // Create query
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         // This should succeed - query is at attestation height and continuity chain ends there
-        let query_id = query.id();
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: query.clone(),
+                PCall::verify {
+                    chain_key: 1,
+                    height: query_height,
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
-            .expect_log(log2(
-                Account::Precompile,
-                SELECTOR_LOG_QUERY_VERIFIED,
-                Account::Alice,
-                ethabi::encode(&[
-                    ethabi::Token::FixedBytes(query_id.0.to_vec()),
-                    ethabi::Token::Uint(query.chain_id.into()),
-                    ethabi::Token::Uint(query.height.into()),
-                    ethabi::Token::Uint(0u8.into()), // Success status
-                    ethabi::Token::Array(vec![ethabi::Token::Tuple(vec![
-                        ethabi::Token::Uint(4u64.into()),
-                        ethabi::Token::FixedBytes(H256::from_slice(&tx_data[4..36]).0.to_vec()),
-                    ])]),
-                ]),
-            ))
-            .execute_returns(vec![ResultSegment {
-                offset: 4,
-                bytes: H256::from_slice(&tx_data[4..36]),
-            }]);
+            .execute_returns(true);
     });
 }
 
@@ -713,48 +614,20 @@ fn test_query_at_checkpoint_height() {
         // Setup checkpoint at query.height (the query is ON the checkpoint height)
         setup_checkpoint(1, query_height, digest);
 
-        // Create query
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         // This should succeed - query is at checkpoint height and continuity chain ends there
-        let query_id = query.id();
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: query.clone(),
+                PCall::verify {
+                    chain_key: 1,
+                    height: query_height,
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
             )
-            .expect_log(log2(
-                Account::Precompile,
-                SELECTOR_LOG_QUERY_VERIFIED,
-                Account::Alice,
-                ethabi::encode(&[
-                    ethabi::Token::FixedBytes(query_id.0.to_vec()),
-                    ethabi::Token::Uint(query.chain_id.into()),
-                    ethabi::Token::Uint(query.height.into()),
-                    ethabi::Token::Uint(0u8.into()), // Success status
-                    ethabi::Token::Array(vec![ethabi::Token::Tuple(vec![
-                        ethabi::Token::Uint(4u64.into()),
-                        ethabi::Token::FixedBytes(H256::from_slice(&tx_data[4..36]).0.to_vec()),
-                    ])]),
-                ]),
-            ))
-            .execute_returns(vec![ResultSegment {
-                offset: 4,
-                bytes: H256::from_slice(&tx_data[4..36]),
-            }]);
+            .execute_returns(true);
     });
 }
 
@@ -779,23 +652,14 @@ fn test_single_block_continuity_chain_fails() {
             digest,
         }];
 
-        // Create query
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         // This should fail - need at least 2 blocks to verify digest
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query,
+                PCall::verify {
+                    chain_key: 1,
+                    height: query_height,
                     tx_data: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
@@ -845,23 +709,14 @@ fn test_continuity_chain_wrong_digest_fails() {
         let correct_digest = compute_test_digest(query_height, &root, &prev_digest);
         setup_attestation(1, query_height, correct_digest);
 
-        // Create query
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         // This should fail - query block digest verification failed
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query,
+                PCall::verify {
+                    chain_key: 1,
+                    height: query_height,
                     tx_data: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
@@ -875,20 +730,19 @@ fn test_continuity_chain_wrong_digest_fails() {
 fn test_no_layout_segments_succeeds_with_empty_results() {
     ExtBuilder::default().build().execute_with(|| {
         // Use deterministic test scenario
-        let mut scenario = TestScenario::new_valid(5, 0);
-        // Clear layout segments
-        scenario.query.layout_segments = vec![];
+        let scenario = TestScenario::new_valid(5, 0);
 
         // Setup both attestations
         setup_scenario_attestations(&scenario);
 
-        // No segments should succeed with empty result
+        // Should succeed
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -896,7 +750,7 @@ fn test_no_layout_segments_succeeds_with_empty_results() {
                     ),
                 },
             )
-            .execute_returns(Vec::<ResultSegment>::new()); // Empty segments
+            .execute_returns(true);
     });
 }
 
@@ -916,17 +770,14 @@ fn test_gas_calculation_base() {
         let _tx_data_len = scenario.tx_data.len() as u64;
         let _siblings_count = scenario.merkle_proof.siblings.len() as u64;
 
-        // Extract expected data segments
-        let expected_address = &scenario.tx_data[4..36];
-        let expected_amount = &scenario.tx_data[36..68];
-
         // Should succeed with proper gas calculation
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -934,16 +785,7 @@ fn test_gas_calculation_base() {
                     ),
                 },
             )
-            .execute_returns(vec![
-                ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(expected_address),
-                },
-                ResultSegment {
-                    offset: 36,
-                    bytes: H256::from_slice(expected_amount),
-                },
-            ]);
+            .execute_returns(true);
     });
 }
 
@@ -984,17 +826,18 @@ fn test_continuity_chain_with_attestation() {
         // Setup both attestations
         setup_scenario_attestations(&scenario);
 
-        // Extract expected data segments
-        let expected_address = &scenario.tx_data[4..36];
-        let expected_amount = &scenario.tx_data[36..68];
+        // Extract expected data segments (unused but kept for documentation)
+        let _expected_address = &scenario.tx_data[4..36];
+        let _expected_amount = &scenario.tx_data[36..68];
 
         // This should succeed now that everything is properly set up
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1002,16 +845,7 @@ fn test_continuity_chain_with_attestation() {
                     ),
                 },
             )
-            .execute_returns(vec![
-                ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(expected_address),
-                },
-                ResultSegment {
-                    offset: 36,
-                    bytes: H256::from_slice(expected_amount),
-                },
-            ]);
+            .execute_returns(true);
     });
 }
 
@@ -1033,17 +867,18 @@ fn test_continuity_chain_with_checkpoint() {
             scenario.upper_attestation_digest,
         );
 
-        // Extract expected data segments
-        let expected_address = &scenario.tx_data[4..36];
-        let expected_amount = &scenario.tx_data[36..68];
+        // Extract expected data segments (unused but kept for documentation)
+        let _expected_address = &scenario.tx_data[4..36];
+        let _expected_amount = &scenario.tx_data[36..68];
 
         // This should succeed now
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1051,16 +886,7 @@ fn test_continuity_chain_with_checkpoint() {
                     ),
                 },
             )
-            .execute_returns(vec![
-                ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(expected_address),
-                },
-                ResultSegment {
-                    offset: 36,
-                    bytes: H256::from_slice(expected_amount),
-                },
-            ]);
+            .execute_returns(true);
     });
 }
 
@@ -1084,17 +910,18 @@ fn test_continuity_chain_invalid_prev_digest_succeeds() {
             scenario.upper_attestation_digest,
         );
 
-        // Extract expected data segments
-        let expected_address = &scenario.tx_data[4..36];
-        let expected_amount = &scenario.tx_data[36..68];
+        // Extract expected data segments (unused but kept for documentation)
+        let _expected_address = &scenario.tx_data[4..36];
+        let _expected_amount = &scenario.tx_data[36..68];
 
         // Should succeed despite wrong lower attestation digest
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1102,16 +929,7 @@ fn test_continuity_chain_invalid_prev_digest_succeeds() {
                     ),
                 },
             )
-            .execute_returns(vec![
-                ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(expected_address),
-                },
-                ResultSegment {
-                    offset: 36,
-                    bytes: H256::from_slice(expected_amount),
-                },
-            ]);
+            .execute_returns(true);
     });
 }
 
@@ -1135,8 +953,9 @@ fn test_continuity_chain_broken_link_fails() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1154,7 +973,8 @@ fn test_continuity_chain_broken_link_fails() {
 #[test]
 fn test_continuity_no_finalized_attestation_fails() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
+        let chain_key = 1;
+        let height = 2;
         let tx_data = get_sample_tx_data();
         let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
         let continuity_blocks = create_continuity_blocks(2);
@@ -1166,8 +986,9 @@ fn test_continuity_no_finalized_attestation_fails() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query,
+                PCall::verify {
+                    chain_key,
+                    height,
                     tx_data: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
@@ -1193,17 +1014,18 @@ fn test_continuity_checkpoint_block_number_mismatch_succeeds() {
             scenario.upper_attestation_digest,
         );
 
-        // Extract expected data segments
-        let expected_address = &scenario.tx_data[4..36];
-        let expected_amount = &scenario.tx_data[36..68];
+        // Extract expected data segments (unused but kept for documentation)
+        let _expected_address = &scenario.tx_data[4..36];
+        let _expected_amount = &scenario.tx_data[36..68];
 
         // Should succeed despite wrong checkpoint block number
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1211,16 +1033,7 @@ fn test_continuity_checkpoint_block_number_mismatch_succeeds() {
                     ),
                 },
             )
-            .execute_returns(vec![
-                ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(expected_address),
-                },
-                ResultSegment {
-                    offset: 36,
-                    bytes: H256::from_slice(expected_amount),
-                },
-            ]);
+            .execute_returns(true);
     });
 }
 
@@ -1232,26 +1045,18 @@ fn test_continuity_checkpoint_block_number_mismatch_succeeds() {
 fn test_extract_single_segment() {
     ExtBuilder::default().build().execute_with(|| {
         // Use deterministic test scenario
-        let mut scenario = TestScenario::new_valid(5, 0);
-
-        // Modify query to have only one segment
-        scenario.query.layout_segments = vec![LayoutSegment {
-            offset: 4,
-            size: 32,
-        }];
+        let scenario = TestScenario::new_valid(5, 0);
 
         // Setup both attestations
         setup_scenario_attestations(&scenario);
-
-        // Extract expected data
-        let expected_address = &scenario.tx_data[4..36];
 
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1259,37 +1064,26 @@ fn test_extract_single_segment() {
                     ),
                 },
             )
-            .execute_returns(vec![ResultSegment {
-                offset: 4,
-                bytes: H256::from_slice(expected_address),
-            }]);
+            .execute_returns(true);
     });
 }
 
 #[test]
 fn test_extract_multiple_segments() {
     ExtBuilder::default().build().execute_with(|| {
-        // Use deterministic test scenario with 3 segments
-        let mut scenario = TestScenario::new_valid(5, 0);
-        scenario.query.layout_segments.push(LayoutSegment {
-            offset: 68,
-            size: 32,
-        });
+        // Use deterministic test scenario
+        let scenario = TestScenario::new_valid(5, 0);
 
         // Setup both attestations
         setup_scenario_attestations(&scenario);
-
-        // Extract expected data segments
-        let expected_address = &scenario.tx_data[4..36];
-        let expected_amount = &scenario.tx_data[36..68];
-        let expected_extra = &scenario.tx_data[68..100];
 
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1297,20 +1091,7 @@ fn test_extract_multiple_segments() {
                     ),
                 },
             )
-            .execute_returns(vec![
-                ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(expected_address),
-                },
-                ResultSegment {
-                    offset: 36,
-                    bytes: H256::from_slice(expected_amount),
-                },
-                ResultSegment {
-                    offset: 68,
-                    bytes: H256::from_slice(expected_extra),
-                },
-            ]);
+            .execute_returns(true);
     });
 }
 
@@ -1318,23 +1099,18 @@ fn test_extract_multiple_segments() {
 fn test_segment_out_of_bounds_fails() {
     ExtBuilder::default().build().execute_with(|| {
         // Use deterministic test scenario
-        let mut scenario = TestScenario::new_valid(5, 0);
-        // Modify query to have an out-of-bounds segment
-        scenario.query.layout_segments = vec![LayoutSegment {
-            offset: 4,
-            size: 1000, // Size exceeds tx_data (which is 100 bytes)
-        }];
-
+        let scenario = TestScenario::new_valid(5, 0);
         // Setup both attestations
         setup_scenario_attestations(&scenario);
 
-        // Should fail at data extraction stage
+        // Should succeed (no data extraction in new interface)
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1342,7 +1118,7 @@ fn test_segment_out_of_bounds_fails() {
                     ),
                 },
             )
-            .execute_reverts(|output| output == b"Data extraction error: segment out of bounds");
+            .execute_returns(true);
     });
 }
 
@@ -1350,23 +1126,18 @@ fn test_segment_out_of_bounds_fails() {
 fn test_segment_offset_beyond_data_fails() {
     ExtBuilder::default().build().execute_with(|| {
         // Use deterministic test scenario
-        let mut scenario = TestScenario::new_valid(5, 0);
-        // Modify query to have an offset beyond tx_data
-        scenario.query.layout_segments = vec![LayoutSegment {
-            offset: 200, // Beyond tx_data (which is 100 bytes)
-            size: 32,
-        }];
-
+        let scenario = TestScenario::new_valid(5, 0);
         // Setup both attestations
         setup_scenario_attestations(&scenario);
 
-        // Should fail at data extraction stage
+        // Should succeed (no data extraction in new interface)
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1374,7 +1145,7 @@ fn test_segment_offset_beyond_data_fails() {
                     ),
                 },
             )
-            .execute_reverts(|output| output == b"Data extraction error: segment out of bounds");
+            .execute_returns(true);
     });
 }
 
@@ -1392,16 +1163,17 @@ fn test_merkle_proof_validation_with_valid_proof() {
         // Setup both attestations
         setup_scenario_attestations(&scenario);
 
-        // Extract expected data segments
-        let expected_address = &scenario.tx_data[4..36];
-        let expected_amount = &scenario.tx_data[36..68];
+        // Extract expected data segments (unused but kept for documentation)
+        let _expected_address = &scenario.tx_data[4..36];
+        let _expected_amount = &scenario.tx_data[36..68];
 
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1409,16 +1181,7 @@ fn test_merkle_proof_validation_with_valid_proof() {
                     ),
                 },
             )
-            .execute_returns(vec![
-                ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(expected_address),
-                },
-                ResultSegment {
-                    offset: 36,
-                    bytes: H256::from_slice(expected_amount),
-                },
-            ]);
+            .execute_returns(true);
     });
 }
 
@@ -1436,8 +1199,9 @@ fn test_invalid_merkle_proof_fails() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1457,20 +1221,18 @@ fn test_invalid_merkle_proof_fails() {
 fn test_zero_size_segment_succeeds() {
     ExtBuilder::default().build().execute_with(|| {
         // Use deterministic test scenario
-        let mut scenario = TestScenario::new_valid(5, 0);
-        // Modify query to have a zero-size segment
-        scenario.query.layout_segments = vec![LayoutSegment { offset: 4, size: 0 }];
-
+        let scenario = TestScenario::new_valid(5, 0);
         // Setup both attestations
         setup_scenario_attestations(&scenario);
 
-        // Zero-size segment should succeed with empty H256
+        // Should succeed
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1478,10 +1240,7 @@ fn test_zero_size_segment_succeeds() {
                     ),
                 },
             )
-            .execute_returns(vec![ResultSegment {
-                offset: 4,
-                bytes: H256::zero(), // Zero-size segment returns zero H256
-            }]);
+            .execute_returns(true);
     });
 }
 
@@ -1517,48 +1276,20 @@ fn test_large_continuity_chain() {
         let continuity_blocks =
             trim_continuity_blocks_for_query(all_continuity_blocks, query_height);
 
-        // Create query
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![
-                LayoutSegment {
-                    offset: 4,
-                    size: 32,
-                },
-                LayoutSegment {
-                    offset: 36,
-                    size: 32,
-                },
-            ],
-        };
-
-        // Extract expected data segments
-        let expected_address = &tx_data[4..36];
-        let expected_amount = &tx_data[36..68];
-
         // Should succeed with large continuity chain
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query,
+                PCall::verify {
+                    chain_key: 1,
+                    height: query_height,
                     tx_data: tx_data.clone().into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_returns(vec![
-                ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(expected_address),
-                },
-                ResultSegment {
-                    offset: 36,
-                    bytes: H256::from_slice(expected_amount),
-                },
-            ]);
+            .execute_returns(true);
     });
 }
 
@@ -1581,7 +1312,8 @@ fn test_encode_revert_message() {
 #[test]
 fn test_continuity_chain_height_validation() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = create_test_query(1, 100, vec![]); // Query at height 100
+        let chain_key = 1;
+        let height = 100;
         let tx_data = get_sample_tx_data();
 
         // We'll set up attestations as needed for each test case
@@ -1630,8 +1362,9 @@ fn test_continuity_chain_height_validation() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: query.clone(),
+                PCall::verify {
+                    chain_key,
+                    height,
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks_wrong_root),
@@ -1676,26 +1409,15 @@ fn test_continuity_chain_height_validation() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: query.clone(),
+                PCall::verify {
+                    chain_key,
+                    height,
                     tx_data: tx_data.clone().into(),
                     merkle_proof: merkle_proof.clone(),
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks_valid.clone()),
                 },
             )
-            .expect_log(log2(
-                Account::Precompile,
-                SELECTOR_LOG_QUERY_VERIFIED,
-                Account::Alice,
-                ethabi::encode(&[
-                    ethabi::Token::FixedBytes(query.id().0.to_vec()),
-                    ethabi::Token::Uint(query.chain_id.into()),
-                    ethabi::Token::Uint(query.height.into()),
-                    ethabi::Token::Uint(0u8.into()),
-                    ethabi::Token::Array(vec![]),
-                ]),
-            ))
-            .execute_returns(Vec::<ResultSegment>::new());
+            .execute_returns(true);
 
         // Test 3: Continuity chain that extends beyond query height
         // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
@@ -1730,33 +1452,19 @@ fn test_continuity_chain_height_validation() {
         setup_attestation(1, 101, continuity_blocks_extended.last().unwrap().digest);
 
         // This should also pass - extending beyond query height is acceptable
-        let query_id = query.id();
-        let query_chain_id = query.chain_id;
-        let query_height = query.height;
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query,
+                PCall::verify {
+                    chain_key,
+                    height,
                     tx_data: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks_extended),
                 },
             )
-            .expect_log(log2(
-                Account::Precompile,
-                SELECTOR_LOG_QUERY_VERIFIED,
-                Account::Alice,
-                ethabi::encode(&[
-                    ethabi::Token::FixedBytes(query_id.0.to_vec()),
-                    ethabi::Token::Uint(query_chain_id.into()),
-                    ethabi::Token::Uint(query_height.into()),
-                    ethabi::Token::Uint(0u8.into()),
-                    ethabi::Token::Array(vec![]),
-                ]),
-            ))
-            .execute_returns(Vec::<ResultSegment>::new());
+            .execute_returns(true);
     });
 }
 
@@ -1769,17 +1477,18 @@ fn test_full_query_verification_flow() {
         // Setup both attestations for the continuity chain
         setup_scenario_attestations(&scenario);
 
-        // Extract expected data segments
-        let expected_address = &scenario.tx_data[4..36];
-        let expected_amount = &scenario.tx_data[36..68];
+        // Extract expected data segments (unused but kept for documentation)
+        let _expected_address = &scenario.tx_data[4..36];
+        let _expected_amount = &scenario.tx_data[36..68];
 
         // Execute verification
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_query {
-                    query: scenario.query,
+                PCall::verify {
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
                     tx_data: scenario.tx_data.clone().into(),
                     merkle_proof: scenario.merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(
@@ -1787,16 +1496,7 @@ fn test_full_query_verification_flow() {
                     ),
                 },
             )
-            .execute_returns(vec![
-                ResultSegment {
-                    offset: 4,
-                    bytes: H256::from_slice(expected_address),
-                },
-                ResultSegment {
-                    offset: 36,
-                    bytes: H256::from_slice(expected_amount),
-                },
-            ]);
+            .execute_returns(true);
     });
 }
 
@@ -1839,16 +1539,6 @@ fn test_verify_query_block_digest_errors_when_find_query_block_index_returns_0()
         // Setup attestation at query.height
         setup_attestation(1, query_height, digest);
 
-        // Bogus query
-        let query = Query {
-            chain_id: 1,
-            height: query_height - 1, // <-- will cause internal block idx == 0
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         let mut handle = MockHandle::new(
             Account::Precompile.into(),
             Context {
@@ -1862,7 +1552,7 @@ fn test_verify_query_block_digest_errors_when_find_query_block_index_returns_0()
             NativeQueryVerifierPrecompile::<Runtime>::verify_query_block_digest(
                 &mut handle,
                 &continuity_blocks,
-                &query,
+                query_height - 1, // <-- will cause internal block idx == 0
                 merkle_proof.root,
             ),
             ContinuityVerificationError::PreviousBlockNotFound
@@ -1908,16 +1598,6 @@ fn test_verify_query_block_digest_errors_when_prev_block_is_not_minus_1() {
         // Setup attestation at query.height
         setup_attestation(1, query_height, digest);
 
-        // Create query
-        let query = Query {
-            chain_id: 1,
-            height: query_height,
-            layout_segments: vec![LayoutSegment {
-                offset: 4,
-                size: 32,
-            }],
-        };
-
         let mut handle = MockHandle::new(
             Account::Precompile.into(),
             Context {
@@ -1931,7 +1611,7 @@ fn test_verify_query_block_digest_errors_when_prev_block_is_not_minus_1() {
             NativeQueryVerifierPrecompile::<Runtime>::verify_query_block_digest(
                 &mut handle,
                 &continuity_blocks,
-                &query,
+                query_height,
                 merkle_proof.root,
             ),
             ContinuityVerificationError::PreviousBlockNotFound
@@ -1946,21 +1626,23 @@ fn test_verify_batch_queries_impl_errors_with_empty_queries() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_batch_queries {
-                    queries: vec![].into(),
+                PCall::verify_batch {
+                    chain_key: 1,
+                    heights: vec![],
                     tx_data_array: vec![],
                     merkle_proofs: vec![],
                     shared_continuity_proof: ContinuityProof::from_blocks(vec![]),
                 },
             )
-            .execute_reverts(|output| output == b"Empty queries array");
+            .execute_reverts(|output| output == b"Input arrays must have the same length");
     });
 }
 
 #[test]
 fn test_verify_batch_queries_impl_errors_with_empty_continuity_proof() {
     ExtBuilder::default().build().execute_with(|| {
-        let query = get_simple_query();
+        let chain_key = 1;
+        let height = 2;
         let tx_data = get_sample_tx_data();
         let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
 
@@ -1968,13 +1650,219 @@ fn test_verify_batch_queries_impl_errors_with_empty_continuity_proof() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_batch_queries {
-                    queries: vec![query].into(),
+                PCall::verify_batch {
+                    chain_key,
+                    heights: vec![height],
                     tx_data_array: vec![tx_data.into()],
                     merkle_proofs: vec![merkle_proof],
                     shared_continuity_proof: ContinuityProof::from_blocks(vec![]),
                 },
             )
             .execute_reverts(|output| output == b"Continuity proof cannot be empty");
+    });
+}
+
+#[test]
+fn test_transaction_verified_event_with_correct_tx_index() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Test with transaction at index 2 in a block with 4 transactions
+        let tx_index = 2usize;
+        let chain_key = 1u64;
+        let height = 100u64;
+
+        // Create a test block with 4 transactions
+        let test_block = create_test_block(height, 4);
+        let tx_data = test_block.transactions[tx_index].data.clone();
+
+        // Create merkle proof for transaction at index 2
+        let merkle_proof = create_valid_merkle_proof_for_block(&test_block, tx_index);
+
+        // Create continuity chain starting at height - 1
+        let start_height = height - 1;
+        let mut continuity_blocks = Vec::new();
+        let mut prev_digest = H256::zero();
+
+        // Create block at height - 1
+        let root1 = H256::random();
+        let digest1 = compute_test_digest(start_height, &root1, &prev_digest);
+        continuity_blocks.push(Block {
+            block_number: start_height,
+            root: root1,
+            prev_digest,
+            digest: digest1,
+        });
+        prev_digest = digest1;
+
+        // Create block at height with the merkle root
+        let digest2 = compute_test_digest(height, &merkle_proof.root, &prev_digest);
+        continuity_blocks.push(Block {
+            block_number: height,
+            root: merkle_proof.root,
+            prev_digest,
+            digest: digest2,
+        });
+
+        // Setup attestations
+        setup_attestation(
+            chain_key,
+            start_height - 1,
+            continuity_blocks[0].prev_digest,
+        );
+        setup_attestation(chain_key, height, continuity_blocks[1].digest);
+
+        // Calculate expected transaction index from merkle proof
+        // The calculate_tx_index function reconstructs it from siblings
+        let expected_tx_index = {
+            if merkle_proof.siblings.is_empty() {
+                0u8
+            } else {
+                let mut tx_idx = 0u8;
+                for (bit_position, sibling) in merkle_proof.siblings.iter().enumerate() {
+                    if sibling.is_left {
+                        tx_idx |= 1u8 << bit_position;
+                    }
+                }
+                tx_idx
+            }
+        };
+
+        // Verify expected_tx_index matches the actual tx_index
+        assert_eq!(expected_tx_index, tx_index as u8);
+
+        // Encode event data: only tx_index (chain_key and height are indexed topics)
+        let event_data = solidity::encode_event_data(expected_tx_index);
+
+        // Execute and verify event is emitted with correct data
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify {
+                    chain_key,
+                    height,
+                    tx_data: tx_data.into(),
+                    merkle_proof,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
+                },
+            )
+            .expect_log(log3(
+                Account::Precompile,
+                SELECTOR_LOG_TRANSACTION_VERIFIED,
+                H256::from_low_u64_be(chain_key), // First indexed topic: chain_key
+                H256::from_low_u64_be(height),    // Second indexed topic: height
+                event_data,                       // Data: txIndex
+            ))
+            .execute_returns(true);
+    });
+}
+
+#[test]
+fn test_transaction_verified_event_batch_with_correct_tx_indices() {
+    ExtBuilder::default().build().execute_with(|| {
+        let chain_key = 1u64;
+        let height = 100u64;
+
+        // Create a test block with 4 transactions
+        let test_block = create_test_block(height, 4);
+
+        // Test with transactions at indices 0 and 3
+        let tx_indices = vec![0usize, 3usize];
+        let mut tx_data_array = Vec::new();
+        let mut merkle_proofs = Vec::new();
+        let mut expected_tx_indices = Vec::new();
+
+        for &tx_index in &tx_indices {
+            let tx_data = test_block.transactions[tx_index].data.clone();
+            let merkle_proof = create_valid_merkle_proof_for_block(&test_block, tx_index);
+
+            // Calculate expected transaction index from merkle proof
+            let expected_tx_index = {
+                if merkle_proof.siblings.is_empty() {
+                    0u8
+                } else {
+                    let mut tx_idx = 0u8;
+                    for (bit_position, sibling) in merkle_proof.siblings.iter().enumerate() {
+                        if sibling.is_left {
+                            tx_idx |= 1u8 << bit_position;
+                        }
+                    }
+                    tx_idx
+                }
+            };
+
+            assert_eq!(expected_tx_index, tx_index as u8);
+
+            tx_data_array.push(tx_data);
+            merkle_proofs.push(merkle_proof);
+            expected_tx_indices.push(expected_tx_index);
+        }
+
+        // Create continuity chain starting at height - 1
+        let start_height = height - 1;
+        let mut continuity_blocks = Vec::new();
+        let mut prev_digest = H256::zero();
+
+        // Create block at height - 1
+        let root1 = H256::random();
+        let digest1 = compute_test_digest(start_height, &root1, &prev_digest);
+        continuity_blocks.push(Block {
+            block_number: start_height,
+            root: root1,
+            prev_digest,
+            digest: digest1,
+        });
+        prev_digest = digest1;
+
+        // Create block at height with the merkle root from first proof
+        let digest2 = compute_test_digest(height, &merkle_proofs[0].root, &prev_digest);
+        continuity_blocks.push(Block {
+            block_number: height,
+            root: merkle_proofs[0].root,
+            prev_digest,
+            digest: digest2,
+        });
+
+        // Setup attestations
+        setup_attestation(
+            chain_key,
+            start_height - 1,
+            continuity_blocks[0].prev_digest,
+        );
+        setup_attestation(chain_key, height, continuity_blocks[1].digest);
+
+        // Execute batch verification
+        // Build event expectations first
+        let mut event_logs = Vec::new();
+        for &expected_tx_index in &expected_tx_indices {
+            // Encode event data: only tx_index (chain_key and height are indexed topics)
+            let event_data = solidity::encode_event_data(expected_tx_index);
+            event_logs.push(log3(
+                Account::Precompile,
+                SELECTOR_LOG_TRANSACTION_VERIFIED,
+                H256::from_low_u64_be(chain_key), // First indexed topic: chain_key
+                H256::from_low_u64_be(height),    // Second indexed topic: height
+                event_data,                       // Data: txIndex
+            ));
+        }
+
+        // Chain expect_log calls
+        let precompiles_instance = precompiles();
+        let mut test_builder = precompiles_instance.prepare_test(
+            Account::Alice,
+            Account::Precompile,
+            PCall::verify_batch {
+                chain_key,
+                heights: vec![height, height],
+                tx_data_array: tx_data_array.iter().map(|d| d.clone().into()).collect(),
+                merkle_proofs: merkle_proofs.clone(),
+                shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
+            },
+        );
+
+        for event_log in event_logs {
+            test_builder = test_builder.expect_log(event_log);
+        }
+
+        test_builder.execute_returns(true);
     });
 }

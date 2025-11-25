@@ -13,6 +13,9 @@ mod query_builder;
 mod verification;
 mod workflow;
 
+use crate::prompt::prompt as prompt_user;
+use eth::Client;
+
 // Configuration structs to group related parameters
 #[derive(Debug, Clone)]
 struct ConnectionConfig {
@@ -295,6 +298,7 @@ async fn handle_transfer_and_query(
     )
     .await?;
 
+    println!("--------------------------------");
     println!("Transfer successful!");
     println!("  Transaction hash: 0x{:x}", result.transfer.tx_hash);
     println!("  Block number: {}", result.transfer.block_number);
@@ -373,12 +377,7 @@ async fn handle_batch_transfer_and_query(
 }
 
 pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dyn Error>> {
-    use crate::prompt::{prompt as prompt_user, SelectedData};
-    use crate::query_builder::{get_erc20_transfer_segments, get_native_token_transfer_segments};
-    use attestor_primitives::{LayoutSegment, Query};
-    use eth::Client;
-
-    println!("\n=== Native Query Execution (Refactored) ===");
+    println!("\n=== Native Query Execution ===");
 
     // Step 1: Collect query parameters
     let prompt_args = PromptArgs {
@@ -423,64 +422,6 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
         hex::encode(&full_tx_data[..64.min(full_tx_data.len())])
     );
 
-    // Step 4: Build layout segments based on data selection
-    let identifier_size = 0u64;
-
-    let layout_segments = match prompt_output.selected_data {
-        SelectedData::All => {
-            vec![LayoutSegment {
-                offset: identifier_size,
-                size: full_tx_data.len() as u64,
-            }]
-        }
-        SelectedData::RangeOfData => prompt_output
-            .offsets_and_sizes
-            .iter()
-            .map(|(offset, size)| LayoutSegment {
-                offset: offset + identifier_size,
-                size: *size,
-            })
-            .collect(),
-        SelectedData::Erc20TransferData => {
-            let mut segments = get_erc20_transfer_segments(
-                prompt_output.network.clone(),
-                tx_rx.tx().clone(),
-                tx_rx.rx().clone(),
-                prompt_output.encoding,
-            )
-            .await?;
-            for segment in &mut segments {
-                segment.offset += identifier_size;
-            }
-            segments
-        }
-        SelectedData::NativeTokenTransferData => {
-            let mut segments = get_native_token_transfer_segments(
-                prompt_output.network.clone(),
-                tx_rx.tx().clone(),
-                tx_rx.rx().clone(),
-                prompt_output.encoding,
-            )
-            .await?;
-            for segment in &mut segments {
-                segment.offset += identifier_size;
-            }
-            segments
-        }
-    };
-
-    // Step 5: Create the query
-    // Use chain_key (Creditcoin3 chain identifier) instead of network.id() (Ethereum chain ID)
-    // This ensures attestations are looked up correctly by chain_key
-    let query = Query {
-        height: prompt_output.height,
-        chain_id: params.chain_key,
-        layout_segments,
-    };
-
-    println!("\nQuery ID: {:?}", query.id());
-    println!("Query details: {query:?}");
-
     // Step 6: Display block information (using refactored module)
     merkle::display_block_info(&block);
 
@@ -506,11 +447,12 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
 
     // Step 8: Generate continuity proof (using refactored module)
     println!("\n=== Continuity Proof Generation ===");
+    println!("Configured chain key: {}", params.chain_key);
     let continuity_blocks = continuity::fetch_continuity_proof(
         &params.cc3_rpc_url,
         &prompt_output.network.url(),
         params.chain_key,
-        &query,
+        prompt_output.height,
     )
     .await?;
     println!("Continuity blocks: {}", continuity_blocks.len());
@@ -518,12 +460,12 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
     // Debug: Check Merkle root match
     if let Some(query_block) = continuity_blocks
         .iter()
-        .find(|b| b.block_number == query.height)
+        .find(|b| b.block_number == prompt_output.height)
     {
         println!("\n=== Merkle Root Comparison ===");
         println!(
             "Query block {} root (from continuity): 0x{:?}",
-            query.height, query_block.root
+            prompt_output.height, query_block.root
         );
         println!("Merkle proof root: 0x{:?}", merkle_proof.root);
         if query_block.root != merkle_proof.root {
@@ -537,7 +479,7 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
     } else {
         println!(
             "⚠️  WARNING: Query block {} not found in continuity chain!",
-            query.height
+            prompt_output.height
         );
     }
 
@@ -552,16 +494,15 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
 
     let result = verification::verify_query(
         &verification_config,
-        &query,
+        params.chain_key,
+        prompt_output.height,
         &full_tx_data,
         merkle_proof,
-        continuity_blocks,
+        continuity_blocks.clone(),
         params.send_tx,
     )
     .await?;
-
-    // Step 10: Display results (using refactored module)
-    verification::display_results(&query, &result);
+    verification::display_results(params.chain_key, prompt_output.height, &result);
 
     Ok(())
 }

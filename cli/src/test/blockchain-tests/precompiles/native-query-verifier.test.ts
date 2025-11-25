@@ -13,6 +13,9 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
     let alith: any;
     let api: ApiPromise;
     let gasPrice: bigint;
+    // Helper to get the single-query verify function (disambiguate from batch overload)
+    let verifySingle: any;
+    let verifyAndEmitSingle: any;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -26,6 +29,15 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
         expect(result.status).toBe(0);
 
         contract = new ethers.Contract(PRECOMPILE_ADDRESS, contractABI, alith);
+
+        // Get the single-query verify function overload explicitly
+        // Signature: verify(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))
+        verifySingle = contract.getFunction(
+            'verify(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))',
+        );
+        verifyAndEmitSingle = contract.getFunction(
+            'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))',
+        );
     }, 90_000);
 
     afterAll(async () => {
@@ -48,14 +60,9 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             expect(code).toBeDefined();
         });
 
-        test('should verify interface returns ResultSegment[] directly', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+        test('should verify interface returns bool directly', async () => {
+            const chainKey = 1;
+            const height = 100;
 
             const txData = ethers.randomBytes(100);
             const merkleProof = {
@@ -75,19 +82,10 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
             try {
                 // Note: This will likely fail without proper attestation data, but we're testing the interface
-                const result = await contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof);
-                // ethers.js returns named outputs as objects, so result will be { result_segments: [...] }
-                // Verify it returns result_segments array directly
-                expect(result).toBeDefined();
-                expect(result).toHaveProperty('result_segments');
-                expect(Array.isArray(result.result_segments)).toBe(true);
-                if (result.result_segments.length > 0) {
-                    expect(result.result_segments[0]).toHaveProperty('offset');
-                    expect(result.result_segments[0]).toHaveProperty('data');
-                    // Should NOT have status property (old interface)
-                    expect(result.result_segments[0]).not.toHaveProperty('status');
-                }
-                expect(result).not.toHaveProperty('status');
+                // The new interface returns bool directly, not ResultSegment[]
+                const result = await verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof);
+                // Verify it returns a boolean
+                expect(typeof result).toBe('boolean');
             } catch (error: any) {
                 // Expected to fail without proper attestation data
                 // But the error should be about verification, not about return type
@@ -98,13 +96,8 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
 
     describe('Gas Estimation Tests', () => {
         test('should estimate gas for simple query verification', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+            const chainKey = 1;
+            const height = 100;
 
             const txData = ethers.randomBytes(100);
             const merkleProof = {
@@ -123,8 +116,9 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             try {
-                const estimatedGas = await contract.verifyQuery.estimateGas(
-                    query,
+                const estimatedGas = await verifySingle.estimateGas(
+                    chainKey,
+                    height,
                     txData,
                     merkleProof,
                     continuityProof,
@@ -138,13 +132,8 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
         });
 
         test('gas should scale with transaction data size', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+            const chainKey = 1;
+            const height = 100;
 
             const smallTxData = ethers.randomBytes(100);
             const largeTxData = ethers.randomBytes(1000);
@@ -166,8 +155,9 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             try {
-                const smallGas = await contract.verifyQuery.estimateGas(
-                    query,
+                const smallGas = await verifySingle.estimateGas(
+                    chainKey,
+                    height,
                     smallTxData,
                     merkleProof,
                     continuityProof,
@@ -189,8 +179,9 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                     ],
                 };
 
-                const largeGas = await contract.verifyQuery.estimateGas(
-                    query,
+                const largeGas = await verifySingle.estimateGas(
+                    chainKey,
+                    height,
                     largeTxData,
                     largeProof,
                     largeContinuityProof,
@@ -205,13 +196,8 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
         });
 
         test('gas should scale with number of merkle siblings', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+            const chainKey = 1;
+            const height = 100;
 
             const txData = ethers.randomBytes(100);
 
@@ -241,15 +227,17 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             try {
-                const simpleGas = await contract.verifyQuery.estimateGas(
-                    query,
+                const simpleGas = await verifySingle.estimateGas(
+                    chainKey,
+                    height,
                     txData,
                     simpleMerkleProof,
                     continuityProof,
                 );
 
-                const complexGas = await contract.verifyQuery.estimateGas(
-                    query,
+                const complexGas = await verifySingle.estimateGas(
+                    chainKey,
+                    height,
                     txData,
                     complexMerkleProof,
                     continuityProof,
@@ -264,13 +252,8 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
         });
 
         test('gas should scale with continuity chain length', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 103,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+            const chainKey = 1;
+            const height = 103;
 
             const txData = ethers.randomBytes(100);
             const merkleProof = {
@@ -313,14 +296,21 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             try {
-                const shortGas = await contract.verifyQuery.estimateGas(
-                    query,
+                const shortGas = await verifySingle.estimateGas(
+                    chainKey,
+                    height,
                     txData,
                     merkleProof,
                     shortContinuityProof,
                 );
 
-                const longGas = await contract.verifyQuery.estimateGas(query, txData, merkleProof, longContinuityProof);
+                const longGas = await verifySingle.estimateGas(
+                    chainKey,
+                    height,
+                    txData,
+                    merkleProof,
+                    longContinuityProof,
+                );
 
                 // Longer continuity chain should require more gas
                 expect(longGas).toBeGreaterThan(shortGas);
@@ -334,13 +324,8 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
     describe('Input Validation Tests', () => {
         test('should handle maximum uint values gracefully', async () => {
             const maxUint64 = 2n ** 64n - 1n;
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: maxUint64, // Max uint64
-                height: maxUint64,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+            const chainKey = maxUint64; // Max uint64
+            const height = maxUint64;
 
             const txData = ethers.randomBytes(100);
             const merkleProof = {
@@ -359,7 +344,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             try {
-                await contract.verifyQuery(query, txData, merkleProof, continuityProof, {
+                await verifyAndEmitSingle(chainKey, height, txData, merkleProof, continuityProof, {
                     gasPrice,
                     gasLimit: 500000,
                 });
@@ -370,13 +355,8 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
         });
 
         test('should handle malformed transaction data encoding', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+            const chainKey = 1;
+            const height = 100;
 
             // Use invalid data that will fail ethers validation
             const invalidData = 'INVALID_HEX_DATA';
@@ -396,7 +376,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             try {
-                await contract.verifyQuery(query, invalidData, merkleProof, continuityProof, {
+                await verifyAndEmitSingle(chainKey, height, invalidData, merkleProof, continuityProof, {
                     gasPrice,
                     gasLimit: 500000,
                 });
@@ -408,13 +388,8 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
         });
 
         test('should fail with malformed continuity block structure', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+            const chainKey = 1;
+            const height = 100;
 
             const txData = ethers.randomBytes(100);
             const merkleProof = {
@@ -430,19 +405,14 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, malformedProof)).rejects.toThrow(
-                /Continuity chain cannot be empty/,
-            );
+            await expect(
+                verifySingle.staticCall(chainKey, height, txData, merkleProof, malformedProof),
+            ).rejects.toThrow(/Continuity chain cannot be empty/);
         });
 
         test('should fail with invalid hex encoding in transaction data', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+            const chainKey = 1;
+            const height = 100;
 
             const merkleProof = {
                 root: ethers.zeroPadBytes('0x01', 32),
@@ -462,20 +432,15 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             // Pass non-hex string as transaction data - should fail at ethers.js validation level
             // Note: ethers.js throws "invalid BytesLike value" during encoding
             await expect(
-                contract.verifyQuery.staticCall(query, 'not-hex-data', merkleProof, continuityProof),
+                verifySingle.staticCall(chainKey, height, 'not-hex-data', merkleProof, continuityProof),
             ).rejects.toThrow(/invalid BytesLike value|invalid hex string/i);
         });
     });
 
     describe('Failing Cases - Expected Reverts', () => {
         test('should fail when querying without attestation data', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+            const chainKey = 1;
+            const height = 100;
 
             const txData = ethers.randomBytes(100);
             const merkleProof = {
@@ -496,19 +461,14 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             // Note: Merkle proof validation happens first, so this fails at Merkle validation
             // To test continuity validation, we would need valid Merkle proofs
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof)).rejects.toThrow(
-                /Merkle proof validation failed/,
-            );
+            await expect(
+                verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
+            ).rejects.toThrow(/Merkle proof validation failed/);
         });
 
         test('should fail with empty transaction data', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [],
-            };
+            const chainKey = 1;
+            const height = 100;
 
             const txData = '0x'; // Empty transaction data
             const merkleProof = {
@@ -527,23 +487,16 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof)).rejects.toThrow(
-                /Transaction data cannot be empty/,
-            );
+            await expect(
+                verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
+            ).rejects.toThrow(/Transaction data cannot be empty/);
         });
 
-        test('should fail when layout segment exceeds transaction data bounds', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [
-                    { offset: 150, size: 32 }, // Offset beyond tx data length
-                ],
-            };
+        test('should fail when querying invalid block', async () => {
+            const chainKey = 1;
+            const height = 100;
 
-            const txData = ethers.randomBytes(100); // Only 100 bytes
+            const txData = ethers.randomBytes(100);
             const merkleProof = {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty entries array
@@ -561,23 +514,16 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             // Note: Merkle proof validation happens first, so this fails at Merkle validation
-            // To test data extraction errors, we would need valid Merkle proofs
+            // To test continuity validation, we would need valid Merkle proofs
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof)).rejects.toThrow(
-                /Merkle proof validation failed/,
-            );
+            await expect(
+                verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
+            ).rejects.toThrow(/Merkle proof validation failed/);
         });
 
-        test('should fail with extremely large layout segments', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [
-                    { offset: 0, size: 2 ** 32 - 1 }, // Max uint32, exceeds tx data length
-                ],
-            };
+        test('should fail with invalid continuity proof', async () => {
+            const chainKey = 1;
+            const height = 100;
 
             const txData = ethers.randomBytes(100);
             const merkleProof = {
@@ -596,21 +542,16 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             // Note: Merkle proof validation happens first, so this fails at Merkle validation
-            // To test data extraction errors, we would need valid Merkle proofs
+            // To test continuity validation, we would need valid Merkle proofs
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof)).rejects.toThrow(
-                /Merkle proof validation failed/,
-            );
+            await expect(
+                verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
+            ).rejects.toThrow(/Merkle proof validation failed/);
         });
 
         test('should fail with mismatched merkle root', async () => {
-            const query = {
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                chain_id: 1,
-                height: 100,
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                layout_segments: [{ offset: 0, size: 32 }],
-            };
+            const chainKey = 1;
+            const height = 100;
 
             const txData = ethers.randomBytes(100);
             const merkleProof = {
@@ -629,9 +570,9 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             };
 
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
-            await expect(contract.verifyQuery.staticCall(query, txData, merkleProof, continuityProof)).rejects.toThrow(
-                /Merkle proof validation failed/,
-            );
+            await expect(
+                verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
+            ).rejects.toThrow(/Merkle proof validation failed/);
         });
     });
 });
