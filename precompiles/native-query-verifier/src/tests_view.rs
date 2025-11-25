@@ -273,7 +273,7 @@ fn test_verify_batch_queries_view_success() {
                 Account::Precompile,
                 PCall::verify_batch {
                     chain_key,
-                    heights: heights.clone().into(),
+                    heights: heights.clone(),
                     tx_data_array: vec![tx_data1.clone().into(), tx_data2.clone().into()],
                     merkle_proofs: vec![merkle_proof1.clone(), merkle_proof2.clone()],
                     shared_continuity_proof: ContinuityProof::from_blocks(
