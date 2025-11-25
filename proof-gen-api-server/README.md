@@ -53,6 +53,28 @@ Environment variables (subject to change):
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` – required for proof caching.
 - `CC3_KEY` – mnemonic / key used for chain interactions where required.
 
+### Environment Configuration (.env)
+
+Instead of exporting all variables manually, you can create a `.env` file (not committed) based on the provided `.env.example` in this directory:
+
+```bash
+cp proof-gen-api-server/.env.example proof-gen-api-server/.env
+```
+
+Adjust the values (especially `CC3_KEY`, any real RPC URLs, and Postgres credentials). The server loads environment variables via `dotenvy`, so running `cargo run -p proof-gen-api-server` inside `proof-gen-api-server/` will automatically pick them up.
+
+Guidelines:
+
+- Keep stable defaults (ports, local RPC endpoints) in `.env`.
+- Override frequently changed or sensitive values (mnemonics, feature flags) via CLI arguments or temporary exports when needed.
+- Never commit your personal `.env`; only `.env.example` lives in version control.
+
+Production notes:
+
+- Remove or set `USE_MOCK_PROVIDERS=0` (or unset) before deploying.
+- Set `RUST_LOG=production` or `prod` (enables production guard against mocks).
+- Provide secure Postgres credentials and a non-development mnemonic.
+
 Safety Guard:
 Startup aborts if mocks are enabled alongside `RUST_LOG=production` to prevent accidental production deployment of synthetic data.
 
