@@ -1737,7 +1737,7 @@ fn test_transaction_verified_event_with_correct_tx_index() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify {
+                PCall::verify_and_emit {
                     chain_key,
                     height,
                     tx_data: tx_data.into(),
@@ -1850,9 +1850,9 @@ fn test_transaction_verified_event_batch_with_correct_tx_indices() {
         let mut test_builder = precompiles_instance.prepare_test(
             Account::Alice,
             Account::Precompile,
-            PCall::verify_batch {
+            PCall::verify_batch_and_emit {
                 chain_key,
-                heights: vec![height, height],
+                heights: vec![height, height].into(),
                 tx_data_array: tx_data_array.iter().map(|d| d.clone().into()).collect(),
                 merkle_proofs: merkle_proofs.clone(),
                 shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),

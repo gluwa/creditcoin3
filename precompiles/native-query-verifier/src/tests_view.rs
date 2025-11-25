@@ -69,7 +69,7 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_and_emit {
+                PCall::verify {
                     chain_key,
                     height,
                     tx_data: tx_data.clone().into(),
@@ -85,7 +85,7 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify {
+                PCall::verify_and_emit {
                     chain_key,
                     height,
                     tx_data: tx_data.clone().into(),
@@ -271,7 +271,7 @@ fn test_verify_batch_queries_view_success() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_batch_and_emit {
+                PCall::verify_batch {
                     chain_key,
                     heights: heights.clone().into(),
                     tx_data_array: vec![tx_data1.clone().into(), tx_data2.clone().into()],
@@ -289,9 +289,9 @@ fn test_verify_batch_queries_view_success() {
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                PCall::verify_batch {
+                PCall::verify_batch_and_emit {
                     chain_key,
-                    heights,
+                    heights: heights.into(),
                     tx_data_array: vec![tx_data1.into(), tx_data2.into()],
                     merkle_proofs: vec![merkle_proof1, merkle_proof2],
                     shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),

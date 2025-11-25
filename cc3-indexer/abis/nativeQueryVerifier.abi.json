@@ -5,7 +5,7 @@
       {
         "indexed": true,
         "internalType": "uint64",
-        "name": "chain_key",
+        "name": "chainKey",
         "type": "uint64"
       },
       {
@@ -28,7 +28,7 @@
     "inputs": [
       {
         "internalType": "uint64",
-        "name": "chain_key",
+        "name": "chainKey",
         "type": "uint64"
       },
       {
@@ -38,7 +38,7 @@
       },
       {
         "internalType": "bytes[]",
-        "name": "tx_data_array",
+        "name": "txDataArray",
         "type": "bytes[]"
       },
       {
@@ -67,7 +67,7 @@
           }
         ],
         "internalType": "struct INativeQueryVerifier.MerkleProof[]",
-        "name": "merkle_proofs",
+        "name": "merkleProofs",
         "type": "tuple[]"
       },
       {
@@ -96,7 +96,7 @@
           }
         ],
         "internalType": "struct INativeQueryVerifier.ContinuityProof",
-        "name": "shared_continuity_proof",
+        "name": "sharedContinuityProof",
         "type": "tuple"
       }
     ],
@@ -115,7 +115,7 @@
     "inputs": [
       {
         "internalType": "uint64",
-        "name": "chain_key",
+        "name": "chainKey",
         "type": "uint64"
       },
       {
@@ -125,7 +125,7 @@
       },
       {
         "internalType": "bytes",
-        "name": "tx_data",
+        "name": "txData",
         "type": "bytes"
       },
       {
@@ -154,7 +154,7 @@
           }
         ],
         "internalType": "struct INativeQueryVerifier.MerkleProof",
-        "name": "merkle_proof",
+        "name": "merkleProof",
         "type": "tuple"
       },
       {
@@ -183,7 +183,7 @@
           }
         ],
         "internalType": "struct INativeQueryVerifier.ContinuityProof",
-        "name": "continuity_proof",
+        "name": "continuityProof",
         "type": "tuple"
       }
     ],
@@ -202,7 +202,7 @@
     "inputs": [
       {
         "internalType": "uint64",
-        "name": "chain_key",
+        "name": "chainKey",
         "type": "uint64"
       },
       {
@@ -212,7 +212,7 @@
       },
       {
         "internalType": "bytes",
-        "name": "tx_data",
+        "name": "txData",
         "type": "bytes"
       },
       {
@@ -241,7 +241,7 @@
           }
         ],
         "internalType": "struct INativeQueryVerifier.MerkleProof",
-        "name": "merkle_proof",
+        "name": "merkleProof",
         "type": "tuple"
       },
       {
@@ -270,7 +270,7 @@
           }
         ],
         "internalType": "struct INativeQueryVerifier.ContinuityProof",
-        "name": "continuity_proof",
+        "name": "continuityProof",
         "type": "tuple"
       }
     ],
@@ -289,7 +289,7 @@
     "inputs": [
       {
         "internalType": "uint64",
-        "name": "chain_key",
+        "name": "chainKey",
         "type": "uint64"
       },
       {
@@ -299,7 +299,7 @@
       },
       {
         "internalType": "bytes[]",
-        "name": "tx_data_array",
+        "name": "txDataArray",
         "type": "bytes[]"
       },
       {
@@ -328,7 +328,7 @@
           }
         ],
         "internalType": "struct INativeQueryVerifier.MerkleProof[]",
-        "name": "merkle_proofs",
+        "name": "merkleProofs",
         "type": "tuple[]"
       },
       {
@@ -357,7 +357,7 @@
           }
         ],
         "internalType": "struct INativeQueryVerifier.ContinuityProof",
-        "name": "shared_continuity_proof",
+        "name": "sharedContinuityProof",
         "type": "tuple"
       }
     ],

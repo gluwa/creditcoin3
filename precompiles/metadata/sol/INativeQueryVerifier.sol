@@ -47,15 +47,133 @@ interface INativeQueryVerifier {
         ContinuityBlock[] blocks;
     }
 
+    /// @notice Emitted when a transaction is successfully verified
+    /// @param chainKey The chain key identifier (indexed for efficient filtering)
+    /// @param height The block height that was verified (indexed for efficient filtering)
+    /// @param txIndex The transaction index calculated from Merkle proof siblings
+    event TransactionVerified(
+        uint64 indexed chainKey,
+        uint64 indexed height,
+        uint8 txIndex
+    );
+
+    /// @notice Verify a blockchain query with Merkle proof and continuity chain
+    /// @dev This is the state-changing version that emits a TransactionVerified event on success.
+    ///      Reverts on failure, returns true on success.
+    /// @param chainKey The chain key identifier
+    /// @param height The block height to verify
+    /// @param txData Raw transaction data to verify
+    /// @param merkleProof Merkle proof for transaction inclusion (with position info)
+    /// @param continuityProof Optimized continuity proof (blocks[0] is at queryHeight-1)
+    /// @return true on successful verification (reverts on failure)
+    ///
+    /// Events Emitted:
+    /// - TransactionVerified(uint64 chainKey, uint64 height, uint8 txIndex) on success
+    ///
+    /// Gas Costs (aligned with standard Ethereum precompiles):
+    /// - Base: 21,000 (matches Ethereum standard)
+    /// - Per TX byte: 16 (matches EVM calldata cost)
+    /// - Per sibling: 200 (native efficiency)
+    /// - Per continuity block: 400
+    /// - Storage lookup: 2,600 per attestation/checkpoint (matches cold SLOAD)
+    /// - Merkle verification: 100,000 weight
+    /// - Continuity verification: 50,000 weight
+    /// - Event emission: Additional gas for log costs
+    ///
+    /// Example Usage:
+    /// ```solidity
+    /// INativeQueryVerifier verifier = INativeQueryVerifier(0x0000000000000000000000000000000000000FD2);
+    ///
+    /// // Create merkle proof with position information
+    /// INativeQueryVerifier.MerkleProofEntry[] memory siblings = new INativeQueryVerifier.MerkleProofEntry[](2);
+    /// siblings[0] = INativeQueryVerifier.MerkleProofEntry(siblingHash1, false); // sibling on right
+    /// siblings[1] = INativeQueryVerifier.MerkleProofEntry(siblingHash2, true);  // sibling on left
+    ///
+    /// INativeQueryVerifier.MerkleProof memory proof = INativeQueryVerifier.MerkleProof({
+    ///     root: merkleRoot,
+    ///     siblings: siblings
+    /// });
+    ///
+    /// // Verify (emits TransactionVerified event on success, reverts on failure)
+    /// bool success = verifier.verifyAndEmit(
+    ///     1,      // chainKey
+    ///     18000000, // height
+    ///     txData,
+    ///     proof,
+    ///     continuityProof
+    /// );
+    /// ```
+    function verifyAndEmit(
+        uint64 chainKey,
+        uint64 height,
+        bytes calldata txData,
+        MerkleProof calldata merkleProof,
+        ContinuityProof calldata continuityProof
+    ) external returns (bool);
+
+    /// @notice Verify a batch of queries with shared continuity proof
+    /// @dev This is the state-changing version that emits a TransactionVerified event for each successful transaction.
+    ///      Optimized for batch verification by validating the continuity chain once.
+    ///      Reverts on any failure, returns true if all verifications succeed.
+    /// @param chainKey The chain key identifier (same for all queries)
+    /// @param heights Array of block heights to verify
+    /// @param txDataArray Transaction data for each query (must match heights length)
+    /// @param merkleProofs Merkle proofs for each query (must match heights length)
+    /// @param sharedContinuityProof Shared continuity proof covering all query heights
+    /// @return true if all verifications succeed (reverts on any failure)
+    ///
+    /// Events Emitted:
+    /// - TransactionVerified(uint64 chainKey, uint64 height, uint8 txIndex) for each successfully verified transaction
+    ///
+    /// Gas Optimization:
+    /// - Continuity chain is verified once for all queries instead of per-query
+    /// - For 5 queries with 20-block continuity: saves ~240,000 gas (80% reduction)
+    ///
+    /// Requirements:
+    /// - All input arrays must have the same length
+    /// - Batch size must not exceed 10 queries
+    /// - Continuity chain must cover min to max query heights
+    /// - Each query's merkle root must match its block in the continuity chain
+    ///
+    /// Example Usage:
+    /// ```solidity
+    /// INativeQueryVerifier verifier = INativeQueryVerifier(0x0000000000000000000000000000000000000FD2);
+    ///
+    /// uint64[] memory heights = new uint64[](3);
+    /// heights[0] = 100;
+    /// heights[1] = 101;
+    /// heights[2] = 102;
+    ///
+    /// bytes[] memory txDataArray = new bytes[](3);
+    /// INativeQueryVerifier.MerkleProof[] memory proofs = new INativeQueryVerifier.MerkleProof[](3);
+    /// // ... fill arrays ...
+    ///
+    /// // Use shared continuity proof covering blocks 100-102
+    /// bool success = verifier.verifyAndEmit(
+    ///     1,              // chainKey
+    ///     heights,        // heights array triggers batch overload
+    ///     txDataArray,
+    ///     proofs,
+    ///     sharedContinuityProof
+    /// );
+    /// ```
+    function verifyAndEmit(
+        uint64 chainKey,
+        uint64[] calldata heights,
+        bytes[] calldata txDataArray,
+        MerkleProof[] calldata merkleProofs,
+        ContinuityProof calldata sharedContinuityProof
+    ) external returns (bool);
+
     /// @notice Verify a single blockchain query with Merkle proof and continuity chain (view function)
     /// @dev This is a read-only view function that doesn't emit events. It charges the same gas
     ///      as the non-view function but doesn't modify state or emit logs.
     ///      Useful for off-chain verification or when events are not needed.
-    /// @param chain_key The chain key identifier
+    /// @param chainKey The chain key identifier
     /// @param height The block height to verify
-    /// @param tx_data Raw transaction data to verify
-    /// @param merkle_proof Merkle proof for transaction inclusion (with position info)
-    /// @param continuity_proof Optimized continuity proof (blocks[0] is at queryHeight-1)
+    /// @param txData Raw transaction data to verify
+    /// @param merkleProof Merkle proof for transaction inclusion (with position info)
+    /// @param continuityProof Optimized continuity proof (blocks[0] is at queryHeight-1)
     /// @return true on successful verification (reverts on failure)
     ///
     /// Note: This function does not emit events. For event emissions, use verifyAndEmit() instead.
@@ -85,7 +203,7 @@ interface INativeQueryVerifier {
     ///
     /// // Verify (read-only, no events, reverts on failure)
     /// bool success = verifier.verify(
-    ///     1,      // chain_key
+    ///     1,      // chainKey
     ///     18000000, // height
     ///     txData,
     ///     proof,
@@ -93,22 +211,22 @@ interface INativeQueryVerifier {
     /// );
     /// ```
     function verify(
-        uint64 chain_key,
+        uint64 chainKey,
         uint64 height,
-        bytes calldata tx_data,
-        MerkleProof calldata merkle_proof,
-        ContinuityProof calldata continuity_proof
+        bytes calldata txData,
+        MerkleProof calldata merkleProof,
+        ContinuityProof calldata continuityProof
     ) external view returns (bool);
 
     /// @notice Verify a batch of queries with shared continuity proof (view function)
     /// @dev This is a read-only view function that doesn't emit events. Optimized for batch
     ///      verification by validating the continuity chain once and reusing it for all queries.
     ///      This can save ~40% gas compared to individual verifications.
-    /// @param chain_key The chain key identifier (same for all queries)
+    /// @param chainKey The chain key identifier (same for all queries)
     /// @param heights Array of block heights to verify
-    /// @param tx_data_array Transaction data for each query (must match heights length)
-    /// @param merkle_proofs Merkle proofs for each query (must match heights length)
-    /// @param shared_continuity_proof Shared continuity proof covering all query heights
+    /// @param txDataArray Transaction data for each query (must match heights length)
+    /// @param merkleProofs Merkle proofs for each query (must match heights length)
+    /// @param sharedContinuityProof Shared continuity proof covering all query heights
     /// @return true if all verifications succeed (reverts on any failure)
     ///
     /// Note: This function does not emit events. For event emissions, use verifyAndEmit() instead.
@@ -138,7 +256,7 @@ interface INativeQueryVerifier {
     ///
     /// // Use shared continuity proof covering blocks 100-102
     /// bool success = verifier.verify(
-    ///     1,              // chain_key
+    ///     1,              // chainKey
     ///     heights,        // heights array triggers batch overload
     ///     txDataArray,
     ///     proofs,
@@ -146,130 +264,12 @@ interface INativeQueryVerifier {
     /// );
     /// ```
     function verify(
-        uint64 chain_key,
+        uint64 chainKey,
         uint64[] calldata heights,
-        bytes[] calldata tx_data_array,
-        MerkleProof[] calldata merkle_proofs,
-        ContinuityProof calldata shared_continuity_proof
+        bytes[] calldata txDataArray,
+        MerkleProof[] calldata merkleProofs,
+        ContinuityProof calldata sharedContinuityProof
     ) external view returns (bool);
-
-    /// @notice Verify a blockchain query with Merkle proof and continuity chain
-    /// @dev This is the state-changing version that emits a TransactionVerified event on success.
-    ///      Reverts on failure, returns true on success.
-    /// @param chain_key The chain key identifier
-    /// @param height The block height to verify
-    /// @param tx_data Raw transaction data to verify
-    /// @param merkle_proof Merkle proof for transaction inclusion (with position info)
-    /// @param continuity_proof Optimized continuity proof (blocks[0] is at queryHeight-1)
-    /// @return true on successful verification (reverts on failure)
-    ///
-    /// Events Emitted:
-    /// - TransactionVerified(uint64 chain_key, uint64 height, uint8 txIndex) on success
-    ///
-    /// Gas Costs (aligned with standard Ethereum precompiles):
-    /// - Base: 21,000 (matches Ethereum standard)
-    /// - Per TX byte: 16 (matches EVM calldata cost)
-    /// - Per sibling: 200 (native efficiency)
-    /// - Per continuity block: 400
-    /// - Storage lookup: 2,600 per attestation/checkpoint (matches cold SLOAD)
-    /// - Merkle verification: 100,000 weight
-    /// - Continuity verification: 50,000 weight
-    /// - Event emission: Additional gas for log costs
-    ///
-    /// Example Usage:
-    /// ```solidity
-    /// INativeQueryVerifier verifier = INativeQueryVerifier(0x0000000000000000000000000000000000000FD2);
-    ///
-    /// // Create merkle proof with position information
-    /// INativeQueryVerifier.MerkleProofEntry[] memory siblings = new INativeQueryVerifier.MerkleProofEntry[](2);
-    /// siblings[0] = INativeQueryVerifier.MerkleProofEntry(siblingHash1, false); // sibling on right
-    /// siblings[1] = INativeQueryVerifier.MerkleProofEntry(siblingHash2, true);  // sibling on left
-    ///
-    /// INativeQueryVerifier.MerkleProof memory proof = INativeQueryVerifier.MerkleProof({
-    ///     root: merkleRoot,
-    ///     siblings: siblings
-    /// });
-    ///
-    /// // Verify (emits TransactionVerified event on success, reverts on failure)
-    /// bool success = verifier.verifyAndEmit(
-    ///     1,      // chain_key
-    ///     18000000, // height
-    ///     txData,
-    ///     proof,
-    ///     continuityProof
-    /// );
-    /// ```
-    function verifyAndEmit(
-        uint64 chain_key,
-        uint64 height,
-        bytes calldata tx_data,
-        MerkleProof calldata merkle_proof,
-        ContinuityProof calldata continuity_proof
-    ) external returns (bool);
-
-    /// @notice Verify a batch of queries with shared continuity proof
-    /// @dev This is the state-changing version that emits a TransactionVerified event for each successful transaction.
-    ///      Optimized for batch verification by validating the continuity chain once.
-    ///      Reverts on any failure, returns true if all verifications succeed.
-    /// @param chain_key The chain key identifier (same for all queries)
-    /// @param heights Array of block heights to verify
-    /// @param tx_data_array Transaction data for each query (must match heights length)
-    /// @param merkle_proofs Merkle proofs for each query (must match heights length)
-    /// @param shared_continuity_proof Shared continuity proof covering all query heights
-    /// @return true if all verifications succeed (reverts on any failure)
-    ///
-    /// Events Emitted:
-    /// - TransactionVerified(uint64 chain_key, uint64 height, uint8 txIndex) for each successfully verified transaction
-    ///
-    /// Gas Optimization:
-    /// - Continuity chain is verified once for all queries instead of per-query
-    /// - For 5 queries with 20-block continuity: saves ~240,000 gas (80% reduction)
-    ///
-    /// Requirements:
-    /// - All input arrays must have the same length
-    /// - Batch size must not exceed 10 queries
-    /// - Continuity chain must cover min to max query heights
-    /// - Each query's merkle root must match its block in the continuity chain
-    ///
-    /// Example Usage:
-    /// ```solidity
-    /// INativeQueryVerifier verifier = INativeQueryVerifier(0x0000000000000000000000000000000000000FD2);
-    ///
-    /// uint64[] memory heights = new uint64[](3);
-    /// heights[0] = 100;
-    /// heights[1] = 101;
-    /// heights[2] = 102;
-    ///
-    /// bytes[] memory txDataArray = new bytes[](3);
-    /// INativeQueryVerifier.MerkleProof[] memory proofs = new INativeQueryVerifier.MerkleProof[](3);
-    /// // ... fill arrays ...
-    ///
-    /// // Use shared continuity proof covering blocks 100-102
-    /// bool success = verifier.verifyAndEmit(
-    ///     1,              // chain_key
-    ///     heights,        // heights array triggers batch overload
-    ///     txDataArray,
-    ///     proofs,
-    ///     sharedContinuityProof
-    /// );
-    /// ```
-    function verifyAndEmit(
-        uint64 chain_key,
-        uint64[] calldata heights,
-        bytes[] calldata tx_data_array,
-        MerkleProof[] calldata merkle_proofs,
-        ContinuityProof calldata shared_continuity_proof
-    ) external returns (bool);
-
-    /// @notice Emitted when a transaction is successfully verified
-    /// @param chain_key The chain key identifier (indexed for efficient filtering)
-    /// @param height The block height that was verified (indexed for efficient filtering)
-    /// @param txIndex The transaction index calculated from Merkle proof siblings
-    event TransactionVerified(
-        uint64 indexed chain_key,
-        uint64 indexed height,
-        uint8 txIndex
-    );
 }
 
 /// @title NativeQueryVerifierLib
