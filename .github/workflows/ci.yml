@@ -1382,6 +1382,8 @@ jobs:
 
       - name: Run integration tests for cc3-indexer
         working-directory: ./cli
+        env:
+          ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
         run: |
           yarn install
           yarn test:cc3-indexer
