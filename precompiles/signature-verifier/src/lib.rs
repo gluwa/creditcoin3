@@ -22,7 +22,9 @@ type ConstU1MB = ConstU32<1048576>;
 type SR25519SignatureBytes = ConstU32<64>;
 
 // Gas costs for signature verification
+// Base cost comparable to ECRECOVER (3000 gas) which does ECDSA verification + recovery
 // SR25519 verification is similar in computational cost to ECDSA verification but its more compute intensive, so 3500 gas
+const GAS_BASE_VERIFY: u64 = 3_500; // Base cost for cryptographic signature verification
 const GAS_PER_MESSAGE_BYTE: u64 = 3; // Per-byte cost for message processing
 
 #[precompile_utils::precompile]
@@ -46,6 +48,9 @@ where
         signature: BoundedBytes<SR25519SignatureBytes>,
         public_key: H256,
     ) -> EvmResult<bool> {
+        // Charge base cost for the signature verification operation
+        handle.record_cost(GAS_BASE_VERIFY)?;
+
         let message_bytes: Vec<u8> = message.into();
         let signature_bytes: Vec<u8> = signature.into();
 
