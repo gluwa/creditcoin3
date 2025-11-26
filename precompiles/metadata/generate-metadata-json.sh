@@ -87,7 +87,10 @@ for mapping in "${precompile_map[@]}"; do
 done
 
 # Sort precompile_map alphabetically by ABI filename to match cat sol/*.sol order
-IFS=$'\n' sorted_precompile_map=($(printf '%s\n' "${precompile_map[@]}" | sort -t':' -k1))
+sorted_precompile_map=()
+while IFS= read -r line; do
+    sorted_precompile_map+=("$line")
+done < <(printf '%s\n' "${precompile_map[@]}" | sort -t':' -k1)
 precompile_map=("${sorted_precompile_map[@]}")
 
 # Function to generate JSON for a single precompile
@@ -137,8 +140,9 @@ generate_precompile_json() {
     source_content=$(cat "$source_file" | perl -pe 'chomp if eof' | jq -Rs '.')
     
     # Read ABI and convert to JSON string (compact, single line, escaped)
+    # ABI files are JSON arrays, so parse first, then convert to JSON string
     local abi_content
-    abi_content=$(cat "$abi_file" | jq -Rs '.')
+    abi_content=$(cat "$abi_file" | jq -c '.' | jq -Rs '.')
     
     # Generate JSON entry
     jq -n \
