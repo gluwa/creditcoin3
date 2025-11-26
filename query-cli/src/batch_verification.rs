@@ -164,8 +164,7 @@ impl BatchVerifier {
         )
         .await?;
 
-        let verifier =
-            eth::evm::native_query_verifier::NativeQueryVerifierContract::new(&eth_client);
+        let verifier = eth::evm::block_prover::BlockProver::new(&eth_client);
 
         // Convert Vec<Block> to ContinuityProof for the optimized API
         let shared_continuity_proof = ContinuityProof::from_blocks(shared_continuity);

@@ -36,7 +36,7 @@ pub enum Error {
 sol! {
     #[sol(rpc)]
     INativeQueryVerifier,
-    "contracts/nativeQueryVerifier.abi.json",
+    "contracts/block_prover.json",
 }
 
 // Helper function to convert ContinuityProof to Solidity ContinuityProof
@@ -47,7 +47,7 @@ fn convert_to_solidity_continuity_proof(
         .blocks
         .into_iter()
         .map(|cb| INativeQueryVerifier::ContinuityBlock {
-            root: FixedBytes::from(cb.root.to_fixed_bytes()),
+            merkleRoot: FixedBytes::from(cb.merkle_root.to_fixed_bytes()),
             digest: FixedBytes::from(cb.digest.to_fixed_bytes()),
         })
         .collect();
@@ -58,8 +58,8 @@ fn convert_to_solidity_continuity_proof(
     }
 }
 
-/// Native Query Verifier precompile address (0x0FD2 = 4050)
-pub const NATIVE_QUERY_VERIFIER_ADDRESS: Address = Address::new([
+/// Block Prover precompile address (0x0FD2 = 4050)
+pub const BLOCK_PROVER_ADDRESS: Address = Address::new([
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x0F, 0xD2,
 ]);
@@ -80,17 +80,17 @@ impl From<QueryMerkleProof> for INativeQueryVerifier::MerkleProof {
     }
 }
 
-/// Native Query Verifier contract interface
+/// Block Prover contract interface
 #[derive(Debug, Clone)]
-pub struct NativeQueryVerifierContract {
+pub struct BlockProver {
     pub address: Address,
     client: Client,
 }
 
-impl NativeQueryVerifierContract {
-    /// Create a new NativeQueryVerifier contract instance at the precompile address
+impl BlockProver {
+    /// Create a new BlockProver contract instance at the precompile address
     pub fn new(client: &Client) -> Self {
-        let address = NATIVE_QUERY_VERIFIER_ADDRESS;
+        let address = BLOCK_PROVER_ADDRESS;
         Self {
             address,
             client: client.clone(),
@@ -102,7 +102,7 @@ impl NativeQueryVerifierContract {
     /// # Arguments
     /// * `chain_key` - The chain key identifier
     /// * `height` - The block height to verify
-    /// * `tx_data` - Raw transaction data to verify
+    /// * `encoded_transaction` - Raw transaction data to verify
     /// * `merkle_proof` - Merkle proof for transaction inclusion
     /// * `continuity_proof` - Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
@@ -112,7 +112,7 @@ impl NativeQueryVerifierContract {
         &self,
         chain_key: u64,
         height: u64,
-        tx_data: &[u8],
+        encoded_transaction: &[u8],
         merkle_proof: QueryMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> Result<bool, Error> {
@@ -131,7 +131,7 @@ impl NativeQueryVerifierContract {
             .verify_1(
                 chain_key,
                 height,
-                tx_data.to_vec().into(),
+                encoded_transaction.to_vec().into(),
                 sol_proof,
                 sol_proof_struct,
             )
@@ -152,7 +152,7 @@ impl NativeQueryVerifierContract {
     /// # Arguments
     /// * `chain_key` - The chain key identifier
     /// * `height` - The block height to verify
-    /// * `tx_data` - Raw transaction data to verify
+    /// * `encoded_transaction` - Raw transaction data to verify
     /// * `merkle_proof` - Merkle proof for transaction inclusion
     /// * `continuity_proof` - Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
@@ -160,12 +160,12 @@ impl NativeQueryVerifierContract {
     /// `true` on successful verification (reverts on failure)
     ///
     /// # Events
-    /// Emits `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint64 txIndex)` event
+    /// Emits `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint64 transactionIndex)` event
     pub async fn verify_and_emit(
         &self,
         chain_key: u64,
         height: u64,
-        tx_data: &[u8],
+        encoded_transaction: &[u8],
         merkle_proof: QueryMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> Result<bool, Error> {
@@ -185,13 +185,16 @@ impl NativeQueryVerifierContract {
         let tx_builder = contract.verifyAndEmit_0(
             chain_key,
             height,
-            tx_data.to_vec().into(),
+            encoded_transaction.to_vec().into(),
             sol_proof.clone(),
             sol_proof_struct.clone(),
         );
 
         let pending_tx = tx_builder.send().await?;
-        let receipt = pending_tx.get_receipt().await.unwrap();
+        let receipt = pending_tx.get_receipt().await.map_err(|e| {
+            error!("Failed to get transaction receipt: {:?}", e);
+            Error::Other(format!("Failed to get transaction receipt: {e}"))
+        })?;
 
         info!(
             "Query verification transaction sent. Hash: {:?}, Gas used: {:?}",
@@ -203,7 +206,7 @@ impl NativeQueryVerifierContract {
             .verifyAndEmit_0(
                 chain_key,
                 height,
-                tx_data.to_vec().into(),
+                encoded_transaction.to_vec().into(),
                 sol_proof,
                 sol_proof_struct,
             )
@@ -224,7 +227,7 @@ impl NativeQueryVerifierContract {
     /// # Arguments
     /// * `chain_key` - The chain key identifier (same for all queries)
     /// * `heights` - Array of block heights to verify
-    /// * `tx_data_array` - Transaction data for each query
+    /// * `encoded_transactions` - Transaction data for each query
     /// * `merkle_proofs` - Merkle proofs for each query
     /// * `shared_continuity_proof` - Shared continuity proof covering all query heights
     ///
@@ -234,7 +237,7 @@ impl NativeQueryVerifierContract {
         &self,
         chain_key: u64,
         heights: Vec<u64>,
-        tx_data_array: Vec<Vec<u8>>,
+        encoded_transactions: Vec<Vec<u8>>,
         merkle_proofs: Vec<QueryMerkleProof>,
         shared_continuity_proof: ContinuityProof,
     ) -> Result<bool, Error> {
@@ -248,7 +251,7 @@ impl NativeQueryVerifierContract {
             merkle_proofs.into_iter().map(|p| p.into()).collect();
         let sol_proof_struct = convert_to_solidity_continuity_proof(shared_continuity_proof);
         let tx_data_bytes: Vec<alloy::primitives::Bytes> =
-            tx_data_array.into_iter().map(|d| d.into()).collect();
+            encoded_transactions.into_iter().map(|d| d.into()).collect();
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
@@ -278,7 +281,7 @@ impl NativeQueryVerifierContract {
     /// # Arguments
     /// * `chain_key` - The chain key identifier (same for all queries)
     /// * `heights` - Array of block heights to verify
-    /// * `tx_data_array` - Transaction data for each query
+    /// * `encoded_transactions` - Transaction data for each query
     /// * `merkle_proofs` - Merkle proofs for each query
     /// * `shared_continuity_proof` - Shared continuity proof covering all query heights
     ///
@@ -286,12 +289,12 @@ impl NativeQueryVerifierContract {
     /// `true` if all verifications succeed (reverts on any failure)
     ///
     /// # Events
-    /// Emits `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint64 txIndex)` event for each successfully verified transaction
+    /// Emits `TransactionVerified(uint64 indexed chain_key, uint64 indexed height, uint64 transactionIndex)` event for each successfully verified transaction
     pub async fn verify_batch_and_emit(
         &self,
         chain_key: u64,
         heights: Vec<u64>,
-        tx_data_array: Vec<Vec<u8>>,
+        encoded_transactions: Vec<Vec<u8>>,
         merkle_proofs: Vec<QueryMerkleProof>,
         shared_continuity_proof: ContinuityProof,
     ) -> Result<bool, Error> {
@@ -305,8 +308,10 @@ impl NativeQueryVerifierContract {
             merkle_proofs.into_iter().map(|p| p.into()).collect();
         let sol_proof_struct =
             convert_to_solidity_continuity_proof(shared_continuity_proof.clone());
-        let tx_data_bytes: Vec<alloy::primitives::Bytes> =
-            tx_data_array.iter().map(|d| d.clone().into()).collect();
+        let tx_data_bytes: Vec<alloy::primitives::Bytes> = encoded_transactions
+            .iter()
+            .map(|d| d.clone().into())
+            .collect();
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
@@ -322,7 +327,10 @@ impl NativeQueryVerifierContract {
         );
 
         let pending_tx = tx_builder.send().await?;
-        let receipt = pending_tx.get_receipt().await.unwrap();
+        let receipt = pending_tx.get_receipt().await.map_err(|e| {
+            error!("Failed to get transaction receipt: {:?}", e);
+            Error::Other(format!("Failed to get transaction receipt: {e}"))
+        })?;
 
         info!(
             "Batch query verification transaction sent. Hash: {:?}, Gas used: {:?}",
@@ -355,7 +363,7 @@ impl NativeQueryVerifierContract {
         &self,
         chain_key: u64,
         height: u64,
-        tx_data: &[u8],
+        encoded_transaction: &[u8],
         merkle_proof: QueryMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> Result<u64, Error> {
@@ -369,7 +377,7 @@ impl NativeQueryVerifierContract {
             .verify_1(
                 chain_key,
                 height,
-                tx_data.to_vec().into(),
+                encoded_transaction.to_vec().into(),
                 sol_proof,
                 sol_proof_struct,
             )
@@ -397,6 +405,6 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x0F, 0xD2,
         ]);
-        assert_eq!(NATIVE_QUERY_VERIFIER_ADDRESS, expected);
+        assert_eq!(BLOCK_PROVER_ADDRESS, expected);
     }
 }

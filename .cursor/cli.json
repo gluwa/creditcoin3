@@ -2,7 +2,8 @@
     "permissions": {
         "deny": [
             "Shell(git push)",
-            "Shell(gh pr create)"
+            "Shell(gh pr create)",
+            "Shell(cargo clean)"
         ]
     }
 }

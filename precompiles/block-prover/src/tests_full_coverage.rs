@@ -8,6 +8,7 @@ use attestor_primitives::{Attestation, AttestationCheckpoint, SignedAttestation}
 use mmr::query_proof::MerkleProofEntry;
 use precompile_utils::testing::*;
 use sp_core::H256;
+use std::vec::Vec as StdVec;
 
 use crate::verify::{GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
 
@@ -269,7 +270,7 @@ fn test_successful_verification_single_transaction() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.clone().into(),
+                    encoded_transaction: tx_data.clone().into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -308,7 +309,7 @@ fn test_successful_verification_multiple_transactions() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: target_tx.into(),
+                    encoded_transaction: target_tx.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -349,7 +350,7 @@ fn test_extract_less_than_32_bytes() {
                     PCall::verify {
                         chain_key,
                         height,
-                        tx_data: tx_data.clone().into(),
+                        encoded_transaction: tx_data.clone().into(),
                         merkle_proof,
                         continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                     },
@@ -379,7 +380,7 @@ fn test_extract_exactly_32_bytes() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.clone().into(),
+                    encoded_transaction: tx_data.clone().into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -407,7 +408,7 @@ fn test_extract_more_than_32_bytes() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.clone().into(),
+                    encoded_transaction: tx_data.clone().into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -476,7 +477,7 @@ fn test_continuity_with_checkpoint_fallback() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -559,7 +560,7 @@ fn test_continuity_attestation_header_validation() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -643,7 +644,7 @@ fn test_continuity_wrong_attestation_header_succeeds() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -682,7 +683,7 @@ fn test_transaction_at_size_limit() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -747,7 +748,7 @@ fn test_empty_continuity_chain_reverts_with_message() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(vec![]), // Empty!
                 },
@@ -781,7 +782,7 @@ fn test_no_end_attestation_or_checkpoint_reverts() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -816,7 +817,7 @@ fn test_segment_out_of_bounds_reverts_properly() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -854,7 +855,7 @@ fn test_merkle_root_mismatch_fails() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -887,7 +888,7 @@ fn test_merkle_root_matching_succeeds() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.clone().into(),
+                    encoded_transaction: tx_data.clone().into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -927,7 +928,7 @@ fn test_merkle_root_mismatch_with_multiple_blocks() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -964,7 +965,7 @@ fn test_attack_scenario_valid_proof_wrong_block() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -1015,7 +1016,7 @@ fn test_query_block_not_in_continuity_chain() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -1062,7 +1063,7 @@ fn test_merkle_root_verification_with_binary_tree() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data_1.clone().into(),
+                    encoded_transaction: tx_data_1.clone().into(),
                     merkle_proof: merkle_proof.clone(),
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
@@ -1080,7 +1081,7 @@ fn test_merkle_root_verification_with_binary_tree() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: wrong_tx_data.into(),
+                    encoded_transaction: wrong_tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -1112,7 +1113,7 @@ fn test_merkle_root_mismatch_event_emission() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -1159,7 +1160,7 @@ fn test_continuity_chain_with_correct_query_block() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.clone().into(),
+                    encoded_transaction: tx_data.clone().into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -1213,7 +1214,7 @@ fn test_security_verification_prevents_cross_block_attack() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_from_block_99.clone().into(),
+                    encoded_transaction: tx_from_block_99.clone().into(),
                     merkle_proof: proof_block_99, // Valid proof but for wrong block!
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks.clone()),
                 },
@@ -1228,7 +1229,7 @@ fn test_security_verification_prevents_cross_block_attack() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_from_block_100.clone().into(),
+                    encoded_transaction: tx_from_block_100.clone().into(),
                     merkle_proof: proof_block_100, // Correct proof for block 100
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
@@ -1245,7 +1246,7 @@ fn test_security_verification_prevents_cross_block_attack() {
 fn test_batch_queries_success() {
     ExtBuilder::default().build().execute_with(|| {
         let chain_key = 1;
-        let heights = vec![100, 101, 102];
+        let heights: std::vec::Vec<u64> = vec![100, 101, 102];
 
         // Create transaction data for each query
         let tx_data1 = vec![0x11; 100];
@@ -1315,13 +1316,22 @@ fn test_batch_queries_success() {
                 Account::Precompile,
                 PCall::verify_batch {
                     chain_key,
-                    heights,
-                    tx_data_array: vec![
-                        tx_data1.clone().into(),
-                        tx_data2.clone().into(),
-                        tx_data3.clone().into(),
-                    ],
-                    merkle_proofs: vec![proof1, proof2, proof3],
+                    heights: {
+                        let v: StdVec<u64> = heights;
+                        v.into()
+                    },
+                    encoded_transactions: {
+                        let v: StdVec<_> = StdVec::from([
+                            tx_data1.clone().into(),
+                            tx_data2.clone().into(),
+                            tx_data3.clone().into(),
+                        ]);
+                        v.into()
+                    },
+                    merkle_proofs: {
+                        let v: StdVec<_> = StdVec::from([proof1, proof2, proof3]);
+                        v.into()
+                    },
                     shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
@@ -1352,9 +1362,18 @@ fn test_batch_queries_mixed_results() {
                 Account::Precompile,
                 PCall::verify_batch {
                     chain_key,
-                    heights,
-                    tx_data_array: vec![tx_data1.clone().into(), tx_data2.into()],
-                    merkle_proofs: vec![proof1, proof2],
+                    heights: {
+                        let v: StdVec<u64> = heights;
+                        v.into()
+                    },
+                    encoded_transactions: {
+                        let v: StdVec<_> = StdVec::from([tx_data1.clone().into(), tx_data2.into()]);
+                        v.into()
+                    },
+                    merkle_proofs: {
+                        let v: StdVec<_> = StdVec::from([proof1, proof2]);
+                        v.into()
+                    },
                     shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
@@ -1440,9 +1459,18 @@ fn test_batch_queries_continuity_failure() {
                 Account::Precompile,
                 PCall::verify_batch {
                     chain_key,
-                    heights,
-                    tx_data_array: vec![tx_data1.into(), tx_data2.into()],
-                    merkle_proofs: vec![proof1, proof2],
+                    heights: {
+                        let v: StdVec<u64> = heights;
+                        v.into()
+                    },
+                    encoded_transactions: {
+                        let v: StdVec<_> = StdVec::from([tx_data1.into(), tx_data2.into()]);
+                        v.into()
+                    },
+                    merkle_proofs: {
+                        let v: StdVec<_> = StdVec::from([proof1, proof2]);
+                        v.into()
+                    },
                     shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
@@ -1467,13 +1495,22 @@ fn test_batch_queries_invalid_input_lengths() {
                 Account::Precompile,
                 PCall::verify_batch {
                     chain_key,
-                    heights,
-                    tx_data_array: vec![tx_data.into()], // Only 1 tx_data for 2 queries
-                    merkle_proofs: vec![proof.clone(), proof],
+                    heights: {
+                        let v: StdVec<u64> = heights;
+                        v.into()
+                    },
+                    encoded_transactions: {
+                        let v: StdVec<_> = StdVec::from([tx_data.into()]);
+                        v.into()
+                    }, // Only 1 tx_data for 2 queries
+                    merkle_proofs: {
+                        let v: StdVec<_> = StdVec::from([proof.clone(), proof]);
+                        v.into()
+                    },
                     shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_reverts(|output| output == b"Input arrays must have the same length");
+            .execute_reverts(|output| output == b"Should have the same number of heights, encoded transactions, and merkle proofs");
     });
 }
 
@@ -1481,7 +1518,7 @@ fn test_batch_queries_invalid_input_lengths() {
 fn test_batch_queries_exceeds_max_size() {
     ExtBuilder::default().build().execute_with(|| {
         let chain_key = 1;
-        let heights: Vec<u64> = (100..111).collect(); // 11 heights (exceeds MAX_BATCH_SIZE of 10)
+        let heights: StdVec<u64> = (100..111).collect(); // 11 heights (exceeds MAX_BATCH_SIZE of 10)
 
         let tx_data = vec![0x11; 50];
         let proof = create_proper_merkle_proof_for_single_tx(&tx_data);
@@ -1489,8 +1526,8 @@ fn test_batch_queries_exceeds_max_size() {
         let continuity_blocks = create_valid_continuity_chain_with_root(99, 12, Some(proof.root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
-        let tx_data_array: Vec<_> = (0..11).map(|_| tx_data.clone().into()).collect();
-        let merkle_proofs: Vec<_> = (0..11).map(|_| proof.clone()).collect();
+        let encoded_transactions: StdVec<_> = (0..11).map(|_| tx_data.clone().into()).collect();
+        let merkle_proofs: StdVec<_> = (0..11).map(|_| proof.clone()).collect();
 
         // Note: BoundedVec validation happens at ABI level, but in tests we call directly
         // The test framework should validate BoundedVec constraints, but if it doesn't,
@@ -1501,9 +1538,15 @@ fn test_batch_queries_exceeds_max_size() {
                 Account::Precompile,
                 PCall::verify_batch {
                     chain_key,
-                    heights,
-                    tx_data_array,
-                    merkle_proofs,
+                    heights: {
+                        let v: StdVec<u64> = heights;
+                        v.into()
+                    },
+                    encoded_transactions: {
+                        let v: StdVec<_> = encoded_transactions;
+                        v.into()
+                    },
+                    merkle_proofs: merkle_proofs.into(),
                     shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
@@ -1587,13 +1630,22 @@ fn test_batch_queries_shared_continuity_optimization() {
                 Account::Precompile,
                 PCall::verify_batch {
                     chain_key,
-                    heights,
-                    tx_data_array: vec![
-                        tx_data1.clone().into(),
-                        tx_data2.clone().into(),
-                        tx_data3.clone().into(),
-                    ],
-                    merkle_proofs: vec![proof1, proof2, proof3],
+                    heights: {
+                        let v: StdVec<u64> = heights;
+                        v.into()
+                    },
+                    encoded_transactions: {
+                        let v: StdVec<_> = StdVec::from([
+                            tx_data1.clone().into(),
+                            tx_data2.clone().into(),
+                            tx_data3.clone().into(),
+                        ]);
+                        v.into()
+                    },
+                    merkle_proofs: {
+                        let v: StdVec<_> = StdVec::from([proof1, proof2, proof3]);
+                        v.into()
+                    },
                     shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
@@ -1605,7 +1657,7 @@ fn test_batch_queries_shared_continuity_optimization() {
 fn test_verify_batch_queries_with_mismatched_proof_order_returns_2_failed_queries() {
     ExtBuilder::default().build().execute_with(|| {
         let chain_key = 1;
-        let heights = vec![100, 101, 102];
+        let heights: std::vec::Vec<u64> = vec![100, 101, 102];
 
         // Create transaction data for each query
         let tx_data1 = vec![0x11; 100];
@@ -1675,15 +1727,24 @@ fn test_verify_batch_queries_with_mismatched_proof_order_returns_2_failed_querie
                 Account::Precompile,
                 PCall::verify_batch {
                     chain_key,
-                    heights,
-                    tx_data_array: vec![
-                        tx_data1.clone().into(),
-                        tx_data2.clone().into(),
-                        tx_data3.clone().into(),
-                    ],
+                    heights: {
+                        let v: StdVec<u64> = heights;
+                        v.into()
+                    },
+                    encoded_transactions: {
+                        let v: StdVec<_> = StdVec::from([
+                            tx_data1.clone().into(),
+                            tx_data2.clone().into(),
+                            tx_data3.clone().into(),
+                        ]);
+                        v.into()
+                    },
                     // NOTE: proofs are in the wrong order - will revert on first failure
                     // proof3.root doesn't match block 100's root (which is proof1.root)
-                    merkle_proofs: vec![proof3, proof2, proof1],
+                    merkle_proofs: {
+                        let v: StdVec<_> = StdVec::from([proof3, proof2, proof1]);
+                        v.into()
+                    },
                     shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
@@ -1715,7 +1776,7 @@ fn test_log_costs_are_recorded() {
                 PCall::verify {
                     chain_key,
                     height,
-                    tx_data: tx_data.into(),
+                    encoded_transaction: tx_data.into(),
                     merkle_proof,
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },

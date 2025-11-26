@@ -16,7 +16,7 @@ output_testnet="precompiles-creditcoin3-testnet.json"
 # Map ABI file names to precompile names and addresses
 # Format: "abi_filename:precompile_name:address"
 declare -a precompile_map=(
-    "INativeQueryVerifier:QueryVerifierContract:0x0000000000000000000000000000000000000FD2"
+    "block_prover:BlockProver:0x0000000000000000000000000000000000000FD2"
     "chain_info:ChainInfo:0x0000000000000000000000000000000000000fD3"
     "signature_verifier:SignatureVerifier:0x00000000000000000000000000000000000013B9"
     "substrate_transfer:SubstrateTransfer:0x0000000000000000000000000000000000000Fd1"
@@ -35,8 +35,8 @@ generate_precompile_json() {
     
     # Find the corresponding source file
     case "$abi_basename" in
-        "INativeQueryVerifier")
-            source_file="${sol_directory}/INativeQueryVerifier.sol"
+        "block_prover")
+            source_file="${sol_directory}/block_prover.sol"
             ;;
         "chain_info")
             source_file="${sol_directory}/chain_info.sol"

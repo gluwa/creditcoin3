@@ -1,7 +1,7 @@
 import { SubstrateProject, SubstrateRuntimeDatasource } from '@subql/types';
 import { FrontierEvmDatasource } from '@subql/frontier-evm-processor';
 
-import { nativeQueryVerifierDatasource, attestationDatasources, genesisDatasource } from './datasources';
+import { blockProverDatasource, attestationDatasources, genesisDatasource } from './datasources';
 
 import * as dotenv from 'dotenv';
 import path from 'path';
@@ -16,7 +16,7 @@ const dataSources: (FrontierEvmDatasource | SubstrateRuntimeDatasource)[] = [];
 
 // Always index all datasources - no more split configuration
 dataSources.push(attestationDatasources);
-dataSources.push(nativeQueryVerifierDatasource);
+dataSources.push(blockProverDatasource);
 dataSources.push(genesisDatasource);
 
 // Can expand the Datasource processor types via the genreic param

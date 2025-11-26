@@ -13,4 +13,5 @@ When debugging and fixing issues in this repository, please follow these guideli
 - **Root Cause**: When fixing bugs, identify and address the root cause rather than just symptoms.
 - **Testing**: After fixing a bug, verify the fix works and doesn't introduce regressions.
 - **Security**: Never access, read, or use GitHub secrets. Do not attempt to read secrets from environment variables, configuration files, or any other source.
+- **Cargo Cache**: Never run `cargo clean` as it removes the entire cargo cache. Use regular builds/checks instead which will regenerate code as needed.
 

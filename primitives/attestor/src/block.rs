@@ -202,7 +202,7 @@ pub struct BlockSerializable {
 /// Contains only root and digest (block_number and prev_digest are inferred from continuity proof structure)
 #[derive(Debug, Clone, Default, Codec)]
 pub struct ContinuityBlock {
-    pub root: H256,
+    pub merkle_root: H256,
     pub digest: H256,
 }
 
@@ -214,7 +214,7 @@ pub struct ContinuityBlockSerializable {
         serialize_with = "h256_serialize_as_hex",
         deserialize_with = "h256_deserialize_from_hex"
     )]
-    root: H256,
+    merkle_root: H256,
     #[serde(
         serialize_with = "h256_serialize_as_hex",
         deserialize_with = "h256_deserialize_from_hex"
@@ -225,7 +225,7 @@ pub struct ContinuityBlockSerializable {
 impl From<&ContinuityBlock> for ContinuityBlockSerializable {
     fn from(b: &ContinuityBlock) -> Self {
         Self {
-            root: b.root,
+            merkle_root: b.merkle_root,
             digest: b.digest,
         }
     }
@@ -234,7 +234,7 @@ impl From<&ContinuityBlock> for ContinuityBlockSerializable {
 impl From<BlockSerializable> for ContinuityBlockSerializable {
     fn from(b: BlockSerializable) -> Self {
         Self {
-            root: b.root,
+            merkle_root: b.root,
             digest: b.digest,
         }
     }
@@ -245,7 +245,7 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
 
     fn try_from(block: ContinuityBlockSerializable) -> Result<Self, Self::Error> {
         Ok(Self {
-            root: block.root,
+            merkle_root: block.merkle_root,
             digest: block.digest,
         })
     }
@@ -293,7 +293,7 @@ impl ContinuityProof {
         let continuity_blocks: Vec<ContinuityBlock> = blocks
             .into_iter()
             .map(|b| ContinuityBlock {
-                root: b.root,
+                merkle_root: b.root,
                 digest: b.digest,
             })
             .collect();
@@ -316,7 +316,7 @@ impl ContinuityProof {
             // Start with lower_endpoint_digest, then use each block's computed digest
             let block = Block {
                 block_number,
-                root: cb.root,
+                root: cb.merkle_root,
                 prev_digest,
                 digest: cb.digest,
             };
@@ -365,7 +365,7 @@ mod tests {
     fn continuity_block_serialization_is_hex_and_roundtrips() {
         // Arrange
         let original = ContinuityBlock {
-            root: h256_from_u64(123456789012345678),
+            merkle_root: h256_from_u64(123456789012345678),
             digest: h256_from_u64(42),
         };
 
@@ -386,7 +386,7 @@ mod tests {
             .expect("parsing ContinuityBlockSerializable failed");
 
         // Assert: values round-trip
-        assert_eq!(original.root, parsed.root);
+        assert_eq!(original.merkle_root, parsed.merkle_root);
         assert_eq!(original.digest, parsed.digest);
     }
 

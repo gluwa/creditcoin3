@@ -245,13 +245,13 @@ The test suite includes comprehensive coverage:
 1. Add to `runtime/src/precompiles.rs`:
 
 ```rust
-use pallet_evm_precompile_native_query_verifier::NativeQueryVerifierPrecompile;
+use pallet_evm_precompile_native_query_verifier::BlockProverPrecompile;
 
 impl PrecompileSet for GluwaPrecompiles<R> {
     fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
         match handle.code_address() {
             // ... existing precompiles ...
-            a if a == hash(4050) => Some(NativeQueryVerifierPrecompile::<Runtime>::execute(handle)),
+            a if a == hash(4050) => Some(BlockProverPrecompile::<Runtime>::execute(handle)),
             _ => None,
         }
     }

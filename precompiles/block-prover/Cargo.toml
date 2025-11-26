@@ -2,7 +2,7 @@
 authors = { workspace = true }
 description = "A Precompile to expose native query verification with Merkle proofs and continuity chains"
 edition = "2021"
-name = "pallet-evm-precompile-native-query-verifier"
+name = "pallet-evm-precompile-block-prover"
 version = "0.1.0"
 
 [lints.clippy]

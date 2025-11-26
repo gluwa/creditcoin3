@@ -74,7 +74,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -109,7 +109,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -148,7 +148,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256(smallTxData),
+                        merkleRoot: ethers.keccak256(smallTxData),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -173,7 +173,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                     lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                     blocks: [
                         {
-                            root: ethers.keccak256(largeTxData),
+                            merkleRoot: ethers.keccak256(largeTxData),
                             digest: ethers.zeroPadBytes('0x01', 32),
                         },
                     ],
@@ -220,7 +220,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -266,7 +266,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -277,19 +277,19 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x02', 32),
                     },
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x03', 32),
                     },
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x04', 32),
                     },
                 ],
@@ -337,7 +337,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -369,7 +369,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.zeroPadBytes('0x01', 32),
+                        merkleRoot: ethers.zeroPadBytes('0x01', 32),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -423,7 +423,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.zeroPadBytes('0x01', 32),
+                        merkleRoot: ethers.zeroPadBytes('0x01', 32),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -452,7 +452,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -480,7 +480,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.zeroPadBytes('0x00', 32),
+                        merkleRoot: ethers.zeroPadBytes('0x00', 32),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -507,7 +507,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -535,7 +535,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256(txData),
+                        merkleRoot: ethers.keccak256(txData),
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],
@@ -563,7 +563,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        root: ethers.keccak256('0xdeadbeef'), // Wrong root to match merkle proof
+                        merkleRoot: ethers.keccak256('0xdeadbeef'), // Wrong root to match merkle proof
                         digest: ethers.zeroPadBytes('0x01', 32),
                     },
                 ],

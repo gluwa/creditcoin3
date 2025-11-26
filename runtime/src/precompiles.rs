@@ -10,8 +10,8 @@ use pallet_evm_precompile_modexp::Modexp;
 use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
 
+use pallet_evm_precompile_block_prover::BlockProverPrecompile;
 use pallet_evm_precompile_chain_info::ChainInfoPrecompile;
-use pallet_evm_precompile_native_query_verifier::NativeQueryVerifierPrecompile;
 use pallet_evm_precompile_signature_verifier::SignatureVerifierPrecompile;
 use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
 
@@ -47,7 +47,7 @@ where
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
             // Gluwa specific
             a if a == hash(4049) => Some(SubstrateTransferPrecompile::<R, ()>::execute(handle)),
-            a if a == hash(4050) => Some(NativeQueryVerifierPrecompile::<Runtime>::execute(handle)),
+            a if a == hash(4050) => Some(BlockProverPrecompile::<Runtime>::execute(handle)),
             a if a == hash(4051) => Some(ChainInfoPrecompile::<Runtime>::execute(handle)),
             a if a == hash(5049) => Some(SignatureVerifierPrecompile::<R>::execute(handle)),
             _ => None,

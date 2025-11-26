@@ -250,19 +250,19 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
     },
 };
 
-export const nativeQueryVerifierDatasource: FrontierEvmDatasource = {
+export const blockProverDatasource: FrontierEvmDatasource = {
     // Frontier EVM Processor for Native Query Verifier Precompile
     kind: 'substrate/FrontierEvm',
     startBlock: 1,
     processor: {
         file: './node_modules/@subql/frontier-evm-processor/dist/bundle.js',
         options: {
-            abi: 'nativeQueryVerifier',
+            abi: 'block_prover',
             // The precompile is at address 0x0FD2
             address: '0x0000000000000000000000000000000000000fd2',
         },
     },
-    assets: new Map([['nativeQueryVerifier', { file: './abis/nativeQueryVerifier.abi.json' }]]),
+    assets: new Map([['block_prover', { file: './abis/block_prover.abi.json' }]]),
     mapping: {
         file: './dist/index.js',
         handlers: [

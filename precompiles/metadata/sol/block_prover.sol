@@ -27,7 +27,7 @@ interface INativeQueryVerifier {
     /// @dev Contains only root and digest (block_number and prev_digest are inferred)
     struct ContinuityBlock {
         /// Block root hash
-        bytes32 root;
+        bytes32 merkleRoot;
         /// Current block digest
         bytes32 digest;
     }
@@ -50,11 +50,11 @@ interface INativeQueryVerifier {
     /// @notice Emitted when a transaction is successfully verified
     /// @param chainKey The chain key identifier (indexed for efficient filtering)
     /// @param height The block height that was verified (indexed for efficient filtering)
-    /// @param txIndex The transaction index calculated from Merkle proof siblings
+    /// @param transactionIndex The transaction index calculated from Merkle proof siblings
     event TransactionVerified(
         uint64 indexed chainKey,
         uint64 indexed height,
-        uint64 txIndex
+        uint64 transactionIndex
     );
 
     /// @notice Verify a blockchain query with Merkle proof and continuity chain
@@ -62,13 +62,13 @@ interface INativeQueryVerifier {
     ///      Reverts on failure, returns true on success.
     /// @param chainKey The chain key identifier
     /// @param height The block height to verify
-    /// @param txData Raw transaction data to verify
+    /// @param encodedTransaction Raw transaction data to verify
     /// @param merkleProof Merkle proof for transaction inclusion (with position info)
     /// @param continuityProof Optimized continuity proof (blocks[0] is at queryHeight-1)
     /// @return true on successful verification (reverts on failure)
     ///
     /// Events Emitted:
-    /// - TransactionVerified(uint64 chainKey, uint64 height, uint64 txIndex) on success
+    /// - TransactionVerified(uint64 chainKey, uint64 height, uint64 transactionIndex) on success
     ///
     /// Gas Costs (aligned with standard Ethereum precompiles):
     /// - Base: 21,000 (matches Ethereum standard)
@@ -98,7 +98,7 @@ interface INativeQueryVerifier {
     /// bool success = verifier.verifyAndEmit(
     ///     1,      // chainKey
     ///     18000000, // height
-    ///     txData,
+    ///     encodedTransaction,
     ///     proof,
     ///     continuityProof
     /// );
@@ -106,7 +106,7 @@ interface INativeQueryVerifier {
     function verifyAndEmit(
         uint64 chainKey,
         uint64 height,
-        bytes calldata txData,
+        bytes calldata encodedTransaction,
         MerkleProof calldata merkleProof,
         ContinuityProof calldata continuityProof
     ) external returns (bool);
@@ -117,13 +117,13 @@ interface INativeQueryVerifier {
     ///      Reverts on any failure, returns true if all verifications succeed.
     /// @param chainKey The chain key identifier (same for all queries)
     /// @param heights Array of block heights to verify
-    /// @param txDataArray Transaction data for each query (must match heights length)
+    /// @param encodedTransactions Transaction data for each query (must match heights length)
     /// @param merkleProofs Merkle proofs for each query (must match heights length)
     /// @param sharedContinuityProof Shared continuity proof covering all query heights
     /// @return true if all verifications succeed (reverts on any failure)
     ///
     /// Events Emitted:
-    /// - TransactionVerified(uint64 chainKey, uint64 height, uint64 txIndex) for each successfully verified transaction
+    /// - TransactionVerified(uint64 chainKey, uint64 height, uint64 transactionIndex) for each successfully verified transaction
     ///
     /// Gas Optimization:
     /// - Continuity chain is verified once for all queries instead of per-query
@@ -144,7 +144,7 @@ interface INativeQueryVerifier {
     /// heights[1] = 101;
     /// heights[2] = 102;
     ///
-    /// bytes[] memory txDataArray = new bytes[](3);
+    /// bytes[] memory encodedTransactions = new bytes[](3);
     /// INativeQueryVerifier.MerkleProof[] memory proofs = new INativeQueryVerifier.MerkleProof[](3);
     /// // ... fill arrays ...
     ///
@@ -152,7 +152,7 @@ interface INativeQueryVerifier {
     /// bool success = verifier.verifyAndEmit(
     ///     1,              // chainKey
     ///     heights,        // heights array triggers batch overload
-    ///     txDataArray,
+    ///     encodedTransactions,
     ///     proofs,
     ///     sharedContinuityProof
     /// );
@@ -160,7 +160,7 @@ interface INativeQueryVerifier {
     function verifyAndEmit(
         uint64 chainKey,
         uint64[] calldata heights,
-        bytes[] calldata txDataArray,
+        bytes[] calldata encodedTransactions,
         MerkleProof[] calldata merkleProofs,
         ContinuityProof calldata sharedContinuityProof
     ) external returns (bool);
@@ -171,7 +171,7 @@ interface INativeQueryVerifier {
     ///      Useful for off-chain verification or when events are not needed.
     /// @param chainKey The chain key identifier
     /// @param height The block height to verify
-    /// @param txData Raw transaction data to verify
+    /// @param encodedTransaction Raw transaction data to verify
     /// @param merkleProof Merkle proof for transaction inclusion (with position info)
     /// @param continuityProof Optimized continuity proof (blocks[0] is at queryHeight-1)
     /// @return true on successful verification (reverts on failure)
@@ -205,7 +205,7 @@ interface INativeQueryVerifier {
     /// bool success = verifier.verify(
     ///     1,      // chainKey
     ///     18000000, // height
-    ///     txData,
+    ///     encodedTransaction,
     ///     proof,
     ///     continuityProof
     /// );
@@ -213,7 +213,7 @@ interface INativeQueryVerifier {
     function verify(
         uint64 chainKey,
         uint64 height,
-        bytes calldata txData,
+        bytes calldata encodedTransaction,
         MerkleProof calldata merkleProof,
         ContinuityProof calldata continuityProof
     ) external view returns (bool);
@@ -224,7 +224,7 @@ interface INativeQueryVerifier {
     ///      This can save ~40% gas compared to individual verifications.
     /// @param chainKey The chain key identifier (same for all queries)
     /// @param heights Array of block heights to verify
-    /// @param txDataArray Transaction data for each query (must match heights length)
+    /// @param encodedTransactions Transaction data for each query (must match heights length)
     /// @param merkleProofs Merkle proofs for each query (must match heights length)
     /// @param sharedContinuityProof Shared continuity proof covering all query heights
     /// @return true if all verifications succeed (reverts on any failure)
@@ -250,7 +250,7 @@ interface INativeQueryVerifier {
     /// heights[1] = 101;
     /// heights[2] = 102;
     ///
-    /// bytes[] memory txDataArray = new bytes[](3);
+    /// bytes[] memory encodedTransactions = new bytes[](3);
     /// INativeQueryVerifier.MerkleProof[] memory proofs = new INativeQueryVerifier.MerkleProof[](3);
     /// // ... fill arrays ...
     ///
@@ -258,7 +258,7 @@ interface INativeQueryVerifier {
     /// bool success = verifier.verify(
     ///     1,              // chainKey
     ///     heights,        // heights array triggers batch overload
-    ///     txDataArray,
+    ///     encodedTransactions,
     ///     proofs,
     ///     sharedContinuityProof
     /// );
@@ -266,7 +266,7 @@ interface INativeQueryVerifier {
     function verify(
         uint64 chainKey,
         uint64[] calldata heights,
-        bytes[] calldata txDataArray,
+        bytes[] calldata encodedTransactions,
         MerkleProof[] calldata merkleProofs,
         ContinuityProof calldata sharedContinuityProof
     ) external view returns (bool);

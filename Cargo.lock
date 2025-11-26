@@ -2934,9 +2934,9 @@ dependencies = [
  "pallet-ethereum",
  "pallet-evm",
  "pallet-evm-chain-id",
+ "pallet-evm-precompile-block-prover",
  "pallet-evm-precompile-chain-info",
  "pallet-evm-precompile-modexp",
- "pallet-evm-precompile-native-query-verifier",
  "pallet-evm-precompile-sha3fips",
  "pallet-evm-precompile-signature-verifier",
  "pallet-evm-precompile-simple",
@@ -8985,6 +8985,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-evm-precompile-block-prover"
+version = "0.1.0"
+dependencies = [
+ "attestor-primitives",
+ "derive_more 0.99.19",
+ "env_logger 0.11.8",
+ "ethabi",
+ "fp-account",
+ "fp-evm",
+ "frame-election-provider-support",
+ "frame-support",
+ "frame-system",
+ "hex",
+ "log",
+ "mmr",
+ "pallet-attestation-poc",
+ "pallet-babe",
+ "pallet-balances",
+ "pallet-evm",
+ "pallet-session",
+ "pallet-staking",
+ "pallet-staking-reward-curve",
+ "pallet-supported-chains",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "precompile-utils",
+ "precompiles-primitives",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std",
+ "sp-weights",
+ "supported-chains-primitives",
+ "utils",
+]
+
+[[package]]
 name = "pallet-evm-precompile-chain-info"
 version = "0.1.0"
 dependencies = [
@@ -9028,46 +9068,6 @@ source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990ac
 dependencies = [
  "fp-evm",
  "num",
-]
-
-[[package]]
-name = "pallet-evm-precompile-native-query-verifier"
-version = "0.1.0"
-dependencies = [
- "attestor-primitives",
- "derive_more 0.99.19",
- "env_logger 0.11.8",
- "ethabi",
- "fp-account",
- "fp-evm",
- "frame-election-provider-support",
- "frame-support",
- "frame-system",
- "hex",
- "log",
- "mmr",
- "pallet-attestation-poc",
- "pallet-babe",
- "pallet-balances",
- "pallet-evm",
- "pallet-session",
- "pallet-staking",
- "pallet-staking-reward-curve",
- "pallet-supported-chains",
- "pallet-timestamp",
- "parity-scale-codec",
- "precompile-utils",
- "precompiles-primitives",
- "scale-info",
- "serde",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-staking",
- "sp-std",
- "sp-weights",
- "supported-chains-primitives",
- "utils",
 ]
 
 [[package]]

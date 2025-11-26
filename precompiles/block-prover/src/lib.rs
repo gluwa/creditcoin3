@@ -58,7 +58,7 @@ mod verify;
 ///
 /// This precompile enables trustless cross-chain data verification without requiring
 /// the full blockchain state, making it ideal for bridges and oracles.
-pub struct NativeQueryVerifierPrecompile<Runtime>(PhantomData<Runtime>);
+pub struct BlockProverPrecompile<Runtime>(PhantomData<Runtime>);
 
 // Size constraints
 type ConstU10MB = sp_core::ConstU32<10_485_760>; // Type alias for bounded vec
@@ -76,7 +76,7 @@ pub fn encode_revert_message(message: &str) -> Vec<u8> {
 }
 
 #[precompile_utils::precompile]
-impl<Runtime> NativeQueryVerifierPrecompile<Runtime>
+impl<Runtime> BlockProverPrecompile<Runtime>
 where
     Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation_poc::Config,
     Runtime::Hash: Into<H256>,
@@ -95,7 +95,7 @@ where
     /// # Parameters
     /// - `chain_key`: The chain key
     /// - `height`: The block height
-    /// - `tx_data`: The raw transaction data to verify
+    /// - `encoded_transaction`: The raw transaction data to verify
     /// - `merkle_proof`: Merkle proof for transaction inclusion in the block
     /// - `continuity_proof`: Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
@@ -118,7 +118,7 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         height: u64,
-        tx_data: BoundedBytes<ConstU10MB>,
+        encoded_transaction: BoundedBytes<ConstU10MB>,
         merkle_proof: MerkleProof,
         continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
@@ -126,7 +126,7 @@ where
             handle,
             chain_key,
             height,
-            tx_data,
+            encoded_transaction,
             merkle_proof,
             continuity_proof,
             false, // don't emit events (view function)
@@ -141,7 +141,7 @@ where
     /// # Parameters
     /// - `chain_key`: The chain key
     /// - `height`: The block height
-    /// - `tx_data`: The raw transaction data to verify
+    /// - `encoded_transaction`: The raw transaction data to verify
     /// - `merkle_proof`: Merkle proof for transaction inclusion in the block
     /// - `continuity_proof`: Optimized continuity proof (blocks[0] is at queryHeight-1)
     ///
@@ -149,7 +149,7 @@ where
     /// `true` on successful verification
     ///
     /// # Events
-    /// Emits `TransactionVerified(uint64,uint64,uint64)` with chain_key, height, and txIndex
+    /// Emits `TransactionVerified(uint64,uint64,uint64)` with chain_key, height, and transactionIndex
     ///
     /// # Reverts
     /// - If continuity chain is empty or invalid
@@ -162,7 +162,7 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         height: u64,
-        tx_data: BoundedBytes<ConstU10MB>,
+        encoded_transaction: BoundedBytes<ConstU10MB>,
         merkle_proof: MerkleProof,
         continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
@@ -170,7 +170,7 @@ where
             handle,
             chain_key,
             height,
-            tx_data,
+            encoded_transaction,
             merkle_proof,
             continuity_proof,
             true, // emit events (state-changing function)
@@ -186,7 +186,7 @@ where
     /// # Arguments
     /// * `chain_key` - Chain key
     /// * `heights` - Vector of block heights to verify
-    /// * `tx_data_array` - Transaction data for each query (must match heights length)
+    /// * `encoded_transactions` - Transaction data for each query (must match heights length)
     /// * `merkle_proofs` - Merkle proofs for each query (must match heights length)
     /// * `shared_continuity_proof` - Shared continuity proof covering all query heights
     ///
@@ -201,17 +201,17 @@ where
     fn verify_batch(
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
-        heights: Vec<u64>,
-        tx_data_array: Vec<BoundedBytes<ConstU10MB>>,
-        merkle_proofs: Vec<MerkleProof>,
+        heights: BoundedVec<u64, MaxBatchSize>,
+        encoded_transactions: BoundedVec<BoundedBytes<ConstU10MB>, MaxBatchSize>,
+        merkle_proofs: BoundedVec<MerkleProof, MaxBatchSize>,
         shared_continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
         Self::verify_batch_impl(
             handle,
             chain_key,
-            heights,
-            tx_data_array,
-            merkle_proofs,
+            heights.into(),
+            encoded_transactions.into(),
+            merkle_proofs.into(),
             shared_continuity_proof,
             false, // don't emit events (view function)
         )
@@ -230,7 +230,7 @@ where
     /// # Arguments
     /// * `chain_key` - Chain key
     /// * `heights` - Vector of block heights to verify
-    /// * `tx_data_array` - Transaction data for each query (must match heights length)
+    /// * `encoded_transactions` - Transaction data for each query (must match heights length)
     /// * `merkle_proofs` - Merkle proofs for each query (must match queries length)
     /// * `shared_continuity_proof` - Shared continuity proof covering all query heights
     ///
@@ -239,7 +239,7 @@ where
     ///
     /// # Events
     /// Emits `TransactionVerified(uint64,uint64,uint8)` for each successfully verified transaction,
-    /// with chain_key, height, and txIndex (transaction index calculated from Merkle proof siblings)
+    /// with chain_key, height, and transactionIndex (transaction index calculated from Merkle proof siblings)
     ///
     /// # Reverts
     /// - If input arrays have mismatched lengths
@@ -249,16 +249,16 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         heights: BoundedVec<u64, MaxBatchSize>,
-        tx_data_array: Vec<BoundedBytes<ConstU10MB>>,
-        merkle_proofs: Vec<MerkleProof>,
+        encoded_transactions: BoundedVec<BoundedBytes<ConstU10MB>, MaxBatchSize>,
+        merkle_proofs: BoundedVec<MerkleProof, MaxBatchSize>,
         shared_continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
         Self::verify_batch_impl(
             handle,
             chain_key,
             heights.into(),
-            tx_data_array,
-            merkle_proofs,
+            encoded_transactions.into(),
+            merkle_proofs.into(),
             shared_continuity_proof,
             true, // emit events (state-changing function)
         )

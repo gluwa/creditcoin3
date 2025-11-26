@@ -192,10 +192,10 @@ use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBu
 
 pub type Precompiles<R> = PrecompileSetBuilder<
     R,
-    (PrecompileAt<AddressU64<PRECOMPILE_ADDRESS>, NativeQueryVerifierPrecompile<R>>,),
+    (PrecompileAt<AddressU64<PRECOMPILE_ADDRESS>, BlockProverPrecompile<R>>,),
 >;
 
-pub type PCall = NativeQueryVerifierPrecompileCall<Runtime>;
+pub type PCall = BlockProverPrecompileCall<Runtime>;
 
 const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 /// Block storage limit in bytes. Set to 40 KB.

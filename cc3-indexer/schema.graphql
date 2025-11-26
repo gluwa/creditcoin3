@@ -115,7 +115,7 @@ type ContinuityProof @jsonField {
 
 type ContinuityBlock @jsonField {
     blockNumber: BigInt! # Block number of the continuity block
-    root: String! # Root hash of the continuity block
+    merkleRoot: String! # Root hash of the continuity block
     prevDigest: String # Previous digest of the continuity block
     digest: String! # Digest of the continuity block
 }
@@ -504,7 +504,7 @@ type TransactionVerified @entity {
     height: BigInt! @index
 
     # Transaction index within the block (from Merkle proof)
-    txIndex: BigInt!
+    transactionIndex: BigInt!
 
     # Creditcoin3 block number when verification occurred
     ccBlockNumber: BigInt!

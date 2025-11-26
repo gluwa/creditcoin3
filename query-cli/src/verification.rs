@@ -38,7 +38,7 @@ pub async fn verify_query(
 ) -> Result<VerificationResult> {
     // Initialize the Ethereum client for Creditcoin3
     let eth_client = Client::new(&config.cc3_rpc_url, Some(&config.cc3_evm_private_key)).await?;
-    let verifier = evm::native_query_verifier::NativeQueryVerifierContract::new(&eth_client);
+    let verifier = evm::block_prover::BlockProver::new(&eth_client);
 
     // Convert Vec<Block> to ContinuityProof for the optimized API
     let continuity_proof = ContinuityProof::from_blocks(continuity_blocks.clone());
