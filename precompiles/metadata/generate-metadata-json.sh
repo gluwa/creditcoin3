@@ -86,6 +86,10 @@ for mapping in "${precompile_map[@]}"; do
     echo "  - $mapping"
 done
 
+# Sort precompile_map alphabetically by ABI filename to match cat sol/*.sol order
+IFS=$'\n' sorted_precompile_map=($(printf '%s\n' "${precompile_map[@]}" | sort -t':' -k1))
+precompile_map=("${sorted_precompile_map[@]}")
+
 # Function to generate JSON for a single precompile
 generate_precompile_json() {
     local abi_file="$1"
@@ -152,7 +156,7 @@ generate_precompile_json() {
         }'
 }
 
-# Generate entries for all precompiles
+# Generate entries for all precompiles (already sorted by ABI filename)
 entries=()
 for mapping in "${precompile_map[@]}"; do
     IFS=':' read -r abi_filename precompile_name address <<< "$mapping"

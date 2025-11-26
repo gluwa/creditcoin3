@@ -63,7 +63,7 @@ updates:
       - "/pallets/randomness"
       - "/pallets/supported-chains"
       - "/precompiles/chain-info"
-      - "/precompiles/native-query-verifier"
+      - "/precompiles/block-prover"
       - "/precompiles/substrate-transfer"
       - "/precompiles/signature-verifier"
       - "/primitives/account"
