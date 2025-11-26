@@ -1,7 +1,7 @@
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use precompile_utils::solidity::Codec;
 use scale_info::TypeInfo;
-use serde::{de::Deserializer, Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use sp_std::vec::Vec;
 
@@ -14,8 +14,6 @@ use std::string::String;
 
 #[cfg(not(feature = "std"))]
 use sp_runtime::format;
-#[cfg(feature = "std")]
-use std::format;
 
 // Removed Felt import - using H256 instead
 
@@ -138,33 +136,6 @@ impl MaybeCreatedFromEmpty for Block {
     }
 }
 
-// Helper serde adapters to encode/decode H256 as hex strings in JSON
-fn h256_serialize_as_hex<S>(val: &H256, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    s.serialize_str(&format!("0x{}", hex::encode(val.as_bytes())))
-}
-
-fn h256_deserialize_from_hex<'de, D>(d: D) -> Result<H256, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(d)?;
-    let hex_str = s.strip_prefix("0x").unwrap_or(&s);
-    let bytes = hex::decode(hex_str)
-        .map_err(|e| serde::de::Error::custom(format!("Hex decode error: {e}")))?;
-    if bytes.len() != 32 {
-        return Err(serde::de::Error::custom(format!(
-            "Expected 32 bytes, got {}",
-            bytes.len()
-        )));
-    }
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(&bytes);
-    Ok(H256::from(arr))
-}
-
 #[derive(
     Debug,
     Clone,
@@ -181,20 +152,8 @@ where
 )]
 pub struct BlockSerializable {
     pub block_number: u64,
-    #[serde(
-        serialize_with = "h256_serialize_as_hex",
-        deserialize_with = "h256_deserialize_from_hex"
-    )]
     pub root: H256,
-    #[serde(
-        serialize_with = "h256_serialize_as_hex",
-        deserialize_with = "h256_deserialize_from_hex"
-    )]
     pub prev_digest: H256,
-    #[serde(
-        serialize_with = "h256_serialize_as_hex",
-        deserialize_with = "h256_deserialize_from_hex"
-    )]
     pub digest: H256,
 }
 
@@ -202,7 +161,7 @@ pub struct BlockSerializable {
 /// Contains only root and digest (block_number and prev_digest are inferred from continuity proof structure)
 #[derive(Debug, Clone, Default, Codec, Serialize, Deserialize)]
 pub struct ContinuityBlock {
-    pub merkle_root: H256,
+    pub root: H256,
     pub digest: H256,
 }
 
@@ -210,15 +169,7 @@ pub struct ContinuityBlock {
     Debug, Clone, TypeInfo, Decode, Encode, PartialEq, Eq, Default, Serialize, Deserialize,
 )]
 pub struct ContinuityBlockSerializable {
-    #[serde(
-        serialize_with = "h256_serialize_as_hex",
-        deserialize_with = "h256_deserialize_from_hex"
-    )]
-    merkle_root: H256,
-    #[serde(
-        serialize_with = "h256_serialize_as_hex",
-        deserialize_with = "h256_deserialize_from_hex"
-    )]
+    root: H256,
     digest: H256,
 }
 
@@ -263,10 +214,6 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
 pub struct ContinuityProof {
     /// The digest of the block before the continuity chain starts
     /// This is the prev_digest of the first block
-    #[serde(
-        serialize_with = "h256_serialize_as_hex",
-        deserialize_with = "h256_deserialize_from_hex"
-    )]
     pub lower_endpoint_digest: H256,
     /// Array of continuity blocks (each containing only root and digest)
     /// Block numbers are inferred: blocks[i] is at (queryHeight - 1) + i for single query

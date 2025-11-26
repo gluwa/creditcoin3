@@ -16,6 +16,9 @@ sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
 
+[dev-dependencies]
+serde_json = { workspace = true, default-features = false }
+
 [features]
 default = ["std"]
 precompile-support = ["precompile-utils"]

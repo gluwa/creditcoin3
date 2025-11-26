@@ -162,7 +162,8 @@ impl ContinuityService {
                     chain_key,
                     header_number,
                     tx_index: Some(tx_index),
-                    tx_hash: None,
+                    // Propagate cached tx_hash (was previously None causing tests to fail)
+                    tx_hash: entry.tx_hash.clone(),
                     continuity_proof: continuity_out,
                     merkle_proof: Some(merkle_proof.clone()),
                     merkle_root: entry.merkle_root.clone(),

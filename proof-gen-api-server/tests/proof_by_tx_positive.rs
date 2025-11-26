@@ -1,36 +1,16 @@
 use axum::{body::Body, http::Request};
-use continuity::{ContinuityBuilder, ContinuityConfig};
-use proof_gen_api_server::services::mock_providers::make_mock_providers;
-use proof_gen_api_server::{build_app, ContinuityService};
 use serde_json::Value;
-use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tower::ServiceExt; // oneshot
+mod integration_common;
 
-// Positive flow: generate tx-level proof, then fetch by tx_hash (cached path)
 #[tokio::test]
 async fn proof_by_tx_positive_cached_retrieval() {
-    // Arrange environment vars for DbManager
-    std::env::set_var("POSTGRES_HOST", "localhost");
-    std::env::set_var("POSTGRES_PORT", "5432");
-    std::env::set_var("POSTGRES_USER", "test");
-    std::env::set_var("POSTGRES_PASSWORD", "test");
-    std::env::set_var("POSTGRES_DB", "test");
-
-    std::env::set_var("INMEM_DB_FALLBACK", "1"); // enable in-memory fallback since Postgres may not be running in test env
+    // Container-backed Postgres environment via shared helper
     let chain_key = 2u64;
     let header_number = 10u64; // within mock attestation range
     let tx_index = 0u64; // first tx
-    let (cc_provider, eth_provider) = make_mock_providers(chain_key);
-    let config = ContinuityConfig {
-        cc3_rpc_url: "ws://mock".into(),
-        eth_rpc_url: "ws://mock".into(),
-        chain_key,
-    };
-    let builder = ContinuityBuilder::new_with_providers(config, cc_provider, eth_provider);
-    let db = proof_gen_api_server::db::DbManager::new().expect("db manager init");
-    let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
-    let app = build_app(service);
+    let app = integration_common::start_app_with_postgres(chain_key).await;
 
     // 1. Generate tx-specific proof (should not be cached on first call)
     let uri = format!("/api/v1/proof/{chain_key}/{header_number}/{tx_index}");
@@ -69,30 +49,37 @@ async fn proof_by_tx_positive_cached_retrieval() {
         "first generation should not be cached"
     );
 
-    // Give background insertion task a brief moment (spawned) to persist the row
+    // Poll for the cached row becoming visible via /proof-by-tx
     sleep(Duration::from_millis(50)).await;
 
     // 2. Retrieve via /proof-by-tx using tx_hash (should hit cache)
     let uri_hash = format!("/api/v1/proof-by-tx/{chain_key}/{tx_hash}");
-    let req_hash = Request::builder()
-        .uri(uri_hash)
-        .method("GET")
-        .body(Body::empty())
-        .unwrap();
-    let resp_hash = app
-        .clone()
-        .oneshot(req_hash)
-        .await
-        .expect("proof-by-tx request failed");
-    assert_eq!(
-        resp_hash.status().as_u16(),
-        200,
-        "proof-by-tx must succeed for existing hash"
-    );
-    let bytes_hash = axum::body::to_bytes(resp_hash.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let json_hash: Value = serde_json::from_slice(&bytes_hash).unwrap();
+    let mut json_hash: Option<Value> = None;
+    for _ in 0..40 {
+        // up to ~2s
+        let req_hash = Request::builder()
+            .uri(&uri_hash)
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        let resp_hash = app
+            .clone()
+            .oneshot(req_hash)
+            .await
+            .expect("proof-by-tx request");
+        if resp_hash.status().as_u16() == 200 {
+            let bytes_hash = axum::body::to_bytes(resp_hash.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            let j: Value = serde_json::from_slice(&bytes_hash).unwrap();
+            if j["cached"].as_bool().unwrap_or(false) {
+                json_hash = Some(j);
+                break;
+            }
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    let json_hash = json_hash.expect("proof-by-tx must succeed with cached row");
 
     // 3. Assertions comparing cached response
     assert_eq!(json_hash["chain_key"].as_u64().unwrap(), chain_key);

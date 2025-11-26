@@ -72,10 +72,8 @@ impl EthRpcProvider for MockEthRpcProvider {
         let mut out = Vec::new();
         for n in start..=end {
             let root = H256::from_low_u64_be(n + 2000);
-            let mut bytes = [0u8; 32];
-            bytes[..16].copy_from_slice(&prev.as_bytes()[..16]);
-            bytes[16..24].copy_from_slice(&n.to_be_bytes());
-            let digest = H256::from(bytes);
+            // Use the real digest calculation to better mirror production continuity blocks.
+            let digest = Block::hash_payload(&n, &root, &prev);
             out.push(Block {
                 block_number: n,
                 root,

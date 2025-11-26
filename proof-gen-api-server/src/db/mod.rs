@@ -5,7 +5,6 @@ use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod};
 use mmr::query_proof::QueryMerkleProof;
 use serde_json::Value;
 use sp_core::H256;
-use std::sync::{Mutex, OnceLock};
 use tokio_postgres::NoTls;
 use tracing::{debug, info};
 
@@ -17,60 +16,6 @@ mod type_conversions;
 
 const V1_DOWN_SQL: &str = include_str!("../../migrations/v1/down.sql");
 const V1_UP_SQL: &str = include_str!("../../migrations/v1/up.sql");
-
-// ===== In-memory fallback (tests / dev) =====
-static INMEM_STORE: OnceLock<Mutex<Vec<ProofsDbEntry>>> = OnceLock::new();
-
-fn store_in_memory(entry: ProofsDbEntry) {
-    let store = INMEM_STORE.get_or_init(|| Mutex::new(Vec::new()));
-    let mut guard = store.lock().expect("inmem mutex");
-    // Replace existing matching key to emulate upsert semantics
-    if let Some(pos) = guard.iter().position(|e| {
-        e.chain_key == entry.chain_key
-            && e.header_number == entry.header_number
-            && e.tx_index == entry.tx_index
-    }) {
-        guard[pos] = entry;
-    } else {
-        guard.push(entry);
-    }
-}
-
-fn try_in_memory_block(chain_key: u64, header_number: u64) -> Option<ProofsDbEntry> {
-    let store = INMEM_STORE.get()?;
-    let guard = store.lock().ok()?;
-    guard
-        .iter()
-        .find(|e| {
-            e.chain_key == chain_key as i64
-                && e.header_number == header_number as i64
-                && e.tx_index.is_none()
-        })
-        .cloned()
-}
-
-fn try_in_memory_tx(chain_key: u64, header_number: u64, tx_index: u64) -> Option<ProofsDbEntry> {
-    let store = INMEM_STORE.get()?;
-    let guard = store.lock().ok()?;
-    guard
-        .iter()
-        .find(|e| {
-            e.chain_key == chain_key as i64
-                && e.header_number == header_number as i64
-                && e.tx_index == Some(tx_index as i64)
-        })
-        .cloned()
-}
-
-fn try_in_memory_tx_hash(chain_key: u64, tx_hash: H256) -> Option<ProofsDbEntry> {
-    let store = INMEM_STORE.get()?;
-    let guard = store.lock().ok()?;
-    let target = to_storage_hash(tx_hash);
-    guard
-        .iter()
-        .find(|e| e.chain_key == chain_key as i64 && e.tx_hash.as_ref() == Some(&target))
-        .cloned()
-}
 
 // Query proofs object. This is what we will enter in the DB and perhaps
 // also what we return from api calls
@@ -145,10 +90,6 @@ impl DbManager {
     // Because we don't need to wait on the insert result, we spawn a task to insert in the background
     pub fn insert_proofs_entry(&self, proofs: QueryProofs) {
         let pool = self.pool.clone();
-        let inmem_enabled = std::env::var("INMEM_DB_FALLBACK")
-            .ok()
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
         tokio::spawn(async move {
             // Convert first so we can potentially store in memory if pool unavailable
             let converted = match ProofsDbEntry::try_from(proofs.clone()) {
@@ -230,18 +171,10 @@ impl DbManager {
 
                     if let Err(e) = result {
                         eprintln!("Failed to insert proof {entry:?}, error: {e}");
-                        if inmem_enabled {
-                            store_in_memory(entry.clone());
-                        }
-                    } else if inmem_enabled {
-                        store_in_memory(entry.clone());
                     }
                 }
                 Err(e) => {
                     eprintln!("Failed to insert proofs: {proofs:?}, Couldn't get DB connection from pool. Error: {e}");
-                    if inmem_enabled {
-                        store_in_memory(converted.clone());
-                    }
                 }
             }
         });
@@ -252,9 +185,6 @@ impl DbManager {
         chain_key: u64,
         header_number: u64,
     ) -> Result<Option<ProofsDbEntry>> {
-        if let Some(entry) = try_in_memory_block(chain_key, header_number) {
-            return Ok(Some(entry));
-        }
         let client = self.pool.get().await?;
         let rows = client
             .query(
@@ -304,9 +234,6 @@ impl DbManager {
         header_number: u64,
         tx_index: u64,
     ) -> Result<Option<ProofsDbEntry>> {
-        if let Some(entry) = try_in_memory_tx(chain_key, header_number, tx_index) {
-            return Ok(Some(entry));
-        }
         let client = self.pool.get().await?;
         let rows = client
             .query(
@@ -360,9 +287,6 @@ impl DbManager {
         chain_key: u64,
         tx_hash: H256,
     ) -> Result<Option<ProofsDbEntry>> {
-        if let Some(entry) = try_in_memory_tx_hash(chain_key, tx_hash) {
-            return Ok(Some(entry));
-        }
         let client = self.pool.get().await?;
         let rows = client
             .query(
