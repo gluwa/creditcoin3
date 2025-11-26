@@ -2635,12 +2635,27 @@ dependencies = [
  "attestor-primitives",
  "cc-client",
  "ccnext-abi-encoding",
+ "continuity-rpc",
  "eth",
  "serde",
  "sp-core",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "utils",
+]
+
+[[package]]
+name = "continuity-rpc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "attestor-primitives",
+ "cc-client",
+ "ccnext-abi-encoding",
+ "eth",
+ "sp-core",
  "utils",
 ]
 
@@ -10589,6 +10604,7 @@ dependencies = [
  "chrono",
  "clap",
  "continuity",
+ "continuity-rpc",
  "deadpool-postgres",
  "dotenvy",
  "eth",

@@ -3,7 +3,6 @@ use proof_gen_api_server::{config::Config, db::DbManager, Server};
 // Ensure server refuses to start in production when mock providers are enabled.
 #[tokio::test]
 async fn mock_providers_refused_in_production() {
-    // Set env vars required for Config::from_env and DbManager::new (DbManager won't connect before migrations).
     std::env::set_var("BIND_ADDR", "127.0.0.1:0");
     std::env::set_var("CC3_RPC_URL", "ws://mock");
     std::env::set_var("ETH_RPC_URL", "http://mock");
@@ -18,11 +17,8 @@ async fn mock_providers_refused_in_production() {
     std::env::set_var("POSTGRES_PASSWORD", "test");
     std::env::set_var("POSTGRES_DB", "test");
 
-    // Use mock config to avoid env dependency; we still simulate production via RUST_LOG.
     let mut cfg = Config::new_mock_config(2);
-    cfg.use_mock_providers = true; // simulate CLI flag
-
-    // No explicit builder construction needed; Server::run will attempt to build providers and should fail fast.
+    cfg.use_mock_providers = true;
 
     let db = DbManager::new().expect("db manager init");
     let server = Server::new(cfg, db).await.expect("server create");

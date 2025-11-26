@@ -57,6 +57,7 @@ tracing = { workspace = true }
 attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 continuity = { workspace = true }
+continuity-rpc = { path = "../common/continuity-rpc" }
 eth = { workspace = true }
 hex = { workspace = true }
 mmr = { workspace = true }

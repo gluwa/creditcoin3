@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use attestor_primitives::block::Block;
 use axum::{body::Body, http::Request};
-use continuity::rpc::EthRpcProvider;
 use continuity::{ContinuityBuilder, ContinuityConfig};
+use continuity_rpc::EthRpcProvider;
 use proof_gen_api_server::services::mock_providers::MockCcRpcProvider;
 mod integration_common;
 use integration_common::start_db;

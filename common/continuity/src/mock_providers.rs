@@ -1,9 +1,9 @@
-use crate::rpc::{CcRpcProvider, EthRpcProvider};
 use anyhow::Result;
 use async_trait::async_trait;
 use attestor_primitives::block::Block;
 use attestor_primitives::{Attestation, AttestationCheckpoint, SignedAttestation};
 use cc_client::AccountId32;
+use continuity_rpc::{CcRpcProvider, EthRpcProvider};
 use sp_core::H256;
 use std::sync::Arc;
 

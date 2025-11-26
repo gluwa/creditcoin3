@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use attestor_primitives::block::Block;
 use attestor_primitives::{Attestation, AttestationCheckpoint, Query, SignedAttestation};
 use cc_client::AccountId32;
-use continuity::rpc::{CcRpcProvider, EthRpcProvider};
 use continuity::{builder::ContinuityBuilder, config::ContinuityConfig};
+use continuity_rpc::{CcRpcProvider, EthRpcProvider};
 use sp_core::H256;
 
 // Simple mock CC RPC provider for testing builder logic.
