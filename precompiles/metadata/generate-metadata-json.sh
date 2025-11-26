@@ -145,18 +145,19 @@ generate_precompile_json() {
     abi_content=$(cat "$abi_file" | jq -c '.' | jq -Rs '.')
     
     # Generate JSON entry
+    # Note: source and abi are JSON strings (from jq -Rs), so use --arg and keep as strings
     jq -n \
         --arg address "$address" \
         --arg name "$precompile_name" \
-        --argjson source "$source_content" \
-        --argjson abi "$abi_content" \
+        --arg source "$source_content" \
+        --arg abi "$abi_content" \
         '{
             address: $address,
             name: $name,
             bytecode: "0xfe",
             compiler: "Not Installed",
-            source: $source,
-            abi: $abi
+            source: ($source | fromjson),
+            abi: ($abi | fromjson)
         }'
 }
 
