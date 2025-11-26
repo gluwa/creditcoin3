@@ -89,8 +89,8 @@ pallet-randomness = { workspace = true }
 pallet-supported-chains = { workspace = true }
 
 attestor-primitives = { workspace = true }
-pallet-evm-precompile-chain-info = { workspace = true }
 pallet-evm-precompile-block-prover = { workspace = true }
+pallet-evm-precompile-chain-info = { workspace = true }
 pallet-evm-precompile-signature-verifier = { workspace = true }
 # pallet-evm-precompile-proof-verifier = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }

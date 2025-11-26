@@ -322,7 +322,7 @@ where
         // Convert ContinuityProof to Vec<Block> for internal processing
         // For batch queries: blocks[0] is at min(queryHeights)-1
         let start_block_number = min_height.saturating_sub(1);
-        let mut shared_continuity_blocks = shared_continuity_proof.to_blocks(start_block_number);
+        let shared_continuity_blocks = shared_continuity_proof.to_blocks(start_block_number);
 
         // Verify shared continuity chain once (more efficient than verifying per query)
         let continuity_gas = GAS_PER_CONTINUITY_BLOCK
@@ -361,10 +361,6 @@ where
         {
             return Self::revert_with_message(err.message());
         }
-
-        // Sort continuity blocks once for efficient binary search
-        // This avoids O(n^2) complexity from linear search in the loop below
-        shared_continuity_blocks.sort_by_key(|b| b.block_number);
 
         // Process each query
         for (i, ((height, encoded_transaction), merkle_proof)) in heights

@@ -220,8 +220,8 @@ pallet-supported-chains = { path = "pallets/supported-chains", default-features 
 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }
-pallet-evm-precompile-chain-info = { path = "precompiles/chain-info", default-features = false }
 pallet-evm-precompile-block-prover = { path = "precompiles/block-prover", default-features = false }
+pallet-evm-precompile-chain-info = { path = "precompiles/chain-info", default-features = false }
 pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verifier", default-features = false }
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 

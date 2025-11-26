@@ -3,7 +3,7 @@ import { ApiPromise, BN, MICROUNITS_PER_CTC, newApi } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../artifacts/INativeQueryVerifier.json');
+import contractABIJSON = require('../artifacts/block_prover.json');
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 const PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 
