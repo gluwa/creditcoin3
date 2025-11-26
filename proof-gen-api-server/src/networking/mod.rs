@@ -8,8 +8,6 @@ use tokio::sync::oneshot::Receiver;
 
 pub mod routes;
 
-// Legacy ApiError removed; structured errors handled in routes via ServiceError.
-
 pub fn build_app(service: Arc<ContinuityService>) -> Router {
     Router::new()
         .route("/api/v1/health", get(health::health_check))

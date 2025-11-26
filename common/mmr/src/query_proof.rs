@@ -7,7 +7,6 @@
 use crate::keccak::Keccak256;
 use crate::traits::HashT;
 use crate::{INNER_HASH_PREPEND_VALUE, LEAF_HASH_PREPEND_VALUE};
-// Removed unused imports after dropping custom serde helpers.
 extern crate alloc;
 use parity_scale_codec::{Decode, Encode};
 use precompile_utils::{prelude::String, solidity::Codec};
@@ -123,8 +122,6 @@ impl QueryMerkleProof {
         self.siblings.is_empty()
     }
 }
-
-// Removed custom serde helpers; relying on sp_core::H256's default Serialize/Deserialize impl.
 
 #[cfg(test)]
 mod tests {

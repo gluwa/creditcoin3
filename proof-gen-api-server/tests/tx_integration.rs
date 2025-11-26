@@ -1,6 +1,8 @@
 use axum::{body::Body, http::Request};
 use continuity::{ContinuityBuilder, ContinuityConfig};
 use proof_gen_api_server::{build_app, mock_providers::make_mock_providers, ContinuityService};
+mod integration_common;
+use integration_common::start_db;
 use std::sync::Arc;
 use tower::util::ServiceExt; // for oneshot helper
 
@@ -20,14 +22,8 @@ async fn tx_endpoint_returns_merkle_and_verifies() {
         ContinuityBuilder::new_with_providers(config, cc_provider.clone(), eth_provider.clone());
     let arc_builder = Arc::new(builder);
 
-    // Set dummy postgres envs so DbManager::new() doesn't panic; tests assume DB is reachable but not used deeply here
-    std::env::set_var("POSTGRES_HOST", "localhost");
-    std::env::set_var("POSTGRES_PORT", "5432");
-    std::env::set_var("POSTGRES_USER", "test");
-    std::env::set_var("POSTGRES_PASSWORD", "test");
-    std::env::set_var("POSTGRES_DB", "test");
-
-    let db = proof_gen_api_server::db::DbManager::new().expect("DB manager init");
+    // Use real Postgres for the app
+    let db = start_db().await;
     let service = Arc::new(ContinuityService::new(arc_builder.clone(), Arc::new(db)));
     let app = build_app(service.clone());
 

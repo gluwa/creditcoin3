@@ -1,6 +1,3 @@
-use anyhow::{Context, Result};
-use std::env;
-
 #[derive(Debug, Clone)]
 /// Server configuration
 /// - `bind_addr`: The address and port to which api requests can be directed
@@ -26,53 +23,22 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_env() -> Result<Self> {
-        dotenvy::dotenv().ok();
-
-        // Strings with defaults
-        let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
-        let cc3_rpc_url =
-            env::var("CC3_RPC_URL").unwrap_or_else(|_| "ws://127.0.0.1:9944".to_string());
-        let eth_rpc_url =
-            env::var("ETH_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
-
-        // Creditcoin account key (mnemonic or seed); require presence
-        let cc3_key = env::var("CC3_KEY")
-            .context("Missing CC3_KEY environment variable (Creditcoin mnemonic / seed)")?;
-
-        // Optional numeric values
-        let chain_key = env::var("CHAIN_KEY")
-            .unwrap_or_else(|_| "1".to_string())
-            .parse::<u64>()
-            .context("Invalid CHAIN_KEY: expected integer")?;
-
-        // Boolean env vars should handle many truthy values
-        let enable_prometheus_metrics = env::var("ENABLE_PROMETHEUS_METRICS")
-            .unwrap_or_else(|_| "false".to_string())
-            .parse::<bool>()
-            .context("Invalid ENABLE_PROMETHEUS_METRICS: expected true/false")?;
-
-        // Mock providers now controlled via CLI flag; default false when loading from env.
-        let use_mock_providers = false;
-
-        // Host/Port for metrics
-        let prometheus_host = env::var("PROMETHEUS_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-
-        let prometheus_port = env::var("PROMETHEUS_PORT")
-            .unwrap_or_else(|_| "9090".to_string())
-            .parse::<u16>()
-            .context("Invalid PROMETHEUS_PORT: expected u16")?;
-
-        Ok(Self {
-            bind_addr,
-            cc3_rpc_url,
-            cc3_key,
+    /// Convenience constructor for tests and local mock runs.
+    /// Builds a config with stable dummy values and does not read environment variables.
+    /// - Sets `use_mock_providers = true` to avoid hitting real RPC endpoints.
+    /// - Uses loopback addresses for bind and metrics.
+    /// - Accepts a `chain_key` parameter to match test expectations.
+    pub fn new_mock_config(chain_key: u64) -> Self {
+        Self {
+            bind_addr: "127.0.0.1:3000".to_string(),
+            cc3_rpc_url: "ws://mock".to_string(),
+            cc3_key: "test test test test test test test test test test test test".to_string(),
             chain_key,
-            eth_rpc_url,
-            use_mock_providers,
-            enable_prometheus_metrics,
-            prometheus_host,
-            prometheus_port,
-        })
+            eth_rpc_url: "http://mock".to_string(),
+            use_mock_providers: true,
+            enable_prometheus_metrics: false,
+            prometheus_host: "127.0.0.1".to_string(),
+            prometheus_port: 9090,
+        }
     }
 }

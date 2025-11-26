@@ -13,10 +13,12 @@ pub mod errors;
 pub mod proof;
 
 pub mod builder;
+pub mod mock_providers;
 pub mod rpc;
 
 pub use attestation::AttestationInfo;
 pub use builder::ContinuityBuilder;
 pub use config::ContinuityConfig;
+pub use mock_providers::make_mock_providers;
 pub use proof::ContinuityProof;
 pub use rpc::{CcRpcProvider, EthRpcProvider};

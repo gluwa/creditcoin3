@@ -3,10 +3,9 @@ use attestor_primitives::block::Block;
 use axum::{body::Body, http::Request};
 use continuity::rpc::EthRpcProvider;
 use continuity::{ContinuityBuilder, ContinuityConfig};
-use proof_gen_api_server::{
-    build_app,
-    services::{continuity_service::ContinuityService, mock_providers::MockCcRpcProvider},
-};
+use proof_gen_api_server::services::mock_providers::MockCcRpcProvider;
+mod integration_common;
+use integration_common::start_db;
 use sp_core::H256;
 use std::sync::Arc;
 use tower::util::ServiceExt; // oneshot
@@ -61,15 +60,13 @@ async fn tx_endpoint_empty_block_merkle_proof() {
     };
     let builder = ContinuityBuilder::new_with_providers(config, cc_provider, eth_provider);
 
-    // Dummy DB env vars
-    std::env::set_var("POSTGRES_HOST", "localhost");
-    std::env::set_var("POSTGRES_PORT", "5432");
-    std::env::set_var("POSTGRES_USER", "test");
-    std::env::set_var("POSTGRES_PASSWORD", "test");
-    std::env::set_var("POSTGRES_DB", "test");
-    let db = proof_gen_api_server::db::DbManager::new().expect("DB manager init");
-    let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
-    let app = build_app(service);
+    // Start real Postgres and build app with our custom providers
+    let db = start_db().await;
+    let service = Arc::new(proof_gen_api_server::ContinuityService::new(
+        Arc::new(builder),
+        Arc::new(db),
+    ));
+    let app = proof_gen_api_server::build_app(service);
 
     // tx_index=0 accepted for empty tx list
     let uri = format!("/api/v1/proof/{}/{}/{}", chain_key, header_number, 0);

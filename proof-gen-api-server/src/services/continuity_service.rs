@@ -16,8 +16,6 @@ fn h256_to_hex(h: &H256) -> String {
     format!("0x{hex_bytes}")
 }
 
-// Removed ContinuityBlockOut / ContinuityProofOut wrappers; we now reuse attestor primitives ContinuityProof directly.
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContinuityResponse {
     pub chain_key: u64,
@@ -112,7 +110,7 @@ impl ContinuityService {
         // Convert raw blocks into optimized ContinuityProof (attestor primitives)
         let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
 
-        // Insert into DB (async)
+        // Insert into DB (fail fast if unavailable)
         let entry = QueryProofs {
             chain_key,
             header_number,
@@ -122,7 +120,11 @@ impl ContinuityService {
             merkle_proof: None,
             merkle_root: None,
         };
-        self.db.insert_proofs_entry(entry);
+        if let Err(e) = self.db.try_insert_proofs_entry(entry).await {
+            return Err(ServiceError::DbError {
+                message: e.to_string(),
+            });
+        }
 
         Ok(ContinuityResponse {
             chain_key,
@@ -227,7 +229,7 @@ impl ContinuityService {
             Some(H256::from(keccak_256(bytes)))
         };
 
-        // 5. Insert tx-specific entry.
+        // 5. Insert tx-specific entry (fail fast if unavailable).
         let entry = QueryProofs {
             chain_key,
             header_number,
@@ -237,7 +239,11 @@ impl ContinuityService {
             merkle_proof: Some(merkle_proof.clone()),
             merkle_root: Some(merkle_root),
         };
-        self.db.insert_proofs_entry(entry);
+        if let Err(e) = self.db.try_insert_proofs_entry(entry).await {
+            return Err(ServiceError::DbError {
+                message: e.to_string(),
+            });
+        }
 
         // 6. Return response (cached=false because tx-specific entry was missing).
         Ok(ContinuityResponse {

@@ -174,10 +174,87 @@ impl DbManager {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Failed to insert proofs: {proofs:?}, Couldn't get DB connection from pool. Error: {e}");
+                    // Do not quietly continue if DB is down; log loudly and return.
+                    eprintln!("DB connection unavailable; not caching proofs. Error: {e}. Incoming proofs: {proofs:?}");
                 }
             }
         });
+    }
+
+    /// Synchronous insert that fails fast if the DB is unavailable.
+    /// Returns an error so callers can surface a 5xx instead of proceeding.
+    pub async fn try_insert_proofs_entry(&self, proofs: QueryProofs) -> Result<()> {
+        let client = self.pool.get().await?;
+        let entry = ProofsDbEntry::try_from(proofs)?;
+
+        if entry.tx_index.is_some() {
+            client
+                .execute(
+                    r#"
+                INSERT INTO proofs (
+                    chain_key,
+                    header_number,
+                    tx_index,
+                    tx_hash,
+                    continuity_proof,
+                    merkle_proof,
+                    merkle_root
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (chain_key, header_number, tx_index) WHERE tx_index IS NOT NULL
+                DO UPDATE SET
+                    tx_hash = EXCLUDED.tx_hash,
+                    continuity_proof = EXCLUDED.continuity_proof,
+                    merkle_proof = EXCLUDED.merkle_proof,
+                    merkle_root = EXCLUDED.merkle_root,
+                    updated_at = now()
+                "#,
+                    &[
+                        &entry.chain_key,
+                        &entry.header_number,
+                        &entry.tx_index,
+                        &entry.tx_hash,
+                        &entry.continuity_proof,
+                        &entry.merkle_proof,
+                        &entry.merkle_root,
+                    ],
+                )
+                .await?;
+        } else {
+            client
+                .execute(
+                    r#"
+                INSERT INTO proofs (
+                    chain_key,
+                    header_number,
+                    tx_index,
+                    tx_hash,
+                    continuity_proof,
+                    merkle_proof,
+                    merkle_root
+                )
+                VALUES ($1, $2, NULL, $3, $4, $5, $6)
+                ON CONFLICT (chain_key, header_number) WHERE tx_index IS NULL
+                DO UPDATE SET
+                    tx_hash = EXCLUDED.tx_hash,
+                    continuity_proof = EXCLUDED.continuity_proof,
+                    merkle_proof = EXCLUDED.merkle_proof,
+                    merkle_root = EXCLUDED.merkle_root,
+                    updated_at = now()
+                "#,
+                    &[
+                        &entry.chain_key,
+                        &entry.header_number,
+                        &entry.tx_hash,
+                        &entry.continuity_proof,
+                        &entry.merkle_proof,
+                        &entry.merkle_root,
+                    ],
+                )
+                .await?;
+        }
+
+        Ok(())
     }
 
     pub async fn get_proofs_for_block(

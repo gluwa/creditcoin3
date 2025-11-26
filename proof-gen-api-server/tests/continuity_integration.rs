@@ -2,35 +2,16 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use continuity::{ContinuityBuilder, ContinuityConfig};
-use proof_gen_api_server::{
-    networking::build_app,
-    services::{continuity_service::ContinuityService, mock_providers::make_mock_providers},
-};
-use std::sync::Arc;
+mod integration_common;
+use integration_common::start_app_with_postgres;
 use tower::util::ServiceExt; // for oneshot helper
 
 #[tokio::test]
 async fn continuity_endpoint_returns_proof() {
-    // Arrange: mock providers & builder
+    // Arrange: app backed by a real Postgres container
     let chain_key = 2u64;
     let header_number = 10u64; // falls between mock attestations 5 and 15
-    let (cc_provider, eth_provider) = make_mock_providers(chain_key);
-    let config = ContinuityConfig {
-        cc3_rpc_url: "ws://mock".into(),
-        eth_rpc_url: "ws://mock".into(),
-        chain_key,
-    };
-    let builder = ContinuityBuilder::new_with_providers(config, cc_provider, eth_provider);
-    // Provide dummy Postgres env vars so DbManager::new() succeeds; test focuses on HTTP + serialization, not DB IO.
-    std::env::set_var("POSTGRES_HOST", "localhost");
-    std::env::set_var("POSTGRES_PORT", "5432");
-    std::env::set_var("POSTGRES_USER", "test");
-    std::env::set_var("POSTGRES_PASSWORD", "test");
-    std::env::set_var("POSTGRES_DB", "test");
-    let db = proof_gen_api_server::db::DbManager::new().expect("DB manager init");
-    let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
-    let app = build_app(service);
+    let app = start_app_with_postgres(chain_key).await;
 
     let uri = format!("/api/v1/proof/{chain_key}/{header_number}");
     let request = Request::builder()

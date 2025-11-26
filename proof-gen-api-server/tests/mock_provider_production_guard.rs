@@ -18,7 +18,8 @@ async fn mock_providers_refused_in_production() {
     std::env::set_var("POSTGRES_PASSWORD", "test");
     std::env::set_var("POSTGRES_DB", "test");
 
-    let mut cfg = Config::from_env().expect("config load");
+    // Use mock config to avoid env dependency; we still simulate production via RUST_LOG.
+    let mut cfg = Config::new_mock_config(2);
     cfg.use_mock_providers = true; // simulate CLI flag
 
     // No explicit builder construction needed; Server::run will attempt to build providers and should fail fast.
