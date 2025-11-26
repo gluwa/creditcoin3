@@ -10,6 +10,11 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info};
 
+/// Maximum reasonable block number (10 billion blocks)
+/// Used to filter out invalid/corrupted checkpoint block numbers
+/// This filters out corrupted data like 2163135196021391360
+const MAX_REASONABLE_BLOCK: u64 = 10_000_000_000;
+
 /// Configuration for attestation monitoring
 #[derive(Debug, Clone)]
 pub struct AttestationConfig {
@@ -120,10 +125,6 @@ impl AttestationMonitor {
             .unwrap_or_default();
 
         // Filter out invalid/corrupted checkpoint block numbers
-        // Checkpoints shouldn't be unreasonably large (e.g., > 10 billion blocks)
-        // This filters out corrupted data like 2163135196021391360
-        const MAX_REASONABLE_BLOCK: u64 = 10_000_000_000; // 10 billion blocks
-
         for checkpoint in checkpoints {
             // Validate checkpoint block number is reasonable
             if checkpoint.block_number > MAX_REASONABLE_BLOCK {
@@ -255,8 +256,6 @@ impl AttestationMonitor {
                 );
 
                 // Validate checkpoint block number is reasonable before using it
-                const MAX_REASONABLE_BLOCK: u64 = 10_000_000_000; // 10 billion blocks
-
                 if checkpoint_chain == chain_key
                     && checkpoint.block_number <= MAX_REASONABLE_BLOCK
                     && checkpoint.block_number >= block_number
