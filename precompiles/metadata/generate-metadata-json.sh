@@ -99,33 +99,13 @@ generate_precompile_json() {
     local precompile_name="$2"
     local address="$3"
     
-    # Get source file name (remove .json extension and find corresponding .sol file)
+    # Get source file name (remove .json extension and use same basename for .sol file)
     local abi_basename
     abi_basename=$(basename "$abi_file" .json)
-    local source_file=""
-    
-    # Find the corresponding source file
-    case "$abi_basename" in
-        "block_prover")
-            source_file="${sol_directory}/block_prover.sol"
-            ;;
-        "chain_info")
-            source_file="${sol_directory}/chain_info.sol"
-            ;;
-        "signature_verifier")
-            source_file="${sol_directory}/signature_verifier.sol"
-            ;;
-        "substrate_transfer")
-            source_file="${sol_directory}/substrate_transfer.sol"
-            ;;
-        *)
-            echo "Warning: Unknown ABI file $abi_file, skipping..."
-            return 1
-            ;;
-    esac
+    local source_file="${sol_directory}/${abi_basename}.sol"
     
     if [ ! -f "$source_file" ]; then
-        echo "Error: Source file $source_file not found for $precompile_name"
+        echo "Error: Source file $source_file not found for $precompile_name (ABI file: $abi_file)"
         return 1
     fi
     
@@ -142,22 +122,23 @@ generate_precompile_json() {
     # Read ABI and convert to JSON string (compact, single line, escaped)
     # ABI files are JSON arrays, so parse first, then convert to JSON string
     local abi_content
-    abi_content=$(cat "$abi_file" | jq -c '.' | jq -Rs '.')
+    abi_content=$(cat "$abi_file" | jq -c '.')
     
     # Generate JSON entry
-    # Note: source and abi are JSON strings (from jq -Rs), so use --arg and keep as strings
+    # Note: source is a JSON string (from jq -Rs), abi is a JSON value (from jq -c)
+    # Store source as parsed JSON, abi as JSON string (using tojson to ensure proper formatting)
     jq -n \
         --arg address "$address" \
         --arg name "$precompile_name" \
         --arg source "$source_content" \
-        --arg abi "$abi_content" \
+        --argjson abi_json "$abi_content" \
         '{
             address: $address,
             name: $name,
             bytecode: "0xfe",
             compiler: "Not Installed",
             source: ($source | fromjson),
-            abi: ($abi | fromjson)
+            abi: ($abi_json | tojson)
         }'
 }
 
