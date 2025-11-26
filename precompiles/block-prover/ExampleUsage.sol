@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "../metadata/sol/INativeQueryVerifier.sol";
+import "../metadata/sol/block_prover.sol";
 
 /// @title SimpleQueryExample
 /// @notice A minimal example showing how to use the Native Query Verifier precompile
