@@ -20,11 +20,15 @@ This generates compact JSON array files in the `abi/` directory for each Solidit
 ```
 
 This automatically:
+- Extracts precompile information from `runtime/src/precompiles.rs` (addresses and precompile types)
+- Maps precompile types to ABI filenames and display names
 - Reads all Solidity source files from `sol/`
 - Reads all ABI files from `abi/`
 - Generates/updates `precompiles-creditcoin3-devnet.json` and `precompiles-creditcoin3-testnet.json`
 - Formats sources as JSON strings and ABIs as compact JSON strings
 - Ensures proper ordering and formatting
+
+**Note**: The script extracts precompile addresses directly from the runtime configuration, ensuring consistency and avoiding manual mapping errors. If you add a new precompile to `runtime/src/precompiles.rs`, make sure to add its mapping in the `get_precompile_info()` function in the script.
 
 ### 3. Verify the Changes
 

@@ -4,6 +4,8 @@ set -euo pipefail
 
 # Script to generate precompiles metadata JSON files for devnet and testnet
 # Usage: ./generate-metadata-json.sh
+# This script extracts precompile information from runtime/src/precompiles.rs
+# to ensure consistency and avoid manual mapping errors.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -12,15 +14,76 @@ sol_directory="sol"
 abi_directory="abi"
 output_devnet="precompiles-creditcoin3-devnet.json"
 output_testnet="precompiles-creditcoin3-testnet.json"
+runtime_precompiles_file="../../runtime/src/precompiles.rs"
 
-# Map ABI file names to precompile names and addresses
-# Format: "abi_filename:precompile_name:address"
-declare -a precompile_map=(
-    "block_prover:BlockProver:0x0000000000000000000000000000000000000FD2"
-    "chain_info:ChainInfo:0x0000000000000000000000000000000000000fD3"
-    "signature_verifier:SignatureVerifier:0x00000000000000000000000000000000000013B9"
-    "substrate_transfer:SubstrateTransfer:0x0000000000000000000000000000000000000Fd1"
-)
+# Function to convert decimal to hex address (H160 format)
+decimal_to_address() {
+    local decimal=$1
+    # Convert to hex and pad to 40 hex characters (20 bytes = 40 hex chars)
+    # Format: 0x + 40 hex characters (uppercase)
+    local hex_part=$(printf "%040x" "$decimal" | tr '[:lower:]' '[:upper:]')
+    echo "0x${hex_part}"
+}
+
+# Function to map precompile type name to ABI filename and display name
+get_precompile_info() {
+    local precompile_type=$1
+    case "$precompile_type" in
+        "BlockProverPrecompile")
+            echo "block_prover:BlockProver"
+            ;;
+        "ChainInfoPrecompile")
+            echo "chain_info:ChainInfo"
+            ;;
+        "SignatureVerifierPrecompile")
+            echo "signature_verifier:SignatureVerifier"
+            ;;
+        "SubstrateTransferPrecompile")
+            echo "substrate_transfer:SubstrateTransfer"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# Parse runtime/precompiles.rs to extract precompile mappings
+# Look for lines like: a if a == hash(4050) => Some(BlockProverPrecompile::<Runtime>::execute(handle)),
+declare -a precompile_map=()
+
+if [ ! -f "$runtime_precompiles_file" ]; then
+    echo "Error: Runtime precompiles file not found at $runtime_precompiles_file"
+    exit 1
+fi
+
+# Extract precompile mappings from the Rust file
+while IFS= read -r line; do
+    # Match lines like: a if a == hash(4050) => Some(BlockProverPrecompile::<Runtime>::execute(handle)),
+    # Extract hash number and precompile type name
+    if [[ $line =~ hash\(([0-9]+)\)\ =\>\ Some\(([A-Za-z]+Precompile):: ]]; then
+        hash_number="${BASH_REMATCH[1]}"
+        precompile_type="${BASH_REMATCH[2]}"
+        
+        # Get ABI filename and display name
+        precompile_info=$(get_precompile_info "$precompile_type")
+        
+        if [ -n "$precompile_info" ]; then
+            IFS=':' read -r abi_filename display_name <<< "$precompile_info"
+            address=$(decimal_to_address "$hash_number")
+            precompile_map+=("${abi_filename}:${display_name}:${address}")
+        fi
+    fi
+done < <(grep -E "hash\([0-9]+\)\s*=>\s*Some\([A-Za-z]+Precompile::" "$runtime_precompiles_file")
+
+if [ ${#precompile_map[@]} -eq 0 ]; then
+    echo "Error: No precompiles found in $runtime_precompiles_file"
+    exit 1
+fi
+
+echo "Found ${#precompile_map[@]} precompiles from runtime configuration:"
+for mapping in "${precompile_map[@]}"; do
+    echo "  - $mapping"
+done
 
 # Function to generate JSON for a single precompile
 generate_precompile_json() {
