@@ -15,6 +15,7 @@ members = [
     "precompiles/substrate-transfer",
     "precompiles/block-prover",
     "common/*",
+    "common/continuity-mocks",
     "attestor_zombienet",
     "query-cli",
     "usc_audit_automation",

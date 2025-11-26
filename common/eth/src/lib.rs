@@ -24,6 +24,8 @@ use alloy::{
 use anyhow::Result;
 use ccnext_abi_encoding::abi::EncodingVersion;
 use hex::FromHexError;
+use sp_core::H256;
+use std::str::FromStr;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tracing::{error, info};
@@ -435,6 +437,38 @@ impl Client {
         let block = block_opt.ok_or(Error::FailedToGetBlockByHash(hash.to_string()))?;
 
         Ok(block.header.number)
+    }
+
+    /// Resolve a transaction hash to its block number and index within the block.
+    pub async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64), Error> {
+        // Convert sp_core::H256 to alloy BlockHash via hex string
+        let hex = format!("0x{:x}", tx_hash);
+        let block_hash = alloy::primitives::BlockHash::from_str(&hex)
+            .map_err(|e| Error::ClientError(anyhow::anyhow!("Invalid tx hash: {e}")))?;
+
+        // Fetch the transaction by hash
+        let tx_opt = self
+            .rpc_provider
+            .get_transaction_by_hash(block_hash)
+            .await
+            .map_err(Error::from)?;
+
+        let tx = tx_opt.ok_or_else(|| {
+            Error::ClientError(anyhow::anyhow!("Transaction not found for hash {}", hex))
+        })?;
+
+        // Extract block number and transaction index (both should be Some for mined tx)
+        let block_number = tx.block_number.ok_or_else(|| {
+            Error::ClientError(anyhow::anyhow!(
+                "Transaction not in a block (pending): {}",
+                hex
+            ))
+        })?;
+        let tx_index = tx.transaction_index.ok_or_else(|| {
+            Error::ClientError(anyhow::anyhow!("Missing transactionIndex for tx: {}", hex))
+        })?;
+
+        Ok((block_number, tx_index))
     }
 }
 

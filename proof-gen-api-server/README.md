@@ -58,6 +58,14 @@ Endpoints:
 - `GET /proof/{chain_key}/{header_number}/{tx_index}` – continuity + merkle proof for the transaction at `tx_index` (supports empty block with index 0).
 - `GET /proof-by-tx/{chain_key}/{tx_hash}` – currently disabled (returns TxHashLookupUnavailable) until reverse lookup is implemented.
 
+### E2E Testing
+
+An E2E test exercises all three proof endpoints with Anvil and ephemeral Postgres. Prerequisites: [Foundry](https://book.getfoundry.sh/getting-started/installation) (`anvil`, `cast`) and Docker. Run with:
+
+```bash
+cargo test -p proof-gen-api-server --test anvil_e2e --features e2e-tests -- --ignored
+```
+
 ## Caching
 
 The server caches generated proofs in Postgres to avoid recomputation on subsequent requests.
@@ -93,11 +101,7 @@ Guidelines:
 
 Production notes:
 
-- Do not pass `--use-mock-providers` in production.
-- Set `RUST_LOG=production` or `prod` to activate production logging profile and mock safety guard.
 - Provide secure Postgres credentials and a non-development mnemonic.
-
-Safety Guard: startup aborts if `--use-mock-providers` is supplied and `RUST_LOG` is `production` / `prod`.
 
 Error Response Shape:
 

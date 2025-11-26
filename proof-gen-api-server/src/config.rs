@@ -14,18 +14,14 @@ pub struct Config {
     pub cc3_key: String,
     pub chain_key: u64,
     pub eth_rpc_url: String,
-    /// When true, server will construct continuity builder with mock RPC providers.
-    /// Useful for local development without live chains. Not allowed when RUST_LOG=production.
-    pub use_mock_providers: bool,
     pub enable_prometheus_metrics: bool,
     pub prometheus_host: String,
     pub prometheus_port: u16,
 }
 
 impl Config {
-    /// Convenience constructor for tests and local mock runs.
+    /// Convenience constructor for tests
     /// Builds a config with stable dummy values and does not read environment variables.
-    /// - Sets `use_mock_providers = true` to avoid hitting real RPC endpoints.
     /// - Uses loopback addresses for bind and metrics.
     /// - Accepts a `chain_key` parameter to match test expectations.
     pub fn new_mock_config(chain_key: u64) -> Self {
@@ -35,7 +31,6 @@ impl Config {
             cc3_key: "test test test test test test test test test test test test".to_string(),
             chain_key,
             eth_rpc_url: "http://mock".to_string(),
-            use_mock_providers: true,
             enable_prometheus_metrics: false,
             prometheus_host: "127.0.0.1".to_string(),
             prometheus_port: 9090,

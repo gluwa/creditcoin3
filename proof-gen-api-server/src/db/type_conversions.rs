@@ -1,4 +1,3 @@
-use super::{ProofsDbEntry, QueryProofs};
 use anyhow::Result;
 use attestor_primitives::block::ContinuityProof;
 use chrono::NaiveDateTime;
@@ -7,6 +6,8 @@ use serde_json::Value;
 use sp_core::H256;
 use std::str::FromStr;
 use tokio_postgres::Row;
+
+use super::{ProofsDbEntry, QueryProofs};
 
 impl TryFrom<&Row> for ProofsDbEntry {
     type Error = anyhow::Error;

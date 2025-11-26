@@ -30,6 +30,7 @@ impl CcRpcProvider for MockCcRpcProvider {
             attestors: vec![],
             continuity_proof: Default::default(),
         };
+        // Two attestations bracketing a typical query height range (5 .. 15)
         Ok(vec![mk_attestation(5), mk_attestation(15)])
     }
 
@@ -57,7 +58,7 @@ impl CcRpcProvider for MockCcRpcProvider {
     }
 }
 
-/// Mock ETH provider building continuity blocks with deterministic digests.
+/// Mock ETH provider building continuity blocks with simple incremental digests.
 pub struct MockEthRpcProvider;
 
 #[async_trait]
@@ -72,29 +73,42 @@ impl EthRpcProvider for MockEthRpcProvider {
         let mut blocks = Vec::new();
         for n in start..=end {
             let root = H256::from_low_u64_be(n + 2000);
-            // Use the shared hashing helper to mirror production behavior.
-            let digest = Block::hash_payload(&n, &root, &prev);
-            blocks.push(Block {
+            // Fake digest: keccak-like by XORing bytes (not cryptographically accurate, just deterministic)
+            let mut bytes = [0u8; 32];
+            bytes[..16].copy_from_slice(&prev.as_bytes()[..16]);
+            bytes[16..24].copy_from_slice(&(n.to_be_bytes()));
+            let digest = H256::from(bytes);
+            let block = Block {
                 block_number: n,
                 root,
                 prev_digest: prev,
                 digest,
-            });
+            };
             prev = digest;
+            blocks.push(block);
         }
         Ok(blocks)
     }
 
     async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>> {
+        // Return a deterministic list of transaction payload bytes for the block
+        // For testing, create N transactions where N = (block_number % 3) + 1
         let count = (block_number % 3) as usize + 1;
         let mut txs = Vec::with_capacity(count);
         for i in 0..count {
+            // Simple deterministic payload: block_number || tx_index
             let mut b = Vec::with_capacity(16);
             b.extend_from_slice(&block_number.to_be_bytes());
             b.extend_from_slice(&(i as u64).to_be_bytes());
             txs.push(b);
         }
         Ok(txs)
+    }
+
+    async fn get_tx_position_by_hash(&self, _tx_hash: H256) -> Result<(u64, u64)> {
+        Err(anyhow::anyhow!(
+            "MockEthRpcProvider does not implement get_tx_position_by_hash"
+        ))
     }
 }
 

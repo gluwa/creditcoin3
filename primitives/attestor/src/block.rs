@@ -42,7 +42,7 @@ impl core::fmt::Display for BlockError {
 #[cfg(feature = "std")]
 impl core::error::Error for BlockError {}
 
-#[derive(Debug, Clone, Default, Codec)]
+#[derive(Debug, Clone, Default, Codec, Deserialize)]
 pub struct Block {
     pub block_number: u64,
     pub root: H256,
@@ -369,5 +369,71 @@ mod tests {
         assert_eq!(original.root, parsed.root);
         assert_eq!(original.prev_digest, parsed.prev_digest);
         assert_eq!(original.digest, parsed.digest);
+    }
+
+    #[test]
+    fn precise_h256_serialization_format() {
+        // Use distinct, simple numeric seeds to make expected hex easy to reason about.
+        let block = Block {
+            block_number: 42,
+            root: h256_from_u64(1),
+            prev_digest: h256_from_u64(2),
+            digest: h256_from_u64(3),
+        };
+        let ser_block = BlockSerializable::from(&block);
+        let value = serde_json::to_value(&ser_block).expect("serialize block");
+
+        // Helper to assert exact 0x-prefixed lowercase 64 hex chars.
+        let assert_h256_str = |label: &str, s: &str| {
+            assert!(s.starts_with("0x"), "{label} must start with 0x: {s}");
+            assert_eq!(
+                s.len(),
+                66,
+                "{label} must be 0x + 64 hex chars (len=66), got len={}",
+                s.len()
+            );
+            assert!(
+                s.chars().skip(2).all(
+                    |c| c.is_ascii_hexdigit() && (c.is_ascii_lowercase() || c.is_ascii_digit())
+                ),
+                "{label} must be lowercase hex (0-9a-f). Got: {s}"
+            );
+        };
+
+        // Extract strings
+        let root_str = value
+            .get("root")
+            .and_then(|v| v.as_str())
+            .expect("root string");
+        let prev_str = value
+            .get("prev_digest")
+            .and_then(|v| v.as_str())
+            .expect("prev_digest string");
+        let digest_str = value
+            .get("digest")
+            .and_then(|v| v.as_str())
+            .expect("digest string");
+
+        assert_h256_str("root", root_str);
+        assert_h256_str("prev_digest", prev_str);
+        assert_h256_str("digest", digest_str);
+
+        // Continuity block serialization check as well.
+        let cblock = ContinuityBlock {
+            root: block.root,
+            digest: block.digest,
+        };
+        let ser_cblock = ContinuityBlockSerializable::from(&cblock);
+        let cval = serde_json::to_value(&ser_cblock).expect("serialize continuity block");
+        let c_root = cval
+            .get("root")
+            .and_then(|v| v.as_str())
+            .expect("continuity root");
+        let c_digest = cval
+            .get("digest")
+            .and_then(|v| v.as_str())
+            .expect("continuity digest");
+        assert_h256_str("continuity.root", c_root);
+        assert_h256_str("continuity.digest", c_digest);
     }
 }

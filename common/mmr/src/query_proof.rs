@@ -7,7 +7,6 @@
 use crate::keccak::Keccak256;
 use crate::traits::HashT;
 use crate::{INNER_HASH_PREPEND_VALUE, LEAF_HASH_PREPEND_VALUE};
-extern crate alloc;
 use parity_scale_codec::{Decode, Encode};
 use precompile_utils::{prelude::String, solidity::Codec};
 use scale_info::TypeInfo;

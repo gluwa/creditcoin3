@@ -20,6 +20,7 @@ use attestor_primitives::Query;
 use cc_client::Client as CcClient;
 use continuity_rpc::{SharedCcProvider, SharedEthProvider};
 use eth::Client as EthClient;
+use sp_core::H256;
 use std::sync::Arc;
 
 /// Continuity proof builder backed by abstract RPC providers.
@@ -97,5 +98,9 @@ impl ContinuityBuilder {
     /// Helper to fetch raw transaction bytes for a block using the underlying Eth provider.
     pub async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>> {
         self.eth_provider.get_block_tx_bytes(block_number).await
+    }
+    /// Resolve a transaction hash to its block number and index on the source chain.
+    pub async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64)> {
+        self.eth_provider.get_tx_position_by_hash(tx_hash).await
     }
 }

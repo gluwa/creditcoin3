@@ -1,7 +1,7 @@
 use attestor_primitives::block::Block;
-
+use serde::Deserialize;
 /// Result of continuity proof generation.
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct ContinuityProof {
     pub blocks: Vec<Block>,
 }

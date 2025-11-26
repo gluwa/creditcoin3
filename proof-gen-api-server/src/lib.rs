@@ -20,8 +20,6 @@ pub mod services;
 // Re-exports for integration tests and external callers
 pub use networking::build_app;
 pub use services::continuity_service::ContinuityService;
-// Re-export shared mocks from common continuity crate to avoid duplication
-pub use continuity::mock_providers;
 
 pub struct Server {
     // proof-gen-api-server is configured using `Config`
@@ -45,30 +43,24 @@ pub struct Server {
 impl Server {
     /// Create a new server based on `Config`.
     pub async fn new(config: Config, db_manager: DbManager) -> Result<Self> {
-        // If running with mock providers, skip external client initialization.
-        let (cc3_client_opt, source_chain_client_opt) = if config.use_mock_providers {
-            (None, None)
-        } else {
-            // Initialize CC3 client
-            let cc3_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key).await?;
+        // Initialize CC3 client
+        let cc3_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key).await?;
 
-            // Validate supported chain and source chain id alignment
-            let supported_chain = cc3_client
-                .get_supported_chain(config.chain_key)
-                .await?
-                .ok_or(anyhow!("Failed to get chain key"))?;
-            let supported_chain_id = supported_chain.chain_id;
+        // Validate supported chain and source chain id alignment
+        let supported_chain = cc3_client
+            .get_supported_chain(config.chain_key)
+            .await?
+            .ok_or(anyhow!("Failed to get chain key"))?;
+        let supported_chain_id = supported_chain.chain_id;
 
-            // Initialize source chain client and validate chain id matches
-            let source_chain_client = EthClient::new(&config.eth_rpc_url, None).await?;
-            let chain_id = source_chain_client.chain_id();
-            if supported_chain_id != chain_id {
-                return Err(anyhow!(
-                    "Wrong chain. Source chain endpoint chain id: {chain_id}, Supported chain id: {supported_chain_id}"
-                ));
-            }
-            (Some(cc3_client), Some(source_chain_client))
-        };
+        // Initialize source chain client and validate chain id matches
+        let source_chain_client = EthClient::new(&config.eth_rpc_url, None).await?;
+        let chain_id = source_chain_client.chain_id();
+        if supported_chain_id != chain_id {
+            return Err(anyhow!(
+                "Wrong chain. Source chain endpoint chain id: {chain_id}, Supported chain id: {supported_chain_id}"
+            ));
+        }
 
         // Register metrics server if configured
         let metrics = if config.enable_prometheus_metrics {
@@ -81,7 +73,7 @@ impl Server {
         } else {
             None
         };
-        if let Some(ref cc3_client) = cc3_client_opt {
+        {
             let chain_name = cc3_client
                 .get_chain_name()
                 .await
@@ -95,28 +87,13 @@ impl Server {
         Ok(Server {
             config,
             db_manager,
-            cc3_client: cc3_client_opt,
-            source_chain_client: source_chain_client_opt,
+            cc3_client: Some(cc3_client),
+            source_chain_client: Some(source_chain_client),
             metrics,
         })
     }
 
     pub async fn run(&self) -> Result<()> {
-        // Production guard: Only trigger when RUST_LOG explicitly set to "production" / "prod" (case-insensitive).
-        // Avoid substring matches that could falsely trigger (e.g. "reproduction_steps=trace").
-        let is_prod_log = std::env::var("RUST_LOG")
-            .ok()
-            .map(|v| {
-                let v = v.trim().to_ascii_lowercase();
-                matches!(v.as_str(), "production" | "prod")
-            })
-            .unwrap_or(false);
-        if self.config.use_mock_providers && is_prod_log {
-            return Err(anyhow!(
-                "Refusing to start with mock providers in production"
-            ));
-        }
-
         // Run migrations (only after passing guard)
         self.db_manager.run_migrations().await?;
 
@@ -126,18 +103,8 @@ impl Server {
             eth_rpc_url: self.config.eth_rpc_url.clone(),
             chain_key: self.config.chain_key,
         };
-        // Use the normalized config flag (accepts 1/true/yes) to decide mock vs real providers.
-        let builder = if self.config.use_mock_providers {
-            let (cc_provider, eth_provider) =
-                services::mock_providers::make_mock_providers(self.config.chain_key);
-            continuity::ContinuityBuilder::new_with_providers(
-                continuity_config,
-                cc_provider,
-                eth_provider,
-            )
-        } else {
-            continuity::ContinuityBuilder::new(continuity_config).await?
-        };
+        // Always use real providers for continuity
+        let builder = continuity::ContinuityBuilder::new(continuity_config).await?;
 
         let service = Arc::new(services::continuity_service::ContinuityService::new(
             Arc::new(builder),

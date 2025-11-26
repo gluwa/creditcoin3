@@ -26,7 +26,6 @@ pub fn build_app(service: Arc<ContinuityService>) -> Router {
         .layer(Extension(service))
 }
 
-#[allow(dead_code)]
 pub async fn run_http_server(
     app: Router,
     addr: &str,

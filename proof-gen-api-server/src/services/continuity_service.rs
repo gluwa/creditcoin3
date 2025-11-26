@@ -10,11 +10,7 @@ use sp_core::H256;
 use std::sync::Arc;
 
 // === Serialization helpers ===
-fn h256_to_hex(h: &H256) -> String {
-    // still used for merkle proof output wrapping
-    let hex_bytes = hex::encode(h.as_bytes());
-    format!("0x{hex_bytes}")
-}
+// Remove helper; use LowerHex formatting on H256 directly where needed.
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContinuityResponse {
@@ -34,6 +30,7 @@ pub struct ContinuityResponse {
 }
 
 use crate::services::errors::ServiceError;
+pub type ServiceResult<T> = Result<T, ServiceError>;
 
 pub struct ContinuityService {
     builder: Arc<ContinuityBuilder>,
@@ -45,7 +42,16 @@ impl ContinuityService {
         Self { builder, db }
     }
 
-    // Helper: build continuity proof for a single (chain_key, header_number) query
+    /// Internal helper that always builds a fresh continuity proof directly
+    /// using the underlying `ContinuityBuilder`.
+    ///
+    /// Does *not*:
+    /// - perform DB cache lookups
+    /// - write results to the DB
+    /// - construct an HTTP-facing response type
+    ///
+    /// This is mainly useful inside tests or internal utilities that need a
+    /// raw proof without involving the persistence layer.
     async fn build_continuity(
         &self,
         chain_key: u64,
@@ -64,11 +70,34 @@ impl ContinuityService {
         Ok(ContinuityProof::from_blocks(proof.blocks.clone()))
     }
 
+    /// Build and return a continuity proof for a given (chain_key, header_number).
+    ///
+    /// This method is responsible for:
+    /// 1. Performing a cache lookup in the DB (tx_index = NULL case).
+    /// 2. Falling back to the underlying `ContinuityBuilder` when no cached entry exists.
+    /// 3. Converting the builder-level proof (raw blocks) into the
+    ///    production `attestor_primitives::block::ContinuityProof`
+    ///    used by the HTTP API.
+    /// 4. Persisting newly-built proofs back into the DB.
+    ///
+    /// How this differs from `build_continuity`:
+    /// - `build_continuity` is a small internal helper that always builds a
+    ///   fresh proof using the `ContinuityBuilder` and returns an
+    ///   in-memory `ContinuityProof` with *no DB reads or writes*.
+    ///
+    /// - `continuity_proof` is the public service entry point used by the HTTP
+    ///   layer. It includes cache lookup, DB insertion, and full response
+    ///   construction. This is the method called by the route handlers.
+    ///
+    /// When to use:
+    /// - Use `continuity_proof` in all API code paths.
+    /// - Use `build_continuity` only inside tests or other internal helpers
+    ///   when you explicitly want a fresh proof without touching the DB.
     pub async fn continuity_proof(
         &self,
         chain_key: u64,
         header_number: u64,
-    ) -> std::result::Result<ContinuityResponse, ServiceError> {
+    ) -> ServiceResult<ContinuityResponse> {
         // Attempt cache lookup using block-level retrieval (tx_index IS NULL)
         match self.db.get_proofs_for_block(chain_key, header_number).await {
             Ok(Some(entry)) => {
@@ -148,7 +177,7 @@ impl ContinuityService {
         chain_key: u64,
         header_number: u64,
         tx_index: u64,
-    ) -> std::result::Result<ContinuityResponse, ServiceError> {
+    ) -> ServiceResult<ContinuityResponse> {
         // 1. Attempt tx-specific cache hit.
         if let Ok(Some(entry)) = self
             .db
@@ -265,10 +294,10 @@ impl ContinuityService {
             chain_key,
             header_number,
             tx_index: Some(tx_index),
-            tx_hash: tx_hash_opt.map(|h| h256_to_hex(&h)),
+            tx_hash: tx_hash_opt.map(|h| format!("0x{:x}", h)),
             continuity_proof: continuity_out,
             merkle_proof: Some(merkle_proof.clone()),
-            merkle_root: Some(h256_to_hex(&merkle_root)),
+            merkle_root: Some(format!("0x{:x}", merkle_root)),
             cached: false,
             generated_at: Utc::now(),
         })
@@ -292,7 +321,7 @@ impl ContinuityService {
         &self,
         chain_key: u64,
         tx_hash: String,
-    ) -> std::result::Result<ContinuityResponse, ServiceError> {
+    ) -> ServiceResult<ContinuityResponse> {
         // 0. Parse tx_hash
         let tx_h256 = self.parse_tx_hash(&tx_hash)?;
 
@@ -354,7 +383,23 @@ impl ContinuityService {
                 tracing::warn!(%tx_hash, chain_key, header_number=entry.header_number, "Cache entry missing required data for rebuild");
                 Err(ServiceError::TxHashNotFound { tx_hash })
             }
-            Ok(None) => Err(ServiceError::TxHashNotFound { tx_hash }),
+            Ok(None) => {
+                // DB miss: attempt RPC resolution and generate proofs
+                match self.builder.get_tx_position_by_hash(tx_h256).await {
+                    Ok((header_number, tx_index)) => {
+                        let generated = self
+                            .continuity_proof_with_tx(chain_key, header_number, tx_index)
+                            .await?;
+                        Ok(ContinuityResponse {
+                            cached: false,
+                            ..generated
+                        })
+                    }
+                    Err(e) => Err(ServiceError::RpcUnavailable {
+                        message: format!("failed to resolve tx by hash via RPC: {}", e),
+                    }),
+                }
+            }
             Err(e) => Err(ServiceError::DbError {
                 message: e.to_string(),
             }),

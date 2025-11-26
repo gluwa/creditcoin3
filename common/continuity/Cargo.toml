@@ -22,3 +22,6 @@ continuity-rpc = { path = "../continuity-rpc" }
 eth = { workspace = true }
 sp-core = { workspace = true }
 utils = { workspace = true }
+
+[dev-dependencies]
+continuity-mocks = { path = "../continuity-mocks" }

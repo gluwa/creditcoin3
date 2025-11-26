@@ -37,6 +37,9 @@ pub trait EthRpcProvider: Send + Sync {
     /// Fetch raw transaction payload bytes for a block number.
     /// Returned vector contains one Vec<u8> per transaction in canonical order.
     async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>>;
+
+    /// Resolve a transaction hash to its block number and index within the block.
+    async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64)>;
 }
 
 #[async_trait]
@@ -92,6 +95,12 @@ impl EthRpcProvider for eth::Client {
         let tx_bytes: Vec<Vec<u8>> = ordered.items().iter().map(|item| item.to_bytes()).collect();
 
         Ok(tx_bytes)
+    }
+
+    async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64)> {
+        self.get_tx_position_by_hash(tx_hash)
+            .await
+            .map_err(|e| anyhow!("Failed to resolve tx position: {e}"))
     }
 }
 
