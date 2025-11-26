@@ -72,22 +72,26 @@ impl ContinuityService {
         // Attempt cache lookup using block-level retrieval (tx_index IS NULL)
         match self.db.get_proofs_for_block(chain_key, header_number).await {
             Ok(Some(entry)) => {
-                if let Some(cp_json) = entry.continuity_proof.clone() {
-                    if let Ok(continuity_proof_out) =
-                        serde_json::from_value::<ContinuityProof>(cp_json)
-                    {
-                        return Ok(ContinuityResponse {
-                            chain_key,
-                            header_number,
-                            tx_index: None,
-                            tx_hash: None,
-                            continuity_proof: continuity_proof_out,
-                            merkle_proof: None,
-                            merkle_root: entry.merkle_root.clone(),
-                            cached: true,
-                            generated_at: Utc::now(),
-                        });
-                    }
+                let continuity_proof_out = entry
+                    .continuity_proof
+                    .as_ref()
+                    .map(|v| serde_json::from_value::<ContinuityProof>(v.clone()))
+                    .transpose()
+                    .map_err(|e| ServiceError::DbError {
+                        message: e.to_string(),
+                    })?;
+                if let Some(continuity_proof_out) = continuity_proof_out {
+                    return Ok(ContinuityResponse {
+                        chain_key,
+                        header_number,
+                        tx_index: None,
+                        tx_hash: None,
+                        continuity_proof: continuity_proof_out,
+                        merkle_proof: None,
+                        merkle_root: entry.merkle_root.clone(),
+                        cached: true,
+                        generated_at: Utc::now(),
+                    });
                 }
             }
             Ok(None) => { /* cache miss, build new */ }
@@ -153,12 +157,20 @@ impl ContinuityService {
         {
             let continuity_opt = entry
                 .continuity_proof
-                .clone()
-                .and_then(|v| serde_json::from_value::<ContinuityProof>(v).ok());
+                .as_ref()
+                .map(|v| serde_json::from_value::<ContinuityProof>(v.clone()))
+                .transpose()
+                .map_err(|e| ServiceError::DbError {
+                    message: e.to_string(),
+                })?;
             let merkle_opt = entry
                 .merkle_proof
-                .clone()
-                .and_then(|v| serde_json::from_value::<QueryMerkleProof>(v).ok());
+                .as_ref()
+                .map(|v| serde_json::from_value::<QueryMerkleProof>(v.clone()))
+                .transpose()
+                .map_err(|e| ServiceError::DbError {
+                    message: e.to_string(),
+                })?;
             if let (Some(continuity_out), Some(merkle_proof)) = (continuity_opt, merkle_opt) {
                 return Ok(ContinuityResponse {
                     chain_key,
@@ -179,13 +191,16 @@ impl ContinuityService {
         let continuity_out = if let Ok(Some(block_entry)) =
             self.db.get_proofs_for_block(chain_key, header_number).await
         {
-            if let Some(cp_json) = block_entry.continuity_proof.clone() {
-                if let Ok(cp) = serde_json::from_value::<ContinuityProof>(cp_json) {
-                    cp
-                } else {
-                    // Fall back to build if deserialization fails
-                    self.build_continuity(chain_key, header_number).await?
-                }
+            let continuity_opt = block_entry
+                .continuity_proof
+                .as_ref()
+                .map(|v| serde_json::from_value::<ContinuityProof>(v.clone()))
+                .transpose()
+                .map_err(|e| ServiceError::DbError {
+                    message: e.to_string(),
+                })?;
+            if let Some(cp) = continuity_opt {
+                cp
             } else {
                 self.build_continuity(chain_key, header_number).await?
             }

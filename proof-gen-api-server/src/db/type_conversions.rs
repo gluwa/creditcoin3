@@ -49,21 +49,25 @@ impl TryFrom<QueryProofs> for ProofsDbEntry {
     }
 }
 
-impl Into<QueryProofs> for ProofsDbEntry {
-    fn into(self) -> QueryProofs {
-        QueryProofs {
-            chain_key: from_storage_int(self.chain_key),
-            header_number: from_storage_int(self.header_number),
-            tx_index: self.tx_index.map(from_storage_int),
-            tx_hash: self.tx_hash.map(|s| from_storage_hash(&s)),
-            continuity_proof: self
+impl TryFrom<ProofsDbEntry> for QueryProofs {
+    type Error = anyhow::Error;
+
+    fn try_from(entry: ProofsDbEntry) -> Result<Self> {
+        Ok(QueryProofs {
+            chain_key: from_storage_int(entry.chain_key),
+            header_number: from_storage_int(entry.header_number),
+            tx_index: entry.tx_index.map(from_storage_int),
+            tx_hash: entry.tx_hash.map(|s| from_storage_hash(&s)),
+            continuity_proof: entry
                 .continuity_proof
-                .and_then(|v| serde_json::from_value::<ContinuityProof>(v).ok()),
-            merkle_proof: self
+                .map(serde_json::from_value::<ContinuityProof>)
+                .transpose()?,
+            merkle_proof: entry
                 .merkle_proof
-                .and_then(|v| serde_json::from_value::<QueryMerkleProof>(v).ok()),
-            merkle_root: self.merkle_root.map(|s| from_storage_hash(&s)),
-        }
+                .map(serde_json::from_value::<QueryMerkleProof>)
+                .transpose()?,
+            merkle_root: entry.merkle_root.map(|s| from_storage_hash(&s)),
+        })
     }
 }
 
