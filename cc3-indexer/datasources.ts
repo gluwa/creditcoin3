@@ -262,7 +262,7 @@ export const blockProverDatasource: FrontierEvmDatasource = {
             address: '0x0000000000000000000000000000000000000fd2',
         },
     },
-    assets: new Map([['block_prover', { file: './abis/block_prover.abi.json' }]]),
+    assets: new Map([['block_prover', { file: './abis/block-prover.abi.json' }]]),
     mapping: {
         file: './dist/index.js',
         handlers: [
