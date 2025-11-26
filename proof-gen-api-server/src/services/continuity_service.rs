@@ -101,15 +101,10 @@ impl ContinuityService {
         // Attempt cache lookup using block-level retrieval (tx_index IS NULL)
         match self.db.get_proofs_for_block(chain_key, header_number).await {
             Ok(Some(entry)) => {
-                let continuity_proof_out = entry
-                    .continuity_proof
-                    .as_ref()
-                    .map(|v| serde_json::from_value::<ContinuityProof>(v.clone()))
-                    .transpose()
-                    .map_err(|e| ServiceError::DbError {
-                        message: e.to_string(),
-                    })?;
-                if let Some(continuity_proof_out) = continuity_proof_out {
+                let proofs = QueryProofs::try_from(entry).map_err(|e| ServiceError::DbError {
+                    message: e.to_string(),
+                })?;
+                if let Some(continuity_proof_out) = proofs.continuity_proof {
                     return Ok(ContinuityResponse {
                         chain_key,
                         header_number,
@@ -117,7 +112,7 @@ impl ContinuityService {
                         tx_hash: None,
                         continuity_proof: continuity_proof_out,
                         merkle_proof: None,
-                        merkle_root: entry.merkle_root.clone(),
+                        merkle_root: proofs.merkle_root.map(|h| format!("0x{:x}", h)),
                         cached: true,
                         generated_at: Utc::now(),
                     });
@@ -143,7 +138,7 @@ impl ContinuityService {
         // Convert raw blocks into optimized ContinuityProof (attestor primitives)
         let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
 
-        // Insert into DB (fail fast if unavailable)
+        // Insert into DB asynchronously in background
         let entry = QueryProofs {
             chain_key,
             header_number,
@@ -153,11 +148,7 @@ impl ContinuityService {
             merkle_proof: None,
             merkle_root: None,
         };
-        if let Err(e) = self.db.try_insert_proofs_entry(entry).await {
-            return Err(ServiceError::DbError {
-                message: e.to_string(),
-            });
-        }
+        self.db.insert_proofs_entry(entry);
 
         Ok(ContinuityResponse {
             chain_key,
@@ -184,32 +175,21 @@ impl ContinuityService {
             .get_proofs_for_tx(chain_key, header_number, tx_index)
             .await
         {
-            let continuity_opt = entry
-                .continuity_proof
-                .as_ref()
-                .map(|v| serde_json::from_value::<ContinuityProof>(v.clone()))
-                .transpose()
-                .map_err(|e| ServiceError::DbError {
-                    message: e.to_string(),
-                })?;
-            let merkle_opt = entry
-                .merkle_proof
-                .as_ref()
-                .map(|v| serde_json::from_value::<QueryMerkleProof>(v.clone()))
-                .transpose()
-                .map_err(|e| ServiceError::DbError {
-                    message: e.to_string(),
-                })?;
-            if let (Some(continuity_out), Some(merkle_proof)) = (continuity_opt, merkle_opt) {
+            let proofs = QueryProofs::try_from(entry).map_err(|e| ServiceError::DbError {
+                message: e.to_string(),
+            })?;
+            if let (Some(continuity_out), Some(merkle_proof)) =
+                (proofs.continuity_proof, proofs.merkle_proof)
+            {
                 return Ok(ContinuityResponse {
                     chain_key,
                     header_number,
                     tx_index: Some(tx_index),
                     // Propagate cached tx_hash (was previously None causing tests to fail)
-                    tx_hash: entry.tx_hash.clone(),
+                    tx_hash: proofs.tx_hash.map(|h| format!("0x{:x}", h)),
                     continuity_proof: continuity_out,
                     merkle_proof: Some(merkle_proof.clone()),
-                    merkle_root: entry.merkle_root.clone(),
+                    merkle_root: proofs.merkle_root.map(|h| format!("0x{:x}", h)),
                     cached: true,
                     generated_at: Utc::now(),
                 });
@@ -220,15 +200,10 @@ impl ContinuityService {
         let continuity_out = if let Ok(Some(block_entry)) =
             self.db.get_proofs_for_block(chain_key, header_number).await
         {
-            let continuity_opt = block_entry
-                .continuity_proof
-                .as_ref()
-                .map(|v| serde_json::from_value::<ContinuityProof>(v.clone()))
-                .transpose()
-                .map_err(|e| ServiceError::DbError {
-                    message: e.to_string(),
-                })?;
-            if let Some(cp) = continuity_opt {
+            let proofs = QueryProofs::try_from(block_entry).map_err(|e| ServiceError::DbError {
+                message: e.to_string(),
+            })?;
+            if let Some(cp) = proofs.continuity_proof {
                 cp
             } else {
                 self.build_continuity(chain_key, header_number).await?
@@ -283,11 +258,8 @@ impl ContinuityService {
             merkle_proof: Some(merkle_proof.clone()),
             merkle_root: Some(merkle_root),
         };
-        if let Err(e) = self.db.try_insert_proofs_entry(entry).await {
-            return Err(ServiceError::DbError {
-                message: e.to_string(),
-            });
-        }
+        // Insert into DB asynchronously in background
+        self.db.insert_proofs_entry(entry);
 
         // 6. Return response (cached=false because tx-specific entry was missing).
         Ok(ContinuityResponse {
@@ -328,48 +300,37 @@ impl ContinuityService {
         // 1. Try DB lookup by tx_hash
         match self.db.get_proofs_by_tx_hash(chain_key, tx_h256).await {
             Ok(Some(entry)) => {
-                // Deserialize cached proofs.
-                let continuity_out_opt = entry
-                    .continuity_proof
-                    .as_ref()
-                    .map(|v| serde_json::from_value::<ContinuityProof>(v.clone()))
-                    .transpose()
-                    .map_err(|e| {
-                        tracing::error!(%tx_hash, chain_key, error=%e, "Cached continuity_proof deserialization failed");
-                        ServiceError::DbError { message: e.to_string() }
-                    })?;
-                let merkle_out_opt = entry
-                    .merkle_proof
-                    .as_ref()
-                    .map(|v| serde_json::from_value::<QueryMerkleProof>(v.clone()))
-                    .transpose()
-                    .map_err(|e| {
-                        tracing::error!(%tx_hash, chain_key, error=%e, "Cached merkle_proof deserialization failed");
-                        ServiceError::DbError { message: e.to_string() }
-                    })?;
+                let header_number_u64 = entry.header_number as u64;
+                let tx_index_opt = entry.tx_index;
+
+                // Deserialize cached proofs using type_conversions.
+                let proofs = QueryProofs::try_from(entry).map_err(|e| {
+                    tracing::error!(%tx_hash, chain_key, error=%e, "Cached proofs deserialization failed");
+                    ServiceError::DbError {
+                        message: e.to_string(),
+                    }
+                })?;
 
                 if let (Some(continuity_out), Some(merkle_proof)) =
-                    (continuity_out_opt.clone(), merkle_out_opt.clone())
+                    (proofs.continuity_proof.clone(), proofs.merkle_proof.clone())
                 {
-                    tracing::debug!(%tx_hash, chain_key, header_number=entry.header_number, "Cache hit: returning cached proofs");
+                    tracing::debug!(%tx_hash, chain_key, header_number=header_number_u64, "Cache hit: returning cached proofs");
                     return Ok(ContinuityResponse {
                         chain_key,
-                        header_number: entry.header_number as u64,
-                        tx_index: entry.tx_index.map(|i| i as u64),
+                        header_number: header_number_u64,
+                        tx_index: proofs.tx_index,
                         tx_hash: Some(tx_hash),
                         continuity_proof: continuity_out,
                         merkle_proof: Some(merkle_proof.clone()),
-                        merkle_root: entry.merkle_root.clone(),
+                        merkle_root: proofs.merkle_root.map(|h| format!("0x{:x}", h)),
                         cached: true,
                         generated_at: Utc::now(),
                     });
                 }
 
                 // Rebuild path: either missing continuity or merkle proof
-                if let Some(tx_index_i64) = entry.tx_index {
-                    tracing::debug!(%tx_hash, chain_key, header_number=entry.header_number, "Partial cache entry; rebuilding proofs");
-                    let header_number_u64 = entry.header_number as u64;
-                    let tx_index_u64 = tx_index_i64 as u64;
+                if let Some(tx_index_u64) = tx_index_opt.map(|i| i as u64) {
+                    tracing::debug!(%tx_hash, chain_key, header_number=header_number_u64, "Partial cache entry; rebuilding proofs");
                     let rebuilt = self
                         .continuity_proof_with_tx(chain_key, header_number_u64, tx_index_u64)
                         .await?;
@@ -380,7 +341,7 @@ impl ContinuityService {
                 }
 
                 // Neither full proofs nor tx index: treat as not found
-                tracing::warn!(%tx_hash, chain_key, header_number=entry.header_number, "Cache entry missing required data for rebuild");
+                tracing::warn!(%tx_hash, chain_key, header_number=header_number_u64, "Cache entry missing required data for rebuild");
                 Err(ServiceError::TxHashNotFound { tx_hash })
             }
             Ok(None) => {

@@ -163,8 +163,9 @@ pub enum AttestationEvent {
 // Temporary DB tests hook. Replace with CI/Integration tests when DB design stabilizes.
 impl Server {
     async fn run_db_tests(&self, _tx: UnboundedSender<AttestationEvent>) -> Result<()> {
-        // Placeholder: no-op for now; return Ok to keep select leg active without blocking.
-        Ok(())
+        // Placeholder: pending future that never completes, keeping the select branch inactive.
+        // Replace with actual DB tests implementation when ready.
+        std::future::pending().await
     }
 }
 
