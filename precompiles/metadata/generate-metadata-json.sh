@@ -21,7 +21,8 @@ decimal_to_address() {
     local decimal=$1
     # Convert to hex and pad to 40 hex characters (20 bytes = 40 hex chars)
     # Format: 0x + 40 hex characters (uppercase)
-    local hex_part=$(printf "%040x" "$decimal" | tr '[:lower:]' '[:upper:]')
+    local hex_part
+    hex_part=$(printf "%040x" "$decimal" | tr '[:lower:]' '[:upper:]')
     echo "0x${hex_part}"
 }
 
