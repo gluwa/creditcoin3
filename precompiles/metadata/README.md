@@ -32,15 +32,17 @@ This automatically:
 
 ### 3. Verify the Changes
 
+You can verify that the generated files match what's committed:
+
 ```sh
 cd ../..
-.github/check-solidity-source-vs-metadata.sh
+git status precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json
+git diff precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json
 ```
 
-This validates that:
-- Sources in the JSON files match the on-disk Solidity files
-- ABIs in the JSON files match the generated ABI files
-- Addresses are correct
+If there are no changes, the files are up to date. If there are changes, commit them.
+
+**Note**: The CI pipeline automatically runs `generate-metadata-json.sh` and checks for uncommitted changes using `git status` and `git diff`, ensuring the metadata JSON files stay in sync with the source code.
 
 ## Manual Workflow (If Needed)
 
@@ -57,8 +59,8 @@ If you need to manually update the metadata JSON files:
 
 The CI pipeline automatically:
 - Generates ABI files from Solidity sources
-- Generates metadata JSON files
-- Verifies that committed JSON files match the generated ones
-- Fails if the metadata JSON files are out of date
+- Generates metadata JSON files using `generate-metadata-json.sh`
+- Checks for uncommitted changes using `git status` and `git diff`
+- Fails if the metadata JSON files are out of date (prompting you to commit the changes)
 
-This ensures that metadata JSON files are always kept in sync with the source code.
+This ensures that metadata JSON files are always kept in sync with the source code. The check uses `git diff` directly on the generated files, avoiding the need for temporary files or complex normalization.

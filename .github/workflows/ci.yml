@@ -246,18 +246,10 @@ jobs:
         run: |
           ./generate-metadata-json.sh
           cd ../..
-          # Normalize both files by decoding ABI JSON strings and normalizing the entire structure
-          # This ensures we compare semantic content, not string formatting differences
-          jq -S '.[] |= (.abi = (.abi | fromjson))' precompiles/metadata/precompiles-creditcoin3-devnet.json > /tmp/devnet-generated.json
-          jq -S '.[] |= (.abi = (.abi | fromjson))' precompiles/metadata/precompiles-creditcoin3-testnet.json > /tmp/testnet-generated.json
-          git show HEAD:precompiles/metadata/precompiles-creditcoin3-devnet.json | jq -S '.[] |= (.abi = (.abi | fromjson))' > /tmp/devnet-committed.json
-          git show HEAD:precompiles/metadata/precompiles-creditcoin3-testnet.json | jq -S '.[] |= (.abi = (.abi | fromjson))' > /tmp/testnet-committed.json
-          if ! diff -q /tmp/devnet-generated.json /tmp/devnet-committed.json > /dev/null || ! diff -q /tmp/testnet-generated.json /tmp/testnet-committed.json > /dev/null; then
+          # Check if metadata JSON files were modified
+          if [ -n "$(git status --short --untracked-files=no precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json)" ]; then
             echo "ERROR: Metadata JSON files are out of date. Please run './generate-metadata-json.sh' and commit the changes."
-            echo "Devnet differences:"
-            diff -u /tmp/devnet-committed.json /tmp/devnet-generated.json || true
-            echo "Testnet differences:"
-            diff -u /tmp/testnet-committed.json /tmp/testnet-generated.json || true
+            git diff precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json
             exit 1
           fi
 
