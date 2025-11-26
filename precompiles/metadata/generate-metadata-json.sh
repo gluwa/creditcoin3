@@ -123,18 +123,28 @@ generate_precompile_json() {
     # ABI files are JSON arrays, so parse first, then convert to JSON string
     # Root cause: jq errors might output to stdout, which would be invalid JSON for --argjson
     local abi_content
-    abi_content=$(cat "$abi_file" | jq -c '.' 2>&1)
-    local jq_exit_code=$?
+    local jq_error
     
-    # Check if jq succeeded and output is valid JSON
-    if [ $jq_exit_code -ne 0 ] || [ -z "$abi_content" ]; then
-        echo "Error: Failed to parse ABI file $abi_file as JSON (exit code: $jq_exit_code)"
+    # Try to parse JSON, capturing both stdout and stderr
+    if ! abi_content=$(cat "$abi_file" | jq -c '.' 2>&1); then
+        jq_error="$abi_content"
+        echo "Error: Failed to parse ABI file $abi_file as JSON" >&2
+        echo "jq output: ${jq_error:0:200}" >&2
+        return 1
+    fi
+    
+    # Trim whitespace to check if content is actually empty (not just whitespace)
+    local abi_content_trimmed
+    abi_content_trimmed=$(printf '%s' "$abi_content" | tr -d '[:space:]')
+    
+    if [ -z "$abi_content_trimmed" ]; then
+        echo "Error: ABI file $abi_file produced empty output after parsing" >&2
         return 1
     fi
     
     # Validate that the content is actually valid JSON before using with --argjson
-    if ! echo "$abi_content" | jq -e . >/dev/null 2>&1; then
-        echo "Error: ABI file $abi_file contains invalid JSON: ${abi_content:0:100}"
+    if ! printf '%s' "$abi_content" | jq -e . >/dev/null 2>&1; then
+        echo "Error: ABI file $abi_file contains invalid JSON: ${abi_content:0:100}" >&2
         return 1
     fi
     
