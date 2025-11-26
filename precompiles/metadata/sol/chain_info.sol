@@ -2,7 +2,7 @@
 pragma solidity >=0.8.3;
 
 /// @dev The precompiled address of the ChainInformationPrecompile contract.
-address constant CHAIN_INFO_ADDRESS = 0x0000000000000000000000000000000000000FD3;
+address constant CHAIN_INFO_ADDRESS = 0x0000000000000000000000000000000000000fD3;
 
 /// @dev Instance of the ChainInfoContract interface at the precompiled address.
 ChainInfoContract constant CHAIN_INFO_CONTRACT_ADRRESS = ChainInfoContract(
