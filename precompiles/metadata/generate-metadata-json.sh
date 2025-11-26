@@ -110,7 +110,13 @@ generate_precompile_json() {
     fi
     
     if [ ! -f "$abi_file" ]; then
-        echo "Error: ABI file $abi_file not found for $precompile_name"
+        echo "Error: ABI file $abi_file not found for $precompile_name" >&2
+        return 1
+    fi
+    
+    # Check if ABI file is empty before parsing
+    if [ ! -s "$abi_file" ]; then
+        echo "Error: ABI file $abi_file is empty for $precompile_name" >&2
         return 1
     fi
     
@@ -123,27 +129,44 @@ generate_precompile_json() {
     # ABI files are JSON arrays, so parse first, then convert to JSON string
     # Root cause: jq errors might output to stdout, which would be invalid JSON for --argjson
     local abi_content
-    local jq_error
+    local jq_exit_code
     
-    # Try to parse JSON, capturing both stdout and stderr
-    if ! abi_content=$(cat "$abi_file" | jq -c '.' 2>&1); then
-        jq_error="$abi_content"
-        echo "Error: Failed to parse ABI file $abi_file as JSON" >&2
-        echo "jq output: ${jq_error:0:200}" >&2
+    # Parse JSON - separate stdout and stderr properly
+    # Use a temp file for stderr to avoid mixing with stdout
+    local stderr_file
+    stderr_file=$(mktemp)
+    abi_content=$(cat "$abi_file" | jq -c '.' 2>"$stderr_file")
+    jq_exit_code=$?
+    local jq_stderr
+    jq_stderr=$(cat "$stderr_file")
+    rm -f "$stderr_file"
+    
+    if [ $jq_exit_code -ne 0 ]; then
+        echo "Error: Failed to parse ABI file $abi_file as JSON (exit code: $jq_exit_code)" >&2
+        if [ -n "$jq_stderr" ]; then
+            echo "jq stderr: ${jq_stderr:0:200}" >&2
+        fi
+        if [ -n "$abi_content" ]; then
+            echo "jq stdout: ${abi_content:0:200}" >&2
+        fi
         return 1
     fi
     
-    # Trim whitespace to check if content is actually empty (not just whitespace)
+    # Check if output is empty (after trimming whitespace)
+    # Use echo -n to avoid adding newline, then trim
     local abi_content_trimmed
-    abi_content_trimmed=$(printf '%s' "$abi_content" | tr -d '[:space:]')
+    abi_content_trimmed=$(echo -n "$abi_content" | tr -d '[:space:]')
     
     if [ -z "$abi_content_trimmed" ]; then
         echo "Error: ABI file $abi_file produced empty output after parsing" >&2
+        echo "Debug: File size is $(wc -c < "$abi_file") bytes" >&2
+        echo "Debug: First 100 chars: $(head -c 100 < "$abi_file")" >&2
+        echo "Debug: jq exit code was: $jq_exit_code" >&2
         return 1
     fi
     
     # Validate that the content is actually valid JSON before using with --argjson
-    if ! printf '%s' "$abi_content" | jq -e . >/dev/null 2>&1; then
+    if ! echo -n "$abi_content" | jq -e . >/dev/null 2>&1; then
         echo "Error: ABI file $abi_file contains invalid JSON: ${abi_content:0:100}" >&2
         return 1
     fi
