@@ -145,10 +145,8 @@ where
         continuity_proof: ContinuityProof,
         emit_events: bool,
     ) -> EvmResult<bool> {
-        // Convert ContinuityProof to Vec<Block> for internal processing
         // For single query: blocks[0] is at queryHeight-1
         let start_block_number = height.saturating_sub(1);
-        let continuity_blocks = continuity_proof.to_blocks(start_block_number);
 
         // Convert bounded bytes to Vec<u8>
         let tx_bytes: Vec<u8> = encoded_transaction.into();
@@ -166,7 +164,7 @@ where
         }
 
         // Check for empty continuity chain
-        if continuity_blocks.is_empty() {
+        if continuity_proof.blocks.is_empty() {
             debug!("Empty continuity chain for query: chain_key={chain_key}, height={height}");
             return Err(PrecompileFailure::Revert {
                 output: encode_revert_message("Continuity chain cannot be empty"),
@@ -176,7 +174,7 @@ where
 
         // Charge gas for all operations upfront
         let total_continuity_gas = GAS_PER_CONTINUITY_BLOCK
-            .checked_mul(continuity_blocks.len() as u64)
+            .checked_mul(continuity_proof.blocks.len() as u64)
             .ok_or(PrecompileFailure::Error {
                 exit_status: ExitError::OutOfGas,
             })?;
@@ -213,16 +211,24 @@ where
         // Step 2: Verify the query block exists, merkle root matches, and digest is correct
         // Security: This verifies the query block's digest using the previous block's digest
         // This prevents sending fake roots. POC pattern: continuity chain starts at queryHeight - 1
-        if let Err(err) =
-            Self::verify_query_block_digest(handle, &continuity_blocks, height, merkle_proof.root)
-        {
+        if let Err(err) = Self::verify_query_block_digest(
+            handle,
+            &continuity_proof,
+            start_block_number,
+            height,
+            merkle_proof.root,
+        ) {
             return Self::revert_with_message(err.message());
         }
 
         // Step 3: Verify continuity proof chain
-        if let Err(err) =
-            Self::verify_continuity_chain(handle, &continuity_blocks, chain_key, height)
-        {
+        if let Err(err) = Self::verify_continuity_chain(
+            handle,
+            &continuity_proof,
+            start_block_number,
+            chain_key,
+            height,
+        ) {
             return Self::revert_with_message(err.message());
         }
 
@@ -319,46 +325,47 @@ where
             });
         }
 
-        // Convert ContinuityProof to Vec<Block> for internal processing
         // For batch queries: blocks[0] is at min(queryHeights)-1
         let start_block_number = min_height.saturating_sub(1);
-        let shared_continuity_blocks = shared_continuity_proof.to_blocks(start_block_number);
 
         // Verify shared continuity chain once (more efficient than verifying per query)
         let continuity_gas = GAS_PER_CONTINUITY_BLOCK
-            .checked_mul(shared_continuity_blocks.len() as u64)
+            .checked_mul(shared_continuity_proof.blocks.len() as u64)
             .ok_or(PrecompileFailure::Error {
                 exit_status: ExitError::OutOfGas,
             })?;
         handle.record_cost(continuity_gas)?;
 
         // Verify continuity chain covers the range of all queries
-        if let Some(first_block) = shared_continuity_blocks.first() {
-            if first_block.block_number > min_height {
-                return Err(PrecompileFailure::Revert {
-                    output: encode_revert_message(
-                        "Continuity chain doesn't cover minimum query height",
-                    ),
-                    exit_status: ExitRevert::Reverted,
-                });
-            }
+        let first_block_number = start_block_number;
+        if first_block_number > min_height {
+            return Err(PrecompileFailure::Revert {
+                output: encode_revert_message(
+                    "Continuity chain doesn't cover minimum query height",
+                ),
+                exit_status: ExitRevert::Reverted,
+            });
         }
 
-        if let Some(last_block) = shared_continuity_blocks.last() {
-            if last_block.block_number < max_height {
-                return Err(PrecompileFailure::Revert {
-                    output: encode_revert_message(
-                        "Continuity chain doesn't cover maximum query height",
-                    ),
-                    exit_status: ExitRevert::Reverted,
-                });
-            }
+        let last_block_number =
+            start_block_number + (shared_continuity_proof.blocks.len() - 1) as u64;
+        if last_block_number < max_height {
+            return Err(PrecompileFailure::Revert {
+                output: encode_revert_message(
+                    "Continuity chain doesn't cover maximum query height",
+                ),
+                exit_status: ExitRevert::Reverted,
+            });
         }
 
         // Verify the continuity chain itself (using first query for chain_id)
-        if let Err(err) =
-            Self::verify_continuity_chain(handle, &shared_continuity_blocks, chain_key, min_height)
-        {
+        if let Err(err) = Self::verify_continuity_chain(
+            handle,
+            &shared_continuity_proof,
+            start_block_number,
+            chain_key,
+            min_height,
+        ) {
             return Self::revert_with_message(err.message());
         }
 
@@ -408,7 +415,8 @@ where
             // This prevents sending fake roots. POC pattern: continuity chain starts at queryHeight - 1
             if let Err(err) = Self::verify_query_block_digest(
                 handle,
-                &shared_continuity_blocks,
+                &shared_continuity_proof,
+                start_block_number,
                 height,
                 merkle_proof.root,
             ) {

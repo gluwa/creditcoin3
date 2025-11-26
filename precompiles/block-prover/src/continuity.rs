@@ -1,4 +1,4 @@
-use attestor_primitives::block::Block;
+use attestor_primitives::block::{Block, ContinuityProof};
 use fp_evm::PrecompileHandle;
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
@@ -75,37 +75,30 @@ where
     Runtime::AccountId: From<[u8; 32]>,
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
 {
-    /// Find query block index in continuity chain using optimized search
+    /// Find query block index in continuity proof using optimized search
     ///
     /// Returns the index of the block with the given height, or None if not found.
-    /// First tries computed index (O(1) for sequential blocks), then falls back
-    /// to binary search if blocks are sorted.
+    /// Uses computed index (O(1)) since blocks are sequential starting from start_block_number.
     pub(crate) fn find_query_block_index(
-        continuity_blocks: &[Block],
+        continuity_proof: &ContinuityProof,
+        start_block_number: u64,
         query_height: u64,
     ) -> Option<usize> {
-        // Try computed index first (O(1) for sequential blocks)
-        if let (Some(first_block), Some(last_block)) =
-            (continuity_blocks.first(), continuity_blocks.last())
-        {
-            let first_block_num = first_block.block_number;
-            let last_block_num = last_block.block_number;
+        if continuity_proof.blocks.is_empty() {
+            return None;
+        }
 
-            if query_height >= first_block_num && query_height <= last_block_num {
-                let index = (query_height - first_block_num) as usize;
-                if index < continuity_blocks.len() {
-                    let block = &continuity_blocks[index];
-                    if block.block_number == query_height {
-                        return Some(index);
-                    }
-                }
+        let first_block_num = start_block_number;
+        let last_block_num = start_block_number + (continuity_proof.blocks.len() - 1) as u64;
+
+        if query_height >= first_block_num && query_height <= last_block_num {
+            let index = (query_height - first_block_num) as usize;
+            if index < continuity_proof.blocks.len() {
+                return Some(index);
             }
         }
 
-        // Fall back to binary search (O(log n)) - assumes blocks are sorted
-        continuity_blocks
-            .binary_search_by_key(&query_height, |b| b.block_number)
-            .ok()
+        None
     }
     /// Verify the continuity chain of block attestations
     ///
@@ -116,14 +109,10 @@ where
     ///
     /// # Parameters
     /// - `handle`: EVM precompile handle for gas accounting
-    /// - `continuity_blocks`: Chain of blocks to validate (converted from ContinuityProof internally)
+    /// - `continuity_proof`: Continuity proof to validate (optimized structure)
+    /// - `start_block_number`: Starting block number (blocks[0] is at this height)
     /// - `chain_key`: Chain key identifier
     /// - `height`: Query block height (used to verify chain covers query height)
-    ///
-    /// # Note
-    /// This function receives Vec<Block> which is converted from ContinuityProof in the caller.
-    /// The ContinuityProof structure optimizes calldata by removing block_number and prev_digest
-    /// from individual blocks, but internally we work with full Block structures for verification.
     ///
     /// # Returns
     /// - `Ok(true)`: Chain is valid and ends at attestation/checkpoint
@@ -133,48 +122,35 @@ where
     /// - Gas is charged upfront per block in `verify_impl` using `GAS_PER_CONTINUITY_BLOCK`
     /// - `GAS_STORAGE_LOOKUP` (2600) for attestation lookup
     /// - Additional `GAS_STORAGE_LOOKUP` for checkpoint lookup (only if attestation doesn't match)
-    ///
-    /// # Note
-    /// For POC optimization compatibility, batch verification uses implicit block
-    /// numbering where block_number can be computed from index. This optimization
-    /// is implemented directly in the batch verification logic for efficiency.
     pub fn verify_continuity_chain(
         handle: &mut impl PrecompileHandle,
-        continuity_blocks: &[Block],
+        continuity_proof: &ContinuityProof,
+        start_block_number: u64,
         chain_key: u64,
         height: u64,
     ) -> Result<bool, ContinuityVerificationError> {
         // Security: Always require at least 2 blocks (queryHeight-1 and queryHeight)
         // This is required to verify the query block's digest using the previous block's digest
         // POC pattern: continuity chain starts at queryHeight - 1
-        if continuity_blocks.len() < 2 {
+        if continuity_proof.blocks.len() < 2 {
             return Err(ContinuityVerificationError::InsufficientBlocks);
         }
 
         // Multi-block chain: validate links between blocks
-        // Start validation from the first block's prev_digest
-        // This should link back to a known attestation or checkpoint
-        let mut prev_digest = continuity_blocks[0].prev_digest;
+        // Start validation from the lower_endpoint_digest (prev_digest of first block)
+        let mut prev_digest = continuity_proof.lower_endpoint_digest;
 
         // Validate each block in the continuity chain
-        for cb in continuity_blocks {
+        for (idx, cb) in continuity_proof.blocks.iter().enumerate() {
+            let block_number = start_block_number + idx as u64;
             let block_digest = cb.digest;
-            let block_prev_digest = cb.prev_digest;
-
-            // Verify the link continues exactly
-            if prev_digest != block_prev_digest {
-                debug!(
-                    "❌ Continuity proof break: expected prev_digest {prev_digest:?}, got {block_prev_digest:?}"
-                );
-                return Err(ContinuityVerificationError::ChainLinkBroken);
-            }
 
             // Verify the stored digest matches what would be computed using the prev_digest
             // This catches cases where prev_digest was wrong but digest wasn't recomputed
-            let computed_digest = Block::hash_payload(&cb.block_number, &cb.root, &prev_digest);
+            let computed_digest = Block::hash_payload(&block_number, &cb.merkle_root, &prev_digest);
             if computed_digest != block_digest {
                 debug!(
-                    "❌ Continuity proof digest mismatch: computed {computed_digest:?}, got {block_digest:?}"
+                    "❌ Continuity proof digest mismatch at block {block_number}: computed {computed_digest:?}, got {block_digest:?}"
                 );
                 return Err(ContinuityVerificationError::ChainLinkBroken);
             }
@@ -184,11 +160,13 @@ where
         }
 
         // Validate the continuity chain reaches the query height
-        if let Some(head) = continuity_blocks.last() {
-            if head.block_number < height {
+        if let Some(head) = continuity_proof.blocks.last() {
+            let final_block_number =
+                start_block_number + (continuity_proof.blocks.len() - 1) as u64;
+
+            if final_block_number < height {
                 debug!(
-                    "❌ Continuity chain ends at block {}, but query requires block {}",
-                    head.block_number, height
+                    "❌ Continuity chain ends at block {final_block_number}, but query requires block {height}"
                 );
                 return Err(ContinuityVerificationError::ChainDoesNotReachQueryHeight);
             }
@@ -196,7 +174,6 @@ where
             // The last block should be at a checkpoint or attestation height
             // and its digest should match
             let final_digest = head.digest;
-            let final_block_number = head.block_number;
 
             // Charge for attestation storage lookup
             handle
@@ -248,13 +225,10 @@ where
     ///
     /// # Parameters
     /// - `handle`: EVM precompile handle for gas accounting
-    /// - `continuity_blocks`: Chain of blocks containing query block (converted from ContinuityProof internally)
+    /// - `continuity_proof`: Continuity proof containing query block (optimized structure)
+    /// - `start_block_number`: Starting block number (blocks[0] is at this height)
     /// - `height`: Query block height
     /// - `merkle_root`: Merkle root from the merkle proof (must match query block root)
-    ///
-    /// # Note
-    /// This function receives Vec<Block> which is converted from ContinuityProof in the caller.
-    /// Block numbers are inferred from the ContinuityProof structure (blocks[0] = queryHeight-1).
     ///
     /// # Returns
     /// - `Ok(())`: Query block digest is valid
@@ -264,24 +238,26 @@ where
     /// - `GAS_KECCAK256_HASH` (48) for hash computation (Keccak-256 on 72 bytes)
     pub fn verify_query_block_digest(
         handle: &mut impl PrecompileHandle,
-        continuity_blocks: &[Block],
+        continuity_proof: &ContinuityProof,
+        start_block_number: u64,
         height: u64,
         merkle_root: H256,
     ) -> Result<(), ContinuityVerificationError> {
         // Security: Always require at least 2 blocks (queryHeight-1 and queryHeight)
         // This is required to verify the query block's digest using the previous block's digest
-        if continuity_blocks.len() < 2 {
+        if continuity_proof.blocks.len() < 2 {
             return Err(ContinuityVerificationError::InsufficientBlocks);
         }
 
         // Find the query block index using optimized search
-        let query_block_idx = Self::find_query_block_index(continuity_blocks, height)
-            .ok_or(ContinuityVerificationError::QueryBlockNotFound)?;
+        let query_block_idx =
+            Self::find_query_block_index(continuity_proof, start_block_number, height)
+                .ok_or(ContinuityVerificationError::QueryBlockNotFound)?;
 
-        let query_block = &continuity_blocks[query_block_idx];
+        let query_block = &continuity_proof.blocks[query_block_idx];
 
         // Verify merkle root matches
-        if query_block.root != merkle_root {
+        if query_block.merkle_root != merkle_root {
             return Err(ContinuityVerificationError::MerkleRootMismatch);
         }
 
@@ -290,12 +266,22 @@ where
         if query_block_idx == 0 {
             return Err(ContinuityVerificationError::PreviousBlockNotFound);
         }
-        let prev_block = &continuity_blocks[query_block_idx - 1];
 
         // Verify the previous block is actually at queryHeight - 1 (safety check)
-        if prev_block.block_number != height.saturating_sub(1) {
+        let prev_block_number = start_block_number + (query_block_idx - 1) as u64;
+        if prev_block_number != height.saturating_sub(1) {
             return Err(ContinuityVerificationError::PreviousBlockNotFound);
         }
+
+        // Reconstruct prev_digest for the query block
+        // The prev_digest of the query block is the digest of the previous block
+        let prev_digest = if query_block_idx == 0 {
+            // Query block is the first block, so prev_digest is lower_endpoint_digest
+            continuity_proof.lower_endpoint_digest
+        } else {
+            // Query block is not the first, so prev_digest is the digest of the previous block
+            continuity_proof.blocks[query_block_idx - 1].digest
+        };
 
         // Charge for hash computation BEFORE computing (security: prevent out-of-gas attacks)
         handle.record_cost(GAS_KECCAK256_HASH).map_err(|_| {
@@ -303,9 +289,7 @@ where
         })?;
 
         // Compute expected digest for query block using previous block's digest
-        use attestor_primitives::block::Block as FragmentBlock;
-        let expected_digest =
-            FragmentBlock::hash_payload(&height, &query_block.root, &prev_block.digest);
+        let expected_digest = Block::hash_payload(&height, &query_block.merkle_root, &prev_digest);
 
         // Verify computed digest matches the query block's digest
         if expected_digest != query_block.digest {
