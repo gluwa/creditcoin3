@@ -362,6 +362,10 @@ where
             return Self::revert_with_message(err.message());
         }
 
+        // Record continuity weight (verified once for all queries)
+        let continuity_weight = sp_weights::Weight::from_parts(WEIGHT_CONTINUITY_VERIFY, 0);
+        RuntimeHelper::<Runtime>::record_external_cost(handle, continuity_weight, 0)?;
+
         // Process each query
         for (i, ((height, encoded_transaction), merkle_proof)) in heights
             .into_iter()
@@ -387,6 +391,10 @@ where
 
             // Charge gas for transaction data and merkle proof
             Self::charge_query_gas(handle, tx_bytes.len(), merkle_proof.siblings.len())?;
+
+            // Record Merkle weight for each query
+            let merkle_weight = sp_weights::Weight::from_parts(WEIGHT_MERKLE_VERIFY, 0);
+            RuntimeHelper::<Runtime>::record_external_cost(handle, merkle_weight, 0)?;
 
             // 1. Verify Merkle proof for transaction inclusion
             if !Self::verify_merkle_proof(&merkle_proof, &tx_bytes) {
