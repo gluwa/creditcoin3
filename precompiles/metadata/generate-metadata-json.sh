@@ -100,24 +100,25 @@ generate_precompile_json() {
     local address="$3"
     
     # Get source file name (remove .json extension and use same basename for .sol file)
+    # basename with second argument removes that suffix: basename "file.json" .json -> "file"
     local abi_basename
     abi_basename=$(basename "$abi_file" .json)
     local source_file="${sol_directory}/${abi_basename}.sol"
     
     if [ ! -f "$source_file" ]; then
-        echo "Error: Source file $source_file not found for $precompile_name (ABI file: $abi_file)"
-        return 1
+        echo "Error: Source file $source_file not found for $precompile_name (ABI file: $abi_file)" >&2
+        exit 1
     fi
     
     if [ ! -f "$abi_file" ]; then
         echo "Error: ABI file $abi_file not found for $precompile_name" >&2
-        return 1
+        exit 1
     fi
     
-    # Check if ABI file is empty before parsing
+    # Check if ABI file is empty (non-empty check also verifies file exists)
     if [ ! -s "$abi_file" ]; then
         echo "Error: ABI file $abi_file is empty for $precompile_name" >&2
-        return 1
+        exit 1
     fi
     
     # Read source and convert to JSON string (single line, escaped)
@@ -149,7 +150,7 @@ generate_precompile_json() {
         if [ -n "$abi_content" ]; then
             echo "jq stdout: ${abi_content:0:200}" >&2
         fi
-        return 1
+        exit 1
     fi
     
     # Check if output is empty (after trimming whitespace)
@@ -162,13 +163,13 @@ generate_precompile_json() {
         echo "Debug: File size is $(wc -c < "$abi_file") bytes" >&2
         echo "Debug: First 100 chars: $(head -c 100 < "$abi_file")" >&2
         echo "Debug: jq exit code was: $jq_exit_code" >&2
-        return 1
+        exit 1
     fi
     
     # Validate that the content is actually valid JSON before using with --argjson
     if ! echo -n "$abi_content" | jq -e . >/dev/null 2>&1; then
         echo "Error: ABI file $abi_file contains invalid JSON: ${abi_content:0:100}" >&2
-        return 1
+        exit 1
     fi
     
     # Generate JSON entry
@@ -195,20 +196,8 @@ for mapping in "${precompile_map[@]}"; do
     IFS=':' read -r abi_filename precompile_name address <<< "$mapping"
     abi_file="${abi_directory}/${abi_filename}.json"
     
-    if [ ! -f "$abi_file" ]; then
-        echo "Error: ABI file $abi_file not found for $precompile_name" >&2
-        exit 1
-    fi
-    
-    # Generate entry - capture both stdout and stderr, check exit code separately
-    # Use || true to prevent set -e from exiting, then check exit code manually
-    entry_output=$(generate_precompile_json "$abi_file" "$precompile_name" "$address" 2>&1) || entry_exit_code=$?
-    
-    if [ "${entry_exit_code:-0}" -ne 0 ]; then
-        echo "Error: Failed to generate JSON for $precompile_name: $entry_output" >&2
-        exit 1
-    fi
-    
+    # Generate entry - function will exit on error, so no need to check return code
+    entry_output=$(generate_precompile_json "$abi_file" "$precompile_name" "$address" 2>&1)
     entries+=("$entry_output")
 done
 
