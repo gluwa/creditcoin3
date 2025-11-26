@@ -121,8 +121,22 @@ generate_precompile_json() {
     
     # Read ABI and convert to JSON string (compact, single line, escaped)
     # ABI files are JSON arrays, so parse first, then convert to JSON string
+    # Root cause: jq errors might output to stdout, which would be invalid JSON for --argjson
     local abi_content
-    abi_content=$(cat "$abi_file" | jq -c '.')
+    abi_content=$(cat "$abi_file" | jq -c '.' 2>&1)
+    local jq_exit_code=$?
+    
+    # Check if jq succeeded and output is valid JSON
+    if [ $jq_exit_code -ne 0 ] || [ -z "$abi_content" ]; then
+        echo "Error: Failed to parse ABI file $abi_file as JSON (exit code: $jq_exit_code)"
+        return 1
+    fi
+    
+    # Validate that the content is actually valid JSON before using with --argjson
+    if ! echo "$abi_content" | jq -e . >/dev/null 2>&1; then
+        echo "Error: ABI file $abi_file contains invalid JSON: ${abi_content:0:100}"
+        return 1
+    fi
     
     # Generate JSON entry
     # Note: source is a JSON string (from jq -Rs), abi is a JSON value (from jq -c)
