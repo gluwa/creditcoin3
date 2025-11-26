@@ -30,8 +30,8 @@ else
     exit 1
 fi
 
-ADDRESS_FROM_DISK=$(grep "address constant" precompiles/metadata/sol/*.sol | cut -f2 -d'=' | tr -d ' ;')
-ADDRESS_FROM_JSON=$(jq -r .[].address "precompiles/metadata/precompiles-creditcoin3-$TARGET_CHAIN.json")
+ADDRESS_FROM_DISK=$(grep "address constant" precompiles/metadata/sol/*.sol | cut -f2 -d'=' | tr -d ' ;' | tr '[:upper:]' '[:lower:]')
+ADDRESS_FROM_JSON=$(jq -r .[].address "precompiles/metadata/precompiles-creditcoin3-$TARGET_CHAIN.json" | tr '[:upper:]' '[:lower:]')
 
 if [ "$ADDRESS_FROM_DISK" == "$ADDRESS_FROM_JSON" ]; then
     echo "INFO: Address on disk matches address in JSON file"
