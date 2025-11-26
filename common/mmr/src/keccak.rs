@@ -250,9 +250,8 @@ mod tests {
         // sibling swapped
         proof.siblings[0].is_left = !proof.siblings[0].is_left;
 
-        assert_eq!(
-            proof.verify(&items[2]),
-            false,
+        assert!(
+            !proof.verify(&items[2]),
             "Expected to fail due to tampered proof."
         );
     }
