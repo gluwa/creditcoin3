@@ -162,12 +162,21 @@ for mapping in "${precompile_map[@]}"; do
     IFS=':' read -r abi_filename precompile_name address <<< "$mapping"
     abi_file="${abi_directory}/${abi_filename}.json"
     
-    if [ -f "$abi_file" ]; then
-        entry=$(generate_precompile_json "$abi_file" "$precompile_name" "$address")
-        entries+=("$entry")
-    else
-        echo "Warning: ABI file $abi_file not found, skipping $precompile_name"
+    if [ ! -f "$abi_file" ]; then
+        echo "Error: ABI file $abi_file not found for $precompile_name" >&2
+        exit 1
     fi
+    
+    # Generate entry - capture both stdout and stderr, check exit code separately
+    # Use || true to prevent set -e from exiting, then check exit code manually
+    entry_output=$(generate_precompile_json "$abi_file" "$precompile_name" "$address" 2>&1) || entry_exit_code=$?
+    
+    if [ "${entry_exit_code:-0}" -ne 0 ]; then
+        echo "Error: Failed to generate JSON for $precompile_name: $entry_output" >&2
+        exit 1
+    fi
+    
+    entries+=("$entry_output")
 done
 
 # Combine all entries into a JSON array
