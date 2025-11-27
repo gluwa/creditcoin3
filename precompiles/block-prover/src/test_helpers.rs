@@ -1,8 +1,7 @@
 // Test helpers for creating deterministic test data for native query verifier
 use crate::*;
 use attestor_primitives::block::Block;
-use mmr::query_proof::MerkleProofEntry;
-use mmr::SimpleMerkleTree;
+use mmr::{KeccakMerkleTree, MerkleProofEntry, TransactionMerkleProof};
 use sp_core::H256;
 use sp_io::hashing::keccak_256;
 
@@ -53,8 +52,8 @@ pub fn create_test_block(block_number: u64, num_transactions: usize) -> TestBloc
         tx_data_vec.push(tx_data);
     }
 
-    // Build merkle tree using SimpleMerkleTree (which duplicates last node for odd counts)
-    let tree = SimpleMerkleTree::new(&tx_data_vec);
+    // Build merkle tree using KeccakMerkleTree (which duplicates last node for odd counts)
+    let tree = KeccakMerkleTree::new(&tx_data_vec);
     let merkle_root = tree.root();
 
     TestBlock {
@@ -65,17 +64,20 @@ pub fn create_test_block(block_number: u64, num_transactions: usize) -> TestBloc
 }
 
 /// Creates a valid merkle proof for a transaction in a test block
-pub fn create_valid_merkle_proof_for_block(block: &TestBlock, tx_index: usize) -> MerkleProof {
+pub fn create_valid_merkle_proof_for_block(
+    block: &TestBlock,
+    tx_index: usize,
+) -> TransactionMerkleProof {
     let tx_data: Vec<Vec<u8>> = block
         .transactions
         .iter()
         .map(|tx| tx.data.clone())
         .collect();
 
-    let tree = SimpleMerkleTree::new(&tx_data);
+    let tree = KeccakMerkleTree::new(&tx_data);
     let proof = tree.generate_proof(tx_index);
 
-    // Convert to our MerkleProof format
+    // Convert to TransactionMerkleProof format
     let siblings = proof
         .siblings
         .into_iter()
@@ -85,7 +87,7 @@ pub fn create_valid_merkle_proof_for_block(block: &TestBlock, tx_index: usize) -
         })
         .collect();
 
-    MerkleProof {
+    TransactionMerkleProof {
         root: block.merkle_root,
         siblings,
     }
@@ -135,7 +137,7 @@ pub struct TestScenario {
     pub chain_key: u64,
     pub height: u64,
     pub tx_data: Vec<u8>,
-    pub merkle_proof: MerkleProof,
+    pub merkle_proof: TransactionMerkleProof,
     pub continuity_blocks: Vec<Block>,
     pub attestation_digest: H256,
     pub attestation_block_number: u64,
@@ -236,7 +238,7 @@ mod tests {
             "Proof root should match block merkle root"
         );
 
-        // Verify using the proper verification with prefixes (matching SimpleMerkleTree)
+        // Verify using the proper verification with prefixes (matching KeccakMerkleTree)
         let mut prefixed_leaf = vec![0u8; block.transactions[0].data.len() + 1];
         prefixed_leaf[0] = 0x00; // LEAF_HASH_PREPEND_VALUE
         prefixed_leaf[1..].copy_from_slice(&block.transactions[0].data);

@@ -8,7 +8,9 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+sp-core = { workspace = true, default-features = false }
+sp-std = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
-std = []
+std = ["sp-core/std", "sp-std/std"]

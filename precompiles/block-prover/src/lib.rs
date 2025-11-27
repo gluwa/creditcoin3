@@ -8,9 +8,7 @@
 //!
 //! The precompile is accessible at address 0x0FD2 (4050 in decimal)
 
-use attestor_primitives::block::ContinuityProof;
 use core::marker::PhantomData;
-use ethabi::{encode, Token};
 use fp_evm::{ExitRevert, PrecompileFailure, PrecompileHandle};
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
@@ -19,13 +17,34 @@ use frame_support::{
 use pallet_evm::AddressMapping;
 use precompile_utils::{keccak256, prelude::*};
 use sp_core::H256;
+
+use attestor_primitives::block::ContinuityProof;
+use ethabi::{encode, Token};
 use sp_std::vec::Vec;
 
-// Use the QueryMerkleProof from the mmr crate
-use mmr::query_proof::QueryMerkleProof;
+// Use the TransactionMerkleProof from mmr
+use mmr::TransactionMerkleProof;
 
-// Type alias for compatibility
-type MerkleProof = QueryMerkleProof;
+/// Type alias for 10MB bounded vec constraint (10_485_760 bytes)
+pub type ConstU10MB = sp_core::ConstU32<10_485_760>;
+
+/// Helper function to encode revert messages in Solidity format
+///
+/// Encodes a string message as a Solidity `Error(string)` revert.
+/// The output format is: [Error(string) selector (4 bytes)] + [ABI-encoded string]
+///
+/// # Arguments
+/// * `message` - The error message to encode
+///
+/// # Returns
+/// A byte vector containing the encoded revert message
+pub fn encode_revert_message(message: &str) -> Vec<u8> {
+    // Function selector for Error(string): keccak256("Error(string)")[0:4] = 0x08c379a0
+    let mut revert_with_selector = [0x08, 0xc3, 0x79, 0xa0].to_vec();
+    let encoded_revert = encode(&[Token::String(message.into())]);
+    revert_with_selector.extend(encoded_revert);
+    revert_with_selector
+}
 
 // Event selectors (keccak256 of event signatures)
 // TransactionVerified(uint64 indexed,uint64 indexed,uint64)
@@ -60,20 +79,8 @@ mod verify;
 /// the full blockchain state, making it ideal for bridges and oracles.
 pub struct BlockProverPrecompile<Runtime>(PhantomData<Runtime>);
 
-// Size constraints
-type ConstU10MB = sp_core::ConstU32<10_485_760>; // Type alias for bounded vec
-
 // Batch queries constraint
 type MaxBatchSize = sp_core::ConstU32<10>;
-
-/// Helper function to encode revert messages in Solidity format
-pub fn encode_revert_message(message: &str) -> Vec<u8> {
-    // Function selector for Error(string)
-    let mut revert_with_selector = [0x08, 0xc3, 0x79, 0xa0].to_vec();
-    let encoded_revert = encode(&[Token::String(message.into())]);
-    revert_with_selector.extend(encoded_revert);
-    revert_with_selector
-}
 
 #[precompile_utils::precompile]
 impl<Runtime> BlockProverPrecompile<Runtime>
@@ -119,7 +126,7 @@ where
         chain_key: u64,
         height: u64,
         encoded_transaction: BoundedBytes<ConstU10MB>,
-        merkle_proof: MerkleProof,
+        merkle_proof: TransactionMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
         Self::verify_impl(
@@ -163,7 +170,7 @@ where
         chain_key: u64,
         height: u64,
         encoded_transaction: BoundedBytes<ConstU10MB>,
-        merkle_proof: MerkleProof,
+        merkle_proof: TransactionMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
         Self::verify_impl(
@@ -203,7 +210,7 @@ where
         chain_key: u64,
         heights: BoundedVec<u64, MaxBatchSize>,
         encoded_transactions: BoundedVec<BoundedBytes<ConstU10MB>, MaxBatchSize>,
-        merkle_proofs: BoundedVec<MerkleProof, MaxBatchSize>,
+        merkle_proofs: BoundedVec<TransactionMerkleProof, MaxBatchSize>,
         shared_continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
         Self::verify_batch_impl(
@@ -250,7 +257,7 @@ where
         chain_key: u64,
         heights: BoundedVec<u64, MaxBatchSize>,
         encoded_transactions: BoundedVec<BoundedBytes<ConstU10MB>, MaxBatchSize>,
-        merkle_proofs: BoundedVec<MerkleProof, MaxBatchSize>,
+        merkle_proofs: BoundedVec<TransactionMerkleProof, MaxBatchSize>,
         shared_continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
         Self::verify_batch_impl(

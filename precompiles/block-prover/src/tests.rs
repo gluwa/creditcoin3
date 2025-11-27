@@ -9,7 +9,7 @@ use attestor_primitives::{
 };
 use fp_evm::Context;
 use frame_support::assert_err;
-use mmr::{query_proof::MerkleProofEntry, SimpleMerkleTree};
+use mmr::{KeccakMerkleTree, MerkleProofEntry, TransactionMerkleProof};
 use precompile_utils::{evm::logs::log3, solidity, testing::*};
 use precompiles_primitives::GAS_STORAGE_LOOKUP;
 use sp_core::{H256, U256};
@@ -66,7 +66,7 @@ pub(crate) fn create_valid_merkle_proof(
     tx_data: &[u8],
     tx_index: usize,
     num_transactions: usize,
-) -> (MerkleProof, Vec<TestTransaction>) {
+) -> (TransactionMerkleProof, Vec<TestTransaction>) {
     // Create test transactions
     let mut transactions = Vec::new();
     for i in 0..num_transactions {
@@ -86,13 +86,13 @@ pub(crate) fn create_valid_merkle_proof(
         });
     }
 
-    // Build merkle tree using SimpleMerkleTree (matches POC)
+    // Build merkle tree using KeccakMerkleTree (matches POC)
     let tx_bytes: Vec<Vec<u8>> = transactions.iter().map(|tx| tx.to_bytes()).collect();
-    let tree = SimpleMerkleTree::new(&tx_bytes);
+    let tree = KeccakMerkleTree::new(&tx_bytes);
     let proof_result = tree.generate_proof(tx_index);
 
-    // SimpleMerkleTree::generate_proof() already returns QueryMerkleProof with siblings populated
-    let merkle_proof = MerkleProof {
+    // KeccakMerkleTree::generate_proof() already returns TransactionMerkleProof with siblings populated
+    let merkle_proof = TransactionMerkleProof {
         root: proof_result.root,
         siblings: proof_result.siblings,
     };
@@ -101,8 +101,8 @@ pub(crate) fn create_valid_merkle_proof(
 }
 
 /// Helper to create an invalid merkle proof (for negative tests)
-fn create_invalid_merkle_proof() -> MerkleProof {
-    MerkleProof {
+fn create_invalid_merkle_proof() -> TransactionMerkleProof {
+    TransactionMerkleProof {
         root: H256::from_low_u64_be(999999), // Use a deterministic invalid root
         siblings: vec![MerkleProofEntry {
             hash: H256::random(),
@@ -1331,7 +1331,7 @@ fn test_continuity_chain_height_validation() {
         // We'll set up attestations as needed for each test case
 
         // Create a simple valid merkle proof (single transaction)
-        let merkle_proof = MerkleProof {
+        let merkle_proof = TransactionMerkleProof {
             root: H256::from(sp_io::hashing::keccak_256(&{
                 let mut prefixed = vec![0x00u8]; // LEAF_HASH_PREFIX
                 prefixed.extend_from_slice(&tx_data);

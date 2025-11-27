@@ -82,23 +82,9 @@ use mmr::keccak::{Keccak256, KeccakHash};
 let hash = Keccak256::hash(b"hello world");
 ```
 
-#### 4. **QueryMerkleProof** (`query_proof.rs`)
-Specialized proof format for the Native Query Verifier precompile:
-- Compatible with Solidity/EVM verification
-- Includes sibling position information (left/right)
-- Optimized for on-chain verification
-
-```rust
-pub struct QueryMerkleProof {
-    pub root: H256,
-    pub siblings: Vec<MerkleProofEntry>,
-}
-
-pub struct MerkleProofEntry {
-    pub hash: H256,
-    pub is_left: bool,  // Position information for verification
-}
-```
+#### 4. **TransactionMerkleProof** (`transaction_proof.rs`)
+Specialized proof format for transaction inclusion verification. Can be used in SDKs, precompiles, and other contexts.
+See `mmr::TransactionMerkleProof` for details.
 
 #### 5. **Proof Types** (`proof.rs`)
 Standard Merkle proof representations:
@@ -126,27 +112,27 @@ fn create_transaction_tree(transactions: Vec<Vec<u8>>) -> BaseTree<Keccak256> {
 ### Generating a Query Proof for Verification
 
 ```rust
-use mmr::query_proof::QueryMerkleProof;
-use mmr::traits::MerkleTreeTrait;
+use mmr::TransactionMerkleProof;
+use mmr::KeccakMerkleTree;
 
-fn generate_query_proof(tree: &BaseTree<Keccak256>, tx_index: usize) -> QueryMerkleProof {
+fn generate_transaction_proof(tree: &KeccakMerkleTree, tx_index: usize) -> TransactionMerkleProof {
     // Generate standard proof
     let proof = tree.generate_proof(tx_index);
 
     // Convert to query proof format
-    QueryMerkleProof::from_proof(proof, tx_index)
+    TransactionMerkleProof::from_proof(proof, tx_index)
 }
 ```
 
 ### Verifying a Merkle Proof
 
 ```rust
-use mmr::query_proof::QueryMerkleProof;
+use mmr::TransactionMerkleProof;
 use sp_core::H256;
 
 fn verify_transaction_inclusion(
     tx_hash: H256,
-    proof: &QueryMerkleProof,
+    proof: &TransactionMerkleProof,
 ) -> bool {
     // Start with the transaction hash
     let mut current = tx_hash;
@@ -194,23 +180,23 @@ The MMR package is a critical component of the Native Query Verifier precompile,
 ### Example: Preparing Data for the Precompile
 
 ```rust
-use mmr::query_proof::QueryMerkleProof;
+use mmr::TransactionMerkleProof;
 use attestor_primitives::query::Query;
 
 fn prepare_verification_data(
     tx_data: Vec<u8>,
     tx_index: usize,
     block_transactions: Vec<Vec<u8>>,
-) -> (Vec<u8>, QueryMerkleProof) {
+) -> (Vec<u8>, TransactionMerkleProof) {
     // Create Merkle tree of all transactions
     let tx_refs: Vec<&[u8]> = block_transactions.iter().map(|tx| tx.as_slice()).collect();
     let tree = BaseTree::<Keccak256>::from(&tx_refs[..]);
 
     // Generate proof for the specific transaction
     let proof = tree.generate_proof(tx_index);
-    let query_proof = QueryMerkleProof::from_proof(proof, tx_index);
+    let transaction_proof = TransactionMerkleProof::from_proof(proof, tx_index);
 
-    (tx_data, query_proof)
+    (tx_data, transaction_proof)
 }
 ```
 

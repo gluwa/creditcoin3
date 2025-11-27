@@ -26,7 +26,9 @@ precompiles-primitives = { workspace = true }
 pallet-attestation-poc = { workspace = true, default-features = false }
 
 # Utils
-mmr = { workspace = true, default-features = false }
+mmr = { workspace = true, default-features = false, features = [
+    "precompile-support",
+] }
 utils = { workspace = true, default-features = false }
 
 # Substrate

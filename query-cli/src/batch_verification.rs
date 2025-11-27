@@ -6,7 +6,7 @@
 
 use anyhow::{anyhow, Result};
 use attestor_primitives::block::{Block, ContinuityProof};
-use mmr::query_proof::QueryMerkleProof;
+use mmr::TransactionMerkleProof;
 
 use ccnext_abi_encoding::abi::EncodingVersion;
 use eth::Client;
@@ -21,7 +21,7 @@ pub struct BatchQueryItem {
     /// Transaction data to verify
     pub tx_data: Vec<u8>,
     /// Merkle proof for the transaction
-    pub merkle_proof: QueryMerkleProof,
+    pub merkle_proof: TransactionMerkleProof,
     /// Block height for this query
     pub block_height: u64,
 }

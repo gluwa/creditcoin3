@@ -4,7 +4,7 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 use attestor_primitives::block::ContinuityProof;
-use mmr::query_proof::QueryMerkleProof;
+use mmr::TransactionMerkleProof;
 
 use crate::{Client, Error as ClientError};
 use alloy::{
@@ -64,8 +64,8 @@ pub const BLOCK_PROVER_ADDRESS: Address = Address::new([
     0x00, 0x00, 0x0F, 0xD2,
 ]);
 
-impl From<QueryMerkleProof> for INativeQueryVerifier::MerkleProof {
-    fn from(proof: QueryMerkleProof) -> Self {
+impl From<TransactionMerkleProof> for INativeQueryVerifier::MerkleProof {
+    fn from(proof: TransactionMerkleProof) -> Self {
         Self {
             root: FixedBytes::<32>::new(proof.root.0),
             siblings: proof
@@ -113,7 +113,7 @@ impl BlockProver {
         chain_key: u64,
         height: u64,
         encoded_transaction: &[u8],
-        merkle_proof: QueryMerkleProof,
+        merkle_proof: TransactionMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> Result<bool, Error> {
         debug!(
@@ -166,7 +166,7 @@ impl BlockProver {
         chain_key: u64,
         height: u64,
         encoded_transaction: &[u8],
-        merkle_proof: QueryMerkleProof,
+        merkle_proof: TransactionMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> Result<bool, Error> {
         debug!(
@@ -238,7 +238,7 @@ impl BlockProver {
         chain_key: u64,
         heights: Vec<u64>,
         encoded_transactions: Vec<Vec<u8>>,
-        merkle_proofs: Vec<QueryMerkleProof>,
+        merkle_proofs: Vec<TransactionMerkleProof>,
         shared_continuity_proof: ContinuityProof,
     ) -> Result<bool, Error> {
         debug!(
@@ -295,7 +295,7 @@ impl BlockProver {
         chain_key: u64,
         heights: Vec<u64>,
         encoded_transactions: Vec<Vec<u8>>,
-        merkle_proofs: Vec<QueryMerkleProof>,
+        merkle_proofs: Vec<TransactionMerkleProof>,
         shared_continuity_proof: ContinuityProof,
     ) -> Result<bool, Error> {
         debug!(
@@ -364,7 +364,7 @@ impl BlockProver {
         chain_key: u64,
         height: u64,
         encoded_transaction: &[u8],
-        merkle_proof: QueryMerkleProof,
+        merkle_proof: TransactionMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> Result<u64, Error> {
         let sol_proof = merkle_proof.into();

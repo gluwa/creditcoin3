@@ -7910,12 +7910,10 @@ version = "3.66.0"
 dependencies = [
  "parity-scale-codec",
  "precompile-utils",
- "rayon",
  "scale-info",
  "sp-core",
  "sp-io",
  "sp-std",
- "utils",
 ]
 
 [[package]]
@@ -10056,6 +10054,10 @@ dependencies = [
 [[package]]
 name = "precompiles-primitives"
 version = "3.66.0"
+dependencies = [
+ "sp-core",
+ "sp-std",
+]
 
 [[package]]
 name = "precomputed-hash"

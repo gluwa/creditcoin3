@@ -5,7 +5,7 @@ use crate::mock::*;
 use crate::*;
 use attestor_primitives::block::{Block, ContinuityProof};
 use attestor_primitives::{Attestation, AttestationCheckpoint, SignedAttestation};
-use mmr::query_proof::MerkleProofEntry;
+use mmr::{MerkleProofEntry, TransactionMerkleProof};
 use precompile_utils::testing::*;
 use sp_core::H256;
 use std::vec::Vec as StdVec;
@@ -14,7 +14,7 @@ use crate::verify::{GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
 
 /// Helper to create a properly formatted Merkle proof that matches the precompile's expectations
 /// The precompile expects siblings in a specific format with placeholders at offset positions
-fn create_proper_merkle_proof_for_single_tx(tx_data: &[u8]) -> MerkleProof {
+fn create_proper_merkle_proof_for_single_tx(tx_data: &[u8]) -> TransactionMerkleProof {
     use sp_io::hashing::keccak_256;
 
     // For a single transaction, the leaf hash becomes the root
@@ -23,7 +23,7 @@ fn create_proper_merkle_proof_for_single_tx(tx_data: &[u8]) -> MerkleProof {
     prefixed_leaf.extend_from_slice(tx_data);
     let root_hash = H256::from(keccak_256(&prefixed_leaf));
 
-    MerkleProof {
+    TransactionMerkleProof {
         root: root_hash,
         siblings: vec![], // Single transaction has no siblings
     }
@@ -34,7 +34,7 @@ fn create_proper_merkle_proof_binary(
     _tx_data: &[u8],
     tx_index: usize,
     all_tx_data: Vec<Vec<u8>>,
-) -> MerkleProof {
+) -> TransactionMerkleProof {
     use sp_io::hashing::keccak_256;
 
     // Calculate tree depth (not needed anymore, but keeping for reference)
@@ -99,7 +99,7 @@ fn create_proper_merkle_proof_binary(
         index /= 2;
     }
 
-    MerkleProof {
+    TransactionMerkleProof {
         root: current_level[0],
         siblings,
     }
@@ -664,7 +664,7 @@ fn test_transaction_at_size_limit() {
         let tx_data = vec![0x55u8; 10_485_760]; // 10MB exactly
 
         // For this test, we'll use a simple proof since the focus is on size handling
-        let merkle_proof = MerkleProof {
+        let merkle_proof = TransactionMerkleProof {
             root: H256::random(),
             siblings: vec![], // Empty entries for simple test
         };

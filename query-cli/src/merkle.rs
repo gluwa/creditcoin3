@@ -5,18 +5,21 @@
 
 use anyhow::Result;
 use eth::OrderedBlock;
-use mmr::query_proof::QueryMerkleProof;
+use mmr::TransactionMerkleProof;
 use utils::block_item_traits::BlockItem;
 
 /// Generate a Merkle proof for a transaction in a block
-pub fn generate_merkle_proof(block: &OrderedBlock, tx_index: usize) -> Result<QueryMerkleProof> {
+pub fn generate_merkle_proof(
+    block: &OrderedBlock,
+    tx_index: usize,
+) -> Result<TransactionMerkleProof> {
     // Build the simple Merkle tree using the eth helper function
     let tree = eth::simple_merkle_tree(block);
 
     // Generate proof for the specified transaction
     let proof = tree.generate_proof(tx_index);
 
-    Ok(QueryMerkleProof::new(tree.root(), proof.siblings))
+    Ok(TransactionMerkleProof::new(tree.root(), proof.siblings))
 }
 
 /// Display block structure information

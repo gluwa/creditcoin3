@@ -9,24 +9,20 @@ version.workspace = true
 
 [dependencies]
 parity-scale-codec = { workspace = true, default-features = false }
-precompile-utils = { workspace = true }
-rayon = { version = "1.10.0", optional = true }
+precompile-utils = { workspace = true, default-features = false, optional = true }
 scale-info = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
-utils = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
-par_mmr = ["rayon"]
+precompile-support = ["precompile-utils"]
 std = [
-    "par_mmr",
+    "parity-scale-codec/std",
+    "scale-info/std",
     "sp-core/std",
     "sp-io/std",
     "sp-std/std",
-    "precompile-utils/std",
-    "scale-info/std",
-    "parity-scale-codec/std",
-    "utils/std",
+    "precompile-utils?/std",
 ]

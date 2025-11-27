@@ -3,12 +3,13 @@
 use crate::mock::*;
 use crate::tests::{precompiles, setup_attestation};
 use attestor_primitives::block::{Block, ContinuityProof};
+use mmr::TransactionMerkleProof;
 use precompile_utils::testing::*;
 use sp_core::H256;
 
 // Helper to create a simple merkle proof for a single transaction
-fn create_simple_merkle_proof(tx_data: &[u8]) -> crate::MerkleProof {
-    crate::MerkleProof {
+fn create_simple_merkle_proof(tx_data: &[u8]) -> TransactionMerkleProof {
+    TransactionMerkleProof {
         root: H256::from(sp_io::hashing::keccak_256(&{
             let mut prefixed = vec![0x00u8]; // LEAF_HASH_PREFIX
             prefixed.extend_from_slice(tx_data);
@@ -132,7 +133,7 @@ fn test_verify_query_view_empty_tx_data() {
         let height = 1;
 
         let tx_data = vec![]; // Empty transaction data
-        let merkle_proof = crate::MerkleProof {
+        let merkle_proof = TransactionMerkleProof {
             root: H256::random(),
             siblings: vec![],
         };
@@ -316,7 +317,7 @@ fn test_verify_batch_queries_view_mixed_results() {
 
         let merkle_proof1 = create_simple_merkle_proof(&tx_data1);
         // Create an invalid merkle proof for query2
-        let merkle_proof2 = crate::MerkleProof {
+        let merkle_proof2 = TransactionMerkleProof {
             root: H256::from_low_u64_be(999), // Wrong root
             siblings: vec![],
         };

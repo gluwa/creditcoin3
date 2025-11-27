@@ -1,3 +1,4 @@
+use crate::{encode_revert_message, ConstU10MB};
 use attestor_primitives::block::ContinuityProof;
 use ethabi::Token;
 use fp_evm::{ExitError, ExitRevert, PrecompileFailure, PrecompileHandle};
@@ -11,9 +12,8 @@ use precompile_utils::{evm::logs::log3, prelude::*};
 use sp_core::H256;
 use sp_std::vec::Vec;
 
-use crate::{
-    encode_revert_message, BlockProverPrecompile, MerkleProof, SELECTOR_LOG_TRANSACTION_VERIFIED,
-};
+use crate::{BlockProverPrecompile, SELECTOR_LOG_TRANSACTION_VERIFIED};
+use mmr::TransactionMerkleProof;
 
 // Gas cost constants
 // Based on realistic Solidity implementation costs with precompile efficiency gains:
@@ -29,9 +29,6 @@ pub const GAS_PER_SIBLING: u64 = 200; // Per Merkle sibling verification (native
 pub const GAS_PER_CONTINUITY_BLOCK: u64 = 400; // Per block verification (hash ~48 gas + comparisons/overhead ~350 gas)
 pub const WEIGHT_MERKLE_VERIFY: u64 = 100_000; // Merkle verification work
 pub const WEIGHT_CONTINUITY_VERIFY: u64 = 50_000; // Continuity verification work
-
-// Size constraints
-type ConstU10MB = sp_core::ConstU32<10_485_760>; // Type alias for bounded vec
 
 impl<Runtime> BlockProverPrecompile<Runtime>
 where
@@ -71,7 +68,7 @@ where
     ///
     /// # Returns
     /// `true` if the merkle proof is valid, `false` otherwise
-    fn verify_merkle_proof(merkle_proof: &MerkleProof, tx_bytes: &[u8]) -> bool {
+    fn verify_merkle_proof(merkle_proof: &TransactionMerkleProof, tx_bytes: &[u8]) -> bool {
         merkle_proof.verify(tx_bytes)
     }
 
@@ -84,7 +81,7 @@ where
     /// - If sibling is right (`is_left = false`), current node was left, so bit = 0
     ///
     /// Returns the transaction index (leaf position in the Merkle tree).
-    pub(crate) fn calculate_tx_index(merkle_proof: &MerkleProof) -> u64 {
+    pub(crate) fn calculate_tx_index(merkle_proof: &TransactionMerkleProof) -> u64 {
         if merkle_proof.siblings.is_empty() {
             // Single transaction case
             return 0;
@@ -141,7 +138,7 @@ where
         chain_key: u64,
         height: u64,
         encoded_transaction: BoundedBytes<ConstU10MB>,
-        merkle_proof: MerkleProof,
+        merkle_proof: TransactionMerkleProof,
         continuity_proof: ContinuityProof,
         emit_events: bool,
     ) -> EvmResult<bool> {
@@ -285,7 +282,7 @@ where
         chain_key: u64,
         heights: Vec<u64>,
         encoded_transactions: Vec<BoundedBytes<ConstU10MB>>,
-        merkle_proofs: Vec<MerkleProof>,
+        merkle_proofs: Vec<TransactionMerkleProof>,
         shared_continuity_proof: ContinuityProof,
         emit_events: bool,
     ) -> EvmResult<bool> {
@@ -453,12 +450,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mmr::query_proof::{MerkleProofEntry, QueryMerkleProof};
+    use mmr::{MerkleProofEntry, TransactionMerkleProof};
     use sp_core::H256;
 
-    // Helper to create a MerkleProof for testing
-    fn create_merkle_proof(root: H256, siblings: Vec<MerkleProofEntry>) -> MerkleProof {
-        QueryMerkleProof::new(root, siblings)
+    // Helper to create a TransactionMerkleProof for testing
+    fn create_merkle_proof(root: H256, siblings: Vec<MerkleProofEntry>) -> TransactionMerkleProof {
+        TransactionMerkleProof::new(root, siblings)
     }
 
     #[test]

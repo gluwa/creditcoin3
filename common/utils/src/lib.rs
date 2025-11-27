@@ -18,14 +18,14 @@
 //!
 //! ```rust
 //! use utils::BlockItemIdentifier;
-//! use mmr::SimpleMerkleTree;
+//! use mmr::KeccakMerkleTree;
 //!
 //! // Create a block item identifier
 //! let id = BlockItemIdentifier::new(100, 5);
 //!
-//! // Use SimpleMerkleTree (matches POC implementation)
+//! // Use KeccakMerkleTree (matches POC implementation)
 //! let data = vec![b"hello".to_vec(), b"world".to_vec()];
-//! let tree = SimpleMerkleTree::new(&data);
+//! let tree = KeccakMerkleTree::new(&data);
 //! ```
 
 // =============================================================================

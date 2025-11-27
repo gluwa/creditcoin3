@@ -6,7 +6,7 @@
 use anyhow::Result;
 use attestor_primitives::block::{Block, ContinuityProof};
 use eth::{evm, Client};
-use mmr::query_proof::QueryMerkleProof;
+use mmr::TransactionMerkleProof;
 
 /// Configuration for query verification
 #[derive(Debug, Clone)]
@@ -32,7 +32,7 @@ pub async fn verify_query(
     chain_key: u64,
     height: u64,
     tx_data: &[u8],
-    merkle_proof: QueryMerkleProof,
+    merkle_proof: TransactionMerkleProof,
     continuity_blocks: Vec<Block>,
     send_tx: bool,
 ) -> Result<VerificationResult> {
