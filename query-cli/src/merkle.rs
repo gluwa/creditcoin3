@@ -17,7 +17,7 @@ pub fn generate_merkle_proof(
     let tree = eth::simple_merkle_tree(block);
 
     // Generate proof for the specified transaction
-    let proof = tree.generate_proof(tx_index);
+    let proof = tree.generate_proof(tx_index).unwrap();
 
     Ok(TransactionMerkleProof::new(tree.root(), proof.siblings))
 }

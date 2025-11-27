@@ -9,17 +9,16 @@ The `mmr` package provides a flexible and efficient binary Merkle tree implement
 ### Key Features
 
 - **Binary Merkle Trees**: Fixed arity of 2 (binary trees) for optimal proof sizes
-- **Multiple Hash Functions**: Support for Keccak256 and custom hash implementations
+- **Keccak256 Hashing**: Ethereum-compatible Keccak256 hash function
 - **Proof Generation & Verification**: Efficient generation and verification of Merkle proofs
 - **Query Proofs**: Specialized proof format for transaction verification in the Native Query Verifier precompile
 - **No-std Support**: Can be used in resource-constrained environments
-- **Parallel Processing**: Optional parallel tree construction with the `par_mmr` feature
 
 ## Architecture
 
 ### Core Components
 
-#### 1. **BaseTree** (`lib.rs`)
+#### 1. **KeccakMerkleTree** (`keccak_merkle_tree.rs`)
 The main Merkle tree implementation that handles:
 - Tree construction from leaf data
 - Root hash calculation
@@ -27,12 +26,11 @@ The main Merkle tree implementation that handles:
 - Tree traversal and verification logic
 
 ```rust
-use mmr::{BaseTree, traits::MerkleTreeTrait};
-use mmr::keccak::Keccak256;
+use mmr::KeccakMerkleTree;
 
 // Create a tree from transaction data
 let transactions = vec![tx1_bytes, tx2_bytes, tx3_bytes];
-let tree: BaseTree<Keccak256> = BaseTree::from(&transactions[..]);
+let tree = KeccakMerkleTree::new(&transactions);
 
 // Get the root hash
 let root = tree.root();
@@ -41,71 +39,30 @@ let root = tree.root();
 let proof = tree.generate_proof(1);
 ```
 
-#### 2. **HashT Trait** ([`traits.rs`](https://github.com/gluwa/creditcoin3-next/blob/main/common/mmr/src/traits.rs#L18-L42))
-Defines the interface for hash functions used in the Merkle tree:
-- Hashing of arbitrary byte slices
-- Domain separation support via `From<u8>` for prefixes
-- Output type requirements for use in Merkle trees
-
-The trait abstracts over a hashing algorithm whose output type is provided via the associated `Output` type. Implementors should ensure that:
-- `Output::default()` represents the hash of an empty (or domain-separated) input
-- `From<u8>` is implemented to support domain separation prefixes
-
-The tree implementation will:
-- Prefix leaves and internal nodes using `From<u8>` conversions
-- Pass raw byte slices directly to `hash`
-
-```rust
-pub trait HashT {
-    type Output: core::hash::Hash
-        + Default
-        + Copy
-        + PartialEq
-        + core::fmt::Debug
-        + From<u8>
-        + Send
-        + Sync;
-
-    fn hash(input: &[u8]) -> Self::Output;
-}
-```
-
-#### 3. **Keccak256 Implementation** (`keccak.rs`)
+#### 2. **Keccak256 Implementation** (`keccak.rs`)
 Ethereum-compatible Keccak256 hash function implementation:
-- Wrapper type `KeccakHash` around H256
-- Full `HashT` trait implementation
+- Internal hashing functions for leaves and inner nodes
 - Used for Ethereum transaction and receipt Merkle trees
 
-```rust
-use mmr::keccak::{Keccak256, KeccakHash};
-
-let hash = Keccak256::hash(b"hello world");
-```
-
-#### 4. **TransactionMerkleProof** (`transaction_proof.rs`)
+#### 3. **TransactionMerkleProof** (`proof.rs`)
 Specialized proof format for transaction inclusion verification. Can be used in SDKs, precompiles, and other contexts.
 See `mmr::TransactionMerkleProof` for details.
 
-#### 5. **Proof Types** (`proof.rs`)
+#### 4. **Proof Types** (`proof.rs`)
 Standard Merkle proof representations:
-- `Proof`: Internal proof representation
-- `SerializedProof`: Serialization-friendly format
-- Conversion utilities between formats
+- `MerkleProofEntry`: Individual sibling entry in a proof
+- `TransactionMerkleProof`: Complete proof format for transaction verification
 
 ## Usage Examples
 
 ### Creating a Merkle Tree from Transactions
 
 ```rust
-use mmr::{BaseTree, traits::MerkleTreeTrait};
-use mmr::keccak::Keccak256;
+use mmr::KeccakMerkleTree;
 
-fn create_transaction_tree(transactions: Vec<Vec<u8>>) -> BaseTree<Keccak256> {
-    // Convert transactions to byte slices
-    let tx_refs: Vec<&[u8]> = transactions.iter().map(|tx| tx.as_slice()).collect();
-
+fn create_transaction_tree(transactions: Vec<Vec<u8>>) -> KeccakMerkleTree {
     // Create the Merkle tree
-    BaseTree::from(&tx_refs[..])
+    KeccakMerkleTree::new(&transactions)
 }
 ```
 
@@ -156,15 +113,14 @@ fn verify_transaction_inclusion(
 ### Working with Block Headers
 
 ```rust
-use mmr::{BaseTree, traits::MerkleTreeTrait};
-use mmr::keccak::Keccak256;
+use mmr::KeccakMerkleTree;
+use sp_core::H256;
 
 fn create_receipts_tree(receipts: Vec<Vec<u8>>) -> H256 {
-    let receipt_refs: Vec<&[u8]> = receipts.iter().map(|r| r.as_slice()).collect();
-    let tree: BaseTree<Keccak256> = BaseTree::from(&receipt_refs[..]);
+    let tree = KeccakMerkleTree::new(&receipts);
 
     // Return the receipts root for the block header
-    H256::from(tree.root().0)
+    tree.root()
 }
 ```
 
@@ -189,8 +145,7 @@ fn prepare_verification_data(
     block_transactions: Vec<Vec<u8>>,
 ) -> (Vec<u8>, TransactionMerkleProof) {
     // Create Merkle tree of all transactions
-    let tx_refs: Vec<&[u8]> = block_transactions.iter().map(|tx| tx.as_slice()).collect();
-    let tree = BaseTree::<Keccak256>::from(&tx_refs[..]);
+    let tree = KeccakMerkleTree::new(&block_transactions);
 
     // Generate proof for the specific transaction
     let proof = tree.generate_proof(tx_index);
@@ -203,15 +158,13 @@ fn prepare_verification_data(
 ## Features
 
 ### `std` (default)
-Enables standard library support and all features:
-- Parallel processing
+Enables standard library support:
 - Full error messages
 - Additional utility functions
 
-### `par_mmr`
-Enables parallel tree construction using Rayon:
-- Faster tree building for large datasets
-- Automatically enabled with `std`
+### `precompile-support`
+Enables precompile utilities for use in EVM precompiles:
+- Required when using this crate in precompile contexts
 
 ### `no_std`
 Disable by using `default-features = false`:
@@ -223,12 +176,8 @@ mmr = { version = "3.66.0", default-features = false }
 ## Performance Considerations
 
 ### Tree Construction
-- **Sequential**: O(n log n) for n leaves
-- **Parallel** (with `par_mmr`): O(log n) with sufficient cores
-  - All nodes at each level can be processed in parallel
-  - With sufficient parallelism, each of the log n levels takes O(1) time
-  - Total: O(log n) sequential steps × O(1) parallel work per step
-- Memory: O(n) for storing intermediate hashes
+- **Time**: O(n log n) for n leaves
+- **Memory**: O(n) for storing intermediate hashes
 
 ### Proof Generation
 - Time: O(log n) for n leaves
@@ -270,8 +219,7 @@ cargo test -p mmr --all-features
 - `sp-io`: Hashing functions (keccak256)
 - `parity-scale-codec`: SCALE codec for serialization
 - `scale-info`: Type information for runtime
-- `precompile-utils`: Utilities for precompile development
-- `rayon` (optional): Parallel processing support
+- `precompile-utils` (optional): Utilities for precompile development
 
 ## License
 

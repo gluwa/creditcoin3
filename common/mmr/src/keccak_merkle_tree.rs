@@ -10,6 +10,18 @@ use sp_std::{vec, vec::Vec};
 use crate::keccak::{hash_inner, hash_leaf};
 use crate::proof::{MerkleProofEntry, TransactionMerkleProof};
 
+/// Error type for Merkle tree operations
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MerkleTreeError {
+    /// Leaf index is out of range
+    IndexOutOfRange {
+        /// The requested index
+        index: usize,
+        /// The maximum valid index
+        max_index: usize,
+    },
+}
+
 /// Keccak256-based Merkle tree that matches POC implementation exactly
 /// This duplicates the last node when odd number of nodes at a level
 #[derive(Debug, Clone)]
@@ -68,9 +80,23 @@ impl KeccakMerkleTree {
 
     /// Generate a Merkle proof for a specific leaf index
     ///
-    /// # Panics
-    /// Panics if `leaf_index` is out of range or if the tree is empty.
-    pub fn generate_proof(&self, leaf_index: usize) -> TransactionMerkleProof {
+    /// # Errors
+    /// Returns `Err(MerkleTreeError::IndexOutOfRange)` if `leaf_index` is out of range.
+    /// Empty trees are allowed, but generating a proof from an empty tree will return an error
+    /// since there are no valid indices.
+    pub fn generate_proof(
+        &self,
+        leaf_index: usize,
+    ) -> Result<TransactionMerkleProof, MerkleTreeError> {
+        // Check if index is out of range
+        let leaf_count = self.levels.first().map(|level| level.len()).unwrap_or(0);
+        if leaf_index >= leaf_count {
+            return Err(MerkleTreeError::IndexOutOfRange {
+                index: leaf_index,
+                max_index: leaf_count.saturating_sub(1),
+            });
+        }
+
         let mut current_index = leaf_index;
 
         // Traverse from leaf to root (excluding the root level)
@@ -101,7 +127,7 @@ impl KeccakMerkleTree {
             })
             .collect();
 
-        TransactionMerkleProof::new(self.root(), path)
+        Ok(TransactionMerkleProof::new(self.root(), path))
     }
 }
 
@@ -132,7 +158,7 @@ mod tests {
 
         assert_eq!(tree.root(), expected_root);
 
-        let proof = tree.generate_proof(0);
+        let proof = tree.generate_proof(0).unwrap();
         assert_eq!(proof.siblings.len(), 0); // No siblings for single item
         assert_eq!(proof.root, expected_root);
     }
@@ -143,11 +169,11 @@ mod tests {
         let tree = KeccakMerkleTree::new(&items);
 
         // Generate and verify proof for first item
-        let proof = tree.generate_proof(0);
+        let proof = tree.generate_proof(0).unwrap();
         assert!(proof.verify(&items[0]));
 
         // Generate and verify proof for second item
-        let proof = tree.generate_proof(1);
+        let proof = tree.generate_proof(1).unwrap();
         assert!(proof.verify(&items[1]));
     }
 
@@ -163,7 +189,7 @@ mod tests {
 
         // Generate and verify proof for all items
         for (i, item) in items.iter().enumerate() {
-            let proof = tree.generate_proof(i);
+            let proof = tree.generate_proof(i).unwrap();
             assert!(proof.verify(item), "Failed to verify proof for item {i}");
         }
     }
@@ -173,12 +199,49 @@ mod tests {
         let items = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
         let tree = KeccakMerkleTree::new(&items);
 
-        let mut proof = tree.generate_proof(2);
+        let mut proof = tree.generate_proof(2).unwrap();
 
         // sibling swapped
         proof.siblings[0].is_left = !proof.siblings[0].is_left;
 
         // Verification should fail
         assert!(!proof.verify(&items[2]));
+    }
+
+    #[test]
+    fn test_generate_proof_empty_tree() {
+        let items: Vec<Vec<u8>> = vec![];
+        let tree = KeccakMerkleTree::new(&items);
+
+        // Empty tree should return index out of range error for any index
+        assert_eq!(
+            tree.generate_proof(0),
+            Err(MerkleTreeError::IndexOutOfRange {
+                index: 0,
+                max_index: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn test_generate_proof_index_out_of_range() {
+        let items = vec![vec![1, 2, 3], vec![4, 5, 6]];
+        let tree = KeccakMerkleTree::new(&items);
+
+        assert_eq!(
+            tree.generate_proof(2),
+            Err(MerkleTreeError::IndexOutOfRange {
+                index: 2,
+                max_index: 1,
+            })
+        );
+
+        assert_eq!(
+            tree.generate_proof(10),
+            Err(MerkleTreeError::IndexOutOfRange {
+                index: 10,
+                max_index: 1,
+            })
+        );
     }
 }

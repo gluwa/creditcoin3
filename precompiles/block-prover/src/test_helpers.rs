@@ -75,7 +75,9 @@ pub fn create_valid_merkle_proof_for_block(
         .collect();
 
     let tree = KeccakMerkleTree::new(&tx_data);
-    let proof = tree.generate_proof(tx_index);
+    let proof = tree
+        .generate_proof(tx_index)
+        .expect("Failed to generate proof");
 
     // Convert to TransactionMerkleProof format
     let siblings = proof

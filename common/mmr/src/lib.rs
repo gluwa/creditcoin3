@@ -10,7 +10,7 @@ pub mod keccak_merkle_tree;
 pub mod proof;
 
 // Re-export main types for convenience
-pub use keccak_merkle_tree::KeccakMerkleTree;
+pub use keccak_merkle_tree::{KeccakMerkleTree, MerkleTreeError};
 pub use proof::{MerkleProofEntry, TransactionMerkleProof};
 
 /// Leaves will be prepended with this value prior to hashing

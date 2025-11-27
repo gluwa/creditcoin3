@@ -89,7 +89,9 @@ pub(crate) fn create_valid_merkle_proof(
     // Build merkle tree using KeccakMerkleTree (matches POC)
     let tx_bytes: Vec<Vec<u8>> = transactions.iter().map(|tx| tx.to_bytes()).collect();
     let tree = KeccakMerkleTree::new(&tx_bytes);
-    let proof_result = tree.generate_proof(tx_index);
+    let proof_result = tree
+        .generate_proof(tx_index)
+        .expect("Failed to generate proof");
 
     // KeccakMerkleTree::generate_proof() already returns TransactionMerkleProof with siblings populated
     let merkle_proof = TransactionMerkleProof {
