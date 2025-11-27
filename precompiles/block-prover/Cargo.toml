@@ -20,7 +20,6 @@ precompile-utils = { workspace = true }
 
 # Primitives
 attestor-primitives = { workspace = true }
-precompiles-primitives = { workspace = true }
 
 # Pallets
 pallet-attestation-poc = { workspace = true, default-features = false }
@@ -91,7 +90,6 @@ std = [
     "pallet-supported-chains/std",
     "pallet-attestation-poc/std",
     "attestor-primitives/std",
-    "precompiles-primitives/std",
     "pallet-babe/std",
     "utils/std",
     "mmr/std",

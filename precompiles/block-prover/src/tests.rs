@@ -11,10 +11,10 @@ use fp_evm::Context;
 use frame_support::assert_err;
 use mmr::{KeccakMerkleTree, MerkleProofEntry, TransactionMerkleProof};
 use precompile_utils::{evm::logs::log3, solidity, testing::*};
-use precompiles_primitives::GAS_STORAGE_LOOKUP;
 use sp_core::{H256, U256};
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
+use crate::continuity::GAS_STORAGE_LOOKUP;
 use crate::verify::{GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
 
 /// Simple test transaction item for merkle tree construction

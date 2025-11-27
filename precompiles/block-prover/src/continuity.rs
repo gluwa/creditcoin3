@@ -6,12 +6,13 @@ use frame_support::{
 };
 use log::debug;
 use pallet_evm::AddressMapping;
-use precompiles_primitives::GAS_STORAGE_LOOKUP;
 use sp_core::H256;
 
 use crate::BlockProverPrecompile;
 
 // Gas cost constants
+/// Cost of each storage read (matches cold SLOAD) in gas.
+pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
 pub const GAS_KECCAK256_HASH: u64 = 48; // Keccak-256 hash cost: 30 base + 6 per word (72 bytes = 3 words)
 
 /// Error type for continuity verification (both query block digest and chain validation)

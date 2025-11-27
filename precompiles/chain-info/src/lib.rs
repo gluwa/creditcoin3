@@ -18,7 +18,12 @@ use pallet_attestation_poc::{
 use pallet_evm::AddressMapping;
 use pallet_supported_chains::SupportedChains;
 use precompile_utils::{prelude::*, solidity::Codec};
-use precompiles_primitives::{GAS_PER_ITERATION_ITEM, GAS_STORAGE_LOOKUP};
+
+// Gas cost constants
+/// Cost of each storage read (matches cold SLOAD) in gas.
+pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
+/// Per item processed in iteration
+pub const GAS_PER_ITERATION_ITEM: u64 = 26;
 
 #[cfg(test)]
 mod mock;

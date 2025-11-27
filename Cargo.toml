@@ -8,7 +8,6 @@ members = [
     "pallets/supported-chains",
     "attestor",
     "primitives/attestor",
-    "primitives/precompiles",
     "primitives/supported-chains",
     "primitives/randomness",
     "precompiles/chain-info",
@@ -260,9 +259,6 @@ supported-chains-primitives = { path = "primitives/supported-chains", default-fe
 # Randomness
 pallet-randomness = { path = "pallets/randomness", default-features = false }
 randomness-primitives = { path = "primitives/randomness", default-features = false }
-
-# Precompiles
-precompiles-primitives = { path = "primitives/precompiles", default-features = false }
 
 # Common
 bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-features = false, features = [

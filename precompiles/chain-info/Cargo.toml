@@ -19,7 +19,6 @@ precompile-utils = { workspace = true }
 
 # Primitives
 attestor-primitives = { workspace = true }
-precompiles-primitives = { workspace = true }
 
 # Substrate
 frame-support = { workspace = true }
@@ -79,7 +78,6 @@ std = [
     "sp-std/std",
     "pallet-supported-chains/std",
     "attestor-primitives/std",
-    "precompiles-primitives/std",
     "pallet-attestation-poc/std",
     "pallet-babe/std",
     "sp-staking/std",

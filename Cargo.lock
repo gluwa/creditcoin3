@@ -9009,7 +9009,6 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "precompile-utils",
- "precompiles-primitives",
  "scale-info",
  "serde",
  "sp-core",
@@ -9048,7 +9047,6 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "precompile-utils",
- "precompiles-primitives",
  "scale-info",
  "serde",
  "sp-core",
@@ -10049,14 +10047,6 @@ dependencies = [
  "quote",
  "sp-crypto-hashing 0.1.0 (git+https://github.com/paritytech/polkadot-sdk?branch=stable2409)",
  "syn 2.0.100",
-]
-
-[[package]]
-name = "precompiles-primitives"
-version = "3.66.0"
-dependencies = [
- "sp-core",
- "sp-std",
 ]
 
 [[package]]
