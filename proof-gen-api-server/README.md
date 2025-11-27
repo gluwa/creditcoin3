@@ -27,12 +27,26 @@ cd proof-gen-api-server
 cargo run -p proof-gen-api-server -- [FLAGS]
 ```
 
-### Example: Local Development (mock providers)
+### Example: Local Development
 
-Assumes the default `.env` values (local Postgres, `//Alice` mnemonic). Enables deterministic mock providers:
+Assumes you have a local Creditcoin3 node running on port 9944 and Anvil on port 8545. Set the database environment variables and pass the local RPC URLs:
 
 ```bash
-cargo run -p proof-gen-api-server -- --cc3-key "//Alice" --use-mock-providers
+POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_PASSWORD=password POSTGRES_DB=proofs_db \
+cargo run -p proof-gen-api-server -- \
+  --cc3-key "//Alice" \
+  --cc3-rpc-url ws://localhost:9944 \
+  --eth-rpc-url http://localhost:8545
+```
+
+Alternatively, if you have a `.env` file configured in `proof-gen-api-server/.env` with the database settings, you can run from within that directory:
+
+```bash
+cd proof-gen-api-server
+cargo run -p proof-gen-api-server -- \
+  --cc3-key "//Alice" \
+  --cc3-rpc-url ws://localhost:9944 \
+  --eth-rpc-url http://localhost:8545
 ```
 
 ### Example: Devnet (real RPC endpoints)
