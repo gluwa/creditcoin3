@@ -442,7 +442,7 @@ impl Client {
     /// Resolve a transaction hash to its block number and index within the block.
     pub async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64), Error> {
         // Convert sp_core::H256 to alloy BlockHash via hex string
-        let hex = format!("0x{:x}", tx_hash);
+        let hex = format!("0x{tx_hash:x}");
         let block_hash = alloy::primitives::BlockHash::from_str(&hex)
             .map_err(|e| Error::ClientError(anyhow::anyhow!("Invalid tx hash: {e}")))?;
 

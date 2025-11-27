@@ -112,7 +112,7 @@ impl ContinuityService {
                         tx_hash: None,
                         continuity_proof: continuity_proof_out,
                         merkle_proof: None,
-                        merkle_root: proofs.merkle_root.map(|h| format!("0x{:x}", h)),
+                        merkle_root: proofs.merkle_root.map(|h| format!("0x{h:x}")),
                         cached: true,
                         generated_at: Utc::now(),
                     });
@@ -186,10 +186,10 @@ impl ContinuityService {
                     header_number,
                     tx_index: Some(tx_index),
                     // Propagate cached tx_hash (was previously None causing tests to fail)
-                    tx_hash: proofs.tx_hash.map(|h| format!("0x{:x}", h)),
+                    tx_hash: proofs.tx_hash.map(|h| format!("0x{h:x}")),
                     continuity_proof: continuity_out,
                     merkle_proof: Some(merkle_proof.clone()),
-                    merkle_root: proofs.merkle_root.map(|h| format!("0x{:x}", h)),
+                    merkle_root: proofs.merkle_root.map(|h| format!("0x{h:x}")),
                     cached: true,
                     generated_at: Utc::now(),
                 });
@@ -266,10 +266,10 @@ impl ContinuityService {
             chain_key,
             header_number,
             tx_index: Some(tx_index),
-            tx_hash: tx_hash_opt.map(|h| format!("0x{:x}", h)),
+            tx_hash: tx_hash_opt.map(|h| format!("0x{h:x}")),
             continuity_proof: continuity_out,
             merkle_proof: Some(merkle_proof.clone()),
-            merkle_root: Some(format!("0x{:x}", merkle_root)),
+            merkle_root: Some(format!("0x{merkle_root:x}")),
             cached: false,
             generated_at: Utc::now(),
         })
@@ -322,7 +322,7 @@ impl ContinuityService {
                         tx_hash: Some(tx_hash),
                         continuity_proof: continuity_out,
                         merkle_proof: Some(merkle_proof.clone()),
-                        merkle_root: proofs.merkle_root.map(|h| format!("0x{:x}", h)),
+                        merkle_root: proofs.merkle_root.map(|h| format!("0x{h:x}")),
                         cached: true,
                         generated_at: Utc::now(),
                     });
