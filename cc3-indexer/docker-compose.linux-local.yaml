@@ -18,7 +18,7 @@ services:
       retries: 5
 
   subquery-node:
-    image: subquerynetwork/subql-node-substrate:v6.4.4
+    image: subquerynetwork/subql-node-substrate:v6.4.6
     depends_on:
       "postgres":
         condition: service_healthy
