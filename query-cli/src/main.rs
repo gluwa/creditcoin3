@@ -449,6 +449,7 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
     println!("Configured chain key: {}", params.chain_key);
     let continuity_blocks = continuity::builder::fetch_continuity_proof(
         &params.cc3_rpc_url,
+        &params.cc3_evm_private_key,
         &prompt_output.network.url(),
         params.chain_key,
         prompt_output.height,
