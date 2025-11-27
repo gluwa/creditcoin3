@@ -64,10 +64,9 @@ impl Server {
 
         // Register metrics server if configured
         let metrics = if config.enable_prometheus_metrics {
-            let address_str = format!("{}:{}", config.prometheus_host, config.prometheus_port);
             info!(
-                "📈 Starting Prometheus metrics server on http://{}/metrics",
-                address_str
+                "📈 Starting Prometheus metrics server on http://{}:{}/metrics",
+                config.prometheus_host, config.prometheus_port
             );
             prom::start_prom_server(&config)
         } else {
@@ -100,6 +99,7 @@ impl Server {
         // Continuity builder configuration
         let continuity_config = continuity::ContinuityConfig {
             cc3_rpc_url: self.config.cc3_rpc_url.clone(),
+            cc3_key: self.config.cc3_key.clone(),
             eth_rpc_url: self.config.eth_rpc_url.clone(),
             chain_key: self.config.chain_key,
         };

@@ -89,12 +89,14 @@ impl ContinuityBuilder {
 /// Fetch continuity proof for a single query (legacy interface)
 pub async fn fetch_continuity_proof(
     cc3_rpc_url: &str,
+    cc3_key: &str,
     eth_rpc_url: &str,
     chain_key: u64,
     query: &Query,
 ) -> Result<Vec<Block>> {
     let config = ContinuityConfig {
         cc3_rpc_url: cc3_rpc_url.to_string(),
+        cc3_key: cc3_key.to_string(),
         eth_rpc_url: eth_rpc_url.to_string(),
         chain_key,
     };
@@ -108,12 +110,14 @@ pub async fn fetch_continuity_proof(
 /// Fetch continuity proof for multiple queries (legacy interface)
 pub async fn fetch_continuity_proof_batch(
     cc3_rpc_url: &str,
+    cc3_key: &str,
     eth_rpc_url: &str,
     chain_key: u64,
     query_heights: &[u64],
 ) -> Result<Vec<Block>> {
     let config = ContinuityConfig {
         cc3_rpc_url: cc3_rpc_url.to_string(),
+        cc3_key: cc3_key.to_string(),
         eth_rpc_url: eth_rpc_url.to_string(),
         chain_key,
     };

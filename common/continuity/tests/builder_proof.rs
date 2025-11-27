@@ -9,6 +9,7 @@ async fn builder_builds_trimmed_continuity_chain_for_single_query() -> Result<()
     let config = ContinuityConfig {
         chain_key,
         cc3_rpc_url: "http://localhost:1234".to_string(),
+        cc3_key: "//Alice".to_string(),
         eth_rpc_url: "http://localhost:5678".to_string(),
     };
 

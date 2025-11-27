@@ -33,7 +33,7 @@ pub struct ContinuityBuilder {
 impl ContinuityBuilder {
     /// Create a new builder with real RPC clients.
     pub async fn new(config: ContinuityConfig) -> Result<Self> {
-        let cc_client = CcClient::new(&config.cc3_rpc_url, "")
+        let cc_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key)
             .await
             .map_err(|e| anyhow!("Failed to create CC client: {e}"))?;
         let eth_client = EthClient::new(&config.eth_rpc_url, None)

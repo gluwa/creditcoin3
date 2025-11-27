@@ -51,7 +51,7 @@ async fn spawn_anvil(port: u16) -> Anvil {
         .expect("failed to spawn anvil");
 
     // Readiness probe: poll Anvil JSON-RPC until eth_chainId returns (async-native)
-    let rpc = format!("http://127.0.0.1:{}", port);
+    let rpc = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let payload = serde_json::json!({
         "jsonrpc": "2.0",
@@ -101,7 +101,8 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     // Configure ContinuityBuilder with mock CC and real ETH (Anvil)
     let cfg = ContinuityConfig {
         cc3_rpc_url: "ws://unused".into(),
-        eth_rpc_url: format!("ws://127.0.0.1:{}", port),
+        cc3_key: "//Alice".into(),
+        eth_rpc_url: format!("ws://127.0.0.1:{port}"),
         chain_key: 31337,
     };
 
@@ -132,13 +133,13 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     let server = tokio::spawn(async move {
         axum::serve(listener, app.into_make_service()).await.ok();
     });
-    let base = format!("http://{}", addr);
+    let base = format!("http://{addr}");
     let client = reqwest::Client::new();
 
     use proof_gen_api_server::services::continuity_service::ContinuityResponse;
 
     // --- First: health check endpoint (validate basic server functionality)
-    let health_url = format!("{}/api/v1/health", base);
+    let health_url = format!("{base}/api/v1/health");
     let health_resp = client
         .get(&health_url)
         .send()
@@ -169,7 +170,7 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     };
 
     // --- Second: block-level endpoint (ensure pure block builder path runs)
-    let block_url = format!("{}/api/v1/proof/{}/{}", base, 31337, anvil_block_number);
+    let block_url = format!("{base}/api/v1/proof/31337/{anvil_block_number}");
     let block_resp = client
         .get(&block_url)
         .send()
@@ -198,10 +199,7 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     );
 
     // --- Third: tx-index endpoint (exercise tx-specific builder path)
-    let txi_url = format!(
-        "{}/api/v1/proof/{}/{}/{}",
-        base, 31337, anvil_block_number, anvil_tx_index
-    );
+    let txi_url = format!("{base}/api/v1/proof/31337/{anvil_block_number}/{anvil_tx_index}");
     let txi_resp = client.get(&txi_url).send().await.expect("http send txi");
     assert!(txi_resp.status().is_success());
     let txi_body = txi_resp.bytes().await.expect("read txi body");
@@ -230,7 +228,7 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     assert!(txi_json2.cached, "tx-index second call should be cached");
 
     // --- Fourth: tx-hash endpoint (exercise RPC-resolution-by-hash path)
-    let url = format!("{}/api/v1/proof-by-tx/{}/{}", base, 31337, tx_hash);
+    let url = format!("{base}/api/v1/proof-by-tx/31337/{tx_hash}");
     let resp = client.get(&url).send().await.expect("http send");
     assert!(resp.status().is_success());
     let body = resp.bytes().await.expect("read body");

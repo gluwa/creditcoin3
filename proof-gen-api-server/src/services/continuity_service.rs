@@ -357,7 +357,7 @@ impl ContinuityService {
                         })
                     }
                     Err(e) => Err(ServiceError::RpcUnavailable {
-                        message: format!("failed to resolve tx by hash via RPC: {}", e),
+                        message: format!("failed to resolve tx by hash via RPC: {e}"),
                     }),
                 }
             }

@@ -42,8 +42,8 @@ async fn continuity_endpoint_returns_proof() {
 
     // blocks[*].root and blocks[*].digest
     for (i, b) in resp.continuity_proof.blocks.iter().enumerate() {
-        let root = format!("0x{root:x}", root = b.root);
-        let digest = format!("0x{digest:x}", digest = b.digest);
+        let root = format!("0x{:x}", b.root);
+        let digest = format!("0x{:x}", b.digest);
         assert_h256_str(&format!("blocks[{i}].root"), &root);
         assert_h256_str(&format!("blocks[{i}].digest"), &digest);
     }

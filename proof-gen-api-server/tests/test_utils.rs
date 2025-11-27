@@ -35,7 +35,7 @@ mod e2e {
 
     /// Send a simple tx using Foundry's cast; returns the tx hash string.
     pub fn send_test_tx_via_cast(port: u16) -> Result<String> {
-        let rpc = format!("http://127.0.0.1:{}", port);
+        let rpc = format!("http://127.0.0.1:{port}");
         let mut cmd =
             Command::new(std::env::var("CAST_BIN").unwrap_or_else(|_| "cast".to_string()));
         cmd.arg("send")
@@ -74,7 +74,7 @@ mod e2e {
 
     /// Query tx info via JSON-RPC, returning (block_number, tx_index).
     pub async fn get_tx_info_via_rpc(port: u16, tx_hash: &str) -> Result<(u64, u64)> {
-        let rpc = format!("http://127.0.0.1:{}", port);
+        let rpc = format!("http://127.0.0.1:{port}");
         let client = reqwest::Client::new();
         let payload = serde_json::json!({
             "jsonrpc": "2.0",
@@ -129,6 +129,7 @@ mod e2e {
 
         let cfg = ContinuityConfig {
             cc3_rpc_url: "ws://mock".into(),
+            cc3_key: "//Alice".into(),
             eth_rpc_url: "ws://mock".into(),
             chain_key,
         };
