@@ -59,7 +59,7 @@ cc-client = { workspace = true }
 continuity = { workspace = true }
 eth = { workspace = true }
 hex = { workspace = true }
-mmr = { workspace = true }
+merkle = { workspace = true }
 prometheus = { workspace = true }
 
 [features]
