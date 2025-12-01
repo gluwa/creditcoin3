@@ -17,6 +17,8 @@ name: Reusable workflow to remove a self-hosted runner
         required: false
         type: string
 
+permissions: read-all
+
 jobs:
   remove-runner:
     runs-on: ubuntu-24.04
