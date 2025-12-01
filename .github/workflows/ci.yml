@@ -55,12 +55,6 @@ jobs:
               --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
               --unsafe-rpc-external
 
-      - name: Healtcheck
-        if: false
-        run: |
-          sleep 60
-          .github/check-health.sh
-
       - name: Sanity test creditcoin-cli inside the container
         run: |
           docker exec creditcoin-validator which creditcoin
@@ -1586,18 +1580,6 @@ jobs:
                 --cc3-key "//Alice" --chain-key 2 \
                 --eth-rpc-url ws://localhost:8141 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-alice/ &
-
-      # note: not started explicitly; used within tests
-      - name: Start Attestation Zombienet for Bob - Anvil 2
-        if: false
-        run: |
-          mkdir -p /var/tmp/cc3-indexer-testing/attestors-bob
-
-          ./target/release/attestor_zombienet \
-                --verbose \
-                --cc3-key "//Bob" --chain-key 4 \
-                --eth-rpc-url ws://localhost:8242 --config-file attestor_zombienet/config.yaml \
-                --logs-dir /var/tmp/cc3-indexer-testing/attestors-bob/ &
 
       - name: Install Solidity compiler
         run: |

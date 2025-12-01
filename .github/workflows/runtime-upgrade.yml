@@ -433,13 +433,6 @@ jobs:
           echo "url=http://127.0.0.1:9944" >> "$GITHUB_OUTPUT"
           echo "private_key=$EVM_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
 
-      - name: Execute smart contract test tool
-        # skipped until SMC-1036 is resolved
-        if: false
-        working-directory: ./testing
-        run: |
-          ./evm-network-test.sh ${{ steps.test-env.outputs.url }} ${{ steps.test-env.outputs.private_key }}
-
       - name: Upload logs
         uses: actions/upload-artifact@v5
         if: always()
@@ -449,146 +442,6 @@ jobs:
 
       - name: Kill creditcoin3-node
         run: |
-          killall -9 creditcoin3-node
-
-  test-against-disconnected-live-node:
-    # execute only against Testnet b/c we don't have sudo key for Mainnet
-    # if: github.base_ref == 'testnet'
-    # skip upgrades against disconnected live nodes, see
-    # https://gluwa.atlassian.net/wiki/spaces/CB/pages/1119912022/Context+decision+for+CSUB-861+runtime+upgrade+testing+against+disconnected+node
-    if: false
-    needs:
-      - build-sut
-      - setup
-      - setup-self-hosted
-      - live-sync-creditcoin
-      - deploy-github-runner
-    runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "type-runtime-upgrade"]
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Download creditcoin3-node from current PR
-        uses: actions/download-artifact@v6
-        with:
-          name: creditcoin3-node
-          path: target/release
-
-      - name: Start a disconnected creditcoin3-node
-        run: |
-          chmod a+x ./target/release/creditcoin3-node
-          ./target/release/creditcoin3-node --version
-
-          # WARNING: using different port b/c the network remembers there was a node
-          # at this address previously. We don't want to be connected to the chain !!!
-          ./target/release/creditcoin3-node \
-            --port 44444 \
-            --name "test-node-disconnected-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
-            --chain ${{ needs.setup.outputs.target_chain }} \
-            --validator --pruning archive \
-            --prometheus-external \
-            --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
-            --base-path /mnt/data >creditcoin3-node-disconnected-live-node.log 2>&1 &
-
-      - name: Wait for blockchain to start
-        run: |
-          .github/wait-for-creditcoin.sh
-
-      # check this eventhough it should be true unless live-sync screws up!
-      - name: Check if creditcoin3-node is past block number ${{ needs.setup.outputs.last_block_number }}
-        run: |
-          .github/wait-for-sync.sh ${{ needs.setup.outputs.last_block_number }}
-
-      - name: Install JS Dependencies
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-      - working-directory: cli
-        run: |
-          npm install -g yarn
-          npm install -g node-gyp
-          yarn install
-          yarn build
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-          sudo apt install -y gcc
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-
-      - name: Install Subwasm
-        uses: gluwa/cargo@dev
-        with:
-          command: install
-          args: --locked --git https://github.com/chevdor/subwasm --tag v0.21.3
-
-      - name: Download WASM runtime
-        id: download-wasm
-        uses: actions/download-artifact@v6
-        with:
-          name: creditcoin3_runtime.compact.compressed.wasm
-
-      - name: Upgrade WASM
-        working-directory: cli
-        env:
-          # WARNING: the node is still running locally
-          TARGET_URL: ws://127.0.0.1:9944
-          SUDO_SEED: ${{ secrets.TESTNET_SUDO_SEED }}
-        run: |
-          node dist/scripts/runtimeUpgrade.js "$TARGET_URL" ../creditcoin3_runtime.compact.compressed.wasm "$SUDO_SEED" 0
-          sleep 10
-
-      - name: Execute blockchain tests
-        working-directory: ./cli
-        run: |
-          yarn install
-          yarn test:blockchain
-        env:
-          # Note that this is executed only against Testnet/testnet branch
-          CREDITCOIN_API_URL: ws://127.0.0.1:9944
-          # WARNING: EVM Alice != Substrate Alice
-          # WARNING: EVM Alice != Substrate Alice's Associated EVM address
-          ALICE_SEED: "${{ secrets.TESTNET_ALICE_SEED }}"
-          ALICE_EVM_PK: "${{ secrets.TESTNET_ALICE_EVM_PK }}"
-          BOB_SEED: "${{ secrets.TESTNET_BOB_SEED }}"
-          BOB_EVM_PK: "${{ secrets.TESTNET_BOB_EVM_PK }}"
-          SUDO_SEED: "${{ secrets.TESTNET_SUDO_SEED }}"
-          BLOCKCHAIN_TESTS_GLOBAL_SETUP: "./${{ needs.setup.outputs.target_chain }}IntegrationTesting.ts"
-
-      - name: Configure testing environment
-        id: test-env
-        working-directory: ./cli
-        run: |
-          yarn install
-          EVM_PRIVATE_KEY=$(node dist/test/${{ needs.setup.outputs.target_chain }}IntegrationTesting.js)
-          echo "url=http://127.0.0.1:9944" >> "$GITHUB_OUTPUT"
-          echo "private_key=$EVM_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
-
-      - name: Execute smart contract test tool
-        # skipped until SMC-1036 is resolved
-        if: false
-        working-directory: ./testing
-        run: |
-          ./evm-network-test.sh ${{ steps.test-env.outputs.url }} ${{ steps.test-env.outputs.private_key }}
-
-      - name: Upload logs
-        uses: actions/upload-artifact@v5
-        if: always()
-        with:
-          name: test-against-disconnected-live-node-logs
-          path: "*.log"
-
-      - name: Kill creditcoin3-node
-        run: |
-          # if all went well kill the node. Otherwise GitHub Actions would exit on the
-          # previous step killing everything and we don't have to worry about
-          # dangling processes
           killall -9 creditcoin3-node
 
   deploy-github-runner:
@@ -606,7 +459,6 @@ jobs:
     needs:
       - deploy-github-runner
       - test-against-fork
-      - test-against-disconnected-live-node
     if: ${{ always() }}
     uses: ./.github/workflows/remove-runner.yml
     with:

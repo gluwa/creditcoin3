@@ -114,18 +114,6 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
 
-      - name: Check featalign
-        # see https://gluwa.atlassian.net/browse/CSUB-1388
-        if: false
-        run: |
-          cargo install cargo-featalign
-
-          # produces a human readable output
-          cargo featalign runtime --features std,runtime-benchmarks,fast-runtime,devnet --workspace-only --default-std --depth -1 --mode check | jq
-
-          # exit with non-zero on error
-          cargo featalign runtime --features std,runtime-benchmarks,fast-runtime,devnet --workspace-only --default-std --depth -1 --mode check
-
       - name: Check Build
         run: |
           SKIP_WASM_BUILD=1 cargo check --release
