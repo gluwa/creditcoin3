@@ -17,7 +17,8 @@ Document explaining how to setup and run the attestation POC
   [here](https://github.com/paritytech/zombienet/releases/tag/v1.3.99) and put
    it somewhere (for example in the `zombie` directory).
 
-4. [Install subkey](https://docs.substrate.io/reference/command-line-tools/subkey/) To generate keys.
+4. [Install subkey](https://docs.polkadot.com/polkadot-protocol/parachain-basics/accounts/#using-subkey)
+   to generate keys.
 
 ## Setup
 
