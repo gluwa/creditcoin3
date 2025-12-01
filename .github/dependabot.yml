@@ -53,7 +53,7 @@ updates:
       - "/client/attestor-rpc"
       - "/common/cc-client"
       - "/common/eth"
-      - "/common/mmr"
+      - "/common/merkle"
       - "/common/utils"
       - "/common/vrf"
       - "/common/prometheus"
