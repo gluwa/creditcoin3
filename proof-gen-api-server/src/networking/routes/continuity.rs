@@ -1,9 +1,10 @@
-use crate::services::continuity_service::{ContinuityResponse, ContinuityService};
-use crate::services::errors::ServiceError;
 use axum::http::StatusCode;
 use axum::{extract::Path, Extension, Json};
 use serde_json::{json, Value};
 use std::sync::Arc;
+
+use crate::services::continuity_service::{ContinuityResponse, ContinuityService};
+use crate::services::errors::ServiceError;
 
 fn map_service_error(err: ServiceError) -> (StatusCode, Json<Value>) {
     let (status, code, retriable) = match &err {

@@ -57,7 +57,6 @@ tracing = { workspace = true }
 attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 continuity = { workspace = true }
-continuity-rpc = { path = "../common/continuity-rpc" }
 eth = { workspace = true }
 hex = { workspace = true }
 mmr = { workspace = true }
@@ -68,7 +67,6 @@ default = []
 e2e-tests = []
 
 [dev-dependencies]
-continuity-mocks = { path = "../common/continuity-mocks" }
 futures = "0.3"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 testcontainers = { version = "0.17", default-features = false }

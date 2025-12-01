@@ -1,13 +1,13 @@
 use anyhow::Result;
-use attestor_primitives::block::ContinuityProof;
 use chrono::NaiveDateTime;
-use mmr::query_proof::QueryMerkleProof;
 use serde_json::Value;
 use sp_core::H256;
 use std::str::FromStr;
 use tokio_postgres::Row;
 
 use super::{ProofsDbEntry, QueryProofs};
+use attestor_primitives::block::ContinuityProof;
+use mmr::query_proof::QueryMerkleProof;
 
 impl TryFrom<&Row> for ProofsDbEntry {
     type Error = anyhow::Error;

@@ -77,7 +77,7 @@ Endpoints:
 An E2E test exercises all three proof endpoints with Anvil and ephemeral Postgres. Prerequisites: [Foundry](https://book.getfoundry.sh/getting-started/installation) (`anvil`, `cast`) and Docker. Run with:
 
 ```bash
-cargo test -p proof-gen-api-server --test anvil_e2e --features e2e-tests -- --ignored
+cargo test -p proof-gen-api-server --test anvil_e2e --features e2e-tests
 ```
 
 ## Caching

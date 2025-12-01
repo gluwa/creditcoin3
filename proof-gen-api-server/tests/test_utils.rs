@@ -18,7 +18,6 @@ pub fn assert_h256_str(label: &str, s: &str) {
 // E2E-only helpers. These are compiled only when the `e2e-tests` feature
 // is enabled so that the heavy testcontainers / cast dependencies are
 // conditional and regular test runs remain lightweight.
-#[cfg(feature = "e2e-tests")]
 #[allow(dead_code)]
 mod e2e {
     use anyhow::Result;
@@ -133,7 +132,7 @@ mod e2e {
             eth_rpc_url: "ws://mock".into(),
             chain_key,
         };
-        let (cc_provider, eth_provider) = continuity_mocks::make_mock_providers(chain_key);
+        let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
         let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider, eth_provider);
         let db = proof_gen_api_server::db::DbManager::new().expect("db manager init");
         db.run_migrations().await.expect("migrations");

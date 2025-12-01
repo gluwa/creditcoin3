@@ -1,16 +1,14 @@
 use anyhow::{bail, Result};
-use attestor_primitives::block::ContinuityProof;
 use chrono::NaiveDateTime;
 use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod};
-use mmr::query_proof::QueryMerkleProof;
 use serde_json::Value;
 use sp_core::H256;
 use tokio_postgres::NoTls;
 use tracing::{debug, info};
 
-use type_conversions::to_storage_int;
-
-use crate::db::type_conversions::to_storage_hash;
+use attestor_primitives::block::ContinuityProof;
+use mmr::query_proof::QueryMerkleProof;
+use type_conversions::{to_storage_hash, to_storage_int};
 
 mod type_conversions;
 

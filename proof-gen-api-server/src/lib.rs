@@ -1,15 +1,16 @@
-use crate::prom::ProofGenServerMetrics;
 use anyhow::{anyhow, Result};
-use cc_client::Client as CcClient;
-use config::Config;
-use db::DbManager;
-use eth::Client as EthClient;
-use networking::run_http_server;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::{select, sync::oneshot::channel};
 use tracing::{error, info};
+
+use crate::prom::ProofGenServerMetrics;
+use cc_client::Client as CcClient;
+use config::Config;
+use db::DbManager;
+use eth::Client as EthClient;
+use networking::run_http_server;
 
 pub mod config;
 pub mod db;

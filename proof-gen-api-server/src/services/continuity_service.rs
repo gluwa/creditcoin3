@@ -1,13 +1,15 @@
-use crate::db::{DbManager, QueryProofs};
-use attestor_primitives::block::ContinuityProof;
-use attestor_primitives::Query;
 use chrono::{DateTime, Utc};
-use continuity::{ContinuityBuilder, ContinuityProof as RawContinuityProof};
-use mmr::query_proof::QueryMerkleProof;
 use serde::{Deserialize, Serialize};
 use sp_core::hashing::keccak_256;
 use sp_core::H256;
 use std::sync::Arc;
+use tower::Service;
+
+use crate::db::{DbManager, QueryProofs};
+use attestor_primitives::block::ContinuityProof;
+use attestor_primitives::Query;
+use continuity::{ContinuityBuilder, ContinuityProof as RawContinuityProof};
+use mmr::query_proof::QueryMerkleProof;
 
 // === Serialization helpers ===
 // Remove helper; use LowerHex formatting on H256 directly where needed.
@@ -57,6 +59,9 @@ impl ContinuityService {
         chain_key: u64,
         header_number: u64,
     ) -> Result<ContinuityProof, ServiceError> {
+        if chain_key != self.builder.chain_key {
+            return ServiceError::InvalidParameter { message: format!("Chain key of requested proof doesn't match that supported by the continuity builder. Request key: {chain_key}, builder key: {self.builder.chain_key}") };
+        }
         let query = Query {
             chain_id: chain_key,
             height: header_number,

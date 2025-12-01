@@ -1,7 +1,8 @@
 use anyhow::Result;
 use attestor_primitives::Query;
-use continuity::{builder::ContinuityBuilder, config::ContinuityConfig};
-use continuity_mocks::make_mock_providers;
+use continuity::{
+    builder::ContinuityBuilder, config::ContinuityConfig, mocks::make_mock_providers,
+};
 
 #[tokio::test]
 async fn builder_builds_trimmed_continuity_chain_for_single_query() -> Result<()> {

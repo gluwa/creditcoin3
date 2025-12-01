@@ -1,7 +1,8 @@
 use clap::Parser;
-use proof_gen_api_server::{config::Config, db::DbManager, Server};
 use std::env;
 use tracing::{debug, info};
+
+use proof_gen_api_server::{config::Config, db::DbManager, Server};
 
 #[derive(Parser, Debug)]
 #[command(name = "proof-gen-api-server")]

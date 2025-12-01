@@ -13,8 +13,7 @@ use std::time::Duration;
 
 // local helper to setup ephemeral postgres for this test
 use axum::Router;
-use continuity::{ContinuityBuilder, ContinuityConfig};
-use continuity_mocks::MockCcRpcProvider;
+use continuity::{mocks::MockCcRpcProvider, ContinuityBuilder, ContinuityConfig};
 use proof_gen_api_server::db::DbManager;
 use proof_gen_api_server::{build_app, ContinuityService};
 
@@ -113,7 +112,7 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     let eth_client = eth::Client::new(&cfg.eth_rpc_url, None)
         .await
         .expect("eth client");
-    let eth_provider: Arc<dyn continuity_rpc::EthRpcProvider> = Arc::new(eth_client);
+    let eth_provider: Arc<dyn continuity::rpc::EthRpcProvider> = Arc::new(eth_client);
     let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider, eth_provider);
 
     // Start ephemeral Postgres via shared helper and keep it alive for test duration

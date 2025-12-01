@@ -1,10 +1,11 @@
-use crate::services::continuity_service::ContinuityService;
 use axum::{routing::get, Extension, Router};
-use routes::{continuity, health};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot::Receiver;
+
+use crate::services::continuity_service::ContinuityService;
+use routes::{continuity, health};
 
 pub mod routes;
 

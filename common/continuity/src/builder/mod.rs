@@ -14,11 +14,14 @@ mod fetch;
 
 pub use fetch::*;
 
-use crate::{config::ContinuityConfig, proof::ContinuityProof};
+use crate::{
+    config::ContinuityConfig,
+    proof::ContinuityProof,
+    rpc::{SharedCcProvider, SharedEthProvider},
+};
 use anyhow::{anyhow, Result};
 use attestor_primitives::Query;
 use cc_client::Client as CcClient;
-use continuity_rpc::{SharedCcProvider, SharedEthProvider};
 use eth::Client as EthClient;
 use sp_core::H256;
 use std::sync::Arc;

@@ -3,9 +3,8 @@ use prometheus::{
 };
 use std::sync::Arc;
 
-use crate::Config;
-
 use crate::metric_set;
+use crate::Config;
 
 /// Starts the Prometheus metrics server and registers the prover metrics.
 /// returns an optional `ProverMetrics` instance if registration is successful.

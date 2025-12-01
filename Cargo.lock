@@ -2641,41 +2641,12 @@ dependencies = [
  "attestor-primitives",
  "cc-client",
  "ccnext-abi-encoding",
- "continuity-mocks",
- "continuity-rpc",
  "eth",
  "serde",
  "sp-core",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
- "utils",
-]
-
-[[package]]
-name = "continuity-mocks"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "attestor-primitives",
- "cc-client",
- "continuity",
- "continuity-rpc",
- "sp-core",
-]
-
-[[package]]
-name = "continuity-rpc"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "attestor-primitives",
- "cc-client",
- "ccnext-abi-encoding",
- "eth",
- "sp-core",
  "utils",
 ]
 
@@ -10633,8 +10604,6 @@ dependencies = [
  "chrono",
  "clap",
  "continuity",
- "continuity-mocks",
- "continuity-rpc",
  "deadpool-postgres",
  "dotenvy",
  "eth",

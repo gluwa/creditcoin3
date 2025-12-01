@@ -10,12 +10,14 @@
 pub mod attestation;
 pub mod config;
 pub mod errors;
+pub mod mocks;
 pub mod proof;
+pub mod rpc;
 
 pub mod builder;
 
 pub use attestation::AttestationInfo;
 pub use builder::ContinuityBuilder;
 pub use config::ContinuityConfig;
-pub use continuity_rpc::{CcRpcProvider, EthRpcProvider, SharedCcProvider, SharedEthProvider};
 pub use proof::ContinuityProof;
+pub use rpc::{CcRpcProvider, EthRpcProvider, SharedCcProvider, SharedEthProvider};
