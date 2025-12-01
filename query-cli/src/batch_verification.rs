@@ -6,7 +6,6 @@
 
 use anyhow::{anyhow, Result};
 use attestor_primitives::block::{Block, ContinuityProof};
-use mmr::TransactionMerkleProof;
 
 use ccnext_abi_encoding::abi::EncodingVersion;
 use eth::Client;
@@ -14,6 +13,7 @@ use utils::block_item_traits::BlockItem;
 
 use crate::merkle;
 use crate::verification::VerificationConfig;
+use ::merkle::TransactionMerkleProof;
 
 /// Represents a single query in a batch
 #[derive(Debug, Clone)]

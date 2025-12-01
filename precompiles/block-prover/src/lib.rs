@@ -22,8 +22,8 @@ use attestor_primitives::block::ContinuityProof;
 use ethabi::{encode, Token};
 use sp_std::vec::Vec;
 
-// Use the TransactionMerkleProof from mmr
-use mmr::TransactionMerkleProof;
+// Use the TransactionMerkleProof from merkle
+use merkle::TransactionMerkleProof;
 
 /// Type alias for 10MB bounded vec constraint (10_485_760 bytes)
 pub type ConstU10MB = sp_core::ConstU32<10_485_760>;

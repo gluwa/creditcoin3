@@ -1,10 +1,10 @@
-# MMR (Merkle Mountain Range) Package
+# Merkle Package
 
 A high-performance Merkle tree implementation optimized for blockchain data verification, proof generation, and cross-chain attestation in the Creditcoin3 ecosystem.
 
 ## Overview
 
-The `mmr` package provides a flexible and efficient binary Merkle tree implementation with support for multiple hash functions. While named "MMR" for historical reasons, this package actually implements standard binary Merkle trees rather than Merkle Mountain Ranges.
+The `merkle` package provides a flexible and efficient binary Merkle tree implementation with support for multiple hash functions.
 
 ### Key Features
 
@@ -26,7 +26,7 @@ The main Merkle tree implementation that handles:
 - Tree traversal and verification logic
 
 ```rust
-use mmr::KeccakMerkleTree;
+use merkle::KeccakMerkleTree;
 
 // Create a tree from transaction data
 let transactions = vec![tx1_bytes, tx2_bytes, tx3_bytes];
@@ -46,7 +46,7 @@ Ethereum-compatible Keccak256 hash function implementation:
 
 #### 3. **TransactionMerkleProof** (`proof.rs`)
 Specialized proof format for transaction inclusion verification. Can be used in SDKs, precompiles, and other contexts.
-See `mmr::TransactionMerkleProof` for details.
+See `merkle::TransactionMerkleProof` for details.
 
 #### 4. **Proof Types** (`proof.rs`)
 Standard Merkle proof representations:
@@ -58,7 +58,7 @@ Standard Merkle proof representations:
 ### Creating a Merkle Tree from Transactions
 
 ```rust
-use mmr::KeccakMerkleTree;
+use merkle::KeccakMerkleTree;
 
 fn create_transaction_tree(transactions: Vec<Vec<u8>>) -> KeccakMerkleTree {
     // Create the Merkle tree
@@ -69,7 +69,7 @@ fn create_transaction_tree(transactions: Vec<Vec<u8>>) -> KeccakMerkleTree {
 ### Generating a Query Proof for Verification
 
 ```rust
-use mmr::TransactionMerkleProof;
+use merkle::TransactionMerkleProof;
 use mmr::KeccakMerkleTree;
 
 fn generate_transaction_proof(tree: &KeccakMerkleTree, tx_index: usize) -> TransactionMerkleProof {
@@ -84,7 +84,7 @@ fn generate_transaction_proof(tree: &KeccakMerkleTree, tx_index: usize) -> Trans
 ### Verifying a Merkle Proof
 
 ```rust
-use mmr::TransactionMerkleProof;
+use merkle::TransactionMerkleProof;
 use sp_core::H256;
 
 fn verify_transaction_inclusion(
@@ -113,7 +113,7 @@ fn verify_transaction_inclusion(
 ### Working with Block Headers
 
 ```rust
-use mmr::KeccakMerkleTree;
+use merkle::KeccakMerkleTree;
 use sp_core::H256;
 
 fn create_receipts_tree(receipts: Vec<Vec<u8>>) -> H256 {
@@ -136,7 +136,7 @@ The MMR package is a critical component of the Native Query Verifier precompile,
 ### Example: Preparing Data for the Precompile
 
 ```rust
-use mmr::TransactionMerkleProof;
+use merkle::TransactionMerkleProof;
 use attestor_primitives::query::Query;
 
 fn prepare_verification_data(
@@ -170,7 +170,7 @@ Enables precompile utilities for use in EVM precompiles:
 Disable by using `default-features = false`:
 ```toml
 [dependencies]
-mmr = { version = "3.66.0", default-features = false }
+merkle = { version = "3.66.0", default-features = false }
 ```
 
 ## Performance Considerations
@@ -210,7 +210,7 @@ cargo test -p mmr
 
 With all features:
 ```bash
-cargo test -p mmr --all-features
+cargo test -p merkle --all-features
 ```
 
 ## Dependencies

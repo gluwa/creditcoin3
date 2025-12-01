@@ -9,7 +9,7 @@ use attestor_primitives::{
 };
 use fp_evm::Context;
 use frame_support::assert_err;
-use mmr::{KeccakMerkleTree, MerkleProofEntry, TransactionMerkleProof};
+use merkle::{KeccakMerkleTree, MerkleProofEntry, TransactionMerkleProof};
 use precompile_utils::{evm::logs::log3, solidity, testing::*};
 use sp_core::{H256, U256};
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};

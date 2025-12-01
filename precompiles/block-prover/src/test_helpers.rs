@@ -1,7 +1,7 @@
 // Test helpers for creating deterministic test data for native query verifier
 use crate::*;
 use attestor_primitives::block::Block;
-use mmr::{KeccakMerkleTree, MerkleProofEntry, TransactionMerkleProof};
+use merkle::{KeccakMerkleTree, MerkleProofEntry, TransactionMerkleProof};
 use sp_core::H256;
 use sp_io::hashing::keccak_256;
 

@@ -13,7 +13,7 @@ use sp_core::H256;
 use sp_std::vec::Vec;
 
 use crate::{BlockProverPrecompile, SELECTOR_LOG_TRANSACTION_VERIFIED};
-use mmr::TransactionMerkleProof;
+use merkle::TransactionMerkleProof;
 
 // Gas cost constants
 // Based on realistic Solidity implementation costs with precompile efficiency gains:
@@ -450,7 +450,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mmr::{MerkleProofEntry, TransactionMerkleProof};
+    use merkle::{MerkleProofEntry, TransactionMerkleProof};
     use sp_core::H256;
 
     // Helper to create a TransactionMerkleProof for testing

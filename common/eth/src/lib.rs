@@ -441,7 +441,7 @@ impl Client {
 /// Build a simple Ethereum-compatible Merkle tree from a block
 ///
 /// Uses `KeccakMerkleTree` which matches the POC implementation exactly.
-pub fn simple_merkle_tree(block: &OrderedBlock) -> mmr::KeccakMerkleTree {
+pub fn simple_merkle_tree(block: &OrderedBlock) -> merkle::KeccakMerkleTree {
     let tx_bytes: Vec<Vec<u8>> = block.items().iter().map(|item| item.to_bytes()).collect();
-    mmr::KeccakMerkleTree::new(&tx_bytes)
+    merkle::KeccakMerkleTree::new(&tx_bytes)
 }

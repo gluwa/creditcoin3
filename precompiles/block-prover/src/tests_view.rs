@@ -3,7 +3,7 @@
 use crate::mock::*;
 use crate::tests::{precompiles, setup_attestation};
 use attestor_primitives::block::{Block, ContinuityProof};
-use mmr::TransactionMerkleProof;
+use merkle::TransactionMerkleProof;
 use precompile_utils::testing::*;
 use sp_core::H256;
 

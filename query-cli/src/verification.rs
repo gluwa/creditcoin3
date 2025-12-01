@@ -6,7 +6,7 @@
 use anyhow::Result;
 use attestor_primitives::block::{Block, ContinuityProof};
 use eth::{evm, Client};
-use mmr::TransactionMerkleProof;
+use merkle::TransactionMerkleProof;
 
 /// Configuration for query verification
 #[derive(Debug, Clone)]

@@ -4,7 +4,7 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 use attestor_primitives::block::ContinuityProof;
-use mmr::TransactionMerkleProof;
+use merkle::TransactionMerkleProof;
 
 use crate::{Client, Error as ClientError};
 use alloy::{

@@ -5,7 +5,7 @@
 //! This crate provides common utilities for Creditcoin3, including:
 //!
 //! - **Block Item Traits**: Interfaces for blockchain items with unique identifiers
-//! - **Keccak Merkle Trees**: Keccak256 hash implementation for MMR structures
+//! - **Keccak Merkle Trees**: Keccak256 hash implementation for Merkle structures
 //! - **Type Conversions**: Utilities for converting between types and parsing
 //! - **JSON Serialization**: File-based JSON serialization traits (std only)
 //!
@@ -18,7 +18,7 @@
 //!
 //! ```rust
 //! use utils::BlockItemIdentifier;
-//! use mmr::KeccakMerkleTree;
+//! use merkle::KeccakMerkleTree;
 //!
 //! // Create a block item identifier
 //! let id = BlockItemIdentifier::new(100, 5);

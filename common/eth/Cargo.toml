@@ -23,5 +23,5 @@ tracing = { workspace = true }
 
 # Local dependencies
 attestor-primitives = { workspace = true }
-mmr = { workspace = true }
+merkle = { workspace = true }
 utils = { workspace = true }

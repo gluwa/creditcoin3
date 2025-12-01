@@ -25,7 +25,7 @@ attestor-primitives = { workspace = true }
 pallet-attestation-poc = { workspace = true, default-features = false }
 
 # Utils
-mmr = { workspace = true, default-features = false, features = [
+merkle = { workspace = true, default-features = false, features = [
     "precompile-support",
 ] }
 utils = { workspace = true, default-features = false }
@@ -92,7 +92,7 @@ std = [
     "attestor-primitives/std",
     "pallet-babe/std",
     "utils/std",
-    "mmr/std",
+    "merkle/std",
     "sp-staking/std",
     "pallet-staking/std",
     "supported-chains-primitives/std",

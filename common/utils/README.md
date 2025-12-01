@@ -5,7 +5,7 @@ A utility crate for Creditcoin3 providing essential functionality for blockchain
 ## Features
 
 - **Block Item Traits**: Interfaces for blockchain items with unique identifiers
-- **Starknet Integration**: Pedersen hash implementation for MMR structures
+- **Starknet Integration**: Pedersen hash implementation for Merkle structures
 - **Type Conversions**: Utilities for converting between types and parsing
 - **JSON Serialization**: File-based JSON serialization traits (std only)
 
@@ -95,7 +95,7 @@ let bytes = tx.to_bytes(); // Includes ID + payload
 
 ```rust
 use utils::{StarknetPedersenMerkleTree, pedersen_array};
-use mmr::traits::MerkleTreeTrait;
+use merkle::traits::MerkleTreeTrait;
 
 // Create a Merkle tree with Starknet Pedersen hash
 let data = vec![b"leaf1", b"leaf2", b"leaf3"];

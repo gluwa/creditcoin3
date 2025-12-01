@@ -29,7 +29,7 @@ subxt = { version = "0.40", features = ["reconnecting-rpc-client"] }
 subxt-signer = "0.40"
 
 # Common deps
-mmr = { path = "../common/mmr" }
+merkle = { path = "../common/merkle" }
 
 # Attestation deps
 attestor = { path = "../attestor" }

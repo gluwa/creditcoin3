@@ -2,7 +2,7 @@
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
-name = "mmr"
+name = "merkle"
 publish.workspace = true
 repository.workspace = true
 version.workspace = true

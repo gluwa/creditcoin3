@@ -311,7 +311,7 @@ native-query-verifier/
 
 - `precompile-utils`: Precompile macros and utilities
 - `attestor-primitives`: Block, query, and attestation types
-- `mmr`: Merkle tree and proof generation
+- `merkle`: Merkle tree and proof generation
 - `sp-core`, `sp-io`, `sp-std`: Substrate primitives
 - `frame-support`, `frame-system`: Frame system support
 - `pallet-evm`: EVM pallet integration

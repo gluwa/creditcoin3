@@ -1469,7 +1469,7 @@ dependencies = [
  "futures 0.3.31",
  "futures-util",
  "hex",
- "mmr",
+ "merkle",
  "prometheus 3.66.0",
  "rand 0.9.0",
  "serde",
@@ -3850,7 +3850,7 @@ dependencies = [
  "futures 0.3.31",
  "futures-util",
  "hex",
- "mmr",
+ "merkle",
  "sp-core",
  "thiserror 1.0.69",
  "tokio",
@@ -7812,6 +7812,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "merkle"
+version = "3.66.0"
+dependencies = [
+ "parity-scale-codec",
+ "precompile-utils",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-std",
+]
+
+[[package]]
 name = "merkleized-metadata"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7902,18 +7914,6 @@ dependencies = [
  "subtle 2.6.1",
  "thiserror 1.0.69",
  "zeroize",
-]
-
-[[package]]
-name = "mmr"
-version = "3.66.0"
-dependencies = [
- "parity-scale-codec",
- "precompile-utils",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-std",
 ]
 
 [[package]]
@@ -8997,7 +8997,7 @@ dependencies = [
  "frame-system",
  "hex",
  "log",
- "mmr",
+ "merkle",
  "pallet-attestation-poc",
  "pallet-babe",
  "pallet-balances",
@@ -10488,7 +10488,7 @@ dependencies = [
  "clap",
  "eth",
  "hex",
- "mmr",
+ "merkle",
  "reqwest 0.12.15",
  "serde",
  "sp-core",
@@ -16084,7 +16084,7 @@ dependencies = [
  "futures 0.3.31",
  "hex",
  "hex-literal",
- "mmr",
+ "merkle",
  "mockall 0.11.4",
  "num-format",
  "pallet-supported-chains",

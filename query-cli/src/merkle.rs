@@ -3,9 +3,9 @@
 //! This module handles the generation and preparation of Merkle proofs
 //! for transaction verification using the simple, Ethereum-compatible approach.
 
+use ::merkle::TransactionMerkleProof;
 use anyhow::Result;
 use eth::OrderedBlock;
-use mmr::TransactionMerkleProof;
 use utils::block_item_traits::BlockItem;
 
 /// Generate a Merkle proof for a transaction in a block

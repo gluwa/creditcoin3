@@ -5,7 +5,7 @@ use crate::mock::*;
 use crate::*;
 use attestor_primitives::block::{Block, ContinuityProof};
 use attestor_primitives::{Attestation, AttestationCheckpoint, SignedAttestation};
-use mmr::{MerkleProofEntry, TransactionMerkleProof};
+use merkle::{MerkleProofEntry, TransactionMerkleProof};
 use precompile_utils::testing::*;
 use sp_core::H256;
 use std::vec::Vec as StdVec;

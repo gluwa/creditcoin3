@@ -38,7 +38,7 @@ cc-client = { workspace = true }
 creditcoin3-attestor-gossip = { workspace = true }
 creditcoin3-attestor-rpc = { workspace = true }
 eth = { workspace = true }
-mmr = { workspace = true }
+merkle = { workspace = true }
 utils = { path = "../common/utils", default-features = false }
 vrf = { workspace = true }
 
