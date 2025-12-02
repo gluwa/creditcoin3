@@ -87,24 +87,8 @@ In addition to the unit tests within the proof-gen-api-server crate, you can tes
 1. Follow the steps in `.github/CONTRIBUTING.md` up through step 4.
 2. Follow `Launching the Database` in this readme
 2. Follow `Building the Proof Gen Server` in this readme
-3. Follow `### Example: Local Development` in this readme to launch the proof gen server
-4. Run the following `scripts/submit-proof.js`
-Template script run:
-```sh
-npm run submit-proof \
-  -- <YOUR-CHAIN-KEY> \
-  <TX-BLOCK-HEIGHT> \
-  <TX-HASH> \
-  0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
-```
-Example script run:
-```sh
-npm run submit-proof \
-  -- 2 \
-  6 \
-  0x391ced4c1782dc750d3a10bca485864c86b82ac03721a3e2581d44eb55ed4350 \
-  0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
-```
+3. Follow `Example: Local Development` in this readme to launch the proof gen server
+4. Follow the steps from `### submit-proof.js` in `scripts/README.md`
 
 ## Caching
 
