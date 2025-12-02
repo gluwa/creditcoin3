@@ -56,6 +56,30 @@ impl CcRpcProvider for MockCcRpcProvider {
             },
         ])
     }
+
+    async fn get_checkpoint_by_height(
+        &self,
+        _chain_key: u64,
+        block_number: u64,
+    ) -> Result<Option<AttestationCheckpoint>> {
+        // Mock implementation: return checkpoint if it exists in our mock data
+        match block_number {
+            5 => Ok(Some(AttestationCheckpoint {
+                block_number: 5,
+                digest: H256::from_low_u64_be(500),
+            })),
+            15 => Ok(Some(AttestationCheckpoint {
+                block_number: 15,
+                digest: H256::from_low_u64_be(1500),
+            })),
+            _ => Ok(None),
+        }
+    }
+
+    async fn get_attestation_chain_genesis_block_number(&self, _chain_key: u64) -> Result<u64> {
+        // Mock returns 0 for backward compatibility, but can be any number
+        Ok(0)
+    }
 }
 
 /// Mock ETH provider building continuity blocks with simple incremental digests.
@@ -105,10 +129,28 @@ impl EthRpcProvider for MockEthRpcProvider {
         Ok(txs)
     }
 
+    async fn get_tx_hash_by_index(&self, block_number: u64, tx_index: u64) -> Result<Option<H256>> {
+        // Generate a deterministic hash for testing purposes
+        // Hash is based on block_number and tx_index
+        let mut bytes = [0u8; 32];
+        bytes[..8].copy_from_slice(&block_number.to_be_bytes());
+        bytes[8..16].copy_from_slice(&tx_index.to_be_bytes());
+        // Fill rest with deterministic pattern
+        for (i, byte) in bytes.iter_mut().enumerate().skip(16) {
+            *byte = ((block_number + tx_index + i as u64) % 256) as u8;
+        }
+        Ok(Some(H256::from(bytes)))
+    }
+
     async fn get_tx_position_by_hash(&self, _tx_hash: H256) -> Result<(u64, u64)> {
         Err(anyhow::anyhow!(
             "MockEthRpcProvider does not implement get_tx_position_by_hash"
         ))
+    }
+
+    async fn get_last_block(&self) -> Result<u64> {
+        // Mock returns a high block number for testing
+        Ok(1000)
     }
 }
 

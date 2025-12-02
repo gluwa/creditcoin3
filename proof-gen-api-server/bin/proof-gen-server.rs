@@ -92,14 +92,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(env_filter)
         .try_init();
 
-    // Resolve cc3_key: prefer CLI, fallback to env var for backward compatibility with README examples
-    let resolved_cc3_key = args
-        .cc3_key
-        .or_else(|| env::var("CC3_KEY").ok())
-        .unwrap_or_else(|| {
-            error!("Missing Creditcoin key: pass --cc3-key or set CC3_KEY env var");
-            std::process::exit(1);
-        });
+    // cc3_key is optional - not needed for read-only operations
+    // Prefer CLI, fallback to env var for backward compatibility
+    let resolved_cc3_key = args.cc3_key.or_else(|| env::var("CC3_KEY").ok());
 
     let resolved_bind_addr = args
         .bind_addr

@@ -137,7 +137,7 @@ mod e2e {
         db.run_migrations().await.expect("migrations");
         let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
         std::mem::forget(container);
-        build_app(service)
+        build_app(service, chain_key)
     }
 }
 

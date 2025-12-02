@@ -44,8 +44,8 @@ pub struct Server {
 impl Server {
     /// Create a new server based on `Config`.
     pub async fn new(config: Config, db_manager: DbManager) -> Result<Self> {
-        // Initialize CC3 client
-        let cc3_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key).await?;
+        // Initialize CC3 client (read-only, no keypair needed)
+        let cc3_client = CcClient::new_read_only(&config.cc3_rpc_url).await?;
 
         // Validate supported chain and source chain id alignment
         let supported_chain = cc3_client
@@ -96,9 +96,15 @@ impl Server {
         self.db_manager.run_migrations().await?;
 
         // Continuity builder configuration
+        // Note: cc3_key is not needed for read-only operations, but ContinuityConfig still requires it
+        // We use a dummy key since it won't be used for signing
         let continuity_config = continuity::ContinuityConfig {
             cc3_rpc_url: self.config.cc3_rpc_url.clone(),
-            cc3_key: self.config.cc3_key.clone(),
+            cc3_key: self
+                .config
+                .cc3_key
+                .clone()
+                .unwrap_or_else(|| "//Alice".to_string()),
             eth_rpc_url: self.config.eth_rpc_url.clone(),
             chain_key: self.config.chain_key,
         };
@@ -111,7 +117,7 @@ impl Server {
         ));
 
         // Build axum application
-        let app = build_app(service);
+        let app = build_app(service, self.config.chain_key);
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
         let server = run_http_server(app, &self.config.bind_addr, http_shutdown_rx);
         tokio::pin!(server);

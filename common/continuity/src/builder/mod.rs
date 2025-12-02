@@ -24,6 +24,7 @@ use cc_client::Client as CcClient;
 use eth::Client as EthClient;
 use sp_core::H256;
 use std::sync::Arc;
+use tracing::info;
 
 /// Continuity proof builder backed by abstract RPC providers.
 pub struct ContinuityBuilder {
@@ -34,8 +35,9 @@ pub struct ContinuityBuilder {
 
 impl ContinuityBuilder {
     /// Create a new builder with real RPC clients.
+    /// Note: Uses read-only CC client since signing is not needed for proof generation.
     pub async fn new(config: ContinuityConfig) -> Result<Self> {
-        let cc_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key)
+        let cc_client = CcClient::new_read_only(&config.cc3_rpc_url)
             .await
             .context("Failed to create CC client")?;
         let eth_client = EthClient::new(&config.eth_rpc_url, None)
@@ -67,7 +69,10 @@ impl ContinuityBuilder {
     /// to verify the query. The chain starts at queryHeight-1 and extends
     /// to the next attestation/checkpoint after the query.
     pub async fn build_for_single_query(&self, height: u64) -> Result<ContinuityProof> {
-        println!("Building continuity proof for single query at height {height}");
+        info!(
+            query_height = height,
+            "Building continuity proof for single query"
+        );
         self.build_for_heights(&[height]).await
     }
     /// Build continuity proof for multiple queries (batch)
@@ -84,11 +89,11 @@ impl ContinuityBuilder {
             *query_heights.iter().min().unwrap(),
             *query_heights.iter().max().unwrap(),
         );
-        println!(
-            "Building continuity proof for {} queries (range: {} to {})",
-            query_heights.len(),
-            min,
-            max
+        info!(
+            query_count = query_heights.len(),
+            min_height = min,
+            max_height = max,
+            "Building continuity proof for batch queries"
         );
 
         self.build_for_heights(query_heights).await
@@ -98,8 +103,25 @@ impl ContinuityBuilder {
     pub async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>> {
         self.eth_provider.get_block_tx_bytes(block_number).await
     }
+
+    /// Get the transaction hash at a specific index in a block.
+    pub async fn get_tx_hash_by_index(
+        &self,
+        block_number: u64,
+        tx_index: u64,
+    ) -> Result<Option<H256>> {
+        self.eth_provider
+            .get_tx_hash_by_index(block_number, tx_index)
+            .await
+    }
+
     /// Resolve a transaction hash to its block number and index on the source chain.
     pub async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64)> {
         self.eth_provider.get_tx_position_by_hash(tx_hash).await
+    }
+
+    /// Get the current block height (latest block number).
+    pub async fn get_last_block(&self) -> Result<u64> {
+        self.eth_provider.get_last_block().await
     }
 }

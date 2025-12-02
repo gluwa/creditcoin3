@@ -2,7 +2,7 @@
 /// Server configuration
 /// - `bind_addr`: The address and port to which api requests can be directed
 /// - `cc3_rpc_url`: Creditcoin RPC url (must have rpc + websocket features)
-/// - `cc3_key`: Mnemonic for a creditcoin3 account
+/// - `cc3_key`: Mnemonic for a creditcoin3 account (optional, not needed for read-only operations)
 /// - `chain_key`: Chain key for the source chain, must match the chain key on creditcoin3
 /// - `eth_rpc_url`: Ethereum RPC url
 /// - `enable_prometheus_metrics`:
@@ -11,7 +11,7 @@
 pub struct Config {
     pub bind_addr: String,
     pub cc3_rpc_url: String,
-    pub cc3_key: String,
+    pub cc3_key: Option<String>,
     pub chain_key: u64,
     pub eth_rpc_url: String,
     pub enable_prometheus_metrics: bool,
@@ -28,7 +28,7 @@ impl Config {
         Self {
             bind_addr: "127.0.0.1:3000".to_string(),
             cc3_rpc_url: "ws://mock".to_string(),
-            cc3_key: "test test test test test test test test test test test test".to_string(),
+            cc3_key: None,
             chain_key,
             eth_rpc_url: "http://mock".to_string(),
             enable_prometheus_metrics: false,

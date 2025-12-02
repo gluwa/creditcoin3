@@ -101,11 +101,12 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     };
 
     // Configure ContinuityBuilder with mock CC and real ETH (Anvil)
+    let chain_key = 31337;
     let cfg = ContinuityConfig {
         cc3_rpc_url: "ws://unused".into(),
         cc3_key: "//Alice".into(),
         eth_rpc_url: format!("ws://127.0.0.1:{port}"),
-        chain_key: 31337,
+        chain_key,
     };
 
     // Build providers: mock CC, real ETH
@@ -127,7 +128,7 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     let db = DbManager::new(db_config).expect("db manager init");
     db.run_migrations().await.expect("migrations");
     let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
-    let app: Router = build_app(service);
+    let app: Router = build_app(service, chain_key);
 
     // Serve app and exercise with reqwest
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -208,8 +209,8 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     assert!(txi_resp.status().is_success());
     let txi_body = txi_resp.bytes().await.expect("read txi body");
     let txi_json: ContinuityResponse = serde_json::from_slice(&txi_body).expect("json txi");
-    if let Some(root) = &txi_json.merkle_root {
-        assert_h256_str("merkle_root (tx-index)", root);
+    if let Some(proof) = &txi_json.merkle_proof {
+        assert_h256_str("merkle_root (tx-index)", &format!("0x{:x}", proof.root));
     }
     if let Some(th) = &txi_json.tx_hash {
         assert_h256_str("tx_hash (tx-index)", th);
@@ -239,8 +240,8 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     let json: ContinuityResponse = serde_json::from_slice(&body).expect("json");
     assert_eq!(json.chain_key, 31337);
     assert!(!json.continuity_proof.blocks.is_empty());
-    if let Some(root) = &json.merkle_root {
-        assert_h256_str("merkle_root", root);
+    if let Some(proof) = &json.merkle_proof {
+        assert_h256_str("merkle_root", &format!("0x{:x}", proof.root));
     }
     if let Some(th) = &json.tx_hash {
         assert_h256_str("tx_hash", th);

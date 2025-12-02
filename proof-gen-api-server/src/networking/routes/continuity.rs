@@ -42,15 +42,27 @@ fn map_service_error(err: ServiceError) -> (StatusCode, Json<Value>) {
             err.code(),
             err.retriable(),
         ),
+        ServiceError::BlockNotReady { .. } => {
+            (StatusCode::SERVICE_UNAVAILABLE, err.code(), err.retriable())
+        }
     };
-    (
-        status,
-        Json(json!({
-            "code": code,
-            "message": err.to_string(),
-            "retriable": retriable
-        })),
-    )
+    let mut response = json!({
+        "code": code,
+        "message": err.to_string(),
+        "retriable": retriable
+    });
+
+    // Add additional fields for BlockNotReady errors
+    if let ServiceError::BlockNotReady {
+        block_number,
+        current_block,
+    } = &err
+    {
+        response["block_number"] = json!(*block_number);
+        response["current_block"] = json!(*current_block);
+    }
+
+    (status, Json(response))
 }
 
 pub async fn get_continuity_proof(
@@ -58,7 +70,15 @@ pub async fn get_continuity_proof(
     Extension(service): Extension<Arc<ContinuityService>>,
 ) -> Result<Json<ContinuityResponse>, (StatusCode, Json<Value>)> {
     match service.continuity_proof(chain_key, header_number).await {
-        Ok(resp) => Ok(Json(resp)),
+        Ok(resp) => {
+            tracing::info!(
+                chain_key,
+                header_number,
+                cached = resp.cached,
+                "Request served successfully"
+            );
+            Ok(Json(resp))
+        }
         Err(e) => Err(map_service_error(e)),
     }
 }
@@ -71,7 +91,16 @@ pub async fn get_continuity_proof_with_tx(
         .continuity_proof_with_tx(chain_key, header_number, tx_index)
         .await
     {
-        Ok(resp) => Ok(Json(resp)),
+        Ok(resp) => {
+            tracing::info!(
+                chain_key,
+                header_number,
+                tx_index,
+                cached = resp.cached,
+                "Request served successfully"
+            );
+            Ok(Json(resp))
+        }
         Err(e) => Err(map_service_error(e)),
     }
 }
@@ -80,11 +109,21 @@ pub async fn get_proof_by_tx_hash(
     Path((chain_key, tx_hash)): Path<(u64, String)>,
     Extension(service): Extension<Arc<ContinuityService>>,
 ) -> Result<Json<ContinuityResponse>, (StatusCode, Json<Value>)> {
+    let tx_hash_clone = tx_hash.clone();
     match service
         .continuity_proof_by_tx_hash(chain_key, tx_hash)
         .await
     {
-        Ok(resp) => Ok(Json(resp)),
+        Ok(resp) => {
+            tracing::info!(
+                chain_key,
+                tx_hash = %tx_hash_clone,
+                header_number = resp.header_number,
+                cached = resp.cached,
+                "Request served successfully"
+            );
+            Ok(Json(resp))
+        }
         Err(e) => Err(map_service_error(e)),
     }
 }

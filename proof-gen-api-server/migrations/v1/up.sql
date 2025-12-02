@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS proofs (
     header_number BIGINT NOT NULL,
     tx_index BIGINT,
     tx_hash VARCHAR(66),
+    tx_bytes TEXT,
     continuity_proof JSONB,
     merkle_proof JSONB,
     merkle_root VARCHAR(66),

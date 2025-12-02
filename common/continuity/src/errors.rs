@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum ContinuityError {
     #[error("No attestations available for chain_key {0}")]
     NoAttestations(u64),
@@ -16,4 +16,10 @@ pub enum ContinuityError {
 
     #[error("Block not found in continuity chain")]
     MissingBlock,
+
+    #[error("The continuity proof cannot be created because block {block_number} is not attested to yet")]
+    BlockNotReady {
+        block_number: u64,
+        current_block: u64,
+    },
 }

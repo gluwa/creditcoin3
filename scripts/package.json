@@ -1,0 +1,23 @@
+{
+    "name": "creditcoin3-scripts",
+    "version": "1.0.0",
+    "description": "Utility scripts for Creditcoin3 project",
+    "type": "commonjs",
+    "scripts": {
+        "submit-proof": "node submit-proof.js"
+    },
+    "dependencies": {
+        "ethers": "^6.15.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "keywords": [
+        "creditcoin3",
+        "blockchain",
+        "proof",
+        "precompile"
+    ],
+    "author": "",
+    "license": "MIT"
+}

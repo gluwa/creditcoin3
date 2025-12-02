@@ -23,6 +23,7 @@ pub struct QueryProofs {
     pub header_number: u64,
     pub tx_index: Option<u64>,
     pub tx_hash: Option<H256>,
+    pub tx_bytes: Option<Vec<u8>>, // Cached transaction bytes (includes BlockItem identifier prefix)
     // Use concrete types for downstream consumers; we'll serialize only at DB boundary.
     pub continuity_proof: Option<ContinuityProof>,
     pub merkle_proof: Option<TransactionMerkleProof>,
@@ -38,6 +39,7 @@ pub struct ProofsDbEntry {
     pub header_number: i64,
     pub tx_index: Option<i64>,
     pub tx_hash: Option<String>,
+    pub tx_bytes: Option<String>, // Hex-encoded transaction bytes
     pub continuity_proof: Option<Value>,
     pub merkle_proof: Option<Value>,
     pub merkle_root: Option<String>,
@@ -109,14 +111,16 @@ impl DbManager {
                                 header_number,
                                 tx_index,
                                 tx_hash,
+                                tx_bytes,
                                 continuity_proof,
                                 merkle_proof,
                                 merkle_root
                             )
-                            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                             ON CONFLICT (chain_key, header_number, tx_index) WHERE tx_index IS NOT NULL
                             DO UPDATE SET
                                 tx_hash = EXCLUDED.tx_hash,
+                                tx_bytes = EXCLUDED.tx_bytes,
                                 continuity_proof = EXCLUDED.continuity_proof,
                                 merkle_proof = EXCLUDED.merkle_proof,
                                 merkle_root = EXCLUDED.merkle_root,
@@ -127,6 +131,7 @@ impl DbManager {
                                 &entry.header_number,
                                 &entry.tx_index,
                                 &entry.tx_hash,
+                                &entry.tx_bytes,
                                 &entry.continuity_proof,
                                 &entry.merkle_proof,
                                 &entry.merkle_root,
@@ -142,14 +147,16 @@ impl DbManager {
                                 header_number,
                                 tx_index,
                                 tx_hash,
+                                tx_bytes,
                                 continuity_proof,
                                 merkle_proof,
                                 merkle_root
                             )
-                            VALUES ($1, $2, NULL, $3, $4, $5, $6)
+                            VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)
                             ON CONFLICT (chain_key, header_number) WHERE tx_index IS NULL
                             DO UPDATE SET
                                 tx_hash = EXCLUDED.tx_hash,
+                                tx_bytes = EXCLUDED.tx_bytes,
                                 continuity_proof = EXCLUDED.continuity_proof,
                                 merkle_proof = EXCLUDED.merkle_proof,
                                 merkle_root = EXCLUDED.merkle_root,
@@ -159,6 +166,7 @@ impl DbManager {
                                     &entry.chain_key,
                                     &entry.header_number,
                                     &entry.tx_hash,
+                                    &entry.tx_bytes,
                                     &entry.continuity_proof,
                                     &entry.merkle_proof,
                                     &entry.merkle_root,
@@ -194,6 +202,7 @@ impl DbManager {
                 header_number,
                 tx_index,
                 tx_hash,
+                tx_bytes,
                 continuity_proof,
                 merkle_proof,
                 merkle_root,
@@ -243,6 +252,7 @@ impl DbManager {
                 header_number,
                 tx_index,
                 tx_hash,
+                tx_bytes,
                 continuity_proof,
                 merkle_proof,
                 merkle_root,
@@ -296,6 +306,7 @@ impl DbManager {
                 header_number,
                 tx_index,
                 tx_hash,
+                tx_bytes,
                 continuity_proof,
                 merkle_proof,
                 merkle_root,

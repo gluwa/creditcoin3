@@ -1,7 +1,8 @@
 use alloy::{
     consensus::TxEnvelope,
+    hex::ToHexExt,
     network::{Ethereum, EthereumWallet},
-    primitives::BlockHash,
+    primitives::{BlockHash, TxHash},
     providers::{
         fillers::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -28,7 +29,7 @@ use sp_core::H256;
 use std::str::FromStr;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
 pub use alloy::core::primitives::Address;
@@ -338,7 +339,7 @@ impl Client {
         number: u64,
         encoding: EncodingVersion,
     ) -> Result<OrderedBlock, Error> {
-        info!(
+        debug!(
             "Getting block {:?}",
             BlockId::Number(BlockNumberOrTag::Number(number))
         );
@@ -441,31 +442,36 @@ impl Client {
 
     /// Resolve a transaction hash to its block number and index within the block.
     pub async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64), Error> {
-        // Convert sp_core::H256 to alloy BlockHash via hex string
-        let hex = format!("0x{tx_hash:x}");
-        let block_hash = alloy::primitives::BlockHash::from_str(&hex)
+        // Convert sp_core::H256 to alloy TxHash via hex string
+        let tx_hash_alloy = TxHash::from_str(&tx_hash.encode_hex())
             .map_err(|e| Error::ClientError(anyhow::anyhow!("Invalid tx hash: {e}")))?;
 
         // Fetch the transaction by hash
         let tx_opt = self
             .rpc_provider
-            .get_transaction_by_hash(block_hash)
+            .get_transaction_by_hash(tx_hash_alloy)
             .await
             .map_err(Error::from)?;
 
         let tx = tx_opt.ok_or_else(|| {
-            Error::ClientError(anyhow::anyhow!("Transaction not found for hash {}", hex))
+            Error::ClientError(anyhow::anyhow!(
+                "Transaction not found for hash {}",
+                tx_hash
+            ))
         })?;
 
         // Extract block number and transaction index (both should be Some for mined tx)
         let block_number = tx.block_number.ok_or_else(|| {
             Error::ClientError(anyhow::anyhow!(
                 "Transaction not in a block (pending): {}",
-                hex
+                tx_hash
             ))
         })?;
         let tx_index = tx.transaction_index.ok_or_else(|| {
-            Error::ClientError(anyhow::anyhow!("Missing transactionIndex for tx: {}", hex))
+            Error::ClientError(anyhow::anyhow!(
+                "Missing transactionIndex for tx: {}",
+                tx_hash
+            ))
         })?;
 
         Ok((block_number, tx_index))

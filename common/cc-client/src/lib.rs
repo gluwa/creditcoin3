@@ -129,6 +129,16 @@ impl Client {
         })
     }
 
+    /// Create a new read-only instance of cc3 client that doesn't require a keypair.
+    /// This is useful for read-only operations where signing is not needed.
+    /// Uses a dummy keypair internally (which won't be used for read operations).
+    /// - `url`: rpc url of a creditcoin node
+    pub async fn new_read_only(url: impl Into<String> + Clone) -> Result<Self> {
+        // Use a dummy key for read-only operations - it won't be used for signing
+        const DUMMY_KEY: &str = "//Alice";
+        Self::new(url, DUMMY_KEY).await
+    }
+
     pub async fn api(&self) -> Result<OnlineClient<SubstrateConfig>, Error> {
         Ok(OnlineClient::<SubstrateConfig>::from_rpc_client(self.rpc.clone()).await?)
     }
@@ -558,6 +568,29 @@ impl Client {
             .map(|checkpoint| AttestationCheckpoint {
                 block_number: checkpoint.block_number,
                 digest: Digest::from_slice(&checkpoint.digest.0),
+            }))
+    }
+
+    pub async fn get_checkpoint_by_height(
+        &self,
+        chain_key: ChainKey,
+        block_number: u64,
+    ) -> Result<Option<AttestationCheckpoint>> {
+        let storage_query = cc3::storage()
+            .attestation()
+            .checkpoints(chain_key, block_number);
+
+        Ok(self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?
+            .map(|digest| AttestationCheckpoint {
+                block_number,
+                digest: Digest::from_slice(&digest.0),
             }))
     }
 

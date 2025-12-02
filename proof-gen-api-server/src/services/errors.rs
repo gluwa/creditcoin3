@@ -1,4 +1,4 @@
-use anyhow::Error as AnyError;
+use continuity::ContinuityError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -23,13 +23,20 @@ pub enum ServiceError {
     TxHashLookupUnavailable { tx_hash: String },
     #[error("tx hash not found: {tx_hash}")]
     TxHashNotFound { tx_hash: String },
+    #[error("The continuity proof cannot be created because block {block_number} is not attested to yet")]
+    BlockNotReady {
+        block_number: u64,
+        current_block: u64,
+    },
 }
 
 impl ServiceError {
     pub fn retriable(&self) -> bool {
         matches!(
             self,
-            ServiceError::RpcUnavailable { .. } | ServiceError::DbError { .. }
+            ServiceError::RpcUnavailable { .. }
+                | ServiceError::DbError { .. }
+                | ServiceError::BlockNotReady { .. }
         )
     }
     pub fn code(&self) -> &'static str {
@@ -44,14 +51,30 @@ impl ServiceError {
             ServiceError::Internal { .. } => "Internal",
             ServiceError::TxHashLookupUnavailable { .. } => "TxHashLookupUnavailable",
             ServiceError::TxHashNotFound { .. } => "TxHashNotFound",
+            ServiceError::BlockNotReady { .. } => "BlockNotReady",
         }
     }
 }
 
-impl From<AnyError> for ServiceError {
-    fn from(e: AnyError) -> Self {
-        ServiceError::Internal {
-            message: e.to_string(),
+impl From<ContinuityError> for ServiceError {
+    fn from(e: ContinuityError) -> Self {
+        match e {
+            ContinuityError::BlockNotReady {
+                block_number,
+                current_block,
+            } => ServiceError::BlockNotReady {
+                block_number,
+                current_block,
+            },
+            ContinuityError::NoAttestations(chain_key) => {
+                ServiceError::AttestationsMissing { chain_key }
+            }
+            ContinuityError::Rpc(msg) => ServiceError::RpcUnavailable { message: msg },
+            ContinuityError::Internal(msg) => ServiceError::Internal { message: msg },
+            ContinuityError::InvalidBounds(msg) => ServiceError::InvalidParameter { message: msg },
+            ContinuityError::MissingBlock => ServiceError::Internal {
+                message: "Block not found in continuity chain".to_string(),
+            },
         }
     }
 }

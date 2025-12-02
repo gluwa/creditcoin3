@@ -19,5 +19,6 @@ pub mod builder;
 pub use attestation::AttestationInfo;
 pub use builder::ContinuityBuilder;
 pub use config::ContinuityConfig;
+pub use errors::ContinuityError;
 pub use proof::ContinuityProof;
 pub use rpc::{CcRpcProvider, EthRpcProvider, SharedCcProvider, SharedEthProvider};

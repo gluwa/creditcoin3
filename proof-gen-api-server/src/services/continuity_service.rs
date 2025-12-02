@@ -1,12 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sp_core::hashing::keccak_256;
 use sp_core::H256;
 use std::sync::Arc;
 
 use crate::db::{DbManager, QueryProofs};
 use attestor_primitives::block::ContinuityProof;
-use continuity::{ContinuityBuilder, ContinuityProof as RawContinuityProof};
+use continuity::{ContinuityBuilder, ContinuityError, ContinuityProof as RawContinuityProof};
 use merkle::proof::TransactionMerkleProof;
 
 // === Serialization helpers ===
@@ -20,11 +19,11 @@ pub struct ContinuityResponse {
     pub tx_index: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_bytes: Option<String>, // Hex-encoded transaction bytes (includes BlockItem identifier prefix)
     pub continuity_proof: ContinuityProof,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merkle_proof: Option<TransactionMerkleProof>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub merkle_root: Option<String>,
     pub cached: bool,
     pub generated_at: DateTime<Utc>,
 }
@@ -61,12 +60,87 @@ impl ContinuityService {
         if chain_key != builder_chain_key {
             return Err(ServiceError::InvalidParameter { message: format!("Chain key of requested proof doesn't match that supported by the continuity builder. Request key: {chain_key}, builder key: {builder_chain_key}") });
         }
+
+        // Check if the requested block is available before attempting to build proof
+        let current_block =
+            self.builder
+                .get_last_block()
+                .await
+                .map_err(|e| ServiceError::RpcUnavailable {
+                    message: format!("Failed to get current block height: {e}"),
+                })?;
+
+        if header_number > current_block {
+            tracing::warn!(
+                block_number = header_number,
+                current_block,
+                "Query block is not attested to yet"
+            );
+            return Err(ServiceError::BlockNotReady {
+                block_number: header_number,
+                current_block,
+            });
+        }
+
         let proof: RawContinuityProof = self
             .builder
             .build_for_single_query(header_number)
             .await
-            .map_err(ServiceError::from)?;
+            .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
         Ok(ContinuityProof::from_blocks(proof.blocks.clone()))
+    }
+
+    /// Convert anyhow::Error from continuity builder to ServiceError with appropriate logging
+    fn handle_build_error(
+        &self,
+        error: anyhow::Error,
+        query_block: u64,
+        current_block: u64,
+    ) -> ServiceError {
+        // Try to extract ContinuityError first (using downcast_ref to avoid moving)
+        if let Some(continuity_err) = error.downcast_ref::<ContinuityError>() {
+            // Special handling for BlockNotReady to add contextual logging
+            if let ContinuityError::BlockNotReady {
+                block_number,
+                current_block: err_current_block,
+            } = continuity_err
+            {
+                let is_query_block = *block_number == query_block;
+                if is_query_block {
+                    tracing::warn!(
+                        query_block = *block_number,
+                        current_block = *err_current_block,
+                        "Query block is not attested to yet"
+                    );
+                } else {
+                    tracing::warn!(
+                        end_block = *block_number,
+                        query_block,
+                        current_block = *err_current_block,
+                        "End block for continuity proof is not attested to yet"
+                    );
+                }
+            }
+            // Use From impl for all ContinuityError variants
+            return ServiceError::from(continuity_err.clone());
+        }
+
+        // Check for "Failed to get block" errors from eth client
+        let error_msg = error.to_string();
+        if error_msg.contains("Failed to get block") {
+            tracing::warn!(
+                query_block,
+                current_block,
+                "Query block is not attested to yet"
+            );
+            return ServiceError::BlockNotReady {
+                block_number: query_block,
+                current_block,
+            };
+        }
+
+        // Fallback to generic internal error
+        ServiceError::Internal { message: error_msg }
     }
 
     /// Build and return a continuity proof for a given (chain_key, header_number).
@@ -97,6 +171,14 @@ impl ContinuityService {
         chain_key: u64,
         header_number: u64,
     ) -> ServiceResult<ContinuityResponse> {
+        let current_block =
+            self.builder
+                .get_last_block()
+                .await
+                .map_err(|e| ServiceError::RpcUnavailable {
+                    message: format!("Failed to get current block height: {e}"),
+                })?;
+
         // Attempt cache lookup using block-level retrieval (tx_index IS NULL)
         match self.db.get_proofs_for_block(chain_key, header_number).await {
             Ok(Some(entry)) => {
@@ -104,14 +186,19 @@ impl ContinuityService {
                     message: e.to_string(),
                 })?;
                 if let Some(continuity_proof_out) = proofs.continuity_proof {
+                    tracing::info!(
+                        chain_key,
+                        header_number,
+                        "Cache hit: returning cached continuity proof"
+                    );
                     return Ok(ContinuityResponse {
                         chain_key,
                         header_number,
                         tx_index: None,
                         tx_hash: None,
+                        tx_bytes: None, // Block-level proof doesn't include tx bytes
                         continuity_proof: continuity_proof_out,
                         merkle_proof: None,
-                        merkle_root: proofs.merkle_root.map(|h| format!("0x{h:x}")),
                         cached: true,
                         generated_at: Utc::now(),
                     });
@@ -123,13 +210,24 @@ impl ContinuityService {
             }
         }
 
+        tracing::info!(
+            chain_key,
+            header_number,
+            "Building continuity proof (cache miss)"
+        );
         let proof: RawContinuityProof = self
             .builder
             .build_for_single_query(header_number)
             .await
-            .map_err(ServiceError::from)?;
+            .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
         // Convert raw blocks into optimized ContinuityProof (attestor primitives)
         let continuity_out = ContinuityProof::from_blocks(proof.blocks.clone());
+        tracing::info!(
+            chain_key,
+            header_number,
+            blocks = continuity_out.blocks.len(),
+            "Continuity proof built successfully"
+        );
 
         // Insert into DB asynchronously in background
         let entry = QueryProofs {
@@ -137,6 +235,7 @@ impl ContinuityService {
             header_number,
             tx_index: None,
             tx_hash: None,
+            tx_bytes: None, // Block-level proof doesn't include tx bytes
             continuity_proof: Some(continuity_out.clone()),
             merkle_proof: None,
             merkle_root: None,
@@ -148,9 +247,9 @@ impl ContinuityService {
             header_number,
             tx_index: None,
             tx_hash: None,
+            tx_bytes: None, // Block-level proof doesn't include tx bytes
             continuity_proof: continuity_out,
             merkle_proof: None,
-            merkle_root: None,
             cached: false,
             generated_at: Utc::now(),
         })
@@ -174,15 +273,38 @@ impl ContinuityService {
             if let (Some(continuity_out), Some(merkle_proof)) =
                 (proofs.continuity_proof, proofs.merkle_proof)
             {
+                tracing::info!(
+                    chain_key,
+                    header_number,
+                    tx_index,
+                    "Cache hit: returning cached continuity proof with transaction"
+                );
+                // Use cached tx_bytes if available, otherwise fetch from RPC
+                let tx_bytes_hex = if let Some(cached_bytes) = &proofs.tx_bytes {
+                    Some(format!("0x{}", hex::encode(cached_bytes)))
+                } else {
+                    // Fallback: fetch from RPC if not cached
+                    self.builder
+                        .get_block_tx_bytes(header_number)
+                        .await
+                        .ok()
+                        .and_then(|tx_bytes| {
+                            let idx = tx_index as usize;
+                            if idx < tx_bytes.len() {
+                                Some(format!("0x{}", hex::encode(&tx_bytes[idx])))
+                            } else {
+                                None
+                            }
+                        })
+                };
                 return Ok(ContinuityResponse {
                     chain_key,
                     header_number,
                     tx_index: Some(tx_index),
-                    // Propagate cached tx_hash (was previously None causing tests to fail)
                     tx_hash: proofs.tx_hash.map(|h| format!("0x{h:x}")),
+                    tx_bytes: tx_bytes_hex,
                     continuity_proof: continuity_out,
                     merkle_proof: Some(merkle_proof.clone()),
-                    merkle_root: proofs.merkle_root.map(|h| format!("0x{h:x}")),
                     cached: true,
                     generated_at: Utc::now(),
                 });
@@ -197,12 +319,30 @@ impl ContinuityService {
                 message: e.to_string(),
             })?;
             if let Some(cp) = proofs.continuity_proof {
+                tracing::debug!(
+                    chain_key,
+                    header_number,
+                    "Using cached continuity proof from block-level cache for tx-specific request"
+                );
                 cp
             } else {
                 self.build_continuity(chain_key, header_number).await?
             }
         } else {
-            self.build_continuity(chain_key, header_number).await?
+            tracing::info!(
+                chain_key,
+                header_number,
+                tx_index,
+                "Building continuity proof (cache miss)"
+            );
+            let built = self.build_continuity(chain_key, header_number).await?;
+            tracing::info!(
+                chain_key,
+                header_number,
+                blocks = built.blocks.len(),
+                "Continuity proof built successfully"
+            );
+            built
         };
 
         // 3. Fetch tx bytes & validate index.
@@ -236,20 +376,31 @@ impl ContinuityService {
         };
         let merkle_root = tree.root();
 
-        // Compute tx_hash if there is at least one transaction
+        // Get the actual transaction hash from the block (not computed from ABI-encoded bytes)
+        // Ethereum transaction hashes are computed from RLP-encoded transactions, not ABI-encoded bytes
         let tx_hash_opt = if tx_bytes.is_empty() {
             None
         } else {
-            let bytes = &tx_bytes[tx_index as usize];
-            Some(H256::from(keccak_256(bytes)))
+            self.builder
+                .get_tx_hash_by_index(header_number, tx_index)
+                .await
+                .map_err(|e| ServiceError::RpcUnavailable {
+                    message: format!("Failed to get tx hash: {e}"),
+                })?
         };
 
         // 5. Insert tx-specific entry (fail fast if unavailable).
+        let tx_bytes_for_cache = if tx_bytes.is_empty() {
+            None
+        } else {
+            Some(tx_bytes[tx_index as usize].clone())
+        };
         let entry = QueryProofs {
             chain_key,
             header_number,
             tx_index: Some(tx_index),
             tx_hash: tx_hash_opt,
+            tx_bytes: tx_bytes_for_cache,
             continuity_proof: Some(continuity_out.clone()),
             merkle_proof: Some(merkle_proof.clone()),
             merkle_root: Some(merkle_root),
@@ -258,14 +409,20 @@ impl ContinuityService {
         self.db.insert_proofs_entry(entry);
 
         // 6. Return response (cached=false because tx-specific entry was missing).
+        // Include the transaction bytes used to generate the merkle proof
+        let tx_bytes_hex = if tx_bytes.is_empty() {
+            None
+        } else {
+            Some(format!("0x{}", hex::encode(&tx_bytes[tx_index as usize])))
+        };
         Ok(ContinuityResponse {
             chain_key,
             header_number,
             tx_index: Some(tx_index),
             tx_hash: tx_hash_opt.map(|h| format!("0x{h:x}")),
+            tx_bytes: tx_bytes_hex,
             continuity_proof: continuity_out,
             merkle_proof: Some(merkle_proof.clone()),
-            merkle_root: Some(format!("0x{merkle_root:x}")),
             cached: false,
             generated_at: Utc::now(),
         })
@@ -310,15 +467,35 @@ impl ContinuityService {
                 if let (Some(continuity_out), Some(merkle_proof)) =
                     (proofs.continuity_proof.clone(), proofs.merkle_proof.clone())
                 {
-                    tracing::debug!(%tx_hash, chain_key, header_number=header_number_u64, "Cache hit: returning cached proofs");
+                    tracing::info!(%tx_hash, chain_key, header_number=header_number_u64, "Cache hit: returning cached proofs");
+                    // Use cached tx_bytes if available, otherwise fetch from RPC
+                    let tx_bytes_hex = if let Some(cached_bytes) = &proofs.tx_bytes {
+                        Some(format!("0x{}", hex::encode(cached_bytes)))
+                    } else if let Some(tx_index) = proofs.tx_index {
+                        // Fallback: fetch from RPC if not cached
+                        self.builder
+                            .get_block_tx_bytes(header_number_u64)
+                            .await
+                            .ok()
+                            .and_then(|tx_bytes| {
+                                let idx = tx_index as usize;
+                                if idx < tx_bytes.len() {
+                                    Some(format!("0x{}", hex::encode(&tx_bytes[idx])))
+                                } else {
+                                    None
+                                }
+                            })
+                    } else {
+                        None
+                    };
                     return Ok(ContinuityResponse {
                         chain_key,
                         header_number: header_number_u64,
                         tx_index: proofs.tx_index,
                         tx_hash: Some(tx_hash),
+                        tx_bytes: tx_bytes_hex,
                         continuity_proof: continuity_out,
                         merkle_proof: Some(merkle_proof.clone()),
-                        merkle_root: proofs.merkle_root.map(|h| format!("0x{h:x}")),
                         cached: true,
                         generated_at: Utc::now(),
                     });
@@ -330,6 +507,19 @@ impl ContinuityService {
                     let rebuilt = self
                         .continuity_proof_with_tx(chain_key, header_number_u64, tx_index_u64)
                         .await?;
+
+                    // Verify that the computed tx_hash matches the requested hash
+                    if let Some(computed_hash) = &rebuilt.tx_hash {
+                        let computed_h256 = self.parse_tx_hash(computed_hash)?;
+                        if computed_h256 != tx_h256 {
+                            return Err(ServiceError::TxHashNotFound {
+                                tx_hash: format!(
+                                    "Transaction hash mismatch: requested 0x{tx_h256:x}, but found {computed_hash} at block {header_number_u64} index {tx_index_u64}"
+                                ),
+                            });
+                        }
+                    }
+
                     return Ok(ContinuityResponse {
                         cached: false,
                         ..rebuilt
@@ -347,6 +537,19 @@ impl ContinuityService {
                         let generated = self
                             .continuity_proof_with_tx(chain_key, header_number, tx_index)
                             .await?;
+
+                        // Verify that the computed tx_hash matches the requested hash
+                        if let Some(computed_hash) = &generated.tx_hash {
+                            let computed_h256 = self.parse_tx_hash(computed_hash)?;
+                            if computed_h256 != tx_h256 {
+                                return Err(ServiceError::TxHashNotFound {
+                                    tx_hash: format!(
+                                        "Transaction hash mismatch: requested 0x{tx_h256:x}, but found {computed_hash} at block {header_number} index {tx_index}"
+                                    ),
+                                });
+                            }
+                        }
+
                         Ok(ContinuityResponse {
                             cached: false,
                             ..generated

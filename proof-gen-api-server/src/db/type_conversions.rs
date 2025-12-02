@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::NaiveDateTime;
+use hex;
 use serde_json::Value;
 use sp_core::H256;
 use std::str::FromStr;
@@ -19,6 +20,7 @@ impl TryFrom<&Row> for ProofsDbEntry {
             header_number: row.try_get("header_number")?, // BIGINT → i64
             tx_index: row.try_get("tx_index")?,           // BIGINT → Option<i64>
             tx_hash: row.try_get("tx_hash")?,             // VARCHAR → Option<String>
+            tx_bytes: row.try_get("tx_bytes")?,           // TEXT → Option<String> (hex-encoded)
             continuity_proof: row.try_get::<_, Option<Value>>("continuity_proof")?, // JSONB → Option<Value>
             merkle_proof: row.try_get::<_, Option<Value>>("merkle_proof")?, // JSONB → Option<Value>
             merkle_root: row.try_get("merkle_root")?, // VARCHAR → Option<String>
@@ -38,6 +40,9 @@ impl TryFrom<QueryProofs> for ProofsDbEntry {
             header_number: to_storage_int(proofs.header_number),
             tx_index: proofs.tx_index.map(to_storage_int),
             tx_hash: proofs.tx_hash.map(to_storage_hash),
+            tx_bytes: proofs
+                .tx_bytes
+                .map(|bytes| format!("0x{}", hex::encode(&bytes))),
             continuity_proof: proofs
                 .continuity_proof
                 .map(serde_json::to_value)
@@ -59,6 +64,10 @@ impl TryFrom<ProofsDbEntry> for QueryProofs {
             header_number: from_storage_int(entry.header_number),
             tx_index: entry.tx_index.map(from_storage_int),
             tx_hash: entry.tx_hash.map(|s| from_storage_hash(&s)),
+            tx_bytes: entry.tx_bytes.and_then(|hex_str| {
+                let clean = hex_str.trim_start_matches("0x");
+                hex::decode(clean).ok()
+            }),
             continuity_proof: entry
                 .continuity_proof
                 .map(serde_json::from_value::<ContinuityProof>)
