@@ -67,10 +67,7 @@ impl ContinuityBuilder {
     /// to verify the query. The chain starts at queryHeight-1 and extends
     /// to the next attestation/checkpoint after the query.
     pub async fn build_for_single_query(&self, height: u64) -> Result<ContinuityProof> {
-        println!(
-            "Building continuity proof for single query at height {}",
-            height
-        );
+        println!("Building continuity proof for single query at height {height}");
         self.build_for_heights(&[height]).await
     }
     /// Build continuity proof for multiple queries (batch)
