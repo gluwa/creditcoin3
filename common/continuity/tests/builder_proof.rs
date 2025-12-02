@@ -1,5 +1,4 @@
 use anyhow::Result;
-use attestor_primitives::Query;
 use continuity::{
     builder::ContinuityBuilder, config::ContinuityConfig, mocks::make_mock_providers,
 };

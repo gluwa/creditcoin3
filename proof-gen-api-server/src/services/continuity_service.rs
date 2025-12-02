@@ -3,13 +3,11 @@ use serde::{Deserialize, Serialize};
 use sp_core::hashing::keccak_256;
 use sp_core::H256;
 use std::sync::Arc;
-use tower::Service;
 
 use crate::db::{DbManager, QueryProofs};
 use attestor_primitives::block::ContinuityProof;
-use attestor_primitives::Query;
 use continuity::{ContinuityBuilder, ContinuityProof as RawContinuityProof};
-use mmr::query_proof::QueryMerkleProof;
+use merkle::proof::TransactionMerkleProof;
 
 // === Serialization helpers ===
 // Remove helper; use LowerHex formatting on H256 directly where needed.
@@ -24,7 +22,7 @@ pub struct ContinuityResponse {
     pub tx_hash: Option<String>,
     pub continuity_proof: ContinuityProof,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub merkle_proof: Option<QueryMerkleProof>,
+    pub merkle_proof: Option<TransactionMerkleProof>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merkle_root: Option<String>,
     pub cached: bool,
@@ -59,17 +57,13 @@ impl ContinuityService {
         chain_key: u64,
         header_number: u64,
     ) -> Result<ContinuityProof, ServiceError> {
-        if chain_key != self.builder.chain_key {
-            return ServiceError::InvalidParameter { message: format!("Chain key of requested proof doesn't match that supported by the continuity builder. Request key: {chain_key}, builder key: {self.builder.chain_key}") };
+        let builder_chain_key = self.builder.config.chain_key;
+        if chain_key != builder_chain_key {
+            return Err(ServiceError::InvalidParameter { message: format!("Chain key of requested proof doesn't match that supported by the continuity builder. Request key: {chain_key}, builder key: {builder_chain_key}") });
         }
-        let query = Query {
-            chain_id: chain_key,
-            height: header_number,
-            layout_segments: vec![],
-        };
         let proof: RawContinuityProof = self
             .builder
-            .build_for_single_query(&query)
+            .build_for_single_query(header_number)
             .await
             .map_err(ServiceError::from)?;
         Ok(ContinuityProof::from_blocks(proof.blocks.clone()))
@@ -129,15 +123,9 @@ impl ContinuityService {
             }
         }
 
-        // Build new continuity proof
-        let query = Query {
-            chain_id: chain_key,
-            height: header_number,
-            layout_segments: vec![],
-        };
         let proof: RawContinuityProof = self
             .builder
-            .build_for_single_query(&query)
+            .build_for_single_query(header_number)
             .await
             .map_err(ServiceError::from)?;
         // Convert raw blocks into optimized ContinuityProof (attestor primitives)
@@ -237,11 +225,14 @@ impl ContinuityService {
         }
 
         // 4. Merkle proof creation and tx hash computation.
-        let tree = mmr::SimpleMerkleTree::new(&tx_bytes);
+        let tree = merkle::keccak_merkle_tree::KeccakMerkleTree::new(&tx_bytes);
         let merkle_proof = if tx_bytes.is_empty() {
-            QueryMerkleProof::new(tree.root(), vec![])
+            TransactionMerkleProof::new(tree.root(), vec![])
         } else {
             tree.generate_proof(tx_index as usize)
+                .map_err(|e| ServiceError::MerkleError {
+                    message: format!("{e:?}"),
+                })?
         };
         let merkle_root = tree.root();
 

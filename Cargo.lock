@@ -8034,6 +8034,7 @@ dependencies = [
  "parity-scale-codec",
  "precompile-utils",
  "scale-info",
+ "serde",
  "sp-core",
  "sp-io",
  "sp-std",

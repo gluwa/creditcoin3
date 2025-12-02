@@ -7,7 +7,7 @@ use tokio_postgres::NoTls;
 use tracing::{debug, info};
 
 use attestor_primitives::block::ContinuityProof;
-use mmr::query_proof::QueryMerkleProof;
+use merkle::proof::TransactionMerkleProof;
 use type_conversions::{to_storage_hash, to_storage_int};
 
 mod type_conversions;
@@ -25,7 +25,7 @@ pub struct QueryProofs {
     pub tx_hash: Option<H256>,
     // Use concrete types for downstream consumers; we'll serialize only at DB boundary.
     pub continuity_proof: Option<ContinuityProof>,
-    pub merkle_proof: Option<QueryMerkleProof>,
+    pub merkle_proof: Option<TransactionMerkleProof>,
     pub merkle_root: Option<H256>,
 }
 

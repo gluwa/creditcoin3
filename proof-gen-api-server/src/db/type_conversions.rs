@@ -7,7 +7,7 @@ use tokio_postgres::Row;
 
 use super::{ProofsDbEntry, QueryProofs};
 use attestor_primitives::block::ContinuityProof;
-use mmr::query_proof::QueryMerkleProof;
+use merkle::proof::TransactionMerkleProof;
 
 impl TryFrom<&Row> for ProofsDbEntry {
     type Error = anyhow::Error;
@@ -65,7 +65,7 @@ impl TryFrom<ProofsDbEntry> for QueryProofs {
                 .transpose()?,
             merkle_proof: entry
                 .merkle_proof
-                .map(serde_json::from_value::<QueryMerkleProof>)
+                .map(serde_json::from_value::<TransactionMerkleProof>)
                 .transpose()?,
             merkle_root: entry.merkle_root.map(|s| from_storage_hash(&s)),
         })

@@ -1,7 +1,7 @@
 use super::ContinuityBuilder;
 use crate::config::ContinuityConfig;
 use anyhow::{anyhow, Result};
-use attestor_primitives::{block::Block, AttestationCheckpoint, Query, SignedAttestation};
+use attestor_primitives::{block::Block, AttestationCheckpoint, SignedAttestation};
 use cc_client::AccountId32;
 use sp_core::H256;
 
@@ -92,7 +92,7 @@ pub async fn fetch_continuity_proof(
     cc3_key: &str,
     eth_rpc_url: &str,
     chain_key: u64,
-    query: &Query,
+    height: u64,
 ) -> Result<Vec<Block>> {
     let config = ContinuityConfig {
         cc3_rpc_url: cc3_rpc_url.to_string(),
@@ -102,7 +102,7 @@ pub async fn fetch_continuity_proof(
     };
 
     let builder = ContinuityBuilder::new(config).await?;
-    let proof = builder.build_for_single_query(query).await?;
+    let proof = builder.build_for_single_query(height).await?;
 
     Ok(proof.blocks)
 }

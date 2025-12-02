@@ -200,7 +200,7 @@ where
                     .unwrap_or(false)
             };
 
-            // Special case: If the continuity chain ends at query.height and query.height
+            // Special case: If the continuity chain ends at query height and query height
             // is a checkpoint/attestation, that's valid (allows queries at checkpoint/attestation heights)
             if final_block_number == height && (attestation_matches || checkpoint_matches) {
                 debug!(

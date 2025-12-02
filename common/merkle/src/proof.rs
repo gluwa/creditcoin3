@@ -6,6 +6,7 @@
 use crate::keccak::{hash_inner, hash_leaf};
 use parity_scale_codec::{Decode, Encode};
 use scale_info::TypeInfo;
+use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use sp_std::vec::Vec;
 
@@ -19,7 +20,9 @@ use precompile_utils::solidity::Codec;
 /// This structure maintains compatibility with the Solidity ABI while leveraging
 /// Keccak256 hash functions. Used to prove that a transaction is included in a
 /// block's Merkle tree.
-#[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Default)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Default, Serialize, Deserialize,
+)]
 #[cfg_attr(feature = "precompile-support", derive(Codec))]
 pub struct TransactionMerkleProof {
     /// The Merkle root hash
@@ -29,7 +32,9 @@ pub struct TransactionMerkleProof {
 }
 
 /// A single entry in the merkle proof
-#[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Default)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Default, Serialize, Deserialize,
+)]
 #[cfg_attr(feature = "precompile-support", derive(Codec))]
 pub struct MerkleProofEntry {
     /// The sibling hash

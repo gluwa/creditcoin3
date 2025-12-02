@@ -20,7 +20,6 @@ use crate::{
     rpc::{SharedCcProvider, SharedEthProvider},
 };
 use anyhow::{anyhow, Result};
-use attestor_primitives::Query;
 use cc_client::Client as CcClient;
 use eth::Client as EthClient;
 use sp_core::H256;
@@ -28,7 +27,7 @@ use std::sync::Arc;
 
 /// Continuity proof builder backed by abstract RPC providers.
 pub struct ContinuityBuilder {
-    pub(crate) config: ContinuityConfig,
+    pub config: ContinuityConfig,
     pub(crate) cc_provider: SharedCcProvider,
     pub(crate) eth_provider: SharedEthProvider,
 }
@@ -67,12 +66,12 @@ impl ContinuityBuilder {
     /// Fetches attestations and builds the minimal continuity chain needed
     /// to verify the query. The chain starts at queryHeight-1 and extends
     /// to the next attestation/checkpoint after the query.
-    pub async fn build_for_single_query(&self, query: &Query) -> Result<ContinuityProof> {
+    pub async fn build_for_single_query(&self, height: u64) -> Result<ContinuityProof> {
         println!(
             "Building continuity proof for single query at height {}",
-            query.height
+            height
         );
-        self.build_for_heights(&[query.height]).await
+        self.build_for_heights(&[height]).await
     }
     /// Build continuity proof for multiple queries (batch)
     ///

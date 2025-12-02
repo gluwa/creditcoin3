@@ -11,6 +11,7 @@ version.workspace = true
 parity-scale-codec = { workspace = true, default-features = false }
 precompile-utils = { workspace = true, default-features = false, optional = true }
 scale-info = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
@@ -25,4 +26,5 @@ std = [
     "sp-io/std",
     "sp-std/std",
     "precompile-utils?/std",
+    "serde/std",
 ]

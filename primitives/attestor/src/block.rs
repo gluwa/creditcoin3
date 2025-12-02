@@ -161,7 +161,7 @@ pub struct BlockSerializable {
 /// Contains only root and digest (block_number and prev_digest are inferred from continuity proof structure)
 #[derive(Debug, Clone, Default, Codec, Serialize, Deserialize)]
 pub struct ContinuityBlock {
-    pub root: H256,
+    pub merkle_root: H256,
     pub digest: H256,
 }
 
@@ -169,7 +169,7 @@ pub struct ContinuityBlock {
     Debug, Clone, TypeInfo, Decode, Encode, PartialEq, Eq, Default, Serialize, Deserialize,
 )]
 pub struct ContinuityBlockSerializable {
-    root: H256,
+    merkle_root: H256,
     digest: H256,
 }
 
@@ -420,7 +420,7 @@ mod tests {
 
         // Continuity block serialization check as well.
         let cblock = ContinuityBlock {
-            root: block.root,
+            merkle_root: block.root,
             digest: block.digest,
         };
         let ser_cblock = ContinuityBlockSerializable::from(&cblock);

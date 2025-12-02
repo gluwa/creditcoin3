@@ -278,7 +278,7 @@ fn test_verify_continuity_chain_errors_with_less_than_2_blocks() {
         let continuity_proof = ContinuityProof::from_blocks(continuity_blocks);
         let start_block_number = query_height;
 
-        // Setup attestation at query.height
+        // Setup attestation at query height
         setup_attestation(1, query_height, digest);
 
         let mut handle = MockHandle::new(
@@ -338,7 +338,7 @@ fn test_verify_continuity_chain_errors_when_prev_digest_not_linked() {
         let continuity_proof = ContinuityProof::from_blocks(continuity_blocks);
         let start_block_number = prev_height;
 
-        // Setup attestation at query.height
+        // Setup attestation at query height
         setup_attestation(1, query_height, digest);
 
         let mut handle = MockHandle::new(
@@ -400,7 +400,7 @@ fn test_verify_continuity_chain_errors_when_continuity_chain_doesnt_reach_query_
         let continuity_proof = ContinuityProof::from_blocks(continuity_blocks);
         let start_block_number = prev_height;
 
-        // Setup attestation at query.height
+        // Setup attestation at query_height
         setup_attestation(1, query_height, digest);
 
         let mut handle = MockHandle::new(
@@ -459,7 +459,7 @@ fn test_continuity_chain_at_attestation_height() {
             },
         ];
 
-        // Setup attestation at query.height
+        // Setup attestation at query_height
         setup_attestation(1, query_height, digest);
 
         // This should succeed - continuity chain at attestation height
@@ -513,7 +513,7 @@ fn test_continuity_chain_at_checkpoint_height() {
             },
         ];
 
-        // Setup checkpoint at query.height
+        // Setup checkpoint at query_height
         setup_checkpoint(1, query_height, digest);
 
         // This should succeed - continuity chain at checkpoint height
@@ -569,7 +569,7 @@ fn test_query_at_attestation_height() {
             },
         ];
 
-        // Setup attestation at query.height (the query is ON the attestation height)
+        // Setup attestation at query_height (the query is ON the attestation height)
         setup_attestation(1, query_height, digest);
 
         // This should succeed - query is at attestation height and continuity chain ends there
@@ -625,7 +625,7 @@ fn test_query_at_checkpoint_height() {
             },
         ];
 
-        // Setup checkpoint at query.height (the query is ON the checkpoint height)
+        // Setup checkpoint at query_height (the query is ON the checkpoint height)
         setup_checkpoint(1, query_height, digest);
 
         // This should succeed - query is at checkpoint height and continuity chain ends there
@@ -719,7 +719,7 @@ fn test_continuity_chain_wrong_digest_fails() {
             },
         ];
 
-        // Setup attestation at query.height with correct digest
+        // Setup attestation at query_height with correct digest
         let correct_digest = compute_test_digest(query_height, &root, &prev_digest);
         setup_attestation(1, query_height, correct_digest);
 
@@ -1552,7 +1552,7 @@ fn test_verify_query_block_digest_errors_when_find_query_block_index_returns_0()
         let continuity_proof = ContinuityProof::from_blocks(continuity_blocks);
         let start_block_number = prev_height;
 
-        // Setup attestation at query.height
+        // Setup attestation at query_height
         setup_attestation(1, query_height, digest);
 
         let mut handle = MockHandle::new(
@@ -1614,7 +1614,7 @@ fn test_verify_query_block_digest_errors_when_prev_block_is_not_minus_1() {
         let continuity_proof = ContinuityProof::from_blocks(continuity_blocks);
         let start_block_number = prev_height - 1;
 
-        // Setup attestation at query.height
+        // Setup attestation at query_height
         setup_attestation(1, query_height, digest);
 
         let mut handle = MockHandle::new(

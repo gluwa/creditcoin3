@@ -142,7 +142,6 @@ mod e2e {
     }
 }
 
-#[cfg(feature = "e2e-tests")]
 #[allow(unused_imports)]
 pub use e2e::{
     get_tx_info_via_rpc, send_test_tx_via_cast, setup_postgres_env, start_app_with_postgres,
