@@ -1,4 +1,3 @@
----
 name: Deploy Dryrun Network
 
 on:
@@ -19,7 +18,9 @@ on:
         default: 4
   push:
     tags:
-      - 'dryrun-*'
+      - 'dryrun-dev-v*'
+      - 'dryrun-test-v*'
+      - 'dryrun-main-v*'
 
 permissions:
   contents: read
@@ -41,22 +42,30 @@ jobs:
       node_count: ${{ steps.parse.outputs.node_count }}
       namespace: ${{ steps.parse.outputs.namespace }}
       deployment_id: ${{ steps.parse.outputs.deployment_id }}
+      version: ${{ steps.parse.outputs.version }}
     steps:
       - name: Parse tag or input
         id: parse
+        shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            # Manual run
             ENV="${{ inputs.environment }}"
             NODE_COUNT="${{ inputs.node_count }}"
+            VERSION="manual-${GITHUB_RUN_ID}"
           else
-            # Extract environment from tag (e.g., dryrun-dev -> dev)
-            TAG="${GITHUB_REF#refs/tags/dryrun-}"
-            if [[ "$TAG" == "dev" ]] || [[ "$TAG" == "test" ]] || [[ "$TAG" == "main" ]]; then
-              ENV="$TAG"
+            # Tag push, expect: dryrun-{dev|test|main}-v{version}
+            RAW_TAG="${GITHUB_REF_NAME}"  # e.g. dryrun-dev-v1.2.3
+
+            if [[ "$RAW_TAG" =~ ^dryrun-(dev|test|main)-v(.+)$ ]]; then
+              ENV="${BASH_REMATCH[1]}"
+              VERSION="${BASH_REMATCH[2]}"
             else
-              echo "Invalid tag format. Expected: dryrun-{dev|test|main}"
+              echo "Invalid tag format '$RAW_TAG'. Expected: dryrun-{dev|test|main}-v<version>"
               exit 1
             fi
+
+            # Default node count on tag builds (override if you want)
             NODE_COUNT=4
           fi
 
@@ -74,16 +83,20 @@ jobs:
           esac
 
           # Generate unique deployment identifier and namespace
-          DEPLOYMENT_ID="$ENV-${{ github.run_id }}"
+          DEPLOYMENT_ID="$ENV-${GITHUB_RUN_ID}"
           NAMESPACE="dryrun-$DEPLOYMENT_ID"
 
-          echo "environment=$ENV" >> $GITHUB_OUTPUT
-          echo "chainspec=$CHAINSPEC" >> $GITHUB_OUTPUT
-          echo "node_count=$NODE_COUNT" >> $GITHUB_OUTPUT
-          echo "namespace=$NAMESPACE" >> $GITHUB_OUTPUT
-          echo "deployment_id=$DEPLOYMENT_ID" >> $GITHUB_OUTPUT
+          {
+            echo "environment=$ENV"
+            echo "chainspec=$CHAINSPEC"
+            echo "node_count=$NODE_COUNT"
+            echo "namespace=$NAMESPACE"
+            echo "deployment_id=$DEPLOYMENT_ID"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
 
           echo "Environment: $ENV"
+          echo "Version: $VERSION"
           echo "Chainspec: $CHAINSPEC"
           echo "Node Count: $NODE_COUNT"
           echo "Namespace: $NAMESPACE"
@@ -103,9 +116,16 @@ jobs:
 
       - name: Set image tag
         id: image
+        shell: bash
         run: |
-          TAG="dryrun-${{ needs.setup-environment.outputs.environment }}-${{ github.run_id }}"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            # Fallback for manual dispatch
+            TAG="dryrun-${{ needs.setup-environment.outputs.environment }}-${GITHUB_RUN_ID}"
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Image tag: $TAG"
 
       - name: Build docker image
@@ -251,6 +271,7 @@ jobs:
           echo "==================================="
           echo ""
           echo "Environment: ${{ needs.setup-environment.outputs.environment }}"
+          echo "Version: ${{ needs.setup-environment.outputs.version }}"
           echo "Deployment ID: ${{ needs.setup-environment.outputs.deployment_id }}"
           echo "Namespace: ${{ needs.setup-environment.outputs.namespace }}"
           echo "Resource Group: ${{ env.AZURE_RESOURCE_GROUP }}"
@@ -279,6 +300,7 @@ jobs:
 
           ## Deployment Details
           - **Environment**: ${{ needs.setup-environment.outputs.environment }}
+          - **Version**: ${{ needs.setup-environment.outputs.version }}
           - **Deployment ID**: ${{ needs.setup-environment.outputs.deployment_id }}
           - **Namespace**: ${{ needs.setup-environment.outputs.namespace }}
           - **Resource Group**: ${{ env.AZURE_RESOURCE_GROUP }}

@@ -1,3 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: creditcoin-node
+  namespace: ${NAMESPACE}
+  labels:
+    app: creditcoin-node
+spec:
+  clusterIP: None
+  selector:
+    app: creditcoin-node
+  ports:
+    - name: p2p
+      port: 30333
+      targetPort: 30333
+      protocol: TCP
 ---
 apiVersion: v1
 kind: Service
@@ -6,11 +22,11 @@ metadata:
   namespace: ${NAMESPACE}
   labels:
     app: creditcoin-node
-    node-id: "0"
+    role: bootnode
 spec:
   selector:
     app: creditcoin-node
-    node-id: "0"
+    statefulset.kubernetes.io/pod-name: creditcoin-node-0
   ports:
     - name: ws
       port: 9944
@@ -30,235 +46,22 @@ spec:
       protocol: TCP
   type: ClusterIP
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: creditcoin-node-1
-  namespace: ${NAMESPACE}
-  labels:
-    app: creditcoin-node
-    node-id: "1"
-spec:
-  selector:
-    app: creditcoin-node
-    node-id: "1"
-  ports:
-    - name: ws
-      port: 9944
-      targetPort: 9944
-      protocol: TCP
-    - name: rpc
-      port: 9933
-      targetPort: 9933
-      protocol: TCP
-    - name: p2p
-      port: 30333
-      targetPort: 30333
-      protocol: TCP
-    - name: prometheus
-      port: 9615
-      targetPort: 9615
-      protocol: TCP
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: creditcoin-node-2
-  namespace: ${NAMESPACE}
-  labels:
-    app: creditcoin-node
-    node-id: "2"
-spec:
-  selector:
-    app: creditcoin-node
-    node-id: "2"
-  ports:
-    - name: ws
-      port: 9944
-      targetPort: 9944
-      protocol: TCP
-    - name: rpc
-      port: 9933
-      targetPort: 9933
-      protocol: TCP
-    - name: p2p
-      port: 30333
-      targetPort: 30333
-      protocol: TCP
-    - name: prometheus
-      port: 9615
-      targetPort: 9615
-      protocol: TCP
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: creditcoin-node-3
-  namespace: ${NAMESPACE}
-  labels:
-    app: creditcoin-node
-    node-id: "3"
-spec:
-  selector:
-    app: creditcoin-node
-    node-id: "3"
-  ports:
-    - name: ws
-      port: 9944
-      targetPort: 9944
-      protocol: TCP
-    - name: rpc
-      port: 9933
-      targetPort: 9933
-      protocol: TCP
-    - name: p2p
-      port: 30333
-      targetPort: 30333
-      protocol: TCP
-    - name: prometheus
-      port: 9615
-      targetPort: 9615
-      protocol: TCP
-  type: ClusterIP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: creditcoin-node-4
-  namespace: ${NAMESPACE}
-  labels:
-    app: creditcoin-node
-    node-id: "4"
-spec:
-  selector:
-    app: creditcoin-node
-    node-id: "4"
-  ports:
-    - name: ws
-      port: 9944
-      targetPort: 9944
-      protocol: TCP
-    - name: rpc
-      port: 9933
-      targetPort: 9933
-      protocol: TCP
-    - name: p2p
-      port: 30333
-      targetPort: 30333
-      protocol: TCP
-    - name: prometheus
-      port: 9615
-      targetPort: 9615
-      protocol: TCP
-  type: ClusterIP
----
-# Bootnode (Alice) - Node 0
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: creditcoin-node-0
+  name: creditcoin-node
   namespace: ${NAMESPACE}
 spec:
-  serviceName: creditcoin-node-0
-  replicas: 1
+  serviceName: creditcoin-node
+  replicas: ${NODE_COUNT}
   selector:
     matchLabels:
       app: creditcoin-node
-      node-id: "0"
+  podManagementPolicy: OrderedReady
   template:
     metadata:
       labels:
         app: creditcoin-node
-        node-id: "0"
-        role: bootnode
-    spec:
-      containers:
-        - name: creditcoin-node
-          image: gluwa/creditcoin3:${IMAGE_TAG}
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 9944
-              name: ws
-            - containerPort: 9933
-              name: rpc
-            - containerPort: 30333
-              name: p2p
-            - containerPort: 9615
-              name: prometheus
-          command:
-            - /bin/creditcoin3-node
-          args:
-            - --base-path=/data
-            - --chain=/chainspec.json
-            - --name=dryrun-node-0
-            - --validator
-            - --alice
-            - --rpc-cors=all
-            - --rpc-methods=unsafe
-            - --rpc-external
-            - --ws-external
-            - --prometheus-external
-            - --port=30333
-            - --rpc-port=9933
-            - --ws-port=9944
-          volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: chainspec
-              mountPath: /chainspec.json
-              subPath: chainspec.json
-          resources:
-            requests:
-              memory: "2Gi"
-              cpu: "1000m"
-            limits:
-              memory: "4Gi"
-              cpu: "2000m"
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 9933
-            initialDelaySeconds: 60
-            periodSeconds: 30
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 9933
-            initialDelaySeconds: 30
-            periodSeconds: 10
-      volumes:
-        - name: chainspec
-          configMap:
-            name: chainspec
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 50Gi
----
-# Validator Node 1 (Bob)
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: creditcoin-node-1
-  namespace: ${NAMESPACE}
-spec:
-  serviceName: creditcoin-node-1
-  replicas: 1
-  selector:
-    matchLabels:
-      app: creditcoin-node
-      node-id: "1"
-  template:
-    metadata:
-      labels:
-        app: creditcoin-node
-        node-id: "1"
         role: validator
     spec:
       containers:
@@ -275,286 +78,47 @@ spec:
             - containerPort: 9615
               name: prometheus
           command:
-            - /bin/creditcoin3-node
-          args:
-            - --base-path=/data
-            - --chain=/chainspec.json
-            - --name=dryrun-node-1
-            - --validator
-            - --bob
-            - --rpc-cors=all
-            - --rpc-methods=unsafe
-            - --rpc-external
-            - --ws-external
-            - --prometheus-external
-            - --port=30333
-            - --rpc-port=9933
-            - --ws-port=9944
-            - --bootnodes=/dns/creditcoin-node-0.${NAMESPACE}.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
-          volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: chainspec
-              mountPath: /chainspec.json
-              subPath: chainspec.json
-          resources:
-            requests:
-              memory: "2Gi"
-              cpu: "1000m"
-            limits:
-              memory: "4Gi"
-              cpu: "2000m"
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 9933
-            initialDelaySeconds: 60
-            periodSeconds: 30
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 9933
-            initialDelaySeconds: 30
-            periodSeconds: 10
-      volumes:
-        - name: chainspec
-          configMap:
-            name: chainspec
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 50Gi
----
-# Validator Node 2 (Charlie)
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: creditcoin-node-2
-  namespace: ${NAMESPACE}
-spec:
-  serviceName: creditcoin-node-2
-  replicas: 1
-  selector:
-    matchLabels:
-      app: creditcoin-node
-      node-id: "2"
-  template:
-    metadata:
-      labels:
-        app: creditcoin-node
-        node-id: "2"
-        role: validator
-    spec:
-      containers:
-        - name: creditcoin-node
-          image: gluwa/creditcoin3:${IMAGE_TAG}
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 9944
-              name: ws
-            - containerPort: 9933
-              name: rpc
-            - containerPort: 30333
-              name: p2p
-            - containerPort: 9615
-              name: prometheus
-          command:
-            - /bin/creditcoin3-node
-          args:
-            - --base-path=/data
-            - --chain=/chainspec.json
-            - --name=dryrun-node-2
-            - --validator
-            - --charlie
-            - --rpc-cors=all
-            - --rpc-methods=unsafe
-            - --rpc-external
-            - --ws-external
-            - --prometheus-external
-            - --port=30333
-            - --rpc-port=9933
-            - --ws-port=9944
-            - --bootnodes=/dns/creditcoin-node-0.${NAMESPACE}.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
-          volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: chainspec
-              mountPath: /chainspec.json
-              subPath: chainspec.json
-          resources:
-            requests:
-              memory: "2Gi"
-              cpu: "1000m"
-            limits:
-              memory: "4Gi"
-              cpu: "2000m"
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 9933
-            initialDelaySeconds: 60
-            periodSeconds: 30
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 9933
-            initialDelaySeconds: 30
-            periodSeconds: 10
-      volumes:
-        - name: chainspec
-          configMap:
-            name: chainspec
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 50Gi
----
-# Validator Node 3 (Dave)
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: creditcoin-node-3
-  namespace: ${NAMESPACE}
-spec:
-  serviceName: creditcoin-node-3
-  replicas: 1
-  selector:
-    matchLabels:
-      app: creditcoin-node
-      node-id: "3"
-  template:
-    metadata:
-      labels:
-        app: creditcoin-node
-        node-id: "3"
-        role: validator
-    spec:
-      containers:
-        - name: creditcoin-node
-          image: gluwa/creditcoin3:${IMAGE_TAG}
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 9944
-              name: ws
-            - containerPort: 9933
-              name: rpc
-            - containerPort: 30333
-              name: p2p
-            - containerPort: 9615
-              name: prometheus
-          command:
-            - /bin/creditcoin3-node
-          args:
-            - --base-path=/data
-            - --chain=/chainspec.json
-            - --name=dryrun-node-3
-            - --validator
-            - --dave
-            - --rpc-cors=all
-            - --rpc-methods=unsafe
-            - --rpc-external
-            - --ws-external
-            - --prometheus-external
-            - --port=30333
-            - --rpc-port=9933
-            - --ws-port=9944
-            - --bootnodes=/dns/creditcoin-node-0.${NAMESPACE}.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
-          volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: chainspec
-              mountPath: /chainspec.json
-              subPath: chainspec.json
-          resources:
-            requests:
-              memory: "2Gi"
-              cpu: "1000m"
-            limits:
-              memory: "4Gi"
-              cpu: "2000m"
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 9933
-            initialDelaySeconds: 60
-            periodSeconds: 30
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 9933
-            initialDelaySeconds: 30
-            periodSeconds: 10
-      volumes:
-        - name: chainspec
-          configMap:
-            name: chainspec
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 50Gi
----
-# Validator Node 4 (Eve)
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: creditcoin-node-4
-  namespace: ${NAMESPACE}
-spec:
-  serviceName: creditcoin-node-4
-  replicas: 1
-  selector:
-    matchLabels:
-      app: creditcoin-node
-      node-id: "4"
-  template:
-    metadata:
-      labels:
-        app: creditcoin-node
-        node-id: "4"
-        role: validator
-    spec:
-      containers:
-        - name: creditcoin-node
-          image: gluwa/creditcoin3:${IMAGE_TAG}
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 9944
-              name: ws
-            - containerPort: 9933
-              name: rpc
-            - containerPort: 30333
-              name: p2p
-            - containerPort: 9615
-              name: prometheus
-          command:
-            - /bin/creditcoin3-node
-          args:
-            - --base-path=/data
-            - --chain=/chainspec.json
-            - --name=dryrun-node-4
-            - --validator
-            - --eve
-            - --rpc-cors=all
-            - --rpc-methods=unsafe
-            - --rpc-external
-            - --ws-external
-            - --prometheus-external
-            - --port=30333
-            - --rpc-port=9933
-            - --ws-port=9944
-            - --bootnodes=/dns/creditcoin-node-0.${NAMESPACE}.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              # StatefulSet pod name looks like: creditcoin-node-0, creditcoin-node-1, ...
+              NODE_NAME="${HOSTNAME}"
+              NODE_INDEX="${NODE_NAME##*-}"
+
+              # Pick dev account flags by index (0..4), fallback to generic validator
+              DEV_FLAGS=""
+              case "$NODE_INDEX" in
+                0) DEV_FLAGS="--alice" ;;
+                1) DEV_FLAGS="--bob" ;;
+                2) DEV_FLAGS="--charlie" ;;
+                3) DEV_FLAGS="--dave" ;;
+                4) DEV_FLAGS="--eve" ;;
+                *) DEV_FLAGS="" ;;
+              esac
+
+              # Only non-zero nodes should use a bootnode
+              BOOTNODE_FLAGS=""
+              if [ "$NODE_INDEX" -ne 0 ]; then
+                BOOTNODE_FLAGS="--bootnodes=/dns/creditcoin-node-0.${NAMESPACE}.svc.cluster.local/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
+              fi
+
+              exec /bin/creditcoin3-node \
+                --base-path=/data \
+                --chain=/chainspec.json \
+                --name=dryrun-node-${NODE_INDEX} \
+                --validator \
+                ${DEV_FLAGS} \
+                ${BOOTNODE_FLAGS} \
+                --rpc-cors=all \
+                --rpc-methods=unsafe \
+                --rpc-external \
+                --ws-external \
+                --prometheus-external \
+                --port=30333 \
+                --rpc-port=9933 \
+                --ws-port=9944
           volumeMounts:
             - name: data
               mountPath: /data

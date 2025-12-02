@@ -36,6 +36,9 @@ declare -A NODE_URLS=(
 # Array of validator names in order
 VALIDATORS=("alice" "bob" "charlie" "dave" "eve")
 
+# Track port-forward PIDs for cleanup
+PORT_FORWARD_PIDS=()
+
 log() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -52,6 +55,39 @@ warn() {
     echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
+cleanup() {
+    log "Cleaning up port forwards..."
+    for pid in "${PORT_FORWARD_PIDS[@]:-}"; do
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" || true
+        fi
+    done
+}
+
+trap cleanup EXIT
+
+# Basic sanity checks
+sanity_check() {
+    if ! command -v node >/dev/null 2>&1; then
+        error "Node.js is not installed or not in PATH"
+        exit 1
+    fi
+
+    if ! command -v kubectl >/dev/null 2>&1; then
+        error "kubectl is not installed or not in PATH"
+        exit 1
+    fi
+
+    if [[ ! -f "$CLI_PATH" ]]; then
+        error "CLI not found at $CLI_PATH. Did you run 'yarn build' in ./cli?"
+        exit 1
+    fi
+
+    if ! kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
+        warn "Namespace '$NAMESPACE' does not exist (yet). Assuming workflow created it just before running this script."
+    fi
+}
+
 # Function to wait for a node to be ready
 wait_for_node() {
     local url=$1
@@ -60,7 +96,7 @@ wait_for_node() {
 
     log "Waiting for node at $url to be ready..."
 
-    while [ $attempt -lt $max_attempts ]; do
+    while (( attempt < max_attempts )); do
         if node "$CLI_PATH" status --url "$url" &>/dev/null; then
             success "Node at $url is ready"
             return 0
@@ -73,7 +109,7 @@ wait_for_node() {
     return 1
 }
 
-# Function to setup port forwarding for a node
+# Function to setup port forwarding for a node (other than node-0, which the workflow handles)
 setup_port_forward() {
     local node_id=$1
     local local_port=$2
@@ -81,24 +117,26 @@ setup_port_forward() {
     log "Setting up port forward for node-$node_id on port $local_port..."
 
     # Kill any existing port forward on this port
-    pkill -f "port-forward.*creditcoin-node-$node_id.*$local_port:9944" || true
+    pkill -f "port-forward.*creditcoin-node-$node_id.*${local_port}:9944" || true
     sleep 1
 
     # Start port forward in background
-    kubectl port-forward -n "$NAMESPACE" "svc/creditcoin-node-$node_id" "$local_port:9944" &
+    kubectl port-forward -n "$NAMESPACE" "svc/creditcoin-node-$node_id" "${local_port}:9944" &
     local pf_pid=$!
 
     # Wait for port forward to be ready
     sleep 3
 
     # Verify port forward is working
-    if ! ps -p $pf_pid > /dev/null; then
+    if ! ps -p "$pf_pid" >/dev/null 2>&1; then
         error "Port forward for node-$node_id failed to start"
         return 1
     fi
 
+    PORT_FORWARD_PIDS+=("$pf_pid")
+
     success "Port forward active for node-$node_id (PID: $pf_pid)"
-    echo $pf_pid
+    echo "$pf_pid"
 }
 
 # Function to increase validator count
@@ -207,54 +245,64 @@ check_validator_status() {
     local url=$2
 
     log "Checking validator status..."
-
     CC_SECRET="$account_secret" node "$CLI_PATH" status --url "$url" || true
 }
 
 # Main initialization flow
 main() {
+    sanity_check
+
     log "========================================="
     log "Starting Dryrun Network Initialization"
     log "========================================="
 
     # Determine number of validators to set up
     local num_validators=${NODE_COUNT:-4}
-    log "Setting up $num_validators validators"
+    local max_validators=${#VALIDATORS[@]}
 
-    # Wait for the first node (Alice) to be ready
-    log "Waiting for bootnode to be ready..."
+    if (( num_validators > max_validators )); then
+        warn "NODE_COUNT=$num_validators > available dev accounts ($max_validators: ${VALIDATORS[*]}). Clamping to $max_validators."
+        num_validators=$max_validators
+    fi
+
+    log "Setting up $num_validators validators in namespace '$NAMESPACE'"
+
+    # Wait for the first node (Alice) to be ready on ALICE_URL.
+    # IMPORTANT: assumes the workflow already port-forwarded svc/creditcoin-node-0 -> 9944.
+    log "Waiting for bootnode (Alice) to be ready on $ALICE_URL..."
     wait_for_node "$ALICE_URL"
-
     sleep 5
 
-    # Setup validators
     for i in $(seq 0 $((num_validators - 1))); do
         local validator_name="${VALIDATORS[$i]}"
         local account_secret="${ACCOUNTS[$validator_name]}"
         local node_port=$((9944 + i))
+        local node_url
 
-        if [ $i -ne 0 ]; then
-            local node_url="${NODE_URLS[$validator_name]}"
+        if [[ -z "${validator_name:-}" || -z "${account_secret:-}" ]]; then
+            warn "No account configured for index $i, skipping..."
+            continue
+        fi
 
+        if (( i == 0 )); then
+            node_url="$ALICE_URL"
             log ""
             log "========================================="
-            log "Setting up Validator: $validator_name (Node $i)"
+            log "Setting up Validator: $validator_name (Bootnode, node-$i)"
+            log "========================================="
+        else
+            node_url="${NODE_URLS[$validator_name]}"
+            log ""
+            log "========================================="
+            log "Setting up Validator: $validator_name (node-$i)"
             log "========================================="
 
-            # Setup port forward for this node
             local pf_pid
             pf_pid=$(setup_port_forward "$i" "$node_port")
 
             # Wait for node to be ready
             wait_for_node "$node_url"
-
             sleep 2
-        else
-            local node_url="$ALICE_URL"
-            log ""
-            log "========================================="
-            log "Setting up Validator: $validator_name (Bootnode)"
-            log "========================================="
         fi
 
         # Fund account (well-known accounts are pre-funded in genesis)
@@ -296,7 +344,7 @@ main() {
         # Check status
         check_validator_status "$account_secret" "$ALICE_URL"
 
-        success "Validator $validator_name setup complete!"
+        success "Validator $validator_name (node-$i) setup complete!"
     done
 
     log ""
@@ -315,12 +363,6 @@ main() {
     log "  2. Monitor validator status with: node $CLI_PATH status --url $ALICE_URL"
     log "  3. Check logs: kubectl logs -n $NAMESPACE -l app=creditcoin-node --tail=50"
     log ""
-
-    # Cleanup port forwards
-    log "Cleaning up port forwards..."
-    pkill -f "kubectl port-forward.*creditcoin-node" || true
-
-    success "Initialization complete!"
 }
 
 # Run main function
