@@ -21,6 +21,7 @@ pub fn assert_h256_str(label: &str, s: &str) {
 #[allow(dead_code)]
 mod e2e {
     use anyhow::Result;
+    use proof_gen_api_server::db::DbManagerConfig;
     use std::process::{Command, Stdio};
 
     use axum::Router;
@@ -103,28 +104,25 @@ mod e2e {
     }
 
     /// Start a Postgres container and set POSTGRES_* env vars for DbManager.
-    pub async fn setup_postgres_env() -> ContainerAsync<Postgres> {
-        let container = Postgres::default().start().await.expect("start postgres");
-        let port = container.get_host_port_ipv4(5432).await.expect("host port");
-        std::env::set_var("POSTGRES_HOST", "127.0.0.1");
-        std::env::set_var("POSTGRES_PORT", port.to_string());
-        std::env::set_var("POSTGRES_USER", "postgres");
-        std::env::set_var("POSTGRES_PASSWORD", "postgres");
-        std::env::set_var("POSTGRES_DB", "postgres");
-        container
+    pub async fn setup_test_postgres() -> ContainerAsync<Postgres> {
+        Postgres::default().start().await.expect("start postgres")
+    }
+
+    pub fn test_db_manager_config() -> DbManagerConfig {
+        DbManagerConfig {
+            postgres_host: "127.0.0.1".to_string(),
+            postgres_port: "5432".to_string(), // Port used by Postgres::default()
+            postgres_user: "postgres".to_string(),
+            postgres_password: "postgres".to_string(),
+            postgres_db: "postgres".to_string(),
+        }
     }
 
     /// Starts a typed Postgres container and runs migrations, returning an axum Router.
     /// Uses continuity mock providers for CC and ETH.
     /// The container is intentionally leaked to keep Postgres alive for the test duration.
     pub async fn start_app_with_postgres(chain_key: u64) -> Router {
-        let container = Postgres::default().start().await.expect("start postgres");
-        let port = container.get_host_port_ipv4(5432).await.expect("host port");
-        std::env::set_var("POSTGRES_HOST", "127.0.0.1");
-        std::env::set_var("POSTGRES_PORT", port.to_string());
-        std::env::set_var("POSTGRES_USER", "postgres");
-        std::env::set_var("POSTGRES_PASSWORD", "postgres");
-        std::env::set_var("POSTGRES_DB", "postgres");
+        let container = setup_test_postgres().await;
 
         let cfg = ContinuityConfig {
             cc3_rpc_url: "ws://mock".into(),
@@ -134,7 +132,8 @@ mod e2e {
         };
         let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
         let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider, eth_provider);
-        let db = proof_gen_api_server::db::DbManager::new().expect("db manager init");
+        let db_config = test_db_manager_config();
+        let db = proof_gen_api_server::db::DbManager::new(db_config).expect("db manager init");
         db.run_migrations().await.expect("migrations");
         let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
         std::mem::forget(container);
@@ -144,5 +143,6 @@ mod e2e {
 
 #[allow(unused_imports)]
 pub use e2e::{
-    get_tx_info_via_rpc, send_test_tx_via_cast, setup_postgres_env, start_app_with_postgres,
+    get_tx_info_via_rpc, send_test_tx_via_cast, setup_test_postgres, start_app_with_postgres,
+    test_db_manager_config,
 };

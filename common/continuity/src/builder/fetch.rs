@@ -1,6 +1,6 @@
 use super::ContinuityBuilder;
 use crate::config::ContinuityConfig;
-use anyhow::{anyhow, Result};
+use anyhow::{Context, Result};
 use attestor_primitives::{block::Block, AttestationCheckpoint, SignedAttestation};
 use cc_client::AccountId32;
 use sp_core::H256;
@@ -11,7 +11,7 @@ impl ContinuityBuilder {
         self.cc_provider
             .get_attestations_for_chain(self.config.chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch attestations: {e}"))
+            .context("Failed to fetch attestations")
     }
 
     /// Check if query is at a checkpoint height by checking the last checkpoint
@@ -23,7 +23,7 @@ impl ContinuityBuilder {
             .cc_provider
             .get_last_checkpoint(self.config.chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {e}"))?;
+            .context("Failed to fetch last checkpoint")?;
 
         if let Some(checkpoint) = last_checkpoint {
             if checkpoint.block_number == query_height {
@@ -48,7 +48,7 @@ impl ContinuityBuilder {
             .cc_provider
             .get_last_checkpoint(self.config.chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {e}"))?;
+            .context("Failed to fetch last checkpoint")?;
 
         // If we only need to check the last checkpoint, we're done
         if max_needed.is_none() && min_needed.is_none() {
@@ -60,7 +60,7 @@ impl ContinuityBuilder {
             .cc_provider
             .get_checkpoints_for_chain(self.config.chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch checkpoints: {e}"))?;
+            .context("Failed to fetch checkpoints")?;
 
         // Filter checkpoints based on block number range
         let filtered: Vec<AttestationCheckpoint> = all_checkpoints

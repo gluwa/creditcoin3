@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -58,9 +58,7 @@ impl Server {
         let source_chain_client = EthClient::new(&config.eth_rpc_url, None).await?;
         let chain_id = source_chain_client.chain_id();
         if supported_chain_id != chain_id {
-            return Err(anyhow!(
-                "Wrong chain. Source chain endpoint chain id: {chain_id}, Supported chain id: {supported_chain_id}"
-            ));
+            bail!("Wrong chain. Source chain endpoint chain id: {chain_id}, Supported chain id: {supported_chain_id}");
         }
 
         // Register metrics server if configured
@@ -77,7 +75,7 @@ impl Server {
             let chain_name = cc3_client
                 .get_chain_name()
                 .await
-                .unwrap_or_else(|_| "unknown-chain".to_string());
+                .context("cc3_client failed to get chain_name")?;
             info!(
                 "✅ Connected to Creditcoin chain: {} with id: {}",
                 chain_name, config.chain_key
@@ -136,11 +134,11 @@ impl Server {
                     if let Err(err) = res {
                         error!("❌ HTTP server exited with error: {err}");
                     }
-                    return Err(anyhow!("API HTTP server exited!"));
+                    bail!("API HTTP server exited!");
                 }
                 // Run DB Tests – temporary hook for ongoing DB design iterations
                 res = self.run_db_tests(attestation_events_tx.clone()) => {
-                    return Err(anyhow!("Db tests completed: {res:?}"))
+                    bail!("Db tests completed: {res:?}")
                 }
                 // Global shutdown (Ctrl+C / SIGTERM)
                 _ = shutdown_signal() => {

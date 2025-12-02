@@ -1,20 +1,20 @@
 use clap::Parser;
 use std::env;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
-use proof_gen_api_server::{config::Config, db::DbManager, Server};
+use proof_gen_api_server::{
+    config::Config,
+    db::{config_from_env, DbManager},
+    Server,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "proof-gen-api-server")]
 pub struct ProofGenApiServer {
-    #[arg(short, long, required = false)]
+    #[arg(short, long)]
     verbose: bool,
 
-    #[arg(
-        long,
-        required = false,
-        help = "Reset the database to its initial state"
-    )]
+    #[arg(long, help = "Reset the database to its initial state")]
     reset_db: bool,
 
     #[arg(long, default_value = "ws://localhost:9944")]
@@ -39,7 +39,6 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
-        required = false,
         help = "Flag indicating the attestor will launch a server to expose metrics."
     )]
     enable_prometheus_metrics: bool,
@@ -53,11 +52,17 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
-        required = false,
         default_value_t = 9100,
         help = "Port to expose the Prometheus metrics endpoint on. Defaults to 9100."
     )]
     prometheus_port: u16,
+
+    #[arg(
+        long,
+        required = false,
+        help = "Port which the proof gen server exposes for API requests"
+    )]
+    bind_addr: Option<String>,
 }
 
 #[tokio::main]
@@ -65,7 +70,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load .env
     dotenvy::dotenv().ok();
 
-    let manager = DbManager::new()?;
+    // Get db connection details from env variables.
+    let db_config = config_from_env();
+    let manager = DbManager::new(db_config)?;
 
     // Parse args
     let args = ProofGenApiServer::parse();
@@ -90,12 +97,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .cc3_key
         .or_else(|| env::var("CC3_KEY").ok())
         .unwrap_or_else(|| {
-            eprintln!("Missing Creditcoin key: pass --cc3-key or set CC3_KEY env var");
+            error!("Missing Creditcoin key: pass --cc3-key or set CC3_KEY env var");
             std::process::exit(1);
         });
 
+    let resolved_bind_addr = args
+        .bind_addr
+        .or_else(|| env::var("BIND_ADDR").ok())
+        .unwrap_or_else(|| {
+            info!("bind_addr not provided in arg --bind_addr or set via env var BIND_ADDR. Using default: 0.0.0.0:3100");
+            "0.0.0.0:3100".to_string()
+        });
+
     let config = Config {
-        bind_addr: env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3100".to_string()),
+        bind_addr: resolved_bind_addr,
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: resolved_cc3_key,
         chain_key: args.chain_key,

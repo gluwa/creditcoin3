@@ -19,7 +19,7 @@ use crate::{
     proof::ContinuityProof,
     rpc::{SharedCcProvider, SharedEthProvider},
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use cc_client::Client as CcClient;
 use eth::Client as EthClient;
 use sp_core::H256;
@@ -37,10 +37,10 @@ impl ContinuityBuilder {
     pub async fn new(config: ContinuityConfig) -> Result<Self> {
         let cc_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key)
             .await
-            .map_err(|e| anyhow!("Failed to create CC client: {e}"))?;
+            .context("Failed to create CC client")?;
         let eth_client = EthClient::new(&config.eth_rpc_url, None)
             .await
-            .map_err(|e| anyhow!("Failed to create ETH client: {e}"))?;
+            .context("Failed to create ETH client")?;
         Ok(Self::new_with_providers(
             config,
             Arc::new(cc_client),

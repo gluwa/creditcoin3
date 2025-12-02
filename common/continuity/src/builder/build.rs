@@ -2,7 +2,7 @@ use super::ContinuityBuilder;
 use crate::attestation::AttestationInfo;
 use crate::proof::ContinuityProof;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use attestor_primitives::block::Block;
 
 impl ContinuityBuilder {
@@ -33,7 +33,7 @@ impl ContinuityBuilder {
             .eth_provider
             .build_continuity_blocks(lower.digest, build_start, end_height)
             .await
-            .map_err(|e| anyhow!("Failed to build continuity blocks: {e}"))?;
+            .context("Failed to build continuity blocks")?;
 
         // If we built from the required start, no trimming needed
         if build_start == required_start {

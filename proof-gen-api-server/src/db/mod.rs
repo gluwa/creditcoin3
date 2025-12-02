@@ -45,6 +45,14 @@ pub struct ProofsDbEntry {
     pub updated_at: Option<NaiveDateTime>,
 }
 
+pub struct DbManagerConfig {
+    pub postgres_host: String,
+    pub postgres_port: String,
+    pub postgres_user: String,
+    pub postgres_password: String,
+    pub postgres_db: String,
+}
+
 #[derive(Clone)]
 pub struct DbManager {
     pool: Pool,
@@ -52,22 +60,14 @@ pub struct DbManager {
 
 /// Creates a new db manager with a pool of DB connections
 impl DbManager {
-    pub fn new() -> Result<Self> {
-        // Get db connection details from env variables
-        let postgres_host = std::env::var("POSTGRES_HOST").expect("POSTGRES_HOST must be set");
-        let postgres_port = std::env::var("POSTGRES_PORT").expect("POSTGRES_PORT must be set");
-        let postgres_user = std::env::var("POSTGRES_USER").expect("POSTGRES_USER must be set");
-        let postgres_password =
-            std::env::var("POSTGRES_PASSWORD").expect("POSTGRES_PASSWORD must be set");
-        let postgres_db = std::env::var("POSTGRES_DB").expect("POSTGRES_DB must be set");
-
+    pub fn new(config: DbManagerConfig) -> Result<Self> {
         // Set up DB connection pool
         let mut cfg = Config::new();
-        cfg.host = Some(postgres_host);
-        cfg.port = Some(postgres_port.parse::<u16>()?);
-        cfg.user = Some(postgres_user);
-        cfg.password = Some(postgres_password);
-        cfg.dbname = Some(postgres_db);
+        cfg.host = Some(config.postgres_host);
+        cfg.port = Some(config.postgres_port.parse::<u16>()?);
+        cfg.user = Some(config.postgres_user);
+        cfg.password = Some(config.postgres_password);
+        cfg.dbname = Some(config.postgres_db);
         cfg.manager = Some(ManagerConfig {
             recycling_method: RecyclingMethod::Fast,
         });
@@ -344,5 +344,17 @@ impl DbManager {
         client.batch_execute(V1_UP_SQL).await?;
 
         Ok(())
+    }
+}
+
+pub fn config_from_env() -> DbManagerConfig {
+    // Get db connection details from env variables
+    DbManagerConfig {
+        postgres_host: std::env::var("POSTGRES_HOST").expect("POSTGRES_HOST must be set"),
+        postgres_port: std::env::var("POSTGRES_PORT").expect("POSTGRES_PORT must be set"),
+        postgres_user: std::env::var("POSTGRES_USER").expect("POSTGRES_USER must be set"),
+        postgres_password: std::env::var("POSTGRES_PASSWORD")
+            .expect("POSTGRES_PASSWORD must be set"),
+        postgres_db: std::env::var("POSTGRES_DB").expect("POSTGRES_DB must be set"),
     }
 }

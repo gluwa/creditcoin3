@@ -20,7 +20,10 @@ use proof_gen_api_server::{build_app, ContinuityService};
 // Bring in shared test helpers
 #[path = "test_utils.rs"]
 mod test_utils;
-use test_utils::{assert_h256_str, get_tx_info_via_rpc, send_test_tx_via_cast, setup_postgres_env};
+use test_utils::{
+    assert_h256_str, get_tx_info_via_rpc, send_test_tx_via_cast, setup_test_postgres,
+    test_db_manager_config,
+};
 
 /// RAII wrapper to ensure the anvil process is killed on drop.
 struct Anvil(Child);
@@ -116,10 +119,12 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider, eth_provider);
 
     // Start ephemeral Postgres via shared helper and keep it alive for test duration
-    let pg = setup_postgres_env().await;
+    let pg = setup_test_postgres().await;
     std::mem::forget(pg);
 
-    let db = DbManager::new().expect("db manager init");
+    // Get db config from env variables
+    let db_config = test_db_manager_config();
+    let db = DbManager::new(db_config).expect("db manager init");
     db.run_migrations().await.expect("migrations");
     let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
     let app: Router = build_app(service);

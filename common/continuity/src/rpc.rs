@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
 use cc_client::{AccountId32, Client as CcClient};
@@ -50,13 +50,13 @@ impl CcRpcProvider for CcClient {
     ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
         self.get_attestations_for_chain(chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch attestations: {e}"))
+            .context("Failed to fetch attestations")
     }
 
     async fn get_last_checkpoint(&self, chain_key: u64) -> Result<Option<AttestationCheckpoint>> {
         self.get_last_checkpoint(chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch last checkpoint: {e}"))
+            .context("Failed to fetch last checkpoint")
     }
 
     async fn get_checkpoints_for_chain(
@@ -65,7 +65,7 @@ impl CcRpcProvider for CcClient {
     ) -> Result<Vec<AttestationCheckpoint>> {
         self.get_checkpoints_for_chain(chain_key)
             .await
-            .map_err(|e| anyhow!("Failed to fetch checkpoints: {e}"))
+            .context("Failed to fetch checkpoints")
     }
 }
 
@@ -81,7 +81,7 @@ impl EthRpcProvider for eth::Client {
         let fragment = manager
             .create(lower_digest, EncodingVersion::V1)
             .await
-            .map_err(|e| anyhow!("Failed to create continuity fragment: {e}"))?;
+            .context("Failed to create continuity fragment")?;
         Ok(fragment.blocks().to_vec())
     }
 
@@ -90,7 +90,7 @@ impl EthRpcProvider for eth::Client {
         let ordered = self
             .get_block(block_number, EncodingVersion::V1)
             .await
-            .map_err(|e| anyhow!("Failed to fetch block transactions: {e}"))?;
+            .context("Failed to fetch block transactions")?;
 
         let tx_bytes: Vec<Vec<u8>> = ordered.items().iter().map(|item| item.to_bytes()).collect();
 
@@ -100,7 +100,7 @@ impl EthRpcProvider for eth::Client {
     async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64)> {
         self.get_tx_position_by_hash(tx_hash)
             .await
-            .map_err(|e| anyhow!("Failed to resolve tx position: {e}"))
+            .context("Failed to resolve tx position")
     }
 }
 
