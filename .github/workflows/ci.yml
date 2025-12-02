@@ -1204,6 +1204,7 @@ jobs:
             --base-path ./alice-data-${{ matrix.chainspec }} &
 
       - name: Wait for node(s)s to start
+        timeout-minutes: 5
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
