@@ -426,7 +426,7 @@ mod tests {
         let ser_cblock = ContinuityBlockSerializable::from(&cblock);
         let cval = serde_json::to_value(&ser_cblock).expect("serialize continuity block");
         let c_root = cval
-            .get("root")
+            .get("merkle_root")
             .and_then(|v| v.as_str())
             .expect("continuity root");
         let c_digest = cval
