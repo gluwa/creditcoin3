@@ -80,6 +80,32 @@ An E2E test exercises all three proof endpoints with Anvil and ephemeral Postgre
 cargo test -p proof-gen-api-server --test anvil_e2e --features e2e-tests
 ```
 
+### Testing Using submit-proof.js
+
+In addition to the unit tests within the proof-gen-api-server crate, you can test the server's functionality in non-mocked conditions with the following steps.
+
+1. Follow the steps in `.github/CONTRIBUTING.md` up through step 4.
+2. Follow `Launching the Database` in this readme
+2. Follow `Building the Proof Gen Server` in this readme
+3. Follow `### Example: Local Development` in this readme to launch the proof gen server
+4. Run the following `scripts/submit-proof.js`
+Template script run:
+```sh
+npm run submit-proof \
+  -- <YOUR-CHAIN-KEY> \
+  <TX-BLOCK-HEIGHT> \
+  <TX-HASH> \
+  0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
+```
+Example script run:
+```sh
+npm run submit-proof \
+  -- 2 \
+  6 \
+  0x391ced4c1782dc750d3a10bca485864c86b82ac03721a3e2581d44eb55ed4350 \
+  0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
+```
+
 ## Caching
 
 The server caches generated proofs in Postgres to avoid recomputation on subsequent requests.
@@ -91,11 +117,6 @@ The server caches generated proofs in Postgres to avoid recomputation on subsequ
   - Reverse lookup by tx-hash: matches on `tx_hash`.
 - Writes: inserts are performed asynchronously (fire-and-forget) with upsert semantics, so concurrent requests race safely.
 - Reads: endpoints first attempt to deserialize cached JSON; if successful, responses include `"cached": true`. If cache is missing or deserialization fails, proofs are rebuilt and `"cached": false` is returned.
-
-Development/testing fallback:
-
-- When `INMEM_DB_FALLBACK=true|1` is set, and Postgres is unavailable, proofs are stored in an in-memory cache for the process lifetime. This is intended only for local/tests and should not be enabled in production or CI.
-- In containers, rely on Postgres; `.env.docker` does not set the fallback.
 
 ### Environment Configuration (.env)
 
