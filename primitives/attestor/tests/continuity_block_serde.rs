@@ -17,7 +17,7 @@ fn continuity_block_json_format_and_roundtrip() {
     let json = serde_json::to_string(&block).expect("serialize");
     let v: Value = serde_json::from_str(&json).expect("parse json");
 
-    for field in ["root", "digest"] {
+    for field in ["merkle_root", "digest"] {
         let s = v
             .get(field)
             .expect("field exists")

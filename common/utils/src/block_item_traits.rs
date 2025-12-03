@@ -55,6 +55,7 @@ impl BlockItemIdentifier {
     ///
     /// # Example
     /// ```
+    /// use utils::BlockItemIdentifier;
     /// let id = BlockItemIdentifier::new(100, 5);
     /// assert_eq!(id.block_number(), 100);
     /// assert_eq!(id.index(), 5);

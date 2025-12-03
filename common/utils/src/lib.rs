@@ -18,14 +18,11 @@
 //!
 //! ```rust
 //! use utils::BlockItemIdentifier;
-//! use merkle::KeccakMerkleTree;
 //!
 //! // Create a block item identifier
 //! let id = BlockItemIdentifier::new(100, 5);
-//!
-//! // Use KeccakMerkleTree (matches POC implementation)
-//! let data = vec![b"hello".to_vec(), b"world".to_vec()];
-//! let tree = KeccakMerkleTree::new(&data);
+//! assert_eq!(id.block_number(), 100);
+//! assert_eq!(id.index(), 5);
 //! ```
 
 // =============================================================================
