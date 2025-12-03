@@ -98,6 +98,7 @@ updates:
       - "/common/eth/contracts/get-contract-state"
       - "/docs/smart-contract-development/with-hardhat"
       - "/docs/smart-contract-development/with-ethers.js"
+      - "/scripts"
       - "/"
     groups:
       prod-dependencies:

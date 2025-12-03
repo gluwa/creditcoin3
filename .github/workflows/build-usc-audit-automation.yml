@@ -1,7 +1,7 @@
 ---
 name: Build USC Audit Automation Binary
 
-on:
+"on":
     workflow_call:
         inputs:
             version-string:
