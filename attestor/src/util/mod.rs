@@ -18,14 +18,11 @@ pub fn create_attestation(
     let tree = eth::simple_merkle_tree(new_block);
     let root = tree.root();
 
-    debug!(
-        "Header hash: {:?}",
-        sp_core::H256(*new_block.hash().unwrap())
-    );
+    debug!("Header hash: {:?}", sp_core::H256(*new_block.hash()));
     Attestation {
         chain_key,
         header_number: new_block.number(),
-        header_hash: sp_core::H256(*new_block.hash().unwrap()),
+        header_hash: sp_core::H256(*new_block.hash()),
         root,
         prev_digest,
     }

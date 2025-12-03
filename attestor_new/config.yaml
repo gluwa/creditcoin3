@@ -1,0 +1,15 @@
+attestor:
+  name: "Deep Thought"
+  chain_key: 2
+
+eth:
+  url: "ws://localhost:8545"
+
+cc3:
+  url: "ws://localhost:9944"
+
+pool:
+  capacity: 100
+
+attestation:
+  rebroadcast: 45

@@ -19,6 +19,9 @@ members = [
     "query-cli",
     "usc_audit_automation",
     "proof-gen-api-server",
+    "attestor_new/attestor",
+    "attestor_new/attestor_macro",
+    "attestor_new/attestor_zombienet",
 ]
 resolver = "2"
 
@@ -31,6 +34,12 @@ repository = "https://github.com/gluwa/creditcoin3-next/"
 version = "3.67.0"
 
 [workspace.dependencies]
+assert_matches = "1.5.0"
+rstest = "0.26.1"
+tokio-test = "0.4.4"
+
+# Substrate Clientassert_matches = "1.5.0"
+
 affix = "0.1"
 anyhow = { version = "1.0.68", default-features = false }
 async-trait = { version = "0.1.42" }
@@ -59,21 +68,26 @@ parity-scale-codec = { version = "3.6", default-features = false, features = [
 parking_lot = "0.12.1"
 paste = "1.0.14"
 primitive-types = "0.12.1"
+rayon = { version = "1.10.0" }
 reqwest = { version = "0.12", features = ["multipart", "json"] }
 scale-info = { version = "2.11", default-features = false, features = [
     "derive",
 ] }
 serde = { version = "1.0.197", default-features = false }
 serde_json = { version = "1.0.145", default-features = false }
+serde_yaml = { version = "0.9.34" }
 sha3 = { version = "0.10", default-features = false }
 slices = "0.2.0"
 tempfile = { version = "3.10", default-features = false }
 thiserror = { version = "1.0.63", default-features = false }
 tiny-bip39 = { version = "0.8", default-features = false }
 tokio = { version = "1.37.0" }
+tokio-tungstenite = { version = "0.26.2" }
 tower = { version = "0.5", default-features = false }
 tower-http = { version = "0.6", features = ["trace"] }
 tracing = "0.1.37"
+tracing-appender = "0.2.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2.4.0" }
 wasm-timer = { version = "0.2" }
 # Alloy
@@ -209,6 +223,9 @@ pallet-evm-precompile-sha3fips = { git = "https://github.com/paritytech/frontier
 pallet-evm-precompile-simple = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
 pallet-evm-test-vector-support = { git = "https://github.com/paritytech/frontier", branch = "stable2409" }
 pallet-hotfix-sufficients = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
+subxt = { version = "0.40", features = ["reconnecting-rpc-client"] }
+subxt-signer = "0.40"
+
 # Frontier Utility
 precompile-utils = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
 
@@ -260,6 +277,8 @@ supported-chains-primitives = { path = "primitives/supported-chains", default-fe
 
 # Randomness
 pallet-randomness = { path = "pallets/randomness", default-features = false }
+# Using an old version of rand as it is already in the dependency graph
+rand = { version = "0.9.0", default-features = false }
 randomness-primitives = { path = "primitives/randomness", default-features = false }
 
 # Common
@@ -269,6 +288,7 @@ bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-feat
 cc-client = { path = "common/cc-client" }
 continuity = { path = "common/continuity", default-features = false }
 eth = { path = "common/eth", default-features = false }
+libp2p = { version = "0.56", default-features = false }
 merkle = { path = "common/merkle", default-features = false }
 prometheus = { path = "common/prometheus" }
 utils = { path = "common/utils", default-features = false }

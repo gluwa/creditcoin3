@@ -1,5 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
 use frame_support::inherent::{InherentIdentifier, IsFatalError};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
@@ -114,14 +117,15 @@ impl IsFatalError for InherentError {
 }
 
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Hash))]
 pub struct AttestorId(AccountId32);
 
 impl AttestorId {
-    pub fn new(id: AccountId32) -> Self {
+    pub const fn new(id: AccountId32) -> Self {
         Self(id)
     }
 
-    pub fn from_public(public_key: [u8; 32]) -> Self {
+    pub const fn from_public(public_key: [u8; 32]) -> Self {
         Self(AccountId32::new(public_key))
     }
 
@@ -135,6 +139,13 @@ impl AttestorId {
 
     pub fn account_id(&self) -> &AccountId32 {
         &self.0
+    }
+}
+
+impl core::fmt::Display for AttestorId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use sp_core::crypto::Ss58Codec;
+        write!(f, "{}", self.0.to_ss58check())
     }
 }
 
@@ -202,6 +213,24 @@ pub struct Attestation<H> {
 /// Attestation round
 /// Is the chain key and the header number
 pub type Round = (ChainKey, u64);
+
+impl Attestation<Digest> {
+    pub fn new(
+        chain_key: ChainKey,
+        header_number: u64,
+        header_hash: Digest,
+        root: H256,
+        prev_digest: Option<Digest>,
+    ) -> Self {
+        Attestation {
+            chain_key,
+            header_number,
+            header_hash,
+            root,
+            prev_digest,
+        }
+    }
+}
 
 impl<H> Attestation<H>
 where
@@ -309,7 +338,7 @@ impl AttestationCheckpoint {
 
 /// Function to calculate the threshold for a committee set size to reach majority vote
 pub fn calculate_threshold(target_sample_size: u32) -> u32 {
-    (2 * target_sample_size) / 3
+    (2 * target_sample_size) / 3 + 1
 }
 
 #[cfg(test)]
@@ -320,27 +349,27 @@ mod test {
     fn test_calculate_threshold_3() {
         let target_sample_size = 3;
         let threshold = calculate_threshold(target_sample_size);
-        assert_eq!(threshold, 2);
+        assert_eq!(threshold, 3);
     }
 
     #[test]
     fn test_calculate_threshold_4() {
         let target_sample_size = 4;
         let threshold = calculate_threshold(target_sample_size);
-        assert_eq!(threshold, 2);
+        assert_eq!(threshold, 3);
     }
 
     #[test]
     fn test_calculate_threshold_5() {
         let target_sample_size = 5;
         let threshold = calculate_threshold(target_sample_size);
-        assert_eq!(threshold, 3);
+        assert_eq!(threshold, 4);
     }
 
     #[test]
     fn test_calculate_threshold_10() {
         let target_sample_size = 10;
         let threshold = calculate_threshold(target_sample_size);
-        assert_eq!(threshold, 6);
+        assert_eq!(threshold, 7);
     }
 }

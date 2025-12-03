@@ -24,6 +24,8 @@ mod ledger;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use core::marker::PhantomData;
+
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
         provider::{AttestationProvider, CheckpointProvider},
@@ -32,7 +34,7 @@ pub mod pallet {
         ChainKey, Digest, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use frame_support::{
-        dispatch::{Pays, PostDispatchInfo},
+        dispatch::{ClassifyDispatch, DispatchClass, Pays, PaysFee, WeighData},
         pallet_prelude::{OptionQuery, ValueQuery, *},
         traits::{Currency, LockableCurrency, OnUnbalanced},
         Blake2_128Concat, Twox64Concat,
@@ -40,7 +42,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use parity_scale_codec::FullCodec;
     use sp_staking::StakingInterface;
-    use sp_std::collections::vec_deque::VecDeque;
+    use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::{OnRegisterChainProvider, SupportedChainsProvider};
 
@@ -832,31 +834,41 @@ pub mod pallet {
             Self::do_bootstrap_chain(attestation)
         }
 
+        /// [`CommitAttestationWeight`] makes it so active attestors do not pay fees on this
+        /// extrinsic
         #[pallet::call_index(9)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_attestation(attestations.len() as u32, attestations.iter().map(|a| a.continuity_proof.len() as u32).max().unwrap_or(0), T::MaxAttestationNodes::get()), DispatchClass::Mandatory))]
+        #[pallet::weight(CommitAttestationWeight::<T>::default())]
         pub fn commit_attestation(
             origin: OriginFor<T>,
             attestations: BoundedVec<
                 SignedAttestation<T::Hash, T::AccountId>,
                 T::MaxAttestationsPerBlock,
             >,
-        ) -> DispatchResultWithPostInfo {
-            ensure_none(origin)?;
+        ) -> DispatchResult {
+            ensure_signed(origin)?;
 
-            let mut weight = Weight::default();
+            let mut res = Ok(());
             for attestation in attestations.into_iter() {
-                weight += <T as Config>::WeightInfo::commit_attestation(
-                    1,
-                    attestation.continuity_proof.len() as u32,
-                    attestation.attestors.len() as u32,
-                );
-                Self::do_commit_attestation(attestation)?;
+                match Self::do_commit_attestation(attestation) {
+                    // WARNING: EDGE CASE
+                    //
+                    // It is possible for attestors to be behind in their view of the network. This
+                    // can result in them submitting a batch with some attestations which have
+                    // already been finalized in the period of time during which submission
+                    // occurred. To avoid invalidating future attestations, we still check the rest
+                    // of the batch.
+                    Err(err) if err == Error::<T>::AttestationExists.into() => {
+                        res = Err(Error::<T>::AttestationExists.into());
+                    }
+                    res => {
+                        // Any attestation which is generally invalid, and not just a duplicate,
+                        // causes the rest of the batch to be dropped
+                        res?
+                    }
+                }
             }
 
-            Ok(PostDispatchInfo {
-                actual_weight: Some(weight),
-                pays_fee: Pays::Yes,
-            })
+            res
         }
 
         #[pallet::call_index(10)]
@@ -1275,6 +1287,90 @@ pub mod pallet {
                 attestation_chain_genesis_block_number
                     .unwrap_or(T::DefaultAttestationChainGenesisBlockNumber::get()),
             ));
+        }
+    }
+
+    /// See the Polkadot SDK docs on [custom fees]
+    ///
+    /// [custom fees]: https://docs.polkadot.com/polkadot-protocol/parachain-basics/blocks-transactions-fees/fees/#custom-fees
+    struct CommitAttestationWeight<T>(PhantomData<T>);
+
+    impl<T> Default for CommitAttestationWeight<T> {
+        fn default() -> Self {
+            Self(PhantomData)
+        }
+    }
+
+    impl<T: Config>
+        WeighData<(
+            &BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,
+        )> for CommitAttestationWeight<T>
+    {
+        fn weigh_data(
+            &self,
+            attestations: (
+                &BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,
+            ),
+        ) -> Weight {
+            <T as Config>::WeightInfo::commit_attestation(
+                attestations.0.len() as u32,
+                attestations
+                    .0
+                    .iter()
+                    .map(|a| a.continuity_proof.len() as u32)
+                    .max()
+                    .unwrap_or(0),
+                T::MaxAttestationNodes::get(),
+            )
+        }
+    }
+
+    impl<T: Config>
+        ClassifyDispatch<(
+            &BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,
+        )> for CommitAttestationWeight<T>
+    {
+        fn classify_dispatch(
+            &self,
+
+            _attestations: (
+                &BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,
+            ),
+        ) -> DispatchClass {
+            DispatchClass::Normal
+        }
+    }
+
+    impl<T: Config>
+        PaysFee<
+            (&BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,),
+        > for CommitAttestationWeight<T>
+    {
+        /// Makes it so active attestors do not pay fees but regular accounts do
+        fn pays_fee(
+            &self,
+            attestations: (
+                &BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,
+            ),
+        ) -> Pays {
+            let is_attestor = attestations.0.iter().all(|attestation| {
+                let chain_key = attestation.chain_key();
+
+                let active_attestors = ActiveAttestors::<T>::get(chain_key)
+                    .into_iter()
+                    .collect::<BTreeSet<_>>();
+
+                attestation
+                    .attestors
+                    .iter()
+                    .all(|attestor| active_attestors.contains(attestor))
+            });
+
+            if is_attestor {
+                Pays::No
+            } else {
+                Pays::Yes
+            }
         }
     }
 }

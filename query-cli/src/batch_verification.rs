@@ -332,7 +332,10 @@ pub async fn execute_batch_query(
         println!("  Block height: {block_height}");
 
         // Fetch block
-        let block = eth_client.get_block(*block_height, encoding).await?;
+        let block = match eth_client.get_block(*block_height, encoding).await {
+            Some(block) => block?,
+            None => return Ok(()),
+        };
 
         // Find transaction by hash
         let tx_index = block

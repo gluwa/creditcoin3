@@ -276,7 +276,12 @@ impl AttestationMonitor {
                     );
                 }
             }
-            CcEvent::RandomnessChanged(_) | CcEvent::AttestationIntervalChanged(_, _) => {
+            CcEvent::RandomnessChanged(..)
+            | CcEvent::AttestationIntervalChanged(..)
+            | CcEvent::AttestorsElected(..)
+            | CcEvent::AttestorActivated(..)
+            | CcEvent::AttestorChilled(..)
+            | CcEvent::AttestorKicked(..) => {
                 // Ignore these events
             }
         }

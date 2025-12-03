@@ -176,8 +176,7 @@ impl From<BlockError> for AttestationFragmentError {
     Debug, Clone, PartialEq, Eq, Hash, Encode, Decode, TypeInfo, Default, Serialize, Deserialize,
 )]
 pub struct AttestationFragmentSerializable {
-    //    params: AttestationChainParams,
-    blocks: Vec<BlockSerializable>,
+    pub blocks: Vec<BlockSerializable>,
 }
 
 impl AttestationFragmentSerializable {
@@ -199,6 +198,10 @@ impl AttestationFragmentSerializable {
 
     pub fn tail(&self) -> Option<&BlockSerializable> {
         self.blocks.first()
+    }
+
+    pub fn iter(&self) -> impl core::iter::Iterator<Item = &'_ BlockSerializable> + '_ {
+        self.blocks.iter()
     }
 }
 

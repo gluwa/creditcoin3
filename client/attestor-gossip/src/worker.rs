@@ -1,5 +1,4 @@
 use crate::metrics::register_metrics;
-use crate::round::RoundConfig;
 use crate::{metric_inc, metric_inc_chain, metric_set_chain, metrics::VoterMetrics};
 use attestor_primitives::ChainKey;
 use futures::{stream::Fuse, StreamExt};
@@ -492,36 +491,6 @@ where
         }?;
 
         Ok(())
-    }
-
-    // Get or create round config
-    // This function retrieves or creates a round configuration based on the provided chain key.
-    // Safeguards creation if not exists when the worker is restarted.
-    pub fn get_or_create_round_config(
-        &mut self,
-        at: B::Hash,
-        chain_key: ChainKey,
-    ) -> Result<RoundConfig, Error> {
-        let round_config = self.state.get_round_config(chain_key);
-
-        if let Some(round_config) = round_config {
-            return Ok(round_config.clone());
-        }
-
-        // Round config is reset, create one
-        let runtime_api = self.runtime.runtime_api();
-        let current_epoch = runtime_api.current_epoch(at)?;
-
-        let round_config = round::create(
-            self.runtime.clone(),
-            chain_key,
-            at,
-            current_epoch.epoch_index,
-        )?;
-        // Update round configuration
-        self.state.add_round_config(chain_key, round_config.clone());
-
-        Ok(round_config)
     }
 
     /// Handle finality notification

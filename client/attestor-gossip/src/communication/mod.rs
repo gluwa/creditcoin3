@@ -16,7 +16,6 @@ pub mod validator;
 pub struct Attestation<H, AccountId> {
     pub attestation_data: AttestationPrimitive<H>,
     pub attestor: AccountId,
-    pub proof_of_inclusion: vrf::ProofOfInclusion,
     pub signature: sp_core::sr25519::Signature,
     pub signature_bls: <Bls as CryptoScheme>::Signature,
     pub continuity_proof: AttestationFragmentSerializable,

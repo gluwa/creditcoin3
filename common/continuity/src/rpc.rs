@@ -120,7 +120,8 @@ impl EthRpcProvider for eth::Client {
         let ordered = self
             .get_block(block_number, EncodingVersion::V1)
             .await
-            .context("Failed to fetch block transactions")?;
+            .context("Failed to fetch block transactions")?
+            .context("Not handling user interrupts yet")?;
 
         let tx_bytes: Vec<Vec<u8>> = ordered.items().iter().map(|item| item.to_bytes()).collect();
 
@@ -131,7 +132,8 @@ impl EthRpcProvider for eth::Client {
         let ordered = self
             .get_block(block_number, EncodingVersion::V1)
             .await
-            .map_err(|e| anyhow!("Failed to fetch block: {e}"))?;
+            .context("Failed to fetch block")?
+            .context("Not handling user interrupts yet")?;
 
         let tx_hash = ordered.items().get(tx_index as usize).map(|item| {
             // Convert alloy BlockHash to sp_core::H256

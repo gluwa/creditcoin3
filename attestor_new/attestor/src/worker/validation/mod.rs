@@ -1,0 +1,1225 @@
+#![doc = include_str!("../../../../mermaid.html")]
+//! A [`Worker`] thread responsible for the validation and submission of attestations which have
+//! reached [`Quorum`].
+//!
+//! # Quorum
+//!
+//! The validation worker receives attestations sent over to it by the [production worker] and the
+//! [p2p worker]. Attestations are ordered by the [attestation pool] and are evaluated lazily only
+//! once quorum has been reached.
+//!
+//! Once an attestation has reached quorum, it is validated locally to make sure that all its
+//! attestors are eligible and that its digest and continuity proof follow the attestation chain.
+//! Once that is done, the BLS signature of each attestation is aggregated into a single succinct
+//! proof which can be used by the runtime to validate quorum.
+//!
+//! # Submission
+//!
+//! Valid attestations are eagerly submitted, that is to say we commit an attestation as soon as
+//! the runtime can make further progress in validation. To avoid idling while the runtime is
+//! validating a past attestation, the validation worker will _batch_ attestations ahead of
+//! finality, checking multiple attestations locally _ahead of time_ so as to be able to submit them
+//! all at once once the runtime is done with any previous attestations.
+//!
+//! The runtime enforces a constant maximum to the number of attestation it can validated in a
+//! single block so as to avoid DOS vectors, which also corresponds to the maximum number of
+//! attestations which the validation worker can batched in advance of finality.
+//!
+//! # Finalization
+//!
+//! To avoid DOSing the runtime, attestors are randomly selected for submission via a VRF threshold
+//! computation. To handle the edge case of no attestor being selected, a max finalization delay of
+//! [`ATTESTATION_TIMEOUT`] is set, after which the attestations will be re-submitted with a
+//! different VRF computation.
+//!
+//! # Attestation submission flow
+//!
+//! <pre class="mermaid">
+//! sequenceDiagram
+//!     box Networks
+//!         participant CC3
+//!     end
+//!     box Thread 4
+//!         participant Validation Worker
+//!     end
+//!     box Shared
+//!         participant Attestation Pool
+//!     end
+//!
+//!     loop Validation
+//!         Validation Worker ->> Attestation Pool: Polls
+//!
+//!         activate Attestation Pool
+//!         Attestation Pool ->> Validation Worker: Quorum
+//!         deactivate Attestation Pool
+//!
+//!         activate Validation Worker
+//!         Validation Worker ->> Validation Worker: Validate
+//!         Validation Worker ->> Validation Worker: Check eligibility
+//!         Validation Worker ->> CC3: Submit Attestation
+//!         activate CC3
+//!
+//!         loop wait on submission
+//!             loop batching
+//!                 Validation Worker ->> Attestation Pool: Polls
+//!
+//!                 activate Attestation Pool
+//!                 Attestation Pool ->> Validation Worker: Quorum
+//!                 deactivate Attestation Pool
+//!
+//!                 Validation Worker ->> Validation Worker: Validate
+//!                 Validation Worker ->> Attestation Pool: Append to batch
+//!             end
+//!
+//!             CC3 ->> Validation Worker: Confirm Finalization
+//!             deactivate CC3
+//!
+//!             Validation Worker ->> CC3: Submit Batch
+//!             deactivate Validation Worker
+//!         end
+//!     end
+//! </pre>
+//!
+//! [`Worker`]: crate::worker::Worker
+//! [`Quorum`]: pool::Quorum
+//! [production worker]: crate::worker::production
+//! [p2p worker]: crate::worker::p2p
+//! [attestation pool]: pool
+//! [`ATTESTATION_TIMEOUT`]: common::constants::ATTESTATION_TIMEOUT
+
+mod error;
+mod future;
+pub mod pool;
+
+use crate::prelude::*;
+pub use error::*;
+
+// -------------------------------------- [ Configuration ] ------------------------------------ //
+
+#[derive(attestor_macro::Builder)]
+pub struct Config {
+    cc3: crate::chain_listener::cc3::CC3,
+    receiver_validation: pool::AttestationPoolReceiver,
+    receiver_attestation_latest: tokio::sync::watch::Receiver<Option<common::types::Height>>,
+    sender_attestation_invalidation: tokio::sync::watch::Sender<Option<common::types::Height>>,
+    api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
+    api: subxt::OnlineClient<subxt::SubstrateConfig>,
+    keypair: subxt_signer::sr25519::Keypair,
+}
+
+// ----------------------------------------- [ Worker ] ---------------------------------------- //
+
+pub(crate) struct WorkerAttestationValidation {
+    // CHAIN LISTENERS
+    cc3: crate::chain_listener::cc3::CC3,
+
+    // ATTESTATIONS
+    keypair: subxt_signer::sr25519::Keypair,
+    watch_submission: future::OptionFuture<(
+        AttestationSubmission,
+        common::types::Height,
+        common::types::Height,
+    )>,
+    attempts: usize,
+
+    // MESSAGE CHANNELS
+    receiver_validation: pool::AttestationPoolReceiver,
+    receiver_attestation_latest: tokio::sync::watch::Receiver<Option<common::types::Height>>,
+    sender_attestation_invalidation: tokio::sync::watch::Sender<Option<common::types::Height>>,
+
+    // CHAIN DATA
+    api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
+    api: subxt::OnlineClient<subxt::SubstrateConfig>,
+}
+
+impl WorkerAttestationValidation {
+    pub(crate) fn new(config: Config) -> Self {
+        Self {
+            cc3: config.cc3,
+
+            keypair: config.keypair,
+            watch_submission: future::OptionFuture::default(),
+            attempts: 0,
+
+            receiver_validation: config.receiver_validation,
+            receiver_attestation_latest: config.receiver_attestation_latest,
+            sender_attestation_invalidation: config.sender_attestation_invalidation,
+
+            api_calls: config.api_calls,
+            api: config.api,
+        }
+    }
+}
+
+impl super::Worker for WorkerAttestationValidation {
+    #[tracing::instrument(name = "validation", skip_all)]
+    fn task(
+        mut self,
+        mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
+    ) -> impl std::future::Future<Output = common::types::Result<()>> {
+        async move {
+            use futures::StreamExt as _;
+
+            loop {
+                tokio::select! {
+                    biased;
+
+                    _ = &mut shutdown => {
+                        break self.handle_event_shutdown().await;
+                    }
+                    event = &mut self.watch_submission => {
+                        self.handle_event_submission(event).await?;
+                    }
+                    event = self.receiver_validation.next() => {
+                        self.handle_event_quorum(event).await?;
+                    },
+                }
+            }
+        }
+    }
+}
+
+impl WorkerAttestationValidation {
+    async fn handle_event_quorum(
+        &mut self,
+        quorum: Option<(
+            pool::Quorum,
+            pool::AttestationPermit,
+            Option<cc_client::H256>,
+        )>,
+    ) -> Result<(), Error> {
+        // ---------------------------------* Handle pool closure *--------------------------------
+
+        // WARNING: ERROR HANDLING
+        //
+        // pool can be closed from another thread during shutdown, this is not a failure case!
+        let Some((quorum, permit, digest_local)) = quorum else {
+            return Ok(());
+        };
+
+        let digest = quorum.digest();
+        let height = quorum.header_number();
+        let chain_key = quorum.chain_key();
+
+        tracing::info!(
+            %digest,
+            height,
+            "🗳️ An attestation has reached quorum"
+        );
+
+        match self
+            .quorum_aggregate(quorum, digest_local, digest, height, chain_key)
+            .await
+        {
+            // CASE 1] VALID ATTESTATION - NOT WAITING ON SUBMISSION
+            //
+            // If the attestor notices a new quorum and it is not waiting on the runtime to
+            // validate previous attestations, it will eagerly submit any new valid attestation.
+            Some(Ok(attestation)) if self.watch_submission.is_none() => {
+                // ---------------------------------* Pool update *--------------------------------
+
+                match self.receiver_validation.mark_valid(permit) {
+                    Err(pool::PoolError::PoolClosed) => {}
+                    // WARNING: RACE CONDITION
+                    //
+                    // If an attestor is experiencing network latency it is possible for it to
+                    // observe local quorum right before this attestation is finalized on the
+                    // execution chain and is removed from the pool by the production worker, in
+                    // which case the attestation permit will be pointing to an empty height and can
+                    // no longer be used to remove this attestation.
+                    Err(pool::PoolError::Attestation(pool::AttestationError::MissingHeight(
+                        _attestor_id,
+                        epoch,
+                        height,
+                    ))) => {
+                        tracing::debug!(
+                            %digest,
+                            epoch,
+                            height,
+                            "Ignoring attestation quorum as it has already been removed from the pool"
+                        )
+                    }
+                    Err(err) => return Err(Error::Pool(err)),
+                    Ok(_) => {}
+                };
+
+                // ---------------------------* Attestation submission *---------------------------
+
+                tracing::info!(
+                    %digest,
+                    height = attestation.attestation.header_number,
+                    "🛫 Submitting attestation"
+                );
+
+                self.submit_attestations(vec![attestation.into()], height, height)
+                    .await
+                    .transpose()?;
+            }
+            // CASE 2] VALID ATTESTATION - WAITING ON SUBMISSION
+            //
+            // If the attestor notices a new quorum but is waiting on the runtime to validate
+            // previous attestations, it will optimistically batch new sequential attestations up to
+            // `max_attestations_per_block` for them to be submitted next.
+            Some(Ok(attestation)) => {
+                // ---------------------------------* Pool update *--------------------------------
+
+                tracing::info!(
+                    %digest,
+                    height = attestation.attestation.header_number,
+                    size = self.receiver_validation.batch_size() + 1,
+                    "🗃️ Batching attestation"
+                );
+
+                match self.receiver_validation.mark_batch(permit, attestation) {
+                    Err(pool::PoolError::PoolClosed) => {}
+                    // WARNING: RACE CONDITION
+                    //
+                    // If an attestor is experiencing network latency it is possible for it to
+                    // observe local quorum right before this attestation is finalized on the
+                    // execution chain and is removed from the pool by the production worker, in
+                    // which case the attestation permit will be pointing to an empty height and can
+                    // no longer be used to remove this attestation.
+                    Err(pool::PoolError::Attestation(pool::AttestationError::MissingHeight(
+                        _attestor_id,
+                        epoch,
+                        height,
+                    ))) => {
+                        tracing::debug!(
+                            %digest,
+                            epoch,
+                            height,
+                            "Ignoring attestation quorum as it has already been removed from the pool"
+                        )
+                    }
+                    Err(err) => return Err(Error::Pool(err)),
+                    Ok(_) => {}
+                };
+            }
+            // CASE 3] INVALID ATTESTATION
+            //
+            // Remove the attestation from the pool, it will eventually be re-generated
+            Some(Err(Error::InvalidAttestation(_))) => {
+                // ---------------------------* Attestation pool update *--------------------------
+
+                match self.receiver_validation.mark_invalid(permit) {
+                    Err(pool::PoolError::PoolClosed) => {}
+                    // WARNING: RACE CONDITION
+                    //
+                    // If an attestor is experiencing network latency it is possible for it to
+                    // observe local quorum right before this attestation is finalized on the
+                    // execution chain and is removed from the pool by the production worker, in
+                    // which case the attestation permit will be pointing to an empty height and can
+                    // no longer be used to remove this attestation.
+                    Err(pool::PoolError::Attestation(pool::AttestationError::MissingHeight(
+                        _attestor_id,
+                        epoch,
+                        height,
+                    ))) => {
+                        tracing::debug!(
+                            %digest,
+                            epoch,
+                            height,
+                            "Ignoring attestation quorum as it has already been removed from the pool"
+                        )
+                    }
+                    Err(err) => return Err(Error::Pool(err)),
+                    Ok(_) => {}
+                };
+            }
+            // CASE 4] EXTERNAL ERROR
+            //
+            // Cleanup and close the validation worker thread.
+            Some(Err(err)) => {
+                // WARNING: even if this is an irrecoverable error, we still need to restore the
+                // attestation pool to a valid state as it can still be referenced to from other
+                // worker threads.
+                let _ = self.receiver_validation.mark_invalid(permit);
+                return Err(err);
+            }
+            // CASE 5] EXTERNAL INTERRUPT
+            //
+            // User initiated shutdown via SIGINT during a blocking retry operation.
+            None => {}
+        }
+
+        Ok(())
+    }
+
+    async fn handle_event_submission(
+        &mut self,
+        submission: (
+            AttestationSubmission,
+            common::types::Height,
+            common::types::Height,
+        ),
+    ) -> Result<(), Error> {
+        let (submission, height_first, height_last) = submission;
+
+        match submission {
+            // CASE 1] SUBMITTED ATTESTATION
+            AttestationSubmission::Elligible(res) => {
+                // -----------------------* Attestation runtime validation *---------------------------
+
+                match res {
+                    // CASE 1.A] LOST THE ATTESTATION SUBMISSION RACE
+                    Err(subxt::Error::Runtime(subxt::error::DispatchError::Module(err))) => {
+                        match err
+                            .as_root_error::<cc_client::cc3::Error>()
+                            .map_err(Error::SubxtError)?
+                        {
+                            cc_client::cc3::Error::Attestation(
+                                cc_client::cc3::attestation::Error::AttestationExists,
+                            ) => {
+                                // NOTE: Attestation racing
+                                //
+                                // Since multiple attestors race to submit the same attestation at once and
+                                // only one attestor can be selected to win the race, other attestors will
+                                // receive a runtime error on submission indicating a duplicate attestation.
+                                // This is not a failure case.
+                                tracing::info!(
+                                    height_first,
+                                    height_last,
+                                    "✅ Attestation already submitted"
+                                );
+                            }
+                            err => {
+                                tracing::error!(
+                                    height_first,
+                                    height_last,
+                                    ?err,
+                                    "⛔ Invalid attestation"
+                                );
+                                // WARNING: PANIC
+                                //
+                                // Any early return must reset the `watch_submission` future to
+                                // avoid double polling!
+                                self.watch_submission = future::OptionFuture::default();
+                                let _ = self
+                                    .sender_attestation_invalidation
+                                    .send(Some(height_first));
+                                return Ok(());
+                            }
+                        }
+                    }
+                    // CASE 1.B] WON THE ATTESTATION SUBMISSION RACE
+                    res => {
+                        match res
+                            .map_err(Error::SubxtError)?
+                            .all_events_in_block()
+                            .find_last::<cc_client::cc3::attestation::events::BlockAttested>()
+                        {
+                            Ok(Some(_attestation)) => {
+                                tracing::info!(
+                                    height_first,
+                                    height_last,
+                                    "✅ Attestation submitted on-chain"
+                                );
+                            }
+                            _ => {
+                                // WARNING: PANIC
+                                //
+                                // Any early return must reset the `watch_submission` future to
+                                // avoid double polling!
+                                self.watch_submission = future::OptionFuture::default();
+                                return Err(Error::InvalidAttestationEvent);
+                            }
+                        }
+                    }
+                }
+
+                // ------------------------* Attestation finalization *----------------------------
+
+                // NOTE: EDGE CASE
+                //
+                // It is possible (but unlikely) for the attestation finalization event to have
+                // been received before submission finalizes (this is because multiple attestors
+                // are racing for submission at the same time). To avoid stalling, we must FIRST
+                // check the latest attestation and THEN wait for updates if we are not already
+                // past finalization.
+                while (*self.receiver_attestation_latest.borrow())
+                    .is_none_or(|attestation_latest| attestation_latest < height_last)
+                {
+                    tokio::select! {
+                        biased;
+
+                        _ = tokio::signal::ctrl_c() => {
+                            // WARNING: PANIC
+                            //
+                            // Any early return must reset the `watch_submission` future to
+                            // avoid double polling!
+                            self.watch_submission = future::OptionFuture::default();
+                            return Ok(());
+                        }
+                        // WARNING: ERROR HANDLING
+                        //
+                        // From the tokio docs:
+                        //
+                        // > Returns a RecvError if the channel has been closed AND the current value is
+                        // > seen.
+                        //
+                        // This only errors if the receiving end of this channel has been dropped, which
+                        // can happen during shutdown. This is not a failure case!
+                        Ok(()) = self.receiver_attestation_latest.changed() => {}
+                    }
+                }
+
+                // NOTE: EDGE CASE
+                //
+                // It is possible, but unlikely, that the submission VRF threshold computation does
+                // not select ANY attestor for submission. In this case, there is no point in
+                // re-computing the VRF threshold at the same height, as it will yield the same
+                // result. To avoid this, we keep track of the number of attempts to submit an
+                // attestation and take that into account in the VRF computation.
+                self.attempts = 0;
+            }
+            // CASE 2] NOT SELECTED FOR ATTESTATION SUBMISSION
+            AttestationSubmission::NotElligible(attestations) => {
+                // ------------------------* Attestation finalization *----------------------------
+
+                let mut interval = tokio::time::interval(common::constants::ATTESTATION_TIMEOUT);
+                interval.tick().await;
+
+                // NOTE: EDGE CASE
+                //
+                // It is possible (but unlikely) for the attestation finalization event to have
+                // been received before submission finalizes (this is because multiple attestors
+                // are racing for submission at the same time). To avoid stalling, we must FIRST
+                // check the latest attestation and THEN wait for updates if we are not already
+                // past finalization.
+                while (*self.receiver_attestation_latest.borrow())
+                    .is_none_or(|attestation_latest| attestation_latest < height_last)
+                {
+                    tokio::select! {
+                        biased;
+
+                        _ = tokio::signal::ctrl_c() => {
+                            // WARNING: PANIC
+                            //
+                            // Any early return must reset the `watch_submission` future to
+                            // avoid double polling!
+                            self.watch_submission = future::OptionFuture::default();
+                            return Ok(());
+                        }
+                        _ = interval.tick() => {
+                            tracing::warn!(
+                                threshold = height_last,
+                                "🏃 Attestation finalization timed out, assuming no leader was elected"
+                            );
+
+                            // NOTE: EDGE CASE
+                            //
+                            // It is possible, but unlikely, that the submission VRF threshold
+                            // computation does not select ANY attestor for submission. In this
+                            // case, there is no point in re-computing the VRF threshold at the same
+                            // height, as it will yield the same result. To avoid this, we keep
+                            // track of the number of attempts to submit an attestation and take
+                            // that into account in the VRF computation.
+                            self.attempts += 1;
+                            self.submit_attestations(attestations, height_first, height_last).await.transpose()?;
+
+                            return Ok(());
+                        }
+                        // WARNING: ERROR HANDLING
+                        //
+                        // From the tokio docs:
+                        //
+                        // > Returns a RecvError if the channel has been closed AND the current value is
+                        // > seen.
+                        //
+                        // This only errors if the receiving end of this channel has been dropped, which
+                        // can happen during shutdown. This is not a failure case!
+                        Ok(()) = self.receiver_attestation_latest.changed() => {}
+                    }
+                }
+
+                // Extra check needed because of potential timeout
+                if (*self.receiver_attestation_latest.borrow())
+                    .is_some_and(|attestation_latest| attestation_latest >= height_last)
+                {
+                    tracing::info!(
+                        height_first,
+                        height_last,
+                        "✅ Attestation submitted externally"
+                    );
+
+                    // NOTE: EDGE CASE
+                    //
+                    // It is possible, but unlikely, that the submission VRF threshold computation
+                    // does not select ANY attestor for submission. In this case, there is no point
+                    // in re-computing the VRF threshold at the same height, as it will yield the
+                    // same result. To avoid this, we keep track of the number of attempts to submit
+                    // an attestation and take that into account in the VRF computation.
+                    self.attempts = 0;
+                }
+            }
+        }
+
+        // --------------------------------* Attestation batching *--------------------------------
+
+        if let Ok(Some((
+            pool::BatchInfo {
+                digest_first,
+                digest_last,
+                height_first,
+                height_last,
+            },
+            batch,
+        ))) = self.receiver_validation.batch_take()
+        {
+            // CASE 1] A BATCH IS READY
+            //
+            // Submit that batch and wait for it to be validated by the runtime as part of the
+            // typical `WorkerAttestationValidation::task` event loop.
+
+            tracing::info!(
+                ?digest_first,
+                %digest_last,
+                height_first,
+                height_last,
+                "🛫 Submitting attestation batch"
+            );
+
+            self.submit_attestations(batch, height_first, height_last)
+                .await
+                .transpose()?;
+        } else {
+            // CASE 2] NO BATCH
+            //
+            // Default to waiting for the next quorum which will be submitted immediately on
+            // local validation.
+            self.watch_submission = future::OptionFuture::default();
+        }
+
+        Ok(())
+    }
+
+    async fn handle_event_shutdown(&mut self) -> common::types::Result<()> {
+        Ok(())
+    }
+}
+
+impl WorkerAttestationValidation {
+    async fn quorum_aggregate(
+        &mut self,
+        quorum: pool::Quorum,
+        digest_local: Option<cc_client::H256>,
+        digest: attestor_primitives::Digest,
+        height: common::types::Height,
+        chain_key: attestor_primitives::ChainKey,
+    ) -> Option<Result<common::types::AttestationSigned, Error>> {
+        use bls_signatures::Serialize as _;
+        use rand::seq::SliceRandom as _;
+        use rand::SeedableRng as _;
+
+        const MAX_ATTEMPTS: usize = 10;
+        const DELAY_BASE: u64 = 10;
+        const DELAY_MAX: u64 = 90;
+
+        let mut attempt = 0;
+        let mut delay = DELAY_BASE;
+
+        let runtime_api = match self.api.runtime_api().at_latest().await {
+            Ok(runtime_api) => runtime_api,
+            Err(err) => return Some(Err(Error::SubxtError(err))),
+        };
+
+        // -----------------------------------* Pre-validation *-----------------------------------
+
+        // STEP 1] PRELIMINARY CHECKS
+        //
+        // This ensures we are not dealing with a duplicate vote or an invalid source chain.
+
+        let is_chain_supported = loop {
+            let call = self
+                .api_calls
+                .supported_chains_api()
+                .is_chain_supported(chain_key);
+            match runtime_api.call(call).await {
+                Ok(is_chain_supported) => break is_chain_supported,
+                Err(err) => {
+                    attempt += 1;
+
+                    tracing::debug!(
+                        attempt,
+                        MAX_ATTEMPTS,
+                        "Failed to retrieve supported chain, retrying..."
+                    );
+
+                    if attempt >= MAX_ATTEMPTS {
+                        return Some(Err(Error::SubxtError(err)));
+                    }
+                }
+            };
+
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
+                _ = tokio::signal::ctrl_c() => return None
+            }
+
+            delay = (delay * 2).min(DELAY_MAX);
+        };
+
+        if !is_chain_supported {
+            tracing::error!(
+                %digest,
+                height,
+                chain_key,
+                "⛔ Unsupported source chain"
+            );
+            return Some(Err(Error::InvalidAttestation(InvalidCause::Unsupported(
+                chain_key,
+            ))));
+        }
+
+        let is_duplicate = loop {
+            let call = self.api_calls.attestor_api().contains_digest(
+                chain_key,
+                cc_client::H256(digest.0),
+                height,
+            );
+            match runtime_api.call(call).await {
+                Ok(is_duplicate) => break is_duplicate,
+                Err(err) => {
+                    attempt += 1;
+
+                    tracing::debug!(
+                        attempt,
+                        MAX_ATTEMPTS,
+                        "Failed to retrieve attestation digest, retrying..."
+                    );
+
+                    if attempt >= MAX_ATTEMPTS {
+                        return Some(Err(Error::SubxtError(err)));
+                    }
+                }
+            };
+
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
+                _ = tokio::signal::ctrl_c() => return None
+            }
+
+            delay = (delay * 2).min(DELAY_MAX);
+        };
+
+        if is_duplicate {
+            tracing::debug!(
+                %digest,
+                height,
+                "Attestation already exists"
+            );
+            return Some(Err(Error::InvalidAttestation(InvalidCause::Duplicate)));
+        }
+
+        // Uses ChaCha under the hood
+        let mut rng = rand::rngs::StdRng::from_os_rng();
+
+        // WARNING: as an optimization, we assume that each attestation in the quorum attests to
+        // the same vote (this guarantee is upheld by the attestation pool). In later stages of
+        // attestation validation, we use this to pick only one attestation to validate (after
+        // attestor eligibility has been checked). Still, it is probably not a good idea to have
+        // the attestation we select for further validation be deterministic, so we make this
+        // unpredictable by shuffling the votes (just in case something DOES go wrong and an
+        // attacker manages to find a way to insert a malicious attestation in a valid quorum).
+        let mut votes = quorum.votes();
+        votes.shuffle(&mut rng);
+
+        // ---------------------------------* Attestor validation *--------------------------------
+
+        for attestation in votes.iter() {
+            let attestor_id = attestation.attestor.clone();
+
+            tracing::debug!(
+                %digest,
+                height,
+                %attestor_id,
+                "Checking attestor eligibility"
+            );
+
+            // STEP 2] VERIFY THE ATTESTATION BLS SIGNATURE
+            //
+            // This checks the BLS signature with the public key the attestor provided when it
+            // registered on chain, which also enforces that the vote should come from a registered
+            // attestor.
+
+            tracing::debug!(
+                %digest,
+                height,
+                %attestor_id,
+                "Checking attestion bls signature"
+            );
+
+            let pubkey = loop {
+                let attestor: &[u8; 32] = attestor_id.account_id().as_ref();
+                let call = self
+                    .api_calls
+                    .attestor_api()
+                    .attestor_bls_pubkey(attestation.chain_key(), (*attestor).into());
+                match runtime_api.call(call).await {
+                    Ok(pubkey) => {
+                        break pubkey.map(|pubkey| bls_signatures::PublicKey::from_bytes(&pubkey))
+                    }
+                    Err(err) => {
+                        attempt += 1;
+
+                        tracing::debug!(
+                            attempt,
+                            MAX_ATTEMPTS,
+                            "Failed to retrieve attestor bls pubkey, retrying..."
+                        );
+
+                        if attempt >= MAX_ATTEMPTS {
+                            return Some(Err(Error::SubxtError(err)));
+                        }
+                    }
+                }
+
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
+                    _ = tokio::signal::ctrl_c() => return None
+                }
+
+                delay = (delay * 2).min(DELAY_MAX);
+            };
+
+            match pubkey {
+                Some(Ok(pubkey)) => {
+                    let msg = attestation.attestation_data.serialize();
+                    if pubkey.verify(attestation.signature_bls.0, &msg) {
+                        tracing::debug!(
+                            %digest,
+                            height,
+                            %attestor_id,
+                            "Valid attestion bls signature"
+                        )
+                    } else {
+                        tracing::error!(
+                            %digest,
+                            height,
+                            %attestor_id,
+                            "⛔ Invalid Attestor bls signature"
+                        );
+                        return Some(Err(Error::InvalidAttestation(InvalidCause::InvalidBls)));
+                    }
+                }
+                Some(Err(..)) => {
+                    tracing::error!(
+                        %digest,
+                        height,
+                        %attestor_id,
+                        "⛔ Attestor is registered with an invalid bls public key"
+                    );
+                    return Some(Err(Error::InvalidAttestation(InvalidCause::InvalidBls)));
+                }
+                None => {
+                    tracing::error!(
+                        %digest,
+                        height,
+                        %attestor_id,
+                        "⛔ Attestor is not registered on-chain"
+                    );
+                    return Some(Err(Error::InvalidAttestation(InvalidCause::InvalidBls)));
+                }
+            }
+        }
+
+        tracing::debug!(
+            %digest,
+            height,
+            "All attestors are eligible to vote"
+        );
+
+        // -------------------------------* Attestation validation *-------------------------------
+
+        // STEP 3] VERIFY THE ATTESTATION CONTINUITY CHAIN
+        //
+        // This ensures that new votes follow the established continuity of the source chain as
+        // previously attested.
+
+        let attestation = votes
+            .first()
+            .expect("Invariant violated: quorum must always contain at least one vote");
+
+        // Every attestation must have a continuity proof except for the first attestation in the
+        // chain
+        if attestation.continuity_proof.is_empty() && height != 0 {
+            tracing::error!(
+                %digest,
+                height,
+                "⛔ Empty continuity proof"
+            );
+            return Some(Err(Error::InvalidAttestation(
+                InvalidCause::EmptyContinuityProof,
+            )));
+        }
+
+        let digest_last_finalized = loop {
+            let call = self.api_calls.attestor_api().last_digest(chain_key);
+            match runtime_api.call(call).await {
+                Ok(digest_last_finalized) => break digest_last_finalized,
+                Err(err) => {
+                    attempt += 1;
+
+                    tracing::debug!(
+                        attempt,
+                        MAX_ATTEMPTS,
+                        "Failed to retrieve last finalized digest, retrying..."
+                    );
+
+                    if attempt >= MAX_ATTEMPTS {
+                        return Some(Err(Error::SubxtError(err)));
+                    }
+                }
+            };
+
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
+                _ = tokio::signal::ctrl_c() => return None
+            }
+
+            delay = (delay * 2).min(DELAY_MAX);
+        };
+
+        let digest_last_finalized = digest_last_finalized.unwrap_or_else(|| {
+            tracing::debug!(
+                %digest,
+                height,
+                "No last digest or checkpoint, assuming genesis"
+            );
+            cc_client::H256::zero()
+        });
+
+        // -------------------------------------* Prev digest *------------------------------------
+
+        tracing::debug!(
+            %digest,
+            height,
+            "Checking attestion prev digest"
+        );
+
+        match attestation.prev_digest() {
+            // NOTE: we don't need to check against `self.digest_local` here since it can only ever
+            // be ahead of `digest_last_finalized`.
+            Some(digest_prev) if digest_prev.is_zero() && !digest_last_finalized.is_zero() => {
+                tracing::error!(
+                    %digest,
+                    digest_prev = ?Some(digest_prev),
+                    height,
+                    "⛔ Empty prev digest despite already having finalized attestations on-chain"
+                );
+                return Some(Err(Error::InvalidAttestation(
+                    InvalidCause::EmptyPrevDigest,
+                )));
+            }
+            None if !digest_last_finalized.is_zero() => {
+                tracing::error!(
+                    %digest,
+                    height,
+                    "⛔ No prev digest despite already having finalized attestations on-chain"
+                );
+                return Some(Err(Error::InvalidAttestation(
+                    InvalidCause::EmptyPrevDigest,
+                )));
+            }
+            _ => {
+                tracing::debug!(
+                    %digest,
+                    height,
+                    "Valid attestation prev digest"
+                )
+            }
+        }
+
+        tracing::debug!(
+            %digest,
+            height,
+            "Checking attestion continuity proof"
+        );
+
+        // -------------------------------------* Head digest *------------------------------------
+
+        // The head digest of an attestation's continuity chain must match its prev digest
+        if let Some(head) = attestation.continuity_proof.head() {
+            let digest_head = head.digest;
+            let digest_prev = attestation.prev_digest().unwrap_or_default();
+
+            if digest_head != digest_prev {
+                tracing::error!(
+                    %digest,
+                    digest_prev = ?Some(digest_prev),
+                    height,
+                    actual = %digest_head,
+                    expected = %digest_prev,
+                    "⛔ Invalid attestation continuity chain head digest"
+                );
+                return Some(Err(Error::InvalidAttestation(
+                    InvalidCause::InvalidContinuityHeadDigest {
+                        actual: digest_head,
+                        expected: digest_prev,
+                    },
+                )));
+            } else {
+                tracing::debug!(
+                    %digest,
+                    digest_prev = ?Some(digest_prev),
+                    height,
+                    "Valid attestation prev head digest"
+                )
+            }
+        }
+
+        // -------------------------------------* Tail digest *------------------------------------
+
+        // The tail prev digest of an attestation's continuity chain must match the digest of the
+        // last finalized attestation.
+        //
+        // In previous versions of the attestor software, it was possible for attestation to lag
+        // behind block production, which would lead to the prev digest not matching the last
+        // finalized digest.
+        //
+        // Importantly, strict ordering was not being enforced on attestations, such that the range
+        // of source chain blocks being attested to between attestations could overlap. This lead
+        // to a situations where attestations which attested to past source chain blocks could be
+        // received for validation AFTER a future attestation had been finalized, which would have
+        // led to the tail prev digest and latest finalized digest not matching anymore.
+        //
+        // With the new p2p attestation aggregation and attestation pool implementation,
+        // attestations follow a strict ordering in their production. This has the advantage of
+        // cutting down on duplicate work (since attestations at different heights no longer attest
+        // to overlapping block ranges) but it also makes it so that each attestation chain follows
+        // a predictable prev digest. This prev digest is either the latest finalized attestation
+        // or the latest local attestation, whichever is highest.
+        //
+        // Since we enforce strict ordering in attestation production and validation, AND we no
+        // longer generate attestations with overlapping block ranges, this means that if an
+        // attestation's tail prev digest does not match the latest finalized digest, then this
+        // attestation is either:
+        //
+        // - Invalid.
+        // - Already committed on chain.
+        //
+        // In both cases this can only happen if other attestors have already reached quorum on an
+        // attestation at the same height and submitted it on chain. In practice, this will happen
+        // often if we race multiple attestors to submission. However, unlike previously where an
+        // attestation might contain new overlapping data, no new data can be committed to this way
+        // and we can drop the attestation quorum.
+        if let Some(tail) = attestation.continuity_proof.tail() {
+            let digest_prev_tail = cc_client::H256(tail.prev_digest.0);
+
+            if digest_prev_tail != digest_last_finalized
+                && digest_local.is_none_or(|digest_local| digest_prev_tail != digest_local)
+            {
+                tracing::error!(
+                    %digest,
+                    %digest_prev_tail,
+                    %digest_last_finalized,
+                    ?digest_local,
+                    height,
+                    "⛔ Invalid attestation continuity chain tail digest"
+                );
+                return Some(Err(Error::InvalidAttestation(
+                    InvalidCause::InvalidContinuityTailDigest {
+                        actual: digest_prev_tail,
+                        expected: digest_last_finalized,
+                    },
+                )));
+            } else {
+                tracing::debug!(
+                    %digest,
+                    %digest_prev_tail,
+                    height,
+                    "Valid attestation tail digest"
+                )
+            }
+        }
+
+        // ----------------------------------* Continuity proof *----------------------------------
+
+        // Checks that each block in the continuity proof follows a matching chain of digests,
+        // starting from the latest finalized digest
+        let mut digest_prev_continuity = digest_last_finalized;
+        for block in attestation.continuity_proof.iter() {
+            let digest_prev_block = cc_client::H256(block.prev_digest.0);
+
+            if digest_prev_block != digest_prev_continuity
+                && digest_local.is_none_or(|digest_local| digest_prev_block != digest_local)
+            {
+                tracing::error!(
+                    %digest,
+                    height,
+                    %digest_prev_block,
+                    %digest_prev_continuity,
+                    ?digest_local,
+                    block_height = block.block_number,
+                    "⛔ Invalid attestation continuity chain"
+                );
+                return Some(Err(Error::InvalidAttestation(
+                    InvalidCause::InvalidContinuityProof {
+                        block: block.clone(),
+                        expected: digest_prev_continuity,
+                    },
+                )));
+            }
+
+            digest_prev_continuity = cc_client::H256(block.digest.0);
+        }
+
+        tracing::debug!(
+            %digest,
+            height,
+            "Valid attestation continuity proof"
+        );
+
+        // ------------------------------* BLS signature aggregation *-----------------------------
+
+        let sigs = votes
+            .iter()
+            .map(|att| att.signature_bls.0)
+            .collect::<Vec<_>>();
+        let bls_aggregate = match bls_signatures::aggregate(&sigs) {
+            Ok(bls_aggregate) => match bls_aggregate.as_bytes().try_into() {
+                Ok(bls_aggregate) => bls_aggregate,
+                Err(err) => return Some(Err(Error::InvalidBls(err))),
+            },
+            Err(err) => return Some(Err(Error::BlsError(err))),
+        };
+
+        tracing::debug!(
+            %digest,
+            height,
+            sigs = sigs.len(),
+            bls = alloy::hex::encode_upper(bls_aggregate),
+            "Aggregated all attestation BLS signatures"
+        );
+
+        let attestors = votes.iter().map(|att| att.attestor.clone()).collect();
+        let attestation = votes
+            .pop()
+            .expect("Invariant violated: quorum must always contain at least one vote");
+
+        Some(Ok(attestor_primitives::SignedAttestation {
+            attestation: attestation.attestation_data,
+            signature: bls_aggregate,
+            attestors,
+            continuity_proof: attestation.continuity_proof,
+        }))
+    }
+}
+
+// ----------------------------------------- [ HELPERS ] --------------------------------------- //
+
+enum AttestationSubmission {
+    Elligible(Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>),
+    NotElligible(
+        Vec<
+            cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
+                cc_client::H256,
+                cc_client::AccountId32,
+            >,
+        >,
+    ),
+}
+
+impl WorkerAttestationValidation {
+    async fn submit_attestations(
+        &mut self,
+        attestations: Vec<
+            cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
+                cc_client::H256,
+                cc_client::AccountId32,
+            >,
+        >,
+        height_first: common::types::Height,
+        height_last: common::types::Height,
+    ) -> Option<Result<(), Error>> {
+        use futures::FutureExt as _;
+
+        const MAX_ATTEMPTS: usize = 5;
+        const DELAY_BASE: u64 = 10;
+        const DELAY_MAX: u64 = 60;
+
+        let mut attempt = 0;
+        let mut delay = DELAY_BASE;
+
+        match self
+            .cc3
+            .sign_vrf_submission(height_first + self.attempts as common::types::Height)
+            .await
+        {
+            // TODO: have the runtime validate the submission vrf
+            //
+            // Note that this will require being able to retrieve the randomness of past epochs so
+            // the runtime can use the same epoch in validating the vrf as used during generation.
+            Ok(Some(_)) => {
+                let attestations =
+                    cc_client::cc3::runtime_types::bounded_collections::bounded_vec::BoundedVec(
+                        attestations,
+                    );
+
+                let call = cc_client::cc3::tx()
+                    .attestation()
+                    .commit_attestation(attestations);
+
+                let submit = loop {
+                    match self
+                        .api
+                        .tx()
+                        .sign_and_submit_then_watch_default(&call, &self.keypair)
+                        .await
+                    {
+                        Ok(submit) => break submit,
+                        Err(err) => {
+                            attempt += 1;
+
+                            tracing::debug!(
+                                attempt,
+                                MAX_ATTEMPTS,
+                                height_first,
+                                height_last,
+                                "Failed to submit attestation, retrying..."
+                            );
+
+                            if attempt >= MAX_ATTEMPTS {
+                                return Some(Err(Error::SubxtError(err)));
+                            }
+                        }
+                    }
+
+                    tokio::select! {
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
+                        _ = tokio::signal::ctrl_c() => return None
+                    }
+
+                    delay = (delay * 2).min(DELAY_MAX);
+                };
+
+                let watch = submit.wait_for_finalized_success().map(move |res| {
+                    (
+                        AttestationSubmission::Elligible(res),
+                        height_first,
+                        height_last,
+                    )
+                });
+
+                self.watch_submission = Some(watch).into();
+            }
+            Ok(None) => {
+                tracing::info!(
+                    height_first,
+                    height_last,
+                    "🚦 Attestor was not selected for attestation submission"
+                );
+
+                self.watch_submission = Some(std::future::ready((
+                    AttestationSubmission::NotElligible(attestations),
+                    height_first,
+                    height_last,
+                )))
+                .into();
+            }
+            Err(err) => return Some(Err(Error::CC3Error(err))),
+        }
+
+        Some(Ok(()))
+    }
+}

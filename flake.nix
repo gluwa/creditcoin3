@@ -48,7 +48,7 @@
       in {
         node = pkgs.writeScriptBin "node" ''
           ${shebang}
-          ${cargo-run} creditcoin3-node -- --dev --tmp
+          ${cargo-run} creditcoin3-node -- --dev --tmp --log=info,pallet_attestation_poc=debug
         '';
 
         anvil = pkgs.writeScriptBin "anvil" ''
@@ -58,8 +58,14 @@
 
         zombienet = pkgs.writeScriptBin "zombienet" ''
           ${shebang}
-          cd attestor_zombienet
-          ../target/release/attestor_zombienet --cc3-key "//Alice"
+          cargo build --release -p attestor_new
+          cargo run --release -p attestor_new_zombienet -- \
+            -n 3                                           \
+            --bin=./target/release/attestor                \
+            --eth-url=ws://localhost:8545                  \
+            --cc3-url=ws://localhost:9944                  \
+            --funding-address='//Alice'                    \
+            --config=./attestor_new/config.yaml
         '';
 
         prover = pkgs.writeScriptBin "prover" ''
@@ -168,11 +174,6 @@
           SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
           VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
           export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
-
-          # Setup Python environment
-          python3 -m venv ~/cairo_venv
-          source ~/cairo_venv/bin/activate
-          pip install -r prover/requirements.txt 1>/dev/null
         '';
       };
     });

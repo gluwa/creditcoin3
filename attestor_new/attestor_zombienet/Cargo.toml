@@ -1,0 +1,38 @@
+[package]
+name = "attestor_new_zombienet"
+
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+# Creditcoin
+attestor-primitives = { workspace = true }
+attestor_new = { path = "../attestor" }
+bip39 = { version = "2.2.0", features = ["rand", "serde"] }
+cc-client = { workspace = true }
+eth = { workspace = true }
+subxt = { workspace = true }
+subxt-signer = { workspace = true }
+
+# Async
+tokio = { workspace = true, features = ["signal", "process"] }
+tokio-tungstenite = { workspace = true, features = ["url"] }
+
+# Parsing
+clap = { workspace = true, features = ["cargo"] }
+url = { workspace = true, features = ["serde"] }
+
+# Logging
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+
+# Errors
+anyhow = { workspace = true }
+
+# Other
+chrono = "0.4.42"

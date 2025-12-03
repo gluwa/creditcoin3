@@ -29,7 +29,7 @@ use sp_core::H256;
 use std::str::FromStr;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
-use tracing::{debug, error, info};
+use tracing::{error, info, trace};
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
 pub use alloy::core::primitives::Address;
@@ -72,6 +72,8 @@ pub enum Error {
     HexDecodingError(#[from] FromHexError),
     #[error("Failed to get block by hash {0}")]
     FailedToGetBlockByHash(String),
+    #[error("Failed to path rpc url {0}")]
+    UrlParseError(#[from] url::ParseError),
 }
 
 #[derive(Debug, Clone)]
@@ -179,8 +181,8 @@ impl OrderedBlock {
     pub fn number(&self) -> u64 {
         self.number
     }
-    pub fn hash(&self) -> Option<BlockHash> {
-        Some(self.hash)
+    pub fn hash(&self) -> BlockHash {
+        self.hash
     }
     pub fn items(&self) -> &[TxRx] {
         &self.items[..]
@@ -250,7 +252,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn new(url: &str, private_key: Option<&str>) -> Result<Self> {
+    pub async fn new(url: &str, private_key: Option<&str>) -> Result<Self, Error> {
         let url = Url::parse(url)?;
         let url_scheme = url.scheme();
 
@@ -271,7 +273,8 @@ impl Client {
                 return Err(anyhow::anyhow!(
                     "Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {}",
                     url_scheme
-                ));
+                )
+                .into());
             }
         };
 
@@ -338,25 +341,55 @@ impl Client {
         &self,
         number: u64,
         encoding: EncodingVersion,
-    ) -> Result<OrderedBlock, Error> {
-        debug!(
+    ) -> Option<Result<OrderedBlock, Error>> {
+        trace!(
             "Getting block {:?}",
             BlockId::Number(BlockNumberOrTag::Number(number))
         );
 
-        let get_eth_block_fut = self.get_eth_block(number);
-        let get_eth_receipts_fut = self.get_receipts(number);
+        const MAX_ATTEMPTS: usize = 5;
+        const DELAY_BASE: u64 = 10;
+        const DELAY_MAX: u64 = 60;
 
-        let (block, receipts) =
-            futures::future::try_join(get_eth_block_fut, get_eth_receipts_fut).await?;
+        let mut attempt = 0;
+        let mut delay = DELAY_BASE;
+
+        let (block, receipts) = loop {
+            let get_eth_block_fut = self.get_eth_block(number);
+            let get_eth_receipts_fut = self.get_receipts(number);
+
+            match futures::future::try_join(get_eth_block_fut, get_eth_receipts_fut).await {
+                Ok((block, receipts)) => break (block, receipts),
+                Err(err) => {
+                    attempt += 1;
+
+                    tracing::debug!(
+                        attempt,
+                        MAX_ATTEMPTS,
+                        "Failed to retreive eth block, retrying..."
+                    );
+
+                    if attempt >= MAX_ATTEMPTS {
+                        return Some(Err(err));
+                    }
+                }
+            }
+
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(delay)) => {},
+                _ = tokio::signal::ctrl_c() => return None
+            }
+
+            delay = (delay * 2).min(DELAY_MAX);
+        };
 
         if block.transactions.len() != receipts.len() {
-            return Err(Error::TransactionsReceiptsMismatch(number));
+            return Some(Err(Error::TransactionsReceiptsMismatch(number)));
         }
 
         let transactions = block.transactions.into_transactions().collect::<Vec<_>>();
 
-        OrderedBlock::try_create(
+        let block = OrderedBlock::try_create(
             self.chain_id,
             number,
             block.header.hash,
@@ -364,29 +397,9 @@ impl Client {
             receipts,
             encoding,
         )
-        .map_err(Error::TransactionConversion)
-    }
+        .map_err(Error::TransactionConversion);
 
-    pub async fn get_raw_block(&self, number: u64) -> Result<OrderedRawBlock, Error> {
-        let get_eth_block_fut = self.get_eth_block(number);
-        let get_eth_receipts_fut = self.get_receipts(number);
-
-        let (block, receipts) =
-            futures::future::try_join(get_eth_block_fut, get_eth_receipts_fut).await?;
-
-        if block.transactions.len() != receipts.len() {
-            return Err(Error::TransactionsReceiptsMismatch(number));
-        }
-
-        let transactions = block.transactions.into_transactions().collect::<Vec<_>>();
-
-        Ok(OrderedRawBlock::new(
-            Some(self.chain_id),
-            number,
-            block.header.hash,
-            transactions,
-            receipts,
-        ))
+        Some(block)
     }
 
     async fn get_receipts(&self, number: u64) -> Result<Vec<TransactionReceipt>, Error> {

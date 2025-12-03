@@ -31,7 +31,6 @@ pub struct Config {
     pub enable_prometheus_metrics: bool,
     pub prometheus_host: String,
     pub prometheus_port: u16,
-    //pub bls_key: [u8; 32],
 }
 
 impl Server {

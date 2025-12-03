@@ -291,6 +291,17 @@ impl From<&Block> for BlockSerializable {
     }
 }
 
+impl From<Block> for BlockSerializable {
+    fn from(b: Block) -> Self {
+        Self {
+            block_number: b.block_number,
+            root: b.root,
+            prev_digest: b.prev_digest,
+            digest: b.digest,
+        }
+    }
+}
+
 impl From<BlockSerializable> for Block {
     fn from(val: BlockSerializable) -> Self {
         Block {

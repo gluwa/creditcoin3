@@ -13,7 +13,6 @@ use attestor_primitives::{
     ChainEncodingVersion, ChainId, ChainKey, SignedAttestation,
 };
 use creditcoin3_attestor_gossip::communication::Attestation;
-use vrf::ProofOfInclusion;
 
 use crate::error::Error;
 
@@ -246,7 +245,6 @@ impl Client {
         &self,
         attestation: AttestationPrimitive<H>,
         continuity_proof: AttestationFragmentSerializable,
-        vrf_output: ProofOfInclusion,
         epoch: u64,
     ) -> Attestation<H, AttestorId>
     where
@@ -263,21 +261,11 @@ impl Client {
         Attestation {
             attestation_data: attestation,
             attestor: self.inner.get_attestor_id(),
-            proof_of_inclusion: vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             signature_bls: attestor_primitives::bls::WrapEncode(signature_bls),
             continuity_proof,
             epoch,
         }
-    }
-
-    pub async fn sign_vrf(&self, header_number: u64) -> Result<ProofOfInclusion, Error> {
-        let (randomness, epoch_index) = self.inner.fetch_babe_randomness_two_epoch_ego().await?;
-
-        Ok(self
-            .inner
-            .sign_babe_vrf(self.get_chain_key(), header_number, randomness, epoch_index)
-            .await?)
     }
 
     pub async fn get_last_attestation(

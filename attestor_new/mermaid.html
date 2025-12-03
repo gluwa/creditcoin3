@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<style>
+  :root {
+    --overlay-bg: rgba(0, 0, 0, 0.9);
+    --container-bg: white;
+    --container-dark-bg: #1e1e1e;
+    --close-btn-bg: #f44336;
+    --close-btn-hover: #d32f2f;
+    --action-btn-bg: #D2991D;
+    --action-btn-hover: #B8821A;
+  }
+
+  .mermaid-fullscreen-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: var(--overlay-bg);
+    z-index: 10000;
+    cursor: pointer;
+    animation: fadeIn 0.2s;
+  }
+
+  .mermaid-fullscreen-container {
+    position: absolute;
+    inset: 2%;
+    background: var(--container-bg);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    cursor: default;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+  }
+
+  .mermaid-fullscreen-container.dark {
+    background: var(--container-dark-bg);
+  }
+
+  .mermaid-button-group {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 12px;
+    z-index: 1;
+  }
+
+  .mermaid-action-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    color: white;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.1s;
+    padding: 0;
+  }
+
+  .mermaid-action-btn:hover {
+    transform: scale(1.05);
+  }
+
+  .mermaid-action-btn:active {
+    transform: scale(0.95);
+  }
+
+  .mermaid-action-btn svg {
+    width: 18px;
+    height: 18px;
+    fill: white;
+  }
+
+  .mermaid-copy-btn,
+  .mermaid-save-btn {
+    background: var(--action-btn-bg);
+  }
+
+  .mermaid-copy-btn:hover,
+  .mermaid-save-btn:hover {
+    background: var(--action-btn-hover);
+  }
+
+  .mermaid-close-btn {
+    background: var(--close-btn-bg);
+    font-size: 20px;
+    font-weight: bold;
+    line-height: 1;
+  }
+
+  .mermaid-close-btn:hover {
+    background: var(--close-btn-hover);
+  }
+
+  .mermaid-diagram-wrapper {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+  }
+
+  .mermaid-diagram-wrapper svg {
+    max-width: 100% !important;
+    max-height: 100% !important;
+  }
+
+  .mermaid-clickable {
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .mermaid-clickable:hover {
+    transform: scale(1.02);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .mermaid-copy-feedback {
+    position: absolute;
+    top: 50px;
+    right: 10px;
+    background: var(--container-bg);
+    color: #333;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 2;
+    opacity: 0;
+    animation: fadeInOut 1s ease-in-out;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .mermaid-copy-feedback.dark {
+    background: var(--container-dark-bg);
+    color: #e0e0e0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes fadeInOut {
+    0% { opacity: 0; transform: translateY(-10px); }
+    15% { opacity: 1; transform: translateY(0); }
+    85% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-10px); }
+  }
+</style>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+  // Helper: Get current theme
+  const getTheme = () => {
+    const theme = localStorage.getItem('rustdoc-theme');
+    return (theme === 'dark' || theme === 'ayu') ? 'dark' : 'default';
+  };
+
+  // Initialize mermaid
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: getTheme()
+  });
+
+  // Track processed diagrams (Map for re-rendering on theme change)
+  const processedDiagrams = new Map();
+  let currentTheme = getTheme();
+  let activeOverlay = null;
+
+  // Helper: Close overlay with cleanup
+  const closeOverlay = (overlay, escHandler) => {
+    overlay?.remove();
+    if (escHandler) {
+      document.removeEventListener('keydown', escHandler);
+    }
+    if (activeOverlay?.overlay === overlay) {
+      activeOverlay = null;
+    }
+  };
+
+  // Helper: Scale SVG to fit container
+  const scaleSVG = (svg) => {
+    if (!svg) return;
+    svg.style.maxWidth = '100%';
+    svg.style.maxHeight = '100%';
+  };
+
+  // Helper: Render a mermaid diagram into a wrapper element
+  const renderMermaidToWrapper = async (wrapper, mermaidText) => {
+    try {
+      const uniqueId = `mermaid-${Date.now()}`;
+      const { svg } = await mermaid.render(uniqueId, mermaidText);
+      wrapper.innerHTML = svg;
+      scaleSVG(wrapper.querySelector('svg'));
+    } catch (error) {
+      console.error('Failed to render mermaid diagram:', error);
+      wrapper.innerHTML = '<p style="color: red;">Failed to render diagram</p>';
+    }
+  };
+
+  // Helper: Save SVG diagram as file
+  const saveSVGDiagram = (diagramWrapper) => {
+    try {
+      const svg = diagramWrapper.querySelector('svg');
+      if (!svg) {
+        console.error('No SVG found to save');
+        return;
+      }
+
+      // Clone SVG to avoid modifying the displayed version
+      const svgClone = svg.cloneNode(true);
+
+      // Serialize SVG to string
+      const svgData = new XMLSerializer().serializeToString(svgClone);
+      const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `mermaid-diagram-${Date.now()}.svg`;
+
+      // Trigger download
+      document.body.appendChild(link);
+      link.click();
+
+      // Clean up
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to save SVG diagram:', error);
+    }
+  };
+
+  // Helper: Copy mermaid source to clipboard
+  const copyMermaidSource = async (mermaidText, container) => {
+    try {
+      await navigator.clipboard.writeText(mermaidText);
+      showCopyFeedback(container);
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+      // Fallback for older browsers
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = mermaidText;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        showCopyFeedback(container);
+      } catch (fallbackError) {
+        console.error('Fallback copy also failed:', fallbackError);
+      }
+    }
+  };
+
+  // Helper: Show copy success feedback
+  const showCopyFeedback = (container) => {
+    const feedback = document.createElement('div');
+    feedback.className = `mermaid-copy-feedback${getTheme() === 'dark' ? ' dark' : ''}`;
+    feedback.textContent = 'Copied to clipboard!';
+    container.appendChild(feedback);
+
+    // Remove after animation completes
+    setTimeout(() => {
+      feedback.remove();
+    }, 1000);
+  };
+
+  // Helper: Render diagram in fullscreen
+  const renderFullscreen = async (mermaidText) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'mermaid-fullscreen-overlay';
+    overlay.style.display = 'block';
+
+    const container = document.createElement('div');
+    container.className = `mermaid-fullscreen-container${getTheme() === 'dark' ? ' dark' : ''}`;
+
+    // Create button group
+    const buttonGroup = document.createElement('div');
+    buttonGroup.className = 'mermaid-button-group';
+
+    // Copy button
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'mermaid-action-btn mermaid-copy-btn';
+    copyBtn.title = 'Copy source code';
+    copyBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>`;
+
+    // Save button
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'mermaid-action-btn mermaid-save-btn';
+    saveBtn.title = 'Save as SVG';
+    saveBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>`;
+
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'mermaid-action-btn mermaid-close-btn';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.title = 'Close (ESC)';
+
+    buttonGroup.append(copyBtn, saveBtn, closeBtn);
+
+    const diagramWrapper = document.createElement('div');
+    diagramWrapper.className = 'mermaid-diagram-wrapper';
+
+    container.append(buttonGroup, diagramWrapper);
+    overlay.appendChild(container);
+    document.body.appendChild(overlay);
+
+    // Store reference to active overlay and its elements
+    activeOverlay = { overlay, container, diagramWrapper, mermaidText };
+
+    // ESC key handler
+    const escHandler = (e) => {
+      if (e.key === 'Escape') closeOverlay(overlay, escHandler);
+    };
+    document.addEventListener('keydown', escHandler);
+
+    // Button click handlers
+    copyBtn.onclick = (e) => {
+      e.stopPropagation();
+      copyMermaidSource(mermaidText, container);
+    };
+
+    saveBtn.onclick = (e) => {
+      e.stopPropagation();
+      saveSVGDiagram(diagramWrapper);
+    };
+
+    closeBtn.onclick = (e) => {
+      e.stopPropagation();
+      closeOverlay(overlay, escHandler);
+    };
+
+    overlay.onclick = (e) => {
+      if (e.target === overlay) closeOverlay(overlay, escHandler);
+    };
+
+    container.onclick = (e) => e.stopPropagation();
+
+    // Render the diagram
+    await renderMermaidToWrapper(diagramWrapper, mermaidText);
+  };
+
+  // Re-render a diagram with stored text
+  const renderDiagram = async (diagram, mermaidText) => {
+    try {
+      // Clear existing content
+      diagram.innerHTML = mermaidText;
+      diagram.removeAttribute('data-processed');
+
+      // Re-render with current theme
+      await mermaid.run({ nodes: [diagram] });
+
+      // Add fullscreen click handler
+      diagram.classList.add('mermaid-clickable');
+      diagram.title = 'Click to view fullscreen';
+      diagram.onclick = () => renderFullscreen(mermaidText);
+    } catch (error) {
+      console.error('Failed to render mermaid diagram:', error);
+    }
+  };
+
+  // Process a single mermaid diagram
+  const processMermaidDiagram = async (diagram) => {
+    if (processedDiagrams.has(diagram)) return;
+
+    const originalText = diagram.textContent;
+    processedDiagrams.set(diagram, originalText);
+    await renderDiagram(diagram, originalText);
+  };
+
+  // Update theme and re-render all diagrams
+  const updateTheme = async () => {
+    const newTheme = getTheme();
+    if (newTheme === currentTheme) return;
+
+    currentTheme = newTheme;
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: newTheme
+    });
+
+    // Re-render all processed diagrams
+    for (const [diagram, originalText] of processedDiagrams.entries()) {
+      await renderDiagram(diagram, originalText);
+    }
+
+    // Update fullscreen overlay if active
+    if (activeOverlay) {
+      const { container, diagramWrapper, mermaidText } = activeOverlay;
+      container.classList.toggle('dark', newTheme === 'dark');
+      await renderMermaidToWrapper(diagramWrapper, mermaidText);
+    }
+  };
+
+  // Process all mermaid elements in a node
+  const processNode = (node) => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    if (node.classList?.contains('mermaid')) {
+      processMermaidDiagram(node);
+    }
+    node.querySelectorAll?.('.mermaid').forEach(processMermaidDiagram);
+  };
+
+  // Process existing diagrams
+  document.querySelectorAll('.mermaid').forEach(processMermaidDiagram);
+
+  // Observe for new diagrams
+  new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach(processNode);
+
+      if (mutation.type === 'attributes' && mutation.target.classList?.contains('mermaid')) {
+        processMermaidDiagram(mutation.target);
+      }
+    });
+  }).observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class']
+  });
+
+  // Watch for theme changes on the HTML element
+  new MutationObserver(() => {
+    updateTheme();
+  }).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class', 'data-theme']
+  });
+</script>

@@ -148,7 +148,7 @@ pub fn create_checkpoint(
         last_digest = Some(attestation.digest());
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestors[0].stash.clone(),
             vec![attestation.clone()].try_into().unwrap()
         ));
     }
@@ -1959,7 +1959,7 @@ fn commit_attestation_interval_10_works() {
         log::info!("Attestation 1: {:?}", attestation_1.digest());
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash.clone(),
             vec![attestation_1.clone()].try_into().unwrap()
         ));
 
@@ -1981,7 +1981,7 @@ fn commit_attestation_interval_10_works() {
 
         // Create a second attestation since first became a checkpoint and was removed from attestations
         let attestation = create_signed_attestation(
-            vec![attestor],
+            vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
             10,
             Some(attestation_1.digest()),
@@ -1989,7 +1989,7 @@ fn commit_attestation_interval_10_works() {
         );
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash,
             vec![attestation.clone()].try_into().unwrap()
         ));
 
@@ -2030,7 +2030,7 @@ fn commit_attestation_interval_1_works() {
         log::info!("Attestation 1: {:?}", attestation_1.digest());
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash.clone(),
             vec![attestation_1.clone()].try_into().unwrap()
         ));
 
@@ -2065,7 +2065,7 @@ fn commit_attestation_interval_1_works() {
         );
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash,
             vec![attestation.clone()].try_into().unwrap()
         ));
 
@@ -2106,7 +2106,7 @@ fn commit_attestation_interval_1_fails_with_wrong_prev_digest() {
         log::info!("Attestation 1: {:?}", attestation_1.digest());
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash.clone(),
             vec![attestation_1.clone()].try_into().unwrap()
         ));
 
@@ -2143,7 +2143,7 @@ fn commit_attestation_interval_1_fails_with_wrong_prev_digest() {
         // Will error with EmptyContinuityProof because the prev digest does not match
         assert_err!(
             Attestation::commit_attestation(
-                RuntimeOrigin::none(),
+                attestor.stash,
                 vec![attestation.clone()].try_into().unwrap()
             ),
             Error::<Test>::EmptyContinuityProof
@@ -2188,7 +2188,7 @@ fn commit_attestation_should_error_on_invalid_attestation_header() {
 
         assert_err!(
             Attestation::commit_attestation(
-                RuntimeOrigin::none(),
+                attestor.stash,
                 vec![attestation_1.clone()].try_into().unwrap()
             ),
             Error::<Test>::NoFinalizedAttestation
@@ -2225,7 +2225,7 @@ fn commit_attestation_should_error_on_invalid_continuity_proof_tail() {
         let attestation_1 =
             create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash.clone(),
             vec![attestation_1.clone()].try_into().unwrap()
         ));
 
@@ -2240,7 +2240,7 @@ fn commit_attestation_should_error_on_invalid_continuity_proof_tail() {
 
         assert_err!(
             Attestation::commit_attestation(
-                RuntimeOrigin::none(),
+                attestor.stash,
                 vec![attestation_2.clone()].try_into().unwrap()
             ),
             Error::<Test>::InvalidAttestationContinuityProofTail
@@ -2277,7 +2277,7 @@ fn commit_attestation_should_error_on_invalid_prev_digest() {
         let attestation_1 =
             create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash.clone(),
             vec![attestation_1.clone()].try_into().unwrap()
         ));
 
@@ -2317,7 +2317,7 @@ fn commit_attestation_should_error_on_invalid_prev_digest() {
 
         assert_err!(
             Attestation::commit_attestation(
-                RuntimeOrigin::none(),
+                attestor.stash,
                 vec![attestation_2.clone()].try_into().unwrap()
             ),
             Error::<Test>::InvalidAttestationPrevDigest
@@ -2354,7 +2354,7 @@ fn commit_attestation_should_error_on_invalid_continuity_head() {
         let attestation_1 =
             create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash.clone(),
             vec![attestation_1.clone()].try_into().unwrap()
         ));
 
@@ -2394,7 +2394,7 @@ fn commit_attestation_should_error_on_invalid_continuity_head() {
 
         assert_err!(
             Attestation::commit_attestation(
-                RuntimeOrigin::none(),
+                attestor.stash,
                 vec![attestation_2.clone()].try_into().unwrap()
             ),
             Error::<Test>::InvalidAttestationContinuityProofHead
@@ -2431,7 +2431,7 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
         let attestation_1 =
             create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash.clone(),
             vec![attestation_1.clone()].try_into().unwrap()
         ));
 
@@ -2499,7 +2499,7 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
 
         assert_err!(
             Attestation::commit_attestation(
-                RuntimeOrigin::none(),
+                attestor.stash,
                 vec![attestation_2.clone()].try_into().unwrap()
             ),
             Error::<Test>::InvalidAttestationContinuityProofBlock
@@ -2577,7 +2577,7 @@ fn commit_attestation_should_error_on_invalid_continuity_genesis_block() {
 
         assert_err!(
             Attestation::commit_attestation(
-                RuntimeOrigin::none(),
+                attestor.stash,
                 vec![attestation_1, attestation_2.clone()]
                     .try_into()
                     .unwrap()
@@ -2588,14 +2588,14 @@ fn commit_attestation_should_error_on_invalid_continuity_genesis_block() {
 }
 
 #[test]
-fn commit_attestation_should_error_when_signed() {
+fn commit_attestation_should_error_when_unsigned() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let attestation = create_signed_attestation(vec![attestor], 1, 1, None, None);
 
         assert_noop!(
             Attestation::commit_attestation(
-                RuntimeOrigin::signed(ATTESTOR_1),
+                RuntimeOrigin::none(),
                 vec![attestation].try_into().unwrap()
             ),
             BadOrigin
@@ -2655,7 +2655,7 @@ fn commit_attestation_should_error_when_submitting_duplicate_attestation() {
         let attestation_1 = create_signed_attestation(vec![attestor.clone()], 1, 0, None, None);
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash.clone(),
             vec![attestation_1.clone()].try_into().unwrap()
         ));
 
@@ -2663,11 +2663,16 @@ fn commit_attestation_should_error_when_submitting_duplicate_attestation() {
         let result = Attestation::validate_attestation(attestation_1.chain_key(), &attestation_1);
         assert_err!(result, Error::<Test>::AttestationExists);
 
-        let attestation_2 =
-            create_signed_attestation(vec![attestor], 1, 10, Some(attestation_1.digest()), None);
+        let attestation_2 = create_signed_attestation(
+            vec![attestor.clone()],
+            1,
+            10,
+            Some(attestation_1.digest()),
+            None,
+        );
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash,
             vec![attestation_2.clone()].try_into().unwrap()
         ));
 
@@ -2778,17 +2783,22 @@ fn submitting_attestation_chain_works() {
             create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash.clone(),
             vec![attestation_1.clone()].try_into().unwrap()
         ));
 
         let digest = attestation_1.digest();
 
-        let attestation_2 =
-            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 11, Some(digest), None);
+        let attestation_2 = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            11,
+            Some(digest),
+            None,
+        );
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash.clone(),
             vec![attestation_2.clone()].try_into().unwrap()
         ));
 
@@ -2901,7 +2911,7 @@ fn creating_checkpoint_works() {
             );
             last_digest = Some(attestation.digest());
             assert_ok!(Attestation::commit_attestation(
-                RuntimeOrigin::none(),
+                attestor.stash.clone(),
                 vec![attestation.clone()].try_into().unwrap()
             ));
 
@@ -2994,7 +3004,7 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
             last_digest = Some(attestation.digest());
 
             assert_ok!(Attestation::commit_attestation(
-                RuntimeOrigin::none(),
+                attestor.stash.clone(),
                 vec![attestation.clone()].try_into().unwrap()
             ));
 
@@ -3119,7 +3129,7 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
             } else {
                 // No checkpointing this pass
                 assert_ok!(Attestation::commit_attestation(
-                    RuntimeOrigin::none(),
+                    attestor.stash.clone(),
                     vec![attestation.clone()].try_into().unwrap()
                 ));
             }
@@ -3691,20 +3701,20 @@ fn unregister_attestor_still_works_after_removing_that_attestors_chain() {
 #[test]
 fn batch_attestations_works() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestor1 = Attestor::new(STASH_1, ATTESTOR_1);
 
         assert_ok!(Attestation::register_attestor(
-            attestor.stash.clone(),
+            attestor1.stash.clone(),
             SUPPORTED_CHAIN_KEY,
-            attestor.attestor_id,
+            attestor1.attestor_id,
         ));
 
         // Toggle to active
         assert_ok!(Attestation::attest(
-            RuntimeOrigin::signed(attestor.attestor_id),
+            RuntimeOrigin::signed(attestor1.attestor_id),
             SUPPORTED_CHAIN_KEY,
-            attestor.public_key,
-            attestor.signature
+            attestor1.public_key,
+            attestor1.signature
         ));
 
         let attestor2 = Attestor::new(STASH_1, ATTESTOR_2);
@@ -3729,14 +3739,14 @@ fn batch_attestations_works() {
         progress_to_block(5);
 
         let attestation1 = create_signed_attestation(
-            vec![attestor.clone(), attestor2.clone()],
+            vec![attestor1.clone(), attestor2.clone()],
             SUPPORTED_CHAIN_KEY,
             0,
             None,
             None,
         );
         let attestation2 = create_signed_attestation(
-            vec![attestor.clone(), attestor2.clone()],
+            vec![attestor1.clone(), attestor2.clone()],
             SUPPORTED_CHAIN_KEY,
             10,
             Some(attestation1.digest()),
@@ -3744,7 +3754,7 @@ fn batch_attestations_works() {
         );
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor1.stash.clone(),
             vec![attestation1.clone(), attestation2.clone()]
                 .try_into()
                 .unwrap()
@@ -3767,20 +3777,20 @@ fn batch_attestations_works() {
 #[test]
 fn batch_attestations_duplicate_fails() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestor1 = Attestor::new(STASH_1, ATTESTOR_1);
 
         assert_ok!(Attestation::register_attestor(
-            attestor.stash.clone(),
+            attestor1.stash.clone(),
             SUPPORTED_CHAIN_KEY,
-            attestor.attestor_id,
+            attestor1.attestor_id,
         ));
 
         // Toggle to active
         assert_ok!(Attestation::attest(
-            RuntimeOrigin::signed(attestor.attestor_id),
+            RuntimeOrigin::signed(attestor1.attestor_id),
             SUPPORTED_CHAIN_KEY,
-            attestor.public_key,
-            attestor.signature
+            attestor1.public_key,
+            attestor1.signature
         ));
 
         let attestor2 = Attestor::new(STASH_1, ATTESTOR_2);
@@ -3805,14 +3815,14 @@ fn batch_attestations_duplicate_fails() {
         progress_to_block(5);
 
         let attestation1 = create_signed_attestation(
-            vec![attestor.clone(), attestor2.clone()],
+            vec![attestor1.clone(), attestor2.clone()],
             SUPPORTED_CHAIN_KEY,
             0,
             None,
             None,
         );
         let attestation2 = create_signed_attestation(
-            vec![attestor.clone(), attestor2.clone()],
+            vec![attestor1.clone(), attestor2.clone()],
             SUPPORTED_CHAIN_KEY,
             10,
             Some(attestation1.digest()),
@@ -3820,7 +3830,7 @@ fn batch_attestations_duplicate_fails() {
         );
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor1.stash.clone(),
             vec![attestation1.clone(), attestation2.clone()]
                 .try_into()
                 .unwrap()
@@ -3849,20 +3859,20 @@ fn batch_attestations_duplicate_fails() {
 #[test]
 fn batch_attestations_adding_one_on_duplicates_fails() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestor1 = Attestor::new(STASH_1, ATTESTOR_1);
 
         assert_ok!(Attestation::register_attestor(
-            attestor.stash.clone(),
+            attestor1.stash.clone(),
             SUPPORTED_CHAIN_KEY,
-            attestor.attestor_id,
+            attestor1.attestor_id,
         ));
 
         // Toggle to active
         assert_ok!(Attestation::attest(
-            RuntimeOrigin::signed(attestor.attestor_id),
+            RuntimeOrigin::signed(attestor1.attestor_id),
             SUPPORTED_CHAIN_KEY,
-            attestor.public_key,
-            attestor.signature
+            attestor1.public_key,
+            attestor1.signature
         ));
 
         let attestor2 = Attestor::new(STASH_1, ATTESTOR_2);
@@ -3887,14 +3897,14 @@ fn batch_attestations_adding_one_on_duplicates_fails() {
         progress_to_block(5);
 
         let attestation1 = create_signed_attestation(
-            vec![attestor.clone(), attestor2.clone()],
+            vec![attestor1.clone(), attestor2.clone()],
             SUPPORTED_CHAIN_KEY,
             0,
             None,
             None,
         );
         let attestation2 = create_signed_attestation(
-            vec![attestor.clone(), attestor2.clone()],
+            vec![attestor1.clone(), attestor2.clone()],
             SUPPORTED_CHAIN_KEY,
             10,
             Some(attestation1.digest()),
@@ -3904,7 +3914,7 @@ fn batch_attestations_adding_one_on_duplicates_fails() {
         let mut attestations = vec![attestation1.clone(), attestation2.clone()];
 
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor1.stash.clone(),
             attestations.clone().try_into().unwrap()
         ));
 
@@ -3921,7 +3931,7 @@ fn batch_attestations_adding_one_on_duplicates_fails() {
         )));
 
         let attestation3 = create_signed_attestation(
-            vec![attestor.clone(), attestor2.clone()],
+            vec![attestor1.clone(), attestor2.clone()],
             SUPPORTED_CHAIN_KEY,
             20,
             Some(attestation1.digest()),
@@ -4035,7 +4045,7 @@ fn commit_attestation_should_fail_when_genesis_block_number_is_not_correct() {
         // Attempt to commit the attestation
         assert_noop!(
             Attestation::commit_attestation(
-                RuntimeOrigin::none(),
+                attestor.stash,
                 vec![attestation.clone()].try_into().unwrap()
             ),
             Error::<Test>::InvalidAttestationPrevDigest
@@ -4077,7 +4087,7 @@ fn commit_attestation_should_succeed_when_genesis_block_number_is_correct() {
 
         // Attempt to commit the attestation
         assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
+            attestor.stash,
             vec![attestation.clone()].try_into().unwrap()
         ));
     });

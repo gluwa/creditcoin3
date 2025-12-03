@@ -5,9 +5,6 @@ import execa = require('execa');
 import fs = require('fs');
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-import os = require('os');
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 import path = require('path');
 
 import { execSync } from 'child_process';
@@ -99,19 +96,32 @@ describe('show-attestors-for', () => {
             expect(secretSeed.startsWith('0x')).toEqual(true);
 
             // warning: GitHub doesn't allow uploading files with colon in their name
+            const logsDir = './logs';
+            if (!fs.existsSync(logsDir)) {
+                fs.mkdirSync(logsDir, { recursive: true });
+            }
+
             const timeStamp = new Date().toISOString().replaceAll(':', '-');
-            const logPrefix = path.join(os.tmpdir(), `attestor-${timeStamp}-log`);
-            void execa(
-                '../target/release/attestor',
-                `--verbose --cc3-key ${secretSeed} --cc3-rpc-url ${ALICE_NODE_URL} --eth-rpc-url ${chain_Anvil1_Url}`.split(
-                    ' ',
-                ),
-                {
-                    detached: true,
-                    stdout: fs.openSync(`${logPrefix}.stdout`, 'w'),
-                    stderr: fs.openSync(`${logPrefix}.stderr`, 'w'),
-                },
-            );
+            const logPrefix = path.join(logsDir, `attestor-${timeStamp}-log`);
+            const args = [
+                '--name',
+                'ChillActive',
+                '--secret',
+                attestor.secret,
+                '--cc3-url',
+                ALICE_NODE_URL,
+                '--eth-url',
+                chain_Anvil1_Url,
+                '--config',
+                '../attestor_new/config.yaml',
+            ];
+
+            void execa('../target/release/attestor', args, {
+                detached: true,
+                stdout: fs.openSync(`${logPrefix}.stdout`, 'w'),
+                stderr: fs.openSync(`${logPrefix}.stderr`, 'w'),
+            });
+
             await waitEras(2, api);
 
             // make sure attestor was elected and is active

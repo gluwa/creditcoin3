@@ -1,5 +1,5 @@
 use anyhow::Result;
-use subxt::error::Error as SubxtError;
+use subxt::{error::Error as SubxtError, events::StaticEvent};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -10,8 +10,12 @@ pub use subxt::utils::AccountId32;
 use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest, SignedAttestation};
 
 use crate::cc3::{
-    attestation::events::{AttestationIntervalChanged, BlockAttested, CheckpointReached},
+    attestation::events::{
+        AttestationIntervalChanged, AttestorActivated, AttestorChilled, AttestorsElected,
+        BlockAttested, CheckpointReached,
+    },
     randomness::events::StoreRandomnessForEpoch,
+    staking::events::Kicked,
 };
 
 use crate::{Client, Randomness};
@@ -22,6 +26,10 @@ pub enum CcEvent {
     RandomnessChanged((u64, Randomness)),
     CheckpointReached(ChainKey, AttestationCheckpoint),
     AttestationIntervalChanged(ChainKey, u64),
+    AttestorsElected(ChainKey, Vec<AccountId32>),
+    AttestorActivated(AccountId32),
+    AttestorChilled(AccountId32),
+    AttestorKicked(AccountId32),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -49,16 +57,6 @@ impl Subscription {
         self.receiver.recv().await
     }
 }
-
-// See pallets/attestation-poc/lib.rs
-const ATTESTATION_MODULE: &str = "Attestation";
-const ATTESTATION_SUBMITTED_EVENT: &str = "BlockAttested";
-const CHECKPOINT_REACHED_EVENT: &str = "CheckpointReached";
-const ATTESTATION_INTERVAL_CHANGED_EVENT: &str = "AttestationIntervalChanged";
-
-// See pallet/randomness/lib.rs
-const RANDOMNESS_MODULE: &str = "Randomness";
-const RANDOMNESS_CHANGED_EVENT: &str = "StoreRandomnessForEpoch";
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -88,121 +86,11 @@ impl Client {
             loop {
                 match blocks_sub.next().await {
                     Some(Ok(block)) => {
-                        let block_number = block.header().number;
-                        debug!("Got block #{block_number}:");
-                        let block_hash = block.hash();
-                        debug!("Block Hash: {block_hash}");
-
                         let events = block.events().await?;
-
-                        for event in events.iter() {
-                            let event = event.unwrap();
-                            debug!(
-                                "event pallet: {}, event variant: {}",
-                                event.pallet_name(),
-                                event.variant_name()
-                            );
-
-                            match (event.pallet_name(), event.variant_name()) {
-                                (ATTESTATION_MODULE, ATTESTATION_SUBMITTED_EVENT) => {
-                                    if let Ok(Some(evt)) = event.as_event::<BlockAttested>() {
-                                        debug!("attestation chain_key: {:?}", evt.0);
-
-                                        // If the filter is not empty, check if the chain_key is in the filter
-                                        if filter != evt.0 {
-                                            continue;
-                                        }
-
-                                        let attestation: SignedAttestation<Digest, AccountId32> =
-                                            evt.1.into();
-
-                                        debug!("attestation digest: {:?}", attestation.digest());
-
-                                        if sender
-                                            .send(CcEvent::BlockAttested(attestation))
-                                            .await
-                                            .is_err()
-                                        {
-                                            // The receiver has been dropped
-                                            break;
-                                        }
-                                    }
-                                }
-                                (RANDOMNESS_MODULE, RANDOMNESS_CHANGED_EVENT) => {
-                                    if let Ok(Some(evt)) =
-                                        event.as_event::<StoreRandomnessForEpoch>()
-                                    {
-                                        debug!(
-                                            "randomness epoch (index: {}, randomnes: {:?})",
-                                            evt.epoch_index, evt.randomness
-                                        );
-
-                                        if sender
-                                            .send(CcEvent::RandomnessChanged((
-                                                evt.epoch_index,
-                                                evt.randomness,
-                                            )))
-                                            .await
-                                            .is_err()
-                                        {
-                                            debug!("The receiver has been dropped");
-                                            // The receiver has been dropped
-                                            break;
-                                        }
-                                    }
-                                }
-                                (ATTESTATION_MODULE, CHECKPOINT_REACHED_EVENT) => {
-                                    if let Ok(Some(evt)) = event.as_event::<CheckpointReached>() {
-                                        let (chain_key, checkpoint) = (evt.0, evt.1);
-
-                                        debug!("Checkpoint chain_key: {:?}", chain_key);
-
-                                        // If the filter is not empty, check if the chain_key is in the filter
-                                        if filter != chain_key {
-                                            continue;
-                                        }
-
-                                        let checkpoint: AttestationCheckpoint = checkpoint.into();
-                                        debug!("Checkpoint digest: {:?}", checkpoint.digest);
-
-                                        if sender
-                                            .send(CcEvent::CheckpointReached(chain_key, checkpoint))
-                                            .await
-                                            .is_err()
-                                        {
-                                            // The receiver has been dropped
-                                            break;
-                                        }
-                                    }
-                                }
-                                (ATTESTATION_MODULE, ATTESTATION_INTERVAL_CHANGED_EVENT) => {
-                                    if let Ok(Some(evt)) =
-                                        event.as_event::<AttestationIntervalChanged>()
-                                    {
-                                        let (chain_key, new_interval) = (evt.0, evt.1);
-                                        // If the filter is not empty, check if the chain_key is in the filter
-                                        if filter != chain_key {
-                                            continue;
-                                        }
-                                        debug!(
-                                            "Interval changed for chain_key: {:?}, New interval: {:?}",
-                                            chain_key, new_interval
-                                        );
-
-                                        if sender
-                                            .send(CcEvent::AttestationIntervalChanged(
-                                                chain_key,
-                                                new_interval,
-                                            ))
-                                            .await
-                                            .is_err()
-                                        {
-                                            // The receiver has been dropped
-                                            break;
-                                        }
-                                    }
-                                }
-                                (_m, _e) => (),
+                        for event in Self::extract_events(filter, events) {
+                            // FIXME: remove this `unwrap`
+                            if sender.send(event.unwrap()).await.is_err() {
+                                break;
                             }
                         }
                     }
@@ -224,5 +112,118 @@ impl Client {
         });
 
         Ok(Subscription { receiver, handle })
+    }
+
+    #[tracing::instrument(skip(events))]
+    pub fn extract_events(
+        filter: ChainKey,
+        events: subxt::events::Events<subxt::SubstrateConfig>,
+    ) -> impl Iterator<Item = Result<CcEvent, subxt::ext::subxt_core::Error>> {
+        events.iter().filter_map(move |event| match event {
+            Ok(event) => {
+                let span = tracing::debug_span!(
+                    "event",
+                    pallet = event.pallet_name(),
+                    variant = event.variant_name()
+                );
+                let _enter = span.enter();
+
+                match (event.pallet_name(), event.variant_name()) {
+                    (BlockAttested::PALLET, BlockAttested::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<BlockAttested>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        let BlockAttested(chain_key, attestation, ..) = event;
+
+                        if chain_key != filter {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::BlockAttested(attestation.into())))
+                    }
+                    (StoreRandomnessForEpoch::PALLET, StoreRandomnessForEpoch::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<StoreRandomnessForEpoch>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        Some(Ok(CcEvent::RandomnessChanged((
+                            event.epoch_index,
+                            event.randomness,
+                        ))))
+                    }
+                    (CheckpointReached::PALLET, CheckpointReached::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<CheckpointReached>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        let CheckpointReached(chain_key, checkpoint) = event;
+
+                        if chain_key != filter {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::CheckpointReached(chain_key, checkpoint.into())))
+                    }
+                    (AttestationIntervalChanged::PALLET, AttestationIntervalChanged::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<AttestationIntervalChanged>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        let AttestationIntervalChanged(chain_key, new_interval) = event;
+
+                        if chain_key != filter {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::AttestationIntervalChanged(
+                            chain_key,
+                            new_interval,
+                        )))
+                    }
+                    (AttestorsElected::PALLET, AttestorsElected::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<AttestorsElected>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        Some(Ok(CcEvent::AttestorsElected(
+                            event.chain_key,
+                            event.attestors,
+                        )))
+                    }
+                    (AttestorActivated::PALLET, AttestorActivated::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<AttestorActivated>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        Some(Ok(CcEvent::AttestorActivated(event.1)))
+                    }
+                    (Kicked::PALLET, Kicked::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<AttestorChilled>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        Some(Ok(CcEvent::AttestorKicked(event.1)))
+                    }
+                    (AttestorChilled::PALLET, AttestorChilled::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<AttestorChilled>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        Some(Ok(CcEvent::AttestorChilled(event.1)))
+                    }
+                    (_module, _event) => None,
+                }
+            }
+            Err(e) => Some(Err(e)),
+        })
     }
 }

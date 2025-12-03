@@ -326,8 +326,11 @@ mod benchmarks {
         s: Linear<1, MAX_SPAN>,      // continuity length (#headers)
         m: Linear<1, MAX_ATTESTORS>, // number of attestors
     ) {
-        let none_origin = <T as frame_system::Config>::RuntimeOrigin::none();
+        // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let signed_origin = <T as frame_system::Config>::RuntimeOrigin::signed(
+            create_funded_user_with_balance::<T>("attestor", 4),
+        );
 
         log::info!("Benchmark parameters: n = {n}, s = {s}, m = {m}");
 
@@ -339,11 +342,7 @@ mod benchmarks {
         ));
 
         // Set target sample to one
-        assert_ok!(Attestation::<T>::set_target_sample_size(
-            root_origin,
-            DEV_CHAIN_KEY,
-            1
-        ));
+        TargetSampleSize::<T>::set(DEV_CHAIN_KEY, 1);
 
         // Creating attestor to attest
         let mut attestors: Vec<Attestor<T>> = Vec::new();
@@ -376,7 +375,7 @@ mod benchmarks {
 
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
         assert_ok!(Attestation::<T>::commit_attestation(
-            none_origin.clone(),
+            signed_origin.clone(),
             vec![prior_attestation.clone()].try_into().unwrap(),
         ));
 
@@ -421,7 +420,7 @@ mod benchmarks {
 
         #[extrinsic_call]
         _(
-            none_origin as <T as frame_system::Config>::RuntimeOrigin,
+            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
             batch.try_into().unwrap(),
         )
     }

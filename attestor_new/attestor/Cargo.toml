@@ -1,0 +1,85 @@
+[package]
+name = "attestor_new"
+
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lib]
+name = "attestor"
+path = "./src/lib.rs"
+
+[[bin]]
+name = "attestor"
+path = "./src/main.rs"
+
+[dependencies]
+# Ethereum
+alloy = { workspace = true, features = ["full"] }
+eth = { workspace = true }
+
+# Creditcoin
+attestor-primitives = { workspace = true }
+attestor_macro = { path = "../attestor_macro" }
+bip39 = { version = "2.2.0", features = ["rand", "serde"] }
+bls-signatures = { workspace = true }
+cc-client = { workspace = true }
+ccnext-abi-encoding = { workspace = true }
+creditcoin3-attestor-gossip = { workspace = true }
+vrf = { workspace = true }
+
+# Substrate
+parity-scale-codec = { workspace = true }
+sp-core = { workspace = true }
+subxt = { workspace = true }
+subxt-signer = { workspace = true }
+
+# Async & Parallelism
+futures = { workspace = true }
+rayon = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+tokio-tungstenite = { workspace = true, features = ["url"] }
+
+# P2P
+libp2p = { workspace = true, features = [
+    "tokio",
+    "macros",
+    "ed25519",
+    "dns",
+    "quic",
+    "tcp",
+    "noise",
+    "yamux",
+    "identify",
+    "ping",
+    "mdns",
+    "kad",
+    "gossipsub",
+] }
+
+# Parsing
+clap = { workspace = true, features = ["cargo"] }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+url = { workspace = true, features = ["serde"] }
+
+# Logging
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+
+# Errors
+anyhow = { workspace = true }
+
+# other
+merkle = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true, features = ["std_rng"] }
+
+[dev-dependencies]
+assert_matches = { workspace = true }
+rstest = { workspace = true }
+tokio-test = { workspace = true }

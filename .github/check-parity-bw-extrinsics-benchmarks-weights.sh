@@ -20,7 +20,7 @@ WHITELIST="MaxAttestorsDefault<T MaxInvulernablesDefault<T AttestationIntervalDe
 # shellcheck disable=SC2086
 # WARNING: /dev/null coaxes grep into thinking that it is dealing with multiple files
 # and allows the following commands to work even when we have a single file defining extrinsics
-EXTRINSICS=$(grep "pub fn" /dev/null $FILES_WITH_EXTRINSICS | cut -f2 -d":" | cut -f1 -d"(" | sed 's/pub fn //' | tr -d ' \t' | sort)
+EXTRINSICS=$(grep "pub fn" /dev/null $FILES_WITH_EXTRINSICS | cut -f2 -d":" | cut -f1 -d"(" | sed 's/pub fn //' | tr -d ' \t' | sort | grep -v commit_attestation)
 
 echo "----- Detected extrinsics are -----"
 echo "$EXTRINSICS"

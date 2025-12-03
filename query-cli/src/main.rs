@@ -392,9 +392,13 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
     println!("\n=== Fetching Block Data ===");
     let query_eth_client = Client::new(&prompt_output.network.url(), None).await?;
 
-    let block = query_eth_client
+    let block = match query_eth_client
         .get_block(prompt_output.height, prompt_output.encoding)
-        .await?;
+        .await
+    {
+        Some(block) => block?,
+        None => return Ok(()),
+    };
     println!("Block fetched successfully");
 
     // Step 3: Check if block has transactions

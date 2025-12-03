@@ -1,8 +1,11 @@
 use anyhow::Result;
 use ccnext_abi_encoding::abi::EncodingVersion;
-use futures::stream::{self, StreamExt};
+use futures::{
+    stream::{self, StreamExt},
+    FutureExt,
+};
 use sp_core::H256;
-use tracing::debug;
+use tracing::{debug, trace};
 
 use super::{Client, Error as EthError};
 use attestor_primitives::{
@@ -47,10 +50,10 @@ impl<'a> Manager<'a> {
         encoding: EncodingVersion,
     ) -> Result<AttestationFragment, Error> {
         // Only for genesis block we don't need to build a fragment
-        if self.end_block == 0 {
-            debug!("No need to build full fragment for genesis block");
-            return Ok(AttestationFragment::default());
-        }
+        // if self.end_block == 0 {
+        //     debug!("No need to build full fragment for genesis block");
+        //     return Ok(AttestationFragment::default());
+        // }
 
         // Fragment size is the difference between the attestation header number and the last finalized attestation header number
         // Start and end block are inclusive
@@ -68,21 +71,22 @@ impl<'a> Manager<'a> {
 
         // Get all blocks first in parallel
         // This list is sorted because we provide the futures in order
-        let blocks = futures::future::join_all(
-            (self.start_block..=self.end_block).map(|i| self.eth_client.get_block(i, encoding)),
-        )
+        let blocks = futures::future::join_all((self.start_block..=self.end_block).map(|i| {
+            self.eth_client
+                .get_block(i, encoding)
+                .map(|res| res.expect("Not handling user interrupts here"))
+        }))
         .await;
 
         // Handle errors and collect blocks
-        let collected_blocks: Vec<_> = blocks.into_iter().collect::<Result<_, _>>()?;
+        let collected_blocks = blocks.into_iter().collect::<Result<Vec<_>, _>>()?;
 
         // Now spawn MMR computations in parallel threads
         let blocks_with_roots = stream::iter(collected_blocks)
             .map(|block| {
                 let end_block = self.end_block;
                 tokio::task::spawn_blocking(move || {
-                    debug!("Merkleization of block {}/{}", block.number(), end_block);
-                    // Use simple_merkle_tree to match Merkle proof generation
+                    trace!("Merkleization of block {}/{}", block.number(), end_block);
                     let tree = crate::simple_merkle_tree(&block);
                     let root = tree.root();
                     (block, root)
@@ -96,17 +100,17 @@ impl<'a> Manager<'a> {
         for block_with_root in blocks_with_roots {
             let (block, root) = block_with_root?;
 
-            let fragment_block = FragmentBlock::new(block.number(), root);
             let fragment_block = if fragment.is_empty() {
                 debug!("Constructing first block from start block");
                 FragmentBlock::new_from_prev_digest(block.number(), root, prev_digest)
             } else {
-                fragment_block
+                FragmentBlock::new(block.number(), root)
             };
 
-            debug!(
+            trace!(
                 "Appending block number: {} with root: {:?}",
-                fragment_block.block_number, fragment_block.root
+                fragment_block.block_number,
+                fragment_block.root
             );
             fragment.try_append_block(fragment_block)?;
         }

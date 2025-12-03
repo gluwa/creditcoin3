@@ -144,7 +144,10 @@ impl EthereumProvider for EthClient {
         Ok(Some(U64::from(block_number)))
     }
     async fn get_block_by_number(&self, block_number: u64) -> Result<Option<OrderedBlock>> {
-        let ordered_block = self.get_block(block_number, EncodingVersion::V1).await?;
+        let ordered_block = match self.get_block(block_number, EncodingVersion::V1).await {
+            Some(block) => block?,
+            None => return Ok(None),
+        };
 
         Ok(Some(ordered_block))
     }

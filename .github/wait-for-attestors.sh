@@ -34,4 +34,6 @@ if [[ $COUNTER -ge 15 ]]; then
     exit 3
 fi
 
+echo "INFO: Attestors are ready"
+
 exit 0

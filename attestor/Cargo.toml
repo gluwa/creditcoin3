@@ -6,10 +6,11 @@ publish = false
 version = "0.1.0"
 
 [lib]
+name = "attestor_old"
 path = "src/lib.rs"
 
 [[bin]]
-name = "attestor"
+name = "attestor_old"
 path = "bin/attestor.rs"
 
 [lints.clippy]

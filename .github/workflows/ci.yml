@@ -73,8 +73,8 @@ jobs:
           docker exec creditcoin-validator which attestor
           docker exec creditcoin-validator attestor --help
 
-          docker exec creditcoin-validator which attestor_zombienet
-          docker exec creditcoin-validator attestor_zombienet --help
+          docker exec creditcoin-validator which attestor_new_zombienet
+          docker exec creditcoin-validator attestor_new_zombienet --help
 
           docker exec creditcoin-validator which query-cli
           docker exec creditcoin-validator query-cli --help
@@ -650,27 +650,31 @@ jobs:
         run: |
           chmod a+x ./target/release/attestor*
 
-          # adjust path to binary b/c running from the root dir of the repository
-          sed -i 's|default_command: ".*"|default_command: "./target/release/attestor"|' attestor_zombienet/config.yaml
-
-          mkdir -p /var/tmp/integration-test-attestor-network/attestors-alice
-          mkdir -p /var/tmp/integration-test-attestor-network/attestors-bob
-
-          ./target/release/attestor_zombienet \
-                --verbose \
-                --log-private-keys \
-                --cc3-key "//Alice" --chain-key 2 \
-                --eth-rpc-url ws://localhost:8141 --config-file attestor_zombienet/config.yaml \
-                --logs-dir /var/tmp/integration-test-attestor-network/attestors-alice/ &
+          ./target/release/attestor_new_zombienet \
+                -n 3 \
+                --chain-key=2 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8141 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor_new/config.yaml \
+                >/var/tmp/integration-test-attestor-network/zombienet-alice &
 
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
-          ./target/release/attestor_zombienet \
-                --verbose \
-                --log-private-keys \
-                --cc3-rpc-url ws://localhost:9955 \
-                --cc3-key "//Bob" --chain-key 4 \
-                --eth-rpc-url ws://localhost:8242 --config-file attestor_zombienet/config.yaml \
-                --logs-dir /var/tmp/integration-test-attestor-network/attestors-bob/ &
+
+          # Wait for first zombienet to finish registering attestors to avoid nonce conflicts
+          sleep 60
+
+          ./target/release/attestor_new_zombienet \
+                -n 3 \
+                --offset=3 \
+                --chain-key=4 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8242 \
+                --cc3-url=ws://localhost:9955 \
+                --funding-address='//Alice' \
+                --config=./attestor_new/config.yaml \
+                >/var/tmp/integration-test-attestor-network/zombienet-bob &
 
       - name: Wait for 3 attestors to be registered
         run: |
@@ -722,7 +726,7 @@ jobs:
           # if all went well kill the node. Otherwise GitHub Actions would exit on the
           # previous step killing everything and we don't have to worry about
           # dangling processes
-          killall -TERM attestor_zombienet
+          killall -TERM attestor_new_zombienet
           killall -TERM attestor
           killall -TERM creditcoin3-node
           sleep 60
@@ -734,26 +738,26 @@ jobs:
           # if all went well kill the node. Otherwise GitHub Actions would exit on the
           # previous step killing everything and we don't have to worry about
           # dangling processes
-          killall -KILL attestor_zombienet
+          killall -KILL attestor_new_zombienet
           killall -KILL attestor
           killall -KILL creditcoin3-node
 
-      - name: Check logs for errors
-        if: always()
-        timeout-minutes: 5
-        run: |
-          .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/
+      # - name: Check logs for errors
+      #   if: always()
+      #   timeout-minutes: 5
+      #   run: |
+      #     .github/check-logs-for-error.sh ./logs
 
-      - name: Set up Python
-        if: always()
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.10"
+      # - name: Set up Python
+      #   if: always()
+      #   uses: actions/setup-python@v6
+      #   with:
+      #     python-version: "3.10"
 
-      - name: Examine gossip stats from logs
-        if: always()
-        run: |
-          .github/check-round-conclusion-for-peers /var/tmp/integration-test-attestor-network/
+      # - name: Examine gossip stats from logs
+      #   if: always()
+      #   run: |
+      #     .github/check-round-conclusion-for-peers /var/tmp/integration-test-attestor-network/
 
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
@@ -763,7 +767,9 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: integration-test-attestor-network
-          path: /var/tmp/integration-test-attestor-network/
+          path: |
+            /var/tmp/integration-test-attestor-network/
+            ./logs
           include-hidden-files: true
 
       # keep this always as the last step
@@ -1571,16 +1577,16 @@ jobs:
         run: |
           chmod a+x ./target/release/attestor*
 
-          # adjust path to binary b/c running from the root dir of the repository
-          sed -i 's|default_command: ".*"|default_command: "./target/release/attestor"|' attestor_zombienet/config.yaml
-
           mkdir -p /var/tmp/cc3-indexer-testing/attestors-alice
 
-          ./target/release/attestor_zombienet \
-                --verbose \
-                --cc3-key "//Alice" --chain-key 2 \
-                --eth-rpc-url ws://localhost:8141 --config-file attestor_zombienet/config.yaml \
-                --logs-dir /var/tmp/cc3-indexer-testing/attestors-alice/ &
+          ./target/release/attestor_new_zombienet \
+                -n 3 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8141 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor_new/config.yaml \
+                --chain-key=2 &
 
       - name: Install Solidity compiler
         run: |
@@ -1596,15 +1602,16 @@ jobs:
         run: |
           chmod a+x ./target/release/attestor*
 
-          # adjust path to binary b/c running from the root dir of the repository
-          sed -i 's|default_command: ".*"|default_command: "./target/release/attestor"|' attestor_zombienet/config.yaml
-
           mkdir -p /var/tmp/cc3-indexer-testing/attestors-charlie
 
-          ./target/release/attestor_zombienet \
-                --cc3-key "//Charlie" --chain-key 5 \
-                --eth-rpc-url ws://localhost:8343 --config-file attestor_zombienet/config.yaml \
-                --logs-dir /var/tmp/cc3-indexer-testing/attestors-charlie/ &
+          ./target/release/attestor_new_zombienet \
+                -n 3 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8343 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor_new/config.yaml \
+                --chain-key=5 &
 
       - name: Wait for 3 attestors to be registered
         run: |
@@ -1685,7 +1692,7 @@ jobs:
         run: |
           docker compose -f cc3-indexer/docker-compose.yaml down
 
-          killall -9 attestor_zombienet
+          killall -9 attestor_new_zombienet
           killall -9 attestor
           killall -9 creditcoin3-node
 

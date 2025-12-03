@@ -2,7 +2,7 @@ use clap::Parser;
 use std::error::Error;
 use tracing::debug;
 
-use attestor::{Config, Server};
+use attestor_old::{Config, Server};
 #[derive(Parser, Debug)]
 #[command(name = "attestor")]
 pub struct Attestor {

@@ -62,7 +62,6 @@ pub fn create_signed_attestation(
         attestation_data,
         attestor: attestor.account_id.clone(),
         continuity_proof: AttestationFragmentSerializable::default(),
-        proof_of_inclusion: Default::default(),
         signature: sr_signature,
         signature_bls: attestor_primitives::bls::WrapEncode(bls_signature),
         epoch: 1,

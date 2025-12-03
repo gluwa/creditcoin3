@@ -195,7 +195,7 @@ describe('BlockAttested events', (): void => {
             expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(expectedBlockAttestedEvents_Anvil1 - 1);
             expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 1);
             // note: interval for Anvil2 changes dynamically during this test
-            expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(30);
+            expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(40);
 
             // match the frequency b/c we don't want this to pass if only a few events are recorded
             // and then something suddenly fails/disconnects

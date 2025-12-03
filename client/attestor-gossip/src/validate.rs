@@ -8,7 +8,7 @@ use sp_consensus_babe::BabeApi;
 use sp_core::H256;
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use parity_scale_codec::Codec;
 
 use attestor_primitives::{
@@ -59,9 +59,6 @@ where
     ) -> Result<(), Error> {
         let chain_key = attestation.chain_key();
         let header_number = attestation.header_number();
-
-        self.verify_vrf(block_hash, attestation)?;
-        debug!(target: LOG_TARGET, "📝 VRF output verified successfully");
 
         // Check if the attestation bls signature is valid
         if !self.verify_bls_signature(block_hash, attestation)? {
@@ -211,47 +208,5 @@ where
             <Bls as CryptoScheme>::verify(&bls_pubkey, &attestation.signature_bls, &msg);
 
         Ok(bls_valid)
-    }
-
-    /// Verify the VRF output for an attestation.
-    /// This checks if the attestor that submitted this attestations vrf output is correct
-    /// Correct being, that it signed the babe's VRF output from Two epochs ago & that the attestor is eligible to submit an attestation
-    fn verify_vrf(
-        &mut self,
-        at: B::Hash,
-        attestation: &Attestation<HashFor<B>, AccountId>,
-    ) -> Result<(), Error> {
-        debug!(target: LOG_TARGET, "📝 Verifying VRF output for attestation");
-        let chain_key = attestation.chain_key();
-        let header_number = attestation.header_number();
-
-        let attestor_id = attestation.attestor_id();
-
-        // Get randomness from the attestation
-        let attestation_epoch = attestation.proof_of_inclusion.epoch;
-        let runtime = self.runtime.runtime_api();
-        let randomness = runtime.randomness_by_epoch_id(at, attestation_epoch)?;
-
-        // Here we verify the proof of inclusion
-        // based on the round config
-        // Get round config at the attestation epoch
-        let round_config = self.get_or_create_round_config(at, chain_key)?;
-
-        let is_included = vrf::verify_proof_of_inclusion(
-            round_config.committee_set_size.into(),
-            round_config.target_sample_size.into(),
-            &randomness,
-            &attestation.proof_of_inclusion,
-            &attestor_id,
-            header_number,
-        )?;
-
-        if !is_included {
-            warn!(target: LOG_TARGET, "📝 Attestor {attestor_id:?} not eligible");
-            return Err(Error::AttestorNotEligible(attestor_id));
-        }
-
-        debug!(target: LOG_TARGET, "📝 Attestor {attestor_id:?} selected ✅");
-        Ok(())
     }
 }

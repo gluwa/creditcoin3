@@ -114,6 +114,10 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
             >;
+            /**
+             * [`CommitAttestationWeight`] makes it so active attestors do not pay fees on this
+             * extrinsic
+             **/
             commitAttestation: AugmentedSubmittable<
                 (
                     attestations:

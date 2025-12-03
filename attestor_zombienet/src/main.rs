@@ -228,7 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             let handle = tokio::spawn(async move {
                 cc_client
-                    .register_attestor(args.chain_key, attestor, Some(nonce))
+                    .attestor_register(args.chain_key, attestor, Some(nonce))
                     .await
                     .expect("Failed to register attestor")
             });

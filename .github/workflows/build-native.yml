@@ -63,7 +63,7 @@ jobs:
           name: binary-for-${{ inputs.version-string }}
           path: |
             target/release/attestor
-            target/release/attestor_zombienet
+            target/release/attestor_new_zombienet
             target/release/creditcoin3-node
             target/release/query-cli
 

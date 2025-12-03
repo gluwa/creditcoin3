@@ -617,9 +617,7 @@ impl AttestorService {
                     }
                 }
                 Err(e) => {
-                    if e.is_not_selected_error() {
-                        warn!("Failed to attest, attestor not selected.");
-                    } else if e.is_fragment_error() {
+                    if e.is_fragment_error() {
                         panic!("Fragment error detected, exiting ...");
                     } else if e.is_attested_to_error() {
                         debug!("Attestation already submitted for round, skipping");
@@ -668,6 +666,7 @@ impl AttestorService {
                 self.voted_for
                     .retain(|(header_number, _)| *header_number > checkpoint.block_number);
             }
+            _ => {}
         }
         Ok(())
     }
@@ -782,12 +781,6 @@ impl AttestorService {
         &mut self,
         header_number: u64,
     ) -> Result<Attestation<H256, AttestorId>, Error> {
-        // Eligiblity check
-        let vrf_output = self.cc3_client.sign_vrf(header_number).await.map_err(|e| {
-            debug!("Error signing vrf: {:?}", e);
-            Error::NotSelected(header_number)
-        })?;
-
         // Create continuity fragment
         let continuity_fragment = self.create_continuity_proof(header_number).await?;
 
@@ -795,7 +788,8 @@ impl AttestorService {
         let block = self
             .eth_client
             .get_block(header_number, self.encoding)
-            .await?;
+            .await
+            .expect("Not handling user interrupts here")?;
         // Get the previous digest from the continuity fragment
         let prev_digest = continuity_fragment.head_digest().copied();
         // Create attestation data
@@ -807,12 +801,9 @@ impl AttestorService {
 
         // Sign the attestation
         let current_epoch = self.cc3_client.get_current_epoch().await?;
-        let signed_attestation = self.cc3_client.sign_attestation(
-            attestation,
-            serialized_fragment,
-            vrf_output,
-            current_epoch,
-        );
+        let signed_attestation =
+            self.cc3_client
+                .sign_attestation(attestation, serialized_fragment, current_epoch);
 
         debug!("Attestor selected for block({})", header_number);
 

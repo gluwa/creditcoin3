@@ -1,0 +1,579 @@
+#![doc = include_str!("../../../../mermaid.html")]
+//! A [`Worker`] thread responsible for the dissemination and reception of new attestations.
+//!
+//! # Gossiping
+//!
+//! Attestations are gossiped between attestor nodes via a custom [gossipsub] network. Attestations
+//! are scoped per source chain, so that network traffic for a given source chain does not impact
+//! the performance of attestation production for another chain. Currently only Ethereum is
+//! supported.
+//!
+//! # Rebroadcast
+//!
+//! To maintain chain liveness, past attestations are periodically re-sent to the p2p worker by the
+//! [rebroadcast chain listener] as part of the [production worker]. These attestations are then
+//! re-submitted to the network so that nodes which might have missed those attestations have
+//! another chance at synchronization. This also helps with bootstrapping quorum in new nodes, as
+//! they might have joined in the middle of attestation finalization.
+//!
+//! # Reception
+//!
+//! Whether is is from initial gossiping or rebroadcasting, the p2p worker is also responsible for
+//! synchronizing new attestations it receives via gossipsub. On noticing a new attestation, the p2p
+//! worker will try to deserialize it and, if successful, send it to the [attestation pool] for
+//! further [`Quorum`] checks. Attestations which fail to be inserted into the attestation pool are
+//! considered invalid and potentially malicious and are not forwarded to the rest of the network.
+//!
+//! # Attestation network p2p flow
+//!
+//! <pre class="mermaid">
+//! sequenceDiagram
+//!     box Networks
+//!         participant Gossipsub
+//!     end
+//!     box Thread 2
+//!         participant Rebroadcast
+//!         participant Production Worker
+//!     end
+//!     box Thread 3
+//!         participant P2P Worker
+//!     end
+//!     box Shared
+//!         participant Attestation Pool
+//!     end
+//!
+//!     loop P2P
+//!         alt New Remote Attestation
+//!             P2P Worker -->> Gossipsub: Polls
+//!
+//!             activate Gossipsub
+//!             Gossipsub -->> P2P Worker: New attestation
+//!             deactivate Gossipsub
+//!
+//!             activate P2P Worker
+//!             P2P Worker ->> Attestation Pool: Send Attestation
+//!             deactivate P2P Worker
+//!         else New Local Attestation
+//!             P2P Worker ->> Production Worker: Polls
+//!
+//!             activate Production Worker
+//!             Production Worker ->> P2P Worker: New Attestation
+//!             deactivate Production Worker
+//!
+//!             activate P2P Worker
+//!             P2P Worker -->> Gossipsub: Gossip
+//!             deactivate P2P Worker
+//!         else Rebroadcast Attestation
+//!             P2P Worker ->> Rebroadcast: Polls
+//!
+//!             activate Rebroadcast
+//!             Rebroadcast ->> P2P Worker: Rebroadcast Attestation
+//!             deactivate Rebroadcast
+//!
+//!             activate P2P Worker
+//!             P2P Worker -->> Gossipsub: Gossip
+//!             deactivate P2P Worker
+//!         else Peer Update
+//!             P2P Worker -->> Gossipsub: Polls
+//!
+//!             activate Gossipsub
+//!             Gossipsub -->> P2P Worker: New Peer/Old Peer
+//!             deactivate Gossipsub
+//!
+//!             activate P2P Worker
+//!             P2P Worker ->> P2P Worker: Update Peer List
+//!             deactivate P2P Worker
+//!         end
+//!     end
+//! </pre>
+//!
+//! [`Worker`]: crate::worker::Worker
+//! [gossipsub]: libp2p::gossipsub
+//! [rebroadcast chain listener]: crate::chain_listener::rebroadcast
+//! [production worker]: crate::worker::production
+//! [attestation pool]: crate::worker::validation::pool
+//! [`Quorum`]: crate::worker::validation::pool::Quorum
+
+mod behavior;
+mod error;
+mod protocols;
+
+use crate::prelude::*;
+pub use error::*;
+
+// -------------------------------------- [ Configuration ] ------------------------------------ //
+
+#[derive(attestor_macro::Builder)]
+pub struct Config {
+    boot_nodes: Vec<libp2p::Multiaddr>,
+    #[specify_later]
+    keypair: libp2p::identity::Keypair,
+    #[specify_later]
+    receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
+    #[specify_later]
+    sender_validation: crate::worker::validation::pool::AttestationPoolSender,
+    #[specify_later]
+    can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    #[specify_later]
+    chain_key: attestor_primitives::ChainKey,
+}
+
+// ----------------------------------------- [ Worker ] ---------------------------------------- //
+
+pub(crate) struct WorkerP2P {
+    // P2P DATA
+    swarm: libp2p::Swarm<behavior::P2PBehavior>,
+    can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    topic: libp2p::gossipsub::IdentTopic,
+
+    // MESSAGE CHANNELS
+    receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
+    sender_validation: crate::worker::validation::pool::AttestationPoolSender,
+}
+
+impl WorkerP2P {
+    pub(crate) fn new(config: Config) -> common::types::Result<Self> {
+        let mut swarm = libp2p::SwarmBuilder::with_existing_identity(config.keypair)
+            .with_tokio()
+            // Connection fallback.
+            .with_tcp(
+                libp2p::tcp::Config::default(),
+                libp2p::noise::Config::new,
+                libp2p::yamux::Config::default,
+            )?
+            // Ideally we want to use quic to benefit from the in-build multiplexing and security.
+            .with_quic()
+            // Domain name resolution on peer addresses. We probably want to set up some stable
+            // boot node addresses and it is better for those to be behind a domain than rely on a
+            // static IP, as this gives us more flexibility around maintenance and administration.
+            .with_dns()?
+            .with_behaviour(behavior::P2PBehavior::new)?
+            .build();
+
+        let topic = libp2p::gossipsub::IdentTopic::new(format!("{}/attest", config.chain_key));
+        tracing::info!(%topic, "📫 Subscribing to attestations");
+        swarm.behaviour_mut().gossipsub.subscribe(&topic)?;
+
+        if !config.boot_nodes.is_empty() {
+            tracing::info!("👥 Bootstrapping new remote peers");
+            for address in config.boot_nodes {
+                let Some(peer_id) = address.iter().find_map(|protocol| match protocol {
+                    libp2p::multiaddr::Protocol::P2p(peer_id) => Some(peer_id),
+                    _ => None,
+                }) else {
+                    panic!("Missing peer id in multiaddress: {address}");
+                };
+
+                tracing::info!(%address, "👥  at");
+                swarm.behaviour_mut().kad.add_address(&peer_id, address);
+            }
+        } else {
+            tracing::warn!("👥 Starting attestor with no boot nodes!");
+        }
+
+        Ok(Self {
+            swarm,
+            can_broadcast: config.can_broadcast,
+            topic,
+
+            receiver_p2p: config.receiver_p2p,
+            sender_validation: config.sender_validation,
+        })
+    }
+}
+
+// ---------------------------------------- [ Main loop ] -------------------------------------- //
+
+impl super::Worker for WorkerP2P {
+    #[tracing::instrument(name = "p2p_engine", skip_all)]
+    fn task(
+        mut self,
+        mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
+    ) -> impl std::future::Future<Output = common::types::Result<()>> {
+        async move {
+            use futures::StreamExt as _;
+
+            // Tell the swarm to listen on all interfaces and a random, OS-assigned port.
+            // We use this to bootstrap nodes on the same network using mDNS
+            self.swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+
+            loop {
+                let can_broadcast = self
+                    .can_broadcast
+                    .load(std::sync::atomic::Ordering::Acquire);
+
+                tokio::select! {
+                    biased;
+
+                    _ = &mut shutdown => {
+                        break self.handle_event_shutdown().await;
+                    }
+                    attestation = self.receiver_p2p.recv(), if can_broadcast => {
+                        self.handle_event_attestation(attestation).await?;
+                    }
+                    event = self.swarm.select_next_some() => {
+                        self.handle_event_p2p(event).await?;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ----------------------------------------- [ Events ] ---------------------------------------- //
+
+impl WorkerP2P {
+    // ------------------------------------* Production events *-----------------------------------
+
+    async fn handle_event_attestation(
+        &mut self,
+        attestation: Result<common::types::Attestation, tokio::sync::broadcast::error::RecvError>,
+    ) -> Result<(), Error> {
+        use parity_scale_codec::Encode as _;
+
+        if let Ok(attestation) = attestation {
+            let digest = attestation.digest();
+            let height = attestation.header_number();
+
+            tracing::info!(
+                %digest,
+                height,
+                attestor_id = %attestation.attestor,
+                "✉️ Gossiping"
+            );
+
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .publish(self.topic.hash(), attestation.encode())
+                .map_err(|err| Error::PublishError(height, digest, err))?;
+        };
+
+        // We do not error if the channel is closed
+        Ok(())
+    }
+
+    // ---------------------------------------* P2P events *---------------------------------------
+
+    async fn handle_event_p2p(
+        &mut self,
+        event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
+    ) -> Result<(), Error> {
+        use parity_scale_codec::Decode as _;
+
+        match event {
+            // Discovering new remote peers with kad + identify
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Identify(
+                libp2p::identify::Event::Received {
+                    connection_id,
+                    peer_id,
+                    info: libp2p::identify::Info { listen_addrs, .. },
+                },
+            )) => {
+                tracing::info!(connection = %connection_id, "🛰️ Dialing");
+                tracing::info!("🛰️ Discovered new remote peer");
+                for address in listen_addrs {
+                    tracing::info!(%address, "🛰️  at");
+                    self.swarm
+                        .behaviour_mut()
+                        .kad
+                        .add_address(&peer_id, address.clone());
+                }
+            }
+
+            // Discovering new local peers with mDNS
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Mdns(
+                libp2p::mdns::Event::Discovered(peers),
+            )) => {
+                for (peer_id, address) in peers {
+                    tracing::info!("🛰️ Discovered new local peer");
+                    tracing::info!(%address, "🛰️  at");
+
+                    self.swarm
+                        .behaviour_mut()
+                        .kad
+                        .add_address(&peer_id, address.clone());
+                }
+            }
+
+            // Kad routing table update. This is handled automatically be the libp2p switch, we
+            // just get to react to the changes summarized in this event.
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Kad(
+                libp2p::kad::Event::RoutingUpdated {
+                    is_new_peer,
+                    addresses,
+                    old_peer,
+                    ..
+                },
+            )) => {
+                if is_new_peer {
+                    tracing::info!("📋 Inserted new peer into the routing table");
+                    for address in addresses.iter() {
+                        tracing::info!(%address, "📋 at");
+                    }
+                } else if let Some(peer) = old_peer {
+                    tracing::info!(peer_id = %peer, "📋 Removed peer from the routing table");
+                } else {
+                    tracing::info!("📋 Updated the addresses of a peer in the routing table");
+                    for address in addresses.iter() {
+                        tracing::info!(%address, "📋 at");
+                    }
+                }
+            }
+
+            // Ping responses
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Ping(
+                libp2p::ping::Event {
+                    peer,
+                    connection,
+                    result,
+                },
+            )) => match result {
+                Ok(rtt) => {
+                    tracing::info!(%connection, "🔔 Dialing");
+                    tracing::info!(
+                        peer_id = %peer,
+                        rtt = rtt.as_secs(),
+                        "🔔 Received ping response from peer"
+                    );
+                }
+                Err(_) => {
+                    tracing::info!(%connection, "🔕 Dialing");
+                    tracing::error!(peer_id = %peer, "🔕 Failed to get ping response from peer");
+                }
+            },
+
+            // New attestation gossip
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Gossipsub(
+                libp2p::gossipsub::Event::Message {
+                    propagation_source,
+                    message_id,
+                    message,
+                },
+            )) => {
+                let decode = common::types::Attestation::decode(&mut message.data.as_ref());
+                let Ok(attestation) = decode else {
+                    tracing::error!(peer_id = %propagation_source, "⛔ Received invalid attestation");
+
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .report_message_validation_result(
+                            &message_id,
+                            &propagation_source,
+                            libp2p::gossipsub::MessageAcceptance::Reject,
+                        );
+
+                    return Ok(());
+                };
+
+                let digest = attestation.digest();
+
+                tracing::info!(
+                    peer_id = %propagation_source,
+                    %digest,
+                    height = attestation.header_number(),
+                    attestor_id = %attestation.attestor,
+                    "📩 Received attestation"
+                );
+
+                match self.sender_validation.send(attestation) {
+                    // CASE 1] ACCEPT
+                    //
+                    // Valid insertions or failures which depend on local state are still propagated
+                    // to the rest of the network.
+                    Ok(_)
+                    | Err(crate::worker::validation::pool::PoolError::PoolClosed)
+                    | Err(crate::worker::validation::pool::PoolError::Attestation(
+                        crate::worker::validation::pool::AttestationError::DoubleVote(..),
+                    ))
+                    | Err(crate::worker::validation::pool::PoolError::Attestation(
+                        crate::worker::validation::pool::AttestationError::MaxBatchSize(..),
+                    )) => {
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .report_message_validation_result(
+                                &message_id,
+                                &propagation_source,
+                                libp2p::gossipsub::MessageAcceptance::Accept,
+                            );
+                    }
+                    // CASE 2] IGNORE
+                    //
+                    // Failures which depend on finality lag are not considered as malicious but are
+                    // not propagated to the rest of the network as they are out-of-date.
+                    // Equivocations are also propagated to facilitate slashing.
+                    Err(crate::worker::validation::pool::PoolError::Attestation(
+                        crate::worker::validation::pool::AttestationError::InvalidHeight(..),
+                    ))
+                    | Err(crate::worker::validation::pool::PoolError::Attestation(
+                        crate::worker::validation::pool::AttestationError::MissingHeight(..),
+                    ))
+                    | Err(crate::worker::validation::pool::PoolError::Attestation(
+                        crate::worker::validation::pool::AttestationError::Equivocation(..),
+                    )) => {
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .report_message_validation_result(
+                                &message_id,
+                                &propagation_source,
+                                libp2p::gossipsub::MessageAcceptance::Ignore,
+                            );
+                    }
+                    // CASE 3] REJECT
+                    //
+                    // Failures which depend solely on the sender are considered malicious. They are
+                    // not propagated to the rest of the network.
+                    Err(crate::worker::validation::pool::PoolError::Attestation(
+                        crate::worker::validation::pool::AttestationError::Unauthorized(..),
+                    )) => {
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .report_message_validation_result(
+                                &message_id,
+                                &propagation_source,
+                                libp2p::gossipsub::MessageAcceptance::Reject,
+                            );
+                    }
+                }
+            }
+
+            // New gossipsub subscriptions (happens when a new peer joins)
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Gossipsub(
+                libp2p::gossipsub::Event::Subscribed { .. },
+            )) => {
+                let topic_attestation = self.topic.hash();
+                self.can_broadcast.store(
+                    self.swarm
+                        .behaviour()
+                        .gossipsub
+                        .mesh_peers(&topic_attestation)
+                        .next()
+                        .is_some(),
+                    std::sync::atomic::Ordering::Release,
+                );
+            }
+
+            // Remove gossipsub subscription (happens when an existing peer leaves)
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Gossipsub(
+                libp2p::gossipsub::Event::Unsubscribed { .. },
+            )) => {
+                let topic_attestation = self.topic.hash();
+                self.can_broadcast.store(
+                    self.swarm
+                        .behaviour()
+                        .gossipsub
+                        .mesh_peers(&topic_attestation)
+                        .next()
+                        .is_some(),
+                    std::sync::atomic::Ordering::Release,
+                );
+            }
+
+            // Discovered new local address
+            libp2p::swarm::SwarmEvent::NewListenAddr {
+                listener_id,
+                address,
+            } => {
+                if let Ok(address) = address.with_p2p(*self.swarm.local_peer_id()) {
+                    tracing::info!(%listener_id, %address, "🔍 New listening address")
+                }
+            }
+
+            // Connected to a new remote peer
+            libp2p::swarm::SwarmEvent::ConnectionEstablished {
+                peer_id,
+                connection_id,
+                ..
+            } => {
+                tracing::info!(connection = %connection_id, "🔗 Dialing");
+                tracing::info!(%peer_id, "🔗 Connection established");
+            }
+
+            // Disconnected from an existing remote peer
+            libp2p::swarm::SwarmEvent::ConnectionClosed {
+                peer_id,
+                connection_id,
+                ..
+            } => {
+                tracing::info!(connection = %connection_id, "⛓️‍💥 Dialing");
+                tracing::info!(%peer_id, "⛓️‍💥 Connection closed");
+                tracing::warn!(%peer_id, "🚪 Removing disconnecting peer from the routing table");
+
+                let topic_attestation = self.topic.hash();
+                self.can_broadcast.store(
+                    self.swarm
+                        .behaviour()
+                        .gossipsub
+                        .mesh_peers(&topic_attestation)
+                        .next()
+                        .is_some(),
+                    std::sync::atomic::Ordering::Release,
+                );
+
+                self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
+            }
+
+            // Failed to initialize a new connection with a remote peer
+            libp2p::swarm::SwarmEvent::OutgoingConnectionError {
+                peer_id,
+                error,
+                connection_id,
+            } => {
+                tracing::error!(connection = %connection_id, "⛔ Dialing");
+                tracing::error!(?peer_id, %error, "⛔ Outgoing connection error");
+
+                match error {
+                    libp2p::swarm::DialError::LocalPeerId { .. } => {
+                        tracing::error!("⛔ Tried to dial self");
+                    }
+                    libp2p::swarm::DialError::NoAddresses => {
+                        tracing::error!("⛔ Tried to dial empty address");
+                    }
+                    libp2p::swarm::DialError::DialPeerConditionFalse(peer_condition) => {
+                        tracing::error!(?peer_condition, "⛔ Invalid peer state");
+                    }
+                    libp2p::swarm::DialError::Aborted => {
+                        tracing::error!("⛔ Connection aborted");
+                    }
+                    libp2p::swarm::DialError::WrongPeerId { obtained, address } => {
+                        tracing::error!(%obtained, expected =  %address, "⛔ Peer ID missmatch");
+                    }
+                    libp2p::swarm::DialError::Denied { cause } => {
+                        tracing::error!(%cause, "⛔ connection denied");
+                    }
+                    libp2p::swarm::DialError::Transport(items) => {
+                        for (address, error) in items.iter() {
+                            tracing::error!(%address, %error, "⛔ Failed transport negotiation");
+                        }
+                    }
+                }
+            }
+
+            // Failed to respond to a remote peer's connection request
+            libp2p::swarm::SwarmEvent::IncomingConnectionError {
+                peer_id,
+                error,
+                connection_id,
+                ..
+            } => {
+                tracing::error!(connection = %connection_id, "⛔ Dialing");
+                tracing::error!(?peer_id, %error, "⛔ Incoming connection error");
+            }
+            _ => (),
+        };
+
+        Ok(())
+    }
+
+    async fn handle_event_shutdown(&mut self) -> common::types::Result<()> {
+        // Remember to cleanup the broadcast state here so that the production worker knows it
+        // should not produce any new attestations!
+        self.can_broadcast
+            .store(false, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+}

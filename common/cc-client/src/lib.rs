@@ -77,7 +77,7 @@ pub enum Error {
     RpcError(#[from] RpcError),
     #[error("Invalid rpc url")]
     InvalidUrl,
-    #[error("Failed to create proof of inclusion")]
+    #[error("Failed to create proof of inclusion: {0}")]
     FailedToCreateProofOfInclusion(#[from] VrfError),
     #[error("Failed to get chain name")]
     FailedToGetChainName,
@@ -95,6 +95,13 @@ pub struct Client {
     signing_keypair: Keypair,
     rpc: ReconnectionRpcClient,
     url: String,
+}
+
+#[allow(clippy::missing_fields_in_debug)]
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client").field("url", &self.url).finish()
+    }
 }
 
 impl Client {
@@ -144,11 +151,20 @@ impl Client {
     }
 
     #[must_use]
+    pub fn runtime_api() -> cc3::runtime_apis::RuntimeApi {
+        cc3::apis()
+    }
+
+    #[must_use]
     pub fn sign(&self, message: &[u8]) -> Signature {
         self.signing_keypair.sign(message)
     }
 
-    pub async fn get_chain_key(&self, chain_id: u64, name: Vec<u8>) -> Result<Option<ChainKey>> {
+    pub async fn get_chain_key(
+        &self,
+        chain_id: u64,
+        name: Vec<u8>,
+    ) -> Result<Option<ChainKey>, Error> {
         let chain_key = self
             .api()
             .await?
@@ -346,7 +362,10 @@ impl Client {
     }
 
     /// Check the attestor status
-    pub async fn get_attestor_status(&self, chain_key: u64) -> Result<Option<AttestorStatus>> {
+    pub async fn get_attestor_status(
+        &self,
+        chain_key: u64,
+    ) -> Result<Option<AttestorStatus>, Error> {
         let storage_query = cc3::storage()
             .attestation()
             .attestors(chain_key, AccountId32(self.signing_keypair.public_key().0));
@@ -376,7 +395,7 @@ impl Client {
     }
 
     /// Register to the attestation pallet
-    pub async fn register_attestor(
+    pub async fn attestor_register(
         &self,
         chain_key: u64,
         attestor_id: AccountId32,
@@ -401,6 +420,76 @@ impl Client {
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
             .submit_and_watch()
+            .await?
+            .wait_for_finalized_success()
+            .await?;
+
+        let hash = ext.extrinsic_hash();
+        debug!("Registration extrinsic submitted with hash: {:?}", hash);
+
+        Ok(())
+    }
+
+    pub async fn attestor_chill(
+        &self,
+        chain_key: u64,
+        attestor_id: AccountId32,
+        account_nonce: Option<u64>,
+    ) -> Result<()> {
+        let tx = cc3::tx().attestation().chill(chain_key, attestor_id);
+
+        let params = if let Some(account_nonce) = account_nonce {
+            DefaultExtrinsicParamsBuilder::new()
+                .nonce(account_nonce)
+                .build()
+        } else {
+            DefaultExtrinsicParamsBuilder::new().build()
+        };
+
+        let ext = self
+            .api()
+            .await?
+            .tx()
+            .create_signed(&tx, &self.signing_keypair, params)
+            .await?
+            .submit_and_watch()
+            .await?
+            .wait_for_finalized_success()
+            .await?;
+
+        let hash = ext.extrinsic_hash();
+        debug!("Registration extrinsic submitted with hash: {:?}", hash);
+
+        Ok(())
+    }
+
+    pub async fn attestor_unregister(
+        &self,
+        chain_key: u64,
+        attestor_id: AccountId32,
+        account_nonce: Option<u64>,
+    ) -> Result<()> {
+        let tx = cc3::tx()
+            .attestation()
+            .unregister_attestor(chain_key, attestor_id);
+
+        let params = if let Some(account_nonce) = account_nonce {
+            DefaultExtrinsicParamsBuilder::new()
+                .nonce(account_nonce)
+                .build()
+        } else {
+            DefaultExtrinsicParamsBuilder::new().build()
+        };
+
+        let ext = self
+            .api()
+            .await?
+            .tx()
+            .create_signed(&tx, &self.signing_keypair, params)
+            .await?
+            .submit_and_watch()
+            .await?
+            .wait_for_finalized_success()
             .await?;
 
         let hash = ext.extrinsic_hash();
@@ -436,7 +525,7 @@ impl Client {
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
-    pub async fn sign_babe_vrf(
+    pub async fn sign_vrf_production(
         &self,
         chain_key: ChainKey,
         header_number: u64,
@@ -449,14 +538,39 @@ impl Client {
         // Get attestor working set size
         let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
 
-        info!(
-            "Target set size: {}, committee set size: {}",
-            target_sample_size, committee_set_size
-        );
+        info!("Target set size: {target_sample_size}, committee set size: {committee_set_size}",);
 
         let proof_of_inclusion = make_proof_of_inclusion(
             committee_set_size as u64,
             u64::from(target_sample_size),
+            &randomness,
+            &self.pair,
+            &self.get_attestor_id(),
+            header_number,
+            epoch_index,
+        )?;
+
+        Ok(proof_of_inclusion)
+    }
+
+    pub async fn sign_vrf_submission(
+        &self,
+        chain_key: ChainKey,
+        header_number: u64,
+        randomness: Randomness,
+        epoch_index: u64,
+    ) -> Result<ProofOfInclusion, Error> {
+        // Get committee set size
+        let target_sample_size = 3;
+
+        // Get attestor working set size
+        let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
+
+        info!("committee set size: {committee_set_size}",);
+
+        let proof_of_inclusion = make_proof_of_inclusion(
+            committee_set_size as u64,
+            target_sample_size,
             &randomness,
             &self.pair,
             &self.get_attestor_id(),
@@ -554,7 +668,7 @@ impl Client {
     pub async fn get_last_checkpoint(
         &self,
         chain_key: ChainKey,
-    ) -> Result<Option<AttestationCheckpoint>> {
+    ) -> Result<Option<AttestationCheckpoint>, Error> {
         let storage_query = cc3::storage().attestation().last_checkpoint(chain_key);
 
         Ok(self
@@ -718,12 +832,12 @@ impl Client {
     pub async fn transfer(
         &self,
         target: AccountId32,
-        amount: u64,
+        amount: u128,
         account_nonce: Option<u64>,
     ) -> Result<()> {
         let tx = cc3::tx()
             .balances()
-            .transfer_allow_death(subxt::utils::MultiAddress::Id(target), amount.into());
+            .transfer_allow_death(subxt::utils::MultiAddress::Id(target), amount);
 
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()
@@ -740,6 +854,46 @@ impl Client {
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
             .submit_and_watch()
+            .await?
+            .wait_for_finalized_success()
+            .await?;
+
+        // let hash = ext.extrinsic_hash();
+        debug!("Transfer extrinsic submitted with hash: {:?}", ext);
+
+        Ok(())
+    }
+
+    pub async fn set_balance(
+        &self,
+        target: AccountId32,
+        amount: u128,
+        account_nonce: Option<u64>,
+    ) -> Result<()> {
+        let tx = cc3::tx().sudo().sudo(cc3::Call::Balances(
+            cc3::balances::Call::force_set_balance {
+                who: subxt::utils::MultiAddress::Id(target),
+                new_free: amount,
+            },
+        ));
+
+        let params = if let Some(account_nonce) = account_nonce {
+            DefaultExtrinsicParamsBuilder::new()
+                .nonce(account_nonce)
+                .build()
+        } else {
+            DefaultExtrinsicParamsBuilder::new().build()
+        };
+
+        let ext = self
+            .api()
+            .await?
+            .tx()
+            .create_signed(&tx, &self.signing_keypair, params)
+            .await?
+            .submit_and_watch()
+            .await?
+            .wait_for_finalized_success()
             .await?;
 
         // let hash = ext.extrinsic_hash();
@@ -856,6 +1010,11 @@ impl Client {
     }
 }
 
+// NOTE: a lot of these type-conversion shenanigans is due to the fact that we use a different type
+// of `primitive_types` via `sp_core` than `subxt` exposes. In the future, it would be nice to see
+// if we can resolve this dependency mismatch, perhaps by downgrading our version of `subxt`
+// (easier) or updating the version of `sp_core` we use (harder).
+
 impl<A> From<CcSignedAttestation<H256, A>> for SignedAttestation<Digest, A> {
     fn from(attestation: CcSignedAttestation<H256, A>) -> Self {
         SignedAttestation {
@@ -867,11 +1026,46 @@ impl<A> From<CcSignedAttestation<H256, A>> for SignedAttestation<Digest, A> {
     }
 }
 
+impl From<SignedAttestation<Digest, AttestorId>> for CcSignedAttestation<H256, AccountId32> {
+    fn from(attestation: SignedAttestation<Digest, AttestorId>) -> Self {
+        CcSignedAttestation {
+            attestation: attestation.attestation.into(),
+            signature: attestation.signature,
+            attestors: attestation
+                .attestors
+                .iter()
+                .map(|att| {
+                    let bytes: &[u8] = att.account_id().as_ref();
+                    AccountId32(bytes.try_into().unwrap())
+                })
+                .collect(),
+            continuity_proof: attestation.continuity_proof.into(),
+        }
+    }
+}
+
 impl From<CcAttestationFragment> for AttestationFragmentSerializable {
     fn from(fragment: CcAttestationFragment) -> Self {
         let fragment =
             AttestationFragment::from_blocks(fragment.blocks.into_iter().map(Into::into).collect());
         (&fragment).into()
+    }
+}
+
+impl From<AttestationFragmentSerializable> for CcAttestationFragment {
+    fn from(fragment: AttestationFragmentSerializable) -> Self {
+        CcAttestationFragment {
+            blocks: fragment
+                .blocks
+                .into_iter()
+                .map(|block| CcBlockSerializable {
+                    block_number: block.block_number,
+                    root: H256(block.root.0),
+                    prev_digest: H256(block.prev_digest.0),
+                    digest: H256(block.digest.0),
+                })
+                .collect(),
+        }
     }
 }
 
@@ -896,6 +1090,18 @@ impl From<CcAttestation<H256>> for Attestation<Digest> {
             prev_digest: attestation
                 .prev_digest
                 .map(|digest| sp_core::H256::from(digest.0)),
+        }
+    }
+}
+
+impl From<Attestation<Digest>> for CcAttestation<H256> {
+    fn from(attestation: Attestation<Digest>) -> Self {
+        CcAttestation {
+            chain_key: attestation.chain_key,
+            header_number: attestation.header_number,
+            header_hash: H256(attestation.header_hash.0),
+            root: H256(attestation.root.0),
+            prev_digest: attestation.prev_digest.map(|digest| H256(digest.0)),
         }
     }
 }
