@@ -1,6 +1,6 @@
 use clap::Parser;
 use std::env;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use proof_gen_api_server::{
     config::Config,

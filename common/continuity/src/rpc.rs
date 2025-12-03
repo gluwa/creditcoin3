@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
 use cc_client::{AccountId32, Client as CcClient};
