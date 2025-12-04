@@ -201,17 +201,6 @@ jobs:
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-wasm']"
 
-  build-usc-audit-automation:
-    needs:
-      - sanity-check
-      - setup
-      - deploy-github-runner
-    uses: ./.github/workflows/build-usc-audit-automation.yml
-    with:
-      version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-native']"
-    secrets: inherit
-
   docker-build:
     needs:
       - sanity-check
@@ -233,7 +222,6 @@ jobs:
       - generate-changelog
       - build-native-runtime
       - build-wasm-runtime
-      - build-usc-audit-automation
       - docker-build
     steps:
       - uses: actions/checkout@v6
@@ -249,13 +237,6 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           pattern: changelog
-
-      - name: Download USC audit binary
-        uses: actions/download-artifact@v6
-        with:
-          path: artifact
-          name: usc_audit_automation
-          merge-multiple: true
 
       - name: Compress native binaries
         shell: bash
