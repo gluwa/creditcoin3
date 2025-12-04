@@ -294,7 +294,15 @@ async fn main() -> anyhow::Result<()> {
             .arg(format!("--cc3-url={}", args.cc3_url));
 
         // Assign unique P2P port for each attestor
-        let port = args.p2p_port_base + index as u16;
+        let port = args
+            .p2p_port_base
+            .checked_add(index as u16)
+            .with_context(|| {
+                format!(
+                    "P2P port overflow: base_port ({}) + index ({}) exceeds u16::MAX (65535)",
+                    args.p2p_port_base, index
+                )
+            })?;
         attestor.arg(format!("--p2p-port={port}"));
 
         attestor
