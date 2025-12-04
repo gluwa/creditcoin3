@@ -4,7 +4,7 @@
 use crate::mock::*;
 use crate::*;
 use attestor_primitives::block::{Block, ContinuityProof};
-use attestor_primitives::{Attestation, AttestationCheckpoint, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
 use merkle::{MerkleProofEntry, TransactionMerkleProof};
 use precompile_utils::testing::*;
 use sp_core::H256;
@@ -130,7 +130,7 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
     }
 
     // Setup attestation for the first block's prev_digest (start of chain)
-    let start_attestation = Attestation {
+    let start_attestation = AttestationData {
         chain_key: chain_id,
         header_number: blocks[0].block_number - 1,
         header_hash: H256::random(),
@@ -158,7 +158,7 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
 
     // Setup attestation for the last block (end of chain)
     if let Some(last_block) = blocks.last() {
-        let end_attestation = Attestation {
+        let end_attestation = AttestationData {
             chain_key: chain_id,
             header_number: last_block.block_number,
             header_hash: H256::random(),
@@ -448,7 +448,7 @@ fn test_continuity_with_checkpoint_fallback() {
         // Setup end attestation
         use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
         if let Some(last_block) = continuity_blocks.last() {
-            let end_attestation = Attestation {
+            let end_attestation = AttestationData {
                 chain_key: 1,
                 header_number: last_block.block_number,
                 header_hash: H256::random(),
@@ -501,7 +501,7 @@ fn test_continuity_attestation_header_validation() {
 
         // Setup attestation with correct header number
         use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
-        let attestation = Attestation {
+        let attestation = AttestationData {
             chain_key: 1,
             header_number: continuity_blocks[0].block_number - 1, // Correct number
             header_hash: H256::random(),
@@ -531,7 +531,7 @@ fn test_continuity_attestation_header_validation() {
 
         // Setup end attestation
         if let Some(last_block) = continuity_blocks.last() {
-            let end_attestation = Attestation {
+            let end_attestation = AttestationData {
                 chain_key: 1,
                 header_number: last_block.block_number,
                 header_hash: H256::random(),
@@ -583,7 +583,7 @@ fn test_continuity_wrong_attestation_header_succeeds() {
 
         // Setup attestation with WRONG header number at start (doesn't matter anymore)
         use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
-        let attestation = Attestation {
+        let attestation = AttestationData {
             chain_key: 1,
             header_number: continuity_blocks[0].block_number + 10, // Wrong number but doesn't matter
             header_hash: H256::random(),
@@ -614,7 +614,7 @@ fn test_continuity_wrong_attestation_header_succeeds() {
 
         // Setup end attestation correctly
         if let Some(last_block) = continuity_blocks.last() {
-            let end_attestation = Attestation {
+            let end_attestation = AttestationData {
                 chain_key: 1,
                 header_number: last_block.block_number,
                 header_hash: H256::random(),
@@ -1426,7 +1426,7 @@ fn test_batch_queries_continuity_failure() {
 
         // Setup attestation for the first block but with wrong digest to make continuity fail
         use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
-        let attestation = Attestation {
+        let attestation = AttestationData {
             chain_key: 1,
             header_number: 99,
             header_hash: H256::random(),

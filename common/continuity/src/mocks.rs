@@ -2,7 +2,7 @@ use crate::rpc::{CcRpcProvider, EthRpcProvider};
 use anyhow::Result;
 use async_trait::async_trait;
 use attestor_primitives::block::Block;
-use attestor_primitives::{Attestation, AttestationCheckpoint, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
 use cc_client::AccountId32;
 use sp_core::H256;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ impl CcRpcProvider for MockCcRpcProvider {
         chain_key: u64,
     ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
         let mk_attestation = |header_number: u64| SignedAttestation {
-            attestation: Attestation {
+            attestation: AttestationData {
                 chain_key,
                 header_number,
                 header_hash: H256::from_low_u64_be(header_number),

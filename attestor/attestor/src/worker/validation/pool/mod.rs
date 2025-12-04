@@ -1590,7 +1590,7 @@ pub mod fixtures {
             },
             |mut attestation, attestor| {
                 attestation.votes.push(common::types::Attestation {
-                    attestation_data: attestor_primitives::Attestation {
+                    attestation_data: attestor_primitives::AttestationData {
                         header_number,
                         prev_digest: Some(prev_digest),
                         ..Default::default()

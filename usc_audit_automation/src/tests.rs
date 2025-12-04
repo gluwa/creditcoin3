@@ -36,7 +36,7 @@ impl UniversalSmartContractProvider for MockUscRpcClientOk {
         _digest: H256,
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
         Ok(Some(SignedAttestation {
-            attestation: attestor_primitives::Attestation {
+            attestation: attestor_primitives::AttestationData {
                 chain_key: 2,
                 header_number: 123,
                 header_hash: H256::from_slice(&[0u8; 32]),
@@ -213,7 +213,7 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
     };
 
     let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
+        attestation: attestor_primitives::AttestationData {
             chain_key: 2,
             header_number: 100,
             header_hash: H256::from_slice(&[0u8; 32]),
@@ -310,7 +310,7 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
     };
 
     let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
+        attestation: attestor_primitives::AttestationData {
             chain_key: 2,
             header_number: 150, // block diff is 50 (passes)
             header_hash: H256::from_slice(&[0u8; 32]),
@@ -497,7 +497,7 @@ fn create_message_returns_chain_status_and_group_notification_with_u_slack_id_wh
         chain_key: 2,
     };
     let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
+        attestation: attestor_primitives::AttestationData {
             chain_key: 2,
             header_number: 180,
             header_hash: H256::from_slice(&[0u8; 32]),
@@ -591,7 +591,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         chain_key: 2,
     };
     let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
+        attestation: attestor_primitives::AttestationData {
             chain_key: 2,
             header_number: 140,
             header_hash: H256::from_slice(&[0u8; 32]),
@@ -666,7 +666,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         chain_key: 2,
     };
     let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
+        attestation: attestor_primitives::AttestationData {
             chain_key: 2,
             header_number: 100, // block diff is 100 (fails)
             header_hash: H256::from_slice(&[0u8; 32]),
@@ -756,7 +756,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         chain_key: 2,
     };
     let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
+        attestation: attestor_primitives::AttestationData {
             chain_key: 2,
             header_number: 150, // block diff is 50 (passes)
             header_hash: H256::from_slice(&[0u8; 32]),
@@ -848,7 +848,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
     };
 
     let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
+        attestation: attestor_primitives::AttestationData {
             chain_key: 2,
             header_number: 150, // block diff is 50 (passes)
             header_hash: H256::from_slice(&[0u8; 32]),
@@ -937,7 +937,7 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
         chain_key: 2,
     };
     let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
+        attestation: attestor_primitives::AttestationData {
             chain_key: 2,
             header_number: 150,
             header_hash: H256::from_slice(&[0u8; 32]),
@@ -1028,7 +1028,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         chain_key: 2,
     };
     let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
+        attestation: attestor_primitives::AttestationData {
             chain_key: 2,
             header_number: 180,
             header_hash: H256::from_slice(&[0u8; 32]),

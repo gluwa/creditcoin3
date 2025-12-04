@@ -38,10 +38,10 @@ use cc3::runtime_types::{
 use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
     block::Block,
-    Attestation, AttestationCheckpoint, AttestorId, AttestorStatus, BlsPublicKey, BlsSignature,
-    ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
+    Attestation as RpcAttestation, AttestationCheckpoint, AttestationData, AttestorId,
+    AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest,
+    SignedAttestation,
 };
-use creditcoin3_attestor_gossip::communication::Attestation as RpcAttestation;
 use supported_chains_primitives::SupportedChain;
 use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
 
@@ -1080,9 +1080,9 @@ impl From<CcBlockSerializable> for Block {
     }
 }
 
-impl From<CcAttestation<H256>> for Attestation<Digest> {
+impl From<CcAttestation<H256>> for AttestationData<Digest> {
     fn from(attestation: CcAttestation<H256>) -> Self {
-        Attestation {
+        AttestationData {
             chain_key: attestation.chain_key,
             header_number: attestation.header_number,
             header_hash: sp_core::H256::from(attestation.header_hash.0),
@@ -1094,8 +1094,8 @@ impl From<CcAttestation<H256>> for Attestation<Digest> {
     }
 }
 
-impl From<Attestation<Digest>> for CcAttestation<H256> {
-    fn from(attestation: Attestation<Digest>) -> Self {
+impl From<AttestationData<Digest>> for CcAttestation<H256> {
+    fn from(attestation: AttestationData<Digest>) -> Self {
         CcAttestation {
             chain_key: attestation.chain_key,
             header_number: attestation.header_number,

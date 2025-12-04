@@ -174,7 +174,7 @@ impl CC3 {
     /// that any attestation reached finality amongst a valid set of attestors.
     pub async fn sign_attestation(
         &self,
-        attestation_data: attestor_primitives::Attestation<attestor_primitives::Digest>,
+        attestation_data: attestor_primitives::AttestationData<attestor_primitives::Digest>,
         continuity_proof: attestor_primitives::attestation_fragment::AttestationFragmentSerializable,
         epoch: u64,
     ) -> common::types::Attestation {

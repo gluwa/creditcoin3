@@ -213,7 +213,7 @@ mod tests {
         AttestationCheckpointChainNode, AttestationNode, GraphQLAttestationCheckResult,
         SignedAttestation,
     };
-    use attestor_primitives::Attestation;
+    use attestor_primitives::AttestationData;
     use sp_core::H256;
     use subxt::utils::AccountId32;
 
@@ -222,7 +222,7 @@ mod tests {
         root: [u8; 32],
     ) -> SignedAttestation<H256, AccountId32> {
         SignedAttestation {
-            attestation: Attestation {
+            attestation: AttestationData {
                 chain_key: 1,
                 header_number,
                 header_hash: H256::zero(),
@@ -685,7 +685,7 @@ mod tests {
     #[test]
     fn test_unelected_attestors_only() {
         let attestation = SignedAttestation {
-            attestation: Attestation {
+            attestation: AttestationData {
                 chain_key: 1,
                 header_number: 100,
                 header_hash: H256::zero(),
@@ -775,7 +775,7 @@ mod tests {
     #[test]
     fn test_attestation_signers_are_not_elected() {
         let attestation = SignedAttestation {
-            attestation: Attestation {
+            attestation: AttestationData {
                 chain_key: 1,
                 header_number: 100,
                 header_hash: H256::zero(),

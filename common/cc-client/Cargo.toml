@@ -25,8 +25,7 @@ subxt = { workspace = true }
 subxt-signer = { workspace = true }
 
 # Creditcoin deps
-attestor-primitives = { workspace = true, features = ["std"] }
-creditcoin3-attestor-gossip = { workspace = true }
+attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 vrf = { workspace = true }
 
@@ -41,4 +40,10 @@ tracing = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["sp-core/std", "attestor-primitives/std", "ccnext-abi-encoding"]
+std = [
+    "vrf/std",
+    "sp-core/std",
+    "attestor-primitives/std",
+    "supported-chains-primitives/std",
+    "ccnext-abi-encoding",
+]

@@ -5,7 +5,7 @@ use attestor_primitives::attestation_fragment::{
     AttestationFragment, AttestationFragmentSerializable,
 };
 use attestor_primitives::{
-    block::Block, Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus,
+    block::Block, AttestationCheckpoint, AttestationData as AttestationPrimitive, AttestorStatus,
     ChainKey, SignedAttestation,
 };
 use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};

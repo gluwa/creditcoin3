@@ -19,7 +19,10 @@ pub mod provider;
 // Re-export block types for convenience
 pub use block::{Block, ContinuityBlock, ContinuityProof};
 
-use crate::attestation_fragment::AttestationFragmentSerializable;
+use crate::{
+    attestation_fragment::AttestationFragmentSerializable,
+    bls::{Bls, CryptoScheme},
+};
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
 /// Attestor struct
@@ -157,7 +160,7 @@ impl From<AttestorId> for [u8; 32] {
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
 pub struct SignedAttestation<H, AccountId> {
-    pub attestation: Attestation<H>,
+    pub attestation: AttestationData<H>,
     pub signature: BlsSignature,
     pub attestors: Vec<AccountId>,
     pub continuity_proof: AttestationFragmentSerializable,
@@ -188,6 +191,45 @@ where
     }
 }
 
+#[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attestation<H, AccountId> {
+    pub attestation_data: AttestationData<H>,
+    pub attestor: AccountId,
+    pub signature: sp_core::sr25519::Signature,
+    pub signature_bls: <Bls as CryptoScheme>::Signature,
+    pub continuity_proof: AttestationFragmentSerializable,
+    pub epoch: u64,
+}
+
+impl<H, AccountId> Attestation<H, AccountId>
+where
+    H: AsRef<[u8]>,
+    AccountId: Into<[u8; 32]> + Clone,
+{
+    pub fn digest(&self) -> Digest {
+        self.attestation_data.digest()
+    }
+
+    pub fn prev_digest(&self) -> Option<Digest> {
+        self.attestation_data.prev_digest()
+    }
+
+    pub fn round(&self) -> Round {
+        self.attestation_data.round()
+    }
+
+    pub fn chain_key(&self) -> ChainKey {
+        self.attestation_data.chain_key()
+    }
+
+    pub fn header_number(&self) -> u64 {
+        self.attestation_data.header_number
+    }
+
+    pub fn attestor_id(&self) -> AttestorId {
+        AttestorId::from_public(self.attestor.clone().into())
+    }
+}
 #[derive(
     Debug,
     Clone,
@@ -202,7 +244,7 @@ where
     TypeInfo,
     Default,
 )]
-pub struct Attestation<H> {
+pub struct AttestationData<H> {
     pub chain_key: ChainKey,
     pub header_number: u64,
     pub header_hash: H,
@@ -214,7 +256,7 @@ pub struct Attestation<H> {
 /// Is the chain key and the header number
 pub type Round = (ChainKey, u64);
 
-impl Attestation<Digest> {
+impl AttestationData<Digest> {
     pub fn new(
         chain_key: ChainKey,
         header_number: u64,
@@ -222,7 +264,7 @@ impl Attestation<Digest> {
         root: H256,
         prev_digest: Option<Digest>,
     ) -> Self {
-        Attestation {
+        AttestationData {
             chain_key,
             header_number,
             header_hash,
@@ -232,7 +274,7 @@ impl Attestation<Digest> {
     }
 }
 
-impl<H> Attestation<H>
+impl<H> AttestationData<H>
 where
     H: AsRef<[u8]>,
 {

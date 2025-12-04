@@ -8,7 +8,7 @@ use crate::{
 
 use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
-    Attestation, AttestationCheckpoint, SignedAttestation,
+    AttestationCheckpoint, AttestationData, SignedAttestation,
 };
 use pallet_attestation_poc::{Attestations, LastCheckpoint, LastDigest};
 use precompile_utils::testing::*;
@@ -20,7 +20,7 @@ fn precompiles() -> Precompiles<Runtime> {
 }
 
 fn create_dummy_attestation(height: u64) -> SignedAttestation<H256, AccountId> {
-    let attestation = Attestation {
+    let attestation = AttestationData {
         chain_key: SUPPORTED_CHAIN_KEY,
         header_number: height,
         header_hash: H256::random(),

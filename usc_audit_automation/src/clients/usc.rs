@@ -3,7 +3,7 @@ use crate::clients::usc::decode::{
     decode_signed_attestation_dynamic, decode_static_or_dynamic, decode_supported_chain_dynamic,
 };
 use anyhow::{Context, Result};
-use attestor_primitives::{Attestation, AttestationCheckpoint, BlsSignature, Digest};
+use attestor_primitives::{AttestationCheckpoint, AttestationData, BlsSignature, Digest};
 use parity_scale_codec::{Decode, Encode};
 use scale_info::prelude::*;
 use scale_info::TypeInfo;
@@ -24,7 +24,7 @@ pub struct SupportedChain {
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
 pub struct SignedAttestation<Digest, AccountId32> {
-    pub attestation: Attestation<Digest>,
+    pub attestation: AttestationData<Digest>,
     pub signature: BlsSignature,
     pub attestors: Vec<AccountId32>,
 }

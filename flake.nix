@@ -58,14 +58,14 @@
 
         zombienet = pkgs.writeScriptBin "zombienet" ''
           ${shebang}
-          cargo build --release -p attestor_new
-          cargo run --release -p attestor_new_zombienet -- \
-            -n 3                                           \
-            --bin=./target/release/attestor                \
-            --eth-url=ws://localhost:8545                  \
-            --cc3-url=ws://localhost:9944                  \
-            --funding-address='//Alice'                    \
-            --config=./attestor_new/config.yaml
+          cargo build --release -p attestor
+          cargo run --release -p attestor_zombienet -- \
+            -n 3                                       \
+            --bin=./target/release/attestor            \
+            --eth-url=ws://localhost:8545              \
+            --cc3-url=ws://localhost:9944              \
+            --funding-address='//Alice'                \
+            --config=./attestor/config.yaml
         '';
 
         prover = pkgs.writeScriptBin "prover" ''

@@ -105,8 +105,6 @@ moonbeam-rpc-trace = { workspace = true }
 
 # Attestation
 attestor-primitives = { workspace = true }
-creditcoin3-attestor-gossip = { workspace = true }
-creditcoin3-attestor-rpc = { workspace = true }
 randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 

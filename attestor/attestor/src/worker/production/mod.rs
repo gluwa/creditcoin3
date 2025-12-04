@@ -292,7 +292,7 @@ impl WorkerAttestationProduction {
         let block = self.eth.get_block(height).await.map_err(Error::EthError)?;
         let prev_digest = continuity_fragment.head().map(|head| head.digest);
 
-        let attestation = attestor_primitives::Attestation::<attestor_primitives::Digest>::new(
+        let attestation = attestor_primitives::AttestationData::<attestor_primitives::Digest>::new(
             self.cc3.get_chain_key(),
             block.number(),
             sp_core::H256(*block.hash()),

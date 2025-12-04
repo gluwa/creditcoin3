@@ -5,7 +5,7 @@ use crate::test_helpers::*;
 use crate::SELECTOR_LOG_TRANSACTION_VERIFIED;
 use attestor_primitives::{
     block::{Block, ContinuityProof},
-    Attestation, AttestationCheckpoint, SignedAttestation,
+    AttestationCheckpoint, AttestationData, SignedAttestation,
 };
 use fp_evm::Context;
 use frame_support::assert_err;
@@ -155,7 +155,7 @@ fn compute_test_digest(block_number: u64, root: &H256, prev_digest: &H256) -> H2
 pub(crate) fn setup_attestation(chain_key: u64, block_number: u64, digest: H256) {
     use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
 
-    let attestation = Attestation {
+    let attestation = AttestationData {
         chain_key,
         header_number: block_number,
         header_hash: H256::random(),

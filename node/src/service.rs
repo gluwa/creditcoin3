@@ -1,9 +1,7 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
-use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
-
-use creditcoin3_attestor_gossip::{inherent::AsyncProvider, AttestorGossipParams};
 use futures::{channel::mpsc, prelude::*};
+use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
 // Substrate
 use fc_rpc::{StorageOverride, StorageOverrideHandler};
 use sc_client_api::{Backend, BlockBackend};
@@ -13,7 +11,6 @@ use sc_network_sync::{strategy::warp::WarpSyncProvider, WarpSyncConfig};
 use sc_service::{error::Error as ServiceError, Configuration, PartialComponents, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use sc_utils::mpsc::tracing_unbounded;
 use sp_api::ConstructRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::U256;
@@ -59,9 +56,6 @@ where
 /// The minimum period of blocks on which justifications will be
 /// imported and generated.
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
-
-const ATTESTOR_GOSSIP_NAME: sc_network::ProtocolName =
-    sc_network::ProtocolName::Static("/attestor-gossip/1");
 
 pub fn new_partial<RuntimeApi, BIQ>(
     config: &Configuration,
@@ -410,24 +404,6 @@ where
             Arc::clone(&peer_store_handle),
         );
 
-    // Attestation
-    // TODO: enable attestation from config
-    let enable_attestation = true;
-    let attestation_notification_service = match enable_attestation {
-        false => None,
-        true => {
-            // TODO: use _attestaton_notification_service to handle attestation notifications
-            let (attestation_notification_config, attestaton_notification_service) =
-                creditcoin3_attestor_gossip::peers_set_config::<_, Net>(
-                    ATTESTOR_GOSSIP_NAME,
-                    metrics.clone(),
-                    Arc::clone(&peer_store_handle),
-                );
-            net_config.add_notification_protocol(attestation_notification_config);
-            Some(attestaton_notification_service)
-        }
-    };
-
     let warp_sync_config = if sealing.is_some() {
         None
     } else {
@@ -484,41 +460,6 @@ where
     let prometheus_registry = config.prometheus_registry().cloned();
     let client = client.clone();
 
-    // Can't move this into this if check (yet)
-    let attestation_provider: AsyncProvider<_, _, _, _> =
-        AsyncProvider::new(backend.clone(), client.clone());
-    let attestor_gossip_msg_sink =
-        if let Some(notification_service) = attestation_notification_service {
-            let (attestor_gossip_msg_sink, msg_stream) =
-                tracing_unbounded("mpsc_attestor_gossip_validator", 100_000);
-
-            let attestor =
-                creditcoin3_attestor_gossip::start_attestor_gossip_gadget::<_, _, _, _, _, _, _>(
-                    AttestorGossipParams {
-                        client: client.clone(),
-                        backend: backend.clone(),
-                        runtime: client.clone(),
-                        network_params: creditcoin3_attestor_gossip::AttestorNetworkParams {
-                            network: Arc::new(network.clone()),
-                            sync: sync_service.clone(),
-                            notification_service,
-                            gossip_protocol_name: ATTESTOR_GOSSIP_NAME,
-                            msg_stream,
-                        },
-                        prometheus_registry: prometheus_registry.clone(),
-                        inherent_provider: attestation_provider.clone(),
-                        is_authority: config.role.is_authority(),
-                    },
-                );
-            task_manager
-                .spawn_essential_handle()
-                .spawn_blocking("attestor-gossip", None, attestor);
-
-            Some(attestor_gossip_msg_sink)
-        } else {
-            None
-        };
-
     // Channel for the rpc handler to communicate with the authorship task.
     let (command_sink, commands_stream) = mpsc::channel(1000);
 
@@ -566,7 +507,6 @@ where
         let pool = transaction_pool.clone();
         let network = network.clone();
         let sync_service = sync_service.clone();
-        let attestor_gossip_msg_sink = attestor_gossip_msg_sink.clone();
 
         let is_authority = role.is_authority();
         let enable_dev_signer = eth_config.enable_dev_signer;
@@ -657,7 +597,6 @@ where
                         shared_voter_state: shared_voter_state.clone(),
                         subscription_executor: subscription_task_executor.clone(),
                     }),
-                    message_sink: attestor_gossip_msg_sink.clone(),
                     chain_spec: chain_spec.cloned_box(),
                 };
                 rpc::create_full(
@@ -734,22 +673,19 @@ where
         let slot_duration = sc_consensus_babe::configuration(&*client)?.slot_duration();
         let target_gas_price = eth_config.target_gas_price;
 
-        let create_inherent_data_providers = move |_parent, ()| {
-            let attestation_provider = attestation_provider.clone();
-            async move {
-                let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+        let create_inherent_data_providers = move |_parent, ()| async move {
+            let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
 
-                let slot =
+            let slot =
                 sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
                     *timestamp,
                     slot_duration,
                 );
 
-                let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
-                    fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
+            let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
+                fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
 
-                Ok((slot, timestamp, dynamic_fee, attestation_provider))
-            }
+            Ok((slot, timestamp, dynamic_fee))
         };
 
         let babe = sc_consensus_babe::start_babe(sc_consensus_babe::BabeParams {

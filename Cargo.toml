@@ -36,8 +36,7 @@ assert_matches = "1.5.0"
 rstest = "0.26.1"
 tokio-test = "0.4.4"
 
-# Substrate Clientassert_matches = "1.5.0"
-
+# Substrate Client
 affix = "0.1"
 anyhow = { version = "1.0.68", default-features = false }
 async-trait = { version = "0.1.42" }
@@ -268,9 +267,8 @@ evm-tracing-events = { git = "https://github.com/gluwa/moonbeam", branch = "gluw
 moonbeam-rpc-primitives-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-primitives-debug", default-features = false }
 
 # Attestation
+attestor = { path = "attestor/attestor" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
-creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
-creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
 
 # Randomness

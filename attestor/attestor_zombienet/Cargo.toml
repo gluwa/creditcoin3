@@ -10,7 +10,7 @@ version.workspace = true
 
 [dependencies]
 # Creditcoin
-attestor = { path = "../attestor" }
+attestor = { workspace = true }
 attestor-primitives = { workspace = true }
 bip39 = { version = "2.2.0", features = ["rand", "serde"] }
 cc-client = { workspace = true }

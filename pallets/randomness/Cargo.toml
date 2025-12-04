@@ -23,7 +23,7 @@ frame-system = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
-randomness-primitives = { workspace = true }
+randomness-primitives = { workspace = true, default-features = false }
 sp-application-crypto = { workspace = true, default-features = false, features = [
     "serde",
 ] }

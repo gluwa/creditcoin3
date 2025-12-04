@@ -19,7 +19,7 @@ path = "./src/main.rs"
 [dependencies]
 # Ethereum
 alloy = { workspace = true, features = ["full"] }
-eth = { workspace = true }
+eth = { workspace = true, default-features = true }
 
 # Creditcoin
 attestor-primitives = { workspace = true }
@@ -28,7 +28,6 @@ bip39 = { version = "2.2.0", features = ["rand", "serde"] }
 bls-signatures = { workspace = true }
 cc-client = { workspace = true }
 ccnext-abi-encoding = { workspace = true }
-creditcoin3-attestor-gossip = { workspace = true }
 vrf = { workspace = true }
 
 # Substrate

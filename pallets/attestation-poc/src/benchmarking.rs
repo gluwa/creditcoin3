@@ -11,8 +11,8 @@ use sp_runtime::traits::{Bounded, One};
 use sp_std::{ops::RangeInclusive, vec, vec::Vec};
 
 use attestor_primitives::{
-    attestation_fragment::AttestationFragmentSerializable, block::Block,
-    Attestation as AttestationPrimitive, AttestationCheckpoint, BlsPublicKey, BlsSignature,
+    attestation_fragment::AttestationFragmentSerializable, block::Block, AttestationCheckpoint,
+    AttestationData as AttestationPrimitive, BlsPublicKey, BlsSignature,
     ChainAttestationIntervalType, ChainKey, SignedAttestation,
 };
 

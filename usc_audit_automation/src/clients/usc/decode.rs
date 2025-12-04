@@ -1,6 +1,6 @@
 use crate::clients::usc::{SignedAttestation, SupportedChain};
 use anyhow::Result;
-use attestor_primitives::{Attestation, AttestationCheckpoint, BlsSignature};
+use attestor_primitives::{AttestationCheckpoint, AttestationData, BlsSignature};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use parity_scale_codec::{Decode, Encode};
 use scale_info::prelude::*;
@@ -303,7 +303,7 @@ pub fn decode_signed_attestation_dynamic<T>(
     if let (Some(att_bytes), Some(sig_bytes), Some(att_vec_bytes)) =
         (attestation_bytes, signature_bytes, attestors_bytes)
     {
-        let attestation = match Attestation::<H256>::decode(&mut &att_bytes[..]) {
+        let attestation = match AttestationData::<H256>::decode(&mut &att_bytes[..]) {
             Ok(a) => a,
             Err(e) => {
                 warn!("Failed to decode Attestation: {:?}", e);
