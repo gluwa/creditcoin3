@@ -935,15 +935,15 @@ export default {
      * Lookup94: attestor_primitives::SignedAttestation<primitive_types::H256, sp_core::crypto::AccountId32>
      **/
     AttestorPrimitivesSignedAttestation: {
-        attestation: 'AttestorPrimitivesAttestation',
+        attestation: 'AttestorPrimitivesAttestationData',
         signature: '[u8;96]',
         attestors: 'Vec<AccountId32>',
         continuityProof: 'AttestorPrimitivesAttestationFragmentAttestationFragmentSerializable',
     },
     /**
-     * Lookup95: attestor_primitives::Attestation<primitive_types::H256>
+     * Lookup95: attestor_primitives::AttestationData<primitive_types::H256>
      **/
-    AttestorPrimitivesAttestation: {
+    AttestorPrimitivesAttestationData: {
         chainKey: 'u64',
         headerNumber: 'u64',
         headerHash: 'H256',

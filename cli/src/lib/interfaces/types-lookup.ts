@@ -1202,14 +1202,14 @@ declare module '@polkadot/types/lookup' {
 
     /** @name AttestorPrimitivesSignedAttestation (94) */
     interface AttestorPrimitivesSignedAttestation extends Struct {
-        readonly attestation: AttestorPrimitivesAttestation;
+        readonly attestation: AttestorPrimitivesAttestationData;
         readonly signature: U8aFixed;
         readonly attestors: Vec<AccountId32>;
         readonly continuityProof: AttestorPrimitivesAttestationFragmentAttestationFragmentSerializable;
     }
 
-    /** @name AttestorPrimitivesAttestation (95) */
-    interface AttestorPrimitivesAttestation extends Struct {
+    /** @name AttestorPrimitivesAttestationData (95) */
+    interface AttestorPrimitivesAttestationData extends Struct {
         readonly chainKey: u64;
         readonly headerNumber: u64;
         readonly headerHash: H256;
