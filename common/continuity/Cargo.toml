@@ -14,7 +14,6 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 
 # Creditcoin / USC dependencies
-attestor = { path = "../../attestor" }
 attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 ccnext-abi-encoding = { workspace = true }

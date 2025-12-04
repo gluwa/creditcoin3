@@ -1,7 +1,0 @@
-default_command: "../target/release/attestor"
-# Set run to true if you wanna start the attestor automatically
-run: true
-default_args:
-  # - "-v"
-num_attestors: 3
-single_node: true

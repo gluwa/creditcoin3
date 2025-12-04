@@ -6,7 +6,6 @@ members = [
     "pallets/attestation-poc",
     "pallets/randomness",
     "pallets/supported-chains",
-    "attestor",
     "primitives/attestor",
     "primitives/supported-chains",
     "primitives/randomness",
@@ -15,13 +14,12 @@ members = [
     "precompiles/substrate-transfer",
     "precompiles/block-prover",
     "common/*",
-    "attestor_zombienet",
     "query-cli",
     "usc_audit_automation",
     "proof-gen-api-server",
-    "attestor_new/attestor",
-    "attestor_new/attestor_macro",
-    "attestor_new/attestor_zombienet",
+    "attestor/attestor",
+    "attestor/attestor_macro",
+    "attestor/attestor_zombienet",
 ]
 resolver = "2"
 

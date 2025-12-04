@@ -1488,72 +1488,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "attestor"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "attestor-primitives",
- "axum",
- "bls-signatures",
- "cc-client",
- "ccnext-abi-encoding",
- "clap",
- "creditcoin3-attestor-gossip",
- "creditcoin3-attestor-rpc",
- "eth",
- "futures 0.3.31",
- "futures-util",
- "hex",
- "merkle",
- "prometheus 3.68.0",
- "rand 0.9.0",
- "serde",
- "serde_json",
- "sp-core",
- "thiserror 1.0.69",
- "tokio",
- "tower 0.5.2",
- "tracing",
- "tracing-subscriber",
- "url",
- "utils",
- "vrf",
-]
-
-[[package]]
-name = "attestor-primitives"
-version = "3.68.0"
-dependencies = [
- "bls-signatures",
- "ccnext-abi-encoding",
- "frame-support",
- "hex",
- "parity-scale-codec",
- "precompile-utils",
- "scale-info",
- "serde",
- "serde_bytes",
- "serde_json",
- "sp-api",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
- "utils",
-]
-
-[[package]]
-name = "attestor_macro"
-version = "3.68.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.111",
-]
-
-[[package]]
-name = "attestor_new"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -1591,12 +1526,43 @@ dependencies = [
 ]
 
 [[package]]
-name = "attestor_new_zombienet"
-version = "3.68.0"
+name = "attestor-primitives"
+version = "3.67.0"
+dependencies = [
+ "bls-signatures",
+ "ccnext-abi-encoding",
+ "frame-support",
+ "hex",
+ "parity-scale-codec",
+ "precompile-utils",
+ "scale-info",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+ "utils",
+]
+
+[[package]]
+name = "attestor_macro"
+version = "3.67.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
+name = "attestor_zombienet"
+version = "3.67.0"
 dependencies = [
  "anyhow",
+ "attestor",
  "attestor-primitives",
- "attestor_new",
  "bip39",
  "cc-client",
  "chrono",
@@ -1610,27 +1576,6 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "url",
-]
-
-[[package]]
-name = "attestor_zombienet"
-version = "3.68.0"
-dependencies = [
- "anyhow",
- "cc-client",
- "clap",
- "eth",
- "futures 0.3.31",
- "rand 0.8.5",
- "serde",
- "serde_yaml",
- "subxt",
- "subxt-signer",
- "tempfile",
- "tiny-bip39 1.0.0",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -2329,7 +2274,7 @@ dependencies = [
 
 [[package]]
 name = "cc-client"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
@@ -2755,7 +2700,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "attestor",
  "attestor-primitives",
  "cc-client",
  "ccnext-abi-encoding",
@@ -2951,7 +2895,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-attestor-gossip"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3000,7 +2944,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-cli-opt"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "bip32",
  "clap",
@@ -3008,13 +2952,13 @@ dependencies = [
  "primitive-types 0.12.2",
  "sha3",
  "sp-runtime",
- "tiny-bip39 0.8.2",
+ "tiny-bip39",
  "url",
 ]
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "async-trait",
  "attestor-primitives",
@@ -3099,7 +3043,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "attestor-primitives",
  "ethereum 0.18.2",
@@ -4143,7 +4087,7 @@ dependencies = [
 
 [[package]]
 name = "eth"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5749,7 +5693,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "clap",
  "creditcoin3-runtime",
@@ -8653,7 +8597,7 @@ dependencies = [
 
 [[package]]
 name = "merkle"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "parity-scale-codec",
  "precompile-utils",
@@ -9661,7 +9605,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-attestation-poc"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "attestor-primitives",
  "bls-signatures",
@@ -10153,7 +10097,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-randomness"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "attestor-primitives",
  "frame-benchmarking",
@@ -10253,7 +10197,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-supported-chains"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "attestor-primitives",
  "frame-benchmarking",
@@ -11209,7 +11153,7 @@ dependencies = [
 
 [[package]]
 name = "prometheus"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "axum",
  "http-body-util",
@@ -11256,7 +11200,7 @@ dependencies = [
 
 [[package]]
 name = "proof-gen-api-server"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -11273,7 +11217,7 @@ dependencies = [
  "futures 0.3.31",
  "hex",
  "merkle",
- "prometheus 3.68.0",
+ "prometheus 3.67.0",
  "reqwest 0.12.15",
  "serde",
  "serde_json",
@@ -11833,7 +11777,7 @@ dependencies = [
 
 [[package]]
 name = "randomness-primitives"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "impl-trait-for-tuples",
  "sp-api",
@@ -16262,7 +16206,7 @@ dependencies = [
 
 [[package]]
 name = "supported-chains-primitives"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "attestor-primitives",
  "impl-trait-for-tuples",
@@ -16648,25 +16592,6 @@ dependencies = [
  "rand 0.7.3",
  "rustc-hash 1.1.0",
  "sha2 0.9.9",
- "thiserror 1.0.69",
- "unicode-normalization",
- "wasm-bindgen",
- "zeroize",
-]
-
-[[package]]
-name = "tiny-bip39"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62cc94d358b5a1e84a5cb9109f559aa3c4d634d2b1b4de3d0fa4adc7c78e2861"
-dependencies = [
- "anyhow",
- "hmac 0.12.1",
- "once_cell",
- "pbkdf2 0.11.0",
- "rand 0.8.5",
- "rustc-hash 1.1.0",
- "sha2 0.10.8",
  "thiserror 1.0.69",
  "unicode-normalization",
  "wasm-bindgen",
@@ -17462,7 +17387,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
- "attestor",
  "attestor-primitives",
  "base64 0.22.1",
  "cc-client",
@@ -17522,7 +17446,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "utils"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "anyhow",
  "fs2",
@@ -17582,7 +17506,7 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
 name = "vrf"
-version = "3.68.0"
+version = "3.67.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",

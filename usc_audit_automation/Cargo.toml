@@ -31,9 +31,6 @@ subxt-signer = "0.40"
 # Common deps
 merkle = { path = "../common/merkle" }
 
-# Attestation deps
-attestor = { path = "../attestor" }
-
 # Creditcoin deps
 attestor-primitives = { workspace = true }
 cc-client = { workspace = true }

@@ -1,5 +1,5 @@
 [package]
-name = "attestor_new"
+name = "attestor"
 
 authors.workspace = true
 edition.workspace = true

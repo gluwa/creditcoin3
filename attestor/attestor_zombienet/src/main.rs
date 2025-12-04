@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
     // ------------------------------------* User-facing logs *------------------------------------
 
     let filter_env = tracing_subscriber::EnvFilter::builder()
-        .with_default_directive("attestor_new_zombienet=info".parse().unwrap())
+        .with_default_directive("attestor_zombienet=info".parse().unwrap())
         .from_env_lossy();
 
     let debug = filter_env.max_level_hint().unwrap() == tracing::level_filters::LevelFilter::DEBUG;

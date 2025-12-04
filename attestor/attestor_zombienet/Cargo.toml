@@ -1,5 +1,5 @@
 [package]
-name = "attestor_new_zombienet"
+name = "attestor_zombienet"
 
 authors.workspace = true
 edition.workspace = true
@@ -10,8 +10,8 @@ version.workspace = true
 
 [dependencies]
 # Creditcoin
+attestor = { path = "../attestor" }
 attestor-primitives = { workspace = true }
-attestor_new = { path = "../attestor" }
 bip39 = { version = "2.2.0", features = ["rand", "serde"] }
 cc-client = { workspace = true }
 eth = { workspace = true }
