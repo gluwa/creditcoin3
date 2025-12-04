@@ -498,14 +498,14 @@ jobs:
         run: |
           chmod a+x ./target/release/attestor*
 
-          ./target/release/attestor_new_zombienet \
+          ./target/release/attestor_zombienet \
                 -n 3 \
                 --chain-key=2 \
                 --bin=./target/release/attestor \
                 --eth-url=ws://localhost:8141 \
                 --cc3-url=ws://localhost:9944 \
                 --funding-address='//Alice' \
-                --config=./attestor_new/config.yaml \
+                --config=./attestor/config.yaml \
                 >/var/tmp/integration-test-attestor-network/zombienet-alice &
 
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
@@ -513,7 +513,7 @@ jobs:
           # Wait for first zombienet to finish registering attestors to avoid nonce conflicts
           sleep 60
 
-          ./target/release/attestor_new_zombienet \
+          ./target/release/attestor_zombienet \
                 -n 3 \
                 --offset=3 \
                 --chain-key=4 \
@@ -521,7 +521,7 @@ jobs:
                 --eth-url=ws://localhost:8242 \
                 --cc3-url=ws://localhost:9955 \
                 --funding-address='//Alice' \
-                --config=./attestor_new/config.yaml \
+                --config=./attestor/config.yaml \
                 >/var/tmp/integration-test-attestor-network/zombienet-bob &
 
       - name: Wait for 3 attestors to be registered
@@ -574,7 +574,7 @@ jobs:
           # if all went well kill the node. Otherwise GitHub Actions would exit on the
           # previous step killing everything and we don't have to worry about
           # dangling processes
-          killall -TERM attestor_new_zombienet
+          killall -TERM attestor_zombienet
           killall -TERM attestor
           killall -TERM creditcoin3-node
           sleep 60
@@ -586,7 +586,7 @@ jobs:
           # if all went well kill the node. Otherwise GitHub Actions would exit on the
           # previous step killing everything and we don't have to worry about
           # dangling processes
-          killall -KILL attestor_new_zombienet
+          killall -KILL attestor_zombienet
           killall -KILL attestor
           killall -KILL creditcoin3-node
 
@@ -1427,13 +1427,13 @@ jobs:
 
           mkdir -p /var/tmp/cc3-indexer-testing/attestors-alice
 
-          ./target/release/attestor_new_zombienet \
+          ./target/release/attestor_zombienet \
                 -n 3 \
                 --bin=./target/release/attestor \
                 --eth-url=ws://localhost:8141 \
                 --cc3-url=ws://localhost:9944 \
                 --funding-address='//Alice' \
-                --config=./attestor_new/config.yaml \
+                --config=./attestor/config.yaml \
                 --chain-key=2 &
 
       - name: Install Solidity compiler
@@ -1452,13 +1452,13 @@ jobs:
 
           mkdir -p /var/tmp/cc3-indexer-testing/attestors-charlie
 
-          ./target/release/attestor_new_zombienet \
+          ./target/release/attestor_zombienet \
                 -n 3 \
                 --bin=./target/release/attestor \
                 --eth-url=ws://localhost:8343 \
                 --cc3-url=ws://localhost:9944 \
                 --funding-address='//Alice' \
-                --config=./attestor_new/config.yaml \
+                --config=./attestor/config.yaml \
                 --chain-key=5 &
 
       - name: Wait for 3 attestors to be registered
@@ -1540,7 +1540,7 @@ jobs:
         run: |
           docker compose -f cc3-indexer/docker-compose.yaml down
 
-          killall -9 attestor_new_zombienet
+          killall -9 attestor_zombienet
           killall -9 attestor
           killall -9 creditcoin3-node
 

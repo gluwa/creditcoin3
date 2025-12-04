@@ -123,7 +123,7 @@ describe('show-status', () => {
             '--eth-url',
             chain_Anvil1_Url,
             '--config',
-            '../attestor_new/config.yaml',
+            '../attestor/config.yaml',
         ];
 
         void execa('../target/release/attestor', args, {
