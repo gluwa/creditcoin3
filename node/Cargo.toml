@@ -50,7 +50,6 @@ sc-sync-state-rpc = { workspace = true, default-features = true }
 sc-telemetry = { workspace = true }
 sc-transaction-pool = { workspace = true }
 sc-transaction-pool-api = { workspace = true }
-sc-utils = { workspace = true, features = ["default"] }
 sp-api = { workspace = true, features = ["default"] }
 sp-block-builder = { workspace = true }
 sp-blockchain = { workspace = true }

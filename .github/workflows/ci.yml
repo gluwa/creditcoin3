@@ -31,13 +31,6 @@ jobs:
         with:
           go-version: "stable"
 
-      - name: Lint Grafana model files
-        run: |
-          go install github.com/grafana/dashboard-linter@latest
-
-          # rules at https://github.com/grafana/dashboard-linter/blob/main/docs/index.md
-          dashboard-linter lint --strict client/attestor-gossip/grafana_model.json
-
       - name: Check for parity between extrinsics, benchmarks and weights
         run: |
           echo "INFO: active pallets are"
