@@ -43,7 +43,7 @@ struct Args {
 
     /// Base P2P port for the first attestor. Each subsequent attestor will use base_port + index.
     /// If not specified, defaults to 9000 (attestor 0 gets 9000, attestor 1 gets 9001, etc.).
-    #[arg(long, default_value = "9000")]
+    #[arg(long, default_value_t = attestor::common::constants::DEFAULT_P2P_PORT)]
     p2p_port_base: u16,
 
     #[arg(last = true)]
@@ -283,16 +283,6 @@ async fn main() -> anyhow::Result<()> {
 
     let mut futures_attestors = tokio::task::JoinSet::new();
     for (index, (name, secret, account_id)) in attestor_info.iter().enumerate() {
-        let mut attestor = tokio::process::Command::new(&args.bin);
-        attestor
-            .kill_on_drop(true)
-            .arg(format!("--name={name}"))
-            .arg(format!("--secret={secret}"))
-            .arg(format!("--config={}", args.config.to_string_lossy()))
-            .arg(format!("--chain-key={}", args.chain_key))
-            .arg(format!("--eth-url={}", args.eth_url))
-            .arg(format!("--cc3-url={}", args.cc3_url));
-
         // Assign unique P2P port for each attestor
         let port = args
             .p2p_port_base
@@ -303,7 +293,17 @@ async fn main() -> anyhow::Result<()> {
                     args.p2p_port_base, index
                 )
             })?;
-        attestor.arg(format!("--p2p-port={port}"));
+
+        let mut attestor = tokio::process::Command::new(&args.bin);
+        attestor
+            .kill_on_drop(true)
+            .arg(format!("--name={name}"))
+            .arg(format!("--secret={secret}"))
+            .arg(format!("--config={}", args.config.to_string_lossy()))
+            .arg(format!("--chain-key={}", args.chain_key))
+            .arg(format!("--eth-url={}", args.eth_url))
+            .arg(format!("--cc3-url={}", args.cc3_url))
+            .arg(format!("--p2p-port={port}"));
 
         attestor
             .args(&args.trailing)

@@ -199,7 +199,6 @@ impl super::Worker for WorkerP2P {
             // Tell the swarm to listen on all interfaces on the configured port.
             // Default port is 9000, which is useful for Kubernetes LoadBalancer services.
             let listen_addr = format!("/ip4/0.0.0.0/tcp/{}", self.p2p_port);
-            tracing::info!(%listen_addr, "🔌 Listening on P2P address");
             self.swarm.listen_on(listen_addr.parse()?)?;
 
             loop {
