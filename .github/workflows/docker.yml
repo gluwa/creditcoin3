@@ -79,8 +79,8 @@ jobs:
           docker exec creditcoin-validator which attestor
           docker exec creditcoin-validator attestor --help
 
-          docker exec creditcoin-validator which attestor_new_zombienet
-          docker exec creditcoin-validator attestor_new_zombienet --help
+          docker exec creditcoin-validator which attestor_zombienet
+          docker exec creditcoin-validator attestor_zombienet --help
 
           docker exec creditcoin-validator which query-cli
           docker exec creditcoin-validator query-cli --help
