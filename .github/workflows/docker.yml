@@ -1,0 +1,175 @@
+---
+name: Docker
+
+"on":
+  pull_request:
+    paths:
+      - '**.rs'
+      - '**.toml'
+      - '**Cargo**'
+      - '**Dockerfile**'
+      - 'docker-compose.**'
+      - 'cli/src/**'
+      - 'cc3-indexer/**'
+      - '.github/workflows/build-docker.yml'
+      - '.github/workflows/docker.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  docker-build:
+    needs:
+      - deploy-runner-docker-build
+    uses: ./.github/workflows/build-docker.yml
+    with:
+      build-options: "BUILD_ARGS="
+      version-string: "latest"
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-docker-build']"
+
+  docker-test:
+    needs:
+      - deploy-runner-docker-test
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-test"]
+    steps:
+      - name: Download locally built docker image
+        uses: actions/download-artifact@v6
+        with:
+          name: locally-built-docker-image
+          path: ${{ runner.temp }}/gluwa/
+
+      - name: Load locally built docker image
+        run: |
+          docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
+          docker images
+
+      - uses: actions/checkout@v6
+
+      - name: Start a Devnet container from image
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+          docker run --rm --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 ${{ github.repository }} \
+              --dev --validator \
+              --pruning archive \
+              --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+              --unsafe-rpc-external
+
+      - name: Sanity test creditcoin-cli inside the container
+        run: |
+          docker exec creditcoin-validator which creditcoin
+          docker exec creditcoin-validator creditcoin wizard --help
+          docker exec creditcoin-validator creditcoin attestor --help
+
+      - name: Sanity check for chainspecs inside the container
+        run: |
+          for f in chainspecs/*.json; do
+              spec=$(basename "$f")
+              docker exec creditcoin-validator  ls -l "/$spec"
+          done
+
+      - name: Sanity check other binaries inside the container
+        run: |
+          docker exec creditcoin-validator which attestor
+          docker exec creditcoin-validator attestor --help
+
+          docker exec creditcoin-validator which attestor_new_zombienet
+          docker exec creditcoin-validator attestor_new_zombienet --help
+
+          docker exec creditcoin-validator which query-cli
+          docker exec creditcoin-validator query-cli --help
+
+      - name: Collect docker logs
+        if: always()
+        run: |
+          docker logs creditcoin-validator >docker-creditcoin-validator.log 2>&1
+
+      - name: Kill the container
+        run: |
+          sudo killall -9 creditcoin3-node
+          sleep 10
+          docker rm -f creditcoin-validator
+          sleep 10
+
+      - name: Start validator via compose
+        run: |
+          docker compose up -d
+
+      - name: Sanity check for persistently mounted directory
+        run: |
+          sleep 60
+          docker exec creditcoin-validator ls -ld /creditcoin-node/data
+          docker exec creditcoin-validator ls -la /creditcoin-node/data
+
+      - name: Collect compose logs
+        if: always()
+        run: |
+          docker compose logs --no-color > docker-compose-validator.log
+
+      - name: Kill the validator container
+        run: |
+          # note: killall will report failure if process had crashed
+          sudo killall -9 creditcoin3-node
+
+          # while downing a compose will not even when the underlying containers have crashed
+          docker compose down
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: docker-logs
+          path: docker-*.log
+
+      # keep this always as the last step
+      - name: Schedule self-hosted shutdown
+        if: always()
+        run: |
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
+
+  deploy-runner-docker-build:
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "docker-build"
+    secrets: inherit
+
+  deploy-runner-docker-test:
+    needs:
+      - docker-build
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "docker-test"
+    secrets: inherit
+
+  rm-gh-runner-docker-build:
+    needs:
+      - docker-build
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "docker-build"
+    secrets: inherit
+
+  rm-gh-runner-docker-test:
+    needs:
+      - docker-test
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "docker-test"
+    secrets: inherit
