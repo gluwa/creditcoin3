@@ -106,6 +106,7 @@ pub use error::*;
 #[derive(attestor_macro::Builder)]
 pub struct Config {
     boot_nodes: Vec<libp2p::Multiaddr>,
+    port: u16,
     #[specify_later]
     keypair: libp2p::identity::Keypair,
     #[specify_later]
@@ -125,6 +126,7 @@ pub(crate) struct WorkerP2P {
     swarm: libp2p::Swarm<behavior::P2PBehavior>,
     can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
     topic: libp2p::gossipsub::IdentTopic,
+    p2p_port: u16,
 
     // MESSAGE CHANNELS
     receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
@@ -175,6 +177,7 @@ impl WorkerP2P {
             swarm,
             can_broadcast: config.can_broadcast,
             topic,
+            p2p_port: config.port,
 
             receiver_p2p: config.receiver_p2p,
             sender_validation: config.sender_validation,
@@ -193,9 +196,11 @@ impl super::Worker for WorkerP2P {
         async move {
             use futures::StreamExt as _;
 
-            // Tell the swarm to listen on all interfaces and a random, OS-assigned port.
-            // We use this to bootstrap nodes on the same network using mDNS
-            self.swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+            // Tell the swarm to listen on all interfaces on the configured port.
+            // Default port is 9000, which is useful for Kubernetes LoadBalancer services.
+            let listen_addr = format!("/ip4/0.0.0.0/tcp/{}", self.p2p_port);
+            tracing::info!(%listen_addr, "🔌 Listening on P2P address");
+            self.swarm.listen_on(listen_addr.parse()?)?;
 
             loop {
                 let can_broadcast = self

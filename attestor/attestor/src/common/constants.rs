@@ -22,3 +22,10 @@ pub const ATTESTATION_FINALIZATION_LAG: super::types::Height = 10;
 
 /// General delay used to retry network connections.
 pub const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Default P2P port for libp2p networking.
+///
+/// This port is used when no explicit P2P port is configured via CLI args, environment variables,
+/// or config file. Port 9000 is chosen as it's commonly available and suitable for Kubernetes
+/// LoadBalancer services.
+pub const DEFAULT_P2P_PORT: u16 = 9000;

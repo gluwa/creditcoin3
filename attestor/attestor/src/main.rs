@@ -13,6 +13,7 @@ struct Config {
     secret: bip39::Mnemonic,
     chain_key: attestor_primitives::ChainKey,
     boot_nodes: Vec<libp2p::Multiaddr>,
+    p2p_port: u16, // Defaults to 9000 if not specified
     eth_url: url::Url,
     cc3_url: url::Url,
     pool_capacity: std::num::NonZeroUsize,
@@ -53,6 +54,7 @@ fn default_logs() -> std::path::PathBuf {
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigFileP2P {
     boot_nodes: Option<Vec<libp2p::Multiaddr>>,
+    port: Option<u16>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -179,6 +181,18 @@ impl Config {
                     .action(clap::ArgAction::Append)
                     .required(false)
                     .value_parser(clap::value_parser!(libp2p::Multiaddr)),
+            )
+            .arg(
+                clap::arg!(--"p2p-port" <PORT>)
+                    .help("P2P listening port")
+                    .long_help(
+                        "P2P listening port for libp2p networking. \
+                        If not specified, a random OS-assigned port will be used. \
+                        Specify a fixed port for Kubernetes LoadBalancer services.",
+                    )
+                    .env("ATTESTOR_P2P_PORT")
+                    .required(false)
+                    .value_parser(clap::value_parser!(u16)),
             )
             .arg(
                 clap::arg!(--"eth-url" <URL>)
@@ -310,6 +324,12 @@ impl Config {
             .or(config_file.p2p.boot_nodes)
             .unwrap_or_default();
 
+        let p2p_port = matches
+            .get_one::<u16>("p2p-port")
+            .copied()
+            .or(config_file.p2p.port)
+            .unwrap_or(common::constants::DEFAULT_P2P_PORT);
+
         let eth_url = match matches.get_one::<url::Url>("eth-url") {
             Some(url) => url.clone(),
             None => config_file
@@ -360,6 +380,7 @@ impl Config {
             chain_key,
             secret,
             boot_nodes,
+            p2p_port,
             eth_url,
             cc3_url,
             pool_capacity,
@@ -430,7 +451,11 @@ async fn main() -> anyhow::Result<()> {
                 .with_cc3_url(args.cc3_url)
                 .with_cc3_key(args.secret),
         )
-        .with_p2p(attestor::worker::p2p::ConfigBuilder::new().with_boot_nodes(args.boot_nodes))
+        .with_p2p(
+            attestor::worker::p2p::ConfigBuilder::new()
+                .with_boot_nodes(args.boot_nodes)
+                .with_port(args.p2p_port),
+        )
         .with_pool(
             attestor::worker::validation::pool::ConfigBuilder::new()
                 .with_attestors(attestor::worker::validation::pool::AttestorValidateDeny)

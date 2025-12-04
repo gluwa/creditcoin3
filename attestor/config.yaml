@@ -8,6 +8,14 @@ eth:
 cc3:
   url: "ws://localhost:9944"
 
+p2p:
+  # Optional: Fixed P2P port for libp2p networking
+  # If not specified, defaults to 9000 (see DEFAULT_P2P_PORT constant)
+  # For zombienet, use --p2p-port-base to assign unique ports per attestor
+  # port: 9000
+  # Optional: Boot nodes for peer discovery
+  # boot_nodes: []
+
 pool:
   capacity: 100
 
