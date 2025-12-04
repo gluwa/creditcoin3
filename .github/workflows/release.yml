@@ -248,6 +248,9 @@ jobs:
           # -m removes the uncompressed files b/c we don't want to be uploading them
           zip -m "attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" attestor*
 
+          # -m removes the uncompressed files b/c we don't want to be uploading them
+          zip -m "usc_audit_automation-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" usc_audit_automation
+
           ls -lR
 
       - name: Make the release
@@ -256,6 +259,7 @@ jobs:
           files: |
             artifact/attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}*
             artifact/creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}*
+            artifact/usc_audit_automation-${{ needs.sanity-check.outputs.TAG_NAME }}*
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
           body_path: changelog.md
