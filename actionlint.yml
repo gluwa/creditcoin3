@@ -12,6 +12,7 @@ self-hosted-runner:
     - proxy-smart-contract
     - proxy-unit-test-creditcoin
     - proxy-cc3-indexer
+    - proxy-proof-gen-api-server-e2e-test
     - type-docker
     - type-native
     - type-wasm
