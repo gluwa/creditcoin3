@@ -28,8 +28,8 @@ use tracing::{debug, error, info};
 use cc3::runtime_types::{
     attestor_primitives::{
         attestation_fragment::AttestationFragmentSerializable as CcAttestationFragment,
-        block::BlockSerializable as CcBlockSerializable, Attestation as CcAttestation,
-        AttestationCheckpoint as CcAttestationCheckpoint,
+        block::BlockSerializable as CcBlockSerializable,
+        AttestationCheckpoint as CcAttestationCheckpoint, AttestationData as CcAttestationData,
         ChainEncodingVersion as CcChainEncodingVersion, SignedAttestation as CcSignedAttestation,
     },
     supported_chains_primitives::SupportedChain as CcSupportedChain,
@@ -1080,8 +1080,8 @@ impl From<CcBlockSerializable> for Block {
     }
 }
 
-impl From<CcAttestation<H256>> for AttestationData<Digest> {
-    fn from(attestation: CcAttestation<H256>) -> Self {
+impl From<CcAttestationData<H256>> for AttestationData<Digest> {
+    fn from(attestation: CcAttestationData<H256>) -> Self {
         AttestationData {
             chain_key: attestation.chain_key,
             header_number: attestation.header_number,
@@ -1094,9 +1094,9 @@ impl From<CcAttestation<H256>> for AttestationData<Digest> {
     }
 }
 
-impl From<AttestationData<Digest>> for CcAttestation<H256> {
+impl From<AttestationData<Digest>> for CcAttestationData<H256> {
     fn from(attestation: AttestationData<Digest>) -> Self {
-        CcAttestation {
+        CcAttestationData {
             chain_key: attestation.chain_key,
             header_number: attestation.header_number,
             header_hash: H256(attestation.header_hash.0),
