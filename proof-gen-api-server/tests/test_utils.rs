@@ -108,10 +108,10 @@ mod e2e {
         Postgres::default().start().await.expect("start postgres")
     }
 
-    pub fn test_db_manager_config() -> DbManagerConfig {
+    pub fn test_db_manager_config(port: u16) -> DbManagerConfig {
         DbManagerConfig {
             postgres_host: "127.0.0.1".to_string(),
-            postgres_port: "5432".to_string(), // Port used by Postgres::default()
+            postgres_port: port.to_string(),
             postgres_user: "postgres".to_string(),
             postgres_password: "postgres".to_string(),
             postgres_db: "postgres".to_string(),
@@ -123,6 +123,10 @@ mod e2e {
     /// The container is intentionally leaked to keep Postgres alive for the test duration.
     pub async fn start_app_with_postgres(chain_key: u64) -> Router {
         let container = setup_test_postgres().await;
+        let host_port = container
+            .get_host_port_ipv4(5432)
+            .await
+            .expect("get host port");
 
         let cfg = ContinuityConfig {
             cc3_rpc_url: "ws://mock".into(),
@@ -132,7 +136,7 @@ mod e2e {
         };
         let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
         let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider, eth_provider);
-        let db_config = test_db_manager_config();
+        let db_config = test_db_manager_config(host_port);
         let db = proof_gen_api_server::db::DbManager::new(db_config).expect("db manager init");
         db.run_migrations().await.expect("migrations");
         let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));

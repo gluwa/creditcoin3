@@ -121,10 +121,14 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
 
     // Start ephemeral Postgres via shared helper and keep it alive for test duration
     let pg = setup_test_postgres().await;
+    let pg_port = pg
+        .get_host_port_ipv4(5432)
+        .await
+        .expect("get postgres port");
     std::mem::forget(pg);
 
-    // Get db config from env variables
-    let db_config = test_db_manager_config();
+    // Get db config with the actual container port
+    let db_config = test_db_manager_config(pg_port);
     let db = DbManager::new(db_config).expect("db manager init");
     db.run_migrations().await.expect("migrations");
     let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
