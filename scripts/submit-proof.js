@@ -3,12 +3,12 @@
 /**
  * Submit proof to block-prover precompile
  * 
- * Usage: node submit-proof.js <chainKey> <blockHeight> <txHash> <privateKey> [options]
+ * Usage: node submit-proof.js <chainKey> <blockHeight> <txHash> --private-key <key> [options]
  * 
  * Options:
+ *   --private-key <key>    Private key for signing transactions (required)
  *   --api-url <url>        Proof API server URL (default: http://localhost:3100)
  *   --cc3-rpc-url <url>    Creditcoin3 RPC URL (default: http://localhost:9944)
- *   --source-rpc-url <url> Source chain RPC URL (default: http://localhost:8545)
  *   --precompile-addr <addr> Precompile address (default: 0x0000000000000000000000000000000000000FD2)
  */
 
@@ -21,7 +21,6 @@ const fetch = globalThis.fetch || require('node-fetch');
 const DEFAULT_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 const DEFAULT_API_URL = 'http://localhost:3100';
 const DEFAULT_CC3_RPC_URL = 'http://localhost:9944';
-const DEFAULT_SOURCE_RPC_URL = 'http://localhost:8545';
 
 const ABI_PATH = path.join(__dirname, '..', 'precompiles', 'metadata', 'abi', 'block_prover.json');
 const PRECOMPILE_ABI = JSON.parse(fs.readFileSync(ABI_PATH, 'utf8'));
@@ -35,20 +34,17 @@ function parseArgs() {
         privateKey: null,
         apiUrl: DEFAULT_API_URL,
         cc3RpcUrl: DEFAULT_CC3_RPC_URL,
-        sourceRpcUrl: DEFAULT_SOURCE_RPC_URL,
         precompileAddr: DEFAULT_PRECOMPILE_ADDRESS,
     };
 
     let i = 0;
     while (i < args.length) {
-        if (args[i] === '--api-url' && i + 1 < args.length) {
+        if (args[i] === '--private-key' && i + 1 < args.length) {
+            options.privateKey = args[++i];
+        } else if (args[i] === '--api-url' && i + 1 < args.length) {
             options.apiUrl = args[++i];
         } else if (args[i] === '--cc3-rpc-url' && i + 1 < args.length) {
             options.cc3RpcUrl = args[++i];
-        } else if (args[i] === '--source-rpc-url' && i + 1 < args.length) {
-            options.sourceRpcUrl = args[++i];
-        } else if (args[i] === '--rpc-url' && i + 1 < args.length) {
-            options.cc3RpcUrl = options.sourceRpcUrl = args[++i];
         } else if (args[i] === '--precompile-addr' && i + 1 < args.length) {
             options.precompileAddr = args[++i];
         } else if (!options.chainKey) {
@@ -57,18 +53,16 @@ function parseArgs() {
             options.blockHeight = args[i];
         } else if (!options.txHash) {
             options.txHash = args[i];
-        } else if (!options.privateKey) {
-            options.privateKey = args[i];
         }
         i++;
     }
 
     if (!options.chainKey || !options.blockHeight || !options.txHash || !options.privateKey) {
-        console.error('Usage: node submit-proof.js <chainKey> <blockHeight> <txHash> <privateKey> [options]');
+        console.error('Usage: node submit-proof.js <chainKey> <blockHeight> <txHash> --private-key <key> [options]');
         console.error('\nOptions:');
+        console.error('  --private-key <key>    Private key for signing transactions (required)');
         console.error('  --api-url <url>        Proof API server URL (default: http://localhost:3100)');
         console.error('  --cc3-rpc-url <url>    Creditcoin3 RPC URL (default: http://localhost:9944)');
-        console.error('  --source-rpc-url <url> Source chain RPC URL (default: http://localhost:8545)');
         console.error('  --precompile-addr <addr> Precompile address (default: 0x0000000000000000000000000000000000000FD2)');
         process.exit(1);
     }
@@ -76,35 +70,9 @@ function parseArgs() {
     return options;
 }
 
-async function getTxIndexFromBlock(rpcUrl, blockHeight, txHash) {
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
-    const block = await provider.getBlock(parseInt(blockHeight), true);
-
-    if (!block?.transactions) {
-        throw new Error(`Block ${blockHeight} not found or has no transactions`);
-    }
-
-    const normalizedHash = txHash.toLowerCase().startsWith('0x') ? txHash.toLowerCase() : '0x' + txHash.toLowerCase();
-
-    for (let i = 0; i < block.transactions.length; i++) {
-        const tx = block.transactions[i];
-        if ((typeof tx === 'string' && tx.toLowerCase() === normalizedHash) ||
-            (tx.hash && tx.hash.toLowerCase() === normalizedHash)) {
-            return i;
-        }
-    }
-
-    throw new Error(`Transaction ${txHash} not found in block ${blockHeight}`);
-}
-
-async function fetchProof(apiUrl, chainKey, blockHeight, txIndex, txHash) {
-    let url = `${apiUrl}/api/v1/proof-by-tx/${chainKey}/${txHash}`;
-    let response = await fetch(url);
-
-    if (!response.ok) {
-        url = `${apiUrl}/api/v1/proof/${chainKey}/${blockHeight}/${txIndex}`;
-        response = await fetch(url);
-    }
+async function fetchProof(apiUrl, chainKey, txHash) {
+    const url = `${apiUrl}/api/v1/proof-by-tx/${chainKey}/${txHash}`;
+    const response = await fetch(url);
 
     if (!response.ok) {
         const errorText = await response.text();
@@ -248,14 +216,9 @@ async function main() {
     console.log(`Transaction Hash: ${options.txHash}\n`);
 
     try {
-        // Get transaction index
-        console.log('Finding transaction index...');
-        const txIndex = await getTxIndexFromBlock(options.sourceRpcUrl, options.blockHeight, options.txHash);
-        console.log(`✓ Found at index ${txIndex}\n`);
-
         // Fetch proof from API
         console.log('Fetching proof from API...');
-        const apiProof = await fetchProof(options.apiUrl, options.chainKey, options.blockHeight, txIndex, options.txHash);
+        const apiProof = await fetchProof(options.apiUrl, options.chainKey, options.txHash);
         console.log(`✓ Proof fetched (cached: ${apiProof.cached})\n`);
 
         // Get transaction bytes
