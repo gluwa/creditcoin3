@@ -14,7 +14,6 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 pub type PgPool = Pool<AsyncPgConnection>;
 
 pub mod continuity_proofs;
-pub mod merkle_proofs;
 mod schema;
 mod type_conversions;
 

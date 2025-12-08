@@ -92,13 +92,9 @@ In addition to the unit tests within the proof-gen-api-server crate, you can tes
 
 ## Caching
 
-The server caches generated proofs in Postgres to avoid recomputation on subsequent requests.
+The server caches generated continuity proofs in Postgres to avoid recomputation on subsequent requests.
 
-- Storage: the `proofs` table persists continuity and transaction merkle proofs (JSONB), plus `merkle_root` and `tx_hash` (hex strings).
-- Keys:
-  - Block-level continuity (no tx index): `(chain_key, header_number)` where `tx_index IS NULL`.
-  - Tx-level continuity + merkle: `(chain_key, header_number, tx_index)` where `tx_index IS NOT NULL`.
-  - Reverse lookup by tx-hash: matches on `tx_hash`.
+- Storage: the `continuity_proofs` table persists continuity proofs (JSONB).
 - Writes: inserts are performed asynchronously (fire-and-forget) with upsert semantics, so concurrent requests race safely.
 - Reads: endpoints first attempt to deserialize cached JSON; if successful, responses include `"cached": true`. If cache is missing or deserialization fails, proofs are rebuilt and `"cached": false` is returned.
 

@@ -103,18 +103,11 @@ impl ContinuityService {
         ServiceError::Internal { message: error_msg }
     }
 
-    pub(crate) async fn fetch_db_proofs_by_height_and_index(
+    pub(crate) async fn fetch_continuity_by_height(
         &self,
         chain_key: u64,
         header_number: u64,
-        tx_index: u64,
-    ) -> Result<(Option<MerkleProofItem>, Option<ContinuityProofItem>)> {
-        let maybe_merkle = self
-            .db
-            .get_merkle_proof_for_tx(chain_key, header_number, tx_index)
-            .await?;
-        let merkle_converted = maybe_merkle.map(MerkleProofItem::try_from).transpose()?;
-
+    ) -> Result<Option<ContinuityProofItem>> {
         let maybe_continuity = self
             .db
             .get_continuity_proof_for_block(chain_key, header_number)
@@ -123,37 +116,7 @@ impl ContinuityService {
             .map(ContinuityProofItem::try_from)
             .transpose()?;
 
-        Ok((merkle_converted, continuity_converted))
-    }
-
-    pub(crate) async fn fetch_db_proofs_by_hash(
-        &self,
-        chain_key: u64,
-        tx_hash: H256,
-    ) -> Result<(Option<MerkleProofItem>, Option<ContinuityProofItem>)> {
-        // Fetch merkle proof first. It contains the block number we need to fetch the continuity proof
-        if let Some(merkle_proof) = self
-            .db
-            .get_merkle_proof_by_tx_hash(chain_key, tx_hash)
-            .await?
-        {
-            // Convert merkle proof, then try to fetch continuity proof
-            let merkle_proof = MerkleProofItem::try_from(merkle_proof)?;
-            if let Some(continuity_proof) = self
-                .db
-                .get_continuity_proof_for_block(chain_key, merkle_proof.header_number)
-                .await?
-            {
-                let continuity_proof = ContinuityProofItem::try_from(continuity_proof)?;
-                Ok((Some(merkle_proof), Some(continuity_proof)))
-            } else {
-                // No continuity proof found. Still return merkle to facititate generation of continuity proof
-                Ok((Some(merkle_proof), None))
-            }
-        } else {
-            // No merkle proof, so we can't fetch continuity either
-            Ok((None, None))
-        }
+        Ok(continuity_converted)
     }
 
     pub(crate) async fn generate_and_cache_response(
@@ -171,6 +134,43 @@ impl ContinuityService {
             "Continuity proof built successfully"
         );
 
+        let merkle = self
+            .generate_merkle_proof(chain_key, header_number, tx_index)
+            .await?;
+        let continuity = ContinuityProofItem {
+            chain_key,
+            header_number,
+            continuity_proof: continuity,
+        };
+
+        // Insert into DB asynchronously in background
+        self.db.insert_continuity_proof(continuity.clone());
+
+        let mut generated = build_response_from_proofs(merkle, continuity)?;
+        // Cached defaults to true, so we flip it
+        generated.cached = false;
+
+        Ok(generated)
+    }
+
+    pub(crate) async fn get_height_and_index_for_tx_hash(
+        &self,
+        tx_hash: H256,
+    ) -> ServiceResult<(u64, u64)> {
+        match self.builder.get_tx_position_by_hash(tx_hash).await {
+            Ok((header_number, tx_index)) => Ok((header_number, tx_index)),
+            Err(e) => Err(ServiceError::RpcUnavailable {
+                message: format!("failed to resolve tx by hash via RPC: {e}"),
+            }),
+        }
+    }
+
+    pub(crate) async fn generate_merkle_proof(
+        &self,
+        chain_key: u64,
+        header_number: u64,
+        tx_index: u64,
+    ) -> ServiceResult<MerkleProofItem> {
         // Fetch tx bytes & validate index.
         let tx_bytes = self
             .builder
@@ -221,7 +221,7 @@ impl ContinuityService {
         } else {
             Some(tx_bytes[tx_index as usize].clone())
         };
-        let merkle = MerkleProofItem {
+        Ok(MerkleProofItem {
             chain_key,
             header_number,
             tx_index: Some(tx_index),
@@ -229,38 +229,7 @@ impl ContinuityService {
             tx_bytes: tx_bytes_for_cache,
             merkle_proof,
             merkle_root,
-        };
-        let continuity = ContinuityProofItem {
-            chain_key,
-            header_number,
-            continuity_proof: continuity,
-        };
-
-        // Insert into DB asynchronously in background
-        self.db.insert_merkle_proof(merkle.clone());
-        self.db.insert_continuity_proof(continuity.clone());
-
-        let mut generated = ContinuityResponse::from((merkle, continuity));
-        // Cached defaults to true, so we flip it
-        generated.cached = false;
-
-        Ok(generated)
-    }
-
-    pub(crate) async fn generate_response_by_tx_hash(
-        &self,
-        chain_key: u64,
-        tx_hash: H256,
-    ) -> ServiceResult<ContinuityResponse> {
-        match self.builder.get_tx_position_by_hash(tx_hash).await {
-            Ok((header_number, tx_index)) => {
-                self.generate_and_cache_response(chain_key, header_number, tx_index)
-                    .await
-            }
-            Err(e) => Err(ServiceError::RpcUnavailable {
-                message: format!("failed to resolve tx by hash via RPC: {e}"),
-            }),
-        }
+        })
     }
 }
 
@@ -289,8 +258,14 @@ pub(crate) fn build_response_from_proofs(
         header_number,
         "Cache hit: returning cached proofs. Tx_hash: {tx_hash:?}"
     );
-    // We enforce here that if any tx specific field is in the DB entry, then all of them must be
-    if (tx_hash.is_some() || merkle.tx_index.is_some() || merkle.tx_bytes.is_some())
+    // We enforce here that if any tx specific field is in the DB entry, then all of them must be.
+    // There is one exception. Block level proofs may use TX index 0 with other fields empty.
+    let tx_index_some_non_zero = if let Some(index) = merkle.tx_index {
+        index != 0
+    } else {
+        false
+    };
+    if (tx_hash.is_some() || tx_index_some_non_zero || merkle.tx_bytes.is_some())
         && !(tx_hash.is_some() && merkle.tx_index.is_some() && merkle.tx_bytes.is_some())
     {
         // If not all fields are present, we error out

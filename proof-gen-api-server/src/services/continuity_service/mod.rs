@@ -5,7 +5,7 @@ use sp_core::H256;
 use std::sync::Arc;
 
 use crate::db::{
-    continuity_proofs::ContinuityProofItem, merkle_proofs::MerkleProofItem, DbManager,
+    continuity_proofs::ContinuityProofItem, DbManager,
 };
 use crate::services::continuity_service::helpers::*;
 use attestor_primitives::block::ContinuityProof;
@@ -14,8 +14,19 @@ use merkle::proof::TransactionMerkleProof;
 
 pub mod helpers;
 
-// === Serialization helpers ===
-// Remove helper; use LowerHex formatting on H256 directly where needed.
+// Merkle proof object. This is what we will enter in the DB and perhaps
+// also what we return from api calls
+#[derive(Debug, Clone)]
+pub struct MerkleProofItem {
+    pub chain_key: u64,
+    pub header_number: u64,
+    pub tx_index: Option<u64>, // Maybe should make this non-null if we remove intended support for full block merkle proofs
+    pub tx_hash: Option<H256>,
+    pub tx_bytes: Option<Vec<u8>>, // Cached transaction bytes (includes BlockItem identifier prefix)
+    // Use concrete types for downstream consumers; we'll serialize only at DB boundary.
+    pub merkle_proof: TransactionMerkleProof,
+    pub merkle_root: H256,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContinuityResponse {
@@ -166,8 +177,8 @@ impl ContinuityService {
         tx_index: u64,
     ) -> ServiceResult<ContinuityResponse> {
         // Attempt to fetch both proofs from their respective tables
-        let proofs = match self
-            .fetch_db_proofs_by_height_and_index(chain_key, header_number, tx_index)
+        let continuity = match self
+            .fetch_continuity_by_height(chain_key, header_number)
             .await
         {
             Ok(proofs) => proofs,
@@ -179,22 +190,14 @@ impl ContinuityService {
             }
         };
 
-        match proofs {
-            // Case: Both proofs present in DB
-            (Some(merkle), Some(continuity)) => build_response_from_proofs(merkle, continuity),
-            // Case: Only merkle proof is present
-            (Some(merkle), None) => {
-                let continuity = ContinuityProofItem {
-                    chain_key,
-                    header_number: merkle.header_number,
-                    continuity_proof: self
-                        .build_continuity(chain_key, merkle.header_number)
-                        .await?,
-                };
-                self.db.insert_continuity_proof(continuity.clone());
+        match continuity {
+            // Case: Continuity present in DB
+            Some(continuity) => {
+                let merkle = self.generate_merkle_proof(chain_key, header_number, tx_index).await?;
                 build_response_from_proofs(merkle, continuity)
             }
-            _ => {
+            None => {
+                // Builds both continuity and merkle proofs, then caches continuity proof before returning response
                 self.generate_and_cache_response(chain_key, header_number, tx_index)
                     .await
             }
@@ -210,62 +213,30 @@ impl ContinuityService {
     ) -> ServiceResult<ContinuityResponse> {
         let tx_h256 = parse_tx_hash(&tx_hash)?;
 
-        // Try DB lookup by tx_hash
-        let proofs = match self.fetch_db_proofs_by_hash(chain_key, tx_h256).await {
-            Ok(proofs) => proofs,
-            Err(e) => {
-                tracing::error!(%tx_hash, chain_key, error=%e, "Failed to fetch db proofs by hash");
-                return Err(ServiceError::DbError {
-                    message: e.to_string(),
-                });
-            }
-        };
+        let (header_number, tx_index) = self.get_height_and_index_for_tx_hash(tx_h256).await?;
 
-        match proofs {
-            // Case: Both proofs present in DB
-            (Some(merkle), Some(continuity)) => build_response_from_proofs(merkle, continuity),
-            // Case: Only merkle proof in DB
-            (Some(merkle), None) => {
-                // We need to regenerate the continuity proof, but we can do so with
-                // the header number from our merkle proof
-                let continuity = ContinuityProofItem {
-                    chain_key,
-                    header_number: merkle.header_number,
-                    continuity_proof: self
-                        .build_continuity(chain_key, merkle.header_number)
-                        .await?,
-                };
-                self.db.insert_continuity_proof(continuity.clone());
-                // Return response
-                build_response_from_proofs(merkle, continuity)
+        let response = self.get_proofs_by_height_and_index(chain_key, header_number, tx_index).await?;
+
+        // Verify that the computed tx_hash matches the requested hash
+        if let Some(computed_hash) = &response.tx_hash {
+            let computed_h256 = parse_tx_hash(computed_hash)?;
+            if computed_h256 != tx_h256 {
+                let tx_index = response.tx_index;
+                let header_number = response.header_number;
+                Err(ServiceError::TxHashNotFound {
+                    tx_hash: format!(
+                        "Transaction hash mismatch: requested 0x{tx_h256:x}, but found {computed_hash} at block {header_number} index {tx_index:?}"
+                    ),
+                })
+            } else {
+                Ok(response)
             }
-            // DB miss: attempt RPC resolution and generate proofs
-            _ => {
-                let generated = self
-                    .generate_response_by_tx_hash(chain_key, tx_h256)
-                    .await?;
-                // Verify that the computed tx_hash matches the requested hash
-                if let Some(computed_hash) = &generated.tx_hash {
-                    let computed_h256 = parse_tx_hash(computed_hash)?;
-                    if computed_h256 != tx_h256 {
-                        let tx_index = generated.tx_index;
-                        let header_number = generated.header_number;
-                        Err(ServiceError::TxHashNotFound {
-                            tx_hash: format!(
-                                "Transaction hash mismatch: requested 0x{tx_h256:x}, but found {computed_hash} at block {header_number} index {tx_index:?}"
-                            ),
-                        })
-                    } else {
-                        Ok(generated)
-                    }
-                } else {
-                    Err(ServiceError::Internal {
-                        message: format!(
-                            "tx_hash somehow missing from generated proof. tx_hash: {tx_h256:x}"
-                        ),
-                    })
-                }
-            }
+        } else {
+            Err(ServiceError::Internal {
+                message: format!(
+                    "tx_hash somehow missing from generated proof. tx_hash: {tx_h256:x}"
+                ),
+            })
         }
     }
 }

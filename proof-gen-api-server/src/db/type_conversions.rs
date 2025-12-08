@@ -5,48 +5,12 @@ use sp_core::H256;
 use std::str::FromStr;
 
 use crate::{
-    db::{
-        continuity_proofs::{
-            ContinuityProofInsertable, ContinuityProofItem, ContinuityProofRecord,
-        },
-        merkle_proofs::{MerkleProofInsertable, MerkleProofItem, MerkleProofRecord},
+    db::continuity_proofs::{
+        ContinuityProofInsertable, ContinuityProofItem, ContinuityProofRecord,
     },
-    services::continuity_service::ContinuityResponse,
+    services::continuity_service::{ ContinuityResponse, MerkleProofItem },
 };
 use attestor_primitives::block::ContinuityProof;
-use merkle::proof::TransactionMerkleProof;
-
-impl TryFrom<MerkleProofItem> for MerkleProofInsertable {
-    type Error = anyhow::Error;
-
-    fn try_from(proof: MerkleProofItem) -> Result<Self> {
-        Ok(MerkleProofInsertable {
-            chain_key: to_storage_int(proof.chain_key),
-            header_number: to_storage_int(proof.header_number),
-            tx_index: proof.tx_index.map(to_storage_int),
-            tx_hash: proof.tx_hash.map(to_storage_hash),
-            tx_bytes: proof.tx_bytes,
-            merkle_proof: serde_json::to_value(proof.merkle_proof)?,
-            merkle_root: to_storage_hash(proof.merkle_root),
-        })
-    }
-}
-
-impl TryFrom<MerkleProofRecord> for MerkleProofItem {
-    type Error = anyhow::Error;
-
-    fn try_from(entry: MerkleProofRecord) -> Result<Self> {
-        Ok(MerkleProofItem {
-            chain_key: from_storage_int(entry.chain_key),
-            header_number: from_storage_int(entry.header_number),
-            tx_index: entry.tx_index.map(from_storage_int),
-            tx_hash: entry.tx_hash.map(|s| from_storage_hash(&s)),
-            tx_bytes: entry.tx_bytes,
-            merkle_proof: serde_json::from_value::<TransactionMerkleProof>(entry.merkle_proof)?,
-            merkle_root: from_storage_hash(&entry.merkle_root),
-        })
-    }
-}
 
 impl TryFrom<ContinuityProofItem> for ContinuityProofInsertable {
     type Error = anyhow::Error;
@@ -103,14 +67,16 @@ pub fn from_storage_int(num: i64) -> u64 {
     u64::from_ne_bytes(num.to_ne_bytes())
 }
 
-#[must_use]
-pub fn to_storage_hash(hash: H256) -> String {
+// TODO: Use this for attestation storage in future pr
+#[allow(unused)]
+pub(crate) fn to_storage_hash(hash: H256) -> String {
     format!("{hash:#x}")
 }
 
+// TODO: Use this for attestation storage in future pr
+#[allow(unused)]
 /// @param hash: A 0x prefixed hex representation of a hash
-#[must_use]
-pub fn from_storage_hash(hash: &str) -> H256 {
+pub(crate) fn from_storage_hash(hash: &str) -> H256 {
     match H256::from_str(hash) {
         Ok(hash) => hash,
         Err(e) => {
