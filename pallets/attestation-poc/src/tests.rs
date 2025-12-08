@@ -2953,17 +2953,17 @@ fn creating_checkpoint_works() {
 #[test]
 fn creating_checkpoint_purges_attestations_in_removal_queue() {
     ExtBuilder.build_and_execute(|| {
-        let checkpoints_in_retention = 12;
+        let checkpoints_in_retention = 1;
         let checkpoints_to_create = checkpoints_in_retention + 2;
         // Setup state.
-        // 5 checkpoints worth of attestations
+        // 3 checkpoints worth of attestations
         // 2 checkpoints worth recorded in checkpointing queue
-        // 3 checkpoint worth recorded in removal queue
+        // 1 checkpoint worth recorded in removal queue
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let att_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
         let att_per_check = Attestation::attestation_checkpoint_interval(SUPPORTED_CHAIN_KEY);
 
-        // For this test we assume default values, where attestations per checkpoint * 12 == retention duration
+        // For this test we assume default values, where attestations per checkpoint == retention duration
         assert_eq!(
             att_per_check * checkpoints_in_retention,
             Attestation::attestation_retention_duration(SUPPORTED_CHAIN_KEY)

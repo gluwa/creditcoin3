@@ -413,7 +413,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
-    type DefaultAttestationRetentionDuration = ConstU32<120>;
+    type DefaultAttestationRetentionDuration = ConstU32<10>;
     type MaxCheckpointsImportedPerCall = ConstU32<100>;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
     type DefaultVoteAcceptanceWindow = DefaultVoteAcceptanceWindow;

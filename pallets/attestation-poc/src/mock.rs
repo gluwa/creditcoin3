@@ -243,7 +243,7 @@ parameter_types! {
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxUnlockingChunks: u32 = 10;
     pub const MaxAttestationsPerBlock: u32 = 10;
-    pub const DefaultAttestationRetentionDuration: u32 = 120;
+    pub const DefaultAttestationRetentionDuration: u32 = 10;
     pub const MaxCheckpointsImportedPerCall: u32 = 100;
     pub const DefaultAttestationChainGenesisBlockNumber: u64 = 0;
     pub const DefaultVoteAcceptanceWindow: u64 = 3;
