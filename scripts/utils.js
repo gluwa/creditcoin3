@@ -222,29 +222,34 @@ async function fetchProof(apiUrl, chainKey, txHash, maxRetries = 5, initialDelay
                 return await response.json();
             }
 
+            // Read error text once (response body can only be consumed once)
+            const errorText = await response.text();
+
             // If it's a 500 error about missing attestation/checkpoint, retry
             if (response.status === 500) {
-                const errorText = await response.text();
-                const errorJson = JSON.parse(errorText);
+                try {
+                    const errorJson = JSON.parse(errorText);
 
-                // Check if it's the specific error about missing attestation/checkpoint
-                if (errorJson.message && errorJson.message.includes('No attestation or checkpoint found after')) {
-                    if (attempt < maxRetries - 1) {
-                        const delay = initialDelay * Math.pow(2, attempt);
-                        console.log(
-                            `⚠️  Proof API not ready yet (attempt ${attempt + 1}/${maxRetries}), waiting ${delay}ms before retry...`,
-                        );
-                        await new Promise((resolve) => setTimeout(resolve, delay));
-                        lastError = new Error(
-                            `Failed to fetch proof: ${response.status} ${response.statusText}\n${errorText}`,
-                        );
-                        continue;
+                    // Check if it's the specific error about missing attestation/checkpoint
+                    if (errorJson.message && errorJson.message.includes('No attestation or checkpoint found after')) {
+                        if (attempt < maxRetries - 1) {
+                            const delay = initialDelay * Math.pow(2, attempt);
+                            console.log(
+                                `⚠️  Proof API not ready yet (attempt ${attempt + 1}/${maxRetries}), waiting ${delay}ms before retry...`,
+                            );
+                            await new Promise((resolve) => setTimeout(resolve, delay));
+                            lastError = new Error(
+                                `Failed to fetch proof: ${response.status} ${response.statusText}\n${errorText}`,
+                            );
+                            continue;
+                        }
                     }
+                } catch (parseError) {
+                    // If JSON parsing fails, fall through to throw error with raw text
                 }
             }
 
-            // For other errors, throw immediately
-            const errorText = await response.text();
+            // For other errors, throw immediately (reuse errorText already read)
             throw new Error(`Failed to fetch proof: ${response.status} ${response.statusText}\n${errorText}`);
         } catch (error) {
             // If it's a network error and we have retries left, retry
@@ -341,8 +346,8 @@ async function submitToPrecompile(
     const txBytesHex = Buffer.isBuffer(txBytes)
         ? '0x' + txBytes.toString('hex')
         : txBytes.startsWith('0x')
-          ? txBytes
-          : '0x' + txBytes;
+            ? txBytes
+            : '0x' + txBytes;
 
     const merkleProofTuple = [merkleProof.root, merkleProof.siblings.map((s) => [s.hash, s.isLeft])];
     const continuityProofTuple = [
