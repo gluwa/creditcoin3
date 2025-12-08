@@ -879,11 +879,13 @@ parameter_types! {
     pub const MaxAttestationsPerBlock: u32 = 10;
     pub const DefaultVoteAcceptanceWindow: u64 = 3;
     // Attestation retention duration should result in attestations being retained
-    // for a period >= proving_time. Otherwise, the attestation a proof is based
-    // on may be removed from on-chain storage before the proof is submitted,
-    // causing proof verification to fail.
-    // With 6s source chain block time, 30 attestations = 30 minutes
-    pub const DefaultAttestationRetentionDuration: u32 = 120;
+    // for a period >= proof submission latency.
+    // Proof submission latency means the time it takes for the Oracle user to request
+    // proofs from the proof gen server + the time it takes to formulate theier query
+    // with said proofs and submit it. 10 attestation lengths worth of retention
+    // should be more than enough buffer.
+    // With 6s source chain block time, 10 attestations = 10 minutes
+    pub const DefaultAttestationRetentionDuration: u32 = 10;
     pub const MaxCheckpointsImportedPerCall: u32 = 100;
     pub const DefaultAttestationChainGenesisBlockNumber: u64 = 0;
 }
