@@ -5,6 +5,7 @@ name: proof-gen-api-server
   pull_request:
     paths:
       - 'proof-gen-api-server/**'
+      - 'scripts/**'
       - '.github/workflows/proof-gen-api-server.yml'
   workflow_dispatch:
 
@@ -95,7 +96,7 @@ jobs:
 
   rm-gh-runner-build-proof-gen:
     needs:
-      - e2e-test
+      - build-everything
     if: ${{ always() }}
     uses: ./.github/workflows/remove-runner.yml
     with:
@@ -112,3 +113,135 @@ jobs:
       version-string: testing-proof-gen
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-proof-gen']"
     secrets: inherit
+
+  deploy-runner-submit-proof:
+    needs:
+      - build-everything
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "submit-proof"
+    secrets: inherit
+
+  rm-gh-runner-submit-proof:
+    needs:
+      - exercise-TransferWaitAndSubmit-js
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "submit-proof"
+    secrets: inherit
+
+  exercise-TransferWaitAndSubmit-js:
+    needs:
+      - deploy-runner-submit-proof
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-submit-proof"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download binaries
+        uses: actions/download-artifact@v6
+        with:
+          name: binary-for-testing-proof-gen
+          path: target/release
+
+      - name: Start creditcoin3-node - Alice
+        run: |
+          mkdir -p /var/tmp/exercise-TransferWaitAndSubmit-js/
+          chmod a+x ./target/release/creditcoin3-node
+
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data >/var/tmp/exercise-TransferWaitAndSubmit-js/creditcoin3-node-alice.log 2>&1 &
+
+      - name: Start Ethereum simulation with Anvil
+        run: |
+          # first install it
+          curl -L https://foundry.paradigm.xyz | bash
+          ~/.foundry/bin/foundryup
+
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+
+      - name: Check that creditcoin-node and anvil are running
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+
+      - name: Start Attestation Zombienet
+        run: |
+          chmod a+x ./target/release/attestor*
+
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --chain-key=2 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8141 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                >/var/tmp/exercise-TransferWaitAndSubmit-js/zombienet-alice.log &
+
+      - name: Wait for 3 attestors to be registered
+        run: |
+          # wait for Anvil_1 attestors (chain 2)
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+
+      - name: Start database
+        working-directory: proof-gen-api-server
+        run: |
+            docker compose pull
+            docker compose up -d
+            sleep 60
+
+      - name: Start proof-gen-api-server
+        run: |
+          chmod a+x ./target/release/proof-gen-api-server
+
+          POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_PASSWORD=password POSTGRES_DB=proofs_db \
+          ./target/release/proof-gen-api-server \
+            --cc3-key "//Alice" \
+            --cc3-rpc-url ws://localhost:9944 \
+            --eth-rpc-url http://localhost:8141 \
+            >/var/tmp/exercise-TransferWaitAndSubmit-js/proof-gen-api-server.log &
+
+          sleep 30
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Exercise TransferWaitAndSubmit.js
+        working-directory: scripts
+        run: |
+          npm install
+
+          # Using Anvil Account #0 on source chain & Alith on execution chain
+          node TransferWaitAndSubmit.js \
+            --source-rpc-url http://127.0.0.1:8141 \
+            --cc3-rpc-url ws://localhost:9944 \
+            --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
+            --api-url http://localhost:3100
+
+      - name: Collect logs
+        if: always()
+        working-directory: proof-gen-api-server
+        run: |
+          docker compose logs --no-color > /var/tmp/exercise-TransferWaitAndSubmit-js/database.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: exercise-TransferWaitAndSubmit-js-logs
+          path: |
+            /var/tmp/exercise-TransferWaitAndSubmit-js/
+            ./logs/
+          include-hidden-files: true
