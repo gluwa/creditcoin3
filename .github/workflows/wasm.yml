@@ -44,7 +44,7 @@ jobs:
       - deploy-github-runner
     uses: ./.github/workflows/build-wasm.yml
     with:
-      build-options: "--features fast-runtime"
+      build-options: "--features fast-runtime --features devnet"
       version-string: ${{ github.sha }}
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-wasm']"
 

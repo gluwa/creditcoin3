@@ -84,7 +84,7 @@ jobs:
         id: set-build-options
         shell: bash
         run: |
-          echo "build_options=${{ contains( needs.sanity-check.outputs.TAG_NAME, 'devnet') && '--features fast-runtime' || '' }}" >> "$GITHUB_OUTPUT"
+          echo "build_options=${{ contains( needs.sanity-check.outputs.TAG_NAME, 'devnet') && '--features devnet --features fast-runtime' || '' }}" >> "$GITHUB_OUTPUT"
 
       - name: View the build options
         shell: bash
