@@ -1,4 +1,4 @@
-#!/bin/bash -l
+#!/bin/bash
 
 # Redirect output to stderr.
 exec 1>&2
