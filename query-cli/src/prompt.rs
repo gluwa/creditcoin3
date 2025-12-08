@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ccnext_abi_encoding::abi::EncodingVersion;
+use ccnext_abi_encoding::common::EncodingVersion;
 use std::io::{self, Write};
 
 use crate::{Network, PromptArgs};

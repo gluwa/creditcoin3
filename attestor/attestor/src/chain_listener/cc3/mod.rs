@@ -283,7 +283,7 @@ impl CC3 {
         // STEP 1] SOURCE BLOCKS
         //
         // Tries to fetch each source chain block CONCURRENTLY, but NOT IN PARALLEL
-        let encoding = ccnext_abi_encoding::abi::EncodingVersion::V1;
+        let encoding = ccnext_abi_encoding::common::EncodingVersion::V1;
         let blocks = (from_block..=until_block).map(|height| {
             self.eth
                 .get_block(height, encoding)

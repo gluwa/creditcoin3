@@ -207,7 +207,7 @@ impl Ethereum {
             block.header.hash,
             block.transactions.into_transactions_vec(),
             receipts,
-            ccnext_abi_encoding::abi::EncodingVersion::V1,
+            ccnext_abi_encoding::common::EncodingVersion::V1,
         )
         .map_err(Error::OrderedBlockConversion)
     }

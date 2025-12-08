@@ -227,8 +227,8 @@ subxt-signer = "0.40"
 precompile-utils = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
 
 # Gluwa
-ccnext-abi-encoding = { version = "0.3" }
-ccnext-query-builder = { version = "0.5" }
+ccnext-abi-encoding = { version = "0.5" }
+ccnext-query-builder = { version = "0.7" }
 creditcoin3-runtime = { path = "runtime", default-features = false }
 pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ccnext_abi_encoding::abi::EncodingVersion;
+use ccnext_abi_encoding::common::EncodingVersion;
 use futures::{
     stream::{self, StreamExt},
     FutureExt,

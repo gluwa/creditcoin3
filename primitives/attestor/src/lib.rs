@@ -62,10 +62,10 @@ pub enum ChainEncodingVersion {
 }
 
 #[cfg(feature = "std")]
-impl From<ChainEncodingVersion> for ccnext_abi_encoding::abi::EncodingVersion {
+impl From<ChainEncodingVersion> for ccnext_abi_encoding::common::EncodingVersion {
     fn from(version: ChainEncodingVersion) -> Self {
         match version {
-            ChainEncodingVersion::V1 => ccnext_abi_encoding::abi::EncodingVersion::V1,
+            ChainEncodingVersion::V1 => ccnext_abi_encoding::common::EncodingVersion::V1,
         }
     }
 }

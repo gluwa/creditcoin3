@@ -2292,20 +2292,19 @@ dependencies = [
 
 [[package]]
 name = "ccnext-abi-encoding"
-version = "0.3.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b341c8624b037098d563c8b04efaaee84ffecc4273353f2e100f5df5cf28206"
+checksum = "9c1270b7f234d783c32bc018bf4b3a826207b5db65df23857b3358a3fbcf07c8"
 dependencies = [
  "alloy",
  "serde",
- "thiserror 1.0.69",
 ]
 
 [[package]]
 name = "ccnext-query-builder"
-version = "0.5.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e32d9a95ca1dc7b5dd5f266a76fb8c3aff4472934c464e7987857395f03ff5ef"
+checksum = "3f536e16a44b2ac8bb44018c0a65c37148d62574c88aff18b533912b3b60b5c2"
 dependencies = [
  "alloy",
  "alloy-json-abi",

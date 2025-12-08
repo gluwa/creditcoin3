@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use attestor_primitives::AttestationCheckpoint;
-use ccnext_abi_encoding::abi::EncodingVersion;
+use ccnext_abi_encoding::common::EncodingVersion;
 use clap::Parser;
 use eth::{self, AlloyB256};
 use ethers::types::U64;

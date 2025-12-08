@@ -23,7 +23,7 @@ use alloy::{
 };
 
 use anyhow::Result;
-use ccnext_abi_encoding::abi::EncodingVersion;
+use ccnext_abi_encoding::common::EncodingVersion;
 use hex::FromHexError;
 use sp_core::H256;
 use std::str::FromStr;
@@ -116,7 +116,8 @@ impl BlockItem for TxRx {
     fn payload_bytes(&self) -> Vec<u8> {
         ccnext_abi_encoding::abi::abi_encode(self.tx().clone(), self.rx().clone(), self.encoding)
             .expect("Transaction and receipt should be encodable.")
-            .abi
+            .abi()
+            .to_vec()
     }
 
     fn id(&self) -> &BlockItemIdentifier {

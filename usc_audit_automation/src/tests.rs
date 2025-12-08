@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::Result;
 use attestor_primitives::AttestationCheckpoint;
-use ccnext_abi_encoding::abi::EncodingVersion;
+use ccnext_abi_encoding::common::EncodingVersion;
 use ethers::types::U64;
 use hex_literal::hex;
 use mockall::predicate::*;

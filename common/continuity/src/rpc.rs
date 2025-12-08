@@ -7,7 +7,7 @@ use sp_core::H256;
 use std::sync::Arc;
 
 use attestor_primitives::block::Block;
-use ccnext_abi_encoding::abi::EncodingVersion;
+use ccnext_abi_encoding::common::EncodingVersion;
 use utils::block_item_traits::BlockItem;
 
 /// Abstraction over Creditcoin RPC required for continuity proof generation.

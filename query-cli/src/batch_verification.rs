@@ -7,7 +7,7 @@
 use anyhow::{anyhow, Result};
 use attestor_primitives::block::{Block, ContinuityProof};
 
-use ccnext_abi_encoding::abi::EncodingVersion;
+use ccnext_abi_encoding::common::EncodingVersion;
 use eth::Client;
 use utils::block_item_traits::BlockItem;
 
