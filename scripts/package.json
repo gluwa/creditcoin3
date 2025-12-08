@@ -4,10 +4,20 @@
     "description": "Utility scripts for Creditcoin3 project",
     "type": "commonjs",
     "scripts": {
-        "submit-proof": "node submit-proof.js"
+        "submit-proof": "node SubmitProof.js",
+        "format": "prettier --write \"**/*.js\"",
+        "check-format": "prettier --check \"**/*.js\"",
+        "lint": "eslint --max-warnings 0 \"**/*.js\"",
+        "lint:fix": "eslint --fix \"**/*.js\""
     },
     "dependencies": {
-        "ethers": "^6.15.0"
+        "ethers": "^6.15.0",
+        "@polkadot/api": "^12.0.0"
+    },
+    "devDependencies": {
+        "eslint": "^8.57.0",
+        "eslint-config-prettier": "^10.1.8",
+        "prettier": "3.7.0"
     },
     "engines": {
         "node": ">=18.0.0"
