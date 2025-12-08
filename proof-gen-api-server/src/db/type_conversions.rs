@@ -8,7 +8,7 @@ use crate::{
     db::continuity_proofs::{
         ContinuityProofInsertable, ContinuityProofItem, ContinuityProofRecord,
     },
-    services::continuity_service::{ ContinuityResponse, MerkleProofItem },
+    services::continuity_service::{ContinuityResponse, MerkleProofItem},
 };
 use attestor_primitives::block::ContinuityProof;
 

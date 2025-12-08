@@ -4,9 +4,7 @@ use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use std::sync::Arc;
 
-use crate::db::{
-    continuity_proofs::ContinuityProofItem, DbManager,
-};
+use crate::db::{continuity_proofs::ContinuityProofItem, DbManager};
 use crate::services::continuity_service::helpers::*;
 use attestor_primitives::block::ContinuityProof;
 use continuity::{ContinuityBuilder, ContinuityError, ContinuityProof as RawContinuityProof};
@@ -193,7 +191,9 @@ impl ContinuityService {
         match continuity {
             // Case: Continuity present in DB
             Some(continuity) => {
-                let merkle = self.generate_merkle_proof(chain_key, header_number, tx_index).await?;
+                let merkle = self
+                    .generate_merkle_proof(chain_key, header_number, tx_index)
+                    .await?;
                 build_response_from_proofs(merkle, continuity)
             }
             None => {
@@ -215,7 +215,9 @@ impl ContinuityService {
 
         let (header_number, tx_index) = self.get_height_and_index_for_tx_hash(tx_h256).await?;
 
-        let response = self.get_proofs_by_height_and_index(chain_key, header_number, tx_index).await?;
+        let response = self
+            .get_proofs_by_height_and_index(chain_key, header_number, tx_index)
+            .await?;
 
         // Verify that the computed tx_hash matches the requested hash
         if let Some(computed_hash) = &response.tx_hash {
