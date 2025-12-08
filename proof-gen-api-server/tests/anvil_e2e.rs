@@ -1,9 +1,10 @@
 //! E2E test harness using a real Anvil node (ephemeral) to exercise the tx-hash flow.
 //!
 //! Notes:
-//! - Requires `anvil` binary available on PATH (Foundry).
+//! - Requires `anvil` and `cast` binaries available on PATH (Foundry).
+//!   Install with: curl -L https://foundry.paradigm.xyz | bash && foundryup
 //! - Marks the test as ignored by default; run with `cargo test -p proof-gen-api-server --tests -- --ignored`.
-//! - Uses a crude startup wait; can be replaced with an RPC readiness probe if needed.
+//! - Test will fail with a clear error message if Foundry tools are not available.
 
 // Use async reqwest for readiness probe and RPC fetches
 use anyhow::Result;
@@ -36,6 +37,7 @@ impl Drop for Anvil {
 
 /// Spawn anvil on a fixed port for test determinism.
 /// You can randomize the port if running in parallel.
+/// Anvil mines blocks instantly on transaction submission (no --block-time flag).
 async fn spawn_anvil(port: u16) -> Anvil {
     let mut cmd = Command::new(std::env::var("ANVIL_BIN").unwrap_or_else(|_| "anvil".to_string()));
     let child = cmd
@@ -45,8 +47,6 @@ async fn spawn_anvil(port: u16) -> Anvil {
         .arg(port.to_string())
         .arg("--chain-id")
         .arg("31337")
-        .arg("--block-time")
-        .arg("1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -85,20 +85,20 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     // Spawn anvil on the chosen port
     let _anvil = spawn_anvil(port).await;
 
-    // Seed a transaction using `cast send` (requires Foundry). If unavailable, skip.
-    let tx_hash = match send_test_tx_via_cast(port) {
-        Ok(h) => {
-            // Validate tx_hash format to ensure it won't accidentally parse as a number
-            assert!(h.starts_with("0x"), "tx_hash must start with 0x");
-            assert_eq!(h.len(), 66, "tx_hash must be 66 chars (0x + 64 hex)");
-            h
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "Skipping test: failed to send tx via cast");
-            // anvil process will be killed by RAII Drop on scope exit
-            return Ok(());
-        }
-    };
+    // Seed a transaction using `cast send` (requires Foundry).
+    let tx_hash = send_test_tx_via_cast(port).expect(
+        "Failed to send transaction via cast. \
+         Ensure 'cast' is installed and available in PATH. \
+         Install Foundry with: curl -L https://foundry.paradigm.xyz | bash && foundryup",
+    );
+    // Validate tx_hash format to ensure it won't accidentally parse as a number
+    assert!(tx_hash.starts_with("0x"), "tx_hash must start with 0x");
+    assert_eq!(tx_hash.len(), 66, "tx_hash must be 66 chars (0x + 64 hex)");
+
+    // Send dummy transactions to advance the chain to block 15+
+    for _ in 0..15 {
+        let _ = send_test_tx_via_cast(port);
+    }
 
     // Configure ContinuityBuilder with mock CC and real ETH (Anvil)
     let chain_key = 31337;
@@ -121,14 +121,9 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
 
     // Start ephemeral Postgres via shared helper and keep it alive for test duration
     let pg = setup_test_postgres().await;
-    let pg_port = pg
-        .get_host_port_ipv4(5432)
-        .await
-        .expect("get postgres port");
-    std::mem::forget(pg);
 
-    // Get db config with the actual container port
-    let db_config = test_db_manager_config(pg_port);
+    // Get db config from the running container
+    let db_config = test_db_manager_config(&pg).await;
     let db = DbManager::new(db_config).expect("db manager init");
     db.run_migrations().await.expect("migrations");
     let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
@@ -169,14 +164,9 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     );
 
     // Fetch block and tx index from Anvil so we can exercise clean builder paths first
-    let (anvil_block_number, anvil_tx_index) = match get_tx_info_via_rpc(port, &tx_hash).await {
-        Ok((b, i)) => (b, i),
-        Err(e) => {
-            tracing::warn!(error=%e, "Skipping test: failed to get tx info via RPC");
-            server.abort();
-            return Ok(());
-        }
-    };
+    let (anvil_block_number, anvil_tx_index) = get_tx_info_via_rpc(port, &tx_hash)
+        .await
+        .expect("Failed to get transaction info from Anvil via RPC");
 
     // --- Second: block-level endpoint (ensure pure block builder path runs)
     let block_url = format!("{base}/api/v1/proof/31337/{anvil_block_number}");
@@ -185,7 +175,14 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
         .send()
         .await
         .expect("http send block");
-    assert!(block_resp.status().is_success());
+    if !block_resp.status().is_success() {
+        let status = block_resp.status();
+        let error_body = block_resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read body".to_string());
+        panic!("Block endpoint returned error status {status}: {error_body}",);
+    }
     let block_body = block_resp.bytes().await.expect("read block body");
     let block_json: ContinuityResponse = serde_json::from_slice(&block_body).expect("json block");
     assert_eq!(block_json.chain_key, 31337);
@@ -198,12 +195,14 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     assert!(!blocks.is_empty(), "block continuity proof must be present");
     let start_block_number = anvil_block_number.saturating_sub(1);
     let last_block_number = start_block_number + (blocks.len() as u64 - 1);
+    // The proof should end at the next attestation after the query block
+    // For block 1, the next attestation is at block 10
     assert_eq!(
-        last_block_number, 15,
-        "continuity chain must end at next attestation (15)"
+        last_block_number, 10,
+        "continuity chain must end at next attestation (10)"
     );
     assert!(
-        (blocks.len() as u64) <= (15 - start_block_number + 1),
+        (blocks.len() as u64) <= (10 - start_block_number + 1),
         "chain length within expected bounds"
     );
 
@@ -226,10 +225,13 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     );
     let txi_start = anvil_block_number.saturating_sub(1);
     let txi_last = txi_start + (txi_blocks.len() as u64 - 1);
+    // The proof should end at the next attestation after the query block (block 10)
     assert_eq!(
-        txi_last, 15,
-        "tx-index continuity chain must end at next attestation (15)"
+        txi_last, 10,
+        "tx-index continuity chain must end at next attestation (10)"
     );
+    // Wait for background database insert to complete (insert_proofs_entry spawns async task)
+    tokio::time::sleep(Duration::from_millis(100)).await;
     // Ensure tx-index response is cached on second request
     let txi_resp2 = client.get(&txi_url).send().await.expect("http send txi2");
     let txi_body2 = txi_resp2.bytes().await.expect("read txi body2");
@@ -251,6 +253,8 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
         assert_h256_str("tx_hash", th);
     }
 
+    // Wait for background database insert to complete (insert_proofs_entry spawns async task)
+    tokio::time::sleep(Duration::from_millis(100)).await;
     // Ensure tx-hash endpoint is cached on second request
     let resp2 = client.get(&url).send().await.expect("http send2");
     let body2 = resp2.bytes().await.expect("read body2");

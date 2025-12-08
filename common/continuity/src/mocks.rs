@@ -30,14 +30,20 @@ impl CcRpcProvider for MockCcRpcProvider {
             attestors: vec![],
             continuity_proof: Default::default(),
         };
-        // Two attestations bracketing a typical query height range (5 .. 15)
-        Ok(vec![mk_attestation(5), mk_attestation(15)])
+        // Attestations every 10 blocks (matching DefaultAttestationInterval = 10)
+        Ok(vec![
+            mk_attestation(10),
+            mk_attestation(20),
+            mk_attestation(30),
+        ])
     }
 
     async fn get_last_checkpoint(&self, _chain_key: u64) -> Result<Option<AttestationCheckpoint>> {
+        // Checkpoints happen every 100 blocks (10 attestations * 10 interval)
+        // For testing, we use checkpoint at block 0 (genesis)
         Ok(Some(AttestationCheckpoint {
-            block_number: 15,
-            digest: H256::from_low_u64_be(1500),
+            block_number: 0,
+            digest: H256::from_low_u64_be(0),
         }))
     }
 
@@ -45,16 +51,12 @@ impl CcRpcProvider for MockCcRpcProvider {
         &self,
         _chain_key: u64,
     ) -> Result<Vec<AttestationCheckpoint>> {
-        Ok(vec![
-            AttestationCheckpoint {
-                block_number: 5,
-                digest: H256::from_low_u64_be(500),
-            },
-            AttestationCheckpoint {
-                block_number: 15,
-                digest: H256::from_low_u64_be(1500),
-            },
-        ])
+        // For testing, just provide genesis checkpoint
+        // In reality, checkpoints would be at 0, 100, 200, etc.
+        Ok(vec![AttestationCheckpoint {
+            block_number: 0,
+            digest: H256::from_low_u64_be(0),
+        }])
     }
 
     async fn get_checkpoint_by_height(
@@ -64,13 +66,9 @@ impl CcRpcProvider for MockCcRpcProvider {
     ) -> Result<Option<AttestationCheckpoint>> {
         // Mock implementation: return checkpoint if it exists in our mock data
         match block_number {
-            5 => Ok(Some(AttestationCheckpoint {
-                block_number: 5,
-                digest: H256::from_low_u64_be(500),
-            })),
-            15 => Ok(Some(AttestationCheckpoint {
-                block_number: 15,
-                digest: H256::from_low_u64_be(1500),
+            0 => Ok(Some(AttestationCheckpoint {
+                block_number: 0,
+                digest: H256::from_low_u64_be(0),
             })),
             _ => Ok(None),
         }
