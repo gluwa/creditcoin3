@@ -33,6 +33,14 @@ release = false
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive", "deprecated", "env"] }
 deadpool-postgres = "0.12"
+diesel = { version = "2.3", features = ["postgres", "serde_json", "chrono"] }
+diesel-async = { version = "0.7", features = [
+    "postgres",
+    "deadpool",
+    "async-connection-wrapper",
+    "tokio",
+] }
+diesel_migrations = "2.1"
 dotenvy = "0.15"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-postgres = { version = "0.7", features = [

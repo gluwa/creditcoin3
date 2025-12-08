@@ -69,7 +69,7 @@ pub async fn get_continuity_proof(
     Path((chain_key, header_number)): Path<(u64, u64)>,
     Extension(service): Extension<Arc<ContinuityService>>,
 ) -> Result<Json<ContinuityResponse>, (StatusCode, Json<Value>)> {
-    match service.continuity_proof(chain_key, header_number).await {
+    match service.get_continuity_proof(chain_key, header_number).await {
         Ok(resp) => {
             tracing::info!(
                 chain_key,
@@ -83,12 +83,12 @@ pub async fn get_continuity_proof(
     }
 }
 
-pub async fn get_continuity_proof_with_tx(
+pub async fn get_proofs_by_height_and_index(
     Path((chain_key, header_number, tx_index)): Path<(u64, u64, u64)>,
     Extension(service): Extension<Arc<ContinuityService>>,
 ) -> Result<Json<ContinuityResponse>, (StatusCode, Json<Value>)> {
     match service
-        .continuity_proof_with_tx(chain_key, header_number, tx_index)
+        .get_proofs_by_height_and_index(chain_key, header_number, tx_index)
         .await
     {
         Ok(resp) => {
@@ -105,15 +105,12 @@ pub async fn get_continuity_proof_with_tx(
     }
 }
 
-pub async fn get_proof_by_tx_hash(
+pub async fn get_proofs_by_tx_hash(
     Path((chain_key, tx_hash)): Path<(u64, String)>,
     Extension(service): Extension<Arc<ContinuityService>>,
 ) -> Result<Json<ContinuityResponse>, (StatusCode, Json<Value>)> {
     let tx_hash_clone = tx_hash.clone();
-    match service
-        .continuity_proof_by_tx_hash(chain_key, tx_hash)
-        .await
-    {
+    match service.get_proofs_by_tx_hash(chain_key, tx_hash).await {
         Ok(resp) => {
             tracing::info!(
                 chain_key,

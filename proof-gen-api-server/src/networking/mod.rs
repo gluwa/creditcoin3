@@ -21,11 +21,11 @@ pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
         )
         .route(
             "/api/v1/proof/{chain_key}/{header_number}/{tx_index}",
-            get(continuity::get_continuity_proof_with_tx),
+            get(continuity::get_proofs_by_height_and_index),
         )
         .route(
             "/api/v1/proof-by-tx/{chain_key}/{tx_hash}",
-            get(continuity::get_proof_by_tx_hash),
+            get(continuity::get_proofs_by_tx_hash),
         )
         .layer(Extension(service))
         .layer(axum::middleware::from_fn_with_state(

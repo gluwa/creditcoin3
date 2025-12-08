@@ -1,83 +1,95 @@
 use anyhow::Result;
-use chrono::NaiveDateTime;
+use chrono::Utc;
 use hex;
-use serde_json::Value;
 use sp_core::H256;
 use std::str::FromStr;
-use tokio_postgres::Row;
 
-use super::{ProofsDbEntry, QueryProofs};
+use crate::{
+    db::{
+        continuity_proofs::{
+            ContinuityProofInsertable, ContinuityProofItem, ContinuityProofRecord,
+        },
+        merkle_proofs::{MerkleProofInsertable, MerkleProofItem, MerkleProofRecord},
+    },
+    services::continuity_service::ContinuityResponse,
+};
 use attestor_primitives::block::ContinuityProof;
 use merkle::proof::TransactionMerkleProof;
 
-impl TryFrom<&Row> for ProofsDbEntry {
+impl TryFrom<MerkleProofItem> for MerkleProofInsertable {
     type Error = anyhow::Error;
 
-    fn try_from(row: &Row) -> Result<Self> {
-        Ok(ProofsDbEntry {
-            id: row.try_get("id")?,                       // SERIAL → i32
-            chain_key: row.try_get("chain_key")?,         // BIGINT → i64
-            header_number: row.try_get("header_number")?, // BIGINT → i64
-            tx_index: row.try_get("tx_index")?,           // BIGINT → Option<i64>
-            tx_hash: row.try_get("tx_hash")?,             // VARCHAR → Option<String>
-            tx_bytes: row.try_get("tx_bytes")?,           // TEXT → Option<String> (hex-encoded)
-            continuity_proof: row.try_get::<_, Option<Value>>("continuity_proof")?, // JSONB → Option<Value>
-            merkle_proof: row.try_get::<_, Option<Value>>("merkle_proof")?, // JSONB → Option<Value>
-            merkle_root: row.try_get("merkle_root")?, // VARCHAR → Option<String>
-            created_at: row.try_get::<_, Option<NaiveDateTime>>("created_at")?,
-            updated_at: row.try_get::<_, Option<NaiveDateTime>>("updated_at")?,
+    fn try_from(proof: MerkleProofItem) -> Result<Self> {
+        Ok(MerkleProofInsertable {
+            chain_key: to_storage_int(proof.chain_key),
+            header_number: to_storage_int(proof.header_number),
+            tx_index: proof.tx_index.map(to_storage_int),
+            tx_hash: proof.tx_hash.map(to_storage_hash),
+            tx_bytes: proof.tx_bytes,
+            merkle_proof: serde_json::to_value(proof.merkle_proof)?,
+            merkle_root: to_storage_hash(proof.merkle_root),
         })
     }
 }
 
-impl TryFrom<QueryProofs> for ProofsDbEntry {
+impl TryFrom<MerkleProofRecord> for MerkleProofItem {
     type Error = anyhow::Error;
 
-    fn try_from(proofs: QueryProofs) -> Result<Self> {
-        Ok(ProofsDbEntry {
-            id: i32::default(), // Only actually used when fetching items from db, automatically assigned on insert
-            chain_key: to_storage_int(proofs.chain_key),
-            header_number: to_storage_int(proofs.header_number),
-            tx_index: proofs.tx_index.map(to_storage_int),
-            tx_hash: proofs.tx_hash.map(to_storage_hash),
-            tx_bytes: proofs
-                .tx_bytes
-                .map(|bytes| format!("0x{}", hex::encode(&bytes))),
-            continuity_proof: proofs
-                .continuity_proof
-                .map(serde_json::to_value)
-                .transpose()?,
-            merkle_proof: proofs.merkle_proof.map(serde_json::to_value).transpose()?,
-            merkle_root: proofs.merkle_root.map(to_storage_hash),
-            created_at: Some(NaiveDateTime::default()), // Only used on read. Generated on insert
-            updated_at: Some(NaiveDateTime::default()), // Only used on read. Generated on insert
-        })
-    }
-}
-
-impl TryFrom<ProofsDbEntry> for QueryProofs {
-    type Error = anyhow::Error;
-
-    fn try_from(entry: ProofsDbEntry) -> Result<Self> {
-        Ok(QueryProofs {
+    fn try_from(entry: MerkleProofRecord) -> Result<Self> {
+        Ok(MerkleProofItem {
             chain_key: from_storage_int(entry.chain_key),
             header_number: from_storage_int(entry.header_number),
             tx_index: entry.tx_index.map(from_storage_int),
             tx_hash: entry.tx_hash.map(|s| from_storage_hash(&s)),
-            tx_bytes: entry.tx_bytes.and_then(|hex_str| {
-                let clean = hex_str.trim_start_matches("0x");
-                hex::decode(clean).ok()
-            }),
-            continuity_proof: entry
-                .continuity_proof
-                .map(serde_json::from_value::<ContinuityProof>)
-                .transpose()?,
-            merkle_proof: entry
-                .merkle_proof
-                .map(serde_json::from_value::<TransactionMerkleProof>)
-                .transpose()?,
-            merkle_root: entry.merkle_root.map(|s| from_storage_hash(&s)),
+            tx_bytes: entry.tx_bytes,
+            merkle_proof: serde_json::from_value::<TransactionMerkleProof>(entry.merkle_proof)?,
+            merkle_root: from_storage_hash(&entry.merkle_root),
         })
+    }
+}
+
+impl TryFrom<ContinuityProofItem> for ContinuityProofInsertable {
+    type Error = anyhow::Error;
+
+    fn try_from(cont_proof: ContinuityProofItem) -> Result<Self> {
+        Ok(ContinuityProofInsertable {
+            chain_key: to_storage_int(cont_proof.chain_key),
+            header_number: to_storage_int(cont_proof.header_number),
+            continuity_proof: serde_json::to_value(cont_proof.continuity_proof)?,
+        })
+    }
+}
+
+impl TryFrom<ContinuityProofRecord> for ContinuityProofItem {
+    type Error = anyhow::Error;
+
+    fn try_from(entry: ContinuityProofRecord) -> Result<Self> {
+        Ok(ContinuityProofItem {
+            chain_key: from_storage_int(entry.chain_key),
+            header_number: from_storage_int(entry.header_number),
+            continuity_proof: serde_json::from_value::<ContinuityProof>(entry.continuity_proof)?,
+        })
+    }
+}
+
+impl From<(MerkleProofItem, ContinuityProofItem)> for ContinuityResponse {
+    fn from(proofs: (MerkleProofItem, ContinuityProofItem)) -> Self {
+        let (merkle, continuity) = proofs;
+        // Convert tx_bytes
+        let tx_bytes_hex = merkle
+            .tx_bytes
+            .map(|bytes| format!("0x{}", hex::encode(&bytes)));
+        ContinuityResponse {
+            chain_key: merkle.chain_key,
+            header_number: merkle.header_number,
+            tx_index: merkle.tx_index,
+            tx_hash: merkle.tx_hash.map(|h| format!("0x{h:x}")),
+            tx_bytes: tx_bytes_hex,
+            continuity_proof: continuity.continuity_proof,
+            merkle_proof: Some(merkle.merkle_proof),
+            cached: true,
+            generated_at: Utc::now(), // Maybe retain created_at and fill here
+        }
     }
 }
 

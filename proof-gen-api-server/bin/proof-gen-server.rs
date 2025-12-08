@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args.reset_db {
         info!("Resetting database...");
-        manager.reset_db().await?;
+        manager.reset_database().await?;
         info!("Database reset successful");
         return Ok(());
     }
