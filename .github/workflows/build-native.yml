@@ -65,6 +65,7 @@ jobs:
             target/release/attestor
             target/release/attestor_zombienet
             target/release/creditcoin3-node
+            target/release/proof-gen-api-server
             target/release/query-cli
             target/release/usc_audit_automation
 

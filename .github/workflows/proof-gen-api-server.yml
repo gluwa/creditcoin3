@@ -83,3 +83,32 @@ jobs:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy: "proof-gen-api-server-e2e-test"
     secrets: inherit
+
+  deploy-runner-build-proof-gen:
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "build-proof-gen"
+    secrets: inherit
+
+  rm-gh-runner-build-proof-gen:
+    needs:
+      - e2e-test
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "build-proof-gen"
+    secrets: inherit
+
+  build-everything:
+    needs:
+      - deploy-runner-build-proof-gen
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      version-string: testing-proof-gen
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-proof-gen']"
+    secrets: inherit
