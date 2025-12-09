@@ -126,12 +126,10 @@ RPC endpoint is `http://localhost:8545`.
 Now that we have a local _execution chain_ and _source chain_ set up, let's get our _attestors_ up
 and running.
 
-First, create `creditcoin3-next/attestor_zombienet/config.yaml` if it is missing. Then set:
-```yaml
-single_node: true
-```
+The attestor binary depends on a configuration file. A default configuration is available under 
+`attestor/config.yaml`. You can use this or create your own depending on your network needs.
 
-Now you can start zombienet:
+Now you can start the attestor zombienet:
 
 > [!IMPORTANT]
 > If you are using `nix`, simply run:
@@ -141,15 +139,40 @@ Now you can start zombienet:
 > If you get any errors, remember to **[enable flakes]**.
 
 ```bash
-cd attestor_zombienet
-../target/release/attestor_zombienet --cc3-key "//Alice"
+./target/release/attestor_zombienet           \
+    -n 3                                    \
+    --bin=./target/release/attestor         \
+    --eth-url=ws://localhost:8545           \
+    --cc3-url=ws://localhost:9944           \
+    --funding-address='//Alice'             \
+    --config=./attestor/config.yaml
 ```
 
 Now check if attestations are coming through on the polkadot explorer. You should see events like
 `AttestationSubmitted` visible on the right panel of the block explorer. These attestations
 confirm that the _source chain_ state is being synchronized to the _execution chain_.
 
-## 4. Make a transfer
+## 4. Reading attestor logs
+
+Individual zombienet attestor logs are stored under the `./logs` folder as raw JSON objects. It is
+recommended to use a JSON log parser such as [hl] to obtain a more human-readable output.
+
+To follow the output of new logs on zombienet attestor 0 with `hl`, run:
+
+```bash
+tail --retry -f ./logs/attestor-zombie-0.json.$(date -u +%Y-%m-%d-%H) | \
+    hl -P -l i -h spans -h filename -h line-number
+```
+
+You can also view logs in a non-interactive way, to parse through debug information for example:
+
+```bash
+hl -h spans -h filename -h line-number ./logs/attestor-zombie-0.json.$(date -u +%Y-%m-%d-%H)
+```
+
+For more advanced used cases, make sure to check out the [hl documentation].
+
+## 5. Make a transfer
 
 We need some data on our _source chain_ for our _attestor zombienet_ to send over to our _execution
 chain_. We can do this by sending a transaction to our local `anvil` chain.
@@ -177,7 +200,7 @@ Confirmed in block: 5
 
 **Copy the block number and transaction hash.** You will need them in the next step.
 
-## 5. Verify the query using query-cli
+## 6. Verify the query using query-cli
 
 This is where everything comes together! We'll use the query-cli to verify that the transaction
 you just made on the _source chain_ has been properly attested to the _execution chain_, and we
@@ -190,7 +213,7 @@ something like:
 INFO 📝 Received a new attestation: chain: 2, blocknumber: 20
 ```
 
-Where `blocknumber` should be **greater than or equal to** the block number from [step 4].
+Where `blocknumber` should be **greater than or equal to** the block number from [step 5].
 This ensures the block has been attested before we try to verify it.
 
 > [!IMPORTANT]
@@ -232,13 +255,13 @@ Press Enter to use the default `ws://localhost:8545`.
 Enter the block height (number): 5
 ```
 
-Enter the block number from step 4.
+Enter the block number from step 5.
 
 ```
 Enter the transaction hash: 0x40a1f381b5eae8b86ada7cc1faf47ef22198190672e3ddd002933908eb49cd3a
 ```
 
-Paste the transaction hash from step 4.
+Paste the transaction hash from step 5.
 
 ```
 Which data do you want represented in your proof results?
@@ -410,4 +433,6 @@ The native precompile typically uses 40-60% less gas than equivalent Solidity co
 [polkadot js]: https://polkadot.js.org/apps/?rpc=ws%3A%2F%2F127.0.0.1%3A9944#/explorer
 [`anvil`]: https://book.getfoundry.sh/reference/anvil/
 [installation instructions]: https://book.getfoundry.sh/getting-started/installation
-[step 4]: #4-make-a-transfer
+[step 5]: #5-make-a-transfer
+[hl]: https://github.com/pamburus/hl
+[hl documentation]: https://github.com/pamburus/hl?tab=readme-ov-file#features-and-usage

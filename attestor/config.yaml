@@ -1,23 +1,72 @@
 attestor:
+  # Local attestors name
+  #   used for display and debug purposes.
+  #
   name: "Deep Thought"
+
+  # Source chain to attest to
+  #   2: Ethereum Mainnet
+  #   3: Ethereum Sepolia
+  #
   chain_key: 2
 
+  # Optional: Secret key used to sign attestation votes
+  #   If no key is provided a random mnemonic will be used instead.
+  #
+  # secret: "test test test test test test test test test test test junk"
+
+  # Optional: Path to the logs folder
+  #   If not specified, defaults to ./logs.
+  #
+  # logs: ./logs
+
+p2p:
+  # Optional: Boot nodes for peer discovery
+  #   Used to establish a map of available peers
+  #
+  # boot_nodes: []
+
+  # Optional: Fixed P2P port for libp2p networking.
+  #   If not specified, defaults to 9000.
+  #
+  # port: 9000
+
 eth:
+  # Eth RPC url
+  #   Used to pull source chain data and generate continuity proofs. Attestors
+  #   are advised to run their own RPC server.
+  #
   url: "ws://localhost:8545"
 
 cc3:
+  # CC3 RPC url
+  #   Used to listen to CC3 events and storage changes. Attestors are advised to
+  #   run their own RPC server.
+  #
   url: "ws://localhost:9944"
 
-p2p:
-  # Optional: Fixed P2P port for libp2p networking
-  # If not specified, defaults to 9000 (see DEFAULT_P2P_PORT constant)
-  # For zombienet, use --p2p-port-base to assign unique ports per attestor
-  # port: 9000
-  # Optional: Boot nodes for peer discovery
-  # boot_nodes: []
-
 pool:
+  # Maximum number of pending attestation
+  #   Once this count has been reached, the attestor will automatically start
+  #   evicting attestations to make space for new votes.
+  #
   capacity: 100
 
 attestation:
+  # Interval at which attestations are re-submitted to the gossip network
+  #   Only attestations which have not been synced to the execution chain are
+  #   rebroadcasted this way.
+  #
   rebroadcast: 45
+
+  # Optional: Initial height from which new attestations are produced
+  #   If no starting height is specified, attestations will be generated from
+  #   that source chain's configured genesis block number instead.
+  #
+  # start_height: 0
+
+  # Optional: Source chain block interval at which new attestations are produced
+  #   By default this value is fetched from on-chain storage. This options
+  #   overrides it.
+  #
+  # interval: 10

@@ -201,7 +201,7 @@ impl Config {
                     .help("P2P listening port")
                     .long_help(
                         "P2P listening port for libp2p networking. \
-                        If not specified, a random OS-assigned port will be used. \
+                        If not specified, defaults to 9000. \
                         Specify a fixed port for Kubernetes LoadBalancer services.",
                     )
                     .env("ATTESTOR_P2P_PORT")
@@ -247,7 +247,8 @@ impl Config {
                     .help("Initial height from which the attestor starts producing attestations")
                     .long_help(
                         "Initial height from which the attestor starts producing attestations. \
-                        If no starting height is specified, attestations will be generated from genesis instead"
+                        If no starting height is specified, attestations will be generated from \
+                        that chain's configured genesis block number instead"
                     )
                     .env("ATTESTOR_START_HEIGHT")
                     .required(false)
@@ -255,7 +256,7 @@ impl Config {
             )
             .arg(
                 clap::arg!(--"attestation-interval" <INTERVAL>)
-                    .help("Source chain block interval at which attestations are produced")
+                    .help("Source chain block interval at which new attestations are produced")
                     .long_help(
                         "Source chain block interval at which attestations are produced. \
                         By default this value is fetched from on-chain storage, this options overrides it"
