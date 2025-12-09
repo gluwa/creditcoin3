@@ -4016,6 +4016,90 @@ fn set_attestation_chain_genesis_block_number_should_fail_when_chain_not_support
 }
 
 #[test]
+fn set_attestation_chain_genesis_block_number_should_fail_when_attestations_exist() {
+    ExtBuilder.build_and_execute(|| {
+        let genesis_block_number = 1000;
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        // Register attestor and make them active
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        // Set genesis block number first
+        AttestationChainGenesisBlockNumber::<Test>::insert(SUPPORTED_CHAIN_KEY, 0);
+
+        // Create and commit an attestation
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor.stash,
+            vec![attestation.clone()].try_into().unwrap()
+        ));
+
+        // Verify attestation exists
+        assert!(Attestations::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            attestation.digest()
+        ));
+
+        // Attempt to set genesis block number when attestations exist
+        assert_noop!(
+            Attestation::set_attestation_chain_genesis_block_number(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                genesis_block_number
+            ),
+            Error::<Test>::AttestationsAlreadyExist
+        );
+    });
+}
+
+#[test]
+fn set_attestation_chain_genesis_block_number_should_fail_when_checkpoints_exist() {
+    ExtBuilder.build_and_execute(|| {
+        let genesis_block_number = 1000;
+
+        // Manually insert a checkpoint
+        let checkpoint_digest = H256::from([1; 32]);
+        let checkpoint_block_number = 100;
+        Checkpoints::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            checkpoint_block_number,
+            checkpoint_digest,
+        );
+
+        // Verify checkpoint exists
+        assert!(Checkpoints::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            checkpoint_block_number
+        ));
+
+        // Attempt to set genesis block number when checkpoints exist
+        assert_noop!(
+            Attestation::set_attestation_chain_genesis_block_number(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                genesis_block_number
+            ),
+            Error::<Test>::AttestationsAlreadyExist
+        );
+    });
+}
+
+#[test]
 fn commit_attestation_should_fail_when_genesis_block_number_is_not_correct() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);

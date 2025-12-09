@@ -632,6 +632,8 @@ pub mod pallet {
         AttestorNotAuthorized,
         // No finalized attestation found when one is required
         NoFinalizedAttestation,
+        // Cannot set genesis block number when attestations or checkpoints already exist for the chain
+        AttestationsAlreadyExist,
         // Continuity proof is empty when it shouldn't be
         EmptyContinuityProof,
         // Continuity proof is invalid
@@ -989,6 +991,13 @@ pub mod pallet {
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
+            );
+
+            // Ensure no attestations or checkpoints exist for this chain before setting genesis block number
+            ensure!(
+                Attestations::<T>::iter_prefix(chain_key).next().is_none()
+                    && Checkpoints::<T>::iter_prefix(chain_key).next().is_none(),
+                Error::<T>::AttestationsAlreadyExist
             );
 
             // Set the genesis block number for the attestation chain
