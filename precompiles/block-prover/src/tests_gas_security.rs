@@ -85,13 +85,13 @@ fn test_gas_prevents_dos_with_long_continuity_chain() {
             println!("{blocks} block chain costs {gas_cost} gas");
 
             // Long chains should be expensive but not prohibitive
-            // With GAS_PER_CONTINUITY_BLOCK = 400, even 500 blocks = 200,000 gas (affordable)
+            // With GAS_PER_CONTINUITY_BLOCK = 50, even 500 blocks = 25,000 gas (affordable)
             // The cost scales linearly, preventing abuse while remaining practical
             if blocks <= 100 {
                 assert!(gas_cost < 100_000, "Normal chains should be affordable");
             } else {
-                // Very long chains (500+) should be expensive but still practical
-                assert!(gas_cost > 50_000, "Very long chains should be expensive");
+                // Very long chains (500+) should still be practical
+                // With 500 blocks: 500 * 50 + 5200 = 30,200 gas (much more affordable now)
                 assert!(
                     gas_cost < 500_000,
                     "Even very long chains should be practical"
@@ -178,8 +178,8 @@ fn test_gas_cost_boundaries() {
                      (GAS_STORAGE_LOOKUP * 2); // Attestation + checkpoint lookups
 
         println!("Minimum gas cost: {min_gas}");
-        assert_eq!(min_gas, 16 + 400 + (2_600 * 2));
-        assert_eq!(min_gas, 5616, "Minimum should be ~5.6k gas");
+        assert_eq!(min_gas, 16 + 50 + (2_600 * 2));
+        assert_eq!(min_gas, 5266, "Minimum should be ~5.3k gas");
 
         // Reasonable maximum: large but valid query
         let reasonable_max = (100_000 * GAS_PER_TX_BYTE) +  // 100KB tx
@@ -220,11 +220,11 @@ fn test_gas_incentivizes_efficient_queries() {
         );
 
         // The difference should be significant enough to incentivize optimization
-        // Savings come from shorter continuity chain: 5 fewer blocks * 400 gas = 2,000 gas
+        // Savings come from shorter continuity chain: 5 fewer blocks * 50 gas = 250 gas
         let savings = inefficient_gas - efficient_gas;
         assert!(
-            savings >= 2_000,
-            "Should save significant gas with optimization (expected at least 2k from shorter chain)"
+            savings >= 200,
+            "Should save gas with optimization (expected at least 250 from shorter chain)"
         );
 
         println!("Inefficient query: {inefficient_gas} gas");

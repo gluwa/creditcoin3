@@ -21,12 +21,11 @@ use merkle::TransactionMerkleProof;
 // - SLOAD: 2,100 (warm) / 2,600 (cold)
 pub const GAS_PER_TX_BYTE: u64 = 16; // Per byte cost for transaction data (matches calldata cost)
 pub const GAS_PER_SIBLING: u64 = 200; // Per Merkle sibling verification (native efficiency vs ~166 in Solidity)
-                                      // GAS_PER_CONTINUITY_BLOCK = 400 breakdown:
+                                      // GAS_PER_CONTINUITY_BLOCK = 50 breakdown:
                                       // - Hash computation (Keccak-256 on 72 bytes): ~48 gas
-                                      // - Two H256 comparisons (prev_digest, computed_digest): ~12 gas
-                                      // - Loop overhead and control flow: ~10 gas
-                                      // - Safety margin: ~330 gas (for Substrate runtime overhead, future changes)
-pub const GAS_PER_CONTINUITY_BLOCK: u64 = 400; // Per block verification (hash ~48 gas + comparisons/overhead ~350 gas)
+                                      // - Small overhead for loop and control flow: ~2 gas
+                                      // Optimized: Only hash through blocks, compare final hash only (not per block)
+pub const GAS_PER_CONTINUITY_BLOCK: u64 = 50; // Per block verification (hash ~48 gas + small overhead)
 pub const WEIGHT_MERKLE_VERIFY: u64 = 100_000; // Merkle verification work
 pub const WEIGHT_CONTINUITY_VERIFY: u64 = 50_000; // Continuity verification work
 

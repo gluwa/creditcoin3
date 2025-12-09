@@ -123,6 +123,11 @@ where
     /// - Gas is charged upfront per block in `verify_impl` using `GAS_PER_CONTINUITY_BLOCK`
     /// - `GAS_STORAGE_LOOKUP` (2600) for attestation lookup
     /// - Additional `GAS_STORAGE_LOOKUP` for checkpoint lookup (only if attestation doesn't match)
+    ///
+    /// # Optimization
+    /// Instead of comparing each intermediate digest, we hash through the entire chain
+    /// and only compare the final hash. If the final hash matches the attestation/checkpoint,
+    /// all intermediate hashes must be correct (hashing is deterministic).
     pub fn verify_continuity_chain(
         handle: &mut impl PrecompileHandle,
         continuity_proof: &ContinuityProof,
@@ -137,27 +142,18 @@ where
             return Err(ContinuityVerificationError::InsufficientBlocks);
         }
 
-        // Multi-block chain: validate links between blocks
+        // Multi-block chain: hash through all blocks sequentially
         // Start validation from the lower_endpoint_digest (prev_digest of first block)
         let mut prev_digest = continuity_proof.lower_endpoint_digest;
 
-        // Validate each block in the continuity chain
+        // Hash through all blocks without intermediate comparisons
+        // If any intermediate value is wrong, the final hash will be wrong
         for (idx, cb) in continuity_proof.blocks.iter().enumerate() {
             let block_number = start_block_number + idx as u64;
-            let block_digest = cb.digest;
 
-            // Verify the stored digest matches what would be computed using the prev_digest
-            // This catches cases where prev_digest was wrong but digest wasn't recomputed
-            let computed_digest = Block::hash_payload(&block_number, &cb.merkle_root, &prev_digest);
-            if computed_digest != block_digest {
-                debug!(
-                    "❌ Continuity proof digest mismatch at block {block_number}: computed {computed_digest:?}, got {block_digest:?}"
-                );
-                return Err(ContinuityVerificationError::ChainLinkBroken);
-            }
-
-            // Update the last block digest to the current block's digest
-            prev_digest = block_digest;
+            // Compute digest for this block using previous block's digest
+            // No comparison here - we'll only compare the final hash
+            prev_digest = Block::hash_payload(&block_number, &cb.merkle_root, &prev_digest);
         }
 
         // Validate the continuity chain reaches the query height
@@ -170,6 +166,17 @@ where
                     "❌ Continuity chain ends at block {final_block_number}, but query requires block {height}"
                 );
                 return Err(ContinuityVerificationError::ChainDoesNotReachQueryHeight);
+            }
+
+            // Now verify the final computed digest matches the stored digest
+            // This is the only comparison we need - if this matches, all intermediate
+            // hashes must have been correct (due to deterministic hashing)
+            if prev_digest != head.digest {
+                debug!(
+                    "❌ Continuity proof digest mismatch at final block {final_block_number}: computed {prev_digest:?}, got {:?}",
+                    head.digest
+                );
+                return Err(ContinuityVerificationError::ChainLinkBroken);
             }
 
             // The last block should be at a checkpoint or attestation height
