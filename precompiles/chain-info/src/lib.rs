@@ -95,6 +95,7 @@ where
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
 {
     #[precompile::public("get_supported_chains()")]
+    #[precompile::view]
     fn get_supported_chains(handle: &mut impl PrecompileHandle) -> EvmResult<Vec<ChainInfo>> {
         SupportedChains::<Runtime>::iter()
             .map(|(chain_key, sc)| {
@@ -113,6 +114,7 @@ where
     }
 
     #[precompile::public("get_chain_by_key(uint64)")]
+    #[precompile::view]
     fn get_chain_by_key(
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
@@ -137,6 +139,7 @@ where
     }
 
     #[precompile::public("get_latest_attestation_height_and_hash(uint64)")]
+    #[precompile::view]
     fn get_latest_attestation_height_and_hash(
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
@@ -163,6 +166,7 @@ where
     }
 
     #[precompile::public("get_latest_checkpoint_height_and_hash(uint64)")]
+    #[precompile::view]
     fn get_latest_checkpoint_height_and_hash(
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
@@ -181,6 +185,7 @@ where
     }
 
     #[precompile::public("find_highest_attested_before(uint64,uint64)")]
+    #[precompile::view]
     fn find_highest_attested_before(
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
@@ -283,6 +288,7 @@ where
     }
 
     #[precompile::public("find_lowest_attested_after(uint64,uint64)")]
+    #[precompile::view]
     fn find_lowest_attested_after(
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
@@ -369,6 +375,7 @@ where
     }
 
     #[precompile::public("is_height_attested(uint64,uint64)")]
+    #[precompile::view]
     fn is_height_attested(
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
