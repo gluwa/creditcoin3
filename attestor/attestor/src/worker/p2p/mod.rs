@@ -106,6 +106,7 @@ pub use error::*;
 #[derive(attestor_macro::Builder)]
 pub struct Config {
     boot_nodes: Vec<libp2p::Multiaddr>,
+    dns: Option<String>,
     port: u16,
     #[specify_later]
     keypair: libp2p::identity::Keypair,
@@ -126,7 +127,7 @@ pub(crate) struct WorkerP2P {
     swarm: libp2p::Swarm<behavior::P2PBehavior>,
     can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
     topic: libp2p::gossipsub::IdentTopic,
-    p2p_port: u16,
+    listen_addr: libp2p::Multiaddr,
 
     // MESSAGE CHANNELS
     receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
@@ -173,11 +174,19 @@ impl WorkerP2P {
             tracing::warn!("👥 Starting attestor with no boot nodes!");
         }
 
+        if let Some(dns) = config.dns {
+            let external_address = format!("/dns/{}/tcp/{}", dns, config.port).parse()?;
+            tracing::info!(%external_address, "📰 Broadcasting external address");
+            swarm.add_external_address(external_address);
+        }
+
+        let listen_addr = format!("/ip4/0.0.0.0/tcp/{}", config.port).parse()?;
+
         Ok(Self {
             swarm,
             can_broadcast: config.can_broadcast,
             topic,
-            p2p_port: config.port,
+            listen_addr,
 
             receiver_p2p: config.receiver_p2p,
             sender_validation: config.sender_validation,
@@ -198,8 +207,7 @@ impl super::Worker for WorkerP2P {
 
             // Tell the swarm to listen on all interfaces on the configured port.
             // Default port is 9000, which is useful for Kubernetes LoadBalancer services.
-            let listen_addr = format!("/ip4/0.0.0.0/tcp/{}", self.p2p_port);
-            self.swarm.listen_on(listen_addr.parse()?)?;
+            self.swarm.listen_on(self.listen_addr.clone())?;
 
             loop {
                 let can_broadcast = self
@@ -539,15 +547,12 @@ impl WorkerP2P {
                     libp2p::swarm::DialError::LocalPeerId { .. } => {
                         tracing::error!("⛔  Tried to dial self");
                     }
-                    libp2p::swarm::DialError::NoAddresses => {
-                        tracing::error!("⛔  Tried to dial empty address");
-
-                        if let Some(peer_id) = peer_id {
-                            self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
-                        }
-                    }
                     libp2p::swarm::DialError::DialPeerConditionFalse(peer_condition) => {
                         tracing::error!(?peer_condition, "⛔  Invalid peer state");
+                    }
+
+                    libp2p::swarm::DialError::NoAddresses => {
+                        tracing::error!("⛔  Tried to dial empty address");
 
                         if let Some(peer_id) = peer_id {
                             self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
