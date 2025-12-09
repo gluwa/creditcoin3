@@ -3,7 +3,6 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use frame_support::inherent::{InherentIdentifier, IsFatalError};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
@@ -98,24 +97,6 @@ impl BlsPublicKeyWrapper {
 
     pub fn into_inner(self) -> BlsPublicKey {
         self.0
-    }
-}
-
-/// Inherent identifier for attestor inherent
-pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
-
-#[derive(Encode, Decode, sp_runtime::RuntimeDebug, PartialEq, Eq, Clone)]
-pub enum InherentError {
-    NotValid,
-    Duplicate(Digest),
-}
-
-impl IsFatalError for InherentError {
-    fn is_fatal_error(&self) -> bool {
-        match self {
-            InherentError::NotValid => true,
-            InherentError::Duplicate(_) => false,
-        }
     }
 }
 

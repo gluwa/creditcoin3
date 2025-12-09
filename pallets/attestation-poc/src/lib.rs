@@ -31,7 +31,7 @@ pub mod pallet {
         provider::{AttestationProvider, CheckpointProvider},
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, BlsPublicKey,
         BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainEncodingVersion,
-        ChainKey, Digest, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
+        ChainKey, Digest, SignedAttestation,
     };
     use frame_support::{
         dispatch::{ClassifyDispatch, DispatchClass, Pays, PaysFee, WeighData},
@@ -1134,47 +1134,6 @@ pub mod pallet {
             }
 
             Ok(())
-        }
-    }
-
-    #[pallet::inherent]
-    impl<T: Config> ProvideInherent for Pallet<T> {
-        type Call = Call<T>;
-        type Error = InherentError;
-        const INHERENT_IDENTIFIER: InherentIdentifier = INHERENT_IDENTIFIER;
-
-        fn create_inherent(data: &InherentData) -> Option<Self::Call> {
-            let inherent_data =
-                data.get_data::<BoundedVec<
-                    SignedAttestation<T::Hash, T::AccountId>,
-                    T::MaxAttestationsPerBlock,
-                >>(&INHERENT_IDENTIFIER)
-                    .expect("Attestation inherent data not correctly encoded");
-
-            // Check if at least one attestation can be submitted
-            if let Some(attestations) = inherent_data {
-                if attestations.is_empty() {
-                    return None;
-                }
-
-                Some(Call::commit_attestation { attestations })
-            } else {
-                None
-            }
-        }
-
-        fn check_inherent(
-            call: &Self::Call,
-            _data: &InherentData,
-        ) -> sp_std::result::Result<(), Self::Error> {
-            match call {
-                Call::commit_attestation { .. } => Ok(()),
-                _ => Err(InherentError::NotValid),
-            }
-        }
-
-        fn is_inherent(call: &Self::Call) -> bool {
-            matches!(call, Call::commit_attestation { .. })
         }
     }
 
