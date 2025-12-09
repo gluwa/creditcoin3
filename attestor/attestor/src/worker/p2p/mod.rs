@@ -528,32 +528,36 @@ impl WorkerP2P {
                 connection_id,
             } => {
                 tracing::error!(connection = %connection_id, "⛔ Dialing");
-                tracing::error!(?peer_id, %error, "⛔ Outgoing connection error");
+                tracing::error!(?peer_id, %error, "⛔  Outgoing connection error");
 
                 match error {
                     libp2p::swarm::DialError::LocalPeerId { .. } => {
-                        tracing::error!("⛔ Tried to dial self");
+                        tracing::error!("⛔  Tried to dial self");
                     }
                     libp2p::swarm::DialError::NoAddresses => {
-                        tracing::error!("⛔ Tried to dial empty address");
+                        tracing::error!("⛔  Tried to dial empty address");
                     }
                     libp2p::swarm::DialError::DialPeerConditionFalse(peer_condition) => {
-                        tracing::error!(?peer_condition, "⛔ Invalid peer state");
+                        tracing::error!(?peer_condition, "⛔  Invalid peer state");
                     }
                     libp2p::swarm::DialError::Aborted => {
-                        tracing::error!("⛔ Connection aborted");
+                        tracing::error!("⛔  Connection aborted");
                     }
                     libp2p::swarm::DialError::WrongPeerId { obtained, address } => {
-                        tracing::error!(%obtained, expected =  %address, "⛔ Peer ID missmatch");
+                        tracing::error!(%obtained, expected =  %address, "⛔  Peer ID missmatch");
                     }
                     libp2p::swarm::DialError::Denied { cause } => {
-                        tracing::error!(%cause, "⛔ connection denied");
+                        tracing::error!(%cause, "⛔  Connection denied");
                     }
                     libp2p::swarm::DialError::Transport(items) => {
                         for (address, error) in items.iter() {
-                            tracing::error!(%address, %error, "⛔ Failed transport negotiation");
+                            tracing::error!(%address, %error, "⛔  Failed transport negotiation");
                         }
                     }
+                }
+
+                if let Some(peer_id) = peer_id {
+                    self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
                 }
             }
 
@@ -565,7 +569,7 @@ impl WorkerP2P {
                 ..
             } => {
                 tracing::error!(connection = %connection_id, "⛔ Dialing");
-                tracing::error!(?peer_id, %error, "⛔ Incoming connection error");
+                tracing::error!(?peer_id, %error, "⛔  Incoming connection error");
             }
             _ => (),
         };

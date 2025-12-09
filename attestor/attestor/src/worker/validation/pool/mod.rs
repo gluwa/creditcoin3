@@ -154,6 +154,7 @@ pub struct Config {
     /// Maximum number of attestations which can be held in the pool before the pool begins
     /// evicting the highest attestations.
     capacity: std::num::NonZeroUsize,
+    #[specify_later]
     /// Attestor validation policy, can be either [`AttestorValidatePermissionless`] or
     /// [`AttestorValidatePermissioned`].
     attestors: Box<dyn AttestorValidate>,

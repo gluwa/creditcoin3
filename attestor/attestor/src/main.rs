@@ -458,7 +458,6 @@ async fn main() -> anyhow::Result<()> {
         )
         .with_pool(
             attestor::worker::validation::pool::ConfigBuilder::new()
-                .with_attestors(attestor::worker::validation::pool::AttestorValidateDeny)
                 .with_capacity(args.pool_capacity),
         )
         .with_attestation(

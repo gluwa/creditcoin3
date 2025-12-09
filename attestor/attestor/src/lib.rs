@@ -131,6 +131,16 @@ impl Attestor {
                 .map(|last_checkpoint| (last_checkpoint.digest, last_checkpoint.block_number)),
         };
 
+        let attestors = cc3_client
+            .get_attestor_active_set(self.config.chain_key)
+            .await
+            .map_err(|err| Error::InitError(Box::new(err)))?;
+        let attestors = worker::validation::pool::AttestorValidatePermissioned::new(
+            std::collections::HashSet::from_iter(attestors.into_iter().map(|attestor| {
+                attestor_primitives::AttestorId::new(sp_core::crypto::AccountId32::new(attestor.0))
+            })),
+        );
+
         let start_height = match self.config.attestation.start_height {
             Some(start_height) => start_height,
             None => match attestation_start_cc3 {
@@ -220,6 +230,7 @@ impl Attestor {
         let config = self
             .config
             .pool
+            .with_attestors(attestors)
             .with_quorum(quorum)
             .with_start_height(start_height)
             .with_attestation_interval(attestation_interval)

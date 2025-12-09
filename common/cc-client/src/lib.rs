@@ -913,7 +913,7 @@ impl Client {
         Ok(nonce)
     }
 
-    pub async fn get_attestor_active_set_size(&self, chain_key: u64) -> Result<usize, Error> {
+    pub async fn get_attestor_active_set(&self, chain_key: u64) -> Result<Vec<AccountId32>, Error> {
         let storage_query = cc3::storage().attestation().active_attestors(chain_key);
 
         let result = self
@@ -925,10 +925,11 @@ impl Client {
             .fetch(&storage_query)
             .await?;
 
-        match result {
-            Some(result) => Ok(result.len()),
-            None => Ok(0),
-        }
+        Ok(result.unwrap_or_default())
+    }
+
+    pub async fn get_attestor_active_set_size(&self, chain_key: u64) -> Result<usize, Error> {
+        Ok(self.get_attestor_active_set(chain_key).await?.len())
     }
 
     pub async fn set_attestation_chain_genesis_block_number(
