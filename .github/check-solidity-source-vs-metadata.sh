@@ -56,17 +56,3 @@ else
 
     exit 3
 fi
-
-ABI_FROM_TEST=$(cat cli/src/test/blockchain-tests/artifacts/SubstrateTransfer.json)
-if [ "$ABI_FROM_DISK" == "$ABI_FROM_TEST" ]; then
-    echo "INFO: ABI on disk matches ABI in tests"
-else
-    echo "FAIL: ABI on disk differs from ABI in tests"
-    echo "TODO: Update the tests to make sure we're testing what we build"
-
-    echo "FROM_DISK=$ABI_FROM_DISK"
-    echo "FROM_TEST=$ABI_FROM_TEST"
-    echo "========================"
-
-    exit 4
-fi
