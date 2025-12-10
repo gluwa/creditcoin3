@@ -21,7 +21,6 @@ pub fn assert_h256_str(label: &str, s: &str) {
 #[allow(dead_code)]
 mod e2e {
     use anyhow::Result;
-    use proof_gen_api_server::db::DbManagerConfig;
     use std::process::{Command, Stdio};
 
     use axum::Router;
@@ -32,6 +31,9 @@ mod e2e {
     use testcontainers::runners::AsyncRunner;
     use testcontainers::ContainerAsync;
     use testcontainers_modules::postgres::Postgres;
+
+    pub const TEST_DB_MANAGER_POSTGRES_URI: &str =
+        "postgres://postgres:postgres@127.0.0.1:5432/postgres";
 
     /// Send a simple tx using Foundry's cast; returns the tx hash string.
     pub fn send_test_tx_via_cast(port: u16) -> Result<String> {
@@ -146,22 +148,13 @@ mod e2e {
 
     /// Start a Postgres container and return the container handle.
     pub async fn setup_test_postgres() -> ContainerAsync<Postgres> {
-        Postgres::default().start().await.expect("start postgres")
-    }
-
-    /// Get DbManager config from the running Postgres container.
-    pub async fn test_db_manager_config(container: &ContainerAsync<Postgres>) -> DbManagerConfig {
-        let port = container
+        let container = Postgres::default().start().await.expect("start postgres");
+        // Test that we can get the desired port
+        _ = container
             .get_host_port_ipv4(5432)
             .await
             .expect("get postgres port");
-        DbManagerConfig {
-            postgres_host: "127.0.0.1".to_string(),
-            postgres_port: port.to_string(),
-            postgres_user: "postgres".to_string(),
-            postgres_password: "postgres".to_string(),
-            postgres_db: "postgres".to_string(),
-        }
+        container
     }
 
     /// Starts a typed Postgres container and runs migrations, returning an axum Router.
@@ -178,8 +171,8 @@ mod e2e {
         };
         let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
         let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider, eth_provider);
-        let db_config = test_db_manager_config(&container).await;
-        let db = proof_gen_api_server::db::DbManager::new(db_config).expect("db manager init");
+        let db = proof_gen_api_server::db::DbManager::new(TEST_DB_MANAGER_POSTGRES_URI.to_string())
+            .expect("db manager init");
         db.run_migrations().await.expect("migrations");
         let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
         std::mem::forget(container);
@@ -190,5 +183,5 @@ mod e2e {
 #[allow(unused_imports)]
 pub use e2e::{
     get_tx_info_via_rpc, send_test_tx_via_cast, setup_test_postgres, start_app_with_postgres,
-    test_db_manager_config,
+    TEST_DB_MANAGER_POSTGRES_URI,
 };

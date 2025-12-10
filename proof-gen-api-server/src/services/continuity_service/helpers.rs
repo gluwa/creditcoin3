@@ -13,14 +13,8 @@ impl ContinuityService {
     /// raw proof without involving the persistence layer.
     pub(crate) async fn build_continuity(
         &self,
-        chain_key: u64,
         header_number: u64,
     ) -> Result<ContinuityProof, ServiceError> {
-        let builder_chain_key = self.builder.config.chain_key;
-        if chain_key != builder_chain_key {
-            return Err(ServiceError::InvalidParameter { message: format!("Chain key of requested proof doesn't match that supported by the continuity builder. Request key: {chain_key}, builder key: {builder_chain_key}") });
-        }
-
         // Check if the requested block is available before attempting to build proof
         let current_block =
             self.builder
@@ -126,7 +120,7 @@ impl ContinuityService {
         tx_index: u64,
     ) -> ServiceResult<ContinuityResponse> {
         // Generate continuity
-        let continuity = self.build_continuity(chain_key, header_number).await?;
+        let continuity = self.build_continuity(header_number).await?;
         tracing::info!(
             chain_key,
             header_number,
@@ -144,7 +138,7 @@ impl ContinuityService {
         };
 
         // Insert into DB asynchronously in background
-        self.db.insert_continuity_proof(continuity.clone());
+        self.db.insert_continuity_proof(continuity.clone()).await;
 
         let mut generated = build_response_from_proofs(merkle, continuity)?;
         // Cached defaults to true, so we flip it

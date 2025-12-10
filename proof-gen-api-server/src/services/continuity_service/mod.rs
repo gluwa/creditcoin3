@@ -150,7 +150,7 @@ impl ContinuityService {
                 header_number,
                 continuity_proof: continuity.clone(),
             };
-            self.db.insert_continuity_proof(entry);
+            self.db.insert_continuity_proof(entry).await;
 
             Ok(ContinuityResponse {
                 chain_key,

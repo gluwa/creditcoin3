@@ -2,11 +2,7 @@ use clap::Parser;
 use std::env;
 use tracing::{debug, info};
 
-use proof_gen_api_server::{
-    config::Config,
-    db::{config_from_env, DbManager},
-    Server,
-};
+use proof_gen_api_server::{config::Config, db::DbManager, Server};
 
 #[derive(Parser, Debug)]
 #[command(name = "proof-gen-api-server")]
@@ -63,6 +59,13 @@ pub struct ProofGenApiServer {
         help = "Port which the proof gen server exposes for API requests"
     )]
     bind_addr: Option<String>,
+
+    #[arg(
+        long,
+        default_value = "postgres://postgres:password@localhost:5433/proofs_db",
+        help = "The connection string used to access the server's postgres DB"
+    )]
+    postgres_uri: String,
 }
 
 #[tokio::main]
@@ -70,12 +73,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load .env
     dotenvy::dotenv().ok();
 
-    // Get db connection details from env variables.
-    let db_config = config_from_env();
-    let manager = DbManager::new(db_config)?;
-
     // Parse args
     let args = ProofGenApiServer::parse();
+
+    // Get db connection details from env variables.
+    let manager = DbManager::new(args.postgres_uri)?;
 
     // enable tracing debug logs if verbose flag is set
     let env_filter = if args.verbose {
