@@ -145,13 +145,7 @@ mod e2e {
 
     /// Start a Postgres container and return the container handle.
     pub async fn setup_test_postgres() -> ContainerAsync<Postgres> {
-        let container = Postgres::default().start().await.expect("start postgres");
-        // Test that we can get the desired port
-        _ = container
-            .get_host_port_ipv4(5432)
-            .await
-            .expect("get postgres port");
-        container
+        Postgres::default().start().await.expect("start postgres")
     }
 
     /// Get DbManager config from the running Postgres container.
