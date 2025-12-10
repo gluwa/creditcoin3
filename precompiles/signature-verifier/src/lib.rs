@@ -42,6 +42,7 @@ where
     /// # Returns
     /// * `bool` - true if the signature is valid, false otherwise
     #[precompile::public("verify(bytes,bytes,bytes32)")]
+    #[precompile::view]
     fn verify(
         handle: &mut impl PrecompileHandle,
         message: BoundedBytes<ConstU1MB>,
