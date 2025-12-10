@@ -31,7 +31,7 @@ jobs:
 
       - name: Build ${{ github.repository }}:indexer-for-${{ inputs.version-string }} docker image
         run: |
-          docker build -f cc3-indexer/Dockerfile -t ${{ github.repository }}:indexer-for-${{ inputs.version-string }} .
+          tar --create --dereference --exclude-from=.dockerignore --exclude-from=cc3-indexer/.dockerignore . | docker build -f cc3-indexer/Dockerfile -t ${{ github.repository }}:indexer-for-${{ inputs.version-string }} -
           docker images
 
       - name: Export docker image into a file
