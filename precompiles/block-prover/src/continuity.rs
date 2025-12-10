@@ -8,6 +8,7 @@ use log::debug;
 use pallet_evm::AddressMapping;
 use sp_core::H256;
 
+use crate::verify::GAS_PER_CONTINUITY_BLOCK;
 use crate::BlockProverPrecompile;
 
 // Gas cost constants
@@ -120,7 +121,7 @@ where
     /// - `Err(ContinuityVerificationError)`: Structured error with status code and message
     ///
     /// # Gas Costs
-    /// - Gas is charged upfront per block in `verify_impl` using `GAS_PER_CONTINUITY_BLOCK`
+    /// - `GAS_PER_CONTINUITY_BLOCK` per block in the chain (charged upfront)
     /// - `GAS_STORAGE_LOOKUP` (2600) for attestation lookup
     /// - Additional `GAS_STORAGE_LOOKUP` for checkpoint lookup (only if attestation doesn't match)
     ///
@@ -142,7 +143,15 @@ where
             return Err(ContinuityVerificationError::InsufficientBlocks);
         }
 
-        // Multi-block chain: hash through all blocks sequentially
+        // Charge gas for continuity block verification upfront
+        let total_continuity_gas = GAS_PER_CONTINUITY_BLOCK
+            .checked_mul(continuity_proof.blocks.len() as u64)
+            .ok_or(ContinuityVerificationError::ChainLinkBroken)?;
+        handle
+            .record_cost(total_continuity_gas)
+            .map_err(|_| ContinuityVerificationError::ChainLinkBroken)?;
+
+        // Multi-block chain: validate links between blocks
         // Start validation from the lower_endpoint_digest (prev_digest of first block)
         let mut prev_digest = continuity_proof.lower_endpoint_digest;
 
@@ -283,13 +292,8 @@ where
 
         // Reconstruct prev_digest for the query block
         // The prev_digest of the query block is the digest of the previous block
-        let prev_digest = if query_block_idx == 0 {
-            // Query block is the first block, so prev_digest is lower_endpoint_digest
-            continuity_proof.lower_endpoint_digest
-        } else {
-            // Query block is not the first, so prev_digest is the digest of the previous block
-            continuity_proof.blocks[query_block_idx - 1].digest
-        };
+        // query_block_idx > 0 is guaranteed by the check above
+        let prev_digest = continuity_proof.blocks[query_block_idx - 1].digest;
 
         // Charge for hash computation BEFORE computing (security: prevent out-of-gas attacks)
         handle.record_cost(GAS_KECCAK256_HASH).map_err(|_| {

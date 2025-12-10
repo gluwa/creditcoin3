@@ -65,10 +65,19 @@ where
 
     /// Verify merkle proof for transaction inclusion
     ///
+    /// Charges gas for transaction data and merkle proof verification.
+    ///
     /// # Returns
     /// `true` if the merkle proof is valid, `false` otherwise
-    fn verify_merkle_proof(merkle_proof: &TransactionMerkleProof, tx_bytes: &[u8]) -> bool {
-        merkle_proof.verify(tx_bytes)
+    fn verify_merkle_proof(
+        handle: &mut impl PrecompileHandle,
+        merkle_proof: &TransactionMerkleProof,
+        tx_bytes: &[u8],
+    ) -> EvmResult<bool> {
+        // Charge gas for transaction data and merkle proof
+        Self::charge_query_gas(handle, tx_bytes.len(), merkle_proof.siblings.len())?;
+
+        Ok(merkle_proof.verify(tx_bytes))
     }
 
     /// Calculate transaction index from Merkle proof siblings
@@ -168,29 +177,6 @@ where
             });
         }
 
-        // Charge gas for all operations upfront
-        let total_continuity_gas = GAS_PER_CONTINUITY_BLOCK
-            .checked_mul(continuity_proof.blocks.len() as u64)
-            .ok_or(PrecompileFailure::Error {
-                exit_status: ExitError::OutOfGas,
-            })?;
-        handle.record_cost(total_continuity_gas)?;
-
-        let tx_gas =
-            GAS_PER_TX_BYTE
-                .checked_mul(tx_bytes.len() as u64)
-                .ok_or(PrecompileFailure::Error {
-                    exit_status: ExitError::OutOfGas,
-                })?;
-        handle.record_cost(tx_gas)?;
-
-        let merkle_gas = GAS_PER_SIBLING
-            .checked_mul(merkle_proof.siblings.len() as u64)
-            .ok_or(PrecompileFailure::Error {
-                exit_status: ExitError::OutOfGas,
-            })?;
-        handle.record_cost(merkle_gas)?;
-
         // Record weights
         let continuity_weight = sp_weights::Weight::from_parts(WEIGHT_CONTINUITY_VERIFY, 0);
         RuntimeHelper::<Runtime>::record_external_cost(handle, continuity_weight, 0)?;
@@ -198,26 +184,8 @@ where
         let merkle_weight = sp_weights::Weight::from_parts(WEIGHT_MERKLE_VERIFY, 0);
         RuntimeHelper::<Runtime>::record_external_cost(handle, merkle_weight, 0)?;
 
-        // Step 1: Verify merkle proof for the transaction
-        if !Self::verify_merkle_proof(&merkle_proof, &tx_bytes) {
-            debug!("Merkle proof validation failed for chain_key={chain_key}, height={height}");
-            return Self::revert_with_message("Merkle proof validation failed");
-        }
-
-        // Step 2: Verify the query block exists, merkle root matches, and digest is correct
-        // Security: This verifies the query block's digest using the previous block's digest
-        // This prevents sending fake roots. POC pattern: continuity chain starts at queryHeight - 1
-        if let Err(err) = Self::verify_query_block_digest(
-            handle,
-            &continuity_proof,
-            start_block_number,
-            height,
-            merkle_proof.root,
-        ) {
-            return Self::revert_with_message(err.message());
-        }
-
-        // Step 3: Verify continuity proof chain
+        // Step 1: Verify continuity proof chain first (gas charged inside, verifies all digests)
+        // This validates the chain structure and digests before we check the query block
         if let Err(err) = Self::verify_continuity_chain(
             handle,
             &continuity_proof,
@@ -226,6 +194,28 @@ where
             height,
         ) {
             return Self::revert_with_message(err.message());
+        }
+
+        // Step 2: Verify merkle proof for the transaction (gas charged inside)
+        if !Self::verify_merkle_proof(handle, &merkle_proof, &tx_bytes)? {
+            debug!("Merkle proof validation failed for chain_key={chain_key}, height={height}");
+            return Self::revert_with_message("Merkle proof validation failed");
+        }
+
+        // Step 3: Verify the query block exists and merkle root matches
+        // verify_continuity_chain already verifies all block digests are correct,
+        // so we just need to verify the merkle root matches
+        let query_block_idx =
+            match Self::find_query_block_index(&continuity_proof, start_block_number, height) {
+                Some(idx) => idx,
+                None => {
+                    return Self::revert_with_message("Query block not found in continuity chain")
+                }
+            };
+
+        let query_block = &continuity_proof.blocks[query_block_idx];
+        if query_block.merkle_root != merkle_proof.root {
+            return Self::revert_with_message("Merkle root mismatch");
         }
 
         // Emit TransactionVerified event on success
@@ -324,14 +314,6 @@ where
         // For batch queries: blocks[0] is at min(queryHeights)-1
         let start_block_number = min_height.saturating_sub(1);
 
-        // Verify shared continuity chain once (more efficient than verifying per query)
-        let continuity_gas = GAS_PER_CONTINUITY_BLOCK
-            .checked_mul(shared_continuity_proof.blocks.len() as u64)
-            .ok_or(PrecompileFailure::Error {
-                exit_status: ExitError::OutOfGas,
-            })?;
-        handle.record_cost(continuity_gas)?;
-
         // Verify continuity chain covers the range of all queries
         let first_block_number = start_block_number;
         if first_block_number > min_height {
@@ -354,7 +336,7 @@ where
             });
         }
 
-        // Verify the continuity chain itself (using first query for chain_id)
+        // Verify the continuity chain itself (gas charged inside, using first query for chain_id)
         if let Err(err) = Self::verify_continuity_chain(
             handle,
             &shared_continuity_proof,
@@ -392,37 +374,35 @@ where
                 return Self::revert_with_message("Transaction data cannot be empty");
             }
 
-            // Charge gas for transaction data and merkle proof
-            Self::charge_query_gas(handle, tx_bytes.len(), merkle_proof.siblings.len())?;
-
             // Record Merkle weight for each query
             let merkle_weight = sp_weights::Weight::from_parts(WEIGHT_MERKLE_VERIFY, 0);
             RuntimeHelper::<Runtime>::record_external_cost(handle, merkle_weight, 0)?;
 
-            // 1. Verify Merkle proof for transaction inclusion
-            if !Self::verify_merkle_proof(&merkle_proof, &tx_bytes) {
+            // 1. Verify Merkle proof for transaction inclusion (gas charged inside)
+            if !Self::verify_merkle_proof(handle, &merkle_proof, &tx_bytes)? {
                 debug!("Merkle proof validation failed for query at height {height}");
                 // Don't emit events on failure (as per user requirement)
                 return Self::revert_with_message("Merkle proof validation failed");
             }
 
-            // 2. Verify query block digest (includes finding block, verifying merkle root, and digest)
-            // Security: This verifies the query block's digest using the previous block's digest
-            // This prevents sending fake roots. POC pattern: continuity chain starts at queryHeight - 1
-            if let Err(err) = Self::verify_query_block_digest(
-                handle,
+            // 2. Verify query block exists and merkle root matches
+            // verify_continuity_chain already verifies all block digests are correct,
+            // so we just need to verify the merkle root matches
+            let query_block_idx = match Self::find_query_block_index(
                 &shared_continuity_proof,
                 start_block_number,
                 height,
-                merkle_proof.root,
             ) {
-                debug!(
-                    "Query block digest verification failed for height {}: {}",
-                    height,
-                    err.message()
-                );
-                // Don't emit events on failure (as per user requirement)
-                return Self::revert_with_message(err.message());
+                Some(idx) => idx,
+                None => {
+                    return Self::revert_with_message("Query block not found in continuity chain")
+                }
+            };
+
+            let query_block = &shared_continuity_proof.blocks[query_block_idx];
+            if query_block.merkle_root != merkle_proof.root {
+                debug!("Merkle root mismatch for query at height {height}");
+                return Self::revert_with_message("Merkle root mismatch");
             }
 
             // Emit TransactionVerified event for each successful transaction
