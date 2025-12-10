@@ -32,9 +32,6 @@ mod e2e {
     use testcontainers::ContainerAsync;
     use testcontainers_modules::postgres::Postgres;
 
-    pub const TEST_DB_MANAGER_POSTGRES_URI: &str =
-        "postgres://postgres:postgres@127.0.0.1:5432/postgres";
-
     /// Send a simple tx using Foundry's cast; returns the tx hash string.
     pub fn send_test_tx_via_cast(port: u16) -> Result<String> {
         let rpc = format!("http://127.0.0.1:{port}");
@@ -157,6 +154,15 @@ mod e2e {
         container
     }
 
+    /// Get DbManager config from the running Postgres container.
+    pub async fn test_db_manager_postgres_uri(container: &ContainerAsync<Postgres>) -> String {
+        let port = container
+            .get_host_port_ipv4(5432)
+            .await
+            .expect("get postgres port");
+        format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres")
+    }
+
     /// Starts a typed Postgres container and runs migrations, returning an axum Router.
     /// Uses continuity mock providers for CC and ETH.
     /// The container is intentionally leaked to keep Postgres alive for the test duration.
@@ -171,8 +177,10 @@ mod e2e {
         };
         let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
         let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider, eth_provider);
-        let db = proof_gen_api_server::db::DbManager::new(TEST_DB_MANAGER_POSTGRES_URI.to_string())
-            .expect("db manager init");
+        let db = proof_gen_api_server::db::DbManager::new(
+            test_db_manager_postgres_uri(&container).await,
+        )
+        .expect("db manager init");
         db.run_migrations().await.expect("migrations");
         let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
         std::mem::forget(container);
@@ -183,5 +191,5 @@ mod e2e {
 #[allow(unused_imports)]
 pub use e2e::{
     get_tx_info_via_rpc, send_test_tx_via_cast, setup_test_postgres, start_app_with_postgres,
-    TEST_DB_MANAGER_POSTGRES_URI,
+    test_db_manager_postgres_uri,
 };

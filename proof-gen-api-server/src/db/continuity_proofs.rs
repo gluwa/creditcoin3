@@ -48,17 +48,8 @@ pub struct ContinuityProofRecord {
 }
 
 impl DbManager {
-    pub async fn insert_continuity_proof(&self, proof: ContinuityProofItem) {
-        // Get an async Diesel connection
-        let mut conn = match self.pool.get().await {
-            Ok(c) => c,
-            Err(e) => {
-                error!(
-                    "DB connection unavailable; not caching continuity proof. Error: {e}; proof={proof:?}"
-                );
-                return;
-            }
-        };
+    pub fn insert_continuity_proof(&self, proof: ContinuityProofItem) {
+        let pool = self.pool.clone();
 
         tokio::spawn(async move {
             let proof_chain_key = proof.chain_key;
@@ -69,6 +60,17 @@ impl DbManager {
                 Err(e) => {
                     error!(
                         "Failed to convert ContinuityProofItem into ContinuityProofInsertable: {e}; proof_chain_key={proof_chain_key}; proof_header_number ={proof_header}"
+                    );
+                    return;
+                }
+            };
+
+            // Get an async Diesel connection
+            let mut conn = match pool.get().await {
+                Ok(c) => c,
+                Err(e) => {
+                    error!(
+                        "DB connection unavailable; not caching continuity proof. Error: {e}; proof_chain_key={proof_chain_key}; proof_header_number={proof_header}"
                     );
                     return;
                 }

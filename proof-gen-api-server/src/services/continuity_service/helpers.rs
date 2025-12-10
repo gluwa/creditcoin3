@@ -138,7 +138,7 @@ impl ContinuityService {
         };
 
         // Insert into DB asynchronously in background
-        self.db.insert_continuity_proof(continuity.clone()).await;
+        self.db.insert_continuity_proof(continuity.clone());
 
         let mut generated = build_response_from_proofs(merkle, continuity)?;
         // Cached defaults to true, so we flip it
