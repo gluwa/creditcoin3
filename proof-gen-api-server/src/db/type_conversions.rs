@@ -20,6 +20,7 @@ impl TryFrom<ContinuityProofItem> for ContinuityProofInsertable {
             chain_key: to_storage_int(cont_proof.chain_key),
             header_number: to_storage_int(cont_proof.header_number),
             continuity_proof: serde_json::to_value(cont_proof.continuity_proof)?,
+            ends_in_attestation: cont_proof.ends_in_attestation,
         })
     }
 }
@@ -32,6 +33,7 @@ impl TryFrom<ContinuityProofRecord> for ContinuityProofItem {
             chain_key: from_storage_int(entry.chain_key),
             header_number: from_storage_int(entry.header_number),
             continuity_proof: serde_json::from_value::<ContinuityProof>(entry.continuity_proof)?,
+            ends_in_attestation: entry.ends_in_attestation,
         })
     }
 }

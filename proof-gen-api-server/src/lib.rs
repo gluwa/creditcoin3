@@ -28,13 +28,7 @@ pub struct Server {
     // The db manager, which owns a connection thread pool
     db_manager: DbManager,
     // Client which allows us to request info from Creditcoin3 and follow events
-    // TODO: Use this to follow attestation events!
-    #[allow(unused)]
-    cc3_client: Option<CcClient>,
-    // Client which lets us retrieve source chain blocks
-    // TODO: Use this to get blocks and construct proofs!
-    #[allow(unused)]
-    source_chain_client: Option<EthClient>,
+    cc3_client: Arc<CcClient>,
     // Prometheus metrics server, if enabled
     // TODO: Actually increment metrics where appropriate
     #[allow(unused)]
@@ -45,7 +39,7 @@ impl Server {
     /// Create a new server based on `Config`.
     pub async fn new(config: Config, db_manager: DbManager) -> Result<Self> {
         // Initialize CC3 client (read-only, no keypair needed)
-        let cc3_client = CcClient::new_read_only(&config.cc3_rpc_url).await?;
+        let cc3_client = Arc::<CcClient>::new(CcClient::new_read_only(&config.cc3_rpc_url).await?);
 
         // Validate supported chain and source chain id alignment
         let supported_chain = cc3_client
@@ -85,8 +79,7 @@ impl Server {
         Ok(Server {
             config,
             db_manager,
-            cc3_client: Some(cc3_client),
-            source_chain_client: Some(source_chain_client),
+            cc3_client,
             metrics,
         })
     }
@@ -112,6 +105,7 @@ impl Server {
         let builder = continuity::ContinuityBuilder::new(continuity_config).await?;
 
         let service = Arc::new(services::continuity_service::ContinuityService::new(
+            self.cc3_client.clone(),
             Arc::new(builder),
             Arc::new(self.db_manager.clone()),
         ));

@@ -6,6 +6,7 @@ diesel::table! {
         chain_key -> Int8,
         header_number -> Int8,
         continuity_proof -> Jsonb,
+        ends_in_attestation -> Bool,
         created_at -> Nullable<Timestamp>,
         updated_at -> Nullable<Timestamp>,
     }

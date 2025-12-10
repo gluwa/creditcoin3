@@ -117,7 +117,7 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
         .await
         .expect("eth client");
     let eth_provider: Arc<dyn continuity::rpc::EthRpcProvider> = Arc::new(eth_client);
-    let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider, eth_provider);
+    let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider.clone(), eth_provider);
 
     // Start ephemeral Postgres via shared helper and keep it alive for test duration
     let container = setup_test_postgres().await;
@@ -125,7 +125,11 @@ async fn e2e_tx_hash_flow_with_anvil() -> Result<()> {
     let db =
         DbManager::new(test_db_manager_postgres_uri(&container).await).expect("db manager init");
     db.run_migrations().await.expect("migrations");
-    let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
+    let service = Arc::new(ContinuityService::new(
+        cc_provider,
+        Arc::new(builder),
+        Arc::new(db),
+    ));
     let app: Router = build_app(service, chain_key);
 
     // Serve app and exercise with reqwest

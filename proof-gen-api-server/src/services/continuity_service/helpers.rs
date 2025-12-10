@@ -1,3 +1,5 @@
+use attestor_primitives::AttestationCheckpoint;
+
 use super::*;
 
 impl ContinuityService {
@@ -14,7 +16,7 @@ impl ContinuityService {
     pub(crate) async fn build_continuity(
         &self,
         header_number: u64,
-    ) -> Result<ContinuityProof, ServiceError> {
+    ) -> Result<(ContinuityProof, EndsInAttestation), ServiceError> {
         // Check if the requested block is available before attempting to build proof
         let current_block =
             self.builder
@@ -36,12 +38,15 @@ impl ContinuityService {
             });
         }
 
-        let proof: RawContinuityProof = self
+        let (proof, ends_in_attestation) = self
             .builder
             .build_for_single_query(header_number)
             .await
             .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
-        Ok(ContinuityProof::from_blocks(proof.blocks.clone()))
+        Ok((
+            ContinuityProof::from_blocks(proof.blocks.clone()),
+            ends_in_attestation,
+        ))
     }
 
     /// Convert anyhow::Error from continuity builder to ServiceError with appropriate logging
@@ -120,7 +125,7 @@ impl ContinuityService {
         tx_index: u64,
     ) -> ServiceResult<ContinuityResponse> {
         // Generate continuity
-        let continuity = self.build_continuity(header_number).await?;
+        let (continuity, ends_in_attestation) = self.build_continuity(header_number).await?;
         tracing::info!(
             chain_key,
             header_number,
@@ -135,6 +140,7 @@ impl ContinuityService {
             chain_key,
             header_number,
             continuity_proof: continuity,
+            ends_in_attestation: ends_in_attestation.into(),
         };
 
         // Insert into DB asynchronously in background
@@ -223,6 +229,92 @@ impl ContinuityService {
             tx_bytes: tx_bytes_for_cache,
             merkle_proof,
             merkle_root,
+        })
+    }
+
+    //
+    pub(crate) async fn check_continuity_is_current(
+        &self,
+        continuity: &ContinuityProofItem,
+    ) -> ServiceResult<bool> {
+        // First check whether the continuity proof ends in a checkpoint. If so, it must still be verifyable
+        if !continuity.ends_in_attestation {
+            return Ok(true);
+        };
+
+        let last_checkpoint: Option<AttestationCheckpoint> = self
+            .cc3_client
+            .get_last_checkpoint(continuity.chain_key)
+            .await
+            .map_err(|e| ServiceError::RpcUnavailable {
+                message: e.to_string(),
+            })?;
+        if let Some(last_checkpoint) = last_checkpoint {
+            if continuity.continuity_proof.blocks.is_empty() {
+                return Ok(true);
+            };
+            // Continuity proof ordered so that blocks[i] is at (queryHeight - 1) + i for single query
+            let continuity_max_height =
+                continuity.header_number + continuity.continuity_proof.blocks.len() as u64;
+
+            // If the highest block of the continuity proof is higher than the last checkpoint,
+            // then the attestation it refers to must still be present on-chain. So the continuity
+            // proof is verifyable.
+            if last_checkpoint.block_number < continuity_max_height {
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            // No checkpoints. Continuity based on attestations will still be verifyable.
+            Ok(true)
+        }
+    }
+
+    pub(crate) async fn build_and_cache_continuity(
+        &self,
+        chain_key: u64,
+        header_number: u64,
+        current_block: u64,
+    ) -> ServiceResult<ContinuityResponse> {
+        tracing::info!(
+            chain_key,
+            header_number,
+            "Building continuity proof (cache miss)"
+        );
+        let (proof, ends_in_attestation) = self
+            .builder
+            .build_for_single_query(header_number)
+            .await
+            .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
+        // Convert raw blocks into optimized ContinuityProof (attestor primitives)
+        let continuity = ContinuityProof::from_blocks(proof.blocks.clone());
+        tracing::info!(
+            chain_key,
+            header_number,
+            blocks = continuity.blocks.len(),
+            "Continuity proof built successfully"
+        );
+
+        // Insert into DB asynchronously in background
+        let entry = ContinuityProofItem {
+            chain_key,
+            header_number,
+            continuity_proof: continuity.clone(),
+            ends_in_attestation: ends_in_attestation.into(),
+        };
+        self.db.insert_continuity_proof(entry);
+
+        Ok(ContinuityResponse {
+            chain_key,
+            header_number,
+            tx_index: None,
+            tx_hash: None,
+            tx_bytes: None, // Block-level proof doesn't include tx bytes
+            continuity_proof: continuity,
+            merkle_proof: None,
+            cached: false,
+            generated_at: Utc::now(),
         })
     }
 }

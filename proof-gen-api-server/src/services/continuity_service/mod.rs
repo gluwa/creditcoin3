@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::db::{continuity_proofs::ContinuityProofItem, DbManager};
 use crate::services::continuity_service::helpers::*;
 use attestor_primitives::block::ContinuityProof;
-use continuity::{ContinuityBuilder, ContinuityError, ContinuityProof as RawContinuityProof};
+use continuity::{builder::EndsInAttestation, CcRpcProvider, ContinuityBuilder, ContinuityError};
 use merkle::proof::TransactionMerkleProof;
 
 pub mod helpers;
@@ -49,11 +49,20 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 pub struct ContinuityService {
     builder: Arc<ContinuityBuilder>,
     db: Arc<DbManager>,
+    cc3_client: Arc<dyn CcRpcProvider>,
 }
 
 impl ContinuityService {
-    pub fn new(builder: Arc<ContinuityBuilder>, db: Arc<DbManager>) -> Self {
-        Self { builder, db }
+    pub fn new(
+        cc3_client: Arc<dyn CcRpcProvider>,
+        builder: Arc<ContinuityBuilder>,
+        db: Arc<DbManager>,
+    ) -> Self {
+        Self {
+            cc3_client,
+            builder,
+            db,
+        }
     }
 
     /// Build and return a continuity proof for a given (chain_key, header_number).
@@ -108,61 +117,38 @@ impl ContinuityService {
             })?;
 
         if let Some(continuity) = converted_continuity {
-            tracing::info!(
-                chain_key,
-                header_number,
-                "Cache hit: returning cached continuity proof"
-            );
-            Ok(ContinuityResponse {
-                chain_key,
-                header_number,
-                tx_index: None,
-                tx_hash: None,
-                tx_bytes: None, // continuity proof doesn't include tx bytes
-                continuity_proof: continuity.continuity_proof,
-                merkle_proof: None,
-                cached: true,
-                generated_at: Utc::now(),
-            })
+            // Check that the continuity proof is verifyable (not based on pruned attestations)
+            let verifyable = self.check_continuity_is_current(&continuity).await?;
+            if verifyable {
+                tracing::info!(
+                    chain_key,
+                    header_number,
+                    "Cache hit: returning cached continuity proof"
+                );
+                Ok(ContinuityResponse {
+                    chain_key,
+                    header_number,
+                    tx_index: None,
+                    tx_hash: None,
+                    tx_bytes: None, // continuity proof doesn't include tx bytes
+                    continuity_proof: continuity.continuity_proof,
+                    merkle_proof: None,
+                    cached: true,
+                    generated_at: Utc::now(),
+                })
+            } else {
+                tracing::info!(
+                    chain_key,
+                    header_number,
+                    "Cache hit, but continuity proof is no longer verifyable. Rebuilding proof."
+                );
+                self.build_and_cache_continuity(chain_key, header_number, current_block)
+                    .await
+            }
         } else {
-            tracing::info!(
-                chain_key,
-                header_number,
-                "Building continuity proof (cache miss)"
-            );
-            let proof: RawContinuityProof = self
-                .builder
-                .build_for_single_query(header_number)
+            // Cache miss. Must build continuity.
+            self.build_and_cache_continuity(chain_key, header_number, current_block)
                 .await
-                .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
-            // Convert raw blocks into optimized ContinuityProof (attestor primitives)
-            let continuity = ContinuityProof::from_blocks(proof.blocks.clone());
-            tracing::info!(
-                chain_key,
-                header_number,
-                blocks = continuity.blocks.len(),
-                "Continuity proof built successfully"
-            );
-
-            // Insert into DB asynchronously in background
-            let entry = ContinuityProofItem {
-                chain_key,
-                header_number,
-                continuity_proof: continuity.clone(),
-            };
-            self.db.insert_continuity_proof(entry);
-
-            Ok(ContinuityResponse {
-                chain_key,
-                header_number,
-                tx_index: None,
-                tx_hash: None,
-                tx_bytes: None, // Block-level proof doesn't include tx bytes
-                continuity_proof: continuity,
-                merkle_proof: None,
-                cached: false,
-                generated_at: Utc::now(),
-            })
         }
     }
 

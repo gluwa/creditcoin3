@@ -1,7 +1,7 @@
 use super::ContinuityBuilder;
-use crate::attestation::AttestationInfo;
 use crate::errors::ContinuityError;
 use crate::proof::ContinuityProof;
+use crate::{attestation::AttestationInfo, builder::EndsInAttestation};
 
 use anyhow::{anyhow, Context, Result};
 use attestor_primitives::block::Block;
@@ -86,7 +86,10 @@ impl ContinuityBuilder {
     }
 
     /// Core logic for building continuity proof for given heights
-    pub async fn build_for_heights(&self, query_heights: &[u64]) -> Result<ContinuityProof> {
+    pub async fn build_for_heights(
+        &self,
+        query_heights: &[u64],
+    ) -> Result<(ContinuityProof, EndsInAttestation)> {
         // Fetch attestations (always needed)
         let attestations = self.fetch_attestations().await?;
         if attestations.is_empty() {
@@ -102,7 +105,7 @@ impl ContinuityBuilder {
 
         // Find attestation bounds (handles queries at attestation/checkpoint heights)
         // Checkpoints are fetched lazily only when needed
-        let (lower, upper) = self
+        let (lower, upper, ends_in_attestation) = self
             .find_attestation_bounds(min_query, max_query, &attestations)
             .await?;
 
@@ -186,6 +189,6 @@ impl ContinuityBuilder {
             .build_and_trim_continuity(lower, upper, min_query)
             .await?;
 
-        Ok(ContinuityProof::from_blocks(blocks))
+        Ok((ContinuityProof::from_blocks(blocks), ends_in_attestation))
     }
 }

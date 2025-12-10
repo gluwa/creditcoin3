@@ -1,6 +1,7 @@
 use super::ContinuityBuilder;
 use crate::attestation::AttestationInfo;
 
+use super::EndsInAttestation;
 use anyhow::{anyhow, Result};
 use attestor_primitives::SignedAttestation;
 use cc_client::AccountId32;
@@ -17,7 +18,7 @@ impl ContinuityBuilder {
         min_query: u64,
         max_query: u64,
         attestations: &[SignedAttestation<H256, AccountId32>],
-    ) -> Result<(AttestationInfo, Option<AttestationInfo>)> {
+    ) -> Result<(AttestationInfo, Option<AttestationInfo>, EndsInAttestation)> {
         let is_at_attestation = attestations
             .iter()
             .any(|a| a.attestation.header_number == min_query);
@@ -45,7 +46,7 @@ impl ContinuityBuilder {
             .await?;
 
         // Find upper bound
-        let upper_info = self
+        let (upper_info, ends_in_attestation) = self
             .find_upper_bound(max_query, is_at_attestation, is_at_checkpoint, attestations)
             .await?;
 
@@ -58,7 +59,7 @@ impl ContinuityBuilder {
             "Attestation bounds determined"
         );
 
-        Ok((lower_info, upper_info))
+        Ok((lower_info, upper_info, ends_in_attestation))
     }
 
     async fn find_lower_bound(
@@ -169,34 +170,40 @@ impl ContinuityBuilder {
             }))
     }
 
+    // Additionally returns a bool indicating whether the upper bound is an attestation `ends_in_attestation`
     async fn find_upper_bound(
         &self,
         max_query: u64,
         is_at_attestation: bool,
         is_at_checkpoint: bool,
         attestations: &[SignedAttestation<H256, AccountId32>],
-    ) -> Result<Option<AttestationInfo>> {
+    ) -> Result<(Option<AttestationInfo>, EndsInAttestation)> {
         if is_at_attestation {
             // Query is at an attestation height - use that attestation as upper bound
-            Ok(attestations
-                .iter()
-                .find(|a| a.attestation.header_number == max_query)
-                .map(|a| AttestationInfo {
-                    block_number: a.attestation.header_number,
-                    digest: a.attestation.digest(),
-                }))
+            Ok((
+                attestations
+                    .iter()
+                    .find(|a| a.attestation.header_number == max_query)
+                    .map(|a| AttestationInfo {
+                        block_number: a.attestation.header_number,
+                        digest: a.attestation.digest(),
+                    }),
+                EndsInAttestation::True,
+            ))
         } else if is_at_checkpoint {
             // Query is at a checkpoint height - use that checkpoint as upper bound
-            Ok(self
-                .cc_provider
-                .get_checkpoint_by_height(self.config.chain_key, max_query)
-                .await
-                .ok()
-                .flatten()
-                .map(|c| AttestationInfo {
-                    block_number: c.block_number,
-                    digest: c.digest,
-                }))
+            Ok((
+                self.cc_provider
+                    .get_checkpoint_by_height(self.config.chain_key, max_query)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|c| AttestationInfo {
+                        block_number: c.block_number,
+                        digest: c.digest,
+                    }),
+                EndsInAttestation::False,
+            ))
         } else {
             // Find next consensus point after max_query
             let attestation_upper = attestations
@@ -246,14 +253,16 @@ impl ContinuityBuilder {
             };
 
             Ok(match (attestation_upper, checkpoint_upper) {
-                (Some(a), Some(c)) => Some(if a.block_number < c.block_number {
-                    a
-                } else {
-                    c
-                }),
-                (Some(a), None) => Some(a),
-                (None, Some(c)) => Some(c),
-                (None, None) => None,
+                (Some(a), Some(c)) => {
+                    if a.block_number < c.block_number {
+                        (Some(a), EndsInAttestation::True)
+                    } else {
+                        (Some(c), EndsInAttestation::False)
+                    }
+                }
+                (Some(a), None) => (Some(a), EndsInAttestation::True),
+                (None, Some(c)) => (Some(c), EndsInAttestation::False),
+                (None, None) => (None, EndsInAttestation::False),
             })
         }
     }

@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS continuity_proofs (
     chain_key BIGINT NOT NULL,
     header_number BIGINT NOT NULL,
     continuity_proof JSONB NOT NULL,
+    ends_in_attestation BOOLEAN NOT NULL,
     created_at TIMESTAMP DEFAULT now(),
     updated_at TIMESTAMP DEFAULT now()
 );

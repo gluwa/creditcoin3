@@ -22,6 +22,7 @@ pub struct ContinuityProofItem {
     pub chain_key: u64,
     pub header_number: u64,
     pub continuity_proof: ContinuityProof,
+    pub ends_in_attestation: bool,
 }
 
 /// This is the struct you insert into continuity_proofs
@@ -32,6 +33,7 @@ pub struct ContinuityProofInsertable {
     pub chain_key: i64,
     pub header_number: i64,
     pub continuity_proof: Value,
+    pub ends_in_attestation: bool,
 }
 
 /// You get this struct back when selecting from continuity_proofs
@@ -43,6 +45,7 @@ pub struct ContinuityProofRecord {
     pub chain_key: i64,
     pub header_number: i64,
     pub continuity_proof: Value,
+    pub ends_in_attestation: bool,
     pub created_at: Option<NaiveDateTime>,
     pub updated_at: Option<NaiveDateTime>,
 }

@@ -176,13 +176,17 @@ mod e2e {
             chain_key,
         };
         let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
-        let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider, eth_provider);
+        let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider.clone(), eth_provider);
         let db = proof_gen_api_server::db::DbManager::new(
             test_db_manager_postgres_uri(&container).await,
         )
         .expect("db manager init");
         db.run_migrations().await.expect("migrations");
-        let service = Arc::new(ContinuityService::new(Arc::new(builder), Arc::new(db)));
+        let service = Arc::new(ContinuityService::new(
+            cc_provider,
+            Arc::new(builder),
+            Arc::new(db),
+        ));
         std::mem::forget(container);
         build_app(service, chain_key)
     }

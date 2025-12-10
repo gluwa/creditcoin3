@@ -26,6 +26,22 @@ use sp_core::H256;
 use std::sync::Arc;
 use tracing::info;
 
+/// This enum wraps a bool to provide clarity in return values
+/// A continuity proof is considered to `EndInAttestation` if
+/// an attestation was used as the upper endpoint when constructing
+/// it.
+#[derive(Debug, Clone)]
+pub enum EndsInAttestation {
+    True,
+    False,
+}
+
+impl From<EndsInAttestation> for bool {
+    fn from(e: EndsInAttestation) -> bool {
+        matches!(e, EndsInAttestation::True)
+    }
+}
+
 /// Continuity proof builder backed by abstract RPC providers.
 pub struct ContinuityBuilder {
     pub config: ContinuityConfig,
@@ -68,7 +84,10 @@ impl ContinuityBuilder {
     /// Fetches attestations and builds the minimal continuity chain needed
     /// to verify the query. The chain starts at queryHeight-1 and extends
     /// to the next attestation/checkpoint after the query.
-    pub async fn build_for_single_query(&self, height: u64) -> Result<ContinuityProof> {
+    pub async fn build_for_single_query(
+        &self,
+        height: u64,
+    ) -> Result<(ContinuityProof, EndsInAttestation)> {
         info!(
             query_height = height,
             "Building continuity proof for single query"
@@ -80,7 +99,10 @@ impl ContinuityBuilder {
     /// Optimizes gas usage by building a single continuity chain that covers
     /// all query heights. The chain spans from min(queryHeights)-1 to the
     /// next attestation after max(queryHeights).
-    pub async fn build_for_batch_queries(&self, query_heights: &[u64]) -> Result<ContinuityProof> {
+    pub async fn build_for_batch_queries(
+        &self,
+        query_heights: &[u64],
+    ) -> Result<(ContinuityProof, EndsInAttestation)> {
         if query_heights.is_empty() {
             return Err(anyhow!("No query heights provided"));
         }

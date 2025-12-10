@@ -102,7 +102,7 @@ pub async fn fetch_continuity_proof(
     };
 
     let builder = ContinuityBuilder::new(config).await?;
-    let proof = builder.build_for_single_query(height).await?;
+    let (proof, _) = builder.build_for_single_query(height).await?;
 
     Ok(proof.blocks)
 }
@@ -123,7 +123,7 @@ pub async fn fetch_continuity_proof_batch(
     };
 
     let builder = ContinuityBuilder::new(config).await?;
-    let proof = builder.build_for_batch_queries(query_heights).await?;
+    let (proof, _) = builder.build_for_batch_queries(query_heights).await?;
 
     Ok(proof.blocks)
 }
