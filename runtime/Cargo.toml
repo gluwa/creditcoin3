@@ -153,7 +153,6 @@ std = [
   "pallet-hotfix-sufficients/std",
   "moonbeam-evm-tracer/std",
   "moonbeam-rpc-primitives-debug/std",
-  "ethereum/std",
   "pallet-evm-precompile-signature-verifier/std",
   "pallet-evm-precompile-substrate-transfer/std",
   "ethereum/std",
