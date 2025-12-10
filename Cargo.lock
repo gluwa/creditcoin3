@@ -6393,7 +6393,7 @@ dependencies = [
 name = "pallet-evm-precompile-signature-verifier"
 version = "0.1.0"
 dependencies = [
- "derive_more 0.99.19",
+ "derive_more 1.0.0",
  "fp-evm",
  "frame-support",
  "frame-system",
