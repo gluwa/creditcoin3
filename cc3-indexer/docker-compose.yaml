@@ -32,6 +32,7 @@ services:
       DB_PORT: 5432
     volumes:
       - ./:/app
+      - ../precompiles/metadata/abi/block_prover.json:/app/abis/block_prover.json
     command:
       - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
       - -f=/app
