@@ -8,12 +8,8 @@ use log::debug;
 use pallet_evm::AddressMapping;
 use sp_core::H256;
 
-use crate::verify::CONTINUITY_BLOCK_HASH_COST;
+use crate::verify::{CONTINUITY_BLOCK_HASH_COST, GAS_STORAGE_LOOKUP};
 use crate::BlockProverPrecompile;
-
-// Gas cost constants
-/// Cost of each storage read (matches cold SLOAD) in gas.
-pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
 
 /// Error type for continuity verification (both query block digest and chain validation)
 #[derive(Debug, Clone, PartialEq)]

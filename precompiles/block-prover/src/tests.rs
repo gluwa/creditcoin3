@@ -14,8 +14,7 @@ use precompile_utils::{evm::logs::log3, solidity, testing::*};
 use sp_core::{H256, U256};
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
-use crate::continuity::GAS_STORAGE_LOOKUP;
-use crate::verify::CONTINUITY_BLOCK_HASH_COST;
+use crate::verify::{CONTINUITY_BLOCK_HASH_COST, GAS_STORAGE_LOOKUP};
 
 /// Simple test transaction item for merkle tree construction
 #[derive(Debug, Clone)]

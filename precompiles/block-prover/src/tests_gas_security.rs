@@ -1,8 +1,7 @@
 // Gas security tests for native-query-verifier precompile
 // Ensures gas costs prevent DoS attacks and align with Ethereum standards
-use crate::continuity::GAS_STORAGE_LOOKUP;
 use crate::mock::ExtBuilder;
-use crate::verify::CONTINUITY_BLOCK_HASH_COST;
+use crate::verify::{CONTINUITY_BLOCK_HASH_COST, GAS_STORAGE_LOOKUP};
 // ============================================================================
 // GAS SECURITY AND DOS PREVENTION TESTS
 // ============================================================================

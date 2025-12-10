@@ -25,10 +25,12 @@ use merkle::TransactionMerkleProof;
 // - Hash operations: Keccak-256 hash cost = 30 base + 6 per word
 //   - Merkle sibling: hash_inner(left, right) = 65 bytes = 3 words = 48 gas
 //   - Continuity block: hash_payload(height, root, prev_digest) = 72 bytes = 3 words = 48 gas
+// Used for both Merkle sibling verification and continuity block hashing
+// Gas costs properly account for all computational work, no separate weight tracking needed
 pub const CONTINUITY_BLOCK_HASH_COST: u64 = 48; // Keccak-256 hash cost: 30 base + 6 per word (3-word inputs = 48 gas)
-                                                // Used for both Merkle sibling verification and continuity block hashing
-pub const WEIGHT_MERKLE_VERIFY: u64 = 100_000; // Merkle verification work
-pub const WEIGHT_CONTINUITY_VERIFY: u64 = 50_000; // Continuity verification work
+
+// Gas cost for a storage lookup (matches cold SLOAD)
+pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
 
 impl<Runtime> BlockProverPrecompile<Runtime>
 where
@@ -172,12 +174,8 @@ where
             });
         }
 
-        // Record weights
-        let continuity_weight = sp_weights::Weight::from_parts(WEIGHT_CONTINUITY_VERIFY, 0);
-        RuntimeHelper::<Runtime>::record_external_cost(handle, continuity_weight, 0)?;
-
-        let merkle_weight = sp_weights::Weight::from_parts(WEIGHT_MERKLE_VERIFY, 0);
-        RuntimeHelper::<Runtime>::record_external_cost(handle, merkle_weight, 0)?;
+        // Gas costs (CONTINUITY_BLOCK_HASH_COST) already account for all computational work
+        // No separate weight tracking needed - gas is the single source of truth for resource consumption
 
         // Step 1: Verify continuity proof chain first (gas charged inside, verifies all digests)
         // This validates the chain structure and digests before we check the query block
@@ -342,9 +340,7 @@ where
             return Self::revert_with_message(err.message());
         }
 
-        // Record continuity weight (verified once for all queries)
-        let continuity_weight = sp_weights::Weight::from_parts(WEIGHT_CONTINUITY_VERIFY, 0);
-        RuntimeHelper::<Runtime>::record_external_cost(handle, continuity_weight, 0)?;
+        // Gas costs already account for all computational work - no separate weight tracking needed
 
         // Process each query
         for (i, ((height, encoded_transaction), merkle_proof)) in heights
@@ -369,9 +365,7 @@ where
                 return Self::revert_with_message("Transaction data cannot be empty");
             }
 
-            // Record Merkle weight for each query
-            let merkle_weight = sp_weights::Weight::from_parts(WEIGHT_MERKLE_VERIFY, 0);
-            RuntimeHelper::<Runtime>::record_external_cost(handle, merkle_weight, 0)?;
+            // Gas costs already account for all computational work - no separate weight tracking needed
 
             // 1. Verify Merkle proof for transaction inclusion (gas charged inside)
             if !Self::verify_merkle_proof(handle, &merkle_proof, &tx_bytes)? {
