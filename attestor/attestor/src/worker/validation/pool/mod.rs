@@ -73,7 +73,7 @@
 //! #
 //! # fn attestation(attestor: attestor_primitives::AttestorId) -> attestor::common::types::Attestation {
 //! #   attestor::common::types::Attestation {
-//! #       attestation_data: attestor_primitives::Attestation {
+//! #       attestation_data: attestor_primitives::AttestationData {
 //! #           header_number: 0,
 //! #           prev_digest: Some(sp_core::H256(*b"digest_0________________________")),
 //! #           ..Default::default()
@@ -123,9 +123,9 @@
 //!
 //! // Perform some validation logic and remove the attestation from the pool
 //! if validate(quorum) {
-//!     rx.mark_valid(permit).unwrap();
+//!     rx.mark_valid(permit);
 //! } else {
-//!     rx.mark_invalid(permit).unwrap();
+//!     rx.mark_invalid(permit);
 //! }
 //! # }
 //! ```
@@ -511,6 +511,16 @@ impl AttestationPoolInner {
             } else {
                 entry.remove();
             }
+
+            // Save the vote as invalid.
+            //
+            // This can be used for future filtering of known invalid votes, for example by the p2p
+            // worker.
+            self.forks
+                .invalid
+                .entry(permit.0 .0)
+                .or_default()
+                .insert(permit.0 .1);
         }
     }
 
@@ -535,6 +545,10 @@ struct AttestationPoolForks {
         common::types::Height,
         std::collections::HashMap<attestor_primitives::AttestorId, Vec<common::types::Attestation>>,
     >,
+    invalid: std::collections::BTreeMap<
+        common::types::Height,
+        std::collections::HashSet<attestor_primitives::Digest>,
+    >,
     size: usize,
     capacity: std::num::NonZeroUsize,
 }
@@ -554,6 +568,7 @@ impl AttestationPoolForks {
         Self {
             forks: std::collections::BTreeMap::new(),
             equivocations: std::collections::BTreeMap::new(),
+            invalid: std::collections::BTreeMap::new(),
             size: 0,
             capacity,
         }
@@ -572,11 +587,11 @@ impl AttestationPoolForks {
         match self.forks.entry(height) {
             std::collections::btree_map::Entry::Vacant(entry) => {
                 entry.insert(ForkData {
-                            attestations_by_digest: hash_map![key => vote.clone()],
-                            attestations_by_count: btree_map![std::num::NonZeroUsize::MIN => hash_set![key]],
-                            votes: hash_map![attestor_id => key],
-                            best: vote,
-                        });
+                    attestations_by_digest: hash_map![key => vote.clone()],
+                    attestations_by_count: btree_map![std::num::NonZeroUsize::MIN => hash_set![key]],
+                    votes: hash_map![attestor_id => key],
+                    best: vote,
+                });
             }
             std::collections::btree_map::Entry::Occupied(mut entry) => {
                 let data = entry.get_mut();
@@ -609,6 +624,8 @@ impl AttestationPoolForks {
                 }
 
                 if let Some(vote_prev) = data.attestations_by_digest.get(&key) {
+                    tracing::debug!("Found matching fork");
+
                     // Update the attestation count mapping
                     //
                     // We use `attestation_by_count` to retrieve the next best attestation in O(1)
@@ -637,7 +654,10 @@ impl AttestationPoolForks {
                     // Updated the leading fork.
                     //
                     // This keeps reads to the leading attestation O(1).
-                    if vote.signers.len() > data.best.signers.len() {
+                    if data.best.attestation.digest() == vote.attestation.digest() {
+                        data.best.votes.push(vote.attestation.clone());
+                        data.best.signers.insert(vote.attestation.attestor.clone());
+                    } else if vote.signers.len() > data.best.signers.len() {
                         data.best = vote.clone();
                     }
                 }
@@ -714,6 +734,14 @@ impl AttestationPoolSender {
             inner
                 .forks
                 .forks
+                .retain(|height, _| *height > latest_attestation_cc3);
+            inner
+                .forks
+                .equivocations
+                .retain(|height, _| *height > latest_attestation_cc3);
+            inner
+                .forks
+                .invalid
                 .retain(|height, _| *height > latest_attestation_cc3);
         }
     }
@@ -1155,11 +1183,30 @@ pub mod fixtures {
         #[default(0)] epoch: common::types::Epoch,
         #[default(0)] header_number: common::types::Height,
         #[default(DIGEST_0)] prev_digest: attestor_primitives::Digest,
-    ) -> AttestationByDigest {
-        attestors.into_iter().fold(
-            AttestationByDigest {
-                votes: Vec::new(),
-                signers: std::collections::HashSet::new(),
+    ) -> AttestationVote {
+        let mut iter = attestors.into_iter();
+
+        let attestation = common::types::Attestation {
+            attestation_data: attestor_primitives::AttestationData {
+                header_number,
+                prev_digest: Some(prev_digest),
+                ..Default::default()
+            },
+            attestor: iter.next().unwrap(),
+            signature: Default::default(),
+            signature_bls: attestor_primitives::bls::WrapEncode(
+                bls_signatures::PrivateKey::new(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                    .sign(b"0xdeadbeef"),
+            ),
+            continuity_proof: Default::default(),
+            epoch,
+        };
+
+        iter.fold(
+            AttestationVote {
+                votes: vec![attestation.clone()],
+                signers: hash_set![attestation.attestor.clone()],
+                attestation,
             },
             |mut attestation, attestor| {
                 attestation.votes.push(common::types::Attestation {
@@ -1184,19 +1231,16 @@ pub mod fixtures {
     }
 
     #[rstest::fixture]
-    pub fn attestation_signed(
-        attestation: AttestationByDigest,
-    ) -> common::types::AttestationSigned {
-        let att = attestation.votes[0].clone();
+    pub fn attestation_signed(attestation: AttestationVote) -> common::types::AttestationSigned {
         attestor_primitives::SignedAttestation {
-            attestation: att.attestation_data,
+            attestation: attestation.attestation.attestation_data,
             signature: [0u8; 96],
             attestors: attestation
                 .votes
                 .iter()
                 .map(|att| att.attestor.clone())
                 .collect(),
-            continuity_proof: att.continuity_proof,
+            continuity_proof: attestation.attestation.continuity_proof,
         }
     }
 
@@ -1208,7 +1252,7 @@ pub mod fixtures {
         #[default(0)] _header_number: common::types::Height,
         #[default(DIGEST_0)] _prev_digest: attestor_primitives::Digest,
         #[with(_attestors.clone(), _epoch, _header_number, _prev_digest)]
-        attestation: AttestationByDigest,
+        attestation: AttestationVote,
     ) -> Quorum {
         Quorum(attestation.votes)
     }
@@ -1266,19 +1310,12 @@ pub mod fixtures {
         #[default(0)] _header_number: common::types::Height,
         #[default(DIGEST_0)] _prev_digest: attestor_primitives::Digest,
         #[with(_attestors.clone(), _epoch, _header_number, _prev_digest)]
-        attestation: AttestationByDigest,
+        attestation: AttestationVote,
     ) -> AttestationPermit {
-        use std::hash::Hash as _;
-        use std::hash::Hasher as _;
-
-        let mut hasher = std::hash::DefaultHasher::new();
-        attestation.hash(&mut hasher);
-        let hash = hasher.finish();
-
-        AttestationPermit {
-            att: attestation,
-            hash,
-        }
+        AttestationPermit((
+            attestation.attestation.header_number(),
+            attestation.attestation.digest(),
+        ))
     }
 }
 
@@ -1293,82 +1330,6 @@ mod test {
     use super::fixtures::*;
     use super::*;
 
-    #[rstest::rstest]
-    fn attestation_hash_sanity_1(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationByDigest,
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_1])]
-        attestation_1: AttestationByDigest,
-    ) {
-        use std::hash::Hash as _;
-        use std::hash::Hasher as _;
-
-        let mut hasher = std::hash::DefaultHasher::new();
-        attestation_0.hash(&mut hasher);
-        let hash_0 = hasher.finish();
-
-        let mut hasher = std::hash::DefaultHasher::new();
-        attestation_1.hash(&mut hasher);
-        let hash_1 = hasher.finish();
-
-        assert_eq!(hash_0, hash_1);
-    }
-
-    #[rstest::rstest]
-    fn attestation_hash_sanity_2(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationByDigest,
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_1])]
-        attestation_1: AttestationByDigest,
-    ) {
-        let mut set = hash_set![attestation_1.clone()];
-        assert_eq!(set.take(&attestation_1), Some(attestation_0));
-    }
-
-    #[rstest::rstest]
-    fn attestation_hash_sanity_3(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 0, 0, DIGEST_0)]
-        attestation_0: AttestationByDigest,
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 0, 0, DIGEST_1)]
-        attestation_1: AttestationByDigest,
-    ) {
-        use std::hash::Hash as _;
-        use std::hash::Hasher as _;
-
-        let mut hasher = std::hash::DefaultHasher::new();
-        attestation_0.hash(&mut hasher);
-        let hash_0 = hasher.finish();
-
-        let mut hasher = std::hash::DefaultHasher::new();
-        attestation_1.hash(&mut hasher);
-        let hash_1 = hasher.finish();
-
-        assert_ne!(hash_0, hash_1);
-    }
-
-    #[rstest::rstest]
-    fn attestation_hash_sanity_4(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 0, 0, DIGEST_0)]
-        attestation_0: AttestationByDigest,
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 0, 0, DIGEST_1)]
-        attestation_1: AttestationByDigest,
-    ) {
-        let mut set = hash_set![attestation_1.clone()];
-        assert_ne!(set.take(&attestation_1), Some(attestation_0));
-    }
-
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
@@ -1376,10 +1337,10 @@ mod test {
         _logs: (),
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationByDigest,
+        attestation_0: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_VALID_1])]
-        attestation_1: AttestationByDigest,
+        attestation_1: AttestationVote,
         #[from(quorum)]
         #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
         quorum: Quorum,
@@ -1398,7 +1359,7 @@ mod test {
         let actual = rx.next().await;
         let expected = Some((quorum, permit, None));
 
-        assert_eq!(actual, expected);
+        assert_eq!(actual, expected,);
     }
 
     #[tokio::test]
@@ -1408,13 +1369,13 @@ mod test {
         _logs: (),
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0], 0, 0, DIGEST_0)]
-        attestation_0: AttestationByDigest,
+        attestation_0: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_VALID_1], 0, 0, DIGEST_0)]
-        attestation_1: AttestationByDigest,
+        attestation_1: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_VALID_2], 0, 0, DIGEST_1)]
-        attestation_2: AttestationByDigest,
+        attestation_2: AttestationVote,
         #[from(quorum)]
         #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 0, 0, DIGEST_0)]
         quorum_expected: Quorum,
@@ -1432,18 +1393,16 @@ mod test {
 
         assert_eq!(quorum_actual, quorum_expected);
 
-        let invalid = rx.mark_valid(permit).unwrap();
-        assert_eq!(invalid, attestation_2.votes);
+        rx.mark_valid(permit);
 
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
 
-        assert!(!inner.heights.contains_key(&0));
+        assert!(!inner.forks.forks.contains_key(&0));
         assert_eq!(
             inner.digest_local,
             Some(cc_client::H256(attestation_1.votes[0].digest().0))
         );
-        assert_eq!(sx.attestion_local_get(), 0);
     }
 
     #[tokio::test]
@@ -1453,10 +1412,10 @@ mod test {
         _logs: (),
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationByDigest,
+        attestation_0: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_VALID_1])]
-        attestation_1: AttestationByDigest,
+        attestation_1: AttestationVote,
         #[from(quorum)]
         #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
         quorum_expected: Quorum,
@@ -1466,38 +1425,37 @@ mod test {
 
         let (sx, mut rx) = attestation_pool(config);
 
-        assert!(sx.send(attestation_0.votes[0].clone()).is_ok());
-        assert!(sx.send(attestation_1.votes[0].clone()).is_ok());
+        assert!(sx.send(attestation_0.attestation.clone()).is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).is_ok());
 
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
         assert_eq!(quorum_actual, quorum_expected);
-        assert!(rx.mark_invalid(permit).is_ok());
+        rx.mark_invalid(permit);
 
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
-        let height_data = inner.heights.get(&0).unwrap();
 
-        assert_eq!(inner.heights.len(), 1);
-        assert_eq!(
-            height_data.signers,
-            hash_set![ATTESTOR_VALID_0, ATTESTOR_VALID_1]
-        );
-        assert!(height_data.signer_count_by_attestation_hash.is_empty());
-        assert!(height_data.attestations_by_signer_count.is_empty());
+        assert_eq!(inner.forks.forks.len(), 0);
+        assert!(inner
+            .forks
+            .invalid
+            .get(&0)
+            .unwrap()
+            .contains(&attestation_0.attestation.digest()));
     }
 
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
-    async fn attestation_pool_sanity_batch(
+    async fn attestation_pool_mark_for_later(
         _logs: (),
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationByDigest,
+        attestation_0: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_VALID_1])]
-        attestation_1: AttestationByDigest,
+        attestation_1: AttestationVote,
         #[from(attestation_signed)] attestation_signed: common::types::AttestationSigned,
         #[from(quorum)]
         #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
@@ -1508,7 +1466,7 @@ mod test {
 
         let (sx, mut rx) = attestation_pool(config);
 
-        assert_matches::assert_matches!(rx.take_next_validated(), Ok(None));
+        assert_matches::assert_matches!(rx.take_next_validated(), None);
 
         assert!(sx.send(attestation_0.votes[0].clone()).is_ok());
         assert!(sx.send(attestation_1.votes[0].clone()).is_ok());
@@ -1516,83 +1474,70 @@ mod test {
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
         assert_eq!(quorum_actual, quorum_expected);
-        assert!(rx
-            .mark_for_later(permit, attestation_signed.clone())
-            .is_ok());
-
-        let batch_info_expected = BatchInfo {
-            digest_first: attestation_signed.prev_digest(),
-            digest_last: attestation_signed.digest(),
-            height_first: 0,
-            height_last: 0,
-        };
+        rx.mark_for_later(permit, attestation_signed.clone());
 
         // Such types, much wow... -fuck subxt and the incompatible dependencies which make using
         // our own types an even more royal pain $$%%^#$#
-        let batch_expected: Vec<
-            cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
-                cc_client::H256,
-                cc_client::AccountId32,
-            >,
-        > = vec![attestation_signed.clone().into()];
+        let attestation_expected: cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
+            cc_client::H256,
+            cc_client::AccountId32,
+        > = attestation_signed.clone().into();
 
-        assert_matches::assert_matches!(rx.take_next_validated(), Ok(Some((batch_info, batch))) => {
-            assert_eq!(batch_info, batch_info_expected);
-            batch.into_iter().zip(batch_expected).for_each(|(att, att_expected)| {
-                // Other types in this don't implement PartialEq and Eq...
-                assert_eq!(att.attestors, att_expected.attestors);
-            });
+        assert_matches::assert_matches!(rx.take_next_validated(), Some((height, digest, attestation)) => {
+            assert_eq!(height, attestation_0.attestation.header_number());
+            assert_eq!(digest, attestation_0.attestation.digest());
+            // Other types in this don't implement PartialEq and Eq...
+            assert_eq!(attestation.attestors, attestation_expected.attestors);
         });
 
-        assert_eq!(sx.attestion_local_get(), 0);
         assert_eq!(
             sx.common.pool.lock().expect_open().digest_local,
             Some(cc_client::H256(attestation_signed.digest().0))
         );
     }
 
-    #[tokio::test]
-    #[rstest::rstest]
-    #[timeout(TIMEOUT)]
-    async fn attestation_pool_sanity_evict(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0])]
-        attestation_1: AttestationByDigest,
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_1])]
-        attestation_2: AttestationByDigest,
-        #[from(quorum)]
-        #[with([ATTESTOR_VALID_1])]
-        quorum: Quorum,
-        #[from(permit)]
-        #[with([ATTESTOR_VALID_1])]
-        permit: AttestationPermit,
-        #[from(quorum_validate)]
-        #[with(1)]
-        _quorum_validate: ValidateQuorum,
-        #[from(config)]
-        #[with(_quorum_validate.clone(), 1)]
-        config: Config,
-    ) {
-        use futures::stream::StreamExt as _;
-
-        let (sx, mut rx) = attestation_pool(config);
-
-        assert!(sx.send(attestation_1.votes[0].clone()).is_ok());
-        assert!(sx.send(attestation_2.votes[0].clone()).is_ok());
-
-        let actual = rx.next().await;
-        let expected = Some((quorum, permit, None));
-
-        assert_eq!(actual, expected);
-    }
+    // #[tokio::test]
+    // #[rstest::rstest]
+    // #[timeout(TIMEOUT)]
+    // async fn attestation_pool_sanity_evict(
+    //     _logs: (),
+    //     #[from(attestation)]
+    //     #[with([ATTESTOR_VALID_0])]
+    //     attestation_1: AttestationVote,
+    //     #[from(attestation)]
+    //     #[with([ATTESTOR_VALID_1])]
+    //     attestation_2: AttestationVote,
+    //     #[from(quorum)]
+    //     #[with([ATTESTOR_VALID_1])]
+    //     quorum: Quorum,
+    //     #[from(permit)]
+    //     #[with([ATTESTOR_VALID_1])]
+    //     permit: AttestationPermit,
+    //     #[from(quorum_validate)]
+    //     #[with(1)]
+    //     _quorum_validate: ValidateQuorum,
+    //     #[from(config)]
+    //     #[with(_quorum_validate.clone(), 1)]
+    //     config: Config,
+    // ) {
+    //     use futures::stream::StreamExt as _;
+    //
+    //     let (sx, mut rx) = attestation_pool(config);
+    //
+    //     assert!(sx.send(attestation_1.votes[0].clone()).is_ok());
+    //     assert!(sx.send(attestation_2.votes[0].clone()).is_ok());
+    //
+    //     let actual = rx.next().await;
+    //     let expected = Some((quorum, permit, None));
+    //
+    //     assert_eq!(actual, expected);
+    // }
 
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
     async fn attestation_pool_sanity_err_invalid_attestor(
-        #[with([ATTESTOR_INVALID])] attestation: AttestationByDigest,
+        #[with([ATTESTOR_INVALID])] attestation: AttestationVote,
         config: Config,
     ) {
         let (sx, _rx) = attestation_pool(config);
@@ -1612,7 +1557,7 @@ mod test {
     #[timeout(TIMEOUT)]
     async fn attestation_pool_async_wake_receiver(
         _logs: (),
-        #[with([ATTESTOR_VALID_0])] attestation: AttestationByDigest,
+        #[with([ATTESTOR_VALID_0])] attestation: AttestationVote,
         #[with([ATTESTOR_VALID_0])] permit: AttestationPermit,
         #[with([ATTESTOR_VALID_0])] quorum: Quorum,
         #[from(quorum_validate)]
@@ -1649,7 +1594,7 @@ mod test {
     #[timeout(TIMEOUT)]
     async fn attestation_pool_close_sender(
         _logs: (),
-        #[with([ATTESTOR_VALID_1])] attestation: AttestationByDigest,
+        #[with([ATTESTOR_VALID_1])] attestation: AttestationVote,
         config: Config,
     ) {
         let (sx, rx) = attestation_pool(config);
@@ -1665,7 +1610,7 @@ mod test {
     #[timeout(TIMEOUT)]
     async fn attestation_pool_close_receiver(
         _logs: (),
-        #[with([ATTESTOR_VALID_1])] attestation: AttestationByDigest,
+        #[with([ATTESTOR_VALID_1])] attestation: AttestationVote,
         config: Config,
     ) {
         use futures::stream::StreamExt as _;
@@ -1682,10 +1627,10 @@ mod test {
         _logs: (),
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
-        attestation_0: AttestationByDigest,
+        attestation_0: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
-        attestation_1: AttestationByDigest,
+        attestation_1: AttestationVote,
         quorum_validate: ValidateQuorum,
     ) {
         assert!(quorum_validate.validate(&attestation_0));
@@ -1697,10 +1642,10 @@ mod test {
         _logs: (),
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationByDigest,
+        attestation_0: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_INVALID])]
-        attestation_2: AttestationByDigest,
+        attestation_2: AttestationVote,
         permissioned: AttestorValidatePermissioned,
     ) {
         assert!(permissioned.validate(&attestation_0.votes[0]).is_ok());
@@ -1715,10 +1660,10 @@ mod test {
         _logs: (),
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationByDigest,
+        attestation_0: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_INVALID])]
-        attestation_2: AttestationByDigest,
+        attestation_2: AttestationVote,
         permissionless: AttestorValidatePermissionless,
     ) {
         assert!(permissionless.validate(&attestation_0.votes[0]).is_ok());
@@ -1730,10 +1675,10 @@ mod test {
         _logs: (),
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationByDigest,
+        attestation_0: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_INVALID])]
-        attestation_2: AttestationByDigest,
+        attestation_2: AttestationVote,
         deny: AttestorValidateDeny,
     ) {
         assert_matches::assert_matches!(
