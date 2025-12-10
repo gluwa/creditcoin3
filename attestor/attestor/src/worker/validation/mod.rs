@@ -116,11 +116,7 @@ pub(crate) struct WorkerAttestationValidation {
 
     // ATTESTATIONS
     keypair: subxt_signer::sr25519::Keypair,
-    watch_submission: future::OptionFuture<(
-        AttestationSubmission,
-        common::types::Height,
-        common::types::Height,
-    )>,
+    watch_submission: future::OptionFuture<(AttestationSubmission, common::types::Height)>,
     attempts: usize,
 
     // MESSAGE CHANNELS
@@ -221,30 +217,7 @@ impl WorkerAttestationValidation {
             Some(Ok(attestation)) if self.watch_submission.is_none() => {
                 // ---------------------------------* Pool update *--------------------------------
 
-                match self.receiver_validation.mark_valid(permit) {
-                    Err(pool::PoolError::PoolClosed) => {}
-                    // WARNING: RACE CONDITION
-                    //
-                    // If an attestor is experiencing network latency it is possible for it to
-                    // observe local quorum right before this attestation is finalized on the
-                    // execution chain and is removed from the pool by the production worker, in
-                    // which case the attestation permit will be pointing to an empty height and can
-                    // no longer be used to remove this attestation.
-                    Err(pool::PoolError::Attestation(pool::AttestationError::MissingHeight(
-                        _attestor_id,
-                        epoch,
-                        height,
-                    ))) => {
-                        tracing::debug!(
-                            %digest,
-                            epoch,
-                            height,
-                            "Ignoring attestation quorum as it has already been removed from the pool"
-                        )
-                    }
-                    Err(err) => return Err(Error::Pool(err)),
-                    Ok(_) => {}
-                };
+                self.receiver_validation.mark_valid(permit);
 
                 // ---------------------------* Attestation submission *---------------------------
 
@@ -254,7 +227,7 @@ impl WorkerAttestationValidation {
                     "🛫 Submitting attestation"
                 );
 
-                self.submit_attestations(vec![attestation.into()], height, height)
+                self.submit_attestations(attestation.into(), height)
                     .await
                     .transpose()?;
             }
@@ -269,74 +242,26 @@ impl WorkerAttestationValidation {
                 tracing::info!(
                     %digest,
                     height = attestation.attestation.header_number,
-                    size = self.receiver_validation.batch_size() + 1,
-                    "🗃️ Batching attestation"
+                    "🗃️ Storing attestation for later submission"
                 );
 
-                match self.receiver_validation.mark_batch(permit, attestation) {
-                    Err(pool::PoolError::PoolClosed) => {}
-                    // WARNING: RACE CONDITION
-                    //
-                    // If an attestor is experiencing network latency it is possible for it to
-                    // observe local quorum right before this attestation is finalized on the
-                    // execution chain and is removed from the pool by the production worker, in
-                    // which case the attestation permit will be pointing to an empty height and can
-                    // no longer be used to remove this attestation.
-                    Err(pool::PoolError::Attestation(pool::AttestationError::MissingHeight(
-                        _attestor_id,
-                        epoch,
-                        height,
-                    ))) => {
-                        tracing::debug!(
-                            %digest,
-                            epoch,
-                            height,
-                            "Ignoring attestation quorum as it has already been removed from the pool"
-                        )
-                    }
-                    Err(err) => return Err(Error::Pool(err)),
-                    Ok(_) => {}
-                };
+                self.receiver_validation.mark_for_later(permit, attestation);
             }
             // CASE 3] INVALID ATTESTATION
             //
             // Remove the attestation from the pool, it will eventually be re-generated
             Some(Err(Error::InvalidAttestation(_))) => {
-                // ---------------------------* Attestation pool update *--------------------------
-
-                match self.receiver_validation.mark_invalid(permit) {
-                    Err(pool::PoolError::PoolClosed) => {}
-                    // WARNING: RACE CONDITION
-                    //
-                    // If an attestor is experiencing network latency it is possible for it to
-                    // observe local quorum right before this attestation is finalized on the
-                    // execution chain and is removed from the pool by the production worker, in
-                    // which case the attestation permit will be pointing to an empty height and can
-                    // no longer be used to remove this attestation.
-                    Err(pool::PoolError::Attestation(pool::AttestationError::MissingHeight(
-                        _attestor_id,
-                        epoch,
-                        height,
-                    ))) => {
-                        tracing::debug!(
-                            %digest,
-                            epoch,
-                            height,
-                            "Ignoring attestation quorum as it has already been removed from the pool"
-                        )
-                    }
-                    Err(err) => return Err(Error::Pool(err)),
-                    Ok(_) => {}
-                };
+                self.receiver_validation.mark_invalid(permit);
             }
             // CASE 4] EXTERNAL ERROR
             //
             // Cleanup and close the validation worker thread.
             Some(Err(err)) => {
-                // WARNING: even if this is an irrecoverable error, we still need to restore the
-                // attestation pool to a valid state as it can still be referenced to from other
-                // worker threads.
-                let _ = self.receiver_validation.mark_invalid(permit);
+                // WARNING: ERROR HANDLING
+                //
+                // Even if this is an irrecoverable error, we still need to restore the attestation
+                // pool to a valid state as it can still be referenced to from other worker threads.
+                self.receiver_validation.mark_invalid(permit);
                 return Err(err);
             }
             // CASE 5] EXTERNAL INTERRUPT
@@ -350,13 +275,9 @@ impl WorkerAttestationValidation {
 
     async fn handle_event_submission(
         &mut self,
-        submission: (
-            AttestationSubmission,
-            common::types::Height,
-            common::types::Height,
-        ),
+        submission: (AttestationSubmission, common::types::Height),
     ) -> Result<(), Error> {
-        let (submission, height_first, height_last) = submission;
+        let (submission, height) = submission;
 
         match submission {
             // CASE 1] SUBMITTED ATTESTATION
@@ -379,27 +300,16 @@ impl WorkerAttestationValidation {
                                 // only one attestor can be selected to win the race, other attestors will
                                 // receive a runtime error on submission indicating a duplicate attestation.
                                 // This is not a failure case.
-                                tracing::info!(
-                                    height_first,
-                                    height_last,
-                                    "✅ Attestation already submitted"
-                                );
+                                tracing::info!(height, "✅ Attestation already submitted");
                             }
                             err => {
-                                tracing::error!(
-                                    height_first,
-                                    height_last,
-                                    ?err,
-                                    "⛔ Invalid attestation"
-                                );
+                                tracing::error!(height, ?err, "⛔ Invalid attestation");
                                 // WARNING: PANIC
                                 //
                                 // Any early return must reset the `watch_submission` future to
                                 // avoid double polling!
                                 self.watch_submission = future::OptionFuture::default();
-                                let _ = self
-                                    .sender_attestation_invalidation
-                                    .send(Some(height_first));
+                                let _ = self.sender_attestation_invalidation.send(Some(height));
                                 return Ok(());
                             }
                         }
@@ -412,11 +322,7 @@ impl WorkerAttestationValidation {
                             .find_last::<cc_client::cc3::attestation::events::BlockAttested>()
                         {
                             Ok(Some(_attestation)) => {
-                                tracing::info!(
-                                    height_first,
-                                    height_last,
-                                    "✅ Attestation submitted on-chain"
-                                );
+                                tracing::info!(height, "✅ Attestation submitted on-chain");
                             }
                             _ => {
                                 // WARNING: PANIC
@@ -440,7 +346,7 @@ impl WorkerAttestationValidation {
                 // check the latest attestation and THEN wait for updates if we are not already
                 // past finalization.
                 while (*self.receiver_attestation_latest.borrow())
-                    .is_none_or(|attestation_latest| attestation_latest < height_last)
+                    .is_none_or(|attestation_latest| attestation_latest < height)
                 {
                     tokio::select! {
                         biased;
@@ -476,7 +382,7 @@ impl WorkerAttestationValidation {
                 self.attempts = 0;
             }
             // CASE 2] NOT SELECTED FOR ATTESTATION SUBMISSION
-            AttestationSubmission::NotElligible(attestations) => {
+            AttestationSubmission::NotElligible(attestation) => {
                 // ------------------------* Attestation finalization *----------------------------
 
                 let mut interval = tokio::time::interval(common::constants::ATTESTATION_TIMEOUT);
@@ -490,7 +396,7 @@ impl WorkerAttestationValidation {
                 // check the latest attestation and THEN wait for updates if we are not already
                 // past finalization.
                 while (*self.receiver_attestation_latest.borrow())
-                    .is_none_or(|attestation_latest| attestation_latest < height_last)
+                    .is_none_or(|attestation_latest| attestation_latest < height)
                 {
                     tokio::select! {
                         biased;
@@ -505,7 +411,7 @@ impl WorkerAttestationValidation {
                         }
                         _ = interval.tick() => {
                             tracing::warn!(
-                                threshold = height_last,
+                                threshold = height,
                                 "🏃 Attestation finalization timed out, assuming no leader was elected"
                             );
 
@@ -518,7 +424,7 @@ impl WorkerAttestationValidation {
                             // track of the number of attempts to submit an attestation and take
                             // that into account in the VRF computation.
                             self.attempts += 1;
-                            self.submit_attestations(attestations, height_first, height_last).await.transpose()?;
+                            self.submit_attestations(attestation, height).await.transpose()?;
 
                             return Ok(());
                         }
@@ -537,13 +443,9 @@ impl WorkerAttestationValidation {
 
                 // Extra check needed because of potential timeout
                 if (*self.receiver_attestation_latest.borrow())
-                    .is_some_and(|attestation_latest| attestation_latest >= height_last)
+                    .is_some_and(|attestation_latest| attestation_latest >= height)
                 {
-                    tracing::info!(
-                        height_first,
-                        height_last,
-                        "✅ Attestation submitted externally"
-                    );
+                    tracing::info!(height, "✅ Attestation submitted externally");
 
                     // NOTE: EDGE CASE
                     //
@@ -557,36 +459,26 @@ impl WorkerAttestationValidation {
             }
         }
 
-        // --------------------------------* Attestation batching *--------------------------------
+        // -----------------------------* Attestation pre-validation *-----------------------------
 
-        if let Ok(Some((
-            pool::BatchInfo {
-                digest_first,
-                digest_last,
-                height_first,
-                height_last,
-            },
-            batch,
-        ))) = self.receiver_validation.batch_take()
+        if let Some((height, digest, attestation)) = self.receiver_validation.take_next_validated()
         {
-            // CASE 1] A BATCH IS READY
+            // CASE 1] AN ATTESTATION IS READY
             //
-            // Submit that batch and wait for it to be validated by the runtime as part of the
+            // Submit that attestation and wait for it to be validated by the runtime as part of the
             // typical `WorkerAttestationValidation::task` event loop.
 
             tracing::info!(
-                ?digest_first,
-                %digest_last,
-                height_first,
-                height_last,
-                "🛫 Submitting attestation batch"
+                %digest,
+                height,
+                "🛫 Submitting pre-validated attestation"
             );
 
-            self.submit_attestations(batch, height_first, height_last)
+            self.submit_attestations(attestation, height)
                 .await
                 .transpose()?;
         } else {
-            // CASE 2] NO BATCH
+            // CASE 2] NO ATTESTATION
             //
             // Default to waiting for the next quorum which will be submitted immediately on
             // local validation.
@@ -1114,11 +1006,9 @@ impl WorkerAttestationValidation {
 enum AttestationSubmission {
     Elligible(Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>),
     NotElligible(
-        Vec<
-            cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
-                cc_client::H256,
-                cc_client::AccountId32,
-            >,
+        cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
+            cc_client::H256,
+            cc_client::AccountId32,
         >,
     ),
 }
@@ -1126,14 +1016,11 @@ enum AttestationSubmission {
 impl WorkerAttestationValidation {
     async fn submit_attestations(
         &mut self,
-        attestations: Vec<
-            cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
-                cc_client::H256,
-                cc_client::AccountId32,
-            >,
+        attestation: cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
+            cc_client::H256,
+            cc_client::AccountId32,
         >,
-        height_first: common::types::Height,
-        height_last: common::types::Height,
+        height: common::types::Height,
     ) -> Option<Result<(), Error>> {
         use futures::FutureExt as _;
 
@@ -1146,7 +1033,7 @@ impl WorkerAttestationValidation {
 
         match self
             .cc3
-            .sign_vrf_submission(height_first + self.attempts as common::types::Height)
+            .sign_vrf_submission(height + self.attempts as common::types::Height)
             .await
         {
             // TODO: have the runtime validate the submission vrf
@@ -1156,7 +1043,7 @@ impl WorkerAttestationValidation {
             Ok(Some(_)) => {
                 let attestations =
                     cc_client::cc3::runtime_types::bounded_collections::bounded_vec::BoundedVec(
-                        attestations,
+                        vec![attestation],
                     );
 
                 let call = cc_client::cc3::tx()
@@ -1177,8 +1064,7 @@ impl WorkerAttestationValidation {
                             tracing::debug!(
                                 attempt,
                                 MAX_ATTEMPTS,
-                                height_first,
-                                height_last,
+                                height,
                                 "Failed to submit attestation, retrying..."
                             );
 
@@ -1196,27 +1082,21 @@ impl WorkerAttestationValidation {
                     delay = (delay * 2).min(DELAY_MAX);
                 };
 
-                let watch = submit.wait_for_finalized_success().map(move |res| {
-                    (
-                        AttestationSubmission::Elligible(res),
-                        height_first,
-                        height_last,
-                    )
-                });
+                let watch = submit
+                    .wait_for_finalized_success()
+                    .map(move |res| (AttestationSubmission::Elligible(res), height));
 
                 self.watch_submission = Some(watch).into();
             }
             Ok(None) => {
                 tracing::info!(
-                    height_first,
-                    height_last,
+                    height,
                     "🚦 Attestor was not selected for attestation submission"
                 );
 
                 self.watch_submission = Some(std::future::ready((
-                    AttestationSubmission::NotElligible(attestations),
-                    height_first,
-                    height_last,
+                    AttestationSubmission::NotElligible(attestation),
+                    height,
                 )))
                 .into();
             }

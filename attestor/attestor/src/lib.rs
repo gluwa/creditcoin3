@@ -14,7 +14,9 @@ pub mod prelude {
     pub use crate::common;
     pub(crate) use crate::util;
 
+    pub(crate) use crate::btree_map;
     pub(crate) use crate::ensure;
+    pub(crate) use crate::hash_map;
     pub(crate) use crate::hash_set;
 
     pub const WORKER_COUNT: usize = 3;

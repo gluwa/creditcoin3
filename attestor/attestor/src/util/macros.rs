@@ -23,6 +23,38 @@ macro_rules! hash_set {
     };
 }
 
+#[macro_export]
+macro_rules! hash_map {
+    () => {
+        std::collections::HashMap::new()
+    };
+    ($($key:expr => $value:expr),*) => {
+        {
+            let mut hash_map = std::collections::HashMap::new();
+            $(
+                hash_map.insert($key, $value);
+            )*
+            hash_map
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! btree_map {
+    () => {
+        std::collections::BTreeMap::new()
+    };
+    ($($key:expr => $value:expr),*) => {
+        {
+            let mut btree_map = std::collections::BTreeMap::new();
+            $(
+                btree_map.insert($key, $value);
+            )*
+            btree_map
+        }
+    };
+}
+
 #[cfg(test)]
 mod test {
     #[test]
@@ -46,5 +78,17 @@ mod test {
         reference.insert(5);
 
         assert_eq!(set, reference);
+    }
+
+    #[test]
+    fn macro_hash_map() {
+        let map = hash_map![1 => 'a', 2 => 'b', 3 => 'c'];
+
+        let mut reference = std::collections::HashMap::new();
+        reference.insert(1, 'a');
+        reference.insert(2, 'b');
+        reference.insert(3, 'c');
+
+        assert_eq!(map, reference);
     }
 }

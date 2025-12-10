@@ -157,7 +157,7 @@ pub struct Config {
     #[specify_later]
     /// Attestor validation policy, can be either [`AttestorValidatePermissionless`] or
     /// [`AttestorValidatePermissioned`].
-    attestors: Box<dyn AttestorValidate>,
+    attestors: Box<dyn ValidateAttestor>,
     #[specify_later]
     /// Target [`Quorum`] size. Ie: the number of valid attestors which must submit the same
     /// attestation before it reaches quorum.
@@ -182,6 +182,10 @@ pub struct Config {
     /// This value is fetched from on-chain storage.
     max_attestations_per_block: u32,
 }
+
+// ----------------------------------------- [ Types ] ----------------------------------------- //
+
+type AttestationKey = (common::types::Height, attestor_primitives::Digest);
 
 // ------------------------------------ [ Attestation Pool ] ----------------------------------- //
 
@@ -235,7 +239,7 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
     tracing::info!(quorum = %config.quorum, "📮  with");
     tracing::info!(attestors = %config.attestors, "📮  with");
 
-    let quorum = QuorumValidate::new(
+    let quorum = ValidateQuorum::new(
         config.quorum,
         config.start_height,
         config.attestation_interval,
@@ -243,11 +247,7 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
 
     let pool = AttestationPool::new(config.capacity, quorum, config.attestors);
 
-    let common_send = std::sync::Arc::new(AttestationPoolCommon::new(
-        pool,
-        config.start_height,
-        config.max_attestations_per_block,
-    ));
+    let common_send = std::sync::Arc::new(AttestationPoolCommon::new(pool, config.start_height));
 
     let common_recv = std::sync::Arc::clone(&common_send);
 
@@ -336,26 +336,15 @@ struct AttestationPoolCommon {
     // CROSS THREAD ATOMIC DATA STORE
     //
     // Data which needs to be accessed frequently without acquiring a lock onto the inner pool.
-    batch_size: std::sync::atomic::AtomicUsize,
-    attestation_local: std::sync::atomic::AtomicU64,
     start_height: common::types::Height,
-    max_attestations_per_block: u32,
 }
 
 impl AttestationPoolCommon {
-    pub fn new(
-        pool: AttestationPool,
-        start_height: common::types::Height,
-        max_attestations_per_block: u32,
-    ) -> Self {
+    pub fn new(pool: AttestationPool, start_height: common::types::Height) -> Self {
         Self {
             pool: parking_lot::Mutex::new(pool),
             count_sender: std::sync::atomic::AtomicUsize::new(0),
-
-            batch_size: std::sync::atomic::AtomicUsize::new(0),
-            attestation_local: std::sync::atomic::AtomicU64::new(start_height),
             start_height,
-            max_attestations_per_block,
         }
     }
 }
@@ -365,11 +354,7 @@ impl Default for AttestationPoolCommon {
         Self {
             pool: parking_lot::Mutex::new(AttestationPool::Closed),
             count_sender: std::sync::atomic::AtomicUsize::new(0),
-
-            batch_size: std::sync::atomic::AtomicUsize::new(0),
-            attestation_local: std::sync::atomic::AtomicU64::new(0),
             start_height: 0,
-            max_attestations_per_block: 0,
         }
     }
 }
@@ -385,39 +370,31 @@ enum AttestationPool {
 
 /// Concrete implementation of the attestation pool, holding all of the implementation logic.
 struct AttestationPoolInner {
-    // POOL DATA
-    heights: std::collections::BTreeMap<common::types::Height, HeightData>,
-    capacity: std::num::NonZeroUsize,
-    quorum: QuorumValidate,
-    attestors: Box<dyn AttestorValidate>,
-    wakers: std::collections::VecDeque<std::task::Waker>,
-
-    // CROSS-THREAD DATA STORE
-    //
-    // Data which needs to be accessed infrequently across threads and must be shared to handle
-    // epoch resets. For cross-thread data which needs to be accessed frequently, resolve to
-    // storing atomic data in `AttestationPoolCommon` instead. For data which cannot be stored
-    // atomically, try and return it as part of other locking operations on the inner pool, such as
-    // waiting for quorum.
-    batch: Vec<common::types::AttestationSigned>,
+    forks: AttestationPoolForks,
+    quorums: std::collections::VecDeque<common::types::AttestationSigned>,
     digest_local: Option<cc_client::H256>,
+
+    validate_quorum: ValidateQuorum,
+    validate_attestor: Box<dyn ValidateAttestor>,
+
+    wakers: std::collections::VecDeque<std::task::Waker>,
 }
 
 impl AttestationPool {
     fn new(
         capacity: std::num::NonZeroUsize,
-        quorum: QuorumValidate,
-        attestors: Box<dyn AttestorValidate>,
+        validate_quorum: ValidateQuorum,
+        validate_attestor: Box<dyn ValidateAttestor>,
     ) -> Self {
         Self::Open(AttestationPoolInner {
-            heights: Default::default(),
-            capacity,
-            quorum,
-            attestors,
-            wakers: std::collections::VecDeque::with_capacity(capacity.into()),
-
-            batch: Vec::new(),
+            forks: AttestationPoolForks::new(capacity),
+            quorums: std::collections::VecDeque::new(),
             digest_local: None,
+
+            validate_quorum,
+            validate_attestor,
+
+            wakers: std::collections::VecDeque::new(),
         })
     }
 
@@ -431,39 +408,256 @@ impl AttestationPool {
 }
 
 impl AttestationPoolInner {
+    #[tracing::instrument(skip_all, fields(digest = %attestation.digest()))]
+    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), AttestationError> {
+        tracing::debug!("Validating sender");
+        self.validate_attestor.validate(&attestation)?;
+
+        tracing::debug!(
+            target_height = self.validate_quorum.target_height,
+            "Validating height"
+        );
+
+        if attestation.header_number() < self.validate_quorum.target_height {
+            return Err(AttestationError::InvalidHeight(
+                attestation.attestor.clone(),
+                attestation.epoch,
+                attestation.header_number(),
+                self.validate_quorum.target_height,
+            ));
+        }
+
+        tracing::debug!("Making sure there is enough space in the pool");
+
+        self.evict_if_necessary();
+
+        tracing::debug!("Adding attestation to pool");
+
+        self.forks.push(attestation)?;
+
+        if let Some(waker) = self.wakers.pop_back() {
+            tracing::debug!("A receiver was found waiting, waking it up...");
+            waker.wake();
+        }
+
+        Ok(())
+    }
+
+    fn peek(&self) -> Option<(Quorum, AttestationPermit)> {
+        match self.forks.peek() {
+            Some(fork) if self.validate_quorum.validate(&fork) => {
+                let quorum = Quorum(fork.votes.clone());
+                let key = (fork.attestation.header_number(), fork.attestation.digest());
+                let permit = AttestationPermit(key);
+                Some((quorum, permit))
+            }
+            _ => None,
+        }
+    }
+
+    fn mark_valid(&mut self, permit: AttestationPermit) {
+        let (height, digest) = permit.0;
+
+        self.forks.forks.remove(&height);
+        self.forks.equivocations.remove(&height);
+
+        self.validate_quorum.target_height = util::next_multiple_of(
+            self.validate_quorum.attestation_interval,
+            self.validate_quorum.target_height,
+        );
+        self.digest_local = Some(cc_client::H256::from(digest.0));
+    }
+
+    fn mark_invalid(&mut self, permit: AttestationPermit) {
+        if let std::collections::btree_map::Entry::Occupied(mut entry) =
+            self.forks.forks.entry(permit.0 .0)
+        {
+            let fork = entry.get_mut();
+
+            //  Remove the invalid quorum from the pool.
+            //
+            //  Contrary to mark_valid, we do not wait for execution chain finality to remove
+            //  invalid votes so as to avoid polling them again. This introduces a race condition
+            //  between the obtention of an AttestationPermit and marking an attestation as valid,
+            //  hence why we need to check the permit is still pointing to a valid fork.
+            if let Some(vote) = fork.attestations_by_digest.remove(&permit.0) {
+                if let std::collections::btree_map::Entry::Occupied(mut entry) = fork
+                    .attestations_by_count
+                    .entry(vote.signers.len().try_into().unwrap())
+                {
+                    let map = entry.get_mut();
+                    map.remove(&permit.0);
+
+                    if map.is_empty() {
+                        entry.remove();
+                    }
+                } else {
+                    panic!("Invariant violated: missing attestation_by_count mapping");
+                }
+            }
+
+            // Updates the leading fork at that height.
+            if let Some((_, votes)) = fork.attestations_by_count.first_key_value() {
+                let key = votes
+                    .iter()
+                    .next()
+                    .expect("Invariant violated: missing attestations_by_count mapping")
+                    .clone();
+                fork.best = fork
+                    .attestations_by_digest
+                    .get(&key)
+                    .expect("Invariant violated: missing attestations_by_digest mapping")
+                    .clone();
+            } else {
+                entry.remove();
+            }
+        }
+    }
+
+    fn mark_for_later(
+        &mut self,
+        permit: AttestationPermit,
+        signed: common::types::AttestationSigned,
+    ) {
+        self.quorums.push_front(signed);
+        self.mark_valid(permit);
+    }
+
     #[tracing::instrument(skip_all)]
     fn evict_if_necessary(&mut self) {
-        // TODO: we might want to replace this by just keeping a manual count of attestations as
-        // they are inserted an removed, but for now this seems like a less error-prone way to go
-        // about this.
-        let count = self
-            .heights
-            .values()
-            .map(|height_data| height_data.signer_count_by_attestation_hash.len())
-            .sum::<usize>();
+        // FIXME:
+    }
+}
 
-        //
-        //              Pool's closed!
-        //
-        // https://knowyourmeme.com/memes/pools-closed
-        if count >= self.capacity.into() {
-            tracing::warn!(
-                "Attestation pool is full, removing attestations at height {}",
-                self.heights
-                    .last_key_value()
-                    .expect("Pool capacity cannot be zero")
-                    .0
-            );
-            // Very simple eviction policy: if the attestation pool is full, we remove all attestations
-            // at the highest know attestation height. We do this to avoid having to deal with the
-            // complexities of updating the `HeightData::signers` set. Since we can assume this
-            // function will only run in states of high congestion, it is best to make sure the
-            // eviction logic introduces as little overhead as possible.
-            assert!(
-                self.heights.pop_last().is_some(),
-                "Pool capacity cannot be zero"
-            );
+struct AttestationPoolForks {
+    forks: std::collections::BTreeMap<common::types::Height, ForkData>,
+    equivocations: std::collections::BTreeMap<
+        common::types::Height,
+        std::collections::HashMap<attestor_primitives::AttestorId, Vec<common::types::Attestation>>,
+    >,
+    size: usize,
+    capacity: std::num::NonZeroUsize,
+}
+
+struct ForkData {
+    attestations_by_digest: std::collections::HashMap<AttestationKey, AttestationVote>,
+    attestations_by_count: std::collections::BTreeMap<
+        std::num::NonZeroUsize,
+        std::collections::HashSet<AttestationKey>,
+    >,
+    votes: std::collections::HashMap<attestor_primitives::AttestorId, AttestationKey>,
+    best: AttestationVote,
+}
+
+impl AttestationPoolForks {
+    fn new(capacity: std::num::NonZeroUsize) -> Self {
+        Self {
+            forks: std::collections::BTreeMap::new(),
+            equivocations: std::collections::BTreeMap::new(),
+            size: 0,
+            capacity,
         }
+    }
+
+    #[tracing::instrument(skip_all, fields(height = attestation.header_number()))]
+    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), AttestationError> {
+        let attestor_id = attestation.attestor_id();
+        let height = attestation.header_number();
+        let epoch = attestation.epoch;
+        let digest = attestation.digest();
+
+        let key = (height, digest);
+        let mut vote = AttestationVote::new(attestation);
+
+        match self.forks.entry(height) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(ForkData {
+                            attestations_by_digest: hash_map![key => vote.clone()],
+                            attestations_by_count: btree_map![std::num::NonZeroUsize::MIN => hash_set![key]],
+                            votes: hash_map![attestor_id => key],
+                            best: vote,
+                        });
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                let data = entry.get_mut();
+
+                // Check for equivocations
+                //
+                // All equivocating data, including past attestations, is removed from the pool if
+                // an equivocation is detected.
+                if let Some(key_prev) = data.votes.get(&attestor_id) {
+                    if key_prev != &key {
+                        let vote_prev = data.attestations_by_digest.remove(&key_prev).expect(
+                            "Invariant violated: previous vote points to non-existant attestation",
+                        );
+
+                        if data.attestations_by_digest.is_empty() {
+                            entry.remove();
+                        }
+
+                        let equivocations = self
+                            .equivocations
+                            .entry(height)
+                            .or_default()
+                            .entry(attestor_id.clone())
+                            .or_default();
+                        equivocations.push(vote.attestation);
+                        equivocations.push(vote_prev.attestation);
+
+                        return Err(AttestationError::Equivocation(attestor_id, epoch, height));
+                    }
+                }
+
+                if let Some(vote_prev) = data.attestations_by_digest.get(&key) {
+                    // Update the attestation count mapping
+                    //
+                    // We use `attestation_by_count` to retrieve the next best attestation in O(1)
+                    // time in case an invalid quorum is polled.
+                    if let std::collections::btree_map::Entry::Occupied(mut entry) = data
+                        .attestations_by_count
+                        .entry(vote_prev.signers.len().try_into().unwrap())
+                    {
+                        let map = entry.get_mut();
+                        map.remove(&key);
+
+                        if map.is_empty() {
+                            entry.remove();
+                        }
+                    } else {
+                        panic!("Invariant violated: missing attestation_by_count mapping");
+                    }
+
+                    // Updates the signer count.
+                    //
+                    // It is ok for an attestor to submit the same attestation multiple times, as this
+                    // might be the case during rebroadcasting. In the future, we might want to limit
+                    // this behavior.
+                    vote.signers.extend(vote_prev.signers.clone());
+
+                    // Updated the leading fork.
+                    //
+                    // This keeps reads to the leading attestation O(1).
+                    if vote.signers.len() > data.best.signers.len() {
+                        data.best = vote.clone();
+                    }
+                }
+
+                data.attestations_by_count
+                    .entry(vote.signers.len().try_into().unwrap())
+                    .or_default()
+                    .insert(key.clone());
+                data.attestations_by_digest.insert(key, vote);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn peek(&self) -> Option<AttestationVote> {
+        self.forks
+            .first_key_value()
+            .map(|(_, fork)| &fork.best)
+            .cloned()
     }
 }
 
@@ -474,69 +668,18 @@ impl AttestationPoolSender {
     /// [`closed`].
     ///
     /// [`closed`]: Self::close
+    #[tracing::instrument(skip_all)]
     pub fn send(&self, attestation: common::types::Attestation) -> Result<(), PoolError> {
         match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => {
-                let span = tracing::debug_span!("", digest = %attestation.digest());
-                let _enter = span.enter();
-
-                tracing::debug!("Validating sender");
-                if let Err(err) = inner.attestors.validate(&attestation) {
-                    return Err(PoolError::Attestation(err));
-                }
-
-                tracing::debug!(
-                    target_height = inner.quorum.target_height,
-                    "Validating height"
-                );
-
-                if attestation.header_number() < inner.quorum.target_height {
-                    return Err(PoolError::Attestation(AttestationError::InvalidHeight(
-                        attestation.attestor.clone(),
-                        attestation.epoch,
-                        attestation.header_number(),
-                        inner.quorum.target_height,
-                    )));
-                }
-
-                tracing::debug!("Making sure there is enough space in the pool");
-
-                inner.evict_if_necessary();
-
-                tracing::debug!("Adding attestation to pool");
-
-                let err = match inner.heights.entry(attestation.header_number()) {
-                    std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(HeightData::new(attestation));
-                        Ok(())
-                    }
-                    std::collections::btree_map::Entry::Occupied(mut entry) => {
-                        entry.get_mut().receive(attestation)
-                    }
-                };
-
-                if let Err(err) = err {
-                    return Err(PoolError::Attestation(err));
-                }
-
-                if let Some(waker) = inner.wakers.pop_back() {
-                    tracing::debug!("A receiver was found waiting, waking it up...");
-                    waker.wake();
-                }
-
-                Ok(())
+                tracing::debug!("Inserting attestation into the inner pool");
+                inner.push(attestation).map_err(PoolError::Attestation)
             }
             AttestationPool::Closed => {
                 tracing::error!("Tried to send attestation to pool after it has been closed!");
                 Err(PoolError::PoolClosed)
             }
         }
-    }
-
-    pub fn attestion_local_get(&self) -> common::types::Height {
-        self.common
-            .attestation_local
-            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Closes the attestation pool. Successive calls to [`send`] will error, while polling via the
@@ -559,99 +702,19 @@ impl AttestationPoolSender {
     ///
     /// Remove all attestations _up to and including_ that attestation height from the inner
     /// attestation pool and the attestation batch.
-    pub fn note_attestation_finalization(
-        &self,
-        latest_attestation_cc3: common::types::Height,
-    ) -> Result<(), PoolError> {
-        match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => {
-                // Updating quorum
-                inner.quorum.height_update(util::next_multiple_of(
-                    inner.quorum.attestation_interval,
-                    latest_attestation_cc3,
-                ));
+    pub fn note_attestation_finalization(&self, latest_attestation_cc3: common::types::Height) {
+        if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
+            // Updating quorum
+            inner.validate_quorum.height_update(util::next_multiple_of(
+                inner.validate_quorum.attestation_interval,
+                latest_attestation_cc3,
+            ));
 
-                // Updating the inner pool
-                inner
-                    .heights
-                    .retain(|height, _data| *height > latest_attestation_cc3);
-
-                // Updating the attestation batch
-                inner
-                    .batch
-                    .retain(|att| att.header_number() > latest_attestation_cc3);
-                self.common
-                    .batch_size
-                    .store(inner.batch.len(), std::sync::atomic::Ordering::Release);
-
-                Ok(())
-            }
-            AttestationPool::Closed => Err(PoolError::PoolClosed),
-        }
-    }
-
-    /// An invalid attestation was submitted to the runtime.
-    ///
-    /// Remove all attestations _after and including_ that attestation height from the inner
-    /// attestation pool and the attestation batch.
-    pub fn note_attestation_invalidation(
-        &self,
-        height: common::types::Height,
-    ) -> Result<Option<(attestor_primitives::Digest, common::types::Height)>, PoolError> {
-        match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => {
-                // Updating quorum
-                inner.quorum.target_height = height;
-
-                // Updating the inner pool
-                inner.heights.retain(|h, _data| *h < height);
-
-                // Updating the attestation batch
-                inner.batch.retain(|att| att.header_number() < height);
-                self.common
-                    .batch_size
-                    .store(inner.batch.len(), std::sync::atomic::Ordering::Release);
-
-                // Updates the local view of the attestation chain
-                let attestation_local = if let Some((height, data)) = inner.heights.last_key_value()
-                {
-                    let digest = data
-                        .attestations_by_signer_count
-                        .last_key_value()
-                        .expect("Invariant violated,  height data without any attestations")
-                        .1
-                        .iter()
-                        .next()
-                        .expect("Invariant violated,  height data without any attestations")
-                        .votes[0]
-                        .digest();
-
-                    self.common
-                        .attestation_local
-                        .store(*height, std::sync::atomic::Ordering::Release);
-                    inner.digest_local = Some(cc_client::H256(digest.0));
-
-                    Some((digest, *height))
-                } else {
-                    self.common.attestation_local.store(
-                        self.common.start_height,
-                        std::sync::atomic::Ordering::Release,
-                    );
-                    inner.digest_local = None;
-
-                    None
-                };
-
-                // Target height was changed, some attestations might have reached quorum: wake up
-                // any waiting receivers if there are any.
-                if let Some(waker) = inner.wakers.pop_back() {
-                    tracing::debug!("A receiver was found waiting, waking it up...");
-                    waker.wake();
-                }
-
-                Ok(attestation_local)
-            }
-            AttestationPool::Closed => Err(PoolError::PoolClosed),
+            // Updating the inner pool
+            inner
+                .forks
+                .forks
+                .retain(|height, _| *height > latest_attestation_cc3);
         }
     }
 
@@ -663,31 +726,20 @@ impl AttestationPoolSender {
         &self,
         interval_new: std::num::NonZero<common::types::Height>,
         attestation_latest_cc3: Option<common::types::Height>,
-    ) -> Result<(), PoolError> {
+    ) {
         let target_height_new = if let Some(attestation_latest_cc3) = attestation_latest_cc3 {
             util::next_multiple_of(interval_new, attestation_latest_cc3)
         } else {
             self.common.start_height
         };
 
-        match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => {
-                // Updating quorum
-                inner.quorum.attestation_interval = interval_new;
-                inner.quorum.target_height = target_height_new;
+        if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
+            // Updating quorum
+            inner.validate_quorum.attestation_interval = interval_new;
+            inner.validate_quorum.target_height = target_height_new;
 
-                // Updating the inner pool
-                inner.heights.clear();
-
-                // Updating the attestation batch
-                inner.batch.clear();
-                self.common
-                    .batch_size
-                    .store(0, std::sync::atomic::Ordering::Release);
-
-                Ok(())
-            }
-            AttestationPool::Closed => Err(PoolError::PoolClosed),
+            // Updating the inner pool
+            inner.forks.forks.clear();
         }
     }
 
@@ -699,7 +751,7 @@ impl AttestationPoolSender {
             AttestationPool::Open(inner) => {
                 tracing::warn!("🗂️ Updating the attestor set");
 
-                inner.attestors = Box::new(AttestorValidatePermissioned::new(
+                inner.validate_attestor = Box::new(AttestorValidatePermissioned::new(
                     std::collections::HashSet::from_iter(attestors.into_iter().map(|attestor| {
                         attestor_primitives::AttestorId::new(sp_core::crypto::AccountId32::new(
                             attestor.0,
@@ -752,233 +804,56 @@ impl AttestationPoolReceiver {
         *self.common.pool.lock() = AttestationPool::Closed;
     }
 
-    /// Marks an attestation as valid, causing it and all other attestations at the same height to
-    /// be removed from the attestation pool, as well as the pool's target height to be updated.
-    ///
-    /// This method also returns a vector of all attestations at that height which could not be
-    /// polled from the pool in time. These attestations should be considered invalid.
-    ///
-    /// Errors if the pool is closed.
+    // TODO: update docs
     #[tracing::instrument(skip_all, fields(%permit))]
-    pub fn mark_valid(
-        &self,
-        permit: AttestationPermit,
-    ) -> Result<Vec<common::types::Attestation>, PoolError> {
-        // WARNING: VERY IMPORTANT
-        //
-        // Acquire the lock to the inner attestation pool BEFORE checking for epoch correctness.
-        // Check the below comment for more information.
-        let mut lock = self.common.pool.lock();
-        let vote = &permit.att.votes[0];
-
-        match &mut *lock {
+    pub fn mark_valid(&self, permit: AttestationPermit) {
+        match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => {
-                let height = vote.header_number();
-                match inner.heights.remove(&height) {
-                    // WARNING: RACE CONDITION!
-                    //
-                    // It is possible for the production thread to flush the attestation pool AFTER
-                    // the validation thread has observed quorum on an attestation and received a
-                    // permit to remove it. This old attestation now points to an empty height, so
-                    // trying to remove it would violate several invariants! We return an error
-                    // instead and leave it to the caller to handle it as necessary.
-                    None => Err(PoolError::Attestation(AttestationError::MissingHeight(
-                        vote.attestor.clone(),
-                        vote.epoch,
-                        height,
-                    ))),
-                    Some(height_data) => {
-                        tracing::debug!("Removing valid attestation");
-                        let mut invalid =
-                            Vec::with_capacity(height_data.attestations_by_signer_count.len());
-
-                        for attestations in height_data.attestations_by_signer_count.into_values() {
-                            for attestation in attestations {
-                                if attestation != permit.att {
-                                    invalid.extend(attestation.votes);
-                                }
-                            }
-                        }
-
-                        inner.quorum.target_height = util::next_multiple_of(
-                            inner.quorum.attestation_interval,
-                            inner.quorum.target_height,
-                        );
-                        inner.digest_local = Some(cc_client::H256::from(vote.digest().0));
-
-                        self.common
-                            .attestation_local
-                            .store(height, std::sync::atomic::Ordering::Release);
-
-                        Ok(invalid)
-                    }
-                }
+                tracing::debug!("Removing valid attestation");
+                inner.mark_valid(permit);
             }
             AttestationPool::Closed => {
                 tracing::warn!(
                     "Tried to remove valid attestation from pool after it has been closed"
                 );
-                Err(PoolError::PoolClosed)
             }
         }
     }
 
-    /// Marks an attestation as valid, causing it and all other attestations at the same height to
-    /// be removed from the attestation pool, as well as the pool's target height to be updated.
-    ///
-    /// This method also returns a vector of all attestations at that height which could not be
-    /// polled from the pool in time. These attestations should be considered invalid.
-    ///
-    /// Contrarily to [`mark_valid`], this method is not used to submit attestations to the
-    /// runtime. Instead, attestations removed this way from the pool are still stored temporarily
-    /// in the inner pool until [`batch_take`] is called for them to be submitted as one.
-    /// Attestations which have been batched can also be invalidated as part of execution chain
-    /// events in the [production worker].
-    ///
-    /// Errors if the pool is closed.
-    ///
-    /// [`mark_valid`]: Self::mark_valid
-    /// [`batch_take`]: Self::batch_take
-    /// [production worker]: crate::worker::production
+    // TODO: update docs
     #[tracing::instrument(skip_all, fields(%permit))]
-    pub fn mark_batch(
-        &self,
-        permit: AttestationPermit,
-        signed: common::types::AttestationSigned,
-    ) -> Result<Vec<common::types::Attestation>, PoolError> {
-        // WARNING: VERY IMPORTANT
-        //
-        // Acquire the lock to the inner attestation pool BEFORE checking for epoch correctness.
-        // Check the below comment for more information.
-        let mut lock = self.common.pool.lock();
-        let vote = &permit.att.votes[0];
-
-        // WARNING: RACE CONDITION
-        //
-        // This should be a non-issue as long as the validation worker remains single-threaded with
-        // a single source of attestation batching, but this feels safer.
-        let batch_size = self.batch_size();
-        if batch_size >= self.common.max_attestations_per_block {
-            let height = vote.header_number();
-            return Err(PoolError::Attestation(AttestationError::MaxBatchSize(
-                vote.digest(),
-                vote.epoch,
-                height,
-                batch_size,
-            )));
-        }
-
-        match &mut *lock {
+    pub fn mark_invalid(&self, permit: AttestationPermit) {
+        match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => {
-                let height = vote.header_number();
-                match inner.heights.remove(&height) {
-                    // WARNING: RACE CONDITION!
-                    //
-                    // It is possible for the production thread to flush the attestation pool AFTER
-                    // the validation thread has observed quorum on an attestation and received a
-                    // permit to remove it. This old attestation now points to an empty height, so
-                    // trying to remove it would violate several invariants! We return an error
-                    // instead and leave it to the caller to handle it as necessary.
-                    None => Err(PoolError::Attestation(AttestationError::MissingHeight(
-                        vote.attestor.clone(),
-                        vote.epoch,
-                        height,
-                    ))),
-                    Some(height_data) => {
-                        tracing::debug!("Batching attestation");
-                        let mut invalid =
-                            Vec::with_capacity(height_data.attestations_by_signer_count.len());
-
-                        for attestations in height_data.attestations_by_signer_count.into_values() {
-                            for attestation in attestations {
-                                if attestation != permit.att {
-                                    invalid.extend(attestation.votes);
-                                }
-                            }
-                        }
-
-                        inner.quorum.target_height = util::next_multiple_of(
-                            inner.quorum.attestation_interval,
-                            inner.quorum.target_height,
-                        );
-                        inner.digest_local = Some(cc_client::H256::from(vote.digest().0));
-
-                        self.common
-                            .batch_size
-                            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-                        inner.batch.push(signed);
-
-                        Ok(invalid)
-                    }
-                }
-            }
-            AttestationPool::Closed => {
-                tracing::warn!(
-                    "Tried to remove valid attestation from pool after it has been closed"
-                );
-                Err(PoolError::PoolClosed)
-            }
-        }
-    }
-
-    /// Marks an attestation as **invalid**, causing it to be removed from the attestation pool. The
-    /// pool's target height _is not_ updated.
-    ///
-    /// Errors if the pool is closed.
-    #[tracing::instrument(skip_all, fields(%permit))]
-    pub fn mark_invalid(&self, permit: AttestationPermit) -> Result<(), PoolError> {
-        // WARNING: VERY IMPORTANT
-        //
-        // Acquire the lock to the inner attestation pool BEFORE checking for epoch correctness.
-        // Check the below comment for more information.
-        let mut lock = self.common.pool.lock();
-        let vote = &permit.att.votes[0];
-
-        match &mut *lock {
-            AttestationPool::Open(inner) => {
-                match inner.heights.entry(permit.att.votes[0].header_number()) {
-                    // WARNING: RACE CONDITION!
-                    //
-                    // It is possible for the production thread to flush the attestation pool AFTER
-                    // the validation thread has observed quorum on an attestation and received a
-                    // permit to remove it. This old attestation now points to an empty height, so
-                    // trying to remove it would violate several invariants! We return an error
-                    // instead and leave it to the caller to handle it as necessary.
-                    std::collections::btree_map::Entry::Vacant(_) => {
-                        let height = vote.header_number();
-                        Err(PoolError::Attestation(AttestationError::MissingHeight(
-                            vote.attestor.clone(),
-                            vote.epoch,
-                            height,
-                        )))
-                    }
-                    std::collections::btree_map::Entry::Occupied(mut entry) => {
-                        tracing::debug!("Removing invalid attestation");
-                        entry.get_mut().remove_invalid(permit);
-                        Ok(())
-                    }
-                }
+                tracing::debug!("Removing invalid attestation");
+                inner.mark_invalid(permit);
             }
             AttestationPool::Closed => {
                 tracing::warn!(
                     "Tried to remove invalid attestation from pool after it has been closed"
                 );
-                Err(PoolError::PoolClosed)
             }
         }
     }
 
-    /// Returns the current batch size. New attestation are added to the batch as part of
-    /// [`mark_batch`], and are removed when calling [`batch_take`] or by execution chain events in
-    /// the [production worker].
-    ///
-    /// [`mark_batch`]: Self::mark_batch
-    /// [`batch_take`]: Self::batch_take
-    /// [production worker]: crate::worker::production
-    pub fn batch_size(&self) -> u32 {
-        self.common
-            .batch_size
-            .load(std::sync::atomic::Ordering::Acquire) as u32
+    // TODO: update docs
+    #[tracing::instrument(skip_all, fields(%permit))]
+    pub fn mark_for_later(
+        &self,
+        permit: AttestationPermit,
+        signed: common::types::AttestationSigned,
+    ) {
+        match &mut *self.common.pool.lock() {
+            AttestationPool::Open(inner) => {
+                tracing::debug!("Marking attestation for later removal");
+                inner.mark_for_later(permit, signed);
+            }
+            AttestationPool::Closed => {
+                tracing::warn!(
+                    "Tried to remove valid attestation from pool after it has been closed"
+                );
+            }
+        }
     }
 
     /// Retrieves all valid attestations batched with [`mark_batch`] to submit them to the runtime
@@ -993,39 +868,29 @@ impl AttestationPoolReceiver {
     /// otherwise.
     ///
     /// [`mark_batch`]: Self::mark_batch
-    pub fn batch_take(&self) -> Result<Option<(BatchInfo, common::types::Batch)>, PoolError> {
+    pub fn take_next_validated(
+        &self,
+    ) -> Option<(
+        common::types::Height,
+        attestor_primitives::Digest,
+        cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
+            cc_client::H256,
+            cc_client::AccountId32,
+        >,
+    )> {
         match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => {
-                if !inner.batch.is_empty() {
-                    let attestation_first = inner.batch.first().expect("Checked above");
-                    let attestation_last = inner.batch.last().expect("Checked above");
-
-                    let info = BatchInfo {
-                        digest_first: attestation_first.prev_digest(),
-                        digest_last: attestation_last.digest(),
-                        height_first: attestation_first.header_number(),
-                        height_last: attestation_last.header_number(),
-                    };
-
-                    let batch = inner.batch.drain(..).map(Into::into).collect::<Vec<_>>();
-
-                    self.common
-                        .batch_size
-                        .store(0, std::sync::atomic::Ordering::Release);
-                    self.common
-                        .attestation_local
-                        .store(info.height_last, std::sync::atomic::Ordering::Release);
-
-                    Ok(Some((info, batch)))
-                } else {
-                    Ok(None)
-                }
+                tracing::debug!("Checking for next validated attestation");
+                inner
+                    .quorums
+                    .pop_back()
+                    .map(|att| (att.header_number(), att.digest(), att.into()))
             }
             AttestationPool::Closed => {
                 tracing::warn!(
                     "Tried to take attestation batch from pool after it has been closed"
                 );
-                Err(PoolError::PoolClosed)
+                None
             }
         }
     }
@@ -1041,34 +906,17 @@ impl futures::Stream for AttestationPoolReceiver {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => {
-                // NOTE: BATCHING
-                //
-                // We stop receivers from polling more attestations if the max number of attestations
-                // has already been batched, since quorums after that point can no longer be
-                // aggregated or sent to the runtime before the previous batch has been processed.
-                let batch_size = self.batch_size() as u64 * inner.quorum.attestation_interval.get();
-                if batch_size >= self.common.max_attestations_per_block as u64 {
+            AttestationPool::Open(inner) => match inner.peek() {
+                Some((quorum, permit)) => {
+                    tracing::debug!(height = quorum.header_number(), "Found a quorum");
+                    std::task::Poll::Ready(Some((quorum, permit, inner.digest_local)))
+                }
+                None => {
+                    tracing::debug!("No quorum found, waiting for new attestations...");
                     inner.wakers.push_front(cx.waker().clone());
                     std::task::Poll::Pending
-                } else {
-                    match inner
-                        .heights
-                        .first_entry()
-                        .and_then(|entry| entry.get().next_valid(&inner.quorum))
-                    {
-                        Some((quorum, permit)) => {
-                            tracing::debug!(digest = %quorum.digest(), "Found quorum!");
-                            std::task::Poll::Ready(Some((quorum, permit, inner.digest_local)))
-                        }
-                        None => {
-                            tracing::debug!("No quorum found, waiting for new attestations...");
-                            inner.wakers.push_front(cx.waker().clone());
-                            std::task::Poll::Pending
-                        }
-                    }
                 }
-            }
+            },
             AttestationPool::Closed => {
                 tracing::warn!("Tried to read attestation from pool after it has been closed!");
                 std::task::Poll::Ready(None)
@@ -1080,48 +928,21 @@ impl futures::Stream for AttestationPoolReceiver {
 // --------------------------------- [ Attestation Internals ] --------------------------------- //
 
 #[derive(Clone, Debug)]
-/// A wrapper around the [`Attestation`] type used to compare attestations between each other.
-///
-/// [`Attestation`]: common::types::Attestation
-struct AttestationByDigest {
+struct AttestationVote {
+    attestation: common::types::Attestation,
     votes: Vec<common::types::Attestation>,
     signers: std::collections::HashSet<attestor_primitives::AttestorId>,
 }
 
-impl AttestationByDigest {
+impl AttestationVote {
     fn new(attestation: common::types::Attestation) -> Self {
         Self {
+            votes: vec![attestation.clone()],
             signers: hash_set![attestation.attestor.clone()],
-            votes: vec![attestation],
+            attestation,
         }
     }
 }
-
-impl std::hash::Hash for AttestationByDigest {
-    // The hash of an attestations is a commitment to its height and digest. It is used to map
-    // together similar attestations from different signers.
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // WARNING: INVARIANT
-        //
-        // We assume in the invariants of the attestation pool that all attestation votes in a
-        // single `AttestationForHashing` match the same attestation. This is upheld in
-        // `HeightData::receive` during attestation insertion into the pool.
-        let vote = &self.votes[0];
-        vote.header_number().hash(state);
-        vote.digest().hash(state);
-    }
-}
-
-impl std::cmp::PartialEq for AttestationByDigest {
-    fn eq(&self, other: &Self) -> bool {
-        let vote_self = &self.votes[0];
-        let vote_other = &other.votes[0];
-        vote_self.header_number() == vote_other.header_number()
-            && vote_self.digest() == vote_other.digest()
-    }
-}
-
-impl std::cmp::Eq for AttestationByDigest {}
 
 /// An aggregate type of all the votes for a given [`Attestation`]
 ///
@@ -1147,25 +968,6 @@ impl Quorum {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-/// An aggregate of all attestations for a given height within the same epoch.
-///
-/// Attestations stored this way are indexed by signer and ordered by attestations with the _most_
-/// signers for efficient quorum retrieval.
-struct HeightData {
-    attestations_by_signer_count:
-        std::collections::BTreeMap<usize, std::collections::HashSet<AttestationByDigest>>,
-    signer_count_by_attestation_hash: std::collections::HashMap<
-        u64,
-        usize,
-        std::hash::BuildHasherDefault<hash::IdentityHasherU64>,
-    >,
-    signers: std::collections::HashSet<attestor_primitives::AttestorId>,
-    // FIXME: duplicate data, remove. Can be known when retrieving the height data from the inner
-    // pool.
-    height: common::types::Height,
-}
-
 /// A unique permit which can be used to remove attestation from the attestation pool via
 /// [`mark_valid`], [`mark_batch`] and [`mark_invalid`].
 ///
@@ -1174,228 +976,7 @@ struct HeightData {
 /// [`mark_invalid`]: AttestationPoolReceiver::mark_invalid
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct AttestationPermit {
-    att: AttestationByDigest,
-    hash: u64,
-}
-
-impl HeightData {
-    fn new(attestation: common::types::Attestation) -> Self {
-        let mut height_data = Self {
-            height: attestation.header_number(),
-            ..Default::default()
-        };
-        height_data
-            .receive(attestation)
-            .expect("Inserting first attestation");
-        height_data
-    }
-
-    #[tracing::instrument(skip_all)]
-    /// Inserts an attestation into the attestation pool, mutation its inner state at that height.
-    fn receive(&mut self, attestation: common::types::Attestation) -> Result<(), AttestationError> {
-        use std::hash::Hash as _;
-        use std::hash::Hasher as _;
-
-        let signer = attestation.attestor.clone();
-        let mut attestation = AttestationByDigest::new(attestation);
-
-        // We already store the attestation in `attestations_by_signer_count` so we only use its
-        // hash to retrieve the vote count. This avoids duplicating the attestation storage since
-        // `std::collections::HashMap` also stores a copy of all keys.
-        //
-        // Also, since we use `std::hash::DefaultHahser` to hash the attestation, we configure
-        // `signer_count_by_attestation_hash` so as to directly use each key as a hash, instead of
-        // hashing it again on insertion or retrieval. This avoids duplicated hashing since by
-        // default `HashMap` uses `DefaultHasher` anyways via `std::hash::RandomState`.
-        //
-        // >
-        // > See the `hash.rs` file in this module for implementation details.
-        // >
-        //
-        // As far as collisions related to user inputs are concerned, the following in an excerpt
-        // from the `HashMap` docs:
-        //
-        // >
-        // > By default, HashMap uses a hashing algorithm selected to provide resistance against
-        // > HashDoS attacks. The algorithm is randomly seeded, and a reasonable best-effort is made
-        // > to generate this seed from a high quality, secure source of randomness provided by the
-        // > host without blocking the program.
-        // >
-        //
-        // See https://en.wikipedia.org/wiki/Collision_attack#Hash_flooding.
-        let mut hasher = std::hash::DefaultHasher::new();
-        attestation.hash(&mut hasher);
-        let hash = hasher.finish();
-
-        match self.signer_count_by_attestation_hash.entry(hash) {
-            // CASE 1] This is the first time we receive this attestation
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                tracing::debug!(height = self.height, "No matching attestation");
-
-                entry.insert(1);
-
-                match self.attestations_by_signer_count.entry(1) {
-                    // No other attestation exists at this height with a vote count of 1
-                    std::collections::btree_map::Entry::Vacant(entry) => {
-                        tracing::debug!("No attestations with vote count 1");
-                        entry.insert(hash_set![attestation]);
-                    }
-                    // Another attestation exists with a vote count of 1
-                    std::collections::btree_map::Entry::Occupied(mut entry) => {
-                        tracing::debug!("Found attestations with vote count 1");
-                        assert!(
-                            entry.get_mut().insert(attestation),
-                            "Invariant violated: duplicate attestation in `attestations_by_signer_count`"
-                        );
-                    }
-                }
-            }
-            // CASE 2] Attestation already exists, adding to previous votes
-            std::collections::hash_map::Entry::Occupied(mut entry) => {
-                tracing::debug!(height = self.height, "Found matching attestations");
-
-                // Retrieve previous attestation
-                let signers = *entry.get();
-
-                let std::collections::btree_map::Entry::Occupied(mut attestations) =
-                    self.attestations_by_signer_count.entry(signers)
-                else {
-                    panic!("Invariant violated: attestation is missing in `attestations_by_signer_count`");
-                };
-
-                let mut attestation_prev = attestations.get_mut().take(&attestation).expect(
-                    "Invariant violated: attestation is missing in `attestations_by_signer_count`",
-                );
-
-                {
-                    // We no longer need an `AttestationForHashing` as we will be inserting into an
-                    // existing attestation.
-                    let attestation = attestation.votes.pop().unwrap();
-
-                    let span = tracing::debug_span!("", digest = %attestation.digest());
-                    let _enter = span.enter();
-
-                    tracing::debug!("Retrieved previous attestation");
-
-                    // Check votes for this attestation
-                    if self.signers.contains(&attestation.attestor) {
-                        if attestation_prev.signers.contains(&attestation.attestor) {
-                            // WARNING: remember to restore the original state before exiting
-                            attestations.get_mut().insert(attestation_prev);
-                            return Err(AttestationError::DoubleVote(
-                                signer.clone(),
-                                attestation.epoch,
-                                attestation.header_number(),
-                            ));
-                        } else {
-                            // WARNING: remember to restore the original state before exiting
-                            attestations.get_mut().insert(attestation_prev);
-                            return Err(AttestationError::Equivocation(
-                                signer.clone(),
-                                attestation.epoch,
-                                attestation.header_number(),
-                            ));
-                        }
-                    }
-
-                    // Once all votes have been checked, only then do we mutate
-                    // the previous attestation
-                    attestation_prev
-                        .signers
-                        .insert(attestation.attestor.clone());
-                    attestation_prev.votes.push(attestation);
-
-                    // Clean up attestations
-                    if attestations.get().is_empty() {
-                        attestations.remove();
-                    }
-
-                    tracing::debug!("Finished updating previous attestation");
-                }
-
-                // Update the signer count
-                assert!(
-                    self.attestations_by_signer_count
-                        .entry(signers + 1)
-                        .or_default()
-                        .insert(attestation_prev),
-                    "Invariant violated: duplicate attestation in `attestations_by_signer_count`"
-                );
-                entry.insert(signers + 1);
-            }
-        }
-
-        // If all went went well we update the list of signers at this height to detect
-        // future equivocations
-        self.signers.insert(signer);
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip_all, fields(%quorum))]
-    /// Retrieves the next attestations at this height which has reached quorum, with a bias
-    /// towards the attestations with the most votes.
-    fn next_valid(&self, quorum: &QuorumValidate) -> Option<(Quorum, AttestationPermit)> {
-        use std::hash::Hash as _;
-        use std::hash::Hasher as _;
-
-        self.attestations_by_signer_count
-            .last_key_value()
-            .and_then(|(_, attestations)| {
-                let attestation = attestations
-                    .iter()
-                    .next()
-                    .expect("Invariant violated")
-                    .clone();
-
-                tracing::debug!("Checking for quorum");
-
-                quorum.validate(&attestation).then(|| {
-                    let mut hasher = std::hash::DefaultHasher::new();
-                    attestation.hash(&mut hasher);
-                    let hash = hasher.finish();
-
-                    let att = AttestationByDigest::new(attestation.votes[0].clone());
-                    let quorum = Quorum(attestation.votes);
-                    let permit = AttestationPermit { att, hash };
-
-                    (quorum, permit)
-                })
-            })
-    }
-
-    /// Removes an invalid attestation at this height and updates the indexing accordingly. This
-    /// method is called by [`mark_invalid`].
-    ///
-    /// [`mark_invalid`]: AttestationPoolReceiver::mark_invalid
-    fn remove_invalid(&mut self, permit: AttestationPermit) {
-        let Some(signers) = self.signer_count_by_attestation_hash.remove(&permit.hash) else {
-            unreachable!(
-                "Invariant violated: attestation permit referencing unknown entry in `signer_count_by_attestation_hash`"
-            );
-        };
-
-        let attestations = self.attestations_by_signer_count.entry(signers);
-        let std::collections::btree_map::Entry::Occupied(mut attestations) = attestations else {
-            unreachable!(
-                "Invariant violated: attestation permit referencing unkonwn entry in `attestations_by_signer_count`"
-            );
-        };
-
-        assert!(
-            attestations.get_mut().remove(&permit.att),
-            "Invariant violated: attestation permit referencing unknown attestation"
-        );
-
-        if attestations.get().is_empty() {
-            attestations.remove();
-        }
-
-        // NOTE: we do not remove the attestation signers so as to still be able to catch future
-        // equivocations.
-    }
-}
+pub struct AttestationPermit(AttestationKey);
 
 // ------------------------------------ [ Quorum Validation ] ---------------------------------- //
 
@@ -1404,13 +985,13 @@ impl HeightData {
 /// An attestation is ready for polling when enough different attestors have voted for it and its
 /// height is next in line.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct QuorumValidate {
+struct ValidateQuorum {
     target_quorum: std::num::NonZeroUsize,
     target_height: common::types::Height,
     attestation_interval: std::num::NonZero<common::types::Height>,
 }
 
-impl QuorumValidate {
+impl ValidateQuorum {
     pub const fn new(
         target_quorum: std::num::NonZeroUsize,
         target_height: common::types::Height,
@@ -1430,16 +1011,14 @@ impl QuorumValidate {
     }
 
     #[tracing::instrument(skip_all, fields(target_height = %self.target_height, target_quorum = %self.target_quorum))]
-    fn validate(&self, attestation: &AttestationByDigest) -> bool {
-        let vote = &attestation.votes[0];
-
+    fn validate(&self, attestation: &AttestationVote) -> bool {
         tracing::debug!(
-            height = vote.header_number(),
+            height = attestation.attestation.header_number(),
             quorum = attestation.signers.len(),
             "Validating attestation"
         );
 
-        vote.header_number() == self.target_height
+        attestation.attestation.header_number() == self.target_height
             && attestation.signers.len() >= self.target_quorum.into()
     }
 }
@@ -1447,7 +1026,7 @@ impl QuorumValidate {
 // ----------------------------------- [ Attestor Validation ] --------------------------------- //
 
 /// Common trait used to determine if an attestor can submit attestations.
-pub trait AttestorValidate: Send + Sync + std::fmt::Debug + std::fmt::Display + 'static {
+pub trait ValidateAttestor: Send + Sync + std::fmt::Debug + std::fmt::Display + 'static {
     fn validate(&self, attestation: &common::types::Attestation) -> Result<(), AttestationError>;
 }
 
@@ -1476,7 +1055,7 @@ impl std::fmt::Display for AttestorValidatePermissioned {
     }
 }
 
-impl AttestorValidate for AttestorValidatePermissioned {
+impl ValidateAttestor for AttestorValidatePermissioned {
     fn validate(&self, attestation: &common::types::Attestation) -> Result<(), AttestationError> {
         if !self.attestor_set.contains(&attestation.attestor) {
             return Err(AttestationError::Unauthorized(
@@ -1493,7 +1072,7 @@ impl AttestorValidate for AttestorValidatePermissioned {
 #[derive(Clone, Debug, Default)]
 pub struct AttestorValidatePermissionless;
 
-impl AttestorValidate for AttestorValidatePermissionless {
+impl ValidateAttestor for AttestorValidatePermissionless {
     fn validate(&self, _attestation: &common::types::Attestation) -> Result<(), AttestationError> {
         Ok(())
     }
@@ -1512,7 +1091,7 @@ impl std::fmt::Display for AttestorValidatePermissionless {
 #[derive(Clone, Debug, Default)]
 pub struct AttestorValidateDeny;
 
-impl AttestorValidate for AttestorValidateDeny {
+impl ValidateAttestor for AttestorValidateDeny {
     fn validate(&self, attestation: &common::types::Attestation) -> Result<(), AttestationError> {
         Err(AttestationError::Unauthorized(
             attestation.attestor.clone(),
@@ -1530,7 +1109,7 @@ impl std::fmt::Display for AttestorValidateDeny {
 
 // ----------------------------------------- [ Display ] --------------------------------------- //
 
-impl std::fmt::Display for QuorumValidate {
+impl std::fmt::Display for ValidateQuorum {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{ vote_count: {} }}", self.target_quorum)
     }
@@ -1538,14 +1117,7 @@ impl std::fmt::Display for QuorumValidate {
 
 impl std::fmt::Display for AttestationPermit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let vote = &self.att.votes[0];
-        write!(
-            f,
-            "{{ hash: {}, epoch: {}, height: {} }}",
-            self.hash,
-            vote.epoch,
-            vote.header_number()
-        )
+        write!(f, "{{ height: {}, digest: {} }}", self.0 .0, self.0 .1)
     }
 }
 
@@ -1642,8 +1214,8 @@ pub mod fixtures {
     }
 
     #[rstest::fixture]
-    pub fn quorum_validate(#[default(2)] vote_count: usize) -> QuorumValidate {
-        QuorumValidate {
+    pub fn quorum_validate(#[default(2)] vote_count: usize) -> ValidateQuorum {
+        ValidateQuorum {
             target_quorum: vote_count.try_into().unwrap(),
             target_height: 0,
             attestation_interval: std::num::NonZero::<common::types::Height>::MIN,
@@ -1672,7 +1244,7 @@ pub mod fixtures {
 
     #[rstest::fixture]
     pub fn config(
-        quorum_validate: QuorumValidate,
+        quorum_validate: ValidateQuorum,
         #[default(100)] capacity: usize,
         permissioned: AttestorValidatePermissioned,
     ) -> Config {
@@ -1936,7 +1508,7 @@ mod test {
 
         let (sx, mut rx) = attestation_pool(config);
 
-        assert_matches::assert_matches!(rx.batch_take(), Ok(None));
+        assert_matches::assert_matches!(rx.take_next_validated(), Ok(None));
 
         assert!(sx.send(attestation_0.votes[0].clone()).is_ok());
         assert!(sx.send(attestation_1.votes[0].clone()).is_ok());
@@ -1944,7 +1516,9 @@ mod test {
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
         assert_eq!(quorum_actual, quorum_expected);
-        assert!(rx.mark_batch(permit, attestation_signed.clone()).is_ok());
+        assert!(rx
+            .mark_for_later(permit, attestation_signed.clone())
+            .is_ok());
 
         let batch_info_expected = BatchInfo {
             digest_first: attestation_signed.prev_digest(),
@@ -1962,7 +1536,7 @@ mod test {
             >,
         > = vec![attestation_signed.clone().into()];
 
-        assert_matches::assert_matches!(rx.batch_take(), Ok(Some((batch_info, batch))) => {
+        assert_matches::assert_matches!(rx.take_next_validated(), Ok(Some((batch_info, batch))) => {
             assert_eq!(batch_info, batch_info_expected);
             batch.into_iter().zip(batch_expected).for_each(|(att, att_expected)| {
                 // Other types in this don't implement PartialEq and Eq...
@@ -1996,7 +1570,7 @@ mod test {
         permit: AttestationPermit,
         #[from(quorum_validate)]
         #[with(1)]
-        _quorum_validate: QuorumValidate,
+        _quorum_validate: ValidateQuorum,
         #[from(config)]
         #[with(_quorum_validate.clone(), 1)]
         config: Config,
@@ -2043,7 +1617,7 @@ mod test {
         #[with([ATTESTOR_VALID_0])] quorum: Quorum,
         #[from(quorum_validate)]
         #[with(1)]
-        _quorum_validate: QuorumValidate,
+        _quorum_validate: ValidateQuorum,
         #[with(_quorum_validate.clone())] config: Config,
     ) {
         use futures::stream::StreamExt as _;
@@ -2112,7 +1686,7 @@ mod test {
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
         attestation_1: AttestationByDigest,
-        quorum_validate: QuorumValidate,
+        quorum_validate: ValidateQuorum,
     ) {
         assert!(quorum_validate.validate(&attestation_0));
         assert!(!quorum_validate.validate(&attestation_1));

@@ -249,7 +249,7 @@ impl super::Worker for WorkerAttestationProduction {
                     Some(event) = self.rebroadcast.next(), if self.can_attest && can_broadcast => {
                         self.handle_event_rebroadcast(event).await?;
                     }
-                    Some(event) = self.eth.next(), if self.can_attest && !self.attestation_limit_reached() => {
+                    Some(event) = self.eth.next(), if self.can_attest => {
                         self.handle_event_eth(event).await?;
                     }
                 }
@@ -350,13 +350,6 @@ impl WorkerAttestationProduction {
 
         self.attestation_latest_eth = Some((digest, height));
         self.rebroadcast.note_attestation_production(height);
-
-        if self.attestation_limit_reached() {
-            tracing::info!(
-                limit = self.max_attestations_per_block,
-                "⏸️ Attestation limit reached, pausing the production of new attestations"
-            );
-        }
 
         Ok(())
     }
@@ -561,22 +554,23 @@ impl WorkerAttestationProduction {
 
     // --------------------------------------* Invalidation *--------------------------------------
 
+    // FIXME: remove this
     async fn handle_event_invalidation(&mut self) -> Result<(), Error> {
         if let Some(height) = *self.receiver_attestation_invalidation.borrow() {
-            tracing::debug!(height, "Invalidating attestation");
-
-            if let Ok(attestation_latest_eth) =
-                self.sender_validation.note_attestation_invalidation(height)
-            {
-                self.eth
-                    .note_attestation_invalidation(height)
-                    .await
-                    .map_err(Error::EthError)?;
-                self.rebroadcast.note_attestation_invalidation(height);
-
-                self.attestation_latest_eth = attestation_latest_eth;
-                self.attestations.retain(|h, _att| *h < height);
-            }
+            // tracing::debug!(height, "Invalidating attestation");
+            //
+            // if let Ok(attestation_latest_eth) =
+            //     self.sender_validation.note_attestation_invalidation(height)
+            // {
+            //     self.eth
+            //         .note_attestation_invalidation(height)
+            //         .await
+            //         .map_err(Error::EthError)?;
+            //     self.rebroadcast.note_attestation_invalidation(height);
+            //
+            //     self.attestation_latest_eth = attestation_latest_eth;
+            //     self.attestations.retain(|h, _att| *h < height);
+            // }
         }
 
         Ok(())
@@ -608,28 +602,5 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_shutdown(&mut self) -> common::types::Result<()> {
         Ok(())
-    }
-}
-
-// ----------------------------------------- [ HELPERS ] --------------------------------------- //
-
-impl WorkerAttestationProduction {
-    pub fn attestation_limit_reached(&self) -> bool {
-        let attestation_latest_local = self.sender_validation.attestion_local_get();
-        // NOTE: EDGE CASE
-        //
-        // We only update the local attestation height when we are getting ready to submit a new
-        // attestation batch. This happens either when calling `mark_valid`, as we are getting ready
-        // to submit a single attestation, or when calling `take_batch`, as we are getting ready to
-        // submit multiple attestations in a batch.
-        //
-        // Importantly, this not account for edge cases around epoch rotation, so we default to
-        // allowing the production of new attestations if `attestation_latest_eth` is None.
-        self.attestation_latest_eth
-            .as_ref()
-            .is_some_and(|(_digest, height)| {
-                height.saturating_sub(attestation_latest_local)
-                    >= self.max_attestations_per_block as u64
-            })
     }
 }
