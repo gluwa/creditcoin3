@@ -3099,6 +3099,7 @@ export default {
             'AttestorAlreadyAuthorized',
             'AttestorNotAuthorized',
             'NoFinalizedAttestation',
+            'AttestationsAlreadyExist',
             'EmptyContinuityProof',
             'InvalidAttestationContinuityProof',
             'InvalidAttestationContinuityProofTail',

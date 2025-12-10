@@ -3614,6 +3614,7 @@ declare module '@polkadot/types/lookup' {
         readonly isAttestorAlreadyAuthorized: boolean;
         readonly isAttestorNotAuthorized: boolean;
         readonly isNoFinalizedAttestation: boolean;
+        readonly isAttestationsAlreadyExist: boolean;
         readonly isEmptyContinuityProof: boolean;
         readonly isInvalidAttestationContinuityProof: boolean;
         readonly isInvalidAttestationContinuityProofTail: boolean;
@@ -3658,6 +3659,7 @@ declare module '@polkadot/types/lookup' {
             | 'AttestorAlreadyAuthorized'
             | 'AttestorNotAuthorized'
             | 'NoFinalizedAttestation'
+            | 'AttestationsAlreadyExist'
             | 'EmptyContinuityProof'
             | 'InvalidAttestationContinuityProof'
             | 'InvalidAttestationContinuityProofTail'
