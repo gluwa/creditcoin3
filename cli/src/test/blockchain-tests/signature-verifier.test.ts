@@ -2,11 +2,11 @@ import { WebSocketProvider, ethers } from 'ethers';
 import { Keyring } from '@polkadot/keyring';
 import { mnemonicGenerate, cryptoWaitReady } from '@polkadot/util-crypto';
 import { u8aToHex } from '@polkadot/util';
-import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
-import { fundFromSudo } from '../../integration-tests/helpers';
+import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../lib';
+import { fundFromSudo } from '../integration-tests/helpers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../artifacts/signature_verifier.json');
+import contractABIJSON = require('./artifacts/signature_verifier.json');
 
 const contractABI = contractABIJSON.contracts['sol/signature_verifier.sol:SignatureVerifier'].abi;
 
