@@ -1,0 +1,59 @@
+{
+  "contracts": {
+    "sol/signature_verifier.sol:SignatureVerifier": {
+      "abi": [
+        {
+          "inputs": [
+            {
+              "internalType": "bytes",
+              "name": "message",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "signature",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "publicKey",
+              "type": "bytes32"
+            }
+          ],
+          "name": "verify",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        }
+      ],
+      "devdoc": {
+        "kind": "dev",
+        "methods": {
+          "verify(bytes,bytes,bytes32)": {
+            "details": "Verifies an sr25519 signature.",
+            "params": {
+              "message": "The message that was signed.",
+              "publicKey": "The 32-byte sr25519 public key.",
+              "signature": "The 64-byte sr25519 signature."
+            },
+            "returns": {
+              "_0": "bool true if the signature is valid, false otherwise."
+            }
+          }
+        },
+        "title": "SignatureVerifier interface",
+        "version": 1
+      },
+      "hashes": {
+        "verify(bytes,bytes,bytes32)": "c4d06258"
+      }
+    }
+  },
+  "version": "0.8.28+commit.7893614a.Linux.g++"
+}
