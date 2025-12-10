@@ -106,7 +106,7 @@ pub use error::*;
 #[derive(attestor_macro::Builder)]
 pub struct Config {
     boot_nodes: Vec<libp2p::Multiaddr>,
-    dns: Option<String>,
+    public_addr: Option<String>,
     port: u16,
     #[specify_later]
     keypair: libp2p::identity::Keypair,
@@ -174,8 +174,8 @@ impl WorkerP2P {
             tracing::warn!("👥 Starting attestor with no boot nodes!");
         }
 
-        if let Some(dns) = config.dns {
-            let external_address = format!("/dns/{}/tcp/{}", dns, config.port).parse()?;
+        if let Some(dns) = config.public_addr {
+            let external_address = format!("/dns4/{}/tcp/{}", dns, config.port).parse()?;
             tracing::info!(%external_address, "📰 Broadcasting external address");
             swarm.add_external_address(external_address);
         }

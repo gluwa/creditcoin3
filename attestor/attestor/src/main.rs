@@ -12,9 +12,9 @@ struct Config {
     logs: std::path::PathBuf,
     secret: bip39::Mnemonic,
     chain_key: attestor_primitives::ChainKey,
+    public_addr: Option<String>,
     boot_nodes: Vec<libp2p::Multiaddr>,
     p2p_port: u16, // Defaults to 9000 if not specified
-    p2p_dns: Option<String>,
     eth_url: url::Url,
     cc3_url: url::Url,
     pool_capacity: std::num::NonZeroUsize,
@@ -44,6 +44,7 @@ struct ConfigFileAttestor {
     name: Option<String>,
     chain_key: Option<attestor_primitives::ChainKey>,
     secret: Option<bip39::Mnemonic>,
+    public_addr: Option<String>,
     #[serde(default = "default_logs")]
     logs: std::path::PathBuf,
 }
@@ -55,7 +56,6 @@ fn default_logs() -> std::path::PathBuf {
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigFileP2P {
     boot_nodes: Option<Vec<libp2p::Multiaddr>>,
-    dns: Option<String>,
     port: Option<u16>,
 }
 
@@ -173,6 +173,18 @@ impl Config {
                     .value_parser(clap::value_parser!(bip39::Mnemonic)),
             )
             .arg(
+                clap::arg!(--"public-addr" <PORT>)
+                    .help("P2P listening address")
+                    .long_help(
+                        "P2P listening address for libp2p networking. \
+                        If not specified, a random OS-assigned ipv4 address will be used. \
+                        Specify a fixed dns address for Kubernetes LoadBalancer services.",
+                    )
+                    .env("ATTESTOR_PUBLIC_ADDRESS")
+                    .required(false)
+                    .value_parser(clap::value_parser!(String)),
+            )
+            .arg(
                 clap::arg!(-b --"boot-nodes" [MULTIADDR] ...)
                     .help("Existing nodes in the network")
                     .long_help(
@@ -183,18 +195,6 @@ impl Config {
                     .action(clap::ArgAction::Append)
                     .required(false)
                     .value_parser(clap::value_parser!(libp2p::Multiaddr)),
-            )
-            .arg(
-                clap::arg!(--"p2p-dns" <PORT>)
-                    .help("P2P listening address")
-                    .long_help(
-                        "P2P listening address for libp2p networking. \
-                        If not specified, a random OS-assigned ipv4 address will be used. \
-                        Specify a fixed dns address for Kubernetes LoadBalancer services.",
-                    )
-                    .env("ATTESTOR_P2P_DNS")
-                    .required(false)
-                    .value_parser(clap::value_parser!(String)),
             )
             .arg(
                 clap::arg!(--"p2p-port" <PORT>)
@@ -338,10 +338,10 @@ impl Config {
             .or(config_file.p2p.boot_nodes)
             .unwrap_or_default();
 
-        let p2p_dns = matches
-            .get_one::<String>("p2p-dns")
+        let public_addr = matches
+            .get_one::<String>("public-addr")
             .cloned()
-            .or(config_file.p2p.dns);
+            .or(config_file.attestor.public_addr);
 
         let p2p_port = matches
             .get_one::<u16>("p2p-port")
@@ -399,7 +399,7 @@ impl Config {
             chain_key,
             secret,
             boot_nodes,
-            p2p_dns,
+            public_addr,
             p2p_port,
             eth_url,
             cc3_url,
@@ -474,7 +474,7 @@ async fn main() -> anyhow::Result<()> {
         .with_p2p(
             attestor::worker::p2p::ConfigBuilder::new()
                 .with_boot_nodes(args.boot_nodes)
-                .with_dns(args.p2p_dns)
+                .with_public_addr(args.public_addr)
                 .with_port(args.p2p_port),
         )
         .with_pool(
