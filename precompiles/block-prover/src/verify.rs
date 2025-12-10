@@ -19,13 +19,14 @@ use merkle::TransactionMerkleProof;
 // Based on realistic Solidity implementation costs with precompile efficiency gains:
 // - Keccak256 in Solidity: ~30 + 6/word, in precompile: ~10x faster
 // - SLOAD: 2,100 (warm) / 2,600 (cold)
-pub const GAS_PER_TX_BYTE: u64 = 16; // Per byte cost for transaction data (matches calldata cost)
-pub const GAS_PER_SIBLING: u64 = 200; // Per Merkle sibling verification (native efficiency vs ~166 in Solidity)
-                                      // GAS_PER_CONTINUITY_BLOCK = 50 breakdown:
-                                      // - Hash computation (Keccak-256 on 72 bytes): ~48 gas
-                                      // - Small overhead for loop and control flow: ~2 gas
-                                      // Optimized: Only hash through blocks, compare final hash only (not per block)
-pub const GAS_PER_CONTINUITY_BLOCK: u64 = 50; // Per block verification (hash ~48 gas + small overhead)
+//
+// Gas Model:
+// - Transaction data: Calldata gas is pre-charged by EVM before reaching the precompile
+// - Hash operations: Keccak-256 hash cost = 30 base + 6 per word
+//   - Merkle sibling: hash_inner(left, right) = 65 bytes = 3 words = 48 gas
+//   - Continuity block: hash_payload(height, root, prev_digest) = 72 bytes = 3 words = 48 gas
+pub const CONTINUITY_BLOCK_HASH_COST: u64 = 48; // Keccak-256 hash cost: 30 base + 6 per word (3-word inputs = 48 gas)
+                                                // Used for both Merkle sibling verification and continuity block hashing
 pub const WEIGHT_MERKLE_VERIFY: u64 = 100_000; // Merkle verification work
 pub const WEIGHT_CONTINUITY_VERIFY: u64 = 50_000; // Continuity verification work
 
@@ -39,21 +40,14 @@ where
     Runtime::AccountId: From<[u8; 32]>,
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
 {
-    /// Charge gas for transaction data and merkle proof verification
+    /// Charge gas for merkle proof verification
+    /// Note: Transaction data (calldata) gas is pre-charged by EVM before reaching the precompile
     fn charge_query_gas(
         handle: &mut impl PrecompileHandle,
-        tx_bytes_len: usize,
+        _tx_bytes_len: usize, // Kept for API compatibility, but not used (calldata pre-charged)
         merkle_siblings_len: usize,
     ) -> EvmResult<()> {
-        let tx_gas =
-            GAS_PER_TX_BYTE
-                .checked_mul(tx_bytes_len as u64)
-                .ok_or(PrecompileFailure::Error {
-                    exit_status: ExitError::OutOfGas,
-                })?;
-        handle.record_cost(tx_gas)?;
-
-        let merkle_gas = GAS_PER_SIBLING
+        let merkle_gas = CONTINUITY_BLOCK_HASH_COST
             .checked_mul(merkle_siblings_len as u64)
             .ok_or(PrecompileFailure::Error {
                 exit_status: ExitError::OutOfGas,
@@ -65,7 +59,8 @@ where
 
     /// Verify merkle proof for transaction inclusion
     ///
-    /// Charges gas for transaction data and merkle proof verification.
+    /// Charges gas for merkle proof verification.
+    /// Note: Transaction data (calldata) gas is pre-charged by EVM.
     ///
     /// # Returns
     /// `true` if the merkle proof is valid, `false` otherwise
@@ -74,7 +69,7 @@ where
         merkle_proof: &TransactionMerkleProof,
         tx_bytes: &[u8],
     ) -> EvmResult<bool> {
-        // Charge gas for transaction data and merkle proof
+        // Charge gas for merkle proof (calldata gas is pre-charged by EVM)
         Self::charge_query_gas(handle, tx_bytes.len(), merkle_proof.siblings.len())?;
 
         Ok(merkle_proof.verify(tx_bytes))

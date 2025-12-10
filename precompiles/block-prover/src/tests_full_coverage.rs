@@ -10,7 +10,7 @@ use precompile_utils::testing::*;
 use sp_core::H256;
 use std::vec::Vec as StdVec;
 
-use crate::verify::{GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
+use crate::verify::CONTINUITY_BLOCK_HASH_COST;
 
 /// Helper to create a properly formatted Merkle proof that matches the precompile's expectations
 /// The precompile expects siblings in a specific format with placeholders at offset positions
@@ -699,31 +699,30 @@ fn test_transaction_at_size_limit() {
 #[test]
 fn test_gas_costs_scale_correctly() {
     ExtBuilder::default().build().execute_with(|| {
-        // Test 1: Small transaction with few siblings
-        let small_tx = [0u8; 100].to_vec();
+        // Test 1: Few siblings and blocks
         let small_siblings = [H256::random(), H256::random()].to_vec();
         let small_continuity = create_valid_continuity_chain(99, 3);
 
-        // Test 2: Large transaction with many siblings
-        let large_tx = vec![0u8; 10_000];
+        // Test 2: Many siblings and blocks
+        // Note: Transaction size doesn't affect precompile gas (calldata pre-charged by EVM)
         let large_siblings = vec![H256::random(); 20];
         let large_continuity = create_valid_continuity_chain(99, 11);
 
         // Calculate expected gas differences
-        let tx_size_diff = (large_tx.len() - small_tx.len()) as u64;
+        // Note: Transaction data (calldata) gas is pre-charged by EVM, not by precompile
+        // Only merkle siblings and continuity blocks affect precompile gas costs
         let siblings_diff = (large_siblings.len() - small_siblings.len()) as u64;
         let continuity_diff = (large_continuity.len() - small_continuity.len()) as u64;
 
-        let expected_gas_diff = tx_size_diff * GAS_PER_TX_BYTE
-            + siblings_diff * GAS_PER_SIBLING
-            + continuity_diff * GAS_PER_CONTINUITY_BLOCK;
+        let expected_gas_diff = siblings_diff * CONTINUITY_BLOCK_HASH_COST
+            + continuity_diff * CONTINUITY_BLOCK_HASH_COST;
 
         // Verify gas calculations scale as expected with updated constants
         assert!(expected_gas_diff > 0, "Should have gas difference");
         assert_eq!(
             expected_gas_diff,
-            tx_size_diff * 16 + siblings_diff * 200 + continuity_diff * 50,
-            "Gas should scale correctly with input sizes (16 gas per byte, 200 per sibling, 50 per block)"
+            siblings_diff * 48 + continuity_diff * 48,
+            "Gas should scale correctly with input sizes (48 per hash operation, calldata pre-charged by EVM)"
         );
     });
 }

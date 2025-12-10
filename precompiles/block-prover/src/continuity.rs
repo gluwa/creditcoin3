@@ -8,13 +8,12 @@ use log::debug;
 use pallet_evm::AddressMapping;
 use sp_core::H256;
 
-use crate::verify::GAS_PER_CONTINUITY_BLOCK;
+use crate::verify::CONTINUITY_BLOCK_HASH_COST;
 use crate::BlockProverPrecompile;
 
 // Gas cost constants
 /// Cost of each storage read (matches cold SLOAD) in gas.
 pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
-pub const GAS_KECCAK256_HASH: u64 = 48; // Keccak-256 hash cost: 30 base + 6 per word (72 bytes = 3 words)
 
 /// Error type for continuity verification (both query block digest and chain validation)
 #[derive(Debug, Clone, PartialEq)]
@@ -121,7 +120,7 @@ where
     /// - `Err(ContinuityVerificationError)`: Structured error with status code and message
     ///
     /// # Gas Costs
-    /// - `GAS_PER_CONTINUITY_BLOCK` per block in the chain (charged upfront)
+    /// - `CONTINUITY_BLOCK_HASH_COST` (48) per block in the chain (charged upfront)
     /// - `GAS_STORAGE_LOOKUP` (2600) for attestation lookup
     /// - Additional `GAS_STORAGE_LOOKUP` for checkpoint lookup (only if attestation doesn't match)
     ///
@@ -144,7 +143,7 @@ where
         }
 
         // Charge gas for continuity block verification upfront
-        let total_continuity_gas = GAS_PER_CONTINUITY_BLOCK
+        let total_continuity_gas = CONTINUITY_BLOCK_HASH_COST
             .checked_mul(continuity_proof.blocks.len() as u64)
             .ok_or(ContinuityVerificationError::ChainLinkBroken)?;
         handle
@@ -296,9 +295,11 @@ where
         let prev_digest = continuity_proof.blocks[query_block_idx - 1].digest;
 
         // Charge for hash computation BEFORE computing (security: prevent out-of-gas attacks)
-        handle.record_cost(GAS_KECCAK256_HASH).map_err(|_| {
-            ContinuityVerificationError::DigestMismatch // Use a generic error if gas recording fails
-        })?;
+        handle
+            .record_cost(CONTINUITY_BLOCK_HASH_COST)
+            .map_err(|_| {
+                ContinuityVerificationError::DigestMismatch // Use a generic error if gas recording fails
+            })?;
 
         // Compute expected digest for query block using previous block's digest
         let expected_digest = Block::hash_payload(&height, &query_block.merkle_root, &prev_digest);

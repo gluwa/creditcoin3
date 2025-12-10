@@ -15,7 +15,7 @@ use sp_core::{H256, U256};
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
 use crate::continuity::GAS_STORAGE_LOOKUP;
-use crate::verify::{GAS_PER_CONTINUITY_BLOCK, GAS_PER_SIBLING, GAS_PER_TX_BYTE};
+use crate::verify::CONTINUITY_BLOCK_HASH_COST;
 
 /// Simple test transaction item for merkle tree construction
 #[derive(Debug, Clone)]
@@ -810,20 +810,13 @@ fn test_gas_calculation_base() {
 #[test]
 fn test_gas_scales_with_tx_size() {
     ExtBuilder::default().build().execute_with(|| {
-        let small_gas = (GAS_PER_TX_BYTE * 100)
-            + GAS_PER_SIBLING
-            + GAS_PER_CONTINUITY_BLOCK
-            + (GAS_STORAGE_LOOKUP * 2);
-        let large_gas = (GAS_PER_TX_BYTE * 1000)
-            + GAS_PER_SIBLING
-            + GAS_PER_CONTINUITY_BLOCK
-            + (GAS_STORAGE_LOOKUP * 2);
+        // Note: Transaction data (calldata) gas is pre-charged by EVM before reaching the precompile
+        // Precompile gas costs are the same regardless of tx size (only merkle/continuity matter)
+        let gas_cost =
+            CONTINUITY_BLOCK_HASH_COST + CONTINUITY_BLOCK_HASH_COST + (GAS_STORAGE_LOOKUP * 2);
 
-        assert!(large_gas > small_gas);
-        assert_eq!(large_gas - small_gas, GAS_PER_TX_BYTE * 900);
-
-        // Verify new gas costs are reasonable
-        assert_eq!(GAS_PER_TX_BYTE, 16, "Per byte should match calldata cost");
+        // Gas cost should be independent of tx size (calldata handled by EVM)
+        assert!(gas_cost > 0, "Should have some gas cost");
         assert_eq!(
             GAS_STORAGE_LOOKUP, 2_600,
             "Storage lookup should match SLOAD"
