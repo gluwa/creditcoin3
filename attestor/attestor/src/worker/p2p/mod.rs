@@ -575,10 +575,13 @@ impl WorkerP2P {
                     libp2p::swarm::DialError::Transport(items) => {
                         for (address, error) in items.iter() {
                             tracing::error!(%address, %error, "⛔  Failed transport negotiation");
-                        }
 
-                        if let Some(peer_id) = peer_id {
-                            self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
+                            if let Some(peer_id) = peer_id {
+                                self.swarm
+                                    .behaviour_mut()
+                                    .kad
+                                    .remove_address(&peer_id, address);
+                            }
                         }
                     }
                 }
