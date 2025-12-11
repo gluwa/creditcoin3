@@ -23,7 +23,6 @@ RUN apt-get install -y --no-install-recommends \
     software-properties-common \
     gcc libpq-dev make jq
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
-RUN .github/install-solidity-compiler.sh
 
 USER creditcoin
 
@@ -45,7 +44,6 @@ RUN source ~/.cargo/env && \
 
 FROM devel-base AS cli-builder
 WORKDIR /creditcoin-node/precompiles/metadata
-RUN solc --version && ./abi-creator.sh
 
 WORKDIR /creditcoin-node/docs/smart-contract-development/with-hardhat
 RUN npm install && npx hardhat compile
