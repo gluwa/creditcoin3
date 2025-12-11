@@ -106,14 +106,20 @@ impl ContinuityService {
         &self,
         chain_key: u64,
         header_number: u64,
-    ) -> Result<Option<ContinuityProofItem>> {
+    ) -> ServiceResult<Option<ContinuityProofItem>> {
         let maybe_continuity = self
             .db
             .get_continuity_proof_for_block(chain_key, header_number)
-            .await?;
+            .await.map_err(|e| {
+                tracing::error!(chain_key, header_number, error=%e, "Failed to fetch continuity proof by header_number and tx_index");
+                ServiceError::DbError { message: e.to_string() }
+            })?;
         let continuity_converted = maybe_continuity
             .map(ContinuityProofItem::try_from)
-            .transpose()?;
+            .transpose().map_err(|e| {
+                tracing::error!(chain_key, header_number, error=%e, "Failed to convert fetched continuity proof");
+                ServiceError::DbError { message: e.to_string() }
+            })?;
 
         Ok(continuity_converted)
     }
@@ -254,8 +260,12 @@ impl ContinuityService {
                 return Ok(true);
             };
             // Continuity proof ordered so that blocks[i] is at (queryHeight - 1) + i for single query
+            // EX: query_height = 4, continuity proof with blocks 3-10
+            // continuity.header_number + continuity.continuity_proof.blocks.len() - 2
+            // = 4 + 8 - 2
+            // = 10
             let continuity_max_height =
-                continuity.header_number + continuity.continuity_proof.blocks.len() as u64;
+                continuity.header_number + continuity.continuity_proof.blocks.len() as u64 - 2;
 
             // If the highest block of the continuity proof is higher than the last checkpoint,
             // then the attestation it refers to must still be present on-chain. So the continuity

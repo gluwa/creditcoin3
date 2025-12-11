@@ -103,20 +103,10 @@ impl ContinuityService {
 
         // Attempt to look up continuity proof first
         let maybe_continuity = self
-            .db
-            .get_continuity_proof_for_block(chain_key, header_number)
-            .await
-            .map_err(|e| ServiceError::DbError {
-                message: e.to_string(),
-            })?;
-        let converted_continuity = maybe_continuity
-            .map(ContinuityProofItem::try_from)
-            .transpose()
-            .map_err(|e| ServiceError::DbError {
-                message: e.to_string(),
-            })?;
+            .fetch_continuity_by_height(chain_key, header_number)
+            .await?;
 
-        if let Some(continuity) = converted_continuity {
+        if let Some(continuity) = maybe_continuity {
             // Check that the continuity proof is verifyable (not based on pruned attestations)
             let verifyable = self.check_continuity_is_current(&continuity).await?;
             if verifyable {
@@ -160,27 +150,26 @@ impl ContinuityService {
         header_number: u64,
         tx_index: u64,
     ) -> ServiceResult<ContinuityResponse> {
-        // Attempt to fetch both proofs from their respective tables
-        let continuity = match self
+        // Attempt to fetch continuity proof first
+        let maybe_continuity = self
             .fetch_continuity_by_height(chain_key, header_number)
-            .await
-        {
-            Ok(proofs) => proofs,
-            Err(e) => {
-                tracing::error!(chain_key, header_number, tx_index, error=%e, "Failed to fetch db proofs by header_number and tx_index");
-                return Err(ServiceError::DbError {
-                    message: e.to_string(),
-                });
-            }
-        };
+            .await?;
 
-        match continuity {
+        match maybe_continuity {
             // Case: Continuity present in DB
             Some(continuity) => {
-                let merkle = self
-                    .generate_merkle_proof(chain_key, header_number, tx_index)
-                    .await?;
-                build_response_from_proofs(merkle, continuity)
+                // Check that the continuity proof is verifyable (not based on pruned attestations)
+                let verifyable = self.check_continuity_is_current(&continuity).await?;
+                if verifyable {
+                    let merkle = self
+                        .generate_merkle_proof(chain_key, header_number, tx_index)
+                        .await?;
+                    build_response_from_proofs(merkle, continuity)
+                } else {
+                    // Continuity present but not verifyable. Must build both proofs
+                    self.generate_and_cache_response(chain_key, header_number, tx_index)
+                        .await
+                }
             }
             None => {
                 // Builds both continuity and merkle proofs, then caches continuity proof before returning response

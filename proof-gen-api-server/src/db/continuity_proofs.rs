@@ -85,6 +85,7 @@ impl DbManager {
                 .do_update()
                 .set((
                     cp::continuity_proof.eq(excluded(cp::continuity_proof)),
+                    cp::ends_in_attestation.eq(excluded(cp::ends_in_attestation)),
                     cp::updated_at.eq(now),
                 ))
                 .execute(&mut conn)
