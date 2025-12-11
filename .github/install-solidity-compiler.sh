@@ -4,6 +4,6 @@
 
 set -euo pipefail
 
-curl -L https://github.com/ethereum/solidity/releases/download/v0.8.29/solc-static-linux > /usr/bin/solc
+curl -L https://github.com/argotorg/solidity/releases/download/v0.8.31/solc-static-linux > /usr/bin/solc
 
 chmod a+x /usr/bin/solc
