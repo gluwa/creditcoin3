@@ -550,14 +550,10 @@ impl WorkerP2P {
                     libp2p::swarm::DialError::DialPeerConditionFalse(peer_condition) => {
                         tracing::error!(?peer_condition, "⛔  Invalid peer state");
                     }
-
                     libp2p::swarm::DialError::NoAddresses => {
                         tracing::error!("⛔  Tried to dial empty address");
-
-                        if let Some(peer_id) = peer_id {
-                            self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
-                        }
                     }
+
                     libp2p::swarm::DialError::WrongPeerId { obtained, address } => {
                         tracing::error!(%obtained, expected =  %address, "⛔  Peer ID missmatch");
 
