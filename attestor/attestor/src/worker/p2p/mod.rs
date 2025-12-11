@@ -553,6 +553,11 @@ impl WorkerP2P {
                     libp2p::swarm::DialError::NoAddresses => {
                         tracing::error!("⛔  Tried to dial empty address");
                     }
+                    libp2p::swarm::DialError::Transport(items) => {
+                        for (address, error) in items.iter() {
+                            tracing::error!(%address, %error, "⛔  Failed transport negotiation");
+                        }
+                    }
 
                     libp2p::swarm::DialError::WrongPeerId { obtained, address } => {
                         tracing::error!(%obtained, expected =  %address, "⛔  Peer ID missmatch");
@@ -566,18 +571,6 @@ impl WorkerP2P {
 
                         if let Some(peer_id) = peer_id {
                             self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
-                        }
-                    }
-                    libp2p::swarm::DialError::Transport(items) => {
-                        for (address, error) in items.iter() {
-                            tracing::error!(%address, %error, "⛔  Failed transport negotiation");
-
-                            if let Some(peer_id) = peer_id {
-                                self.swarm
-                                    .behaviour_mut()
-                                    .kad
-                                    .remove_address(&peer_id, address);
-                            }
                         }
                     }
                 }
