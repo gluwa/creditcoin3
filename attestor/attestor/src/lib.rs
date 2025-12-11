@@ -141,14 +141,19 @@ impl Attestor {
             })),
         );
 
-        let start_height = match self.config.attestation.start_height {
-            Some(start_height) => start_height,
+        let (start_height, empty_chain) = match self.config.attestation.start_height {
+            Some(start_height) => (start_height, attestation_start_cc3.is_none()),
             None => match attestation_start_cc3 {
-                Some((_digest, height)) => util::next_multiple_of(attestation_interval, height),
-                None => cc3_client
-                    .get_attestation_chain_genesis_block_number(self.config.chain_key)
-                    .await
-                    .unwrap_or_default(),
+                Some((_digest, height)) => {
+                    (util::next_multiple_of(attestation_interval, height), false)
+                }
+                None => (
+                    cc3_client
+                        .get_attestation_chain_genesis_block_number(self.config.chain_key)
+                        .await
+                        .unwrap_or_default(),
+                    true,
+                ),
             },
         };
 
@@ -171,6 +176,7 @@ impl Attestor {
             .with_chain_key(self.config.chain_key)
             .with_cc3_client(cc3_client.clone())
             .with_start_height(start_height)
+            .with_empty_chain(empty_chain)
             .build();
         let cc3_production = chain_listener::cc3::CC3::new(config)
             .await
@@ -183,6 +189,7 @@ impl Attestor {
             .with_chain_key(self.config.chain_key)
             .with_cc3_client(cc3_client)
             .with_start_height(start_height)
+            .with_empty_chain(empty_chain)
             .build();
         let cc3_validation = chain_listener::cc3::CC3::new(config)
             .await

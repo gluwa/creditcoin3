@@ -21,20 +21,22 @@ pub struct Config {
     /// Private key of the attestor being used to submit attestations on-chain. Keep in mind that
     /// attestors have to be **registered** before they can start to produce attestations.
     pub cc3_key: bip39::Mnemonic,
-    #[specify_later]
     /// Execution chain client responsible for establishing a connection with cc3.
+    #[specify_later]
     pub cc3_client: cc_client::Client,
     /// Source chain client responsible for establishing a connection with ethereum.
     pub eth_url: url::Url,
-    #[specify_later]
     /// Unique key which identifies the chain being attested to. In the case of ethereum it is `2`.
-    pub chain_key: attestor_primitives::ChainKey,
     #[specify_later]
+    pub chain_key: attestor_primitives::ChainKey,
     /// Starting height at which attestation are produced and source chain block fetching begins.
     /// This value is fetched from on-chain storage unless it is overridden in [attestation config].
     ///
     /// [attestation config]: crate::attestation
+    #[specify_later]
     pub start_height: common::types::Height,
+    #[specify_later]
+    pub empty_chain: bool,
 }
 
 // ------------------------------------- [ Chain Listener ] ------------------------------------ //
@@ -55,6 +57,7 @@ pub(crate) struct CC3 {
     bls_key: bls_signatures::PrivateKey,
     chain_key: attestor_primitives::ChainKey,
     start_height: common::types::Height,
+    empty_chain: bool,
 }
 
 impl CC3 {
@@ -130,6 +133,7 @@ impl CC3 {
             bls_key,
             chain_key: config.chain_key,
             start_height: config.start_height,
+            empty_chain: config.empty_chain,
         })
     }
 
@@ -230,7 +234,7 @@ impl CC3 {
 
         // ------------------------------------* Range checks *------------------------------------
 
-        if height == self.start_height {
+        if height == self.start_height && self.empty_chain {
             tracing::debug!("Creating default continuity proof for header number 0");
             return Some(Ok(Default::default()));
         }
