@@ -178,7 +178,7 @@ impl Config {
                     .long_help(
                         "P2P listening address for libp2p networking. \
                         If not specified, a random OS-assigned ipv4 address will be used. \
-                        Specify a fixed dns address for Kubernetes LoadBalancer services.",
+                        Use this to set a fixed dns address for Kubernetes LoadBalancer services.",
                     )
                     .env("ATTESTOR_PUBLIC_ADDRESS")
                     .required(false)

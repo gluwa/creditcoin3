@@ -15,6 +15,12 @@ attestor:
   #
   # secret: "test test test test test test test test test test test junk"
 
+  # Optional: P2P listening address for libp2p networking
+  #   If not specified, a random OS-assigned ipv4 address will be used. Use this
+  #   to set a fixed dns address for Kubernetes LoadBalancer services.
+  #
+  # public_addr: attestor.dev
+
   # Optional: Path to the logs folder
   #   If not specified, defaults to ./logs.
   #
@@ -26,7 +32,7 @@ p2p:
   #
   # boot_nodes: []
 
-  # Optional: Fixed P2P port for libp2p networking.
+  # Optional: Fixed P2P port for libp2p networking
   #   If not specified, defaults to 9000.
   #
   # port: 9000
