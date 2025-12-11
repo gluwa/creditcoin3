@@ -149,10 +149,8 @@ pub struct Config {
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
     sender_validation: crate::worker::validation::pool::AttestationPoolSender,
     sender_attestation_latest: tokio::sync::watch::Sender<Option<common::types::Height>>,
-    receiver_attestation_invalidation: tokio::sync::watch::Receiver<Option<common::types::Height>>,
 
     attestation_start_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
-    max_attestations_per_block: u32,
     epoch: common::types::Epoch,
 
     account_id: cc_client::AccountId32,
@@ -172,12 +170,10 @@ pub(crate) struct WorkerAttestationProduction {
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
     sender_validation: crate::worker::validation::pool::AttestationPoolSender,
     sender_attestation_latest: tokio::sync::watch::Sender<Option<common::types::Height>>,
-    receiver_attestation_invalidation: tokio::sync::watch::Receiver<Option<common::types::Height>>,
 
     // CHAIN DATA
     attestation_latest_eth: Option<(attestor_primitives::Digest, common::types::Height)>,
     attestation_latest_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
-    max_attestations_per_block: u32,
     epoch: common::types::Epoch,
 
     // ATTESTOR DATA
@@ -203,11 +199,9 @@ impl WorkerAttestationProduction {
             sender_p2p: config.sender_p2p,
             sender_validation: config.sender_validation,
             sender_attestation_latest: config.sender_attestation_latest,
-            receiver_attestation_invalidation: config.receiver_attestation_invalidation,
 
             attestation_latest_eth: None,
             attestation_latest_cc3: config.attestation_start_cc3,
-            max_attestations_per_block: config.max_attestations_per_block,
             epoch: config.epoch,
 
             account_id: config.account_id,
@@ -239,9 +233,6 @@ impl super::Worker for WorkerAttestationProduction {
 
                     _ = &mut shutdown => {
                         break self.handle_event_shutdown().await;
-                    }
-                    Ok(()) = self.receiver_attestation_invalidation.changed() => {
-                        self.handle_event_invalidation().await?;
                     }
                     Some(event) = self.cc3.next() => {
                         self.handle_event_cc3(event).await?;
@@ -404,7 +395,7 @@ impl WorkerAttestationProduction {
                         // here and also update the target block height (if necessary, it is also
                         // possible that we are in advance of the execution chain in which case we do
                         // not want to update the target height and this a no-op).
-                        let _ = self.sender_validation.note_attestation_finalization(height);
+                        self.sender_validation.note_attestation_finalization(height);
 
                         // 4. Notify the validation worker
                         //
@@ -457,8 +448,7 @@ impl WorkerAttestationProduction {
                         //
                         // Update quorum validation to expect the new target height and attestation
                         // interval.
-                        let _ = self
-                            .sender_validation
+                        self.sender_validation
                             .note_attestation_interval_change(interval, attestation_latest_cc3);
 
                         // 3. Production
@@ -547,30 +537,6 @@ impl WorkerAttestationProduction {
                     }
                 }
             }
-        }
-
-        Ok(())
-    }
-
-    // --------------------------------------* Invalidation *--------------------------------------
-
-    // FIXME: remove this
-    async fn handle_event_invalidation(&mut self) -> Result<(), Error> {
-        if let Some(height) = *self.receiver_attestation_invalidation.borrow() {
-            // tracing::debug!(height, "Invalidating attestation");
-            //
-            // if let Ok(attestation_latest_eth) =
-            //     self.sender_validation.note_attestation_invalidation(height)
-            // {
-            //     self.eth
-            //         .note_attestation_invalidation(height)
-            //         .await
-            //         .map_err(Error::EthError)?;
-            //     self.rebroadcast.note_attestation_invalidation(height);
-            //
-            //     self.attestation_latest_eth = attestation_latest_eth;
-            //     self.attestations.retain(|h, _att| *h < height);
-            // }
         }
 
         Ok(())

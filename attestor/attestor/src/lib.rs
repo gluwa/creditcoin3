@@ -212,14 +212,6 @@ impl Attestor {
             .build();
         let rebroadcast = chain_listener::rebroadcast::Rebroadcast::new(config).await;
 
-        // ----------------------------------* Chain constants *--------------------------------- //
-
-        let api = cc3_production.api();
-        let call = cc_client::cc3::constants()
-            .attestation()
-            .max_attestations_per_block();
-        let max_attestations_per_block = api.constants().at(&call).unwrap();
-
         // ----------------------------------* Message passing *-------------------------------- //
 
         // P2P Subscriber changes
@@ -244,17 +236,12 @@ impl Attestor {
             .with_quorum(quorum)
             .with_start_height(start_height)
             .with_attestation_interval(attestation_interval)
-            .with_max_attestations_per_block(max_attestations_per_block)
             .build();
         let (validation_sender, validation_receiver) =
             worker::validation::pool::attestation_pool(config);
 
         // attestation production -> attestation validation
         let (attestation_latest_sender, attestation_latest_receiver) =
-            tokio::sync::watch::channel(None);
-
-        // attestation validation -> attestation production
-        let (attestation_invalidation_sender, attestation_invalidation_receiver) =
             tokio::sync::watch::channel(None);
 
         // ------------------------------* Attestation Production *----------------------------- //
@@ -269,10 +256,8 @@ impl Attestor {
             .with_sender_p2p(p2p_sender)
             .with_sender_validation(validation_sender.clone())
             .with_sender_attestation_latest(attestation_latest_sender)
-            .with_receiver_attestation_invalidation(attestation_invalidation_receiver)
             .with_can_broadcast(can_broadcast_production)
             .with_attestation_start_cc3(attestation_start_cc3)
-            .with_max_attestations_per_block(max_attestations_per_block)
             .with_epoch(epoch)
             .build();
         let attestation_production = worker::production::WorkerAttestationProduction::new(config)
@@ -284,9 +269,9 @@ impl Attestor {
 
         tracing::info!("⏳ [2/3] Starting attestation validation worker");
 
+        let api = cc3_validation.api();
         let config = worker::validation::ConfigBuilder::new()
             .with_cc3(cc3_validation)
-            .with_sender_attestation_invalidation(attestation_invalidation_sender)
             .with_receiver_validation(validation_receiver)
             .with_receiver_attestation_latest(attestation_latest_receiver)
             .with_api_calls(cc_client::Client::runtime_api())

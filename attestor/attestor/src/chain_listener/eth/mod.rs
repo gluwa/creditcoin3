@@ -274,45 +274,6 @@ impl Ethereum {
 
         Ok(())
     }
-
-    /// An invalid attestation was submitted to the runtime.
-    ///
-    /// We add its height to the catchup interval if it is not already scheduled for re-generation
-    /// and re-submission.
-    pub async fn note_attestation_invalidation(
-        &mut self,
-        height: common::types::Height,
-    ) -> Result<(), Error> {
-        if self.catchup.start > height {
-            self.catchup.start = height
-        }
-
-        self.catchup.stop = loop {
-            let Some(block_n) = self
-                .next_block()
-                .await
-                .transpose()?
-                .map(|n| n.saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG))
-            else {
-                // NOTE: INTERRUPT
-                //
-                // User-initiated shutdown
-                return Ok(());
-            };
-
-            if block_n >= self.catchup.start {
-                break block_n;
-            }
-        };
-
-        tracing::debug!(
-            catchup = ?self.catchup,
-            height,
-            "Invalidated attestation"
-        );
-
-        Ok(())
-    }
 }
 
 // ----------------------------------------- [ HELPERS ] --------------------------------------- //

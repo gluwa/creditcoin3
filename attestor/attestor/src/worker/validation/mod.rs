@@ -101,7 +101,6 @@ pub struct Config {
     cc3: crate::chain_listener::cc3::CC3,
     receiver_validation: pool::AttestationPoolReceiver,
     receiver_attestation_latest: tokio::sync::watch::Receiver<Option<common::types::Height>>,
-    sender_attestation_invalidation: tokio::sync::watch::Sender<Option<common::types::Height>>,
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
     keypair: subxt_signer::sr25519::Keypair,
@@ -122,7 +121,6 @@ pub(crate) struct WorkerAttestationValidation {
     // MESSAGE CHANNELS
     receiver_validation: pool::AttestationPoolReceiver,
     receiver_attestation_latest: tokio::sync::watch::Receiver<Option<common::types::Height>>,
-    sender_attestation_invalidation: tokio::sync::watch::Sender<Option<common::types::Height>>,
 
     // CHAIN DATA
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
@@ -141,7 +139,6 @@ impl WorkerAttestationValidation {
 
             receiver_validation: config.receiver_validation,
             receiver_attestation_latest: config.receiver_attestation_latest,
-            sender_attestation_invalidation: config.sender_attestation_invalidation,
 
             api_calls: config.api_calls,
             api: config.api,
@@ -309,7 +306,6 @@ impl WorkerAttestationValidation {
                                 // Any early return must reset the `watch_submission` future to
                                 // avoid double polling!
                                 self.watch_submission = future::OptionFuture::default();
-                                let _ = self.sender_attestation_invalidation.send(Some(height));
                                 return Ok(());
                             }
                         }

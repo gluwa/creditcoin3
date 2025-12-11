@@ -101,11 +101,4 @@ impl Rebroadcast {
             range.end = latest_attestation_eth.saturating_add(1);
         }
     }
-
-    pub fn note_attestation_invalidation(&mut self, height: common::types::Height) {
-        match &mut self.range {
-            Some(range) if range.end > height => range.end = height,
-            _ => {}
-        }
-    }
 }

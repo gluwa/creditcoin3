@@ -141,7 +141,6 @@
 //! [`select`]: tokio::select
 
 mod error;
-mod hash;
 
 use crate::prelude::*;
 pub use error::*;
@@ -153,34 +152,28 @@ pub use error::*;
 pub struct Config {
     /// Maximum number of attestations which can be held in the pool before the pool begins
     /// evicting the highest attestations.
+    #[allow(unused)]
     capacity: std::num::NonZeroUsize,
     #[specify_later]
     /// Attestor validation policy, can be either [`AttestorValidatePermissionless`] or
     /// [`AttestorValidatePermissioned`].
     attestors: Box<dyn ValidateAttestor>,
-    #[specify_later]
     /// Target [`Quorum`] size. Ie: the number of valid attestors which must submit the same
     /// attestation before it reaches quorum.
-    quorum: std::num::NonZeroUsize,
     #[specify_later]
+    quorum: std::num::NonZeroUsize,
     /// Interval at which attestations are being produced. This value is fetched from on-chain
     /// storage unless it is overridden in [attestation config].
     ///
     /// [attestation config]: crate::attestation
-    attestation_interval: std::num::NonZero<common::types::Height>,
     #[specify_later]
+    attestation_interval: std::num::NonZero<common::types::Height>,
     /// Starting height at which attestation are produced. This value is fetched from on-chain
     /// storage unless it is overridden in [attestation config].
     ///
     /// [attestation config]: crate::attestation
-    start_height: common::types::Height,
     #[specify_later]
-    /// Maximum number of attestations which can be validated in a single block by the runtime.
-    /// This is a hard bound and attestation batches greater than this limit will be rejected
-    /// outright.
-    ///
-    /// This value is fetched from on-chain storage.
-    max_attestations_per_block: u32,
+    start_height: common::types::Height,
 }
 
 // ----------------------------------------- [ Types ] ----------------------------------------- //
@@ -245,7 +238,7 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
         config.attestation_interval,
     );
 
-    let pool = AttestationPool::new(config.capacity, quorum, config.attestors);
+    let pool = AttestationPool::new(quorum, config.attestors);
 
     let common_send = std::sync::Arc::new(AttestationPoolCommon::new(pool, config.start_height));
 
@@ -363,6 +356,7 @@ impl Default for AttestationPoolCommon {
 /// [`Closed`].
 ///
 /// [`Closed`]: AttestationPool::Closed
+#[allow(clippy::large_enum_variant)]
 enum AttestationPool {
     Open(AttestationPoolInner),
     Closed,
@@ -381,13 +375,9 @@ struct AttestationPoolInner {
 }
 
 impl AttestationPool {
-    fn new(
-        capacity: std::num::NonZeroUsize,
-        validate_quorum: ValidateQuorum,
-        validate_attestor: Box<dyn ValidateAttestor>,
-    ) -> Self {
+    fn new(validate_quorum: ValidateQuorum, validate_attestor: Box<dyn ValidateAttestor>) -> Self {
         Self::Open(AttestationPoolInner {
-            forks: AttestationPoolForks::new(capacity),
+            forks: AttestationPoolForks::new(),
             quorums: std::collections::VecDeque::new(),
             digest_local: None,
 
@@ -426,10 +416,6 @@ impl AttestationPoolInner {
                 self.validate_quorum.target_height,
             ));
         }
-
-        tracing::debug!("Making sure there is enough space in the pool");
-
-        self.evict_if_necessary();
 
         tracing::debug!("Adding attestation to pool");
 
@@ -498,11 +484,10 @@ impl AttestationPoolInner {
 
             // Updates the leading fork at that height.
             if let Some((_, votes)) = fork.attestations_by_count.first_key_value() {
-                let key = votes
+                let key = *votes
                     .iter()
                     .next()
-                    .expect("Invariant violated: missing attestations_by_count mapping")
-                    .clone();
+                    .expect("Invariant violated: missing attestations_by_count mapping");
                 fork.best = fork
                     .attestations_by_digest
                     .get(&key)
@@ -532,11 +517,6 @@ impl AttestationPoolInner {
         self.quorums.push_front(signed);
         self.mark_valid(permit);
     }
-
-    #[tracing::instrument(skip_all)]
-    fn evict_if_necessary(&mut self) {
-        // FIXME:
-    }
 }
 
 struct AttestationPoolForks {
@@ -549,8 +529,6 @@ struct AttestationPoolForks {
         common::types::Height,
         std::collections::HashSet<attestor_primitives::Digest>,
     >,
-    size: usize,
-    capacity: std::num::NonZeroUsize,
 }
 
 struct ForkData {
@@ -564,13 +542,11 @@ struct ForkData {
 }
 
 impl AttestationPoolForks {
-    fn new(capacity: std::num::NonZeroUsize) -> Self {
+    fn new() -> Self {
         Self {
             forks: std::collections::BTreeMap::new(),
             equivocations: std::collections::BTreeMap::new(),
             invalid: std::collections::BTreeMap::new(),
-            size: 0,
-            capacity,
         }
     }
 
@@ -602,7 +578,7 @@ impl AttestationPoolForks {
                 // an equivocation is detected.
                 if let Some(key_prev) = data.votes.get(&attestor_id) {
                     if key_prev != &key {
-                        let vote_prev = data.attestations_by_digest.remove(&key_prev).expect(
+                        let vote_prev = data.attestations_by_digest.remove(key_prev).expect(
                             "Invariant violated: previous vote points to non-existant attestation",
                         );
 
@@ -665,7 +641,7 @@ impl AttestationPoolForks {
                 data.attestations_by_count
                     .entry(vote.signers.len().try_into().unwrap())
                     .or_default()
-                    .insert(key.clone());
+                    .insert(key);
                 data.attestations_by_digest.insert(key, vote);
             }
         }
@@ -1298,7 +1274,6 @@ pub mod fixtures {
             .with_quorum(quorum_validate.target_quorum)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
             .with_start_height(common::types::Height::MIN)
-            .with_max_attestations_per_block(10u32)
             .build()
     }
 
@@ -1324,7 +1299,6 @@ pub mod fixtures {
 #[cfg(test)]
 mod test {
     use crate::common::fixtures::*;
-    use crate::hash_set;
 
     use super::constants::*;
     use super::fixtures::*;
@@ -1495,43 +1469,6 @@ mod test {
             Some(cc_client::H256(attestation_signed.digest().0))
         );
     }
-
-    // #[tokio::test]
-    // #[rstest::rstest]
-    // #[timeout(TIMEOUT)]
-    // async fn attestation_pool_sanity_evict(
-    //     _logs: (),
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_0])]
-    //     attestation_1: AttestationVote,
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_1])]
-    //     attestation_2: AttestationVote,
-    //     #[from(quorum)]
-    //     #[with([ATTESTOR_VALID_1])]
-    //     quorum: Quorum,
-    //     #[from(permit)]
-    //     #[with([ATTESTOR_VALID_1])]
-    //     permit: AttestationPermit,
-    //     #[from(quorum_validate)]
-    //     #[with(1)]
-    //     _quorum_validate: ValidateQuorum,
-    //     #[from(config)]
-    //     #[with(_quorum_validate.clone(), 1)]
-    //     config: Config,
-    // ) {
-    //     use futures::stream::StreamExt as _;
-    //
-    //     let (sx, mut rx) = attestation_pool(config);
-    //
-    //     assert!(sx.send(attestation_1.votes[0].clone()).is_ok());
-    //     assert!(sx.send(attestation_2.votes[0].clone()).is_ok());
-    //
-    //     let actual = rx.next().await;
-    //     let expected = Some((quorum, permit, None));
-    //
-    //     assert_eq!(actual, expected);
-    // }
 
     #[tokio::test]
     #[rstest::rstest]
