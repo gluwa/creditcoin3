@@ -21,7 +21,6 @@
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 1,
-              "chain_reward": 1000,
               "checkpoints": [],
               "target_sample_size": 3,
               "vote_acceptance_window": 3

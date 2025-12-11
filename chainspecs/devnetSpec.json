@@ -22,7 +22,6 @@
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 1,
-              "chain_reward": 1000,
               "checkpoints": [],
               "target_sample_size": 3,
               "vote_acceptance_window": 3
@@ -31,7 +30,6 @@
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 2,
-              "chain_reward": 1000,
               "checkpoints": [],
               "target_sample_size": 3,
               "vote_acceptance_window": 3
@@ -40,7 +38,6 @@
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 3,
-              "chain_reward": 1000,
               "checkpoints": [],
               "target_sample_size": 1,
               "vote_acceptance_window": 3
@@ -49,7 +46,6 @@
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 4,
-              "chain_reward": 1000,
               "checkpoints": [],
               "target_sample_size": 3,
               "vote_acceptance_window": 3
@@ -58,7 +54,6 @@
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 5,
-              "chain_reward": 1000,
               "checkpoints": [
                 {
                   "block_number": 30,
@@ -72,7 +67,6 @@
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 6,
-              "chain_reward": 1000,
               "checkpoints": [],
               "target_sample_size": 3,
               "vote_acceptance_window": 3

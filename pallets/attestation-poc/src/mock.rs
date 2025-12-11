@@ -348,7 +348,6 @@ impl ExtBuilder {
                 chain_key: SUPPORTED_CHAIN_KEY,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 10000,
                 target_sample_size: TargetSampleSizeDefault::<Test>::get(),
                 checkpoints: vec![],
                 vote_acceptance_window: 3,

@@ -157,7 +157,6 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_key: 1,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
@@ -166,7 +165,6 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_key: 2,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
@@ -175,7 +173,6 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_key: 3,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
                 target_sample_size: 1,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
@@ -184,7 +181,6 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_key: 4,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
@@ -193,7 +189,6 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_key: 5,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
                 target_sample_size: 3,
                 // This checkpoint is used for testing the verification process of a proof that is generated and can be found at
                 // cairo/stone-verifier/proof_example_erc20.json
@@ -211,7 +206,6 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_key: 6,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
@@ -265,7 +259,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_key: 1,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
+
                 target_sample_size: 3,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
@@ -274,7 +268,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_key: 2,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
+
                 target_sample_size: 3,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
@@ -283,7 +277,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_key: 3,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
+
                 target_sample_size: 1,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
@@ -292,7 +286,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_key: 4,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
+
                 target_sample_size: 3,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
@@ -301,7 +295,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_key: 5,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
+
                 target_sample_size: 3,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,
@@ -310,7 +304,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_key: 6,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
-                chain_reward: 1000,
+
                 target_sample_size: 3,
                 checkpoints: vec![],
                 vote_acceptance_window: 3,

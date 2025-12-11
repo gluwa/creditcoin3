@@ -48,7 +48,6 @@ pub struct AttestationChainConfiguration {
     pub chain_key: ChainKey,
     pub attestation_interval: ChainAttestationIntervalType,
     pub attestations_per_checkpoint: u32,
-    pub chain_reward: u128,
     pub target_sample_size: u32,
     pub checkpoints: Vec<AttestationCheckpoint>,
     pub vote_acceptance_window: u64,
