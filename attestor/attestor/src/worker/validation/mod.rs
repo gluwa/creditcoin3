@@ -105,6 +105,7 @@ pub struct Config {
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
     keypair: subxt_signer::sr25519::Keypair,
+    start_height: common::types::Height,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -130,6 +131,7 @@ pub(crate) struct WorkerAttestationValidation {
     // CHAIN DATA
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
+    start_height: common::types::Height,
 }
 
 impl WorkerAttestationValidation {
@@ -147,6 +149,7 @@ impl WorkerAttestationValidation {
 
             api_calls: config.api_calls,
             api: config.api,
+            start_height: config.start_height,
         }
     }
 }
@@ -842,7 +845,7 @@ impl WorkerAttestationValidation {
 
         // Every attestation must have a continuity proof except for the first attestation in the
         // chain
-        if attestation.continuity_proof.is_empty() && height != 0 {
+        if attestation.continuity_proof.is_empty() && height != self.start_height {
             tracing::error!(
                 %digest,
                 height,

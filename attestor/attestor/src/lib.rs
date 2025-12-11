@@ -282,6 +282,7 @@ impl Attestor {
             .with_api_calls(cc_client::Client::runtime_api())
             .with_api(api)
             .with_keypair(keypair)
+            .with_start_height(start_height)
             .build();
         let attestation_validation = worker::validation::WorkerAttestationValidation::new(config);
         let handle_validation = monitor.spawn(attestation_validation);
