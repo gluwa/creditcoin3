@@ -40,7 +40,7 @@ impl<T: Config> Pallet<T> {
         );
 
         // Get last digest, either checkpoint or last attestation
-        let mut last_finalized_digest = Self::last_digest(chain_key).ok_or_else(|| {
+        let last_finalized_digest = Self::last_digest(chain_key).ok_or_else(|| {
             error!("❌ No finalized attestation found for chain_key {chain_key:?}");
             Error::<T>::NoFinalizedAttestation
         })?;
@@ -78,80 +78,51 @@ impl<T: Config> Pallet<T> {
             last_finalized_digest
         );
 
-        // Validate the prev digest of the attestation against the head of the continuity proof
-        if let Some(attestation_head) = attestation.continuity_proof.head() {
-            let block: Block = (*attestation_head).clone().into();
-            let block_digest = block.digest;
-            ensure!(
-                block_digest == attestation_prev_digest,
-                Error::<T>::InvalidAttestationContinuityProofHead
-            );
-        }
+        // Get the tail block to determine the starting digest for reconstruction
+        // The tail's prev_digest should point to a known finalized attestation
+        let tail_block = attestation
+            .continuity_proof
+            .tail()
+            .ok_or(Error::<T>::InvalidAttestationContinuityProofTail)?;
+        let tail: Block = tail_block.clone().into();
+        debug!("📝 Checking continuity proof tail: {tail:?}");
+        let tail_prev_digest = tail.prev_digest;
 
-        // Check if the tail's prev_digest of the fragment matches the last finalized attestation
-        // Otherwise check if we actually have the digest in storage, it could be that the last finalized attestation from attestation view is not the last finalized attestation in storage
-        // This could happen if the attestation view is lagging behind
-        if let Some(tail) = attestation.continuity_proof.tail() {
-            let block: Block = tail.clone().into();
-            debug!("📝 Checking continuity proof tail: {block:?}");
-            let block_prev_digest = block.prev_digest;
-
-            // In almost all cases, the tail's prev_digest should match one of the previously finalized attestations
-            if let Some(prev_attestation) = Self::get(chain_key, block_prev_digest) {
-                if prev_attestation.header_number() != block.block_number - 1 {
-                    error!("❌ Continuity proof tail prev digest points to an attestation with header number {}, but expected {}", prev_attestation.header_number(), block.block_number - 1);
-                    return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
-                }
-            } else {
-                error!("❌ Continuity proof tail prev digest {block_prev_digest:?} does not point to any known finalized attestation");
+        // Verify the tail's prev_digest points to a known finalized attestation
+        if let Some(prev_attestation) = Self::get(chain_key, tail_prev_digest) {
+            if prev_attestation.header_number() != tail.block_number - 1 {
+                error!("❌ Continuity proof tail prev digest points to an attestation with header number {}, but expected {}", prev_attestation.header_number(), tail.block_number - 1);
                 return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
             }
-
-            // Overwrite the last block digest to the tail's prev_digest
-            // In order to validate the continuity proof from tail to head
-            last_finalized_digest = block_prev_digest;
+        } else {
+            error!("❌ Continuity proof tail prev digest {tail_prev_digest:?} does not point to any known finalized attestation");
+            return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
         }
 
-        for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
+        // Start reconstructing the digest chain from the tail's prev_digest
+        // Continuity proof doesn't carry intermediate digests, so we reconstruct them iteratively
+        let mut reconstructed_digest = tail_prev_digest;
+
+        // Iterate through all blocks in the continuity proof, reconstructing digests from roots
+        for serializable in attestation.continuity_proof.get_blocks_ref() {
             let block: Block = serializable.clone().into();
 
-            let block_digest = block.digest;
-            let block_prev_digest = block.prev_digest;
-
             debug!(
-                "📝 Checking block number: {}, block_digest: {:?}, block_root: {:?} block_prev_digest: {:?}",
-                block.block_number,
-                block_digest,
-                block.root,
-                block_prev_digest,
+                "📝 Reconstructing digest for block number: {}, root: {:?}, prev_digest: {:?}",
+                block.block_number, block.root, reconstructed_digest,
             );
 
-            // Link must continue exactly
-            ensure!(
-                last_finalized_digest == block_prev_digest,
-                Error::<T>::InvalidAttestationContinuityProofBlock
-            );
-
-            // CRITICAL: Reconstruct and verify the digest matches what was computed from root and prev_digest
-            // This ensures continuity integrity - the digest must be hash(block_number, root, prev_digest)
-            let reconstructed_digest =
-                Block::hash_payload(&block.block_number, &block.root, &last_finalized_digest);
-            ensure!(
-                reconstructed_digest == block_digest,
-                Error::<T>::InvalidAttestationContinuityProofBlock
-            );
-
-            debug!(
-                "📝 Continuity proof continues with block {block:?}, reconstructed digest matches"
-            );
-            // Update the last block digest to the current block's digest
-            last_finalized_digest = block_digest;
+            // Reconstruct the digest: digest[i] = hash(block_number, root[i], digest[i-1])
+            // This matches what the attester computed: digest[i] = hash(digest[i-1], root[i])
+            reconstructed_digest =
+                Block::hash_payload(&block.block_number, &block.root, &reconstructed_digest);
         }
 
         // CRITICAL: Verify the final reconstructed digest matches the attestation's prev_digest
-        // This ensures the continuity proof correctly links to the attestation
+        // This ensures the continuity proof correctly links to the attestation and that all roots
+        // were correctly bound in the digest chain
         ensure!(
-            last_finalized_digest == attestation_prev_digest,
+            reconstructed_digest == attestation_prev_digest,
             Error::<T>::InvalidAttestationContinuityProofHead
         );
 

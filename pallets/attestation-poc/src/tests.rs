@@ -2397,7 +2397,7 @@ fn commit_attestation_should_error_on_invalid_continuity_head() {
                 attestor.stash,
                 vec![attestation_2.clone()].try_into().unwrap()
             ),
-            Error::<Test>::InvalidAttestationContinuityProofHead
+            Error::<Test>::InvalidAttestationContinuityProofTail
         );
     })
 }
@@ -2438,10 +2438,6 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
         // Create a correct continuity proof fragment
         let correct_fragment =
             construct_fragment(Some(attestation_1.digest()), RangeInclusive::new(1, 9));
-        let correct_fragment_head = correct_fragment
-            .head()
-            .expect("Fragment should have a head")
-            .clone();
         let attestation = AttestationPrimitive {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 10,
@@ -2464,26 +2460,25 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
         // sign
         let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
-        let fragment_1 =
-            construct_fragment(Some(attestation_1.digest()), RangeInclusive::new(1, 3));
-        // Create a third disconnected fragment
-        let fragment_2 = construct_fragment(Some(H256::random()), RangeInclusive::new(4, 8));
-        let mut fragment_2_blocks = fragment_2.blocks().to_vec();
-        // push correct head to make it look valid
-        fragment_2_blocks.push(correct_fragment_head.clone());
-        // now stitch them together to create an invalid continuity proof
-        let new_fragment_2 = AttestationFragment::from_blocks(fragment_2_blocks);
+        // Create a fragment with correct tail but wrong roots in the middle
+        // This will cause the final reconstructed digest to not match the attestation's prev_digest
+        let correct_fragment =
+            construct_fragment(Some(attestation_1.digest()), RangeInclusive::new(1, 9));
+        let mut invalid_blocks = correct_fragment.blocks().to_vec();
 
-        let combined_fragment = AttestationFragment::from_blocks(
-            fragment_1
-                .blocks()
-                .iter()
-                .chain(new_fragment_2.blocks().iter())
-                .cloned()
-                .collect(),
-        );
+        // Modify one block in the middle to have a wrong root
+        // This will cause the reconstructed digest chain to be wrong
+        if let Some(block) = invalid_blocks.get_mut(4) {
+            // Change the root to a different value, which will break the digest chain
+            *block = Block::new_from_prev_digest(
+                block.block_number,
+                H256::from([1; 32]), // Wrong root instead of zero
+                block.prev_digest,
+            );
+        }
 
-        let continuity_proof = AttestationFragmentSerializable::from(&combined_fragment);
+        let invalid_fragment = AttestationFragment::from_blocks(invalid_blocks);
+        let continuity_proof = AttestationFragmentSerializable::from(&invalid_fragment);
 
         let attestation_2 = SignedAttestation {
             attestation,
@@ -2502,7 +2497,7 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
                 attestor.stash,
                 vec![attestation_2.clone()].try_into().unwrap()
             ),
-            Error::<Test>::InvalidAttestationContinuityProofBlock
+            Error::<Test>::InvalidAttestationContinuityProofHead
         );
     })
 }
