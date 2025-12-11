@@ -179,6 +179,7 @@ impl Attestor {
         let config = self
             .config
             .cc3
+            .clone()
             .with_chain_key(self.config.chain_key)
             .with_cc3_client(cc3_client)
             .with_start_height(start_height)
@@ -291,10 +292,13 @@ impl Attestor {
 
         tracing::info!("⏳ [3/3] Starting P2P worker");
 
+        let mut seed = self.config.cc3.cc3_key.to_seed_normalized("");
+        let keypair = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed[..32]).unwrap();
+
         let config = self
             .config
             .p2p
-            .with_keypair(libp2p::identity::Keypair::generate_ed25519())
+            .with_keypair(keypair)
             .with_receiver_p2p(p2p_receiver)
             .with_sender_validation(validation_sender)
             .with_can_broadcast(can_broadcast_p2p)

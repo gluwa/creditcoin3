@@ -1567,6 +1567,7 @@ dependencies = [
  "chrono",
  "clap",
  "eth",
+ "rand 0.8.5",
  "subxt",
  "subxt-signer",
  "tokio",

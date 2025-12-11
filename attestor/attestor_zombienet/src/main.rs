@@ -55,9 +55,12 @@ async fn main() -> anyhow::Result<()> {
     use anyhow::Context as _;
     use chrono::{Datelike as _, Timelike as _};
     use clap::Parser as _;
+    use rand::SeedableRng as _;
     use std::str::FromStr as _;
 
     const MAX_ATTEMPTS: usize = 10;
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
 
     // ------------------------------------* User-facing logs *------------------------------------
 
@@ -91,7 +94,8 @@ async fn main() -> anyhow::Result<()> {
         .map(|mut n| {
             n += args.offset;
             let name = format!("zombie-{n}");
-            let secret = bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret");
+            let secret = bip39::Mnemonic::generate_in_with(&mut rng, bip39::Language::English, 12)
+                .expect("Failed to generate attestor secret");
             let secret_uri = subxt_signer::SecretUri::from_str(&secret.to_string())
                 .context("Failed to create secret uri")?;
             let keypair = subxt_signer::sr25519::Keypair::from_uri(&secret_uri)
