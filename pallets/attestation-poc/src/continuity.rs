@@ -132,10 +132,28 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::InvalidAttestationContinuityProofBlock
             );
 
-            debug!("📝 Continuity proof continues with block {block:?}");
+            // CRITICAL: Reconstruct and verify the digest matches what was computed from root and prev_digest
+            // This ensures continuity integrity - the digest must be hash(block_number, root, prev_digest)
+            let reconstructed_digest =
+                Block::hash_payload(&block.block_number, &block.root, &last_finalized_digest);
+            ensure!(
+                reconstructed_digest == block_digest,
+                Error::<T>::InvalidAttestationContinuityProofBlock
+            );
+
+            debug!(
+                "📝 Continuity proof continues with block {block:?}, reconstructed digest matches"
+            );
             // Update the last block digest to the current block's digest
             last_finalized_digest = block_digest;
         }
+
+        // CRITICAL: Verify the final reconstructed digest matches the attestation's prev_digest
+        // This ensures the continuity proof correctly links to the attestation
+        ensure!(
+            last_finalized_digest == attestation_prev_digest,
+            Error::<T>::InvalidAttestationContinuityProofHead
+        );
 
         debug!("✅ Attestation continuity proof is valid.");
         Ok(())
