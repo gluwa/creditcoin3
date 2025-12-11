@@ -584,16 +584,6 @@ impl WorkerP2P {
                 }
             }
 
-            // Failed to respond to a remote peer's connection request
-            libp2p::swarm::SwarmEvent::IncomingConnectionError {
-                peer_id,
-                error,
-                connection_id,
-                ..
-            } => {
-                tracing::error!(connection = %connection_id, "⛔ Dialing");
-                tracing::error!(?peer_id, %error, "⛔  Incoming connection error");
-            }
             _ => (),
         };
 
