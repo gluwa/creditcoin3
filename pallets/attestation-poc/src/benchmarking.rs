@@ -8,7 +8,7 @@ use frame_support::assert_ok;
 use frame_support::traits::{OnInitialize, OriginTrait};
 use sp_core::H256;
 use sp_runtime::traits::{Bounded, One};
-use sp_std::{ops::RangeInclusive, vec, vec::Vec};
+use sp_std::{ops::RangeInclusive, vec::Vec};
 
 use attestor_primitives::{
     attestation_fragment::AttestationFragmentSerializable, block::Block, AttestationCheckpoint,
@@ -124,7 +124,6 @@ fn create_signed_attestation<T: frame_system::Config>(
 mod benchmarks {
     use super::*;
 
-    pub const MAX_BATCH: u32 = 10; // bounded by call
     pub const MAX_SPAN: u32 = 300; // tune to a realistic worst path
     const MAX_ATTESTORS: u32 = 100;
 
@@ -322,7 +321,6 @@ mod benchmarks {
 
     #[benchmark]
     fn commit_attestation(
-        n: Linear<1, MAX_BATCH>,     // number of attestations in the call
         s: Linear<1, MAX_SPAN>,      // continuity length (#headers)
         m: Linear<1, MAX_ATTESTORS>, // number of attestors
     ) {
@@ -332,7 +330,7 @@ mod benchmarks {
             create_funded_user_with_balance::<T>("attestor", 4),
         );
 
-        log::info!("Benchmark parameters: n = {n}, s = {s}, m = {m}");
+        log::info!("Benchmark parameters: s = {s}, m = {m}");
 
         // Ensure pallet limits allow `m` attestors
         assert_ok!(Attestation::<T>::set_max_attestors(
@@ -367,8 +365,8 @@ mod benchmarks {
             attestors.push(attestor);
         }
 
-        // Worst-path prep (prior committed + election started)
-        let prior_attestation: SignedAttestation<
+        // Creating previous attestation
+        let attestation_prev: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
         > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1, 0, None);
@@ -376,52 +374,37 @@ mod benchmarks {
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
         assert_ok!(Attestation::<T>::commit_attestation(
             signed_origin.clone(),
-            vec![prior_attestation.clone()].try_into().unwrap(),
+            attestation_prev.clone(),
         ));
-
-        // --- Build batch of size `n`, each with continuity width = `s` (multiple of 10),
-        //     and end headers fixed at 10, 20, 30, ...
-        let mut batch: Vec<
-            SignedAttestation<
-                <T as frame_system::Config>::Hash,
-                <T as frame_system::Config>::AccountId,
-            >,
-        > = Vec::with_capacity(n as usize);
 
         let interval: u64 = Attestation::<T>::chain_attestation_interval(DEV_CHAIN_KEY);
 
-        let mut prev_digest = prior_attestation.digest();
-        // We want atmost 'n' attestations
-        for i in 1..n {
-            let remainder = (s as u64) % interval;
+        let start_header = 1;
+        let att_header = (((s as u64 / interval) * interval) as u64).max(interval);
 
-            // Only create an attestation if divisible
-            if remainder == 0 {
-                let start_header = (s as u64 / interval) * interval * (i as u64 - 1u64) + 1u64;
-                let att_header = ((s as u64 / interval) * interval) * i as u64;
-                log::info!("Creating attestation for header {att_header}, in iteration {i} with {} attestors", attestors.len());
+        log::info!(
+            "Creating attestation for header {att_header}  with {} attestors",
+            attestors.len()
+        );
 
-                let att = create_signed_attestation::<T>(
-                    attestors.clone(),
-                    DEV_CHAIN_KEY,
-                    start_header,
-                    att_header,
-                    Some(prev_digest),
-                );
+        let attestation = create_signed_attestation::<T>(
+            attestors.clone(),
+            DEV_CHAIN_KEY,
+            start_header,
+            att_header,
+            Some(attestation_prev.digest()),
+        );
 
-                log::info!("Created attestation for header {att_header}, in iteration {i} with digest {:?} and continuity len {}", att.digest(), att.continuity_proof.len());
-
-                // Set prev_digest for next attestation
-                prev_digest = att.digest();
-                // Add to batch
-                batch.push(att);
-            }
-        }
+        log::info!(
+            "Created attestation for header {att_header} with digest {:?} and continuity len {}",
+            attestation.digest(),
+            attestation.continuity_proof.len()
+        );
 
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
-            batch.try_into().unwrap(),
+            attestation,
         )
     }
 

@@ -156,7 +156,7 @@ pub mod pallet {
         fn unregister_invulnerable() -> Weight;
         fn set_max_invulnerables() -> Weight;
         fn bootstrap_chain(a: u32) -> Weight;
-        fn commit_attestation(a: u32, b: u32, c: u32) -> Weight;
+        fn commit_attestation(a: u32, b: u32) -> Weight;
         fn set_target_sample_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
         fn set_attestations_per_checkpoint() -> Weight;
@@ -842,35 +842,11 @@ pub mod pallet {
         #[pallet::weight(CommitAttestationWeight::<T>::default())]
         pub fn commit_attestation(
             origin: OriginFor<T>,
-            attestations: BoundedVec<
-                SignedAttestation<T::Hash, T::AccountId>,
-                T::MaxAttestationsPerBlock,
-            >,
+            attestation: SignedAttestation<T::Hash, T::AccountId>,
         ) -> DispatchResult {
             ensure_signed(origin)?;
 
-            let mut res = Ok(());
-            for attestation in attestations.into_iter() {
-                match Self::do_commit_attestation(attestation) {
-                    // WARNING: EDGE CASE
-                    //
-                    // It is possible for attestors to be behind in their view of the network. This
-                    // can result in them submitting a batch with some attestations which have
-                    // already been finalized in the period of time during which submission
-                    // occurred. To avoid invalidating future attestations, we still check the rest
-                    // of the batch.
-                    Err(err) if err == Error::<T>::AttestationExists.into() => {
-                        res = Err(Error::<T>::AttestationExists.into());
-                    }
-                    res => {
-                        // Any attestation which is generally invalid, and not just a duplicate,
-                        // causes the rest of the batch to be dropped
-                        res?
-                    }
-                }
-            }
-
-            res
+            Self::do_commit_attestation(attestation)
         }
 
         #[pallet::call_index(10)]
@@ -1269,70 +1245,45 @@ pub mod pallet {
         }
     }
 
-    impl<T: Config>
-        WeighData<(
-            &BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,
-        )> for CommitAttestationWeight<T>
+    impl<T: Config> WeighData<(&SignedAttestation<T::Hash, T::AccountId>,)>
+        for CommitAttestationWeight<T>
     {
-        fn weigh_data(
-            &self,
-            attestations: (
-                &BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,
-            ),
-        ) -> Weight {
+        fn weigh_data(&self, attestation: (&SignedAttestation<T::Hash, T::AccountId>,)) -> Weight {
             <T as Config>::WeightInfo::commit_attestation(
-                attestations.0.len() as u32,
-                attestations
-                    .0
-                    .iter()
-                    .map(|a| a.continuity_proof.len() as u32)
-                    .max()
-                    .unwrap_or(0),
+                attestation.0.continuity_proof.len() as u32,
                 T::MaxAttestationNodes::get(),
             )
         }
     }
 
-    impl<T: Config>
-        ClassifyDispatch<(
-            &BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,
-        )> for CommitAttestationWeight<T>
+    impl<T: Config> ClassifyDispatch<(&SignedAttestation<T::Hash, T::AccountId>,)>
+        for CommitAttestationWeight<T>
     {
         fn classify_dispatch(
             &self,
 
-            _attestations: (
-                &BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,
-            ),
+            _attestations: (&SignedAttestation<T::Hash, T::AccountId>,),
         ) -> DispatchClass {
             DispatchClass::Normal
         }
     }
 
-    impl<T: Config>
-        PaysFee<
-            (&BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,),
-        > for CommitAttestationWeight<T>
+    impl<T: Config> PaysFee<(&SignedAttestation<T::Hash, T::AccountId>,)>
+        for CommitAttestationWeight<T>
     {
         /// Makes it so active attestors do not pay fees but regular accounts do
-        fn pays_fee(
-            &self,
-            attestations: (
-                &BoundedVec<SignedAttestation<T::Hash, T::AccountId>, T::MaxAttestationsPerBlock>,
-            ),
-        ) -> Pays {
-            let is_attestor = attestations.0.iter().all(|attestation| {
-                let chain_key = attestation.chain_key();
+        fn pays_fee(&self, attestation: (&SignedAttestation<T::Hash, T::AccountId>,)) -> Pays {
+            let chain_key = attestation.0.chain_key();
 
-                let active_attestors = ActiveAttestors::<T>::get(chain_key)
-                    .into_iter()
-                    .collect::<BTreeSet<_>>();
+            let active_attestors = ActiveAttestors::<T>::get(chain_key)
+                .into_iter()
+                .collect::<BTreeSet<_>>();
 
-                attestation
-                    .attestors
-                    .iter()
-                    .all(|attestor| active_attestors.contains(attestor))
-            });
+            let is_attestor = attestation
+                .0
+                .attestors
+                .iter()
+                .all(|attestor| active_attestors.contains(attestor));
 
             if is_attestor {
                 Pays::No
