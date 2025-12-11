@@ -230,7 +230,7 @@ impl CC3 {
 
         // ------------------------------------* Range checks *------------------------------------
 
-        if height == 0 {
+        if height == self.start_height {
             tracing::debug!("Creating default continuity proof for header number 0");
             return Some(Ok(Default::default()));
         }
