@@ -1037,14 +1037,9 @@ impl WorkerAttestationValidation {
             // Note that this will require being able to retrieve the randomness of past epochs so
             // the runtime can use the same epoch in validating the vrf as used during generation.
             Ok(Some(_)) => {
-                let attestations =
-                    cc_client::cc3::runtime_types::bounded_collections::bounded_vec::BoundedVec(
-                        vec![attestation],
-                    );
-
                 let call = cc_client::cc3::tx()
                     .attestation()
-                    .commit_attestation(attestations);
+                    .commit_attestation(attestation);
 
                 let submit = loop {
                     match self
