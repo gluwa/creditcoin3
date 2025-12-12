@@ -540,10 +540,45 @@ impl AttestationPoolForks {
                         let key_prev = entry.get();
                         if key_prev != &key {
                             let vote_prev = data.attestations_by_digest.remove(key_prev).expect(
-                            "Invariant violated: previous vote points to non-existant attestation",
-                        );
+                                "Invariant violated: \
+                                    previous vote points to non-existant attestation",
+                            );
 
-                            if data.attestations_by_digest.is_empty() {
+                            let std::collections::btree_map::Entry::Occupied(mut entry_by_count) =
+                                data.attestations_by_count
+                                    .entry(vote_prev.signers.len().try_into().unwrap())
+                            else {
+                                unreachable!(
+                                    "Invariant violated: \
+                                        missing mapping in attestation_by_count",
+                                )
+                            };
+
+                            let set = entry_by_count.get_mut();
+                            set.remove(key_prev);
+
+                            if set.is_empty() {
+                                entry_by_count.remove();
+                            }
+
+                            // TODO: probably should refactor this into its own function. Maybe we
+                            // should generalize attestation removal between this and mark_invalid?
+                            // It seems like the same logic applies.
+                            if let Some((_, votes)) = data.attestations_by_count.last_key_value() {
+                                let key = *votes.iter().next().expect(
+                                    "Invariant violated: \
+                                        missing attestations_by_count mapping",
+                                );
+
+                                data.best = data
+                                    .attestations_by_digest
+                                    .get(&key)
+                                    .expect(
+                                        "Invariant violated: \
+                                            missing attestations_by_digest mapping",
+                                    )
+                                    .clone();
+                            } else {
                                 entry.remove();
                             }
 
@@ -564,7 +599,7 @@ impl AttestationPoolForks {
                     }
                 }
 
-                if let Some(vote_prev) = data.attestations_by_digest.get(&key) {
+                if let Some(vote_prev) = data.attestations_by_digest.remove(&key) {
                     tracing::debug!("Found matching fork");
 
                     // Update the attestation count mapping
@@ -590,7 +625,8 @@ impl AttestationPoolForks {
                     // It is ok for an attestor to submit the same attestation multiple times, as this
                     // might be the case during rebroadcasting. In the future, we might want to limit
                     // this behavior.
-                    vote.signers.extend(vote_prev.signers.clone());
+                    vote.signers.extend(vote_prev.signers);
+                    vote.votes.extend(vote_prev.votes);
 
                     // Updated the leading fork.
                     //
@@ -599,7 +635,6 @@ impl AttestationPoolForks {
                         data.best.votes.push(vote.attestation.clone());
                         data.best.signers.insert(vote.attestation.attestor.clone());
                     } else if vote.signers.len() > data.best.signers.len() {
-                        vote.votes.extend(std::mem::take(&mut data.best.votes));
                         data.best = vote.clone();
                     }
                 }
