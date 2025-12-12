@@ -93,7 +93,7 @@ describe('BlockAttested events', (): void => {
                             // Keep in memory for later continuity proof validation
                             // Note: We can't store the full signed attestation anymore from the event
                             (attestedEventsMemory[supportedChainKeyStr] ||= []).push({
-                                headerNumber: headerNumber.toNumber(),
+                                headerNumber: (headerNumber as U64).toNumber(),
                                 digest: digestHex,
                             });
 
