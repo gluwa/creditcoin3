@@ -8,3 +8,11 @@
 pub mod cc3;
 pub mod eth;
 pub mod rebroadcast;
+
+use crate::prelude::*;
+
+#[derive(Debug)]
+struct Catchup {
+    start: common::types::Height,
+    stop: common::types::Height,
+}

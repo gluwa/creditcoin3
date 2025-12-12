@@ -209,6 +209,8 @@ impl Attestor {
 
         let config = chain_listener::rebroadcast::ConfigBuilder::new()
             .with_rebroadcast_interval(self.config.attestation.rebroadcast_interval)
+            .with_attestation_interval(attestation_interval)
+            .with_start_height(start_height)
             .build();
         let rebroadcast = chain_listener::rebroadcast::Rebroadcast::new(config).await;
 

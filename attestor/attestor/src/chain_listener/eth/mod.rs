@@ -67,18 +67,12 @@ pub(crate) struct Ethereum {
     // SOURCE CHAIN
     eth: AlloyProvider,
     stream: alloy::pubsub::SubscriptionStream<alloy::rpc::types::Header>,
-    catchup: Catchup,
+    catchup: super::Catchup,
 
     // CHAIN DATA
     pub chain_id: attestor_primitives::ChainId,
     pub attestation_interval: std::num::NonZero<common::types::Height>,
     pub start_height: common::types::Height,
-}
-
-#[derive(Debug)]
-pub(crate) struct Catchup {
-    start: common::types::Height,
-    stop: common::types::Height,
 }
 
 impl Ethereum {
@@ -112,7 +106,7 @@ impl Ethereum {
             .context("Unexpected end of stream")?
             .number
             .saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
-        let catchup = Catchup {
+        let catchup = super::Catchup {
             start: config.start_height,
             stop: next_block - (next_block % config.attestation_interval),
         };

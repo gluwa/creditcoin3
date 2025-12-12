@@ -1,5 +1,7 @@
 //! Common constants used throughout the attestor code.
 
+use crate::prelude::*;
+
 /// Max channel capacity for bounded thread communication using [broadcast] channels.
 ///
 /// [broadcast]: tokio::sync::broadcast
@@ -29,3 +31,6 @@ pub const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 /// or config file. Port 9000 is chosen as it's commonly available and suitable for Kubernetes
 /// LoadBalancer services.
 pub const DEFAULT_P2P_PORT: u16 = 9000;
+
+/// Max number of attestations which can be rebroadcasted ahead of chain finality.
+pub const MAX_REBROADCAST: common::types::Height = 10;

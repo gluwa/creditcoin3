@@ -15,6 +15,8 @@ use crate::prelude::*;
 pub struct Config {
     /// Interval, in **seconds**, at which past attestations are rebroadcasted.
     rebroadcast_interval: std::num::NonZeroU64,
+    attestation_interval: std::num::NonZero<common::types::Height>,
+    start_height: common::types::Height,
 }
 
 // ------------------------------------- [ Chain Listener ] ------------------------------------ //
@@ -25,10 +27,15 @@ pub struct Config {
 /// [chain listener]: crate::chain_listener
 /// [p2p worker]: crate::worker::p2p
 pub(crate) struct Rebroadcast {
+    // BROADCAST DATA
     start: common::types::Height,
-    range: Option<std::ops::Range<common::types::Height>>,
+    catchup: super::Catchup,
     interval: tokio::time::Interval,
     broadcasting: bool,
+
+    // CHAIN DATA
+    attestation_interval: std::num::NonZero<common::types::Height>,
+    start_height: common::types::Height,
 }
 
 impl Rebroadcast {
@@ -48,29 +55,43 @@ impl Rebroadcast {
 
         Self {
             start: common::types::Height::MIN,
-            range: None,
+            catchup: super::Catchup {
+                start: config.start_height,
+                stop: config.start_height,
+            },
             interval,
             broadcasting: false,
+
+            attestation_interval: config.attestation_interval,
+            start_height: config.start_height,
         }
     }
 
     /// Returns the next block to be rebroadcasted after the time to rebroadcast elapses. Returns
     /// [`None`] if no block has been produced yet.
     pub async fn next(&mut self) -> Option<common::types::Height> {
-        if let Some(range) = &mut self.range {
-            if !self.broadcasting {
-                self.interval.tick().await;
-                self.broadcasting = true;
-                tracing::info!("🔁 Re-broadcasting attestations");
-            }
-
-            if let Some(n) = range.next() {
-                return Some(n);
-            }
-
-            range.start = self.start;
-            self.broadcasting = false;
+        if !self.broadcasting {
+            self.interval.tick().await;
+            self.broadcasting = true;
+            tracing::info!("🔁 Re-broadcasting attestations");
         }
+
+        // NOTE: RATE LIMIT
+        //
+        // We cap the number of attestations which can be rebroadcasted at once to avoid DOSing the
+        // network.
+        let size = self.catchup.start.saturating_sub(self.start);
+        let size_max = common::constants::MAX_REBROADCAST * self.attestation_interval.get();
+
+        if self.catchup.start < self.catchup.stop && size < size_max {
+            let n = self.catchup.start;
+            self.catchup.start += self.attestation_interval.get();
+            return Some(n);
+        }
+
+        self.catchup.start = self.start;
+        self.broadcasting = false;
+
         None
     }
 }
@@ -84,11 +105,11 @@ impl Rebroadcast {
     /// If we are re-broadcasting attestations, we need to make sure we do not re-broadcast this
     /// attestation.
     pub fn note_attestation_finalization(&mut self, latest_attestation_cc3: common::types::Height) {
-        let range = self.range.get_or_insert_default();
-        if range.start < latest_attestation_cc3 {
-            range.start = latest_attestation_cc3;
+        let start_new = latest_attestation_cc3 + self.attestation_interval.get();
+        if self.catchup.start < start_new {
+            self.catchup.start = start_new;
         }
-        self.start = latest_attestation_cc3;
+        self.start = start_new;
     }
 
     /// A new attestation has been produced by the [production worker]. Marks it as ready to be
@@ -96,9 +117,23 @@ impl Rebroadcast {
     ///
     /// [production worker]: crate::worker::production
     pub fn note_attestation_production(&mut self, latest_attestation_eth: common::types::Height) {
-        let range = self.range.get_or_insert_default();
-        if range.end < latest_attestation_eth {
-            range.end = latest_attestation_eth.saturating_add(1);
+        if self.catchup.stop < latest_attestation_eth {
+            self.catchup.stop = latest_attestation_eth + self.attestation_interval.get();
         }
+    }
+
+    pub fn note_attestation_interval_change(
+        &mut self,
+        interval_new: std::num::NonZero<common::types::Height>,
+        attestation_latest_cc3: Option<common::types::Height>,
+    ) {
+        let start_new = attestation_latest_cc3.unwrap_or(self.start_height);
+
+        self.attestation_interval = interval_new;
+        self.catchup = super::Catchup {
+            start: start_new,
+            stop: start_new,
+        };
+        self.start = start_new;
     }
 }

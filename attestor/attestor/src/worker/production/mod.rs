@@ -443,6 +443,12 @@ impl WorkerAttestationProduction {
                             .await
                             .map_err(Error::EthError)?;
 
+                        // 2. Chain listener - Rebroadcast
+                        //
+                        // Rebroadcast attestations at the new interval.
+                        self.rebroadcast
+                            .note_attestation_interval_change(interval, attestation_latest_cc3);
+
                         // 2. Attestation pool
                         //
                         // Update quorum validation to expect the new target height and attestation
