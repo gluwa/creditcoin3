@@ -3859,7 +3859,7 @@ fn set_attestation_chain_genesis_block_number_should_fail_when_attestations_exis
 
         assert_ok!(Attestation::commit_attestation(
             attestor.stash,
-            vec![attestation.clone()].try_into().unwrap()
+            attestation.clone()
         ));
 
         // Verify attestation exists
