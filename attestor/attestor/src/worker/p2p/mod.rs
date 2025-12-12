@@ -13,8 +13,8 @@
 //! To maintain chain liveness, past attestations are periodically re-sent to the p2p worker by the
 //! [rebroadcast chain listener] as part of the [production worker]. These attestations are then
 //! re-submitted to the network so that nodes which might have missed those attestations have
-//! another chance at synchronization. This also helps with bootstrapping quorum in new nodes, as
-//! they might have joined in the middle of attestation finalization.
+//! another chance at synchronization. This also helps with bootstrapping new nodes, as they might
+//! have joined in the middle of attestation finalization.
 //!
 //! # Reception
 //!
@@ -389,19 +389,14 @@ impl WorkerP2P {
                     "📩 Received attestation"
                 );
 
-                match self.sender_validation.send(attestation) {
+                match self.sender_validation.send(attestation).transpose() {
                     // CASE 1] ACCEPT
                     //
                     // Valid insertions or failures which depend on local state are still propagated
                     // to the rest of the network.
                     Ok(_)
-                    | Err(crate::worker::validation::pool::PoolError::PoolClosed)
-                    | Err(crate::worker::validation::pool::PoolError::Attestation(
-                        crate::worker::validation::pool::AttestationError::DoubleVote(..),
-                    ))
-                    | Err(crate::worker::validation::pool::PoolError::Attestation(
-                        crate::worker::validation::pool::AttestationError::MaxBatchSize(..),
-                    )) => {
+                    | Err(crate::worker::validation::pool::Error::DoubleVote(..))
+                    | Err(crate::worker::validation::pool::Error::MaxBatchSize(..)) => {
                         self.swarm
                             .behaviour_mut()
                             .gossipsub
@@ -416,15 +411,9 @@ impl WorkerP2P {
                     // Failures which depend on finality lag are not considered as malicious but are
                     // not propagated to the rest of the network as they are out-of-date.
                     // Equivocations are also propagated to facilitate slashing.
-                    Err(crate::worker::validation::pool::PoolError::Attestation(
-                        crate::worker::validation::pool::AttestationError::InvalidHeight(..),
-                    ))
-                    | Err(crate::worker::validation::pool::PoolError::Attestation(
-                        crate::worker::validation::pool::AttestationError::MissingHeight(..),
-                    ))
-                    | Err(crate::worker::validation::pool::PoolError::Attestation(
-                        crate::worker::validation::pool::AttestationError::Equivocation(..),
-                    )) => {
+                    Err(crate::worker::validation::pool::Error::InvalidHeight(..))
+                    | Err(crate::worker::validation::pool::Error::MissingHeight(..))
+                    | Err(crate::worker::validation::pool::Error::Equivocation(..)) => {
                         self.swarm
                             .behaviour_mut()
                             .gossipsub
@@ -438,9 +427,7 @@ impl WorkerP2P {
                     //
                     // Failures which depend solely on the sender are considered malicious. They are
                     // not propagated to the rest of the network.
-                    Err(crate::worker::validation::pool::PoolError::Attestation(
-                        crate::worker::validation::pool::AttestationError::Unauthorized(..),
-                    )) => {
+                    Err(crate::worker::validation::pool::Error::Unauthorized(..)) => {
                         self.swarm
                             .behaviour_mut()
                             .gossipsub
@@ -538,7 +525,9 @@ impl WorkerP2P {
                 tracing::error!(connection = %connection_id, "⛔ Dialing");
                 tracing::error!(?peer_id, %error, "⛔  Outgoing connection error");
 
-                // NOTE: we only remove the peer from the routing table in the case of an
+                // WARNING: ERROR HANDLING
+                //
+                // We only remove the peer from the routing table in the case of an
                 // unrecoverable error.
                 match error {
                     libp2p::swarm::DialError::Aborted => {
@@ -554,11 +543,19 @@ impl WorkerP2P {
                         tracing::error!("⛔  Tried to dial empty address");
                     }
                     libp2p::swarm::DialError::Transport(items) => {
+                        // TODO: perhaps we should remove peer addresses in this case
                         for (address, error) in items.iter() {
                             tracing::error!(%address, %error, "⛔  Failed transport negotiation");
                         }
                     }
 
+                    // NOTE: WrongPeerId is an unrecoverable error.
+                    //
+                    // During the initial connection handshake, libp2p peers exchange a proof of
+                    // ownership of the PeerId they are broadcasting. This is possible as the PeerId
+                    // is a commitment to an attestor's private key. For an attestor to fail PeerID
+                    // verification means it is impersonating another attestor, and should be
+                    // considered malicious.
                     libp2p::swarm::DialError::WrongPeerId { obtained, address } => {
                         tracing::error!(%obtained, expected =  %address, "⛔  Peer ID missmatch");
 
@@ -566,6 +563,10 @@ impl WorkerP2P {
                             self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
                         }
                     }
+
+                    // NOTE: Denied is an unrecoverable error
+                    //
+                    // Connection was established, but the peer refused to connect to us.
                     libp2p::swarm::DialError::Denied { cause } => {
                         tracing::error!(%cause, "⛔  Connection denied");
 

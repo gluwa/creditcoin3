@@ -8,6 +8,9 @@ pub(crate) struct P2PBehavior {
     /// [`Ping`]: libp2p::ping
     pub ping: libp2p::ping::Behaviour,
 
+    /// [`Limits`] are used to enforce a max number of connections per peer.
+    ///
+    /// [`Limits`]: libp2p::connection_limits
     pub limits: libp2p::connection_limits::Behaviour,
 
     /// [`Identify`] is used for identification between peers. This is required as other protocols
@@ -17,15 +20,18 @@ pub(crate) struct P2PBehavior {
     pub identify: libp2p::identify::Behaviour,
 
     /// [`mDNS`] is used for _local_ node discovery. This is handy for testing or setting up clusters
-    /// under the same local network but doesn't solve for global peer discovery.
+    /// under the same local network but doesn't solve for global peer discovery. Note that this
+    /// tends to not works on K8s networks, in which case manual boot node registration via
+    /// [`kademlia`] will be required to bootstrap the network.
     ///
     /// [`mDNS`]: libp2p::mdns
+    /// [`kademlia`]: libp2p::kad
     pub mdns: libp2p::mdns::tokio::Behaviour,
 
-    /// [`kademlia`] is used for _global_ peer discovery. We use kademlia instead of [`rendezvous`]
+    /// [`Kademlia`] is used for _global_ peer discovery. We use kademlia instead of [`rendezvous`]
     /// for its resilience to centralized points of failure as well as its in-build peer discovery.
     ///
-    /// [`kademlia`]: libp2p::kad
+    /// [`Kademlia`]: libp2p::kad
     /// [`rendezvous`]: https://github.com/libp2p/specs/blob/master/rendezvous/README.md
     pub kad: libp2p::kad::Behaviour<libp2p::kad::store::MemoryStore>,
 

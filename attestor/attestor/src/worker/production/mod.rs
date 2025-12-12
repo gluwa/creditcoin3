@@ -95,11 +95,10 @@
 //!   closest multiple of the new attestation interval.
 //!
 //! - **[`CheckpointReached`]**: A new source chain attestation checkpoint has been finalized on the
-//!   execution chain, invalidating all local attestation prior to it which have not yet been
-//!   submitted to the runtime.
+//!   execution chain.
 //!
-//! - **[`RandomnessChanged`]**: New execution chain epoch, implies a rotation in the validator set
-//!   and an invalidation of all local non-finalized attestations.
+//! - **[`RandomnessChanged`]**: New execution chain epoch, implies a rotation in the validator
+//!   set, which is emitted as a separate event.
 //!
 //! - **[`AttestorsElected`]**: Rotation in the elected attestor set. This lets us know which
 //!   attestors are allowed to submit attestations for the coming epoch.
@@ -333,7 +332,7 @@ impl WorkerAttestationProduction {
             "Invariant violated: regenerating existing attestation"
         );
 
-        if let Err(err) = self.sender_validation.send(attestation_signed) {
+        if let Err(err) = self.sender_validation.send(attestation_signed).transpose() {
             err.log_error(digest);
         }
 
@@ -501,7 +500,7 @@ impl WorkerAttestationProduction {
                         // 2. Attestor validation
                         //
                         // Update the set of legal attestors in the attestation pool.
-                        let _ = self.sender_validation.note_attestors_elected(attestors);
+                        self.sender_validation.note_attestors_elected(attestors);
                     }
                 }
 

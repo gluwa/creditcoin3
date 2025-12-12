@@ -18,17 +18,17 @@ pub use error::*;
 pub struct Config {
     /// Chain RPC url.
     eth_url: url::Url,
-    #[specify_later]
     /// Interval at which attestations are being produced and source chain blocks are synchronized.
     /// This value is fetched from on-chain storage unless it is overridden in [attestation config].
     ///
     /// [attestation config]: crate::attestation
-    pub attestation_interval: std::num::NonZero<common::types::Height>,
     #[specify_later]
+    pub attestation_interval: std::num::NonZero<common::types::Height>,
     /// Starting height at which attestation are produced and source chain block fetching begins.
     /// This value is fetched from on-chain storage unless it is overridden in [attestation config].
     ///
     /// [attestation config]: crate::attestation
+    #[specify_later]
     pub start_height: common::types::Height,
 }
 
@@ -82,7 +82,7 @@ pub(crate) struct Catchup {
 }
 
 impl Ethereum {
-    /// Creates a new [`Ethereum`] [chain listener].
+    /// Creates a new Ethereum [chain listener].
     ///
     /// [chain listener]: crate::chain_listener
     #[tracing::instrument(skip_all, level = "debug")]
@@ -132,20 +132,11 @@ impl Ethereum {
         })
     }
 
-    /// Returns the next source chain block **height** to be attested to.
+    /// Returns the next source chain block **height** to be attested to. Blocks are only returned
+    /// once they have reached the [`ATTESTATION_FINALIZATION_LAG`].
     ///
-    /// This can be one of several values:
-    ///
-    /// - None: no source chain block has reached the [`ATTESTATION_FINALIZATION_LAG`].
-    /// - Some: a new source chain block is available.
-    ///
-    /// Or
-    ///
-    /// - Some: we are regenerating a past attestation which could not reach finality.
-    ///
-    /// This last part can happen at epoch rotation, if an attestation cannot be finalized in time
-    /// before the next epoch starts, or if an invalid attestation is submitted to the runtime. In
-    /// both cases the attestor will attempt to re-generate the attestation.
+    /// This will always return [`Some`] unless a manual user interrupt via `CTRL-C`has been
+    /// observed.
     ///
     /// [`ATTESTATION_FINALIZATION_LAG`]: common::constants::ATTESTATION_FINALIZATION_LAG
     pub async fn next(&mut self) -> Option<Result<common::types::Height, Error>> {
@@ -219,8 +210,7 @@ impl Ethereum {
 impl Ethereum {
     /// A new attestation has reached finality on the execution chain.
     ///
-    /// If we are catching up (re-generating) past attestations, we need to make sure we do no
-    /// re-generate this attestation.
+    /// If we are catching up, we need to make sure we do not re-generate this attestation.
     pub fn note_attestation_finalization(&mut self, attestation_latest_cc3: common::types::Height) {
         let target_start_new =
             util::next_multiple_of(self.attestation_interval, attestation_latest_cc3);
@@ -233,8 +223,8 @@ impl Ethereum {
     /// A new attestation interval has been set on-chain.
     //
     /// We need to make sure the next source chain block we attest to is a multiple of the new
-    /// attestation interval. If we are catching up (re-generating) past attestations, we also need
-    /// to make sure we skip any attestations before that point.
+    /// attestation interval. If we are catching up on past attestations, we also need to make sure
+    /// we skip any attestations before that point.
     pub async fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,

@@ -32,7 +32,7 @@ pub(crate) struct Rebroadcast {
 }
 
 impl Rebroadcast {
-    /// Creates a new [`Rebroadcast`] [chain listener].
+    /// Creates a new Rebroadcast [chain listener].
     ///
     /// [chain listener]: crate::chain_listener
     #[tracing::instrument(skip_all, level = "debug")]

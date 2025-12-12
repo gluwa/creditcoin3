@@ -2,10 +2,10 @@
 //!
 //! # Usage
 //!
-//! The attestation pool is a structure which stores attestation readiness across threads. It
-//! supports first-in-first-out ordering of attestations with eager insertions and lazy retrieval,
-//! meaning writes take precedence and reads only take place when there is new data to be
-//! examined thanks to an `async` api.
+//! The attestation pool implements an ordered queue structure which stores attestation readiness
+//! across threads. It supports first-in-first-out ordering of attestations with eager insertions
+//! and lazy retrieval, meaning writes take precedence and reads only take place when there is new
+//! data to be examined thanks to an `async` api.
 //!
 //! A [`sender`] pushes new attestaions into the pool from a [worker thread] whenever a new
 //! attestation is made available. This can be a [locally produced attestation], or a remote
@@ -35,34 +35,14 @@
 //! 2. It minimizes the time during which the pool is locked by performing validation outside the
 //!    lock.
 //!
-//! # Batching
+//! # Optimistic production
 //!
 //! To optimize for throughput ahead of runtime finality, the attestation pool supports the
-//! optimistic batching of attestations with the assumption that attestations which have previously
-//! reached quorum locally will be accepted by the runtime. This allows us to batch up to
-//! `max_attestations_per_block` in advance to be submitted at once. We do this while waiting on the
-//! runtime to validate any previous attestations we sent it, minimizing the amount of time spent
-//! idle.
-//!
-//! In an ideal scenario, the time it takes for the largest possible attestation batch to reach
-//! quorum and be validated locally should be equal to the time it takes the runtime to validate the
-//! previous batch and finalize it on-chain. That way we can guarantee that no idle time is spent
-//! during which the execution chain is not making progress in the finalization of new attestations.
-//!
-//! In practice, attestors are either able to produce attestations well in advance of the runtime
-//! in situations where they are catching up on source chain finality, or else source chain
-//! finality is too slow to saturate the bandwidth of the attestor network. This both points to the
-//! fact that the runtime can be further optimized to better handle chain catchup and that we can
-//! easily support more chains when _not_ in catchup, though catching up to even a single source
-//! chain will currently saturate the runtime. Ideally we would want the reverse to be true, so
-//! that the runtime can validate attestations much faster than they are produced.
-//!
-//! # DOS mitigation
-//!
-//! In order to mitigate spamming risks, the attestation pool has a strictly bounded capacity which
-//! is set on initialization. Once this capacity has been reached, the pool will begin to evict
-//! attestations at the highest known attestation height, since that is the least likely to reach
-//! finality as attestations must be sequential.
+//! optimistic production of attestations with the assumption that attestations which have
+//! previously reached quorum locally will be accepted by the runtime. This allows us to keep
+//! producing and validating new attestation in advance of execution chain finality. We do this
+//! while waiting on the runtime to validate any previous attestations we sent it, decoupling
+//! the production of new attestations from their finalization on the execution chain.
 //!
 //! # Example
 //!
@@ -109,14 +89,13 @@
 //!         .with_attestors(AttestorValidatePermissionless)
 //!         .with_start_height(0u64)
 //!         .with_attestation_interval(std::num::NonZeroU64::new(1).unwrap())
-//!         .with_max_attestations_per_block(10u32)
 //!         .build(),
 //! );
 //!
 //! // Sends 3 attestations at the same height from different attestors
-//! sx.send(attestation_0).unwrap();
-//! sx.send(attestation_1).unwrap();
-//! sx.send(attestation_2).unwrap();
+//! sx.send(attestation_0).unwrap().unwrap();
+//! sx.send(attestation_1).unwrap().unwrap();
+//! sx.send(attestation_2).unwrap().unwrap();
 //!
 //! // An attestation has reached quorum!
 //! let (quorum, permit, digest_local) = rx.next().await.unwrap();
@@ -154,9 +133,9 @@ pub struct Config {
     /// evicting the highest attestations.
     #[allow(unused)]
     capacity: std::num::NonZeroUsize,
-    #[specify_later]
     /// Attestor validation policy, can be either [`AttestorValidatePermissionless`] or
     /// [`AttestorValidatePermissioned`].
+    #[specify_later]
     attestors: Box<dyn ValidateAttestor>,
     /// Target [`Quorum`] size. Ie: the number of valid attestors which must submit the same
     /// attestation before it reaches quorum.
@@ -196,25 +175,7 @@ pub struct AttestationPoolReceiver {
     common: std::sync::Arc<AttestationPoolCommon>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-/// Identifying information about an attestation batch, avoids the receiver having to inspect the
-/// batch again when this information can be retrieved directly by the attestation pool.
-pub struct BatchInfo {
-    /// The _previous_ digest of the first attestation in the batch.
-    pub digest_first: Option<attestor_primitives::Digest>,
-    /// The digest of the last attestation in the batch.
-    pub digest_last: attestor_primitives::Digest,
-    /// The height of the first attestation in the batch
-    pub height_first: common::types::Height,
-    /// The height of the last attestation in the batch
-    pub height_last: common::types::Height,
-}
-
 /// Creates a new attestation pool and returns its [`sender`] and [`receiver`] ends.
-///
-/// * `capacity`: maximum number of attestations which can be held in the pool before eviction.
-/// * `quorum`: settings related to quorum checks.
-/// * `attestors`: settings related to attestor checks.
 ///
 /// [`sender`]: AttestationPoolSender
 /// [`receiver`]: AttestationPoolReceiver
@@ -241,7 +202,6 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
     let pool = AttestationPool::new(quorum, config.attestors);
 
     let common_send = std::sync::Arc::new(AttestationPoolCommon::new(pool, config.start_height));
-
     let common_recv = std::sync::Arc::clone(&common_send);
 
     let send = AttestationPoolSender {
@@ -325,10 +285,6 @@ struct AttestationPoolCommon {
     /// [mutex-bench]: https://github.com/gluwa/mutex-bench
     pool: parking_lot::Mutex<AttestationPool>,
     count_sender: std::sync::atomic::AtomicUsize,
-
-    // CROSS THREAD ATOMIC DATA STORE
-    //
-    // Data which needs to be accessed frequently without acquiring a lock onto the inner pool.
     start_height: common::types::Height,
 }
 
@@ -352,10 +308,8 @@ impl Default for AttestationPoolCommon {
     }
 }
 
-/// Attestation pool status. The pool can no longer receiver or retrieve attestations once it is
-/// [`Closed`].
-///
-/// [`Closed`]: AttestationPool::Closed
+/// Attestation pool status. The pool can no longer receiver or retrieve attestations once it has
+/// been closed.
 #[allow(clippy::large_enum_variant)]
 enum AttestationPool {
     Open(AttestationPoolInner),
@@ -399,7 +353,7 @@ impl AttestationPool {
 
 impl AttestationPoolInner {
     #[tracing::instrument(skip_all, fields(digest = %attestation.digest()))]
-    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), AttestationError> {
+    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), Error> {
         tracing::debug!("Validating sender");
         self.validate_attestor.validate(&attestation)?;
 
@@ -409,7 +363,7 @@ impl AttestationPoolInner {
         );
 
         if attestation.header_number() < self.validate_quorum.target_height {
-            return Err(AttestationError::InvalidHeight(
+            return Err(Error::InvalidHeight(
                 attestation.attestor.clone(),
                 attestation.epoch,
                 attestation.header_number(),
@@ -519,6 +473,9 @@ impl AttestationPoolInner {
     }
 }
 
+/// Holds and manages all attestation forks behind the execution chain finality. Keeps track of
+/// contentious forks, past equivocations and known invalid votes. Attestation [`Quorum`]s which can
+/// be validated ahead of finality are stored separately in an unbounded collection.
 struct AttestationPoolForks {
     forks: std::collections::BTreeMap<common::types::Height, ForkData>,
     equivocations: std::collections::BTreeMap<
@@ -531,6 +488,8 @@ struct AttestationPoolForks {
     >,
 }
 
+/// Fork data for a single source chain height. Optimized for the fast retrieval of the best vote
+/// at that height. Retrievals are `O(1)`, insertions and removals are `O(log(n))`.
 struct ForkData {
     attestations_by_digest: std::collections::HashMap<AttestationKey, AttestationVote>,
     attestations_by_count: std::collections::BTreeMap<
@@ -551,7 +510,7 @@ impl AttestationPoolForks {
     }
 
     #[tracing::instrument(skip_all, fields(height = attestation.header_number()))]
-    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), AttestationError> {
+    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), Error> {
         let attestor_id = attestation.attestor_id();
         let height = attestation.header_number();
         let epoch = attestation.epoch;
@@ -595,7 +554,7 @@ impl AttestationPoolForks {
                         equivocations.push(vote.attestation);
                         equivocations.push(vote_prev.attestation);
 
-                        return Err(AttestationError::Equivocation(attestor_id, epoch, height));
+                        return Err(Error::Equivocation(attestor_id, epoch, height));
                     }
                 }
 
@@ -660,26 +619,22 @@ impl AttestationPoolForks {
 // ----------------------------------- [ Attestation Sender ] ---------------------------------- //
 
 impl AttestationPoolSender {
-    /// Sends an attestation to the attestation pool. Errors if the pool has already been
+    /// Sends an attestation to the attestation pool. Returns [`None`] if the pool has been
     /// [`closed`].
     ///
     /// [`closed`]: Self::close
     #[tracing::instrument(skip_all)]
-    pub fn send(&self, attestation: common::types::Attestation) -> Result<(), PoolError> {
-        match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => {
-                tracing::debug!("Inserting attestation into the inner pool");
-                inner.push(attestation).map_err(PoolError::Attestation)
-            }
-            AttestationPool::Closed => {
-                tracing::error!("Tried to send attestation to pool after it has been closed!");
-                Err(PoolError::PoolClosed)
-            }
+    pub fn send(&self, attestation: common::types::Attestation) -> Option<Result<(), Error>> {
+        if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
+            tracing::debug!("Inserting attestation into the inner pool");
+            Some(inner.push(attestation))
+        } else {
+            None
         }
     }
 
-    /// Closes the attestation pool. Successive calls to [`send`] will error, while polling via the
-    /// [`receiver`] end will terminate its [`Stream`].
+    /// Closes the attestation pool. Successive calls to [`send`] will return [`None`], while
+    /// polling via the [`receiver`] end will terminate its [`Stream`].
     ///
     /// [`send`]: Self::send
     /// [`receiver`]: AttestationPoolReceiver
@@ -697,7 +652,7 @@ impl AttestationPoolSender {
     /// A new attestation has reached finality on the execution chain.
     ///
     /// Remove all attestations _up to and including_ that attestation height from the inner
-    /// attestation pool and the attestation batch.
+    /// attestation pool.
     pub fn note_attestation_finalization(&self, latest_attestation_cc3: common::types::Height) {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             // Updating quorum
@@ -719,13 +674,22 @@ impl AttestationPoolSender {
                 .forks
                 .invalid
                 .retain(|height, _| *height > latest_attestation_cc3);
+
+            // Remove past quorums
+            while inner
+                .quorums
+                .back()
+                .is_some_and(|quorum| quorum.attestation.header_number <= latest_attestation_cc3)
+            {
+                inner.quorums.pop_back();
+            }
         }
     }
 
     /// A new attestation interval has been set on-chain.
     //
-    // Clear the attestation pool and the attestation batch and update the target height and
-    // locally tracked attestation interval.
+    // Clear the attestation pool and update the target height and locally tracked attestation
+    // interval.
     pub fn note_attestation_interval_change(
         &self,
         interval_new: std::num::NonZero<common::types::Height>,
@@ -747,25 +711,17 @@ impl AttestationPoolSender {
         }
     }
 
-    pub fn note_attestors_elected(
-        &self,
-        attestors: Vec<cc_client::AccountId32>,
-    ) -> Result<(), PoolError> {
-        match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => {
-                tracing::warn!("🗂️ Updating the attestor set");
+    pub fn note_attestors_elected(&self, attestors: Vec<cc_client::AccountId32>) {
+        if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
+            tracing::warn!("🗂️ Updating the attestor set");
 
-                inner.validate_attestor = Box::new(AttestorValidatePermissioned::new(
-                    std::collections::HashSet::from_iter(attestors.into_iter().map(|attestor| {
-                        attestor_primitives::AttestorId::new(sp_core::crypto::AccountId32::new(
-                            attestor.0,
-                        ))
-                    })),
-                ));
-
-                Ok(())
-            }
-            AttestationPool::Closed => Err(PoolError::PoolClosed),
+            inner.validate_attestor = Box::new(AttestorValidatePermissioned::new(
+                std::collections::HashSet::from_iter(attestors.iter().map(|attestor| {
+                    attestor_primitives::AttestorId::new(sp_core::crypto::AccountId32::new(
+                        attestor.0,
+                    ))
+                })),
+            ));
         }
     }
 }
@@ -797,7 +753,7 @@ impl Drop for AttestationPoolSender {
 // ---------------------------------- [ Attestation Receiver ] --------------------------------- //
 
 impl AttestationPoolReceiver {
-    /// Closes the attestation pool. Successive calls to [`send`] will error, while the
+    /// Closes the attestation pool. Successive calls to [`send`] will return [`None`], while the
     /// [`receiver`] will terminate its [`Stream`].
     ///
     /// [`send`]: AttestationPoolSender::send
@@ -808,7 +764,8 @@ impl AttestationPoolReceiver {
         *self.common.pool.lock() = AttestationPool::Closed;
     }
 
-    // TODO: update docs
+    /// Marks an attestation as valid, causing it and all other attestations at the same height to
+    /// be removed from the attestation pool, as well as the pool's target height to be updated.
     #[tracing::instrument(skip_all, fields(%permit))]
     pub fn mark_valid(&self, permit: AttestationPermit) {
         match &mut *self.common.pool.lock() {
@@ -824,7 +781,8 @@ impl AttestationPoolReceiver {
         }
     }
 
-    // TODO: update docs
+    /// Marks an attestation as **invalid**, causing it to be removed from the attestation pool. The
+    /// pool's target height _is not_ updated.
     #[tracing::instrument(skip_all, fields(%permit))]
     pub fn mark_invalid(&self, permit: AttestationPermit) {
         match &mut *self.common.pool.lock() {
@@ -840,7 +798,14 @@ impl AttestationPoolReceiver {
         }
     }
 
-    // TODO: update docs
+    /// Marks an attestation as valid and updates the pool's target height. Contrarily to
+    /// [`mark_valid`], this method does _not_ remove the attestation from the pool and instead
+    /// moves it to an unbounded pending queue for future submission by the [validation worker].
+    /// Pending validated attestations can be retrieved with [`take_next_validated`].
+    ///
+    /// [`mark_valid`]: Self::mark_valid
+    /// [validation worker]: crate::worker::validation
+    /// [`take_next_validated`]: Self::take_next_validated
     #[tracing::instrument(skip_all, fields(%permit))]
     pub fn mark_for_later(
         &self,
@@ -860,18 +825,15 @@ impl AttestationPoolReceiver {
         }
     }
 
-    /// Retrieves all valid attestations batched with [`mark_batch`] to submit them to the runtime
-    /// as one.
-    ///
-    /// Errors if the pool is closed.
+    /// Retrieves the next pending validated attestation marked with [`mark_for_later`] to submit
+    /// it to the runtime.
     ///
     /// Returns:
     ///
-    /// [`None`] if no batch is available, can happen if the previous batch was invalidated or
-    /// there was not enough time to batch attestations between submissions. Returns [`Some`]
-    /// otherwise.
+    /// [`None`] if no pending validated attestation is available, can happen if there was not
+    /// enough time to validate attestations between submissions.
     ///
-    /// [`mark_batch`]: Self::mark_batch
+    /// [`mark_for_later`]: Self::mark_for_later
     pub fn take_next_validated(
         &self,
     ) -> Option<(
@@ -973,10 +935,10 @@ impl Quorum {
 }
 
 /// A unique permit which can be used to remove attestation from the attestation pool via
-/// [`mark_valid`], [`mark_batch`] and [`mark_invalid`].
+/// [`mark_valid`], [`mark_for_later`] and [`mark_invalid`].
 ///
 /// [`mark_valid`]: AttestationPoolReceiver::mark_valid
-/// [`mark_batch`]: AttestationPoolReceiver::mark_batch
+/// [`mark_for_later`]: AttestationPoolReceiver::mark_for_later
 /// [`mark_invalid`]: AttestationPoolReceiver::mark_invalid
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
@@ -986,8 +948,8 @@ pub struct AttestationPermit(AttestationKey);
 
 /// Encapsulates quorum information to check if an attestation is ready for polling.
 ///
-/// An attestation is ready for polling when enough different attestors have voted for it and its
-/// height is next in line.
+/// An attestation is ready for polling when enough attestors have voted for it and its height is
+/// next in line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ValidateQuorum {
     target_quorum: std::num::NonZeroUsize,
@@ -1031,7 +993,7 @@ impl ValidateQuorum {
 
 /// Common trait used to determine if an attestor can submit attestations.
 pub trait ValidateAttestor: Send + Sync + std::fmt::Debug + std::fmt::Display + 'static {
-    fn validate(&self, attestation: &common::types::Attestation) -> Result<(), AttestationError>;
+    fn validate(&self, attestation: &common::types::Attestation) -> Result<(), Error>;
 }
 
 /// Enforces permissioned attesting.
@@ -1060,9 +1022,9 @@ impl std::fmt::Display for AttestorValidatePermissioned {
 }
 
 impl ValidateAttestor for AttestorValidatePermissioned {
-    fn validate(&self, attestation: &common::types::Attestation) -> Result<(), AttestationError> {
+    fn validate(&self, attestation: &common::types::Attestation) -> Result<(), Error> {
         if !self.attestor_set.contains(&attestation.attestor) {
-            return Err(AttestationError::Unauthorized(
+            return Err(Error::Unauthorized(
                 attestation.attestor.clone(),
                 attestation.epoch,
                 attestation.header_number(),
@@ -1077,7 +1039,7 @@ impl ValidateAttestor for AttestorValidatePermissioned {
 pub struct AttestorValidatePermissionless;
 
 impl ValidateAttestor for AttestorValidatePermissionless {
-    fn validate(&self, _attestation: &common::types::Attestation) -> Result<(), AttestationError> {
+    fn validate(&self, _attestation: &common::types::Attestation) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -1096,8 +1058,8 @@ impl std::fmt::Display for AttestorValidatePermissionless {
 pub struct AttestorValidateDeny;
 
 impl ValidateAttestor for AttestorValidateDeny {
-    fn validate(&self, attestation: &common::types::Attestation) -> Result<(), AttestationError> {
-        Err(AttestationError::Unauthorized(
+    fn validate(&self, attestation: &common::types::Attestation) -> Result<(), Error> {
+        Err(Error::Unauthorized(
             attestation.attestor.clone(),
             attestation.epoch,
             attestation.header_number(),
@@ -1327,8 +1289,8 @@ mod test {
 
         let (sx, mut rx) = attestation_pool(config);
 
-        assert!(sx.send(attestation_0.votes[0].clone()).is_ok());
-        assert!(sx.send(attestation_1.votes[0].clone()).is_ok());
+        assert!(sx.send(attestation_0.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.votes[0].clone()).unwrap().is_ok());
 
         let actual = rx.next().await;
         let expected = Some((quorum, permit, None));
@@ -1359,9 +1321,9 @@ mod test {
 
         let (sx, mut rx) = attestation_pool(config);
 
-        assert!(sx.send(attestation_0.votes[0].clone()).is_ok());
-        assert!(sx.send(attestation_1.votes[0].clone()).is_ok());
-        assert!(sx.send(attestation_2.votes[0].clone()).is_ok());
+        assert!(sx.send(attestation_0.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_2.votes[0].clone()).unwrap().is_ok());
 
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
@@ -1399,8 +1361,8 @@ mod test {
 
         let (sx, mut rx) = attestation_pool(config);
 
-        assert!(sx.send(attestation_0.attestation.clone()).is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).is_ok());
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
 
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
@@ -1442,8 +1404,8 @@ mod test {
 
         assert_matches::assert_matches!(rx.take_next_validated(), None);
 
-        assert!(sx.send(attestation_0.votes[0].clone()).is_ok());
-        assert!(sx.send(attestation_1.votes[0].clone()).is_ok());
+        assert!(sx.send(attestation_0.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.votes[0].clone()).unwrap().is_ok());
 
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
@@ -1481,11 +1443,7 @@ mod test {
 
         assert_matches::assert_matches!(
             sx.send(attestation.votes[0].clone()),
-            Err(PoolError::Attestation(AttestationError::Unauthorized(
-                ATTESTOR_INVALID,
-                0,
-                0
-            )))
+            Some(Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0)))
         );
     }
 
@@ -1508,7 +1466,7 @@ mod test {
         let mut fut = tokio_test::task::spawn(rx.next());
 
         tokio_test::assert_pending!(fut.poll());
-        assert!(sx.send(attestation.votes[0].clone()).is_ok());
+        assert!(sx.send(attestation.votes[0].clone()).unwrap().is_ok());
         tokio_test::assert_ready_eq!(fut.poll(), Some((quorum, permit, None)));
     }
 
@@ -1536,10 +1494,7 @@ mod test {
     ) {
         let (sx, rx) = attestation_pool(config);
         rx.close();
-        assert_matches::assert_matches!(
-            sx.send(attestation.votes[0].clone()),
-            Err(PoolError::PoolClosed)
-        );
+        assert_matches::assert_matches!(sx.send(attestation.votes[0].clone()), None);
     }
 
     #[tokio::test]
@@ -1553,7 +1508,7 @@ mod test {
         use futures::stream::StreamExt as _;
 
         let (sx, mut rx) = attestation_pool(config);
-        assert!(sx.send(attestation.votes[0].clone()).is_ok());
+        assert!(sx.send(attestation.votes[0].clone()).unwrap().is_ok());
 
         sx.close();
         assert!(rx.next().await.is_none());
@@ -1588,7 +1543,7 @@ mod test {
         assert!(permissioned.validate(&attestation_0.votes[0]).is_ok());
         assert_matches::assert_matches!(
             permissioned.validate(&attestation_2.votes[0]),
-            Err(AttestationError::Unauthorized(ATTESTOR_INVALID, 0, 0))
+            Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0))
         );
     }
 
@@ -1620,11 +1575,11 @@ mod test {
     ) {
         assert_matches::assert_matches!(
             deny.validate(&attestation_0.votes[0]),
-            Err(AttestationError::Unauthorized(ATTESTOR_VALID_0, 0, 0))
+            Err(Error::Unauthorized(ATTESTOR_VALID_0, 0, 0))
         );
         assert_matches::assert_matches!(
             deny.validate(&attestation_2.votes[0]),
-            Err(AttestationError::Unauthorized(ATTESTOR_INVALID, 0, 0))
+            Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0))
         );
     }
 }

@@ -5,14 +5,14 @@
 /// [broadcast]: tokio::sync::broadcast
 pub const CAPACITY_CHANNEL: usize = 100;
 
-/// Finality timeout before an attestation vote is considered as having failed.
+/// Finality timeout before an attestation vote is assumed to have failed.
 ///
 /// Since attestation submission leader election takes place on a round-vrf basis, it is
-/// possible for no leader to be elected this way. Since no consensus is made on the specific set
-/// of leaders being elected, and this election is probabilistic, attestors have no way of knowing
-/// when an election fails. As a failcase, attestors will wait for finality to conclude for a max
-/// duration of [`ATTESTATION_TIMEOUT`], after which they will consider that no leader has been
-/// elected and move on to the next height.
+/// possible for no leader to be elected. Since no consensus is made on the specific set of leaders
+/// being elected, and this election is probabilistic, attestors have no way of knowing when an
+/// election fails. As a failsafe, attestors will wait for finality to conclude for a max duration
+/// of [`ATTESTATION_TIMEOUT`], after which they will assume that no leader has been elected and
+/// retry their elegibility check with different parameters.
 pub const ATTESTATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Currently we only support attesting to Ethereum, which has probabilistic finality. To avoid the

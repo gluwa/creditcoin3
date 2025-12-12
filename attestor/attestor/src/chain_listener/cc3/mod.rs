@@ -1,4 +1,4 @@
-//! A [chain listenerd responsible for producing and submitting attestations to the cc3 execution
+//! A [chain listener] responsible for producing and submitting attestations to the cc3 execution
 //! chain, as well as reacting to events in the [production worker].
 //!
 //! [chain listener]: crate::chain_listener
@@ -21,12 +21,12 @@ pub struct Config {
     /// Private key of the attestor being used to submit attestations on-chain. Keep in mind that
     /// attestors have to be **registered** before they can start to produce attestations.
     pub cc3_key: bip39::Mnemonic,
-    /// Execution chain client responsible for establishing a connection with cc3.
+    /// Execution chain client responsible for establishing a connection with CC3.
     #[specify_later]
     pub cc3_client: cc_client::Client,
-    /// Source chain client responsible for establishing a connection with ethereum.
+    /// Source chain client responsible for establishing a connection with Ethereum.
     pub eth_url: url::Url,
-    /// Unique key which identifies the chain being attested to. In the case of ethereum it is `2`.
+    /// Unique key which identifies the chain being attested to. Ethereum mainnet is `2`.
     #[specify_later]
     pub chain_key: attestor_primitives::ChainKey,
     /// Starting height at which attestation are produced and source chain block fetching begins.
@@ -35,6 +35,8 @@ pub struct Config {
     /// [attestation config]: crate::attestation
     #[specify_later]
     pub start_height: common::types::Height,
+    /// True if the execution chain does not contain any attestations yet. This is useful when
+    /// generating the genesis attestation.
     #[specify_later]
     pub empty_chain: bool,
 }
@@ -61,7 +63,7 @@ pub(crate) struct CC3 {
 }
 
 impl CC3 {
-    /// Creates a new [`CC3`] [chain listener].
+    /// Creates a new CC3 [chain listener].
     ///
     /// This method is also responsible for registering an attestors bls public key to on-chain
     /// storage if this is not already the case, which is needed for attestation verification by
@@ -146,12 +148,10 @@ impl CC3 {
     /// - The current epoch - 2
     /// - The target source chain height
     ///
-    /// Contrary to [`sign_vrf_production`], this is only meant for DOS purposes by limiting the
-    /// number of attestors which can submit attestations to the runtime at once. Similarly to that
-    /// method though, it is possible for no attestor to be elected for submission, in which case
-    /// the next attestation will attest to twice the attestation interval number of blocks.
-    ///
-    /// [`sign_vrf_production`]: Self::sign_vrf_production
+    /// This is only meant for DOS purposes by limiting the number of attestors which can submit
+    /// attestations to the runtime at once. It is still possible for no attestor to be elected for
+    /// submission, in which case we retry the eligibility check with different parameters.
+    /// **Submission eligibility checks should never stall attestation production.**
     pub async fn sign_vrf_submission(
         &self,
         height: common::types::Height,
@@ -214,8 +214,8 @@ impl CC3 {
     /// it is acceptable to make even slow progress in continuity proof computation.
     ///
     /// Still, optimizing continuity proof computation this way unlocks interesting options around
-    /// the batching of future attestations in advance of the runtime, which can be seen in action
-    /// as part of the [validation worker].
+    /// the production of future attestations in advance of the runtime, which can be seen in action
+    /// in the [validation worker].
     ///
     /// [validation worker]: crate::worker::validation
     #[tracing::instrument(skip(self), level = "debug")]
@@ -234,6 +234,7 @@ impl CC3 {
 
         // ------------------------------------* Range checks *------------------------------------
 
+        // TODO: move this special case out of this function
         if height == self.start_height && self.empty_chain {
             tracing::debug!("Creating default continuity proof for header number 0");
             return Some(Ok(Default::default()));
@@ -271,11 +272,9 @@ impl CC3 {
         // WARNING: RACE CONDITION
         //
         // There are plenty of nice network conditions which can cause the latest source chain
-        // block height we are aware of to fall behind chain finalization. These mainly revolve
-        // around a future attestation being finalized after a reset at an epoch boundary, or
-        // other attestation regeneration scenarios. Rather than treat this as an error and try and
-        // handle every possible edge case, we simply let this fly and move on to the next source
-        // chain attestation.
+        // block height we are aware of to fall behind chain finalization. Rather than treat this as
+        // an error and try and handle every possible edge case, we simply let this fly and move on
+        // to the next source chain attestation.
         if from_block > height {
             return None;
         }

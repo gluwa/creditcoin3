@@ -17,13 +17,9 @@
 //!
 //! Valid attestations are eagerly submitted, that is to say we commit an attestation as soon as
 //! the runtime can make further progress in validation. To avoid idling while the runtime is
-//! validating a past attestation, the validation worker will _batch_ attestations ahead of
+//! validating a past attestation, the validation worker will keep validating attestations ahead of
 //! finality, checking multiple attestations locally _ahead of time_ so as to be able to submit them
-//! all at once once the runtime is done with any previous attestations.
-//!
-//! The runtime enforces a constant maximum to the number of attestation it can validated in a
-//! single block so as to avoid DOS vectors, which also corresponds to the maximum number of
-//! attestations which the validation worker can batched in advance of finality.
+//! once the runtime is done with any previous attestations.
 //!
 //! # Finalization
 //!
@@ -60,7 +56,7 @@
 //!         activate CC3
 //!
 //!         loop wait on submission
-//!             loop batching
+//!             loop validating
 //!                 Validation Worker ->> Attestation Pool: Polls
 //!
 //!                 activate Attestation Pool
@@ -68,13 +64,13 @@
 //!                 deactivate Attestation Pool
 //!
 //!                 Validation Worker ->> Validation Worker: Validate
-//!                 Validation Worker ->> Attestation Pool: Append to batch
+//!                 Validation Worker ->> Attestation Pool: Store
 //!             end
 //!
 //!             CC3 ->> Validation Worker: Confirm Finalization
 //!             deactivate CC3
 //!
-//!             Validation Worker ->> CC3: Submit Batch
+//!             Validation Worker ->> CC3: Submit next valid attestation
 //!             deactivate Validation Worker
 //!         end
 //!     end
@@ -231,8 +227,8 @@ impl WorkerAttestationValidation {
             // CASE 2] VALID ATTESTATION - WAITING ON SUBMISSION
             //
             // If the attestor notices a new quorum but is waiting on the runtime to validate
-            // previous attestations, it will optimistically batch new sequential attestations up to
-            // `max_attestations_per_block` for them to be submitted next.
+            // previous attestations, it will optimistically validate new sequential attestations
+            // for them to be submitted later.
             Some(Ok(attestation)) => {
                 // ---------------------------------* Pool update *--------------------------------
 
@@ -605,11 +601,13 @@ impl WorkerAttestationValidation {
         // Uses ChaCha under the hood
         let mut rng = rand::rngs::StdRng::from_os_rng();
 
-        // WARNING: as an optimization, we assume that each attestation in the quorum attests to
-        // the same vote (this guarantee is upheld by the attestation pool). In later stages of
-        // attestation validation, we use this to pick only one attestation to validate (after
-        // attestor eligibility has been checked). Still, it is probably not a good idea to have
-        // the attestation we select for further validation be deterministic, so we make this
+        // WARNING: OPTIMIZATION
+        //
+        // Ss an optimization, we assume that each attestation in the quorum attests to the same
+        // vote (this guarantee is upheld by the attestation pool). In later stages of attestation
+        // validation, we use this to pick only one attestation to validate (after attestor
+        // eligibility has been checked). Still, it is probably not a good idea to have the
+        // attestation we select for further validation be deterministic, so we make this
         // unpredictable by shuffling the votes (just in case something DOES go wrong and an
         // attacker manages to find a way to insert a malicious attestation in a valid quorum).
         let mut votes = quorum.votes();

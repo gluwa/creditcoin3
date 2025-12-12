@@ -1,54 +1,7 @@
 use crate::prelude::*;
 
 #[derive(Debug)]
-pub enum PoolError {
-    PoolClosed,
-    Attestation(AttestationError),
-}
-
-impl PoolError {
-    pub fn log_error(self, digest: attestor_primitives::Digest) {
-        match self {
-            PoolError::Attestation(AttestationError::DoubleVote(_attestor_id, _epoch, height)) => {
-                tracing::debug!(
-                    %digest,
-                    height,
-                    "Ignoring attestation because it is already stored locally"
-                );
-            }
-            PoolError::Attestation(AttestationError::InvalidHeight(
-                _attestor_id,
-                _epoch,
-                height,
-                expected,
-            )) => {
-                tracing::debug!(
-                    %digest,
-                    height,
-                    expected,
-                    "Ignoring attestation because it attests to a previous height"
-                );
-            }
-            err => {
-                tracing::error!(%err, "⛔ Failed to send remote attestation over for validation");
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for PoolError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::PoolClosed => write!(f, "Attestation pool has been closed"),
-            Self::Attestation(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-impl std::error::Error for PoolError {}
-
-#[derive(Debug)]
-pub enum AttestationError {
+pub enum Error {
     DoubleVote(
         attestor_primitives::AttestorId,
         common::types::Epoch,
@@ -83,10 +36,35 @@ pub enum AttestationError {
     ),
 }
 
-impl std::fmt::Display for AttestationError {
+impl Error {
+    pub fn log_error(self, digest: attestor_primitives::Digest) {
+        match self {
+            Self::DoubleVote(_attestor_id, _epoch, height) => {
+                tracing::debug!(
+                    %digest,
+                    height,
+                    "Ignoring attestation because it is already stored locally"
+                );
+            }
+            Self::InvalidHeight(_attestor_id, _epoch, height, expected) => {
+                tracing::debug!(
+                    %digest,
+                    height,
+                    expected,
+                    "Ignoring attestation because it attests to a previous height"
+                );
+            }
+            err => {
+                tracing::error!(%err, "⛔ Failed to send remote attestation over for validation");
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AttestationError::DoubleVote(address, epoch, height) => {
+            Error::DoubleVote(address, epoch, height) => {
                 write!(
                     f,
                     "Attestor {address} \
@@ -94,7 +72,7 @@ impl std::fmt::Display for AttestationError {
                     for source chain height {height}"
                 )
             }
-            AttestationError::Equivocation(address, epoch, height) => {
+            Error::Equivocation(address, epoch, height) => {
                 write!(
                     f,
                     "Attestor {address} \
@@ -103,7 +81,7 @@ impl std::fmt::Display for AttestationError {
                     for source chain height {height}"
                 )
             }
-            AttestationError::Unauthorized(address, epoch, height) => {
+            Error::Unauthorized(address, epoch, height) => {
                 write!(
                     f,
                     "Attestor {address} \
@@ -112,7 +90,7 @@ impl std::fmt::Display for AttestationError {
                     for source chain height {height}"
                 )
             }
-            AttestationError::InvalidHeight(address, epoch, height, expected) => {
+            Error::InvalidHeight(address, epoch, height, expected) => {
                 write!(
                     f,
                     "Attestor {address} \
@@ -121,7 +99,7 @@ impl std::fmt::Display for AttestationError {
                     expected height of at least {expected}"
                 )
             }
-            AttestationError::MissingHeight(address, epoch, height) => {
+            Error::MissingHeight(address, epoch, height) => {
                 write!(
                     f,
                     "Failed to remove attestation at epoch {epoch} \
@@ -130,7 +108,7 @@ impl std::fmt::Display for AttestationError {
                     permit points to an empty height"
                 )
             }
-            AttestationError::MaxBatchSize(digest, epoch, height, max_size) => {
+            Error::MaxBatchSize(digest, epoch, height, max_size) => {
                 write!(
                     f,
                     "Attestation batch is full, \
@@ -144,4 +122,4 @@ impl std::fmt::Display for AttestationError {
     }
 }
 
-impl std::error::Error for AttestationError {}
+impl std::error::Error for Error {}
