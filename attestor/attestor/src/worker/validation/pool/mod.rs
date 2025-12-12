@@ -437,7 +437,7 @@ impl AttestationPoolInner {
             }
 
             // Updates the leading fork at that height.
-            if let Some((_, votes)) = fork.attestations_by_count.first_key_value() {
+            if let Some((_, votes)) = fork.attestations_by_count.last_key_value() {
                 let key = *votes
                     .iter()
                     .next()
@@ -535,26 +535,32 @@ impl AttestationPoolForks {
                 //
                 // All equivocating data, including past attestations, is removed from the pool if
                 // an equivocation is detected.
-                if let Some(key_prev) = data.votes.get(&attestor_id) {
-                    if key_prev != &key {
-                        let vote_prev = data.attestations_by_digest.remove(key_prev).expect(
+                match data.votes.entry(attestor_id.clone()) {
+                    std::collections::hash_map::Entry::Occupied(entry) => {
+                        let key_prev = entry.get();
+                        if key_prev != &key {
+                            let vote_prev = data.attestations_by_digest.remove(key_prev).expect(
                             "Invariant violated: previous vote points to non-existant attestation",
                         );
 
-                        if data.attestations_by_digest.is_empty() {
-                            entry.remove();
+                            if data.attestations_by_digest.is_empty() {
+                                entry.remove();
+                            }
+
+                            let equivocations = self
+                                .equivocations
+                                .entry(height)
+                                .or_default()
+                                .entry(attestor_id.clone())
+                                .or_default();
+                            equivocations.push(vote.attestation);
+                            equivocations.push(vote_prev.attestation);
+
+                            return Err(Error::Equivocation(attestor_id, epoch, height));
                         }
-
-                        let equivocations = self
-                            .equivocations
-                            .entry(height)
-                            .or_default()
-                            .entry(attestor_id.clone())
-                            .or_default();
-                        equivocations.push(vote.attestation);
-                        equivocations.push(vote_prev.attestation);
-
-                        return Err(Error::Equivocation(attestor_id, epoch, height));
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(key);
                     }
                 }
 
@@ -593,6 +599,7 @@ impl AttestationPoolForks {
                         data.best.votes.push(vote.attestation.clone());
                         data.best.signers.insert(vote.attestation.attestor.clone());
                     } else if vote.signers.len() > data.best.signers.len() {
+                        vote.votes.extend(std::mem::take(&mut data.best.votes));
                         data.best = vote.clone();
                     }
                 }
