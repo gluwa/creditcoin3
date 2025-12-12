@@ -48,15 +48,15 @@ jobs:
         run: |
           ./.github/check-version-vs-git-tag.sh
 
-      # - name: Install Solidity compiler
-      #   run: |
-      #     sudo .github/install-solidity-compiler.sh
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
 
-      # - name: Generate precompiles ABI from source code
-      #   working-directory: ./precompiles/metadata
-      #   run: |
-      #     solc --version
-      #     ./abi-creator.sh
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
 
       - name: Check if tag name is a valid NPM version
         working-directory: ./cli
