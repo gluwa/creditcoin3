@@ -751,13 +751,22 @@ async function processAttestationFromCall(
             const id = `${blockNumber}-${extrinsicIdx}-${index}`;
             const attestor = signedAttestationParsed.attestors[index];
             const attestorEntity = await checkAndGetAttestor(id, attestor, chainKeyNumber);
-            const blockAttestor = MapAttestationAttestor.create({
-                id,
-                attestorId: attestorEntity.id,
-                attestationId,
-            });
-            saveEntityList.push(blockAttestor.save());
-            logger.info(`Saved map for attestor ${attestor} and attestation ${attestationId} at block ${blockNumber}`);
+
+            // Check if MapAttestationAttestor already exists to prevent duplicates
+            let blockAttestor = await MapAttestationAttestor.get(id);
+            if (!blockAttestor) {
+                blockAttestor = MapAttestationAttestor.create({
+                    id,
+                    attestorId: attestorEntity.id,
+                    attestationId,
+                });
+                saveEntityList.push(blockAttestor.save());
+                logger.info(
+                    `Saved map for attestor ${attestor} and attestation ${attestationId} at block ${blockNumber}`,
+                );
+            } else {
+                logger.info(`MapAttestationAttestor ${id} already exists, skipping creation`);
+            }
         }
 
         await Promise.all(saveEntityList);
@@ -859,13 +868,22 @@ export async function handleCallCommitAttestation(extrinsic: SubstrateExtrinsic)
             const id = `${blockNumber}-${extrinsicIdx}-${index}`;
             const attestor = signedAttestationParsed.attestors[index];
             const attestorEntity = await checkAndGetAttestor(id, attestor, chainKeyNumber);
-            const blockAttestor = MapAttestationAttestor.create({
-                id,
-                attestorId: attestorEntity.id,
-                attestationId,
-            });
-            saveEntityList.push(blockAttestor.save());
-            logger.info(`Saved map for attestor ${attestor} and attestation ${attestationId} at block ${blockNumber}`);
+
+            // Check if MapAttestationAttestor already exists to prevent duplicates
+            let blockAttestor = await MapAttestationAttestor.get(id);
+            if (!blockAttestor) {
+                blockAttestor = MapAttestationAttestor.create({
+                    id,
+                    attestorId: attestorEntity.id,
+                    attestationId,
+                });
+                saveEntityList.push(blockAttestor.save());
+                logger.info(
+                    `Saved map for attestor ${attestor} and attestation ${attestationId} at block ${blockNumber}`,
+                );
+            } else {
+                logger.info(`MapAttestationAttestor ${id} already exists, skipping creation`);
+            }
         }
 
         // Update digest if it was missing initially and we found it later
