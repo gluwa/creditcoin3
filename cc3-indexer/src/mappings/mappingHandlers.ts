@@ -625,6 +625,16 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
     const digestKey = `${chainKeyStr}-${headerNumber.toString()}`;
     pendingDigests.set(digestKey, digestStr);
 
+    // Clean up old entries to prevent memory leak (keep only recent entries)
+    // Delete entries older than 100 blocks to prevent unbounded growth
+    // Note: This is a simple cleanup strategy; entries are also deleted when retrieved
+    if (pendingDigests.size > 1000) {
+        // If map grows too large, clear oldest entries (simple approach: clear all and let new ones populate)
+        // In practice, entries should be cleaned up when retrieved, so this is a safety net
+        logger.warn(`pendingDigests map size is ${pendingDigests.size}, clearing old entries`);
+        pendingDigests.clear();
+    }
+
     logger.info(
         `Block Attested event: chain_key=${chainKeyStr}, header_number=${headerNumber.toString()}, digest=${digestStr}`,
     );
@@ -706,20 +716,34 @@ async function processAttestationFromCall(
         const extrinsicIdx = extrinsic.idx !== undefined ? extrinsic.idx : 0;
         const attestationId = `${blockNumber}-${extrinsicIdx}`;
 
-        const blockAttested = Attestations.create({
-            id: attestationId,
-            chainKey: signedAttestationParsed.attestation.chainKey,
-            headerNumber: signedAttestationParsed.attestation.headerNumber,
-            headerHash: signedAttestationParsed.attestation.headerHash,
-            root: signedAttestationParsed.attestation.root,
-            prevDigest: signedAttestationParsed.attestation.prevDigest ?? '',
-            signature: signedAttestationParsed.signature,
-            digest: digestStr,
-            timestamp: BigInt(eventBlock.timestamp?.getTime() ?? Date.now()),
-            continuityProof: signedAttestationParsed.continuityProof
-                ? signedAttestationParsed.continuityProof
-                : undefined,
-        });
+        // Check if attestation already exists (created by call handler) to prevent duplicates
+        let blockAttested = await Attestations.get(attestationId);
+
+        if (!blockAttested) {
+            blockAttested = Attestations.create({
+                id: attestationId,
+                chainKey: signedAttestationParsed.attestation.chainKey,
+                headerNumber: signedAttestationParsed.attestation.headerNumber,
+                headerHash: signedAttestationParsed.attestation.headerHash,
+                root: signedAttestationParsed.attestation.root,
+                prevDigest: signedAttestationParsed.attestation.prevDigest ?? '',
+                signature: signedAttestationParsed.signature,
+                digest: digestStr,
+                timestamp: BigInt(eventBlock.timestamp?.getTime() ?? Date.now()),
+                continuityProof: signedAttestationParsed.continuityProof
+                    ? signedAttestationParsed.continuityProof
+                    : undefined,
+            });
+        } else {
+            // Update existing attestation with digest if it was missing
+            if (digestStr && !blockAttested.digest) {
+                blockAttested.digest = digestStr;
+            }
+        }
+
+        // Clean up digest from map after processing to prevent memory leak
+        const digestKey = `${chainKeyStr}-${headerNumberStr}`;
+        pendingDigests.delete(digestKey);
 
         const saveEntityList = [blockAttested.save()];
 
@@ -739,7 +763,7 @@ async function processAttestationFromCall(
         await Promise.all(saveEntityList);
         logger.info(`Attestation processed from call in event handler for ${attestationId} at block ${blockNumber}`);
     } catch (error) {
-        logger.error(`Error processing attestation from call in event handler: ${error}`);
+        logger.error(`Error processing attestation from call in event handler: ${String(error)}`);
     }
 }
 
@@ -787,34 +811,52 @@ export async function handleCallCommitAttestation(extrinsic: SubstrateExtrinsic)
 
         // Try to get digest from pending digests (set by event handler)
         const digestKey = `${chainKeyStr}-${headerNumberStr}`;
-        let digest = pendingDigests.get(digestKey) || '';
+        const digest = pendingDigests.get(digestKey) || '';
+
+        // Clean up digest from map after retrieving it to prevent memory leak
+        if (digest) {
+            pendingDigests.delete(digestKey);
+        }
 
         // If digest not found, log warning but continue (it might be set later by event)
         if (!digest) {
             logger.warn(`Digest not found for ${digestKey}, will be updated when event is processed`);
         }
 
-        const attestationId = `${blockNumber}-${extrinsic.idx}`;
+        // Use consistent extrinsic.idx handling with fallback to 0
+        const extrinsicIdx = extrinsic.idx !== undefined ? extrinsic.idx : 0;
+        const attestationId = `${blockNumber}-${extrinsicIdx}`;
 
-        const blockAttested = Attestations.create({
-            id: attestationId,
-            chainKey: signedAttestationParsed.attestation.chainKey,
-            headerNumber: signedAttestationParsed.attestation.headerNumber,
-            headerHash: signedAttestationParsed.attestation.headerHash,
-            root: signedAttestationParsed.attestation.root,
-            prevDigest: signedAttestationParsed.attestation.prevDigest ?? '',
-            signature: signedAttestationParsed.signature,
-            digest: digest,
-            timestamp: BigInt(extrinsic.block.timestamp?.getTime() ?? 0),
-            continuityProof: signedAttestationParsed.continuityProof
-                ? signedAttestationParsed.continuityProof
-                : undefined,
-        });
+        // Check if attestation already exists to prevent duplicates
+        let blockAttested = await Attestations.get(attestationId);
+        const digestWasEmpty = !digest;
+
+        if (!blockAttested) {
+            blockAttested = Attestations.create({
+                id: attestationId,
+                chainKey: signedAttestationParsed.attestation.chainKey,
+                headerNumber: signedAttestationParsed.attestation.headerNumber,
+                headerHash: signedAttestationParsed.attestation.headerHash,
+                root: signedAttestationParsed.attestation.root,
+                prevDigest: signedAttestationParsed.attestation.prevDigest ?? '',
+                signature: signedAttestationParsed.signature,
+                digest,
+                timestamp: BigInt(extrinsic.block.timestamp?.getTime() ?? 0),
+                continuityProof: signedAttestationParsed.continuityProof
+                    ? signedAttestationParsed.continuityProof
+                    : undefined,
+            });
+        } else {
+            // Update existing attestation with digest if it was missing
+            if (digest && !blockAttested.digest) {
+                blockAttested.digest = digest;
+            }
+        }
 
         const saveEntityList = [blockAttested.save()];
 
         for (let index = 0; index < signedAttestationParsed.attestors.length; index++) {
-            const id = `${blockNumber}-${extrinsic.idx}-${index}`;
+            const id = `${blockNumber}-${extrinsicIdx}-${index}`;
             const attestor = signedAttestationParsed.attestors[index];
             const attestorEntity = await checkAndGetAttestor(id, attestor, chainKeyNumber);
             const blockAttestor = MapAttestationAttestor.create({
@@ -826,8 +868,8 @@ export async function handleCallCommitAttestation(extrinsic: SubstrateExtrinsic)
             logger.info(`Saved map for attestor ${attestor} and attestation ${attestationId} at block ${blockNumber}`);
         }
 
-        // Update digest if it was missing and we found it
-        if (digest && blockAttested.digest !== digest) {
+        // Update digest if it was missing initially and we found it later
+        if (digest && digestWasEmpty && blockAttested.digest !== digest) {
             blockAttested.digest = digest;
             await blockAttested.save();
         }
@@ -835,7 +877,7 @@ export async function handleCallCommitAttestation(extrinsic: SubstrateExtrinsic)
         await Promise.all(saveEntityList);
         logger.info(`Commit Attestation call processed for attestation ${attestationId} at block ${blockNumber}`);
     } catch (error) {
-        logger.error(`Error processing attestation in commit_attestation call: ${error}`);
+        logger.error(`Error processing attestation in commit_attestation call: ${String(error)}`);
     }
 }
 
