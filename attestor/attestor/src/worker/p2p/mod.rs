@@ -394,9 +394,7 @@ impl WorkerP2P {
                     //
                     // Valid insertions or failures which depend on local state are still propagated
                     // to the rest of the network.
-                    Ok(_)
-                    | Err(crate::worker::validation::pool::Error::DoubleVote(..))
-                    | Err(crate::worker::validation::pool::Error::MaxBatchSize(..)) => {
+                    Ok(_) | Err(crate::worker::validation::pool::Error::DoubleVote(..)) => {
                         self.swarm
                             .behaviour_mut()
                             .gossipsub
@@ -412,7 +410,6 @@ impl WorkerP2P {
                     // not propagated to the rest of the network as they are out-of-date.
                     // Equivocations are also propagated to facilitate slashing.
                     Err(crate::worker::validation::pool::Error::InvalidHeight(..))
-                    | Err(crate::worker::validation::pool::Error::MissingHeight(..))
                     | Err(crate::worker::validation::pool::Error::Equivocation(..)) => {
                         self.swarm
                             .behaviour_mut()

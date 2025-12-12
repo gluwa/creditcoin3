@@ -23,17 +23,6 @@ pub enum Error {
         common::types::Height,
         common::types::Height,
     ),
-    MissingHeight(
-        attestor_primitives::AttestorId,
-        common::types::Epoch,
-        common::types::Height,
-    ),
-    MaxBatchSize(
-        attestor_primitives::Digest,
-        common::types::Epoch,
-        common::types::Height,
-        u32,
-    ),
 }
 
 impl Error {
@@ -97,25 +86,6 @@ impl std::fmt::Display for Error {
                     submitted attestation for invalid epoch {epoch} \
                     for source chain height {height}, \
                     expected height of at least {expected}"
-                )
-            }
-            Error::MissingHeight(address, epoch, height) => {
-                write!(
-                    f,
-                    "Failed to remove attestation at epoch {epoch} \
-                    for source chain height {height}, \
-                    by attestor {address}, \
-                    permit points to an empty height"
-                )
-            }
-            Error::MaxBatchSize(digest, epoch, height, max_size) => {
-                write!(
-                    f,
-                    "Attestation batch is full, \
-                    failed to append attestation at epoch {epoch} \
-                    for source chain height {height} \
-                    with digest {digest} ,\
-                    max size is {max_size}"
                 )
             }
         }
