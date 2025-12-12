@@ -380,7 +380,7 @@ mod benchmarks {
         let interval: u64 = Attestation::<T>::chain_attestation_interval(DEV_CHAIN_KEY);
 
         let start_header = 1;
-        let att_header = (((s as u64 / interval) * interval) as u64).max(interval);
+        let att_header = ((s as u64 / interval) * interval).max(interval);
 
         log::info!(
             "Creating attestation for header {att_header}  with {} attestors",
