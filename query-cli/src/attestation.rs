@@ -228,9 +228,9 @@ impl AttestationMonitor {
         elapsed: Duration,
     ) -> Result<Option<AttestationResult>> {
         match event {
-            CcEvent::BlockAttested(attestation) => {
-                let attested_block = attestation.attestation.header_number;
-                let attested_chain = attestation.attestation.chain_key;
+            CcEvent::BlockAttested(metadata) => {
+                let attested_block = metadata.header_number();
+                let attested_chain = metadata.chain_key();
 
                 debug!(
                     "Received BlockAttested event for block {} on chain_key {}",

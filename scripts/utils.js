@@ -94,40 +94,9 @@ async function waitForAttestation(api, chainKey, blockNumber, maxWaitTime = 3000
 
                     // Check for BlockAttested event
                     if (event.section === 'attestation' && event.method === 'BlockAttested') {
-                        const [eventChainKey, signedAttestation] = event.data;
+                        const [eventChainKey, headerNumber, digest] = event.data;
                         const attestedChainKey = eventChainKey.toNumber();
-
-                        // Extract header_number from the attestation
-                        let attestedBlockNumber;
-                        try {
-                            // Try toJSON first (most reliable)
-                            const attestationData = signedAttestation.toJSON();
-                            if (
-                                attestationData &&
-                                attestationData.attestation &&
-                                attestationData.attestation.headerNumber
-                            ) {
-                                attestedBlockNumber =
-                                    typeof attestationData.attestation.headerNumber === 'string'
-                                        ? parseInt(attestationData.attestation.headerNumber.replace(/,/g, ''), 10)
-                                        : parseInt(attestationData.attestation.headerNumber, 10);
-                            } else {
-                                // Fallback: try toHuman
-                                const attestation = signedAttestation.toHuman();
-                                if (attestation && attestation.attestation && attestation.attestation.headerNumber) {
-                                    const headerNumStr = String(attestation.attestation.headerNumber).replace(/,/g, '');
-                                    attestedBlockNumber = parseInt(headerNumStr, 10);
-                                }
-                            }
-                        } catch (e) {
-                            console.warn(`⚠️  Could not parse attestation header number: ${e.message}`);
-                            continue;
-                        }
-
-                        if (attestedBlockNumber === undefined || isNaN(attestedBlockNumber)) {
-                            console.warn('⚠️  Could not extract block number from attestation event');
-                            continue;
-                        }
+                        const attestedBlockNumber = headerNumber.toNumber();
 
                         console.log(
                             `📢 BlockAttested event: chain_key=${attestedChainKey}, block=${attestedBlockNumber}`,

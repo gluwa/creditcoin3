@@ -7,7 +7,7 @@ use tracing::{debug, error, info};
 
 pub use subxt::utils::AccountId32;
 
-use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest};
 
 use crate::cc3::{
     attestation::events::{
@@ -21,8 +21,32 @@ use crate::cc3::{
 use crate::{Client, Randomness};
 
 #[derive(Debug, Clone)]
+pub struct BlockAttestedMetadata {
+    pub chain_key: ChainKey,
+    pub header_number: u64,
+    pub digest: Digest,
+}
+
+impl BlockAttestedMetadata {
+    #[must_use]
+    pub fn chain_key(&self) -> ChainKey {
+        self.chain_key
+    }
+
+    #[must_use]
+    pub fn header_number(&self) -> u64 {
+        self.header_number
+    }
+
+    #[must_use]
+    pub fn digest(&self) -> Digest {
+        self.digest
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum CcEvent {
-    BlockAttested(SignedAttestation<Digest, AccountId32>),
+    BlockAttested(BlockAttestedMetadata),
     RandomnessChanged((u64, Randomness)),
     CheckpointReached(ChainKey, AttestationCheckpoint),
     AttestationIntervalChanged(ChainKey, u64),
@@ -135,13 +159,17 @@ impl Client {
                             return None;
                         };
 
-                        let BlockAttested(chain_key, attestation, ..) = event;
+                        let BlockAttested(chain_key, header_number, digest) = event;
 
                         if chain_key != filter {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::BlockAttested(attestation.into())))
+                        Some(Ok(CcEvent::BlockAttested(BlockAttestedMetadata {
+                            chain_key,
+                            header_number,
+                            digest: Digest::from(digest.0),
+                        })))
                     }
                     (StoreRandomnessForEpoch::PALLET, StoreRandomnessForEpoch::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<StoreRandomnessForEpoch>() else {

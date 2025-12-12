@@ -215,11 +215,7 @@ impl<T: Config> Pallet<T> {
         // Update last digest
         LastDigest::<T>::set(chain_key, Some((header_number, digest)));
 
-        Self::deposit_event(Event::<T>::BlockAttested(
-            chain_key,
-            attestation.clone(),
-            digest,
-        ));
+        Self::deposit_event(Event::<T>::BlockAttested(chain_key, header_number, digest));
 
         match previous_digest {
             None => {
@@ -289,7 +285,7 @@ impl<T: Config> Pallet<T> {
         LastDigest::<T>::set(chain_key, Some((header_number, digest)));
 
         // Emit event
-        Self::deposit_event(Event::<T>::BlockAttested(chain_key, attestation, digest));
+        Self::deposit_event(Event::<T>::BlockAttested(chain_key, header_number, digest));
 
         if Checkpoints::<T>::iter_prefix(chain_key).next().is_none() {
             let genesis_block_number = AttestationChainGenesisBlockNumber::<T>::get(chain_key);

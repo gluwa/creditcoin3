@@ -167,6 +167,15 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
                 },
             },
             {
+                kind: SubstrateHandlerKind.Call,
+                handler: 'handleCallCommitAttestation',
+                filter: {
+                    module: 'attestation',
+                    method: 'commitAttestation',
+                    success: true,
+                },
+            },
+            {
                 kind: SubstrateHandlerKind.Event,
                 handler: 'handleEventBlockAttested',
                 filter: {

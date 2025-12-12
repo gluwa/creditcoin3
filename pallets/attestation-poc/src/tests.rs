@@ -1915,7 +1915,7 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
         System::assert_last_event(
             Event::BlockAttested(
                 SUPPORTED_CHAIN_KEY,
-                attestation_for_block_10.clone(),
+                attestation_for_block_10.header_number(),
                 attestation_for_block_10.digest(),
             )
             .into(),

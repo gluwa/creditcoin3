@@ -504,7 +504,7 @@ pub mod pallet {
         /// Emitted when an invulnerable is properly registered with the attestation system
         InvulnerableRegistered(ChainKey, T::AccountId),
         InvulnerableUnregistered(ChainKey, T::AccountId),
-        BlockAttested(ChainKey, SignedAttestation<T::Hash, T::AccountId>, Digest),
+        BlockAttested(ChainKey, u64, Digest),
         CheckpointReached(ChainKey, AttestationCheckpoint),
         PendingTargetSampleSizeSet(ChainKey, u32),
         TargetSampleSizeChanged(ChainKey, u32),

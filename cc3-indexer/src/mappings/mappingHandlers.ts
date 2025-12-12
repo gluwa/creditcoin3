@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { SubstrateEvent } from '@subql/types';
+import { SubstrateEvent, SubstrateExtrinsic } from '@subql/types';
 import {
     AttestorsElected,
     AttestorRegistered,
@@ -604,66 +604,239 @@ export async function handleEventWithdrawn(event: SubstrateEvent): Promise<void>
     await withdrawn.save();
 }
 
+// Store digest from reduced event to match with call data
+const pendingDigests = new Map<string, string>();
+
 export async function handleEventBlockAttested(event: SubstrateEvent): Promise<void> {
     logger.info(`Block Attested event found at block ${event.block.block.header.number.toString()}`);
 
     const {
         event: {
-            data: [chainKey, signedAttestation, digest],
+            data: [chainKey, headerNumber, digest],
         },
     } = event;
 
-    logger.info(`Block Attested ${signedAttestation.toString()}`);
-
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
+    const headerNumberBigInt = BigInt(headerNumber.toString());
+    const digestStr = digest.toString();
 
-    const signedAttestationParsed = parseSignedAttestation(signedAttestation.toString());
-    logger.info(`Block Attested signature is ${signedAttestationParsed.signature}`);
+    // Store digest for matching with call handler
+    const digestKey = `${chainKeyStr}-${headerNumber.toString()}`;
+    pendingDigests.set(digestKey, digestStr);
+
+    logger.info(
+        `Block Attested event: chain_key=${chainKeyStr}, header_number=${headerNumber.toString()}, digest=${digestStr}`,
+    );
 
     const blockNumber = event.block.block.header.number.toBigInt();
 
-    const attestationId = `${blockNumber}-${event.idx}`;
+    // Try to find the commit_attestation call in the same block
+    // The event is emitted by an extrinsic, so check event.extrinsic
+    let foundCall = false;
+    if (event.extrinsic) {
+        const extrinsic = event.extrinsic;
+        const section = extrinsic.extrinsic?.method?.section;
+        const method = extrinsic.extrinsic?.method?.method;
 
-    // /* eslint-disable @typescript-eslint/naming-convention */
-    const blockAttested = Attestations.create({
-        id: attestationId,
-        chainKey: signedAttestationParsed.attestation.chainKey,
-        headerNumber: signedAttestationParsed.attestation.headerNumber,
-        headerHash: signedAttestationParsed.attestation.headerHash,
-        root: signedAttestationParsed.attestation.root,
-        prevDigest: signedAttestationParsed.attestation.prevDigest ?? '',
-        signature: signedAttestationParsed.signature,
-        digest: digest.toString(),
-        timestamp: BigInt(event.block.timestamp?.getTime() ?? 0),
-        continuityProof: signedAttestationParsed.continuityProof ? signedAttestationParsed.continuityProof : undefined,
-    });
-    // /* eslint-enable */
+        logger.info(`Event extrinsic: section=${section}, method=${method} at block ${blockNumber.toString()}`);
 
-    const saveEntityList = [blockAttested.save()];
-    for (let index = 0; index < signedAttestationParsed.attestors.length; index++) {
-        const id = `${blockNumber}-${event.idx}-${index}`;
-        const attestor = signedAttestationParsed.attestors[index];
-        const attestorEntity = await checkAndGetAttestor(id, attestor, chainKeyNumber);
-        const blockAttestor = MapAttestationAttestor.create({
-            id,
-            attestorId: attestorEntity.id,
-            attestationId,
-        });
-        saveEntityList.push(blockAttestor.save());
-        logger.info(`Saved map for attestor ${attestor} and attestation ${attestationId} at block ${blockNumber}`);
+        // Method name is in camelCase: commitAttestation (not commit_attestation)
+        if (section === 'attestation' && (method === 'commitAttestation' || method === 'commit_attestation')) {
+            logger.info(`Found commit_attestation call in same extrinsic as event at block ${blockNumber.toString()}`);
+            foundCall = true;
+            // Process the call data here - extract from the extrinsic that emitted the event
+            await processAttestationFromCall(
+                extrinsic,
+                chainKeyNumber,
+                chainKeyStr,
+                headerNumberBigInt,
+                digestStr,
+                blockNumber,
+                event.block,
+            );
+        } else {
+            logger.warn(
+                `Event extrinsic is not commit_attestation: ${section}.${method} at block ${blockNumber.toString()}`,
+            );
+        }
+    } else {
+        logger.warn(`No extrinsic found for event at block ${blockNumber.toString()}`);
     }
 
-    logger.info(`Block Attested event stored at block ${blockNumber}`);
+    if (!foundCall) {
+        logger.warn(
+            `Could not find commit_attestation call in event extrinsic at block ${blockNumber.toString()}, will rely on call handler`,
+        );
+    }
 
+    // Update chain data with digest from event
     const chainData = await getChainData(chainKeyNumber);
     if (chainData) {
-        chainData.lastAttestedHeaderNumber = signedAttestationParsed.attestation.headerNumber;
-        chainData.lastAttestedDigest = digest.toString();
+        chainData.lastAttestedHeaderNumber = headerNumberBigInt;
+        chainData.lastAttestedDigest = digestStr;
         await chainData?.save();
     }
+}
 
-    await Promise.all(saveEntityList);
+async function processAttestationFromCall(
+    extrinsic: any,
+    chainKeyNumber: bigint,
+    chainKeyStr: string,
+    headerNumberBigInt: bigint,
+    digestStr: string,
+    blockNumber: bigint,
+    eventBlock: any,
+): Promise<void> {
+    try {
+        const signedAttestation = extrinsic.extrinsic?.method?.args?.[0];
+
+        if (!signedAttestation) {
+            logger.warn(`No attestation found in commit_attestation call at block ${blockNumber}`);
+            return;
+        }
+
+        const signedAttestationParsed = parseSignedAttestation(
+            typeof signedAttestation === 'string' ? signedAttestation : JSON.stringify(signedAttestation),
+        );
+
+        logger.info(`Processing attestation from call in event handler: ${JSON.stringify(signedAttestationParsed)}`);
+
+        const headerNumberStr = signedAttestationParsed.attestation.headerNumber.toString();
+        const extrinsicIdx = extrinsic.idx !== undefined ? extrinsic.idx : 0;
+        const attestationId = `${blockNumber}-${extrinsicIdx}`;
+
+        const blockAttested = Attestations.create({
+            id: attestationId,
+            chainKey: signedAttestationParsed.attestation.chainKey,
+            headerNumber: signedAttestationParsed.attestation.headerNumber,
+            headerHash: signedAttestationParsed.attestation.headerHash,
+            root: signedAttestationParsed.attestation.root,
+            prevDigest: signedAttestationParsed.attestation.prevDigest ?? '',
+            signature: signedAttestationParsed.signature,
+            digest: digestStr,
+            timestamp: BigInt(eventBlock.timestamp?.getTime() ?? Date.now()),
+            continuityProof: signedAttestationParsed.continuityProof
+                ? signedAttestationParsed.continuityProof
+                : undefined,
+        });
+
+        const saveEntityList = [blockAttested.save()];
+
+        for (let index = 0; index < signedAttestationParsed.attestors.length; index++) {
+            const id = `${blockNumber}-${extrinsicIdx}-${index}`;
+            const attestor = signedAttestationParsed.attestors[index];
+            const attestorEntity = await checkAndGetAttestor(id, attestor, chainKeyNumber);
+            const blockAttestor = MapAttestationAttestor.create({
+                id,
+                attestorId: attestorEntity.id,
+                attestationId,
+            });
+            saveEntityList.push(blockAttestor.save());
+            logger.info(`Saved map for attestor ${attestor} and attestation ${attestationId} at block ${blockNumber}`);
+        }
+
+        await Promise.all(saveEntityList);
+        logger.info(`Attestation processed from call in event handler for ${attestationId} at block ${blockNumber}`);
+    } catch (error) {
+        logger.error(`Error processing attestation from call in event handler: ${error}`);
+    }
+}
+
+export async function handleCallCommitAttestation(extrinsic: SubstrateExtrinsic): Promise<void> {
+    const blockNumber = extrinsic.block.block.header.number.toBigInt();
+    const section = extrinsic.extrinsic.method.section;
+    const method = extrinsic.extrinsic.method.method;
+
+    logger.info(
+        `Commit Attestation call handler invoked at block ${blockNumber.toString()}, section=${section}, method=${method}, success=${extrinsic.success}`,
+    );
+
+    // Only process successful calls
+    if (!extrinsic.success) {
+        logger.warn(`Commit Attestation call failed at block ${blockNumber.toString()}, skipping`);
+        return;
+    }
+
+    logger.info(`Commit Attestation call found at block ${blockNumber.toString()}`);
+
+    // Log call details for debugging
+    logger.info(`Call method: ${section}.${method}`);
+    logger.info(`Call args length: ${extrinsic.extrinsic.method.args.length}`);
+
+    // Extract single attestation from call arguments
+    const signedAttestation = extrinsic.extrinsic.method.args[0];
+
+    if (!signedAttestation) {
+        logger.warn(
+            `No attestation found in commit_attestation call at block ${blockNumber}, args: ${JSON.stringify(extrinsic.extrinsic.method.args)}`,
+        );
+        return;
+    }
+
+    try {
+        const signedAttestationParsed = parseSignedAttestation(
+            typeof signedAttestation === 'string' ? signedAttestation : JSON.stringify(signedAttestation),
+        );
+
+        logger.info(`Processing attestation from call: ${JSON.stringify(signedAttestationParsed)}`);
+
+        const chainKeyNumber = BigInt(signedAttestationParsed.attestation.chainKey.toString());
+        const chainKeyStr = signedAttestationParsed.attestation.chainKey.toString();
+        const headerNumberStr = signedAttestationParsed.attestation.headerNumber.toString();
+
+        // Try to get digest from pending digests (set by event handler)
+        const digestKey = `${chainKeyStr}-${headerNumberStr}`;
+        let digest = pendingDigests.get(digestKey) || '';
+
+        // If digest not found, log warning but continue (it might be set later by event)
+        if (!digest) {
+            logger.warn(`Digest not found for ${digestKey}, will be updated when event is processed`);
+        }
+
+        const attestationId = `${blockNumber}-${extrinsic.idx}`;
+
+        const blockAttested = Attestations.create({
+            id: attestationId,
+            chainKey: signedAttestationParsed.attestation.chainKey,
+            headerNumber: signedAttestationParsed.attestation.headerNumber,
+            headerHash: signedAttestationParsed.attestation.headerHash,
+            root: signedAttestationParsed.attestation.root,
+            prevDigest: signedAttestationParsed.attestation.prevDigest ?? '',
+            signature: signedAttestationParsed.signature,
+            digest: digest,
+            timestamp: BigInt(extrinsic.block.timestamp?.getTime() ?? 0),
+            continuityProof: signedAttestationParsed.continuityProof
+                ? signedAttestationParsed.continuityProof
+                : undefined,
+        });
+
+        const saveEntityList = [blockAttested.save()];
+
+        for (let index = 0; index < signedAttestationParsed.attestors.length; index++) {
+            const id = `${blockNumber}-${extrinsic.idx}-${index}`;
+            const attestor = signedAttestationParsed.attestors[index];
+            const attestorEntity = await checkAndGetAttestor(id, attestor, chainKeyNumber);
+            const blockAttestor = MapAttestationAttestor.create({
+                id,
+                attestorId: attestorEntity.id,
+                attestationId,
+            });
+            saveEntityList.push(blockAttestor.save());
+            logger.info(`Saved map for attestor ${attestor} and attestation ${attestationId} at block ${blockNumber}`);
+        }
+
+        // Update digest if it was missing and we found it
+        if (digest && blockAttested.digest !== digest) {
+            blockAttested.digest = digest;
+            await blockAttested.save();
+        }
+
+        await Promise.all(saveEntityList);
+        logger.info(`Commit Attestation call processed for attestation ${attestationId} at block ${blockNumber}`);
+    } catch (error) {
+        logger.error(`Error processing attestation in commit_attestation call: ${error}`);
+    }
 }
 
 interface Attestation {
