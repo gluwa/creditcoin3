@@ -347,13 +347,7 @@ pub(crate) fn build_response_from_proofs(
     merkle: MerkleProofItem,
     continuity: ContinuityProofItem,
 ) -> ServiceResult<ContinuityResponse> {
-    let (tx_hash, chain_key, header_number) =
-        (merkle.tx_hash, merkle.chain_key, merkle.header_number);
-    tracing::info!(
-        chain_key,
-        header_number,
-        "Cache hit: returning cached proofs. Tx_hash: {tx_hash:?}"
-    );
+    let tx_hash = merkle.tx_hash;
     // We enforce here that if any tx specific field is in the DB entry, then all of them must be.
     // There is one exception. Block level proofs may use TX index 0 with other fields empty.
     let tx_index_some_non_zero = if let Some(index) = merkle.tx_index {
