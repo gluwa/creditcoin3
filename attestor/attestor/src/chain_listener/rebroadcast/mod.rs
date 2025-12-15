@@ -54,7 +54,7 @@ impl Rebroadcast {
         interval.tick().await;
 
         Self {
-            start: common::types::Height::MIN,
+            start: config.start_height,
             catchup: super::Catchup {
                 start: config.start_height,
                 stop: config.start_height,
