@@ -127,7 +127,11 @@ impl Rebroadcast {
         interval_new: std::num::NonZero<common::types::Height>,
         attestation_latest_cc3: Option<common::types::Height>,
     ) {
-        let start_new = attestation_latest_cc3.unwrap_or(self.start_height);
+        let start_new = if let Some(attestation_latest_cc3) = attestation_latest_cc3 {
+            util::next_multiple_of(interval_new, attestation_latest_cc3)
+        } else {
+            self.start_height
+        };
 
         self.attestation_interval = interval_new;
         self.catchup = super::Catchup {

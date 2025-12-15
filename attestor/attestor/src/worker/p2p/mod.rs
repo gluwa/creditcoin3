@@ -394,7 +394,7 @@ impl WorkerP2P {
                     //
                     // Valid insertions or failures which depend on local state are still propagated
                     // to the rest of the network.
-                    Ok(_) | Err(crate::worker::validation::pool::Error::DoubleVote(..)) => {
+                    Ok(_) => {
                         self.swarm
                             .behaviour_mut()
                             .gossipsub
