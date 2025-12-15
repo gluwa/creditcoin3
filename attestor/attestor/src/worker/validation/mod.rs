@@ -220,7 +220,7 @@ impl WorkerAttestationValidation {
                     "🛫 Submitting attestation"
                 );
 
-                self.submit_attestations(attestation.into(), height)
+                self.submit_attestation(attestation.into(), height)
                     .await
                     .transpose()?;
             }
@@ -416,7 +416,7 @@ impl WorkerAttestationValidation {
                             // track of the number of attempts to submit an attestation and take
                             // that into account in the VRF computation.
                             self.attempts += 1;
-                            self.submit_attestations(attestation, height).await.transpose()?;
+                            self.submit_attestation(attestation, height).await.transpose()?;
 
                             return Ok(());
                         }
@@ -466,7 +466,7 @@ impl WorkerAttestationValidation {
                 "🛫 Submitting pre-validated attestation"
             );
 
-            self.submit_attestations(attestation, height)
+            self.submit_attestation(attestation, height)
                 .await
                 .transpose()?;
         } else {
@@ -1008,7 +1008,7 @@ enum AttestationSubmission {
 }
 
 impl WorkerAttestationValidation {
-    async fn submit_attestations(
+    async fn submit_attestation(
         &mut self,
         attestation: cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
             cc_client::H256,
