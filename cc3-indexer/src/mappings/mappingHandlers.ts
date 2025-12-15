@@ -651,9 +651,9 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
 
         logger.info(`Event extrinsic: section=${section}, method=${method} at block ${blockNumber.toString()}`);
 
-        // Method name is in camelCase: commitAttestation (not commit_attestation)
-        if (section === 'attestation' && (method === 'commitAttestation' || method === 'commit_attestation')) {
-            logger.info(`Found commit_attestation call in same extrinsic as event at block ${blockNumber.toString()}`);
+        // Method name is in camelCase
+        if (section === 'attestation' && method === 'commitAttestation') {
+            logger.info(`Found commitAttestation call in same extrinsic as event at block ${blockNumber.toString()}`);
             foundCall = true;
             // Process the call data here - extract from the extrinsic that emitted the event
             await processAttestationFromCall(
@@ -667,7 +667,7 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
             );
         } else {
             logger.warn(
-                `Event extrinsic is not commit_attestation: ${section}.${method} at block ${blockNumber.toString()}`,
+                `Event extrinsic is not commitAttestation: ${section}.${method} at block ${blockNumber.toString()}`,
             );
         }
     } else {
@@ -676,7 +676,7 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
 
     if (!foundCall) {
         logger.warn(
-            `Could not find commit_attestation call in event extrinsic at block ${blockNumber.toString()}, will rely on call handler`,
+            `Could not find commitAttestation call in event extrinsic at block ${blockNumber.toString()}, will rely on call handler`,
         );
     }
 
@@ -702,7 +702,7 @@ async function processAttestationFromCall(
         const signedAttestation = extrinsic.extrinsic?.method?.args?.[0];
 
         if (!signedAttestation) {
-            logger.warn(`No attestation found in commit_attestation call at block ${blockNumber}`);
+            logger.warn(`No attestation found in commitAttestation call at block ${blockNumber}`);
             return;
         }
 
