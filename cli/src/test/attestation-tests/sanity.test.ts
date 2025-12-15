@@ -1,6 +1,5 @@
 import { U64 } from '@polkadot/types-codec';
 import { WebSocketProvider } from 'ethers';
-import { AttestorPrimitivesSignedAttestation } from '@polkadot/types/lookup';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import {
@@ -8,7 +7,7 @@ import {
     chain_Anvil1_Url,
     chain_Anvil2_Key,
 } from '../blockchain-tests/pallets/supported-chains/consts';
-import { calculateThreshold, randomIntBetween } from '../utils';
+import { randomIntBetween } from '../utils';
 
 describe('BlockAttested events', (): void => {
     let api: ApiPromise;
@@ -64,10 +63,6 @@ describe('BlockAttested events', (): void => {
             '4': 0,
         };
         const initialBlock = (await getChainStatus(api)).bestNumber;
-        const expectedMinVotes: { [key: string]: bigint } = {
-            '2': calculateThreshold((await api.query.attestation.targetSampleSize(chain_Anvil1_Key)).toBigInt()),
-            '4': calculateThreshold((await api.query.attestation.targetSampleSize(chain_Anvil2_Key)).toBigInt()),
-        };
 
         return new Promise((resolve, reject): void => {
             // Subscribe to system events via storage
@@ -216,40 +211,4 @@ describe('BlockAttested events', (): void => {
             expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(5);
         });
     }, 1_500_000); // 220 blocks is 1100 sec + reserve to avoid timeouts
-
-    // Helper function to validate continuity proof
-    function validateContinuityProof(
-        prev_digests: string[],
-        attestation: AttestorPrimitivesSignedAttestation,
-    ): boolean {
-        if (attestation.continuityProof.blocks.length === 0) {
-            console.log('**** DEBUG: continuity proof has no blocks; returning false');
-            return false;
-        }
-
-        let block_prev_digest = '';
-        attestation.continuityProof.blocks.forEach((block, index) => {
-            if (block.blockNumber.isZero()) {
-                return;
-            }
-
-            if (index === 0) {
-                if (!prev_digests.includes(block.prevDigest.toHex())) {
-                    console.log(
-                        `**** DEBUG: continuity proof first block prevDigest ${block.prevDigest.toHex()} not in known prev_digests`,
-                    );
-                    return false;
-                }
-                block_prev_digest = block.prevDigest.toHex();
-                return;
-            }
-
-            if (block.prevDigest.toHex() !== block_prev_digest) {
-                return false;
-            }
-            block_prev_digest = block.digest.toHex();
-        });
-
-        return true;
-    }
 });
