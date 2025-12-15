@@ -26,7 +26,6 @@ import type { AccountId32, H160, H256, Perbill, Permill } from '@polkadot/types/
 import type {
     AttestorPrimitivesAttestationCheckpoint,
     AttestorPrimitivesChainEncodingVersion,
-    AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeProxyFilter,
     EthereumLog,
     EvmCoreErrorExitReason,
@@ -80,7 +79,7 @@ declare module '@polkadot/api-base/types/events' {
              * An attestor was unauthorized for a specific chain.
              **/
             AuthorizedAttestorRemoved: AugmentedEvent<ApiType, [u64, AccountId32]>;
-            BlockAttested: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation, H256]>;
+            BlockAttested: AugmentedEvent<ApiType, [u64, u64, H256]>;
             Bonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
             /**
              * Note a change in the attestor election policy.
