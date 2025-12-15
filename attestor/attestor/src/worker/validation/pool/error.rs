@@ -18,6 +18,12 @@ pub enum Error {
         common::types::Height,
         common::types::Height,
     ),
+    InvalidDigest(
+        attestor_primitives::AttestorId,
+        common::types::Epoch,
+        common::types::Height,
+        attestor_primitives::Digest,
+    ),
 }
 
 impl Error {
@@ -63,9 +69,18 @@ impl std::fmt::Display for Error {
                 write!(
                     f,
                     "Attestor {address} \
-                    submitted attestation for invalid epoch {epoch} \
-                    for source chain height {height}, \
-                    expected height of at least {expected}"
+                    submitted attestation at epoch {epoch} \
+                    for source chain height {height} \
+                    but expected height of at least {expected}"
+                )
+            }
+            Error::InvalidDigest(address, epoch, height, digest) => {
+                write!(
+                    f,
+                    "Attestor {address} \
+                    submitted attestation at epoch {epoch} \
+                    for source chain height {height} \
+                    with known invalid digest {digest}"
                 )
             }
         }

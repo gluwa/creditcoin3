@@ -302,7 +302,6 @@ impl WorkerAttestationValidation {
                                 // Any early return must reset the `watch_submission` future to
                                 // avoid double polling!
                                 self.watch_submission = future::OptionFuture::default();
-                                return Ok(());
                             }
                         }
                     }

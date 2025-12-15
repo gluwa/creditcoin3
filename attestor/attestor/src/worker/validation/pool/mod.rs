@@ -371,6 +371,23 @@ impl AttestationPoolInner {
             ));
         }
 
+        tracing::debug!("Checking for known invalids");
+
+        let digest = attestation.digest();
+        if self
+            .forks
+            .invalid
+            .get(&attestation.header_number())
+            .is_some_and(|invalid| invalid.contains(&digest))
+        {
+            return Err(Error::InvalidDigest(
+                attestation.attestor.clone(),
+                attestation.epoch,
+                attestation.header_number(),
+                digest,
+            ));
+        }
+
         tracing::debug!("Adding attestation to pool");
 
         self.forks.push(attestation)?;
@@ -617,6 +634,12 @@ impl ForkData {
                 }
             } else {
                 panic!("Invariant violated: missing attestation_by_count mapping");
+            }
+
+            for attestor in vote.signers.iter() {
+                self.votes
+                    .remove(attestor)
+                    .expect("Invariant violated: missing signers mapping");
             }
         }
 
