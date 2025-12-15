@@ -413,41 +413,9 @@ impl AttestationPoolInner {
             self.forks.forks.entry(permit.0 .0)
         {
             let fork = entry.get_mut();
+            fork.pop(permit.0);
 
-            //  Remove the invalid quorum from the pool.
-            //
-            //  Contrary to mark_valid, we do not wait for execution chain finality to remove
-            //  invalid votes so as to avoid polling them again. This introduces a race condition
-            //  between the obtention of an AttestationPermit and marking an attestation as valid,
-            //  hence why we need to check the permit is still pointing to a valid fork.
-            if let Some(vote) = fork.attestations_by_digest.remove(&permit.0) {
-                if let std::collections::btree_map::Entry::Occupied(mut entry) = fork
-                    .attestations_by_count
-                    .entry(vote.signers.len().try_into().unwrap())
-                {
-                    let map = entry.get_mut();
-                    map.remove(&permit.0);
-
-                    if map.is_empty() {
-                        entry.remove();
-                    }
-                } else {
-                    panic!("Invariant violated: missing attestation_by_count mapping");
-                }
-            }
-
-            // Updates the leading fork at that height.
-            if let Some((_, votes)) = fork.attestations_by_count.last_key_value() {
-                let key = *votes
-                    .iter()
-                    .next()
-                    .expect("Invariant violated: missing attestations_by_count mapping");
-                fork.best = fork
-                    .attestations_by_digest
-                    .get(&key)
-                    .expect("Invariant violated: missing attestations_by_digest mapping")
-                    .clone();
-            } else {
+            if fork.is_empty() {
                 entry.remove();
             }
 
@@ -520,6 +488,10 @@ impl AttestationPoolForks {
         let mut vote = AttestationVote::new(attestation);
 
         match self.forks.entry(height) {
+            // CASE 1] NEW FORK
+            //
+            // No need to update existing data, we just initialize the fork to point to the new
+            // attestation.
             std::collections::btree_map::Entry::Vacant(entry) => {
                 entry.insert(ForkData {
                     attestations_by_digest: hash_map![key => vote.clone()],
@@ -528,122 +500,90 @@ impl AttestationPoolForks {
                     best: vote,
                 });
             }
+            // CASE 2] EXISTING FORK
+            //
+            // We already received votes at this height and need to check for equivocation.
             std::collections::btree_map::Entry::Occupied(mut entry) => {
-                let data = entry.get_mut();
+                let fork = entry.get_mut();
 
                 // Check for equivocations
                 //
                 // All equivocating data, including past attestations, is removed from the pool if
                 // an equivocation is detected.
-                match data.votes.entry(attestor_id.clone()) {
-                    std::collections::hash_map::Entry::Occupied(entry) => {
-                        let key_prev = entry.get();
+                match fork.votes.entry(attestor_id.clone()) {
+                    // Already received a vote from this attestor
+                    //
+                    // Subsequent votes by the same attestor are ignored and error if an
+                    // equivocation is detected.
+                    std::collections::hash_map::Entry::Occupied(entry_vote) => {
+                        let key_prev = entry_vote.get();
                         if key_prev != &key {
-                            let vote_prev = data.attestations_by_digest.remove(key_prev).expect(
-                                "Invariant violated: \
-                                    previous vote points to non-existant attestation",
-                            );
+                            fork.pop(key);
 
-                            let std::collections::btree_map::Entry::Occupied(mut entry_by_count) =
-                                data.attestations_by_count
-                                    .entry(vote_prev.signers.len().try_into().unwrap())
-                            else {
-                                unreachable!(
-                                    "Invariant violated: \
-                                        missing mapping in attestation_by_count",
-                                )
-                            };
-
-                            let set = entry_by_count.get_mut();
-                            set.remove(key_prev);
-
-                            if set.is_empty() {
-                                entry_by_count.remove();
-                            }
-
-                            // TODO: probably should refactor this into its own function. Maybe we
-                            // should generalize attestation removal between this and mark_invalid?
-                            // It seems like the same logic applies.
-                            if let Some((_, votes)) = data.attestations_by_count.last_key_value() {
-                                let key = *votes.iter().next().expect(
-                                    "Invariant violated: \
-                                        missing attestations_by_count mapping",
-                                );
-
-                                data.best = data
-                                    .attestations_by_digest
-                                    .get(&key)
-                                    .expect(
-                                        "Invariant violated: \
-                                            missing attestations_by_digest mapping",
-                                    )
-                                    .clone();
-                            } else {
+                            if fork.is_empty() {
                                 entry.remove();
                             }
-
-                            let equivocations = self
-                                .equivocations
-                                .entry(height)
-                                .or_default()
-                                .entry(attestor_id.clone())
-                                .or_default();
-                            equivocations.push(vote.attestation);
-                            equivocations.push(vote_prev.attestation);
 
                             return Err(Error::Equivocation(attestor_id, epoch, height));
                         }
                     }
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(key);
-                    }
-                }
 
-                if let Some(vote_prev) = data.attestations_by_digest.remove(&key) {
-                    tracing::debug!("Found matching fork");
+                    // First time receiving a vote from this attestor
+                    std::collections::hash_map::Entry::Vacant(entry_vote) => {
+                        entry_vote.insert(key);
 
-                    // Update the attestation count mapping
-                    //
-                    // We use `attestation_by_count` to retrieve the next best attestation in O(1)
-                    // time in case an invalid quorum is polled.
-                    if let std::collections::btree_map::Entry::Occupied(mut entry) = data
-                        .attestations_by_count
-                        .entry(vote_prev.signers.len().try_into().unwrap())
-                    {
-                        let map = entry.get_mut();
-                        map.remove(&key);
+                        // Retrieve existing vote data, if this digest was already voted for.
+                        if let Some(vote_prev) = fork.attestations_by_digest.remove(&key) {
+                            tracing::debug!("Found matching fork");
 
-                        if map.is_empty() {
-                            entry.remove();
+                            // Update the attestation count mapping
+                            //
+                            // We use `attestation_by_count` to retrieve the next best attestation
+                            // in O(1) time in case an invalid quorum is polled.
+                            if let std::collections::btree_map::Entry::Occupied(mut entry) = fork
+                                .attestations_by_count
+                                .entry(vote_prev.signers.len().try_into().unwrap())
+                            {
+                                let map = entry.get_mut();
+                                map.remove(&key);
+
+                                if map.is_empty() {
+                                    entry.remove();
+                                }
+                            } else {
+                                unreachable!(
+                                    "Invariant violated: \
+                                    missing attestation_by_count mapping"
+                                );
+                            }
+
+                            // Updates the signer count.
+                            //
+                            // Attestors are only allowed to vote once per fork. We don't currently
+                            // support any logic for attestors to replace a previous vote. If an
+                            // attestor already submitted a vote at this height, the function will
+                            // exit during equivocation check.
+                            vote.signers.extend(vote_prev.signers);
+                            vote.votes.extend(vote_prev.votes);
+
+                            // Updated the leading fork.
+                            //
+                            // This keeps reads to the leading attestation O(1).
+                            if fork.best.attestation.digest() == vote.attestation.digest() {
+                                fork.best.votes.push(vote.attestation.clone());
+                                fork.best.signers.insert(vote.attestation.attestor.clone());
+                            } else if vote.signers.len() > fork.best.signers.len() {
+                                fork.best = vote.clone();
+                            }
                         }
-                    } else {
-                        panic!("Invariant violated: missing attestation_by_count mapping");
-                    }
 
-                    // Updates the signer count.
-                    //
-                    // It is ok for an attestor to submit the same attestation multiple times, as this
-                    // might be the case during rebroadcasting. In the future, we might want to limit
-                    // this behavior.
-                    vote.signers.extend(vote_prev.signers);
-                    vote.votes.extend(vote_prev.votes);
-
-                    // Updated the leading fork.
-                    //
-                    // This keeps reads to the leading attestation O(1).
-                    if data.best.attestation.digest() == vote.attestation.digest() {
-                        data.best.votes.push(vote.attestation.clone());
-                        data.best.signers.insert(vote.attestation.attestor.clone());
-                    } else if vote.signers.len() > data.best.signers.len() {
-                        data.best = vote.clone();
+                        fork.attestations_by_count
+                            .entry(vote.signers.len().try_into().unwrap())
+                            .or_default()
+                            .insert(key);
+                        fork.attestations_by_digest.insert(key, vote);
                     }
                 }
-
-                data.attestations_by_count
-                    .entry(vote.signers.len().try_into().unwrap())
-                    .or_default()
-                    .insert(key);
-                data.attestations_by_digest.insert(key, vote);
             }
         }
 
@@ -655,6 +595,43 @@ impl AttestationPoolForks {
             .first_key_value()
             .map(|(_, fork)| &fork.best)
             .cloned()
+    }
+}
+
+impl ForkData {
+    fn is_empty(&self) -> bool {
+        self.attestations_by_digest.is_empty()
+    }
+
+    fn pop(&mut self, key: AttestationKey) {
+        if let Some(vote) = self.attestations_by_digest.remove(&key) {
+            if let std::collections::btree_map::Entry::Occupied(mut entry) = self
+                .attestations_by_count
+                .entry(vote.signers.len().try_into().unwrap())
+            {
+                let map = entry.get_mut();
+                map.remove(&key);
+
+                if map.is_empty() {
+                    entry.remove();
+                }
+            } else {
+                panic!("Invariant violated: missing attestation_by_count mapping");
+            }
+        }
+
+        // Updates the leading fork at that height.
+        if let Some((_, votes)) = self.attestations_by_count.last_key_value() {
+            let key = *votes
+                .iter()
+                .next()
+                .expect("Invariant violated: missing attestations_by_count mapping");
+            self.best = self
+                .attestations_by_digest
+                .get(&key)
+                .expect("Invariant violated: missing attestations_by_digest mapping")
+                .clone();
+        }
     }
 }
 
