@@ -104,11 +104,13 @@ impl Rebroadcast {
     ///
     /// If we are re-broadcasting attestations, we need to make sure we do not re-broadcast this
     /// attestation.
-    pub fn note_attestation_finalization(&mut self, latest_attestation_cc3: common::types::Height) {
-        let start_new = latest_attestation_cc3 + self.attestation_interval.get();
+    pub fn note_attestation_finalization(&mut self, attestation_latest_cc3: common::types::Height) {
+        let start_new = util::next_multiple_of(self.attestation_interval, attestation_latest_cc3);
+
         if self.catchup.start < start_new {
             self.catchup.start = start_new;
         }
+
         self.start = start_new;
     }
 
@@ -116,9 +118,9 @@ impl Rebroadcast {
     /// rebroadcasted.
     ///
     /// [production worker]: crate::worker::production
-    pub fn note_attestation_production(&mut self, latest_attestation_eth: common::types::Height) {
-        if self.catchup.stop <= latest_attestation_eth {
-            self.catchup.stop = latest_attestation_eth + self.attestation_interval.get();
+    pub fn note_attestation_production(&mut self, attestation_latest_cc3: common::types::Height) {
+        if self.catchup.stop <= attestation_latest_cc3 {
+            self.catchup.stop = attestation_latest_cc3 + self.attestation_interval.get();
         }
     }
 
