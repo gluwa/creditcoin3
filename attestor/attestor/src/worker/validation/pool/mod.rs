@@ -518,7 +518,7 @@ impl AttestationPoolForks {
                     std::collections::hash_map::Entry::Occupied(entry_vote) => {
                         let key_prev = entry_vote.get();
                         if key_prev != &key {
-                            fork.pop(key);
+                            fork.pop(*key_prev);
 
                             if fork.is_empty() {
                                 entry.remove();
