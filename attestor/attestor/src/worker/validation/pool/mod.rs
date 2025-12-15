@@ -727,6 +727,9 @@ impl AttestationPoolSender {
 
             // Updating the inner pool
             inner.forks.forks.clear();
+            inner.forks.equivocations.clear();
+            inner.forks.invalid.clear();
+            inner.quorums.clear();
         }
     }
 
