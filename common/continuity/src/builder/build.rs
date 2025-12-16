@@ -28,11 +28,14 @@ impl ContinuityBuilder {
                 min_query
             ))?;
 
-        // Build from lower+1 to end to get correct digests
-        // The lower bound's digest is used as prev_digest for computing block (lower+1)'s digest
-        // We always start from lower+1 because lower's digest IS the digest of that block,
-        // not the prev_digest needed for computing it
-        let build_start = lower.block_number + 1;
+        // Build from attestation to end to get correct digests
+        // Special case: if lower bound is at required_start (e.g., block 0 checkpoint for query at block 1),
+        // we need to include that block in the build, so start from lower.block_number instead of lower.block_number + 1
+        let build_start = if lower.block_number == required_start {
+            lower.block_number
+        } else {
+            lower.block_number + 1
+        };
 
         info!(
             build_start,

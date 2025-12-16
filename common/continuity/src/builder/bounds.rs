@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
 use cc_client::AccountId32;
 use sp_core::H256;
-use tracing::{debug, info};
+use tracing::debug;
 
 impl ContinuityBuilder {
     /// Find optimal attestation bounds for the query range
@@ -21,46 +21,22 @@ impl ContinuityBuilder {
     ) -> Result<(AttestationInfo, Option<AttestationInfo>, EndsInAttestation)> {
         let required_before = min_query.saturating_sub(1);
 
-        // Check if attestations cover the range we need
+        // If we have a lower attestation, then all checkpoints should be at
+        // even lower block heights. So we don't need to use checkpoints at all.
         let has_attestation_lower = attestations
             .iter()
-            .any(|a| a.attestation.header_number < required_before);
-        let has_attestation_upper = attestations
-            .iter()
-            .any(|a| a.attestation.header_number > max_query);
-
-        let is_at_attestation = attestations
-            .iter()
-            .any(|a| a.attestation.header_number == min_query);
+            .any(|a| a.attestation.header_number <= required_before);
 
         // Only fetch checkpoints if we need them (attestations don't fully cover the range)
         // This avoids expensive RPC calls when attestations are sufficient
-        let checkpoints: Option<Vec<AttestationCheckpoint>> =
-            if !has_attestation_lower || !has_attestation_upper {
-                self.cc_provider
-                    .get_checkpoints_for_chain(self.config.chain_key)
-                    .await
-                    .ok()
-            } else {
-                None
-            };
-
-        // Check if query is at a checkpoint height (only if we fetched checkpoints)
-        let is_at_checkpoint = checkpoints
-            .as_ref()
-            .map(|cps| cps.iter().any(|c| c.block_number == min_query))
-            .unwrap_or(false);
-
-        if is_at_attestation || is_at_checkpoint {
-            info!(
-                query_type = if is_at_attestation {
-                    "attestation"
-                } else {
-                    "checkpoint"
-                },
-                is_at_attestation, is_at_checkpoint, "Query is at consensus point height"
-            );
-        }
+        let checkpoints: Option<Vec<AttestationCheckpoint>> = if !has_attestation_lower {
+            self.cc_provider
+                .get_checkpoints_for_chain(self.config.chain_key)
+                .await
+                .ok()
+        } else {
+            None
+        };
 
         // Find lower bound
         let lower_info = self
@@ -68,13 +44,8 @@ impl ContinuityBuilder {
             .await?;
 
         // Find upper bound
-        let (upper_info, ends_in_attestation) = self.find_upper_bound(
-            max_query,
-            is_at_attestation,
-            is_at_checkpoint,
-            attestations,
-            checkpoints.as_deref(),
-        )?;
+        let (upper_info, ends_in_attestation) =
+            self.find_upper_bound(max_query, attestations, checkpoints.as_deref())?;
 
         debug!(
             lower_bound = lower_info.block_number,
@@ -100,7 +71,7 @@ impl ContinuityBuilder {
         // match at required_before, we'd incorrectly use that block's digest as its own prev_digest.
         let attestation_lower = attestations
             .iter()
-            .filter(|a| a.attestation.header_number < required_before)
+            .filter(|a| a.attestation.header_number <= required_before)
             .max_by_key(|a| a.attestation.header_number)
             .map(|a| AttestationInfo {
                 block_number: a.attestation.header_number,
@@ -110,7 +81,7 @@ impl ContinuityBuilder {
         // Find checkpoint lower bound if checkpoints were provided
         let checkpoint_lower = checkpoints.and_then(|cps| {
             cps.iter()
-                .filter(|c| c.block_number < required_before)
+                .filter(|c| c.block_number <= required_before)
                 .max_by_key(|c| c.block_number)
                 .map(|c| AttestationInfo {
                     block_number: c.block_number,
@@ -147,70 +118,41 @@ impl ContinuityBuilder {
     fn find_upper_bound(
         &self,
         max_query: u64,
-        is_at_attestation: bool,
-        is_at_checkpoint: bool,
         attestations: &[SignedAttestation<H256, AccountId32>],
         checkpoints: Option<&[AttestationCheckpoint]>,
     ) -> Result<(Option<AttestationInfo>, EndsInAttestation)> {
-        if is_at_attestation {
-            // Query is at an attestation height - use that attestation as upper bound
-            Ok((
-                attestations
-                    .iter()
-                    .find(|a| a.attestation.header_number == max_query)
-                    .map(|a| AttestationInfo {
-                        block_number: a.attestation.header_number,
-                        digest: a.attestation.digest(),
-                    }),
-                EndsInAttestation::True,
-            ))
-        } else if is_at_checkpoint {
-            // Query is at a checkpoint height - use that checkpoint as upper bound
-            Ok((
-                checkpoints.and_then(|cps| {
-                    cps.iter()
-                        .find(|c| c.block_number == max_query)
-                        .map(|c| AttestationInfo {
-                            block_number: c.block_number,
-                            digest: c.digest,
-                        })
-                }),
-                EndsInAttestation::False,
-            ))
-        } else {
-            // Find next consensus point after max_query
-            let attestation_upper = attestations
-                .iter()
-                .filter(|a| a.attestation.header_number > max_query)
-                .min_by_key(|a| a.attestation.header_number)
-                .map(|a| AttestationInfo {
-                    block_number: a.attestation.header_number,
-                    digest: a.attestation.digest(),
-                });
-
-            // Find checkpoint upper bound if checkpoints were provided
-            let checkpoint_upper = checkpoints.and_then(|cps| {
-                cps.iter()
-                    .filter(|c| c.block_number > max_query)
-                    .min_by_key(|c| c.block_number)
-                    .map(|c| AttestationInfo {
-                        block_number: c.block_number,
-                        digest: c.digest,
-                    })
+        // Find next consensus point after max_query
+        let attestation_upper = attestations
+            .iter()
+            .filter(|a| a.attestation.header_number >= max_query)
+            .min_by_key(|a| a.attestation.header_number)
+            .map(|a| AttestationInfo {
+                block_number: a.attestation.header_number,
+                digest: a.attestation.digest(),
             });
 
-            Ok(match (attestation_upper, checkpoint_upper) {
-                (Some(a), Some(c)) => {
-                    if a.block_number < c.block_number {
-                        (Some(a), EndsInAttestation::True)
-                    } else {
-                        (Some(c), EndsInAttestation::False)
-                    }
+        // Find checkpoint upper bound if checkpoints were provided
+        let checkpoint_upper = checkpoints.and_then(|cps| {
+            cps.iter()
+                .filter(|c| c.block_number >= max_query)
+                .min_by_key(|c| c.block_number)
+                .map(|c| AttestationInfo {
+                    block_number: c.block_number,
+                    digest: c.digest,
+                })
+        });
+
+        Ok(match (attestation_upper, checkpoint_upper) {
+            (Some(a), Some(c)) => {
+                if a.block_number < c.block_number {
+                    (Some(a), EndsInAttestation::True)
+                } else {
+                    (Some(c), EndsInAttestation::False)
                 }
-                (Some(a), None) => (Some(a), EndsInAttestation::True),
-                (None, Some(c)) => (Some(c), EndsInAttestation::False),
-                (None, None) => (None, EndsInAttestation::False),
-            })
-        }
+            }
+            (Some(a), None) => (Some(a), EndsInAttestation::True),
+            (None, Some(c)) => (Some(c), EndsInAttestation::False),
+            (None, None) => (None, EndsInAttestation::False),
+        })
     }
 }
