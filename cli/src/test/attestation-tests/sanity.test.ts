@@ -150,6 +150,7 @@ describe('BlockAttested events', (): void => {
                     // Note: Continuity proof validation removed as full attestation data
                     // is no longer available in the event. This would need to be done via
                     // storage query or call handler if needed.
+                    // See CSUB-1890
                     // expect(attestationRecord.signed.continuityProof.blocks.length).toBeGreaterThanOrEqual(
                     //     chain_Anvil1_AttestationInterval - 1,
                     // );
@@ -211,4 +212,40 @@ describe('BlockAttested events', (): void => {
             expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(5);
         });
     }, 1_500_000); // 220 blocks is 1100 sec + reserve to avoid timeouts
+
+    // Helper function to validate continuity proof
+    // function validateContinuityProof(
+    //     prev_digests: string[],
+    //     attestation: AttestorPrimitivesSignedAttestation,
+    // ): boolean {
+    //     if (attestation.continuityProof.blocks.length === 0) {
+    //         console.log('**** DEBUG: continuity proof has no blocks; returning false');
+    //         return false;
+    //     }
+
+    //     let block_prev_digest = '';
+    //     attestation.continuityProof.blocks.forEach((block, index) => {
+    //         if (block.blockNumber.isZero()) {
+    //             return;
+    //         }
+
+    //         if (index === 0) {
+    //             if (!prev_digests.includes(block.prevDigest.toHex())) {
+    //                 console.log(
+    //                     `**** DEBUG: continuity proof first block prevDigest ${block.prevDigest.toHex()} not in known prev_digests`,
+    //                 );
+    //                 return false;
+    //             }
+    //             block_prev_digest = block.prevDigest.toHex();
+    //             return;
+    //         }
+
+    //         if (block.prevDigest.toHex() !== block_prev_digest) {
+    //             return false;
+    //         }
+    //         block_prev_digest = block.digest.toHex();
+    //     });
+
+    //     return true;
+    // }
 });
