@@ -242,13 +242,10 @@ jobs:
         shell: bash
         working-directory: artifact/
         run: |
-          # -m removes the uncompressed file b/c we don't want to be uploading it
+          # NOTE: -m removes the uncompressed file(s) b/c we don't want to be uploading them
           zip -m "creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" creditcoin3-node
-
-          # -m removes the uncompressed files b/c we don't want to be uploading them
           zip -m "attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" attestor*
-
-          # -m removes the uncompressed files b/c we don't want to be uploading them
+          zip -m "proof-gen-api-server-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" proof-gen-api-server
           zip -m "usc_audit_automation-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" usc_audit_automation
 
           ls -lR
@@ -259,6 +256,7 @@ jobs:
           files: |
             artifact/attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}*
             artifact/creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}*
+            artifact/proof-gen-api-server-${{ needs.sanity-check.outputs.TAG_NAME }}*
             artifact/usc_audit_automation-${{ needs.sanity-check.outputs.TAG_NAME }}*
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
