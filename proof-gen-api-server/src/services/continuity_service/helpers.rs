@@ -270,8 +270,12 @@ impl ContinuityService {
             // continuity.header_number + continuity.continuity_proof.blocks.len() - 2
             // = 4 + 8 - 2
             // = 10
-            let continuity_max_height =
-                continuity.header_number + continuity.continuity_proof.blocks.len() as u64 - 2;
+            let continuity_max_height = (continuity.header_number
+                + continuity.continuity_proof.blocks.len() as u64)
+                .checked_sub(2)
+                .ok_or(ServiceError::Internal {
+                    message: "Negative continuity_max_height. This shouldn't happen!".to_string(),
+                })?;
 
             // If the highest block of the continuity proof is higher than the last checkpoint,
             // then the attestation it refers to must still be present on-chain. So the continuity
