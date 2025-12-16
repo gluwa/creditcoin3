@@ -18,6 +18,7 @@ use crate::{
     config::ContinuityConfig,
     proof::ContinuityProof,
     rpc::{SharedCcProvider, SharedEthProvider},
+    AttestationInfo,
 };
 use anyhow::{anyhow, Context, Result};
 use cc_client::Client as CcClient;
@@ -87,12 +88,15 @@ impl ContinuityBuilder {
     pub async fn build_for_single_query(
         &self,
         height: u64,
-    ) -> Result<(ContinuityProof, EndsInAttestation)> {
+        lower_attestation: AttestationInfo,
+        upper_attestation: AttestationInfo,
+    ) -> Result<ContinuityProof> {
         info!(
             query_height = height,
             "Building continuity proof for single query"
         );
-        self.build_for_heights(&[height]).await
+        self.build_for_heights(&[height], lower_attestation, upper_attestation)
+            .await
     }
     /// Build continuity proof for multiple queries (batch)
     ///
@@ -102,7 +106,9 @@ impl ContinuityBuilder {
     pub async fn build_for_batch_queries(
         &self,
         query_heights: &[u64],
-    ) -> Result<(ContinuityProof, EndsInAttestation)> {
+        lower_attestation: AttestationInfo,
+        upper_attestation: AttestationInfo,
+    ) -> Result<ContinuityProof> {
         if query_heights.is_empty() {
             return Err(anyhow!("No query heights provided"));
         }
@@ -118,7 +124,8 @@ impl ContinuityBuilder {
             "Building continuity proof for batch queries"
         );
 
-        self.build_for_heights(query_heights).await
+        self.build_for_heights(query_heights, lower_attestation, upper_attestation)
+            .await
     }
 
     /// Helper to fetch raw transaction bytes for a block using the underlying Eth provider.

@@ -17,7 +17,10 @@ async fn builder_builds_trimmed_continuity_chain_for_single_query() -> Result<()
     let builder = ContinuityBuilder::new_with_providers(config, cc, eth);
 
     let query_height = 15; // Between attestations at 10 and 20
-    let (proof, _) = builder.build_for_single_query(query_height).await?;
+    let (lower_attestation, upper_attestation, _) = builder.get_endpoints(&[query_height]).await?;
+    let proof = builder
+        .build_for_single_query(query_height, lower_attestation, upper_attestation)
+        .await?;
 
     // Expect chain starts at queryHeight - 1 (14) and ends at next attestation (20)
     let first = proof.blocks.first().expect("non-empty continuity chain");

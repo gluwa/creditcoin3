@@ -1,18 +1,17 @@
 use super::ContinuityBuilder;
-use crate::errors::ContinuityError;
 use crate::proof::ContinuityProof;
 use crate::{attestation::AttestationInfo, builder::EndsInAttestation};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use attestor_primitives::block::Block;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 impl ContinuityBuilder {
     /// Build continuity blocks and trim to required range
     async fn build_and_trim_continuity(
         &self,
         lower: AttestationInfo,
-        upper: Option<AttestationInfo>,
+        upper: AttestationInfo,
         min_query: u64,
     ) -> Result<Vec<Block>> {
         // POC pattern: continuity chain ALWAYS starts at queryHeight - 1
@@ -20,13 +19,7 @@ impl ContinuityBuilder {
 
         // Determine end height (next consensus point - REQUIRED)
         // The proof MUST end at an attestation or checkpoint for verification to succeed
-        let end_height = upper
-            .as_ref()
-            .map(|u| u.block_number)
-            .ok_or_else(|| anyhow!(
-                "No attestation or checkpoint found after block {}. The continuity proof requires an upper bound (next attestation/checkpoint) to verify the chain ends at a consensus point.",
-                min_query
-            ))?;
+        let end_height = upper.block_number;
 
         // Build from attestation to end to get correct digests
         // Special case: if lower bound is at required_start (e.g., block 0 checkpoint for query at block 1),
@@ -80,19 +73,60 @@ impl ContinuityBuilder {
     pub async fn build_for_heights(
         &self,
         query_heights: &[u64],
-    ) -> Result<(ContinuityProof, EndsInAttestation)> {
+        lower_attestation: AttestationInfo,
+        upper_attestation: AttestationInfo,
+    ) -> Result<ContinuityProof> {
+        // Find the query range
+        let min_query = *query_heights
+            .iter()
+            .min()
+            .ok_or(anyhow!("query_heights has 0 entries."))?;
+        let max_query = *query_heights
+            .iter()
+            .max()
+            .ok_or(anyhow!("query_heights has 0 entries."))?;
+
+        // Verify that parameters are valid.
+        // The query heights are contained within the attestation bounds.
+        if max_query > upper_attestation.block_number || min_query <= lower_attestation.block_number
+        {
+            bail!(
+                "Query heights not contained by attestation bounds! min_query: {min_query}, max_query: {max_query}, lower_attestation: {}, upper_attestation: {}",
+                lower_attestation.block_number,
+                upper_attestation.block_number,
+            );
+        }
+
+        // Build and trim continuity blocks
+        let blocks = self
+            .build_and_trim_continuity(lower_attestation, upper_attestation, min_query)
+            .await?;
+
+        Ok(ContinuityProof::from_blocks(blocks))
+    }
+
+    pub async fn get_endpoints(
+        &self,
+        query_heights: &[u64],
+    ) -> Result<(AttestationInfo, AttestationInfo, EndsInAttestation)> {
+        // Find the query range
+        let min_query = *query_heights
+            .iter()
+            .min()
+            .ok_or(anyhow!("query_heights has 0 entries."))?;
+        let max_query = *query_heights
+            .iter()
+            .max()
+            .ok_or(anyhow!("query_heights has 0 entries."))?;
+
         // Fetch attestations (always needed)
         let attestations = self.fetch_attestations().await?;
         if attestations.is_empty() {
-            return Err(anyhow!(
+            bail!(
                 "No attestations found for chain_key {}. Queries require at least one attestation.",
                 self.config.chain_key
-            ));
+            );
         }
-
-        // Find the query range
-        let min_query = *query_heights.iter().min().unwrap();
-        let max_query = *query_heights.iter().max().unwrap();
 
         // Find attestation bounds (handles queries at attestation/checkpoint heights)
         // Checkpoints are fetched lazily only when needed
@@ -102,84 +136,12 @@ impl ContinuityBuilder {
 
         // Determine end height (next consensus point - REQUIRED)
         // The proof MUST end at an attestation or checkpoint for verification to succeed
-        let end_height = upper
-            .as_ref()
-            .map(|u| u.block_number)
+        let upper = upper
             .ok_or_else(|| anyhow!(
                 "No attestation or checkpoint found after block {}. The continuity proof requires an upper bound (next attestation/checkpoint) to verify the chain ends at a consensus point.",
-                min_query
+                max_query
             ))?;
 
-        // Get current block height for error reporting
-        let current_block = self
-            .eth_provider
-            .get_last_block()
-            .await
-            .map_err(|e| anyhow!("Failed to get current block height: {e}"))?;
-
-        // Check if query block exists on chain
-        if min_query > current_block {
-            warn!(
-                query_block = min_query,
-                current_block, "Query block does not exist on chain yet"
-            );
-            return Err(ContinuityError::BlockNotReady {
-                block_number: min_query,
-                current_block,
-            }
-            .into());
-        }
-
-        // Check if upper bound (end block) is attested to
-        // The upper bound is the next attestation/checkpoint after the query block
-        // We need to verify this block exists and is ready
-        if end_height > current_block {
-            // Check if query block itself is attested to for logging
-            let query_block_attested = attestations
-                .iter()
-                .any(|a| a.attestation.header_number <= min_query)
-                || self
-                    .check_if_at_checkpoint_height(min_query)
-                    .await?
-                    .is_some()
-                || {
-                    // Check if there's a checkpoint at or after the query block
-                    if let Ok(Some(last_cp)) = self
-                        .cc_provider
-                        .get_last_checkpoint(self.config.chain_key)
-                        .await
-                    {
-                        last_cp.block_number >= min_query
-                    } else {
-                        false
-                    }
-                };
-
-            if !query_block_attested {
-                warn!(
-                    query_block = min_query,
-                    current_block, "Query block is not attested to yet"
-                );
-            }
-
-            warn!(
-                end_block = end_height,
-                current_block,
-                query_block = min_query,
-                "Upper bound (end block) for continuity proof is not attested to yet"
-            );
-            return Err(ContinuityError::BlockNotReady {
-                block_number: end_height,
-                current_block,
-            }
-            .into());
-        }
-
-        // Build and trim continuity blocks
-        let blocks = self
-            .build_and_trim_continuity(lower, upper, min_query)
-            .await?;
-
-        Ok((ContinuityProof::from_blocks(blocks), ends_in_attestation))
+        Ok((lower, upper, ends_in_attestation))
     }
 }

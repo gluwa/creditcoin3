@@ -38,13 +38,19 @@ impl ContinuityService {
             });
         }
 
-        let (proof, ends_in_attestation) = self
+        // TODO: Fetch these AttestationInfo from the postgres DB rather than getting them innefficiently
+        let (lower_attestation, upper_attestation, ends_in_attestation) = self
             .builder
-            .build_for_single_query(header_number)
+            .get_endpoints(&[header_number])
+            .await
+            .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
+        let proof = self
+            .builder
+            .build_for_single_query(header_number, lower_attestation, upper_attestation)
             .await
             .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
         Ok((
-            ContinuityProof::from_blocks(proof.blocks.clone()),
+            ContinuityProof::from_blocks(proof.blocks),
             ends_in_attestation,
         ))
     }
@@ -292,13 +298,19 @@ impl ContinuityService {
             header_number,
             "Building continuity proof (cache miss)"
         );
-        let (proof, ends_in_attestation) = self
+        // TODO: Fetch these AttestationInfo from the postgres DB rather than getting them innefficiently
+        let (lower_attestation, upper_attestation, ends_in_attestation) = self
             .builder
-            .build_for_single_query(header_number)
+            .get_endpoints(&[header_number])
+            .await
+            .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
+        let proof = self
+            .builder
+            .build_for_single_query(header_number, lower_attestation, upper_attestation)
             .await
             .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
         // Convert raw blocks into optimized ContinuityProof (attestor primitives)
-        let continuity = ContinuityProof::from_blocks(proof.blocks.clone());
+        let continuity = ContinuityProof::from_blocks(proof.blocks);
         tracing::info!(
             chain_key,
             header_number,
