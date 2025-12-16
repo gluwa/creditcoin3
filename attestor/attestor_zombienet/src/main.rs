@@ -60,8 +60,6 @@ async fn main() -> anyhow::Result<()> {
 
     const MAX_ATTEMPTS: usize = 10;
 
-    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-
     // ------------------------------------* User-facing logs *------------------------------------
 
     let filter_env = tracing_subscriber::EnvFilter::builder()
@@ -80,6 +78,8 @@ async fn main() -> anyhow::Result<()> {
     // --------------------------------------* CLI arguments *-------------------------------------
 
     let args = Args::parse();
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42 + args.offset as u64);
 
     anyhow::ensure!(
         args.bin.as_path().exists(),
