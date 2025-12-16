@@ -55,16 +55,31 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32-unknown-unknown
-          components: rust-src
+          components: llvm-tools-preview, rust-src
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2.62.62
+        with:
+          tool: cargo-llvm-cov
+
       - name: Run tests
         run: |
-          cargo test --release --package proof-gen-api-server --features e2e-tests -- --nocapture
+          cargo llvm-cov \
+              --release \
+              --package proof-gen-api-server --features e2e-tests \
+              --html --show-missing-lines --hide-instantiations \
+              --ignore-filename-regex "(tests(.*).rs)"
         env:
           ANVIL_BIN: ${{ env.ANVIL_BIN }}
           CAST_BIN: ${{ env.CAST_BIN }}
+
+      - name: Upload coverage report as artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-report
+          path: target/llvm-cov/html/
 
   deploy-runner-proof-gen-api-server-e2e-test:
     uses: ./.github/workflows/deploy-runner.yml
