@@ -28,14 +28,11 @@ impl ContinuityBuilder {
                 min_query
             ))?;
 
-        // Build from attestation to end to get correct digests
-        // Special case: if lower bound is at required_start (e.g., block 0 checkpoint for query at block 1),
-        // we need to include that block in the build, so start from lower.block_number instead of lower.block_number + 1
-        let build_start = if lower.block_number == required_start {
-            lower.block_number
-        } else {
-            lower.block_number + 1
-        };
+        // Build from lower+1 to end to get correct digests
+        // The lower bound's digest is used as prev_digest for computing block (lower+1)'s digest
+        // We always start from lower+1 because lower's digest IS the digest of that block,
+        // not the prev_digest needed for computing it
+        let build_start = lower.block_number + 1;
 
         info!(
             build_start,
@@ -51,16 +48,7 @@ impl ContinuityBuilder {
             .await
             .context("Failed to build continuity blocks")?;
 
-        // If we built from the required start, no trimming needed
-        if build_start == required_start {
-            debug!(
-                block_count = all_blocks.len(),
-                "Generated continuity blocks"
-            );
-            return Ok(all_blocks);
-        }
-
-        // Trim to start at required_start
+        // Trim to start at required_start (the continuity chain must start at queryHeight - 1)
         let start_index = all_blocks
             .iter()
             .position(|b| b.block_number == required_start)

@@ -774,8 +774,9 @@ impl Client {
                 continue;
             }
             let last_8: Result<[u8; 8], _> = kv.key_bytes[kv.key_bytes.len() - 8..].try_into();
-            if let Ok(block_number_byes) = last_8 {
-                let block_number = u64::from_be_bytes(block_number_byes);
+            if let Ok(block_number_bytes) = last_8 {
+                // Substrate encodes u64 as little-endian when using Identity hasher
+                let block_number = u64::from_le_bytes(block_number_bytes);
                 let checkpoint = AttestationCheckpoint {
                     block_number,
                     digest: sp_core::H256::from(kv.value.0),

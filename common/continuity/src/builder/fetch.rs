@@ -14,24 +14,15 @@ impl ContinuityBuilder {
             .context("Failed to fetch attestations")
     }
 
-    /// Check if query is at a checkpoint height by checking the last checkpoint
+    /// Check if query is at a checkpoint height by checking for a checkpoint at the specific height
     pub async fn check_if_at_checkpoint_height(
         &self,
         query_height: u64,
     ) -> Result<Option<AttestationCheckpoint>> {
-        let last_checkpoint = self
-            .cc_provider
-            .get_last_checkpoint(self.config.chain_key)
+        self.cc_provider
+            .get_checkpoint_by_height(self.config.chain_key, query_height)
             .await
-            .context("Failed to fetch last checkpoint")?;
-
-        if let Some(checkpoint) = last_checkpoint {
-            if checkpoint.block_number == query_height {
-                return Ok(Some(checkpoint));
-            }
-        }
-
-        Ok(None)
+            .context("Failed to fetch checkpoint at query height")
     }
 
     /// Fetch checkpoints with optional filtering

@@ -411,7 +411,13 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
         .items()
         .iter()
         .position(|tx| tx.tx_hash().to_string() == prompt_output.tx_hash)
-        .unwrap_or(0);
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Transaction {} not found in block {}",
+                prompt_output.tx_hash,
+                prompt_output.height
+            )
+        })?;
 
     println!("Using transaction at index {tx_index}");
     let tx_rx = &block.items()[tx_index];
