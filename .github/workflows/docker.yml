@@ -86,14 +86,7 @@ jobs:
           docker exec creditcoin-validator query-cli --help
 
           docker exec creditcoin-validator which proof-gen-api-server
-          # NOTE: remove --env when CSUB-1889 is fixed
-          docker exec \
-            --env POSTGRES_HOST=localhost \
-            --env POSTGRES_PORT=5432 \
-            --env POSTGRES_USER=creditcoin \
-            --env POSTGRES_PASSWORD=123456 \
-            --env POSTGRES_DB=dummy_db \
-            creditcoin-validator proof-gen-api-server --help
+          docker exec creditcoin-validator proof-gen-api-server --help
 
       - name: Collect docker logs
         if: always()
