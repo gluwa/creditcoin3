@@ -33,6 +33,7 @@ vrf = { workspace = true }
 # Substrate
 parity-scale-codec = { workspace = true }
 sp-core = { workspace = true }
+sp-io = { workspace = true }
 subxt = { workspace = true }
 subxt-signer = { workspace = true }
 

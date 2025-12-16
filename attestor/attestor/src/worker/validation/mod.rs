@@ -448,6 +448,9 @@ impl WorkerAttestationValidation {
                     self.attempts = 0;
                 }
             }
+            AttestationSubmission::Finalized => {
+                tracing::info!(height, "✅ Attestation submitted externally");
+            }
         }
 
         // -----------------------------* Attestation pre-validation *-----------------------------
@@ -1004,6 +1007,7 @@ enum AttestationSubmission {
             cc_client::AccountId32,
         >,
     ),
+    Finalized,
 }
 
 impl WorkerAttestationValidation {
@@ -1017,13 +1021,6 @@ impl WorkerAttestationValidation {
     ) -> Option<Result<(), Error>> {
         use futures::FutureExt as _;
 
-        const MAX_ATTEMPTS: usize = 5;
-        const DELAY_BASE: u64 = 10;
-        const DELAY_MAX: u64 = 60;
-
-        let mut attempt = 0;
-        let mut delay = DELAY_BASE;
-
         match self
             .cc3
             .sign_vrf_submission(height + self.attempts as common::types::Height)
@@ -1033,10 +1030,127 @@ impl WorkerAttestationValidation {
             //
             // Note that this will require being able to retrieve the randomness of past epochs so
             // the runtime can use the same epoch in validating the vrf as used during generation.
-            Ok(Some(_)) => {
+            Ok(Some(vrf)) => {
+                // -------------------------* Deterministic Rank Backoff *-------------------------
+
+                // STEP 1]
+                //
+                // We stagger attestation submissions based on the election vrf to avoid multiple
+                // attestors racing the runtime for submission at the same time. We do this in an
+                // effort to save block space.
+
+                let mut rank_input = Vec::with_capacity(vrf.output.len() + 8);
+                rank_input.extend_from_slice(&vrf.output);
+                rank_input.extend_from_slice(&height.to_be_bytes());
+                let rank_hash = sp_io::hashing::keccak_256(&rank_input);
+
+                // Given a set S of 0..n-1 distinct elements, we pick at random 3 elements in S to
+                // form an ordered tuple. This tuple represents the ranks of each attestor during
+                // submission. We choose 3 as the size of the tuple as that is the target number of
+                // attestors for submission as per the round vrf. We call this tupple R.
+                //
+                // The probability of the minimum element in R appearing more than once is defined
+                // as:
+                //
+                //                              P(n) = n(3n - 1) / 2
+                //
+                // Conversely, the probability of the minimum element in R appearing EXACTLY once
+                // is:
+                //
+                //                        1 - P(n) = (2n - 1)(n - 1) / 2n^2
+                //
+                // This represents the probability of ONLY 1 attestor racing for submission at
+                // once, while other attestors can act as backup. Solving for 1 - P(n) > 0.75 we
+                // obtain 6, with diminishing returns beyond that point (see below).
+                //
+                // Therefore, we use a RANK size of 6 to limit submission racing to a single
+                // submission 75% of the time on average.
+                const RANKS: u64 = 6;
+                let bytes = [
+                    rank_hash[0],
+                    rank_hash[1],
+                    rank_hash[2],
+                    rank_hash[3],
+                    rank_hash[4],
+                    rank_hash[5],
+                    rank_hash[6],
+                    rank_hash[7],
+                ];
+                let rank = u64::from_be_bytes(bytes) % RANKS;
+
+                // Determined experimentally
+                //
+                //                m := average time to submission finalization (17s)
+                //
+                //                                 delay = rank * m
+                //
+                // This guarantees that on average the amount of time between submissions should
+                // approximate the time to finalization.
+                //
+                // Note that while 1 - P(n) grows roughly O(1 - 1/n) of the rank, the average
+                // finalization delay for any rank size grows roughly linearly. For a rank size of
+                // n, the min submission latency remains 0, while the max submission latency is
+                // defined as:
+                //
+                //                                 Δt = n(1 - P(n))
+                //
+                // Therefore, and assuming an uniform distribution between 0 and Δt (as should be
+                // guaranteed by the use of the round vrf as underlying randomness), we have an
+                // average submission latency of:
+                //
+                //                             μ = (2n - 1)(n - 1) / 4n
+                //
+                // For a rank size of 6, the average submission latency is of roughly 2.3x the
+                // average time to finalization. Increasing the rank size further yields diminishing
+                // returns, so while a rank size of 8 limits submission racing ~80% of the time, it
+                // introduces an average 3.3x finalization latency.
+                let delay = std::time::Duration::from_secs(rank * 17);
+                let deadline = tokio::time::Instant::now()
+                    .checked_add(delay)
+                    .unwrap_or(tokio::time::Instant::now());
+
+                // Attestation should finalize before the deadline. If this is not the case then an
+                // attestor is most likely down.
+                while (*self.receiver_attestation_latest.borrow())
+                    .is_none_or(|attestation_latest| attestation_latest < height)
+                {
+                    tokio::select! {
+                        _ = tokio::time::sleep_until(deadline) => {
+                            break;
+                        }
+                        _ = self.receiver_attestation_latest.changed() => {
+                            if self.receiver_attestation_latest.borrow()
+                                    .is_some_and(|attestation_latest| attestation_latest >= height)
+                            {
+                                self.watch_submission = Some(std::future::ready((
+                                    AttestationSubmission::Finalized, height
+                                )))
+                                .into();
+
+                                return Some(Ok(()));
+                            }
+                        }
+                    }
+                }
+
+                // ---------------------------------* Submission *---------------------------------
+
+                // STEP 2]
+                //
+                // If the attestation has not finalized in time, then we submit it anyway. This
+                // happens on average either if the attestor is first in line for submission or if
+                // another attestor went down.
+
                 let call = cc_client::cc3::tx()
                     .attestation()
                     .commit_attestation(attestation);
+
+                const MAX_ATTEMPTS: usize = 5;
+                const DELAY_BASE: u64 = 10;
+                const DELAY_MAX: u64 = 60;
+
+                let mut attempt = 0;
+                let mut delay = DELAY_BASE;
 
                 let submit = loop {
                     match self
@@ -1069,6 +1183,16 @@ impl WorkerAttestationValidation {
 
                     delay = (delay * 2).min(DELAY_MAX);
                 };
+
+                // --------------------------------* Finalization *--------------------------------
+
+                // STEP 3]
+                //
+                // Once an attestation has been submitted, we wait for the runtime to validate it.
+                // Note that currently the code does not handle well the edge case of submitting
+                // invalid attestations to the runtime. This can happen either in the case of a bug
+                // in the attestor code or of a super-majority of malicious attestors, however in
+                // both cases we currently do not offer good recovery methods.
 
                 let watch = submit
                     .wait_for_finalized_success()
