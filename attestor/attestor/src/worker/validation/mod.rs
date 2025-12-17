@@ -450,6 +450,7 @@ impl WorkerAttestationValidation {
             }
             AttestationSubmission::Finalized => {
                 tracing::info!(height, "✅ Attestation submitted externally");
+                self.attempts = 0;
             }
         }
 
@@ -1115,7 +1116,7 @@ impl WorkerAttestationValidation {
                         _ = tokio::time::sleep_until(deadline) => {
                             break;
                         }
-                        _ = self.receiver_attestation_latest.changed() => {
+                        Ok(()) = self.receiver_attestation_latest.changed() => {
                             if self.receiver_attestation_latest.borrow()
                                     .is_some_and(|attestation_latest| attestation_latest >= height)
                             {
