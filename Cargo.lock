@@ -11246,6 +11246,7 @@ name = "proof-gen-api-server"
 version = "3.77.0"
 dependencies = [
  "alloy",
+ "alloy-node-bindings",
  "anyhow",
  "async-trait",
  "attestor-primitives",

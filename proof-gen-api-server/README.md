@@ -72,12 +72,12 @@ Endpoints:
 - `GET /proof/{chain_key}/{header_number}/{tx_index}` – continuity + merkle proof for the transaction at `tx_index` (supports empty block with index 0).
 - `GET /proof-by-tx/{chain_key}/{tx_hash}` – currently disabled (returns TxHashLookupUnavailable) until reverse lookup is implemented.
 
-### E2E Testing
+### Anvil Integration Testing
 
-An E2E test exercises all three proof endpoints with Anvil and ephemeral Postgres. Prerequisites: [Foundry](https://book.getfoundry.sh/getting-started/installation) (`anvil`, `cast`) and Docker. Run with:
+Integration tests exercise the HTTP API with real Anvil (Ethereum test node) and Postgres, but mock CC3 providers. Uses alloy for anvil process management and transaction sending - no external dependencies required. Run with:
 
 ```bash
-cargo test -p proof-gen-api-server --test anvil_e2e --features e2e-tests
+cargo test -p proof-gen-api-server --test anvil_integration --features anvil-integration
 ```
 
 ### Testing Using submit-proof.js
@@ -86,9 +86,9 @@ In addition to the unit tests within the proof-gen-api-server crate, you can tes
 
 1. Follow the steps in `.github/CONTRIBUTING.md` up through step 4.
 2. Follow `Launching the Database` in this readme
-2. Follow `Building the Proof Gen Server` in this readme
-3. Follow `Example: Local Development` in this readme to launch the proof gen server
-4. Follow the steps from `### submit-proof.js` in `scripts/README.md`
+3. Follow `Building the Proof Gen Server` in this readme
+4. Follow `Example: Local Development` in this readme to launch the proof gen server
+5. Follow the steps from `### submit-proof.js` in `scripts/README.md`
 
 ## Caching
 

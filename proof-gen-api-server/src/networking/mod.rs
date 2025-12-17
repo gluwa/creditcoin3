@@ -15,6 +15,8 @@ pub mod routes;
 pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
     Router::new()
         .route("/api/v1/health", get(health::health_check))
+        .route("/health/live", get(health::liveness_check))
+        .route("/health/ready", get(health::readiness_check))
         .route(
             "/api/v1/proof/{chain_key}/{header_number}",
             get(continuity::get_continuity_proof),

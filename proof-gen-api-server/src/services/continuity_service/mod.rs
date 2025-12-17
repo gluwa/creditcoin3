@@ -2,7 +2,11 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
+use std::time::Instant;
 
 use crate::db::{continuity_proofs::ContinuityProofItem, DbManager};
 use crate::services::continuity_service::helpers::*;
@@ -50,6 +54,9 @@ pub struct ContinuityService {
     builder: Arc<ContinuityBuilder>,
     db: Arc<DbManager>,
     cc3_client: Arc<dyn CcRpcProvider>,
+    start_time: Instant,
+    cache_hits: AtomicU64,
+    cache_misses: AtomicU64,
 }
 
 impl ContinuityService {
@@ -62,7 +69,44 @@ impl ContinuityService {
             cc3_client,
             builder,
             db,
+            start_time: Instant::now(),
+            cache_hits: AtomicU64::new(0),
+            cache_misses: AtomicU64::new(0),
         }
+    }
+
+    pub fn uptime_seconds(&self) -> u64 {
+        self.start_time.elapsed().as_secs()
+    }
+
+    pub fn cache_hits(&self) -> u64 {
+        self.cache_hits.load(Ordering::Relaxed)
+    }
+
+    pub fn cache_misses(&self) -> u64 {
+        self.cache_misses.load(Ordering::Relaxed)
+    }
+
+    pub async fn get_proofs_counts(&self) -> anyhow::Result<(i64, i64, i64)> {
+        let bl = self.db.count_block_level().await?;
+        // No transaction-level proofs stored separately in the new architecture
+        let tl = 0;
+        let total = bl;
+        Ok((bl, tl, total))
+    }
+
+    /// Health check for CC3 RPC connectivity
+    pub async fn check_cc3_connectivity(&self) -> anyhow::Result<()> {
+        // Try to get the chain name as a basic connectivity check
+        let _chain_name = self.builder.get_chain_name().await?;
+        Ok(())
+    }
+
+    /// Health check for ETH RPC connectivity
+    pub async fn check_eth_connectivity(&self) -> anyhow::Result<()> {
+        // Try to get the ETH chain ID as a basic connectivity check
+        let _chain_id = self.builder.get_eth_chain_id().await?;
+        Ok(())
     }
 
     /// Build and return a continuity proof for a given (chain_key, header_number).
@@ -110,6 +154,8 @@ impl ContinuityService {
             // Check that the continuity proof is verifyable (not based on pruned attestations)
             let verifyable = self.check_continuity_is_current(&continuity).await?;
             if verifyable {
+                // Increment cache hit counter
+                self.cache_hits.fetch_add(1, Ordering::Relaxed);
                 tracing::info!(
                     chain_key,
                     header_number,
@@ -127,6 +173,8 @@ impl ContinuityService {
                     generated_at: Utc::now(),
                 })
             } else {
+                // Increment cache miss counter (found but not verifiable)
+                self.cache_misses.fetch_add(1, Ordering::Relaxed);
                 tracing::info!(
                     chain_key,
                     header_number,
@@ -136,6 +184,8 @@ impl ContinuityService {
                     .await
             }
         } else {
+            // Increment cache miss counter (not found)
+            self.cache_misses.fetch_add(1, Ordering::Relaxed);
             // Cache miss. Must build continuity.
             self.build_and_cache_continuity(chain_key, header_number, current_block)
                 .await
@@ -161,17 +211,23 @@ impl ContinuityService {
                 // Check that the continuity proof is verifyable (not based on pruned attestations)
                 let verifyable = self.check_continuity_is_current(&continuity).await?;
                 if verifyable {
+                    // Increment cache hit counter
+                    self.cache_hits.fetch_add(1, Ordering::Relaxed);
                     let merkle = self
                         .generate_merkle_proof(chain_key, header_number, tx_index)
                         .await?;
                     build_response_from_proofs(merkle, continuity)
                 } else {
+                    // Increment cache miss counter (found but not verifiable)
+                    self.cache_misses.fetch_add(1, Ordering::Relaxed);
                     // Continuity present but not verifyable. Must build both proofs
                     self.generate_and_cache_response(chain_key, header_number, tx_index)
                         .await
                 }
             }
             None => {
+                // Increment cache miss counter (not found)
+                self.cache_misses.fetch_add(1, Ordering::Relaxed);
                 // Builds both continuity and merkle proofs, then caches continuity proof before returning response
                 self.generate_and_cache_response(chain_key, header_number, tx_index)
                     .await

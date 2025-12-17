@@ -78,6 +78,11 @@ impl CcRpcProvider for MockCcRpcProvider {
         // Mock returns 0 for backward compatibility, but can be any number
         Ok(0)
     }
+
+    async fn get_chain_name(&self) -> Result<String> {
+        // Mock returns a test chain name
+        Ok("Mock CC3 Chain".to_string())
+    }
 }
 
 /// Mock ETH provider building continuity blocks with simple incremental digests.
@@ -149,6 +154,11 @@ impl EthRpcProvider for MockEthRpcProvider {
     async fn get_last_block(&self) -> Result<u64> {
         // Mock returns a high block number for testing
         Ok(1000)
+    }
+
+    async fn get_chain_id(&self) -> Result<u64> {
+        // Mock returns test chain ID
+        Ok(31337)
     }
 }
 

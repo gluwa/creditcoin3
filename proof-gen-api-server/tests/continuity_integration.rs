@@ -7,7 +7,7 @@ mod test_utils;
 use test_utils::{assert_h256_str, start_app_with_postgres};
 use tower::util::ServiceExt; // for oneshot helper
 
-#[cfg_attr(not(feature = "e2e-tests"), ignore)]
+#[cfg_attr(not(feature = "anvil-integration"), ignore)]
 #[tokio::test]
 async fn continuity_endpoint_returns_proof() {
     // Arrange: app backed by a real Postgres container
@@ -20,18 +20,19 @@ async fn continuity_endpoint_returns_proof() {
         .uri(uri)
         .method("GET")
         .body(Body::empty())
-        .unwrap();
+        .expect("Failed to build request");
 
     // Act
-    let response = app.clone().oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("Failed to send request");
 
     // Assert
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
         .await
-        .unwrap();
+        .expect("Failed to read response body");
     use proof_gen_api_server::services::continuity_service::ContinuityResponse;
-    let resp: ContinuityResponse = serde_json::from_slice(&bytes).expect("deserialize");
+    let resp: ContinuityResponse =
+        serde_json::from_slice(&bytes).expect("Failed to deserialize response");
     assert_eq!(resp.chain_key, chain_key);
     assert_eq!(resp.header_number, header_number);
     assert!(!resp.continuity_proof.blocks.is_empty());

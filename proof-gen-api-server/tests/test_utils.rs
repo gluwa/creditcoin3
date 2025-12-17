@@ -1,4 +1,6 @@
-/// Assert a string is a strict 0x-prefixed, lowercase H256 hex.
+//! Shared test utilities for integration tests using alloy and testcontainers.
+
+/// Asserts that a string is a valid 0x-prefixed, lowercase H256 hex string.
 pub fn assert_h256_str(label: &str, s: &str) {
     assert!(s.starts_with("0x"), "{label} must start with 0x: {s}");
     assert_eq!(
@@ -15,14 +17,16 @@ pub fn assert_h256_str(label: &str, s: &str) {
     );
 }
 
-// E2E-only helpers. These are compiled only when the `e2e-tests` feature
-// is enabled so that the heavy testcontainers / cast dependencies are
-// conditional and regular test runs remain lightweight.
 #[allow(dead_code)]
-mod e2e {
-    use anyhow::Result;
-    use std::process::{Command, Stdio};
+mod anvil_integration {
+    use alloy::network::{EthereumWallet, TransactionBuilder};
+    use alloy::primitives::{Address, U256};
+    use alloy::providers::ProviderBuilder;
+    use alloy::rpc::types::request::TransactionRequest;
+    use alloy::signers::local::PrivateKeySigner;
+    use alloy_node_bindings::AnvilInstance;
 
+    use anyhow::Result;
     use axum::Router;
     use continuity::{ContinuityBuilder, ContinuityConfig};
     use proof_gen_api_server::{build_app, ContinuityService};
@@ -32,120 +36,169 @@ mod e2e {
     use testcontainers::ContainerAsync;
     use testcontainers_modules::postgres::Postgres;
 
-    /// Send a simple tx using Foundry's cast; returns the tx hash string.
-    pub fn send_test_tx_via_cast(port: u16) -> Result<String> {
-        let rpc = format!("http://127.0.0.1:{port}");
-        // Use the first default Anvil private key (account 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
-        let anvil_private_key =
-            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-        let mut cmd =
-            Command::new(std::env::var("CAST_BIN").unwrap_or_else(|_| "cast".to_string()));
-        cmd.arg("send")
-            .arg("0x0000000000000000000000000000000000000000")
-            .arg("--value")
-            .arg("0")
-            .arg("--private-key")
-            .arg(anvil_private_key)
-            .arg("--rpc-url")
-            .arg(rpc)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+    /// Sends a test transaction to Anvil and returns the transaction hash.
+    pub async fn send_test_tx_via_alloy(port: u16, anvil: &AnvilInstance) -> Result<String> {
+        // RPC endpoint URL for embedded Anvil
+        let rpc_url = format!("http://127.0.0.1:{port}");
+        let url = rpc_url
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Invalid RPC URL '{}': {}", rpc_url, e))?;
 
-        let output = cmd.spawn()?.wait_with_output()?;
-        if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "cast send failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
+        // Build Provider with wallet using Anvil's first account
+        let signer = PrivateKeySigner::from(anvil.keys()[0].clone());
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer))
+            .on_http(url);
+
+        let from = anvil.addresses()[0];
+        let to = Address::ZERO;
+
+        // Transaction parameters - sending minimal value for testing
+        const TEST_VALUE_WEI: u64 = 1;
+
+        // Build transaction request
+        let tx = TransactionRequest::default()
+            .with_from(from)
+            .with_to(to)
+            .with_value(U256::from(TEST_VALUE_WEI));
+
+        // Send transaction and get receipt
+        use alloy::providers::Provider as _;
+        let pending = provider
+            .send_transaction(tx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send transaction to Anvil: {}", e))?;
+
+        let receipt = pending
+            .get_receipt()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get transaction receipt from Anvil: {}", e))?;
+
+        // Ensure transaction was successful
+        if !receipt.status() {
+            return Err(anyhow::anyhow!("Transaction failed: {:?}", receipt));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
 
-        // Look for the transactionHash line specifically (not blockHash which appears first)
-        for line in stdout.lines() {
-            if line.contains("transactionHash") {
-                // Extract the hash from "transactionHash      0x..."
-                if let Some(pos) = line.find("0x") {
-                    let hash_start = pos;
-                    let remaining = &line[hash_start..];
-                    // Take first 66 characters (0x + 64 hex)
-                    if remaining.len() >= 66 {
-                        let tx_hash = &remaining[..66];
-                        return Ok(tx_hash.to_string());
-                    }
-                }
-            }
-        }
-
-        Err(anyhow::anyhow!(
-            "failed to find transactionHash in cast output: {}",
-            stdout
-        ))
+        Ok(format!("{:#x}", receipt.transaction_hash))
     }
-
-    /// Query tx info via JSON-RPC, returning (block_number, tx_index).
-    /// Retries up to 20 times with 100ms delay if the transaction isn't mined yet.
+    /// Queries transaction info via JSON-RPC, returning (block_number, tx_index).
     pub async fn get_tx_info_via_rpc(port: u16, tx_hash: &str) -> Result<(u64, u64)> {
         let rpc = format!("http://127.0.0.1:{port}");
         let client = reqwest::Client::new();
 
+        // Validate input transaction hash format
+        if !tx_hash.starts_with("0x") || tx_hash.len() != 66 {
+            return Err(anyhow::anyhow!(
+                "Invalid transaction hash format: {}. Expected 0x + 64 hex characters.",
+                tx_hash
+            ));
+        }
+
         // Retry up to 20 times with 100ms delay (total 2 second wait)
         // Anvil should mine instantly, but we allow some buffer for RPC propagation
-        for attempt in 0..20 {
+        // Constants for polling configuration
+        const MAX_ATTEMPTS: usize = 20;
+        const POLL_INTERVAL_MS: u64 = 100;
+        const TOTAL_WAIT_TIME_MS: u64 = MAX_ATTEMPTS as u64 * POLL_INTERVAL_MS; // 2 seconds
+
+        for attempt in 0..MAX_ATTEMPTS {
             let payload = serde_json::json!({
                 "jsonrpc": "2.0",
                 "method": "eth_getTransactionByHash",
                 "params": [tx_hash],
                 "id": 1,
             });
-            let resp = client.post(&rpc).json(&payload).send().await?;
+
+            let resp = client.post(&rpc).json(&payload).send().await.map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to connect to Anvil RPC at {}. \
+                     Ensure Anvil is running and accessible. Error: {}",
+                    rpc,
+                    e
+                )
+            })?;
+
             if !resp.status().is_success() {
-                return Err(anyhow::anyhow!("rpc status: {}", resp.status()));
+                return Err(anyhow::anyhow!(
+                    "Anvil RPC returned error status: {}. Check Anvil logs for issues.",
+                    resp.status()
+                ));
             }
-            let v: Value = resp.json().await?;
+
+            let v: Value = resp.json().await.map_err(|e| {
+                anyhow::anyhow!("Failed to parse JSON response from Anvil RPC: {}", e)
+            })?;
+
+            // Check for JSON-RPC error
+            if let Some(error) = v.get("error") {
+                return Err(anyhow::anyhow!("Anvil RPC returned error: {}", error));
+            }
+
             let result = v.get("result");
 
             // Check if result is null (transaction not found)
-            if result.is_none() || result.unwrap().is_null() {
-                if attempt < 19 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            if result.is_none_or(|r| r.is_null()) {
+                if attempt < MAX_ATTEMPTS - 1 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
                     continue;
                 } else {
                     return Err(anyhow::anyhow!(
-                        "Transaction {} not found after 20 attempts",
-                        tx_hash
+                        "Transaction {} not found after {} attempts ({} ms). \
+                         Verify the transaction hash is correct and the transaction was submitted to the right chain.",
+                        tx_hash, MAX_ATTEMPTS, TOTAL_WAIT_TIME_MS
                     ));
                 }
             }
 
-            let result = result.unwrap();
+            let result = result.expect("result was validated to be Some above");
 
             // Check if blockNumber exists (transaction is mined)
             if let Some(block_hex) = result.get("blockNumber").and_then(|x| x.as_str()) {
                 let txi_hex = result
                     .get("transactionIndex")
                     .and_then(|x| x.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("no transactionIndex"))?;
-                let block_number = u64::from_str_radix(block_hex.trim_start_matches("0x"), 16)?;
-                let tx_index = u64::from_str_radix(txi_hex.trim_start_matches("0x"), 16)?;
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Transaction {} found but missing transactionIndex field. \
+                         This indicates a malformed response from Anvil.",
+                            tx_hash
+                        )
+                    })?;
+
+                let block_number = u64::from_str_radix(block_hex.trim_start_matches("0x"), 16)
+                    .map_err(|e| {
+                        anyhow::anyhow!("Invalid blockNumber hex format '{}': {}", block_hex, e)
+                    })?;
+                let tx_index =
+                    u64::from_str_radix(txi_hex.trim_start_matches("0x"), 16).map_err(|e| {
+                        anyhow::anyhow!("Invalid transactionIndex hex format '{}': {}", txi_hex, e)
+                    })?;
+
                 return Ok((block_number, tx_index));
             }
 
             // Transaction found but not mined yet, wait and retry
-            if attempt < 19 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            if attempt < MAX_ATTEMPTS - 1 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
             }
         }
 
         Err(anyhow::anyhow!(
-            "Transaction {} not mined after 20 attempts (2 seconds). \
-             Anvil might not be running or might not be mining blocks.",
-            tx_hash
+            "Transaction {} not mined after {} attempts ({} ms). \
+             Anvil might not be mining blocks automatically. \
+             Check Anvil configuration and logs.",
+            tx_hash,
+            MAX_ATTEMPTS,
+            TOTAL_WAIT_TIME_MS
         ))
     }
 
-    /// Start a Postgres container and return the container handle.
+    /// Starts a PostgreSQL test container.
     pub async fn setup_test_postgres() -> ContainerAsync<Postgres> {
-        Postgres::default().start().await.expect("start postgres")
+        Postgres::default()
+            .start()
+            .await
+            .expect("Failed to start PostgreSQL test container")
     }
 
     /// Get DbManager config from the running Postgres container.
@@ -157,9 +210,7 @@ mod e2e {
         format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres")
     }
 
-    /// Starts a typed Postgres container and runs migrations, returning an axum Router.
-    /// Uses continuity mock providers for CC and ETH.
-    /// The container is intentionally leaked to keep Postgres alive for the test duration.
+    /// Starts test app with PostgreSQL and mock providers.
     pub async fn start_app_with_postgres(chain_key: u64) -> Router {
         let container = setup_test_postgres().await;
 
@@ -187,7 +238,7 @@ mod e2e {
 }
 
 #[allow(unused_imports)]
-pub use e2e::{
-    get_tx_info_via_rpc, send_test_tx_via_cast, setup_test_postgres, start_app_with_postgres,
+pub use anvil_integration::{
+    get_tx_info_via_rpc, send_test_tx_via_alloy, setup_test_postgres, start_app_with_postgres,
     test_db_manager_postgres_uri,
 };

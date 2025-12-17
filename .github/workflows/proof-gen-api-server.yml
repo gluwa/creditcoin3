@@ -4,9 +4,9 @@ name: proof-gen-api-server
 "on":
   pull_request:
     paths:
-      - 'proof-gen-api-server/**'
-      - 'scripts/**'
-      - '.github/workflows/proof-gen-api-server.yml'
+      - "proof-gen-api-server/**"
+      - "scripts/**"
+      - ".github/workflows/proof-gen-api-server.yml"
   workflow_dispatch:
 
 concurrency:
@@ -40,6 +40,8 @@ jobs:
           CAST_BIN=$(readlink -f ~/.foundry/bin/cast)
           echo "CAST_BIN=$CAST_BIN" >> "$GITHUB_ENV"
 
+          echo "$HOME/.foundry/bin" >> $GITHUB_PATH
+
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
         with:
@@ -68,7 +70,7 @@ jobs:
         run: |
           cargo llvm-cov \
               --release \
-              --package proof-gen-api-server --features e2e-tests \
+              --package proof-gen-api-server --features anvil-integration \
               --html --show-missing-lines --hide-instantiations \
               --ignore-filename-regex "(tests(.*).rs)"
         env:
@@ -153,7 +155,8 @@ jobs:
   exercise-TransferWaitAndSubmit-js:
     needs:
       - deploy-runner-submit-proof
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-submit-proof"]
+    runs-on:
+      [self-hosted, "workflow-${{ github.run_id }}", "proxy-submit-proof"]
     steps:
       - uses: actions/checkout@v6
 
@@ -211,9 +214,9 @@ jobs:
       - name: Start database
         working-directory: proof-gen-api-server
         run: |
-            docker compose pull
-            docker compose up -d
-            sleep 60
+          docker compose pull
+          docker compose up -d
+          sleep 60
 
       - name: Start proof-gen-api-server
         run: |

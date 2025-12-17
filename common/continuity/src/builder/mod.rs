@@ -153,4 +153,20 @@ impl ContinuityBuilder {
     pub async fn get_last_block(&self) -> Result<u64> {
         self.eth_provider.get_last_block().await
     }
+
+    /// Get the CC3 chain name for health check purposes.
+    pub async fn get_chain_name(&self) -> Result<String> {
+        self.cc_provider
+            .get_chain_name()
+            .await
+            .context("Failed to get CC3 chain name")
+    }
+
+    /// Get the ETH chain ID for health check purposes.
+    pub async fn get_eth_chain_id(&self) -> Result<u64> {
+        self.eth_provider
+            .get_chain_id()
+            .await
+            .context("Failed to get ETH chain ID")
+    }
 }

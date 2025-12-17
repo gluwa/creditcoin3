@@ -30,6 +30,9 @@ pub trait CcRpcProvider: Send + Sync {
     ) -> Result<Option<AttestationCheckpoint>>;
 
     async fn get_attestation_chain_genesis_block_number(&self, chain_key: u64) -> Result<u64>;
+
+    /// Get the chain name for health check purposes
+    async fn get_chain_name(&self) -> Result<String>;
 }
 
 /// Abstraction over source chain (ETH) RPC required to build continuity fragments.
@@ -54,6 +57,9 @@ pub trait EthRpcProvider: Send + Sync {
 
     /// Get the current block height (latest block number).
     async fn get_last_block(&self) -> Result<u64>;
+
+    /// Get the chain ID for health check purposes
+    async fn get_chain_id(&self) -> Result<u64>;
 }
 
 #[async_trait]
@@ -96,6 +102,12 @@ impl CcRpcProvider for CcClient {
         self.get_attestation_chain_genesis_block_number(chain_key)
             .await
             .map_err(|e| anyhow!("Failed to fetch genesis block number: {e}"))
+    }
+
+    async fn get_chain_name(&self) -> Result<String> {
+        self.get_chain_name()
+            .await
+            .map_err(|e| anyhow!("Failed to fetch chain name: {e}"))
     }
 }
 
@@ -154,6 +166,12 @@ impl EthRpcProvider for eth::Client {
         self.get_last_block()
             .await
             .map_err(|e| anyhow!("Failed to get current block height: {e}"))
+    }
+
+    async fn get_chain_id(&self) -> Result<u64> {
+        self.get_chain_id()
+            .await
+            .map_err(|e| anyhow!("Failed to get chain ID: {e}"))
     }
 }
 

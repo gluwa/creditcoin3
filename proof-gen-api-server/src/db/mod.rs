@@ -1,11 +1,12 @@
 use anyhow::Result;
 use tracing::{debug, info};
 
-use diesel::{Connection, RunQueryDsl};
+use diesel::dsl::count;
+use diesel::{Connection, QueryDsl};
 use diesel_async::{
     async_connection_wrapper::AsyncConnectionWrapper,
     pooled_connection::{deadpool::Pool, AsyncDieselConnectionManager},
-    AsyncPgConnection,
+    AsyncPgConnection, RunQueryDsl,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
@@ -52,18 +53,29 @@ impl DbManager {
     pub async fn reset_database(&self) -> Result<()> {
         debug!("🔌 Connecting to database to reset...");
         let uri = self.postgres_uri.clone();
-        tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || -> Result<()> {
             let mut connection: AsyncConnectionWrapper<AsyncPgConnection> =
-                AsyncConnectionWrapper::establish(&uri).expect("Failed to connect to db");
-            diesel::sql_query("DROP SCHEMA public CASCADE;")
-                .execute(&mut connection)
-                .expect("Failed to drop schema");
-            diesel::sql_query("CREATE SCHEMA public;")
-                .execute(&mut connection)
-                .expect("Failed to create schema");
+                AsyncConnectionWrapper::establish(&uri)?;
+            diesel::RunQueryDsl::execute(
+                diesel::sql_query("DROP SCHEMA public CASCADE;"),
+                &mut connection,
+            )?;
+            diesel::RunQueryDsl::execute(
+                diesel::sql_query("CREATE SCHEMA public;"),
+                &mut connection,
+            )?;
+            Ok(())
         })
-        .await?;
+        .await??;
 
         Ok(())
+    }
+
+    pub async fn count_block_level(&self) -> Result<i64> {
+        use crate::db::schema::continuity_proofs::dsl::*;
+
+        let mut conn = self.pool.get().await?;
+        let count_result: i64 = continuity_proofs.select(count(id)).first(&mut conn).await?;
+        Ok(count_result)
     }
 }
