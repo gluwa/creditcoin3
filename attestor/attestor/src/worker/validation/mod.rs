@@ -1060,12 +1060,9 @@ impl WorkerAttestationValidation {
                 //                        1 - P(n) = (2n - 1)(n - 1) / 2n^2
                 //
                 // This represents the probability of ONLY 1 attestor racing for submission at
-                // once, while other attestors can act as backup. Solving for 1 - P(n) > 0.75 we
-                // obtain 6, with diminishing returns beyond that point (see below).
-                //
-                // Therefore, we use a RANK size of 6 to limit submission racing to a single
-                // submission 75% of the time on average.
-                const RANKS: u64 = 6;
+                // once, while other attestors can act as backup. Solving for 1 - P(n) > 0.8 we
+                // obtain 8, with diminishing returns beyond that point (see below).
+                const RANKS: u64 = 8;
                 let bytes = [
                     rank_hash[0],
                     rank_hash[1],
@@ -1077,6 +1074,8 @@ impl WorkerAttestationValidation {
                     rank_hash[7],
                 ];
                 let rank = u64::from_be_bytes(bytes) % RANKS;
+
+                tracing::debug!(rank, "attestation submission race mitigation");
 
                 // Determined experimentally
                 //
@@ -1100,10 +1099,8 @@ impl WorkerAttestationValidation {
                 //
                 //                             μ = (2n - 1)(n - 1) / 4n
                 //
-                // For a rank size of 6, the average submission latency is of roughly 2.3x the
-                // average time to finalization. Increasing the rank size further yields diminishing
-                // returns, so while a rank size of 8 limits submission racing ~80% of the time, it
-                // introduces an average 3.3x finalization latency.
+                // For a rank size of 8, the average submission latency is of roughly 3.3x the
+                // average time to finalization.
                 let delay = std::time::Duration::from_secs(rank * 17);
                 let deadline = tokio::time::Instant::now()
                     .checked_add(delay)
