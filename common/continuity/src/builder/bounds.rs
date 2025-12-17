@@ -65,10 +65,11 @@ impl ContinuityBuilder {
         attestations: &[SignedAttestation<H256, AccountId32>],
         checkpoints: Option<&[AttestationCheckpoint]>,
     ) -> Result<AttestationInfo> {
-        // Find the best attestation STRICTLY BEFORE required_before
-        // We need strictly before because when building continuity, we use the lower bound's
-        // digest as prev_digest for computing the NEXT block's digest. If we used an exact
-        // match at required_before, we'd incorrectly use that block's digest as its own prev_digest.
+        // Find the best attestation at or before required_before
+        // We allow exact matches (non-strict) because when lower.block_number == required_start,
+        // the build logic in build_and_trim_continuity handles this case correctly by using
+        // the lower bound's digest appropriately. The continuity chain construction ensures
+        // proper digest chaining even when the lower bound matches required_start.
         let attestation_lower = attestations
             .iter()
             .filter(|a| a.attestation.header_number <= required_before)
