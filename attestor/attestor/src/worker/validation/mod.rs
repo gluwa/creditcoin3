@@ -1050,13 +1050,13 @@ impl WorkerAttestationValidation {
                 // submission. We choose 3 as the size of the tuple as that is the target number of
                 // attestors for submission as per the round vrf. We call this tupple R.
                 //
-                // The probability of the minimum element in R appearing more than once is defined
-                // as:
+                // The number of the 3-tuples of S where the minimum element appears more than once
+                // is defined as:
                 //
                 //                              P(n) = n(3n - 1) / 2
                 //
-                // Conversely, the probability of the minimum element in R appearing EXACTLY once
-                // is:
+                // From this, we deduce the probability of the minimum element in R appearing
+                // EXACTLY once as:
                 //
                 //                        1 - P(n) = (2n - 1)(n - 1) / 2n^2
                 //
@@ -1079,6 +1079,9 @@ impl WorkerAttestationValidation {
                 tracing::debug!(rank, "attestation submission race mitigation");
 
                 // Determined experimentally
+                const SUBMISSION_FINALIZATION_DELAY: u64 = 17;
+
+                // Given
                 //
                 //                m := average time to submission finalization (17s)
                 //
@@ -1102,16 +1105,14 @@ impl WorkerAttestationValidation {
                 //
                 // For a rank size of 8, the average submission latency is of roughly 3.3x the
                 // average time to finalization.
-                let delay = std::time::Duration::from_secs(rank * 17);
+                let delay = std::time::Duration::from_secs(rank * SUBMISSION_FINALIZATION_DELAY);
                 let deadline = tokio::time::Instant::now()
                     .checked_add(delay)
                     .unwrap_or(tokio::time::Instant::now());
 
                 // Attestation should finalize before the deadline. If this is not the case then an
                 // attestor is most likely down.
-                while (*self.receiver_attestation_latest.borrow())
-                    .is_none_or(|attestation_latest| attestation_latest < height)
-                {
+                loop {
                     tokio::select! {
                         _ = tokio::time::sleep_until(deadline) => {
                             break;
