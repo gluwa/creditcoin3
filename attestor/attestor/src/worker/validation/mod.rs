@@ -1114,9 +1114,6 @@ impl WorkerAttestationValidation {
                 // attestor is most likely down.
                 loop {
                     tokio::select! {
-                        _ = tokio::time::sleep_until(deadline) => {
-                            break;
-                        }
                         Ok(()) = self.receiver_attestation_latest.changed() => {
                             if self.receiver_attestation_latest.borrow()
                                     .is_some_and(|attestation_latest| attestation_latest >= height)
@@ -1128,6 +1125,12 @@ impl WorkerAttestationValidation {
 
                                 return Some(Ok(()));
                             }
+                        }
+                        _ = tokio::time::sleep_until(deadline) => {
+                            break;
+                        }
+                        _ = tokio::signal::ctrl_c() => {
+                            return None;
                         }
                     }
                 }
