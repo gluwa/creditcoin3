@@ -970,7 +970,7 @@ jobs:
         timeout-minutes: 15
         working-directory: ./cli
         run: |
-          node dist/scripts/queryPalletVersions.js wss://rpc.ccnext-devnet.creditcoin.network/ws 2>/dev/null | sort > /var/tmp/pallet_storage.devnet
+          node dist/scripts/queryPalletVersions.js wss://rpc.ccnext-devnet.creditcoin.network/ws 2>/var/tmp/pallet_storage.devnet.stderr | sort > /var/tmp/pallet_storage.devnet
           DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.devnet /var/tmp/pallet_storage.local | colordiff)
 
           if [ -n "$DIFF_OUTPUT" ]; then
@@ -984,7 +984,7 @@ jobs:
         if: always()
         working-directory: ./cli
         run: |
-          node dist/scripts/queryPalletVersions.js wss://rpc.usc-testnet.creditcoin.network/ws 2>/dev/null | sort > /var/tmp/pallet_storage.testnet
+          node dist/scripts/queryPalletVersions.js wss://rpc.usc-testnet.creditcoin.network/ws 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
           DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.testnet /var/tmp/pallet_storage.local | colordiff)
 
           if [ -n "$DIFF_OUTPUT" ]; then
