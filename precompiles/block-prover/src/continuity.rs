@@ -232,6 +232,16 @@ where
             return Err(crate::verify::ContinuityVerificationError::PreviousBlockNotFound);
         }
 
+        // Charge for hash computation BEFORE computing (security: prevent out-of-gas attacks)
+        // Charge for computing digests up to the query block
+        // Total hashes: query_block_idx (for blocks 0..query_block_idx) + 1 (for query block itself)
+        let hash_cost = CONTINUITY_BLOCK_HASH_COST
+            .checked_mul((query_block_idx + 1) as u64)
+            .ok_or(crate::verify::ContinuityVerificationError::DigestMismatch)?;
+        handle.record_cost(hash_cost).map_err(|_| {
+            crate::verify::ContinuityVerificationError::DigestMismatch // Use a generic error if gas recording fails
+        })?;
+
         // Compute prev_digest for the query block by computing digest of previous block
         // We need to compute digests for all blocks up to the previous one
         let mut prev_digest = continuity_proof.lower_endpoint_digest;
@@ -240,15 +250,6 @@ where
             let root = continuity_proof.roots[i];
             prev_digest = Block::hash_payload(&block_number, &root, &prev_digest);
         }
-
-        // Charge for hash computation BEFORE computing (security: prevent out-of-gas attacks)
-        // Charge for computing digests up to the query block
-        let hash_cost = CONTINUITY_BLOCK_HASH_COST
-            .checked_mul((query_block_idx + 1) as u64)
-            .ok_or(crate::verify::ContinuityVerificationError::DigestMismatch)?;
-        handle.record_cost(hash_cost).map_err(|_| {
-            crate::verify::ContinuityVerificationError::DigestMismatch // Use a generic error if gas recording fails
-        })?;
 
         // Compute expected digest for query block using previous block's digest
         let expected_digest = Block::hash_payload(&height, &query_block_root, &prev_digest);
