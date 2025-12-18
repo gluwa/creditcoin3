@@ -172,43 +172,58 @@ impl BatchVerifier {
         // Convert Vec<Block> to ContinuityProof for the optimized API
         let shared_continuity_proof = ContinuityProof::from_blocks(shared_continuity);
 
-        // Process queries individually and collect results
-        let mut successful = 0u32;
-        let mut failed = 0u32;
-        let mut individual_results = Vec::new();
+        // Use batch verification with shared continuity proof
+        // This is required for batch queries using a shared continuity proof
+        let query_count = queries.len();
+        println!("Verifying {query_count} queries in batch with shared continuity proof");
 
-        for (i, query) in queries.iter().enumerate() {
-            println!("Verifying query {}/{}", i + 1, queries.len());
+        let batch_result = verifier
+            .verify_batch(
+                chain_key,
+                queries,
+                tx_data_array,
+                merkle_proofs,
+                shared_continuity_proof,
+            )
+            .await;
 
-            // Call the native query verifier for this query
-            let result = verifier
-                .verify(
-                    chain_key,
-                    *query,
-                    &tx_data_array[i],
-                    merkle_proofs[i].clone(),
-                    shared_continuity_proof.clone(),
-                )
-                .await;
-
-            match result {
-                Ok(_) => {
-                    successful += 1;
-
-                    individual_results.push(IndividualResult {
+        // Process batch result
+        let (successful, failed, individual_results) = match batch_result {
+            Ok(true) => {
+                // All queries succeeded
+                let count = query_count as u32;
+                let results = (0..query_count)
+                    .map(|_| IndividualResult {
                         success: true,
                         error: None,
-                    });
-                }
-                Err(e) => {
-                    failed += 1;
-                    individual_results.push(IndividualResult {
-                        success: false,
-                        error: Some(format!("Verification failed: {e}")),
-                    });
-                }
+                    })
+                    .collect();
+                (count, 0, results)
             }
-        }
+            Ok(false) => {
+                // Batch verification returned false (shouldn't happen, but handle it)
+                let count = query_count as u32;
+                let results = (0..query_count)
+                    .map(|_| IndividualResult {
+                        success: false,
+                        error: Some("Batch verification returned false".to_string()),
+                    })
+                    .collect();
+                (0, count, results)
+            }
+            Err(e) => {
+                // Batch verification failed
+                let count = query_count as u32;
+                let error_msg = format!("Batch verification failed: {e}");
+                let results = (0..query_count)
+                    .map(|_| IndividualResult {
+                        success: false,
+                        error: Some(error_msg.clone()),
+                    })
+                    .collect();
+                (0, count, results)
+            }
+        };
 
         // Calculate gas estimates (using estimation since we're not sending transactions)
         let individual_gas_estimate = self.estimate_individual_gas();

@@ -329,13 +329,15 @@ where
             });
         }
 
-        // Verify the continuity chain itself (gas charged inside, using first query for chain_id)
+        // Verify the continuity chain itself (gas charged inside)
+        // For batch queries, we need to ensure the chain reaches at least max_height
+        // and ends at an attestation/checkpoint
         if let Err(err) = Self::verify_continuity_chain(
             handle,
             &shared_continuity_proof,
             start_block_number,
             chain_key,
-            min_height,
+            max_height,
         ) {
             return Self::revert_with_message(err.message());
         }
