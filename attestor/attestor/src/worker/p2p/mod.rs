@@ -192,6 +192,10 @@ impl WorkerP2P {
             sender_validation: config.sender_validation,
         })
     }
+
+    pub fn peer_id(&self) -> libp2p::PeerId {
+        *self.swarm.local_peer_id()
+    }
 }
 
 // ---------------------------------------- [ Main loop ] -------------------------------------- //

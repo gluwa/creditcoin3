@@ -32,5 +32,7 @@ pub const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 /// LoadBalancer services.
 pub const DEFAULT_P2P_PORT: u16 = 9000;
 
+pub const DEFAULT_METRICS_PORT: u16 = 8080;
+
 /// Max number of attestations which can be rebroadcasted ahead of chain finality.
 pub const MAX_REBROADCAST: common::types::Height = 10;

@@ -26,6 +26,9 @@ attestor:
   #
   # logs: ./logs
 
+metrics:
+  port: 8080
+
 p2p:
   # Optional: Boot nodes for peer discovery
   #   Used to establish a map of available peers

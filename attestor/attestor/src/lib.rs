@@ -31,6 +31,7 @@ pub struct Config {
     eth: chain_listener::eth::ConfigIncomplete,
     cc3: chain_listener::cc3::ConfigIncomplete,
     p2p: worker::p2p::ConfigIncomplete,
+    metrics: worker::metrics::ConfigIncomplete,
     pool: worker::validation::pool::ConfigIncomplete,
     attestation: attestation::Config,
 }
@@ -248,12 +249,12 @@ impl Attestor {
 
         // ------------------------------* Attestation Production *----------------------------- //
 
-        tracing::info!("⏳ [1/3] Starting attestation production worker");
+        tracing::info!("⏳ [1/4] Starting attestation production worker");
 
         let config = worker::production::ConfigBuilder::new()
             .with_eth(eth)
             .with_cc3(cc3_production)
-            .with_account_id(account_id)
+            .with_account_id(account_id.clone())
             .with_rebroadcast(rebroadcast)
             .with_sender_p2p(p2p_sender)
             .with_sender_validation(validation_sender.clone())
@@ -269,7 +270,7 @@ impl Attestor {
 
         // ------------------------------* Attestation Validation *----------------------------- //
 
-        tracing::info!("⏳ [2/3] Starting attestation validation worker");
+        tracing::info!("⏳ [2/4] Starting attestation validation worker");
 
         let api = cc3_validation.api();
         let config = worker::validation::ConfigBuilder::new()
@@ -286,7 +287,7 @@ impl Attestor {
 
         // -------------------------------------* P2P Sync *------------------------------------ //
 
-        tracing::info!("⏳ [3/3] Starting P2P worker");
+        tracing::info!("⏳ [3/4] Starting P2P worker");
 
         let mut seed = self.config.cc3.cc3_key.to_seed_normalized("");
         let keypair = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed[..32]).unwrap();
@@ -301,7 +302,29 @@ impl Attestor {
             .with_chain_key(self.config.chain_key)
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::WorkerError)?;
+        let peer_id = p2p.peer_id();
         let handle_p2p = monitor.spawn(p2p);
+
+        // -------------------------------------* Metrics *------------------------------------- //
+
+        tracing::info!("⏳ [4/4] Starting metrics worker");
+
+        let config = worker::metrics::store::ConfigBuilder::new()
+            .with_name(self.config.name)
+            .with_address(account_id)
+            .with_peer_id(peer_id)
+            .with_chain_key(self.config.chain_key)
+            .build();
+        let metrics_store = worker::metrics::store::MetricsStore::new(config);
+
+        let config = self
+            .config
+            .metrics
+            .with_metrics(std::sync::Arc::new(tokio::sync::Mutex::new(metrics_store)))
+            .build();
+        let metrics = worker::metrics::WorkerMetrics::new(config);
+
+        let handle_metrics = monitor.spawn(metrics);
 
         tracing::info!("✅ All services online!");
 
@@ -322,21 +345,28 @@ impl Attestor {
             Err(payload) => std::panic::resume_unwind(payload),
         };
 
-        tracing::info!("⏳ [1/3] Shutting down attestation production worker");
+        tracing::info!("⏳ [1/4] Shutting down attestation production worker");
 
         match handle_validation.join() {
             Ok(res_validation) => res = res.and(res_validation.map_err(Error::WorkerError)),
             Err(payload) => std::panic::resume_unwind(payload),
         };
 
-        tracing::info!("⏳ [2/3] Shutting down attestation validation worker");
+        tracing::info!("⏳ [2/4] Shutting down attestation validation worker");
 
         match handle_p2p.join() {
             Ok(res_p2p) => res = res.and(res_p2p.map_err(Error::WorkerError)),
             Err(payload) => std::panic::resume_unwind(payload),
         };
 
-        tracing::info!("⏳ [3/3] Shutting down p2p worker");
+        tracing::info!("⏳ [3/4] Shutting down p2p worker");
+
+        match handle_metrics.join() {
+            Ok(res_metrics) => res = res.and(res_metrics.map_err(Error::WorkerError)),
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+
+        tracing::info!("⏳ [4/4] Shutting down metrics worker");
 
         res
     }

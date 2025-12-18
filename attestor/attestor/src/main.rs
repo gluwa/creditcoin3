@@ -13,6 +13,7 @@ struct Config {
     secret: bip39::Mnemonic,
     chain_key: attestor_primitives::ChainKey,
     public_addr: Option<String>,
+    metrics_port: u16,
     boot_nodes: Vec<libp2p::Multiaddr>,
     p2p_port: u16, // Defaults to 9000 if not specified
     eth_url: url::Url,
@@ -27,6 +28,8 @@ struct Config {
 struct ConfigFile {
     #[serde(default)]
     attestor: ConfigFileAttestor,
+    #[serde(default)]
+    metrics: ConfigFileMetrics,
     #[serde(default)]
     p2p: ConfigFileP2P,
     #[serde(default)]
@@ -51,6 +54,11 @@ struct ConfigFileAttestor {
 
 fn default_logs() -> std::path::PathBuf {
     std::path::PathBuf::from("./logs")
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct ConfigFileMetrics {
+    port: Option<u16>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -183,6 +191,18 @@ impl Config {
                     .env("ATTESTOR_PUBLIC_ADDRESS")
                     .required(false)
                     .value_parser(clap::value_parser!(String)),
+            )
+            .arg(
+                clap::arg!(--"metrics-port" <PORT>)
+                    .help("Prometheus metrics port")
+                    .long_help(
+                        "Prometheus metrics port. \
+                        Exposes a /metrics endpoints to query OpenTelemetry-style metrics \
+                        about the attestor's operationnal state."
+                    )
+                    .env("ATTESTOR_METRICS_PORT")
+                    .required(false)
+                    .value_parser(clap::value_parser!(u16))
             )
             .arg(
                 clap::arg!(-b --"boot-nodes" [MULTIADDR] ...)
@@ -333,6 +353,12 @@ impl Config {
             },
         };
 
+        let metrics_port = matches
+            .get_one::<u16>("metrics-port")
+            .cloned()
+            .or(config_file.metrics.port)
+            .unwrap_or(common::constants::DEFAULT_METRICS_PORT);
+
         let boot_nodes = matches
             .get_one::<Vec<libp2p::Multiaddr>>("boot-nodes")
             .cloned()
@@ -401,6 +427,7 @@ impl Config {
             secret,
             boot_nodes,
             public_addr,
+            metrics_port,
             p2p_port,
             eth_url,
             cc3_url,
@@ -489,6 +516,7 @@ async fn main() -> anyhow::Result<()> {
                 .with_start_height(args.start_height)
                 .build(),
         )
+        .with_metrics(attestor::worker::metrics::ConfigBuilder::new().with_port(args.metrics_port))
         .build();
 
     // ----------------------------------------* Main loop *---------------------------------------

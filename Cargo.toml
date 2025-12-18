@@ -40,7 +40,7 @@ tokio-test = "0.4.4"
 affix = "0.1"
 anyhow = { version = "1.0.68", default-features = false }
 async-trait = { version = "0.1.42" }
-axum = "0.8"
+axum = { version = "0.8" }
 bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
 clap = { version = "4.5.3", features = ["derive", "env"] }
 derive_more = "0.99.17"
@@ -286,7 +286,10 @@ continuity = { path = "common/continuity", default-features = false }
 eth = { path = "common/eth", default-features = false }
 libp2p = { version = "0.56", default-features = false }
 merkle = { path = "common/merkle", default-features = false }
+# TODO: depreciate
 prometheus = { path = "common/prometheus" }
+prometheus-client = { version = "0.24.0" }
+sysinfo = { version = "0.37.2" }
 utils = { path = "common/utils", default-features = false }
 vrf = { path = "common/vrf", default-features = false }
 
