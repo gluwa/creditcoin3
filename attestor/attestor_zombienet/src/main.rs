@@ -288,15 +288,7 @@ async fn main() -> anyhow::Result<()> {
     let mut futures_attestors = tokio::task::JoinSet::new();
     for (index, (name, secret, account_id)) in attestor_info.iter().enumerate() {
         // Assign unique P2P port for each attestor
-        let port = args
-            .p2p_port_base
-            .checked_add(index as u16)
-            .with_context(|| {
-                format!(
-                    "P2P port overflow: base_port ({}) + index ({}) exceeds u16::MAX (65535)",
-                    args.p2p_port_base, index
-                )
-            })?;
+        let port = args.p2p_port_base + index as u16 + args.offset as u16;
 
         let mut attestor = tokio::process::Command::new(&args.bin);
         attestor
