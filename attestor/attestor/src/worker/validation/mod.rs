@@ -1130,6 +1130,7 @@ impl WorkerAttestationValidation {
                             break;
                         }
                         _ = tokio::signal::ctrl_c() => {
+                            self.watch_submission = future::OptionFuture::default();
                             return None;
                         }
                     }
@@ -1180,7 +1181,10 @@ impl WorkerAttestationValidation {
 
                     tokio::select! {
                         _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                        _ = tokio::signal::ctrl_c() => return None
+                        _ = tokio::signal::ctrl_c() => {
+                            self.watch_submission = future::OptionFuture::default();
+                            return None;
+                        }
                     }
 
                     delay = (delay * 2).min(DELAY_MAX);
