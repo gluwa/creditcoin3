@@ -41,7 +41,7 @@ jobs:
         id: devnet-env
         run: |
           # shellcheck disable=SC2129
-          echo "rpc_url=wss://rpc.ccnext-devnet.creditcoin.network" >> "$GITHUB_OUTPUT"
+          echo "rpc_url=wss://rpc.usc-devnet.creditcoin.network" >> "$GITHUB_OUTPUT"
           echo "sepolia_chain_key=3" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
