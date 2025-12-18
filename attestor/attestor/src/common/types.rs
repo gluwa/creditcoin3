@@ -23,3 +23,5 @@ pub type Batch = Vec<
         cc_client::AccountId32,
     >,
 >;
+
+pub type Metrics = std::sync::Arc<parking_lot::Mutex<crate::worker::api::metrics::Metrics>>;

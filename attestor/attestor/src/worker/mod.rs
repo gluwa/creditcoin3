@@ -79,7 +79,7 @@
 //! [`task`]: Worker::task
 //! [`JoinHandle`]: std::thread::JoinHandle
 
-pub mod metrics;
+pub mod api;
 pub mod p2p;
 pub mod production;
 pub mod validation;

@@ -1,5 +1,5 @@
 mod error;
-pub(crate) mod store;
+pub(crate) mod metrics;
 
 use crate::prelude::*;
 pub use error::*;
@@ -7,16 +7,16 @@ pub use error::*;
 #[derive(attestor_macro::Builder)]
 pub struct Config {
     #[specify_later]
-    metrics: std::sync::Arc<tokio::sync::Mutex<store::MetricsStore>>,
+    metrics: common::types::Metrics,
     port: u16,
 }
 
-pub(crate) struct WorkerMetrics {
-    metrics: std::sync::Arc<tokio::sync::Mutex<store::MetricsStore>>,
+pub(crate) struct WorkerApi {
+    metrics: common::types::Metrics,
     port: u16,
 }
 
-impl WorkerMetrics {
+impl WorkerApi {
     pub(crate) fn new(config: Config) -> Self {
         Self {
             metrics: config.metrics,
@@ -25,7 +25,7 @@ impl WorkerMetrics {
     }
 }
 
-impl super::Worker for WorkerMetrics {
+impl super::Worker for WorkerApi {
     fn task(
         self,
         shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
@@ -50,11 +50,9 @@ impl super::Worker for WorkerMetrics {
 }
 
 async fn handle_metrics(
-    axum::extract::State(state): axum::extract::State<
-        std::sync::Arc<tokio::sync::Mutex<store::MetricsStore>>,
-    >,
+    axum::extract::State(state): axum::extract::State<common::types::Metrics>,
 ) -> impl axum::response::IntoResponse {
-    let state = state.lock().await;
+    let state = state.lock();
     let mut buffer = String::new();
     prometheus_client::encoding::text::encode(&mut buffer, &state.registry).unwrap();
 

@@ -151,6 +151,7 @@ pub struct Config {
 
     attestation_start_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
     epoch: common::types::Epoch,
+    metrics: common::types::Metrics,
 
     account_id: cc_client::AccountId32,
 
@@ -174,6 +175,7 @@ pub(crate) struct WorkerAttestationProduction {
     attestation_latest_eth: Option<(attestor_primitives::Digest, common::types::Height)>,
     attestation_latest_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
     epoch: common::types::Epoch,
+    metrics: common::types::Metrics,
 
     // ATTESTOR DATA
     account_id: cc_client::AccountId32,
@@ -202,6 +204,7 @@ impl WorkerAttestationProduction {
             attestation_latest_eth: None,
             attestation_latest_cc3: config.attestation_start_cc3,
             epoch: config.epoch,
+            metrics: config.metrics,
 
             account_id: config.account_id,
             can_attest,
@@ -308,6 +311,8 @@ impl WorkerAttestationProduction {
             "📡 Generated attestation"
         );
 
+        self.metrics.lock().set_attestation_local(height);
+
         // From the tokio docs:
         //
         // > A send operation can only fail if there are no active receivers, implying that the
@@ -368,6 +373,8 @@ impl WorkerAttestationProduction {
                             %digest,
                             "💾 New execution chain attestation"
                         );
+
+                        self.metrics.lock().set_attestation_finalized(height);
 
                         self.attestation_latest_cc3 = Some((digest, height));
 

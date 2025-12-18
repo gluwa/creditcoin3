@@ -31,7 +31,7 @@ pub struct Config {
     eth: chain_listener::eth::ConfigIncomplete,
     cc3: chain_listener::cc3::ConfigIncomplete,
     p2p: worker::p2p::ConfigIncomplete,
-    metrics: worker::metrics::ConfigIncomplete,
+    metrics: worker::api::ConfigIncomplete,
     pool: worker::validation::pool::ConfigIncomplete,
     attestation: attestation::Config,
 }
@@ -144,21 +144,33 @@ impl Attestor {
             })),
         );
 
-        let (start_height, empty_chain) = match self.config.attestation.start_height {
-            Some(start_height) => (start_height, attestation_start_cc3.is_none()),
-            None => match attestation_start_cc3 {
-                Some((_digest, height)) => {
-                    (util::next_multiple_of(attestation_interval, height), false)
-                }
-                None => (
-                    cc3_client
-                        .get_attestation_chain_genesis_block_number(self.config.chain_key)
-                        .await
-                        .unwrap_or_default(),
-                    true,
-                ),
-            },
-        };
+        let (start_height, attestation_latest_cc3, empty_chain) =
+            match self.config.attestation.start_height {
+                Some(start_height) => match attestation_start_cc3 {
+                    Some((_digest, height)) => (start_height, height, false),
+                    None => {
+                        let genesis = cc3_client
+                            .get_attestation_chain_genesis_block_number(self.config.chain_key)
+                            .await
+                            .unwrap_or_default();
+                        (start_height, genesis, true)
+                    }
+                },
+                None => match attestation_start_cc3 {
+                    Some((_digest, height)) => (
+                        util::next_multiple_of(attestation_interval, height),
+                        height,
+                        false,
+                    ),
+                    None => {
+                        let genesis = cc3_client
+                            .get_attestation_chain_genesis_block_number(self.config.chain_key)
+                            .await
+                            .unwrap_or_default();
+                        (genesis, genesis, true)
+                    }
+                },
+            };
 
         let target = cc3_client
             .target_sample_size(self.config.chain_key)
@@ -247,14 +259,38 @@ impl Attestor {
         let (attestation_latest_sender, attestation_latest_receiver) =
             tokio::sync::watch::channel(None);
 
+        // ---------------------------------------* API *--------------------------------------- //
+
+        tracing::info!("⏳ [1/4] Starting API worker");
+
+        let config = worker::api::metrics::ConfigBuilder::new()
+            .with_name(self.config.name)
+            .with_address(account_id.clone())
+            // .with_peer_id(peer_id)
+            .with_chain_key(self.config.chain_key)
+            .with_attestation_latest_cc3(attestation_latest_cc3)
+            .build();
+        let metrics = std::sync::Arc::new(parking_lot::Mutex::new(
+            worker::api::metrics::Metrics::new(config),
+        ));
+
+        let config = self
+            .config
+            .metrics
+            .with_metrics(std::sync::Arc::clone(&metrics))
+            .build();
+        let api = worker::api::WorkerApi::new(config);
+
+        let handle_api = monitor.spawn(api);
+
         // ------------------------------* Attestation Production *----------------------------- //
 
-        tracing::info!("⏳ [1/4] Starting attestation production worker");
+        tracing::info!("⏳ [2/4] Starting attestation production worker");
 
         let config = worker::production::ConfigBuilder::new()
             .with_eth(eth)
             .with_cc3(cc3_production)
-            .with_account_id(account_id.clone())
+            .with_account_id(account_id)
             .with_rebroadcast(rebroadcast)
             .with_sender_p2p(p2p_sender)
             .with_sender_validation(validation_sender.clone())
@@ -262,6 +298,7 @@ impl Attestor {
             .with_can_broadcast(can_broadcast_production)
             .with_attestation_start_cc3(attestation_start_cc3)
             .with_epoch(epoch)
+            .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let attestation_production = worker::production::WorkerAttestationProduction::new(config)
             .await
@@ -270,7 +307,7 @@ impl Attestor {
 
         // ------------------------------* Attestation Validation *----------------------------- //
 
-        tracing::info!("⏳ [2/4] Starting attestation validation worker");
+        tracing::info!("⏳ [3/4] Starting attestation validation worker");
 
         let api = cc3_validation.api();
         let config = worker::validation::ConfigBuilder::new()
@@ -287,7 +324,7 @@ impl Attestor {
 
         // -------------------------------------* P2P Sync *------------------------------------ //
 
-        tracing::info!("⏳ [3/4] Starting P2P worker");
+        tracing::info!("⏳ [4/4] Starting P2P worker");
 
         let mut seed = self.config.cc3.cc3_key.to_seed_normalized("");
         let keypair = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed[..32]).unwrap();
@@ -305,27 +342,6 @@ impl Attestor {
         let peer_id = p2p.peer_id();
         let handle_p2p = monitor.spawn(p2p);
 
-        // -------------------------------------* Metrics *------------------------------------- //
-
-        tracing::info!("⏳ [4/4] Starting metrics worker");
-
-        let config = worker::metrics::store::ConfigBuilder::new()
-            .with_name(self.config.name)
-            .with_address(account_id)
-            .with_peer_id(peer_id)
-            .with_chain_key(self.config.chain_key)
-            .build();
-        let metrics_store = worker::metrics::store::MetricsStore::new(config);
-
-        let config = self
-            .config
-            .metrics
-            .with_metrics(std::sync::Arc::new(tokio::sync::Mutex::new(metrics_store)))
-            .build();
-        let metrics = worker::metrics::WorkerMetrics::new(config);
-
-        let handle_metrics = monitor.spawn(metrics);
-
         tracing::info!("✅ All services online!");
 
         // ----------------------------------* Thread waiting *--------------------------------- //
@@ -340,33 +356,33 @@ impl Attestor {
 
         let mut res = Ok(());
 
+        match handle_api.join() {
+            Ok(res_metrics) => res = res.and(res_metrics.map_err(Error::WorkerError)),
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+
+        tracing::info!("⏳ [1/4] Shutting down API worker");
+
         match handle_production.join() {
             Ok(res_production) => res = res.and(res_production.map_err(Error::WorkerError)),
             Err(payload) => std::panic::resume_unwind(payload),
         };
 
-        tracing::info!("⏳ [1/4] Shutting down attestation production worker");
+        tracing::info!("⏳ [2/4] Shutting down attestation production worker");
 
         match handle_validation.join() {
             Ok(res_validation) => res = res.and(res_validation.map_err(Error::WorkerError)),
             Err(payload) => std::panic::resume_unwind(payload),
         };
 
-        tracing::info!("⏳ [2/4] Shutting down attestation validation worker");
+        tracing::info!("⏳ [3/4] Shutting down attestation validation worker");
 
         match handle_p2p.join() {
             Ok(res_p2p) => res = res.and(res_p2p.map_err(Error::WorkerError)),
             Err(payload) => std::panic::resume_unwind(payload),
         };
 
-        tracing::info!("⏳ [3/4] Shutting down p2p worker");
-
-        match handle_metrics.join() {
-            Ok(res_metrics) => res = res.and(res_metrics.map_err(Error::WorkerError)),
-            Err(payload) => std::panic::resume_unwind(payload),
-        }
-
-        tracing::info!("⏳ [4/4] Shutting down metrics worker");
+        tracing::info!("⏳ [4/4] Shutting down p2p worker");
 
         res
     }

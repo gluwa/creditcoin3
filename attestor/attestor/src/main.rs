@@ -516,7 +516,7 @@ async fn main() -> anyhow::Result<()> {
                 .with_start_height(args.start_height)
                 .build(),
         )
-        .with_metrics(attestor::worker::metrics::ConfigBuilder::new().with_port(args.metrics_port))
+        .with_metrics(attestor::worker::api::ConfigBuilder::new().with_port(args.metrics_port))
         .build();
 
     // ----------------------------------------* Main loop *---------------------------------------
