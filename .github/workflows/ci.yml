@@ -967,6 +967,7 @@ jobs:
           node dist/scripts/queryPalletVersions.js ws://127.0.0.1:9944 2>/dev/null | sort > /var/tmp/pallet_storage.local
 
       - name: Compare to pallet storage versions from Devnet
+        timeout-minutes: 15
         working-directory: ./cli
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.ccnext-devnet.creditcoin.network/ws 2>/dev/null | sort > /var/tmp/pallet_storage.devnet
@@ -979,6 +980,7 @@ jobs:
           fi
 
       - name: Compare to pallet storage versions from Testnet
+        timeout-minutes: 15
         if: always()
         working-directory: ./cli
         run: |
