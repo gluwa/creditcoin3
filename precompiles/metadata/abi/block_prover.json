@@ -78,21 +78,9 @@
             "type": "bytes32"
           },
           {
-            "components": [
-              {
-                "internalType": "bytes32",
-                "name": "merkleRoot",
-                "type": "bytes32"
-              },
-              {
-                "internalType": "bytes32",
-                "name": "digest",
-                "type": "bytes32"
-              }
-            ],
-            "internalType": "struct INativeQueryVerifier.ContinuityBlock[]",
-            "name": "blocks",
-            "type": "tuple[]"
+            "internalType": "bytes32[]",
+            "name": "roots",
+            "type": "bytes32[]"
           }
         ],
         "internalType": "struct INativeQueryVerifier.ContinuityProof",
@@ -165,21 +153,9 @@
             "type": "bytes32"
           },
           {
-            "components": [
-              {
-                "internalType": "bytes32",
-                "name": "merkleRoot",
-                "type": "bytes32"
-              },
-              {
-                "internalType": "bytes32",
-                "name": "digest",
-                "type": "bytes32"
-              }
-            ],
-            "internalType": "struct INativeQueryVerifier.ContinuityBlock[]",
-            "name": "blocks",
-            "type": "tuple[]"
+            "internalType": "bytes32[]",
+            "name": "roots",
+            "type": "bytes32[]"
           }
         ],
         "internalType": "struct INativeQueryVerifier.ContinuityProof",
@@ -252,21 +228,9 @@
             "type": "bytes32"
           },
           {
-            "components": [
-              {
-                "internalType": "bytes32",
-                "name": "merkleRoot",
-                "type": "bytes32"
-              },
-              {
-                "internalType": "bytes32",
-                "name": "digest",
-                "type": "bytes32"
-              }
-            ],
-            "internalType": "struct INativeQueryVerifier.ContinuityBlock[]",
-            "name": "blocks",
-            "type": "tuple[]"
+            "internalType": "bytes32[]",
+            "name": "roots",
+            "type": "bytes32[]"
           }
         ],
         "internalType": "struct INativeQueryVerifier.ContinuityProof",
@@ -339,21 +303,9 @@
             "type": "bytes32"
           },
           {
-            "components": [
-              {
-                "internalType": "bytes32",
-                "name": "merkleRoot",
-                "type": "bytes32"
-              },
-              {
-                "internalType": "bytes32",
-                "name": "digest",
-                "type": "bytes32"
-              }
-            ],
-            "internalType": "struct INativeQueryVerifier.ContinuityBlock[]",
-            "name": "blocks",
-            "type": "tuple[]"
+            "internalType": "bytes32[]",
+            "name": "roots",
+            "type": "bytes32[]"
           }
         ],
         "internalType": "struct INativeQueryVerifier.ContinuityProof",

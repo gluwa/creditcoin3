@@ -40,21 +40,21 @@ sol! {
 }
 
 // Helper function to convert ContinuityProof to Solidity ContinuityProof
+// The new ContinuityProof structure only has roots (digests computed on-chain)
+// Solidity expects (bytes32 lowerEndpointDigest, bytes32[] roots)
 fn convert_to_solidity_continuity_proof(
     proof: ContinuityProof,
 ) -> INativeQueryVerifier::ContinuityProof {
-    let continuity_blocks: Vec<INativeQueryVerifier::ContinuityBlock> = proof
-        .blocks
+    // Convert roots to FixedBytes array
+    let roots: Vec<FixedBytes<32>> = proof
+        .roots
         .into_iter()
-        .map(|cb| INativeQueryVerifier::ContinuityBlock {
-            merkleRoot: FixedBytes::from(cb.merkle_root.to_fixed_bytes()),
-            digest: FixedBytes::from(cb.digest.to_fixed_bytes()),
-        })
+        .map(|root| FixedBytes::from(root.to_fixed_bytes()))
         .collect();
 
     INativeQueryVerifier::ContinuityProof {
         lowerEndpointDigest: FixedBytes::from(proof.lower_endpoint_digest.to_fixed_bytes()),
-        blocks: continuity_blocks,
+        roots,
     }
 }
 

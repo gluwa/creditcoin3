@@ -140,14 +140,14 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
     let block_json: ContinuityResponse = serde_json::from_slice(&block_body).expect("json block");
     assert_eq!(block_json.chain_key, 31337);
     assert!(
-        !block_json.continuity_proof.blocks.is_empty(),
+        !block_json.continuity_proof.roots.is_empty(),
         "block continuity proof must be present"
     );
-    // Stronger checks: continuity proof encodes blocks starting at (queryHeight - 1).
-    let blocks = &block_json.continuity_proof.blocks;
-    assert!(!blocks.is_empty(), "block continuity proof must be present");
+    // Stronger checks: continuity proof encodes roots starting at (queryHeight - 1).
+    let roots = &block_json.continuity_proof.roots;
+    assert!(!roots.is_empty(), "block continuity proof must be present");
     let start_block_number = anvil_block_number.saturating_sub(1);
-    let last_block_number = start_block_number + (blocks.len() as u64 - 1);
+    let last_block_number = start_block_number + (roots.len() as u64 - 1);
     // The proof should end at the next attestation after the query block
     // For block 1, the next attestation is at block 10
     assert_eq!(
@@ -155,7 +155,7 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
         "continuity chain must end at next attestation (10)"
     );
     assert!(
-        (blocks.len() as u64) <= (10 - start_block_number + 1),
+        (roots.len() as u64) <= (10 - start_block_number + 1),
         "chain length within expected bounds"
     );
 
@@ -171,13 +171,13 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
     if let Some(th) = &txi_json.tx_hash {
         assert_h256_str("tx_hash (tx-index)", th);
     }
-    let txi_blocks = &txi_json.continuity_proof.blocks;
+    let txi_roots = &txi_json.continuity_proof.roots;
     assert!(
-        !txi_blocks.is_empty(),
+        !txi_roots.is_empty(),
         "tx-index continuity proof must be present"
     );
     let txi_start = anvil_block_number.saturating_sub(1);
-    let txi_last = txi_start + (txi_blocks.len() as u64 - 1);
+    let txi_last = txi_start + (txi_roots.len() as u64 - 1);
     // The proof should end at the next attestation after the query block (block 10)
     assert_eq!(
         txi_last, 10,
@@ -198,7 +198,7 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
     let body = resp.bytes().await.expect("read body");
     let json: ContinuityResponse = serde_json::from_slice(&body).expect("json");
     assert_eq!(json.chain_key, 31337);
-    assert!(!json.continuity_proof.blocks.is_empty());
+    assert!(!json.continuity_proof.roots.is_empty());
     if let Some(proof) = &json.merkle_proof {
         assert_h256_str("merkle_root", &format!("0x{:x}", proof.root));
     }

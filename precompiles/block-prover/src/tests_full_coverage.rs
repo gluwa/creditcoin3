@@ -912,16 +912,43 @@ fn test_merkle_root_mismatch_with_multiple_blocks() {
         continuity_blocks[0].root = H256::from([0xAA; 32]);
 
         // But set wrong root for the query block (block 101, index 1)
+        let correct_root = continuity_blocks[1].root;
         continuity_blocks[1].root = H256::from([0xBB; 32]); // Wrong root!
 
         // Correct root for third block
         continuity_blocks[2].root = H256::from([0xCC; 32]);
 
-        setup_valid_attestation_chain(1, &continuity_blocks);
+        // Recompute digests with wrong root for block 101
+        use attestor_primitives::block::Block as FragmentBlock;
+        continuity_blocks[1].digest = FragmentBlock::hash_payload(
+            &continuity_blocks[1].block_number,
+            &continuity_blocks[1].root,
+            &continuity_blocks[0].digest,
+        );
+        continuity_blocks[2].digest = FragmentBlock::hash_payload(
+            &continuity_blocks[2].block_number,
+            &continuity_blocks[2].root,
+            &continuity_blocks[1].digest,
+        );
+
+        // Setup attestations with CORRECT digests (computed from correct roots)
+        // This ensures the continuity check will fail because computed digest won't match
+        let mut correct_blocks = continuity_blocks.clone();
+        correct_blocks[1].root = correct_root; // Use correct root for attestation setup
+        correct_blocks[1].digest = FragmentBlock::hash_payload(
+            &correct_blocks[1].block_number,
+            &correct_blocks[1].root,
+            &correct_blocks[0].digest,
+        );
+        correct_blocks[2].digest = FragmentBlock::hash_payload(
+            &correct_blocks[2].block_number,
+            &correct_blocks[2].root,
+            &correct_blocks[1].digest,
+        );
+        setup_valid_attestation_chain(1, &correct_blocks);
 
         // Should fail because block at height 101 has wrong merkle root
-        // Note: This may fail with "Continuity chain has broken links" if the digest
-        // doesn't match the wrong root, or "Merkle root mismatch" if continuity passes
+        // With wrong root, computed digest won't match attestation
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -935,7 +962,8 @@ fn test_merkle_root_mismatch_with_multiple_blocks() {
                 },
             )
             .execute_reverts(|output| {
-                output == b"Merkle root mismatch" || output == b"Continuity chain has broken links"
+                output == b"Merkle root mismatch"
+                    || output == b"Continuity proof does not match attestation or checkpoint"
             });
     });
 }
@@ -1405,7 +1433,9 @@ fn test_batch_queries_continuity_failure() {
 
         let block1_digest = FragmentBlock::hash_payload(&100, &proof1.root, &prev_digest);
 
-        // Break the chain by using wrong digest for block 101
+        // Break the chain by using wrong root for block 101
+        // With wrong root, computed digest will be wrong
+        let wrong_root = H256::from([0xA1; 32]); // Wrong root!
         let continuity_blocks = vec![
             Block {
                 block_number: 99,
@@ -1421,20 +1451,22 @@ fn test_batch_queries_continuity_failure() {
             },
             Block {
                 block_number: 101,
-                root: proof2.root,
+                root: wrong_root, // Wrong root - will cause computed digest to be wrong
                 prev_digest: block1_digest,
-                digest: H256::from([0xA1; 32]), // Wrong digest! Should be computed from prev_digest
+                digest: FragmentBlock::hash_payload(&101, &wrong_root, &block1_digest), // Computed with wrong root
             },
         ];
 
-        // Setup attestation for the first block but with wrong digest to make continuity fail
+        // Setup attestation at the end of the chain (block 101) with CORRECT digest
+        // This ensures continuity check will fail because computed digest from wrong root won't match
+        let correct_digest = FragmentBlock::hash_payload(&101, &proof2.root, &block1_digest);
         use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
         let attestation = AttestationData {
             chain_key: 1,
-            header_number: 99,
+            header_number: 101,
             header_hash: H256::random(),
             root: H256::from([0u8; 32]),
-            prev_digest: Some(H256::zero()),
+            prev_digest: Some(block1_digest),
         };
         let signed_attestation = SignedAttestation {
             attestation,
@@ -1444,16 +1476,10 @@ fn test_batch_queries_continuity_failure() {
         };
         pallet_attestation_poc::Attestations::<Runtime>::insert(
             1,
-            continuity_blocks[0].prev_digest,
+            correct_digest,
             signed_attestation,
         );
-        pallet_attestation_poc::LastDigest::<Runtime>::insert(
-            1,
-            (
-                continuity_blocks[0].block_number,
-                continuity_blocks[0].prev_digest,
-            ),
-        );
+        pallet_attestation_poc::LastDigest::<Runtime>::insert(1, (101, correct_digest));
 
         // Batch should revert due to continuity chain failure
         precompiles()
@@ -1477,7 +1503,10 @@ fn test_batch_queries_continuity_failure() {
                     shared_continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain has broken links");
+            .execute_reverts(|output| {
+                output == b"Continuity proof does not match attestation or checkpoint"
+                    || output == b"Merkle root mismatch"
+            });
     });
 }
 

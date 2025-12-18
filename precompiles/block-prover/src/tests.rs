@@ -1,7 +1,8 @@
 use super::*;
-use crate::continuity::ContinuityVerificationError;
+use crate::continuity::ContinuityVerificationError as ContinuityContinuityVerificationError;
 use crate::mock::*;
 use crate::test_helpers::*;
+use crate::verify::ContinuityVerificationError;
 use crate::SELECTOR_LOG_TRANSACTION_VERIFIED;
 use attestor_primitives::{
     block::{Block, ContinuityProof},
@@ -36,7 +37,7 @@ impl BlockItem for TestTransaction {
 // Helper functions removed - no longer using Query type
 
 /// Helper to trim continuity blocks to start at queryHeight-1
-/// This is needed because ContinuityProof assumes blocks[0] is at queryHeight-1
+/// This is needed because ContinuityProof assumes roots[0] is at queryHeight-1
 pub(crate) fn trim_continuity_blocks_for_query(
     blocks: Vec<Block>,
     query_height: u64,
@@ -297,7 +298,7 @@ fn test_verify_continuity_chain_errors_with_less_than_2_blocks() {
                 1, // chain_key
                 query_height,
             ),
-            ContinuityVerificationError::InsufficientBlocks
+            ContinuityContinuityVerificationError::InsufficientBlocks
         );
     });
 }
@@ -419,7 +420,7 @@ fn test_verify_continuity_chain_errors_when_continuity_chain_doesnt_reach_query_
                 1,                // chain_key
                 query_height + 1, // height > continuity chain last block height
             ),
-            ContinuityVerificationError::ChainDoesNotReachQueryHeight
+            ContinuityContinuityVerificationError::ChainDoesNotReachQueryHeight
         );
     });
 }
@@ -688,21 +689,22 @@ fn test_single_block_continuity_chain_fails() {
 #[test]
 fn test_continuity_chain_wrong_digest_fails() {
     ExtBuilder::default().build().execute_with(|| {
-        // Query at an attestation height but with wrong digest in query block
+        // Query at an attestation height but with wrong root in query block
+        // With the new structure, wrong root will cause computed digest to be wrong
         let query_height = 100;
         let test_block = create_test_block(query_height, 4);
         let tx_data = test_block.transactions[0].data.clone();
         let merkle_proof = create_valid_merkle_proof_for_block(&test_block, 0);
 
-        // Create continuity chain with 2 blocks but wrong digest in query block
+        // Create continuity chain with 2 blocks but wrong root in query block
         let prev_height = query_height - 1;
         let prev_test_block = create_test_block(prev_height, 4);
         let prev_root = prev_test_block.merkle_root;
         let prev_prev_digest = H256::zero();
         let prev_digest = compute_test_digest(prev_height, &prev_root, &prev_prev_digest);
 
-        let root = test_block.merkle_root;
-        let wrong_digest = H256::random(); // Wrong digest
+        let correct_root = test_block.merkle_root;
+        let wrong_root = H256::random(); // Wrong root - will cause computed digest to be wrong
 
         let continuity_blocks = vec![
             Block {
@@ -713,17 +715,17 @@ fn test_continuity_chain_wrong_digest_fails() {
             },
             Block {
                 block_number: query_height,
-                root,
+                root: wrong_root, // Wrong root - digest will be computed incorrectly
                 prev_digest,
-                digest: wrong_digest, // Wrong digest
+                digest: compute_test_digest(query_height, &wrong_root, &prev_digest), // Computed with wrong root
             },
         ];
 
-        // Setup attestation at query_height with correct digest
-        let correct_digest = compute_test_digest(query_height, &root, &prev_digest);
+        // Setup attestation at query_height with correct digest (computed from correct root)
+        let correct_digest = compute_test_digest(query_height, &correct_root, &prev_digest);
         setup_attestation(1, query_height, correct_digest);
 
-        // This should fail - query block digest verification failed
+        // This should fail - computed digest won't match attestation
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -737,8 +739,8 @@ fn test_continuity_chain_wrong_digest_fails() {
                 },
             )
             .execute_reverts(|output| {
-                output == b"Query block digest verification failed"
-                    || output == b"Continuity chain has broken links"
+                output == b"Continuity proof does not match attestation or checkpoint"
+                    || output == b"Merkle root mismatch"
             });
     });
 }
@@ -977,8 +979,8 @@ fn test_continuity_chain_broken_link_fails() {
                 },
             )
             .execute_reverts(|output| {
-                output == b"Continuity chain has broken links"
-                    || output == b"Query block digest verification failed"
+                output == b"Continuity proof does not match attestation or checkpoint"
+                    || output == b"Merkle root mismatch"
             });
     });
 }

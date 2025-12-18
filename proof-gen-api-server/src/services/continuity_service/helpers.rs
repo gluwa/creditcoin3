@@ -159,7 +159,7 @@ impl ContinuityService {
         tracing::info!(
             chain_key,
             header_number,
-            blocks = continuity.blocks.len(),
+            blocks = continuity.roots.len(),
             "Continuity proof built successfully"
         );
 
@@ -280,16 +280,16 @@ impl ContinuityService {
                 message: e.to_string(),
             })?;
         if let Some(last_checkpoint) = last_checkpoint {
-            if continuity.continuity_proof.blocks.is_empty() {
+            if continuity.continuity_proof.roots.is_empty() {
                 return Ok(true);
             };
-            // Continuity proof ordered so that blocks[i] is at (queryHeight - 1) + i for single query
-            // EX: query_height = 4, continuity proof with blocks 3-10
-            // continuity.header_number + continuity.continuity_proof.blocks.len() - 2
+            // Continuity proof ordered so that roots[i] is at (queryHeight - 1) + i for single query
+            // EX: query_height = 4, continuity proof with roots 3-10
+            // continuity.header_number + continuity.continuity_proof.roots.len() - 2
             // = 4 + 8 - 2
             // = 10
             let continuity_max_height = (continuity.header_number
-                + continuity.continuity_proof.blocks.len() as u64)
+                + continuity.continuity_proof.roots.len() as u64)
                 .checked_sub(2)
                 .ok_or(ServiceError::Internal {
                     message: "Negative continuity_max_height. This shouldn't happen!".to_string(),
@@ -336,7 +336,7 @@ impl ContinuityService {
         tracing::info!(
             chain_key,
             header_number,
-            blocks = continuity.blocks.len(),
+            blocks = continuity.roots.len(),
             "Continuity proof built successfully"
         );
 

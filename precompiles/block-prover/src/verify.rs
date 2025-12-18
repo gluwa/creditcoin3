@@ -15,6 +15,47 @@ use sp_std::vec::Vec;
 use crate::{BlockProverPrecompile, SELECTOR_LOG_TRANSACTION_VERIFIED};
 use merkle::TransactionMerkleProof;
 
+/// Error type for continuity verification
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContinuityVerificationError {
+    /// Continuity chain doesn't have enough blocks
+    InsufficientBlocks,
+    /// Query block not found in continuity chain
+    QueryBlockNotFound,
+    /// Merkle root doesn't match query block root
+    MerkleRootMismatch,
+    /// Previous block (queryHeight-1) not found
+    PreviousBlockNotFound,
+    /// Query block digest verification failed
+    DigestMismatch,
+    /// Continuity chain does not reach query height
+    ChainDoesNotReachQueryHeight,
+    /// Continuity chain does not end at a valid attestation or checkpoint
+    NoMatchingAttestationOrCheckpoint,
+    /// Continuity chain has broken links between blocks
+    ChainLinkBroken,
+}
+
+impl ContinuityVerificationError {
+    /// Get the error message
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::InsufficientBlocks => {
+                "Continuity chain must contain at least 2 blocks (queryHeight-1 and queryHeight)"
+            }
+            Self::QueryBlockNotFound => "Query block not found in continuity chain",
+            Self::MerkleRootMismatch => "Merkle root mismatch",
+            Self::PreviousBlockNotFound => "Previous block not found",
+            Self::DigestMismatch => "Digest mismatch",
+            Self::ChainDoesNotReachQueryHeight => "Continuity chain does not reach query height",
+            Self::NoMatchingAttestationOrCheckpoint => {
+                "Continuity proof does not match attestation or checkpoint"
+            }
+            Self::ChainLinkBroken => "Continuity chain has broken links",
+        }
+    }
+}
+
 // Gas cost constants
 // Based on realistic Solidity implementation costs with precompile efficiency gains:
 // - Keccak256 in Solidity: ~30 + 6/word, in precompile: ~10x faster
@@ -147,7 +188,7 @@ where
         continuity_proof: ContinuityProof,
         emit_events: bool,
     ) -> EvmResult<bool> {
-        // For single query: blocks[0] is at queryHeight-1
+        // For single query: roots[0] is at queryHeight-1
         let start_block_number = height.saturating_sub(1);
 
         // Convert bounded bytes to Vec<u8>
@@ -166,7 +207,7 @@ where
         }
 
         // Check for empty continuity chain
-        if continuity_proof.blocks.is_empty() {
+        if continuity_proof.roots.is_empty() {
             debug!("Empty continuity chain for query: chain_key={chain_key}, height={height}");
             return Err(PrecompileFailure::Revert {
                 output: encode_revert_message("Continuity chain cannot be empty"),
@@ -177,9 +218,9 @@ where
         // Gas costs (CONTINUITY_BLOCK_HASH_COST) already account for all computational work
         // No separate weight tracking needed - gas is the single source of truth for resource consumption
 
-        // Step 1: Verify continuity proof chain first (gas charged inside, verifies all digests)
-        // This validates the chain structure and digests before we check the query block
-        if let Err(err) = Self::verify_continuity_chain(
+        // Step 1: Verify continuity proof chain first (gas charged inside, computes digests on-chain)
+        // This validates the chain structure and computes digests before we check the query block
+        if let Err(err) = crate::BlockProverPrecompile::<Runtime>::verify_continuity_chain(
             handle,
             &continuity_proof,
             start_block_number,
@@ -198,16 +239,15 @@ where
         // Step 3: Verify the query block exists and merkle root matches
         // verify_continuity_chain already verifies all block digests are correct,
         // so we just need to verify the merkle root matches
-        let query_block_idx =
-            match Self::find_query_block_index(&continuity_proof, start_block_number, height) {
-                Some(idx) => idx,
-                None => {
-                    return Self::revert_with_message("Query block not found in continuity chain")
-                }
-            };
+        let query_block_idx = match continuity_proof
+            .find_query_block_index(start_block_number, height)
+        {
+            Some(idx) => idx,
+            None => return Self::revert_with_message("Query block not found in continuity chain"),
+        };
 
-        let query_block = &continuity_proof.blocks[query_block_idx];
-        if query_block.merkle_root != merkle_proof.root {
+        let query_root = &continuity_proof.roots[query_block_idx];
+        if *query_root != merkle_proof.root {
             return Self::revert_with_message("Merkle root mismatch");
         }
 
@@ -296,7 +336,7 @@ where
         let max_height = max_height.unwrap();
 
         // Check for empty continuity proof
-        if shared_continuity_proof.blocks.is_empty() {
+        if shared_continuity_proof.roots.is_empty() {
             debug!("Empty continuity proof for batch queries");
             return Err(PrecompileFailure::Revert {
                 output: encode_revert_message("Continuity proof cannot be empty"),
@@ -304,7 +344,7 @@ where
             });
         }
 
-        // For batch queries: blocks[0] is at min(queryHeights)-1
+        // For batch queries: roots[0] is at min(queryHeights)-1
         let start_block_number = min_height.saturating_sub(1);
 
         // Verify continuity chain covers the range of all queries
@@ -319,7 +359,7 @@ where
         }
 
         let last_block_number =
-            start_block_number + (shared_continuity_proof.blocks.len() - 1) as u64;
+            start_block_number + (shared_continuity_proof.roots.len() - 1) as u64;
         if last_block_number < max_height {
             return Err(PrecompileFailure::Revert {
                 output: encode_revert_message(
@@ -379,19 +419,17 @@ where
             // 2. Verify query block exists and merkle root matches
             // verify_continuity_chain already verifies all block digests are correct,
             // so we just need to verify the merkle root matches
-            let query_block_idx = match Self::find_query_block_index(
-                &shared_continuity_proof,
-                start_block_number,
-                height,
-            ) {
+            let query_block_idx = match shared_continuity_proof
+                .find_query_block_index(start_block_number, height)
+            {
                 Some(idx) => idx,
                 None => {
                     return Self::revert_with_message("Query block not found in continuity chain")
                 }
             };
 
-            let query_block = &shared_continuity_proof.blocks[query_block_idx];
-            if query_block.merkle_root != merkle_proof.root {
+            let query_root = &shared_continuity_proof.roots[query_block_idx];
+            if *query_root != merkle_proof.root {
                 debug!("Merkle root mismatch for query at height {height}");
                 return Self::revert_with_message("Merkle root mismatch");
             }

@@ -35,18 +35,16 @@ async fn continuity_endpoint_returns_proof() {
         serde_json::from_slice(&bytes).expect("Failed to deserialize response");
     assert_eq!(resp.chain_key, chain_key);
     assert_eq!(resp.header_number, header_number);
-    assert!(!resp.continuity_proof.blocks.is_empty());
+    assert!(!resp.continuity_proof.roots.is_empty());
 
     // lower_endpoint_digest (H256 -> 0x lowercase hex)
     let lower_digest = resp.continuity_proof.lower_endpoint_digest;
     let lower_str = format!("0x{lower_digest:x}");
     assert_h256_str("lower_endpoint_digest", &lower_str);
 
-    // blocks[*].root and blocks[*].digest
-    for (i, b) in resp.continuity_proof.blocks.iter().enumerate() {
-        let root = format!("0x{:x}", b.merkle_root);
-        let digest = format!("0x{:x}", b.digest);
-        assert_h256_str(&format!("blocks[{i}].root"), &root);
-        assert_h256_str(&format!("blocks[{i}].digest"), &digest);
+    // roots[*] - roots are H256 values (merkle roots)
+    for (i, root) in resp.continuity_proof.roots.iter().enumerate() {
+        let root_str = format!("0x{root}");
+        assert_h256_str(&format!("roots[{i}]"), &root_str);
     }
 }

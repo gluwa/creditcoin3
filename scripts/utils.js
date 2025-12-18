@@ -294,10 +294,7 @@ function convertProofFormat(apiProof) {
     return {
         continuityProof: {
             lowerEndpointDigest: apiProof.continuity_proof.lower_endpoint_digest,
-            blocks: apiProof.continuity_proof.blocks.map((b) => ({
-                merkleRoot: b.merkle_root,
-                digest: b.digest,
-            })),
+            roots: apiProof.continuity_proof.roots || apiProof.continuity_proof.blocks?.map((b) => b.merkle_root) || [],
         },
         merkleProof: {
             root: apiProof.merkle_proof.root,
@@ -352,7 +349,7 @@ async function submitToPrecompile(
     const signerAddress = await signer.getAddress();
 
     const funcFragment = iface.getFunction(
-        'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))',
+        'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
     );
 
     const txBytesHex = Buffer.isBuffer(txBytes)
@@ -364,7 +361,7 @@ async function submitToPrecompile(
     const merkleProofTuple = [merkleProof.root, merkleProof.siblings.map((s) => [s.hash, s.isLeft])];
     const continuityProofTuple = [
         continuityProof.lowerEndpointDigest,
-        continuityProof.blocks.map((b) => [b.merkleRoot, b.digest]),
+        continuityProof.roots || continuityProof.blocks?.map((b) => b.merkleRoot) || [],
     ];
 
     const params = [chainKey, blockHeight, txBytesHex, merkleProofTuple, continuityProofTuple];

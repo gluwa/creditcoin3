@@ -202,35 +202,32 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
     }
 }
 
-/// Optimized continuity proof structure for native query verifier
+/// Simplified continuity proof structure matching BlockProver.sol
+/// Only stores roots - digests are computed on-chain
 ///
-/// Reduces calldata size by:
-/// - Block numbers are inferred from query height(s) and index
-///   - Single query: blocks[0] is at queryHeight - 1
-///   - Batch queries: blocks[0] is at min(queryHeights) - 1
-/// - prev_digest is reconstructed from the chain (using lower_endpoint_digest and computed digests)
-/// - Keeping only root and digest per block
-#[derive(Debug, Clone, Default, Codec, Serialize, Deserialize)]
+/// ABI structure: (bytes32, bytes32[])
+/// Tuple with lowerEndpointDigest and array of roots
+/// Block number for index i = startBlock + i, where startBlock = queryBlockHeight - 1
+#[derive(Debug, Clone, Default, Codec, Serialize, Deserialize, Encode, Decode, TypeInfo)]
 pub struct ContinuityProof {
     /// The digest of the block before the continuity chain starts
-    /// This is the prev_digest of the first block
     pub lower_endpoint_digest: H256,
-    /// Array of continuity blocks (each containing only root and digest)
-    /// Block numbers are inferred: blocks[i] is at (queryHeight - 1) + i for single query
-    pub blocks: Vec<ContinuityBlock>,
+    /// Array of merkle roots (digests computed on-chain)
+    /// Block number for index i = startBlock + i, where startBlock = queryBlockHeight - 1
+    pub roots: Vec<H256>,
 }
 
 impl ContinuityProof {
-    /// Create a new continuity proof from a lower endpoint digest and blocks
-    pub fn new(lower_endpoint_digest: H256, blocks: Vec<ContinuityBlock>) -> Self {
+    /// Create a new simplified continuity proof from a lower endpoint digest and roots
+    pub fn new(lower_endpoint_digest: H256, roots: Vec<H256>) -> Self {
         Self {
             lower_endpoint_digest,
-            blocks,
+            roots,
         }
     }
 
     /// Convert from Vec<Block> to ContinuityProof
-    /// Extracts the prev_digest from the first block
+    /// Extracts the prev_digest from the first block and collects only roots
     pub fn from_blocks(blocks: Vec<Block>) -> Self {
         if blocks.is_empty() {
             return Self::default();
@@ -239,44 +236,84 @@ impl ContinuityProof {
         // The lower_endpoint_digest is the prev_digest of the first block
         let lower_endpoint_digest = blocks[0].prev_digest;
 
-        // Convert blocks to ContinuityBlocks (dropping block_number and prev_digest)
-        // prev_digest will be reconstructed from the chain when converting back
-        let continuity_blocks: Vec<ContinuityBlock> = blocks
-            .into_iter()
-            .map(|b| ContinuityBlock {
-                merkle_root: b.root,
-                digest: b.digest,
-            })
-            .collect();
+        // Extract only roots (digests will be computed on-chain)
+        let roots: Vec<H256> = blocks.into_iter().map(|b| b.root).collect();
 
         Self {
             lower_endpoint_digest,
-            blocks: continuity_blocks,
+            roots,
         }
     }
 
     /// Convert ContinuityProof back to Vec<Block> given the starting block number
-    /// Reconstructs prev_digest from the chain using lower_endpoint_digest and computed digests
+    /// Computes digests on-chain using hash_payload
     pub fn to_blocks(&self, start_block_number: u64) -> Vec<Block> {
-        let mut blocks = Vec::with_capacity(self.blocks.len());
+        let mut blocks = Vec::with_capacity(self.roots.len());
         let mut prev_digest = self.lower_endpoint_digest;
 
-        for (idx, cb) in self.blocks.iter().enumerate() {
+        for (idx, root) in self.roots.iter().enumerate() {
             let block_number = start_block_number + idx as u64;
-            // Reconstruct prev_digest from the chain
-            // Start with lower_endpoint_digest, then use each block's computed digest
+            // Compute digest on-chain
+            let digest = Self::hash_payload(&block_number, root, &prev_digest);
+
             let block = Block {
                 block_number,
-                root: cb.merkle_root,
+                root: *root,
                 prev_digest,
-                digest: cb.digest,
+                digest,
             };
-            // Use the stored digest as the next block's prev_digest
-            prev_digest = cb.digest;
+            // Use the computed digest as the next block's prev_digest
+            prev_digest = digest;
             blocks.push(block);
         }
 
         blocks
+    }
+
+    /// Compute block digest: keccak256(blockNumber || merkleRoot || prevDigest)
+    /// Matches BlockProver.sol computeBlockDigest function
+    /// Single hash of 72 bytes: 8 bytes (uint64) + 32 bytes (bytes32) + 32 bytes (bytes32)
+    pub fn hash_payload(block_number: &u64, merkle_root: &H256, prev_digest: &H256) -> H256 {
+        Block::hash_payload(block_number, merkle_root, prev_digest)
+    }
+
+    /// Compute continuity digest chain
+    /// Matches BlockProver.sol computeContinuityDigest function
+    pub fn compute_continuity_digest(&self, start_block: u64) -> H256 {
+        let mut digest = self.lower_endpoint_digest;
+
+        for (i, root) in self.roots.iter().enumerate() {
+            // Compute block number from start + index
+            let block_number = start_block + i as u64;
+            // Compute next digest
+            digest = Self::hash_payload(&block_number, root, &digest);
+        }
+
+        digest
+    }
+
+    /// Find query block index in continuity proof
+    /// Returns the index of the block with the given height, or None if not found
+    pub fn find_query_block_index(
+        &self,
+        start_block_number: u64,
+        query_height: u64,
+    ) -> Option<usize> {
+        if self.roots.is_empty() {
+            return None;
+        }
+
+        let first_block_num = start_block_number;
+        let last_block_num = start_block_number + (self.roots.len() - 1) as u64;
+
+        if query_height >= first_block_num && query_height <= last_block_num {
+            let index = (query_height - first_block_num) as usize;
+            if index < self.roots.len() {
+                return Some(index);
+            }
+        }
+
+        None
     }
 }
 

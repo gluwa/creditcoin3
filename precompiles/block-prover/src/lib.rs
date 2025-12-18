@@ -118,7 +118,7 @@ where
     ///
     /// Note: This function does not emit events. For event emissions, use verifyAndEmit() instead.
     #[precompile::public(
-        "verify(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))"
+        "verify(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))"
     )]
     #[precompile::view]
     fn verify(
@@ -164,7 +164,9 @@ where
     /// - If merkle root doesn't match continuity block
     /// - If query block not found in continuity chain
     /// - If continuity chain doesn't end at a valid attestation/checkpoint
-    #[precompile::public("verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))")]
+    #[precompile::public(
+        "verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))"
+    )]
     fn verify_and_emit(
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
@@ -203,7 +205,9 @@ where
     /// # Reverts
     /// - If input arrays have mismatched lengths
     /// - If shared continuity chain is invalid
-    #[precompile::public("verify(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,(bytes32,bytes32)[]))")]
+    #[precompile::public(
+        "verify(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))"
+    )]
     #[precompile::view]
     fn verify_batch(
         handle: &mut impl PrecompileHandle,
@@ -251,7 +255,9 @@ where
     /// # Reverts
     /// - If input arrays have mismatched lengths
     /// - If shared continuity chain is invalid
-    #[precompile::public("verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,(bytes32,bytes32)[]))")]
+    #[precompile::public(
+        "verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))"
+    )]
     fn verify_batch_and_emit(
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
