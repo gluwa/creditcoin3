@@ -490,6 +490,7 @@ pub mod pallet {
                         ),
                         (),
                     );
+                    LastCheckpoint::<T>::insert(chain_configuration.chain_key, checkpoint.clone());
                 }
             }
         }

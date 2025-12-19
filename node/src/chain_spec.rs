@@ -190,16 +190,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
                 target_sample_size: 3,
-                // This checkpoint is used for testing the verification process of a proof that is generated and can be found at
-                // cairo/stone-verifier/proof_example_erc20.json
-                // The checkpoint is added to chain 5 to avoid conflicts with other tests that use chain 2 and 4
-                checkpoints: vec![AttestationCheckpoint::new(
-                    30,
-                    H256::from_str(
-                        "0x0032e15872b4b900be9a24495f460b6b0114be936f80df5210d46d949abed889",
-                    )
-                    .unwrap(),
-                )],
+                checkpoints: vec![],
                 vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
