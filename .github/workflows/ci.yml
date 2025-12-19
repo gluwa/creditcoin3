@@ -1481,6 +1481,7 @@ jobs:
 
           ./target/release/attestor_zombienet \
                 -n 3 \
+                --offset=3 \
                 --bin=./target/release/attestor \
                 --eth-url=ws://localhost:8343 \
                 --cc3-url=ws://localhost:9944 \
