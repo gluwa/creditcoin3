@@ -10,62 +10,51 @@ name: Creditcoin USC Audit Automation Check
 permissions: read-all
 
 jobs:
-  usc-audit-automation-build:
+  setup:
+    outputs:
+      release_tag: ${{ steps.devnet-env.outputs.release_tag }}
+      artifact_name: ${{ steps.devnet-env.outputs.artifact_name }}
     runs-on: ubuntu-24.04
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
+      - name: Devnet ENV
+        id: devnet-env
         run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-          components: rust-src
-
-      # use cache from previous build jobs
-      # WARNING: always before actions/download-artifact
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build USC Audit Automation release binary
-        run: cargo build --release --package  usc_audit_automation
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v5
-        with:
-          name: usc_audit_automation
-          path: target/release/usc_audit_automation
-          if-no-files-found: error
+          # shellcheck disable=SC2129
+          RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=usc_audit_automation-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   usc-audit:
     runs-on: ubuntu-24.04
-    needs: usc-audit-automation-build
+    needs: setup
 
     strategy:
       matrix:
         network: [Devnet, Testnet]
 
     steps:
-      - name: Download binary artifact
-        uses: actions/download-artifact@v6
+      - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
+        uses: i3h/download-release-asset@v1
         with:
-          name: usc_audit_automation
-          path: target/release
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          tag: ${{ needs.setup.outputs.release_tag }}
+          file: ${{ needs.setup.outputs.artifact_name }}
+          path: target/release/
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
-      - name: Restore executable permissions
+      - name: Unzip & Restore executable permissions
+        working-directory: target/release
         run: |
-          chmod a+x ./target/release/usc_audit_automation
+          unzip *.zip
+
+          chmod a+x ./usc_audit_automation
+
+          ls -l
 
       - name: Create Config File
         shell: bash
