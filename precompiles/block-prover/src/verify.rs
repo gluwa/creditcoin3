@@ -15,47 +15,6 @@ use sp_std::vec::Vec;
 use crate::{BlockProverPrecompile, SELECTOR_LOG_TRANSACTION_VERIFIED};
 use merkle::TransactionMerkleProof;
 
-/// Error type for continuity verification
-#[derive(Debug, Clone, PartialEq)]
-pub enum ContinuityVerificationError {
-    /// Continuity chain doesn't have enough blocks
-    InsufficientBlocks,
-    /// Query block not found in continuity chain
-    QueryBlockNotFound,
-    /// Merkle root doesn't match query block root
-    MerkleRootMismatch,
-    /// Previous block (queryHeight-1) not found
-    PreviousBlockNotFound,
-    /// Query block digest verification failed
-    DigestMismatch,
-    /// Continuity chain does not reach query height
-    ChainDoesNotReachQueryHeight,
-    /// Continuity chain does not end at a valid attestation or checkpoint
-    NoMatchingAttestationOrCheckpoint,
-    /// Continuity chain has broken links between blocks
-    ChainLinkBroken,
-}
-
-impl ContinuityVerificationError {
-    /// Get the error message
-    pub fn message(&self) -> &'static str {
-        match self {
-            Self::InsufficientBlocks => {
-                "Continuity chain must contain at least 2 blocks (queryHeight-1 and queryHeight)"
-            }
-            Self::QueryBlockNotFound => "Query block not found in continuity chain",
-            Self::MerkleRootMismatch => "Merkle root mismatch",
-            Self::PreviousBlockNotFound => "Previous block not found",
-            Self::DigestMismatch => "Digest mismatch",
-            Self::ChainDoesNotReachQueryHeight => "Continuity chain does not reach query height",
-            Self::NoMatchingAttestationOrCheckpoint => {
-                "Continuity proof does not match attestation or checkpoint"
-            }
-            Self::ChainLinkBroken => "Continuity chain has broken links",
-        }
-    }
-}
-
 // Gas cost constants
 // Based on realistic Solidity implementation costs with precompile efficiency gains:
 // - Keccak256 in Solidity: ~30 + 6/word, in precompile: ~10x faster

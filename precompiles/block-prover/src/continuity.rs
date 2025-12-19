@@ -1,4 +1,4 @@
-use attestor_primitives::block::{Block, ContinuityProof};
+use attestor_primitives::block::ContinuityProof;
 use fp_evm::PrecompileHandle;
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
@@ -11,19 +11,11 @@ use sp_core::H256;
 use crate::verify::CONTINUITY_BLOCK_HASH_COST;
 use crate::BlockProverPrecompile;
 
-/// Error type for continuity verification (both query block digest and chain validation)
+/// Error type for continuity chain validation
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContinuityVerificationError {
     /// Continuity chain doesn't have enough blocks
     InsufficientBlocks,
-    /// Query block not found in continuity chain
-    QueryBlockNotFound,
-    /// Merkle root doesn't match query block root
-    MerkleRootMismatch,
-    /// Previous block (queryHeight-1) not found
-    PreviousBlockNotFound,
-    /// Query block digest verification failed
-    DigestMismatch,
     /// Continuity chain does not reach query height
     ChainDoesNotReachQueryHeight,
     /// Continuity chain does not end at a valid attestation or checkpoint
@@ -35,10 +27,8 @@ pub enum ContinuityVerificationError {
 impl ContinuityVerificationError {
     /// Get the status code for this error
     pub fn status(&self) -> u8 {
-        match self {
-            Self::MerkleRootMismatch => 4, // MerkleRootMismatch
-            _ => 2,                        // ContinuityChainInvalid
-        }
+        // All continuity errors use status code 2 (ContinuityChainInvalid)
+        2
     }
 
     /// Get the error message
@@ -47,12 +37,6 @@ impl ContinuityVerificationError {
             Self::InsufficientBlocks => {
                 "Continuity chain must contain at least 2 blocks (queryHeight-1 and queryHeight)"
             }
-            Self::QueryBlockNotFound => "Query block not found in continuity chain",
-            Self::MerkleRootMismatch => "Merkle root mismatch",
-            Self::PreviousBlockNotFound => {
-                "Previous block (queryHeight-1) not found in continuity chain"
-            }
-            Self::DigestMismatch => "Query block digest verification failed",
             Self::ChainDoesNotReachQueryHeight => "Continuity chain does not reach query height",
             Self::NoMatchingAttestationOrCheckpoint => {
                 "Continuity proof does not match attestation or checkpoint"
@@ -75,14 +59,14 @@ where
     /// Verify the continuity chain of block attestations
     ///
     /// Validates that the continuity chain:
-    /// 1. Forms an unbroken chain of blocks (each block's prev_digest matches previous block's digest)
+    /// 1. Forms an unbroken chain of blocks (digests computed sequentially from roots)
     /// 2. Covers the query height
     /// 3. Ends at a valid attestation or checkpoint (consensus point)
     ///
     /// # Parameters
     /// - `handle`: EVM precompile handle for gas accounting
-    /// - `continuity_proof`: Continuity proof to validate (optimized structure)
-    /// - `start_block_number`: Starting block number (blocks[0] is at this height)
+    /// - `continuity_proof`: Continuity proof to validate (contains roots, digests computed on-chain)
+    /// - `start_block_number`: Starting block number (roots[0] is at this height)
     /// - `chain_key`: Chain key identifier
     /// - `height`: Query block height (used to verify chain covers query height)
     ///
@@ -107,7 +91,6 @@ where
         height: u64,
     ) -> Result<bool, ContinuityVerificationError> {
         // Security: Always require at least 2 blocks (queryHeight-1 and queryHeight)
-        // This is required to verify the query block's digest using the previous block's digest
         // POC pattern: continuity chain starts at queryHeight - 1
         if continuity_proof.roots.len() < 2 {
             return Err(ContinuityVerificationError::InsufficientBlocks);
@@ -168,90 +151,5 @@ where
         }
 
         Ok(true)
-    }
-
-    /// Verify the query block's digest is computed correctly
-    ///
-    /// Security: This prevents sending fake roots by requiring the query block's digest
-    /// to be computed from the previous block's digest. Following POC pattern where
-    /// continuity chain starts at queryHeight - 1.
-    ///
-    /// # Parameters
-    /// - `handle`: EVM precompile handle for gas accounting
-    /// - `continuity_proof`: Continuity proof containing query block (optimized structure)
-    /// - `start_block_number`: Starting block number (blocks[0] is at this height)
-    /// - `height`: Query block height
-    /// - `merkle_root`: Merkle root from the merkle proof (must match query block root)
-    ///
-    /// # Returns
-    /// - `Ok(())`: Query block digest is valid
-    /// - `Err(ContinuityVerificationError)`: Structured error with status code and message
-    ///
-    /// # Gas Costs
-    /// - `GAS_KECCAK256_HASH` (48) for hash computation (Keccak-256 on 72 bytes)
-    pub fn verify_query_block_digest(
-        handle: &mut impl PrecompileHandle,
-        continuity_proof: &attestor_primitives::block::ContinuityProof,
-        start_block_number: u64,
-        height: u64,
-        merkle_root: H256,
-    ) -> Result<(), crate::verify::ContinuityVerificationError> {
-        // Security: Always require at least 2 blocks (queryHeight-1 and queryHeight)
-        // This is required to verify the query block's digest using the previous block's digest
-        if continuity_proof.roots.len() < 2 {
-            return Err(crate::verify::ContinuityVerificationError::InsufficientBlocks);
-        }
-
-        // Find the query block index using optimized search
-        let query_block_idx = continuity_proof
-            .find_query_block_index(start_block_number, height)
-            .ok_or(crate::verify::ContinuityVerificationError::QueryBlockNotFound)?;
-
-        let query_block_root = continuity_proof.roots[query_block_idx];
-
-        // Verify merkle root matches
-        if query_block_root != merkle_root {
-            return Err(crate::verify::ContinuityVerificationError::MerkleRootMismatch);
-        }
-
-        // Optimize: Use the query block index to directly access the previous block
-        // Since blocks are sequential (queryHeight-1, queryHeight), prev is at index - 1
-        if query_block_idx == 0 {
-            return Err(crate::verify::ContinuityVerificationError::PreviousBlockNotFound);
-        }
-
-        // Verify the previous block is actually at queryHeight - 1 (safety check)
-        if start_block_number + (query_block_idx - 1) as u64 != height.saturating_sub(1) {
-            return Err(crate::verify::ContinuityVerificationError::PreviousBlockNotFound);
-        }
-
-        // Charge for hash computation BEFORE computing (security: prevent out-of-gas attacks)
-        // Charge for computing digests up to the query block
-        // Total hashes: query_block_idx (for blocks 0..query_block_idx) + 1 (for query block itself)
-        let hash_cost = CONTINUITY_BLOCK_HASH_COST
-            .checked_mul((query_block_idx + 1) as u64)
-            .ok_or(crate::verify::ContinuityVerificationError::ChainLinkBroken)?;
-        handle.record_cost(hash_cost).map_err(|_| {
-            crate::verify::ContinuityVerificationError::ChainLinkBroken // Use ChainLinkBroken error if gas recording fails
-        })?;
-
-        // Compute prev_digest for the query block by computing digest of previous block
-        // We need to compute digests for all blocks up to the previous one
-        let mut prev_digest = continuity_proof.lower_endpoint_digest;
-        for i in 0..query_block_idx {
-            let block_number = start_block_number + i as u64;
-            let root = continuity_proof.roots[i];
-            prev_digest = Block::hash_payload(&block_number, &root, &prev_digest);
-        }
-
-        // Compute expected digest for query block using previous block's digest
-        let expected_digest = Block::hash_payload(&height, &query_block_root, &prev_digest);
-
-        // With ContinuityProof, we don't store digests, so we just verify
-        // that the digest can be computed correctly (which validates the chain)
-        // The digest computation itself validates that the chain is correct
-        debug!("Query block digest computed successfully: {expected_digest:?}");
-
-        Ok(())
     }
 }
