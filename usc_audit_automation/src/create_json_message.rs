@@ -32,6 +32,7 @@ struct AlertConditions {
     pub prev_digest_found_in_graphql: bool,
     pub digest_match_last_attested_digest_in_graphql: bool,
     pub last_attestation_digest_found_in_graphql: bool,
+    pub continuity_proof_is_valid: bool,
 }
 
 fn alert_reasons(conditions: &AlertConditions) -> Vec<&'static str> {
@@ -67,6 +68,9 @@ fn alert_reasons(conditions: &AlertConditions) -> Vec<&'static str> {
     }
     if !conditions.last_attestation_digest_found_in_graphql {
         reasons.push("Last attestation digest not found in GraphQL!");
+    }
+    if !conditions.continuity_proof_is_valid {
+        reasons.push("Attestation continuity proof is invalid!");
     }
     reasons
 }
@@ -209,6 +213,13 @@ pub fn create_json_message(
     } else {
         ("❌", "Last attestation digest not found in GraphQL")
     };
+
+    let (continuity_proof_is_valid_emoji, continuity_proof_is_valid_verdict) =
+        if attestation_check_result.continuity_proof_is_valid {
+            ("✅", "Attestation continuity proof is valid")
+        } else {
+            ("❌", "Attestation continuity proof is invalid")
+        };
 
     // todo! get actual network details
     let on_chain_network_details = format!(
@@ -353,6 +364,12 @@ pub fn create_json_message(
             .as_bytes(),
     );
 
+    let attestation_header_number = attestation_check_result
+        .attestation_info
+        .signed_attestation
+        .attestation
+        .header_number();
+
     let network_str = format!("{on_chain_network_details} ⬛ {usc_network_name}");
 
     let attestation_block_height_str = format!(
@@ -396,6 +413,9 @@ pub fn create_json_message(
         "{last_attestation_digest_found_in_graphql_emoji} {last_attestation_digest_found_in_graphql_verdict}: ({last_attestation_digest_in_graphql_str}|{last_attestation_digest_str})"
     );
 
+    let check_continuity_proof_is_valid_str =
+        format!("{continuity_proof_is_valid_emoji} {continuity_proof_is_valid_verdict} for block: {attestation_header_number}");
+
     let base_line = format!(
         "{network_str}\n\
          {attestation_block_height_str}\n\
@@ -406,7 +426,8 @@ pub fn create_json_message(
          {graphql_attestation_header_number_found_str}\n\
          {graphql_attestation_root_found_str}\n\
          {graphql_attestation_prev_digest_found_str}\n\
-         {graphl_attestation_digest_found_str}"
+         {graphl_attestation_digest_found_str}\n\
+         {check_continuity_proof_is_valid_str}"
     );
 
     // Primary message (always present)
@@ -435,7 +456,8 @@ pub fn create_json_message(
                 || !attestation_check_result
                     .last_attestation_prev_digest_matches_attestation_prev_digest_in_graphql()
                 || !attestation_check_result
-                    .last_attestation_digest_matches_attestation_digest_in_graphql() =>
+                    .last_attestation_digest_matches_attestation_digest_in_graphql()
+                || !attestation_check_result.continuity_proof_is_valid =>
         {
             let alert_conditions = AlertConditions {
                 exceeded: attestation_check_result.is_block_height_exceeded(),
@@ -455,6 +477,7 @@ pub fn create_json_message(
                     .last_attestation_prev_digest_matches_attestation_prev_digest_in_graphql(),
                 last_attestation_digest_found_in_graphql: attestation_check_result
                     .last_attestation_digest_matches_attestation_digest_in_graphql(),
+                continuity_proof_is_valid: attestation_check_result.continuity_proof_is_valid,
             };
             let reasons = alert_reasons(&alert_conditions);
 

@@ -1,9 +1,13 @@
 use crate::clients::usc::decode::{
     decode_chain_key_dynamic, decode_checkpoint_dynamic, decode_interval_dynamic,
     decode_signed_attestation_dynamic, decode_static_or_dynamic, decode_supported_chain_dynamic,
+    ContinuityProofStatus, DecodedSignedAttestation,
 };
 use anyhow::{Context, Result};
-use attestor_primitives::{AttestationCheckpoint, AttestationData, BlsSignature, Digest};
+use attestor_primitives::{
+    attestation_fragment::AttestationFragmentSerializable, AttestationCheckpoint, AttestationData,
+    BlsSignature, Digest,
+};
 use parity_scale_codec::{Decode, Encode};
 use scale_info::prelude::*;
 use scale_info::TypeInfo;
@@ -27,6 +31,7 @@ pub struct SignedAttestation<Digest, AccountId32> {
     pub attestation: AttestationData<Digest>,
     pub signature: BlsSignature,
     pub attestors: Vec<AccountId32>,
+    pub continuity_proof: AttestationFragmentSerializable,
 }
 
 pub struct USCClient {
@@ -119,7 +124,9 @@ impl USCClient {
         let result = maybe_val
             .map(|v| -> anyhow::Result<Digest> {
                 let bytes = v.encoded();
-                Ok(Digest::decode(&mut &bytes[..])?)
+                // LastDigest stores (u64, Digest) tuple, extract the digest
+                let (_block_number, digest) = <(u64, Digest)>::decode(&mut &bytes[..])?;
+                Ok(digest)
             })
             .transpose()?;
 
@@ -156,8 +163,8 @@ impl USCClient {
     pub async fn get_attestation_by_digest(
         &self,
         chain_key: u64,
-        digest: H256,
-    ) -> anyhow::Result<Option<SignedAttestation<H256, AccountId32>>> {
+        digest: Digest,
+    ) -> anyhow::Result<Option<DecodedSignedAttestation>> {
         let key_chain = Value::from(chain_key);
         let key_digest = Value::from_bytes(digest.as_bytes());
         let address = storage("Attestation", "Attestations", vec![key_chain, key_digest]);
@@ -172,10 +179,30 @@ impl USCClient {
             .await
             .with_context(|| format!("Failed to fetch attestation for chain key {chain_key}"))?;
 
-        let result = decode_static_or_dynamic(&maybe_val, |t| {
-            let val = t.to_value().ok()?;
-            decode_signed_attestation_dynamic(&val)
-        })?;
+        // Try to decode the SignedAttestation
+        let result = if let Some(thunk) = maybe_val {
+            // Try static decode first
+            let bytes = thunk.encoded();
+            match SignedAttestation::<H256, AccountId32>::decode(&mut &bytes[..]) {
+                Ok(signed) => {
+                    // Static decode succeeded - continuity_proof field was successfully decoded
+                    // (even if blocks vec is empty, it decoded successfully)
+                    Some(DecodedSignedAttestation {
+                        value: signed,
+                        proof_status: ContinuityProofStatus::Present,
+                    })
+                }
+                Err(_) => {
+                    // Static decode failed - fall back to dynamic decode which preserves proof_status
+                    match thunk.to_value() {
+                        Ok(val) => decode_signed_attestation_dynamic(&val),
+                        Err(_) => None,
+                    }
+                }
+            }
+        } else {
+            None
+        };
 
         Ok(result)
     }
@@ -261,5 +288,17 @@ impl USCClient {
             .transpose()?;
 
         Ok(window)
+    }
+
+    pub async fn get_attestation_header_by_digest(
+        &self,
+        chain_key: u64,
+        digest: Digest,
+    ) -> Result<Option<u64>> {
+        let maybe_signed = self.get_attestation_by_digest(chain_key, digest).await?;
+        // Map to the attestation's header number if present
+        Ok(maybe_signed.map(|decoded_signed_attestation| {
+            decoded_signed_attestation.value.attestation.header_number
+        }))
     }
 }

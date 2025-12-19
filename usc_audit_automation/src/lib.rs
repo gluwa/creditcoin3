@@ -10,7 +10,6 @@ use serde::Deserialize;
 use sp_core::H256;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use subxt::utils::AccountId32;
 use tracing::{debug, info};
 
 const MAX_ALLOWED_BLOCK_HEIGHT_DIFF: i128 = 50;
@@ -19,12 +18,15 @@ const CHAIN_LIST_URL: &str = "https://chainid.network/chains.json";
 pub mod attestation_check_result;
 pub mod attestation_checks;
 pub mod clients;
+mod continuity_proofs;
 mod create_json_message;
 mod ethereum_rpc;
 #[cfg(test)]
 mod tests;
 
-use clients::usc::{SignedAttestation, SupportedChain, USCClient};
+use clients::usc::{
+    decode::DecodedSignedAttestation, SignedAttestation, SupportedChain, USCClient,
+};
 use eth::{Client as EthClient, OrderedBlock};
 
 #[derive(Parser, Debug)]
@@ -159,7 +161,7 @@ pub(crate) trait UniversalSmartContractProvider {
         &self,
         chain_key: u64,
         digest: H256,
-    ) -> Result<Option<SignedAttestation<H256, AccountId32>>>;
+    ) -> Result<Option<DecodedSignedAttestation>>;
     async fn get_last_attestation_checkpoint(
         &self,
         chain_key: u64,
@@ -167,6 +169,11 @@ pub(crate) trait UniversalSmartContractProvider {
     async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u32>>;
     async fn get_attestation_interval(&self, chain_key: u64) -> Result<Option<u64>>;
     async fn get_attestation_vote_acceptance_window(&self, chain_key: u64) -> Result<Option<u64>>;
+    async fn get_attestation_header_by_digest(
+        &self,
+        chain_key: u64,
+        digest: H256,
+    ) -> Result<Option<u64>>;
 }
 
 pub struct USCClientWrapper(USCClient);
@@ -181,10 +188,11 @@ impl UniversalSmartContractProvider for USCClientWrapper {
         &self,
         chain_key: u64,
         digest: H256,
-    ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
-        let signed_attestation = self.0.get_attestation_by_digest(chain_key, digest).await?;
+    ) -> Result<Option<DecodedSignedAttestation>> {
+        let decoded_signed_attestation =
+            self.0.get_attestation_by_digest(chain_key, digest).await?;
 
-        Ok(signed_attestation)
+        Ok(decoded_signed_attestation)
     }
 
     async fn get_last_attestation_checkpoint(
@@ -213,9 +221,22 @@ impl UniversalSmartContractProvider for USCClientWrapper {
 
         Ok(vote_acceptance_window)
     }
+
+    async fn get_attestation_header_by_digest(
+        &self,
+        chain_key: u64,
+        digest: H256,
+    ) -> Result<Option<u64>> {
+        let attestation_header_number = self
+            .0
+            .get_attestation_header_by_digest(chain_key, digest)
+            .await?;
+
+        Ok(attestation_header_number)
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct CheckpointCreatedWithinRangeResult {
     last_checkpoint_block_number: u64,
     latest_ethereum_block_number: u64,
@@ -359,7 +380,7 @@ pub struct AttestationCheckpointChainNode {
     last_attested_digest: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GraphQLAttestationCheckResult {
     checkpoint_chain_node: AttestationCheckpointChainNode,
     attestation_node: AttestationNode,

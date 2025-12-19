@@ -2,8 +2,8 @@ use crate::{
     calculate_usc_and_source_chain_block_diff, CheckpointCreatedWithinRangeResult,
     GraphQLAttestationCheckResult, SignedAttestation, MAX_ALLOWED_BLOCK_HEIGHT_DIFF,
 };
+use attestor_primitives::Digest;
 use ethers::types::U64;
-use sp_core::H256;
 use subxt::utils::AccountId32;
 use tracing::info;
 
@@ -11,7 +11,7 @@ use tracing::info;
 pub struct AttestationInfo {
     pub attestor_best_block_number: u64,
     pub attestation_merkle_root: String,
-    pub signed_attestation: SignedAttestation<H256, AccountId32>,
+    pub signed_attestation: SignedAttestation<Digest, AccountId32>,
 }
 
 #[derive(Debug)]
@@ -22,6 +22,7 @@ pub struct AttestationCheckResult {
     pub check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult,
     pub maybe_elected_attestors: Option<Vec<AccountId32>>,
     pub graphql_attestation_check_result: Option<GraphQLAttestationCheckResult>,
+    pub continuity_proof_is_valid: bool,
 }
 
 impl AttestationCheckResult {
@@ -83,8 +84,7 @@ impl AttestationCheckResult {
                         self.attestation_info
                             .signed_attestation
                             .attestation
-                            .digest()
-                            .as_bytes(),
+                            .digest(),
                     )
             })
             .unwrap_or_default()
@@ -160,39 +160,47 @@ pub struct BlockHeightDiffChecker {
     pub block_height_exceeded: bool,
 }
 
+#[derive(Debug)]
+pub struct AttestationCheckContext<'a> {
+    pub latest_signed_attestation: &'a SignedAttestation<Digest, AccountId32>,
+    pub latest_ethereum_block_number: u64,
+    pub calculated_ethereum_block_merkle_root: &'a str,
+    pub fetched_ethereum_block_number_by_hash: Option<U64>,
+    pub check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult,
+    pub maybe_elected_attestors: Option<Vec<AccountId32>>,
+    pub graphql_attestation_check_result: Option<GraphQLAttestationCheckResult>,
+    pub continuity_proof_is_valid: bool,
+}
+
 pub fn compute_attestation_check_result(
-    latest_signed_attestation: &SignedAttestation<H256, AccountId32>,
-    latest_ethereum_block_number: u64,
-    calculated_ethereum_block_merkle_root: &str,
-    fetched_ethereum_block_number_by_hash: Option<U64>,
-    check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult,
-    maybe_elected_attestors: Option<Vec<AccountId32>>,
-    graphql_attestation_check_result: Option<GraphQLAttestationCheckResult>,
+    ctx: &AttestationCheckContext<'_>,
 ) -> AttestationCheckResult {
-    let attestor_best_block_number = latest_signed_attestation.attestation.header_number;
+    let attestor_best_block_number = ctx.latest_signed_attestation.attestation.header_number;
     let block_height_diff = calculate_usc_and_source_chain_block_diff(
         attestor_best_block_number,
-        latest_ethereum_block_number,
+        ctx.latest_ethereum_block_number,
     );
 
-    let fetched_ethereum_block_number_by_hash: Option<u64> =
-        fetched_ethereum_block_number_by_hash.map(|block| block.as_u64());
-
-    let attestation_merkle_root = hex::encode(latest_signed_attestation.attestation.root);
+    let fetched_ethereum_block_number_by_hash: Option<u64> = ctx
+        .fetched_ethereum_block_number_by_hash
+        .map(|block| block.as_u64());
+    let attestation_merkle_root = hex::encode(ctx.latest_signed_attestation.attestation.root);
     info!(
         "Attestation Merkle Root: {} for attestor_best_block_number: {}",
         attestation_merkle_root,
-        latest_signed_attestation.attestation.header_number()
+        ctx.latest_signed_attestation.attestation.header_number()
     );
 
     let attestation_info = AttestationInfo {
         attestor_best_block_number,
         attestation_merkle_root,
-        signed_attestation: latest_signed_attestation.clone(),
+        signed_attestation: ctx.latest_signed_attestation.clone(),
     };
     let ethereum_block_info = EthereumBlockInfo {
-        latest_ethereum_block_number,
-        calculated_ethereum_block_merkle_root: calculated_ethereum_block_merkle_root.to_string(),
+        latest_ethereum_block_number: ctx.latest_ethereum_block_number,
+        calculated_ethereum_block_merkle_root: ctx
+            .calculated_ethereum_block_merkle_root
+            .to_string(),
         fetched_ethereum_block_number_by_hash,
     };
 
@@ -200,9 +208,10 @@ pub fn compute_attestation_check_result(
         attestation_info,
         block_height_diff,
         ethereum_block_info,
-        check_point_created_in_range_checker,
-        maybe_elected_attestors,
-        graphql_attestation_check_result,
+        check_point_created_in_range_checker: ctx.check_point_created_in_range_checker,
+        maybe_elected_attestors: ctx.maybe_elected_attestors.clone(),
+        graphql_attestation_check_result: ctx.graphql_attestation_check_result.clone(),
+        continuity_proof_is_valid: ctx.continuity_proof_is_valid,
     }
 }
 
@@ -213,7 +222,9 @@ mod tests {
         AttestationCheckpointChainNode, AttestationNode, GraphQLAttestationCheckResult,
         SignedAttestation,
     };
-    use attestor_primitives::AttestationData;
+    use attestor_primitives::{
+        attestation_fragment::AttestationFragmentSerializable, AttestationData,
+    };
     use sp_core::H256;
     use subxt::utils::AccountId32;
 
@@ -231,6 +242,7 @@ mod tests {
             },
             signature: [0u8; 96],
             attestors: vec![],
+            continuity_proof: AttestationFragmentSerializable::default(),
         }
     }
 
@@ -258,6 +270,7 @@ mod tests {
             },
             maybe_elected_attestors: None,
             graphql_attestation_check_result: None,
+            continuity_proof_is_valid: true,
         };
 
         assert!(result.is_block_height_exceeded());
@@ -287,6 +300,7 @@ mod tests {
             },
             maybe_elected_attestors: None,
             graphql_attestation_check_result: None,
+            continuity_proof_is_valid: true,
         };
 
         assert!(!result.is_block_height_exceeded());
@@ -313,6 +327,7 @@ mod tests {
             },
             maybe_elected_attestors: None,
             graphql_attestation_check_result: None,
+            continuity_proof_is_valid: true,
         };
 
         assert!(result.header_hash_matches());
@@ -339,6 +354,7 @@ mod tests {
             },
             maybe_elected_attestors: None,
             graphql_attestation_check_result: None,
+            continuity_proof_is_valid: true,
         };
 
         assert!(!result.header_hash_matches());
@@ -365,6 +381,7 @@ mod tests {
             },
             maybe_elected_attestors: None,
             graphql_attestation_check_result: None,
+            continuity_proof_is_valid: true,
         };
 
         assert!(result.is_checkpoint_in_range());
@@ -391,6 +408,7 @@ mod tests {
             },
             maybe_elected_attestors: None,
             graphql_attestation_check_result: None,
+            continuity_proof_is_valid: true,
         };
 
         assert!(!result.is_checkpoint_in_range());
@@ -417,6 +435,7 @@ mod tests {
             },
             maybe_elected_attestors: None,
             graphql_attestation_check_result: None,
+            continuity_proof_is_valid: true,
         };
 
         assert!(result.merkle_roots_match());
@@ -443,6 +462,7 @@ mod tests {
             },
             maybe_elected_attestors: None,
             graphql_attestation_check_result: None,
+            continuity_proof_is_valid: true,
         };
 
         assert!(!result.merkle_roots_match());
@@ -459,14 +479,14 @@ mod tests {
             latest_ethereum_block_number: 100,
             checkpoint_created_within_range: true,
         };
-        let result = compute_attestation_check_result(
-            &attestation,
+        let attestation_check_context = AttestationCheckContext {
+            latest_signed_attestation: &attestation,
             latest_ethereum_block_number,
-            &calculated_ethereum_block_merkle_root,
+            calculated_ethereum_block_merkle_root: &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
-            checkpoint_created_in_range_checker,
-            None,
-            Some(GraphQLAttestationCheckResult {
+            check_point_created_in_range_checker: checkpoint_created_in_range_checker,
+            maybe_elected_attestors: None,
+            graphql_attestation_check_result: Some(GraphQLAttestationCheckResult {
                 checkpoint_chain_node: AttestationCheckpointChainNode {
                     checkpoint_number: "50".to_string(),
                     last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
@@ -478,7 +498,9 @@ mod tests {
                     root: hex::encode(attestation.attestation.root),
                 },
             }),
-        );
+            continuity_proof_is_valid: true,
+        };
+        let result = compute_attestation_check_result(&attestation_check_context);
 
         assert!(!result.is_block_height_exceeded());
         assert!(result.header_hash_matches());
@@ -497,20 +519,20 @@ mod tests {
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(10u64.into());
         let calculated_ethereum_block_merkle_root = hex::encode([1u8; 32]);
-        let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
+        let check_point_created_in_range_checker = CheckpointCreatedWithinRangeResult {
             last_checkpoint_block_number: 5,
             latest_ethereum_block_number: 100,
             checkpoint_created_within_range: true,
         };
 
-        let result = compute_attestation_check_result(
-            &attestation,
+        let attestation_check_context = AttestationCheckContext {
+            latest_signed_attestation: &attestation,
             latest_ethereum_block_number,
-            &calculated_ethereum_block_merkle_root,
+            calculated_ethereum_block_merkle_root: &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
-            checkpoint_created_in_range_checker,
-            None,
-            Some(GraphQLAttestationCheckResult {
+            check_point_created_in_range_checker,
+            maybe_elected_attestors: None,
+            graphql_attestation_check_result: Some(GraphQLAttestationCheckResult {
                 checkpoint_chain_node: AttestationCheckpointChainNode {
                     checkpoint_number: "5".to_string(),
                     last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
@@ -523,7 +545,10 @@ mod tests {
                     root: hex::encode(attestation.attestation.root),
                 },
             }),
-        );
+            continuity_proof_is_valid: true,
+        };
+
+        let result = compute_attestation_check_result(&attestation_check_context);
 
         assert!(result.header_hash_matches());
         assert!(result.merkle_roots_match());
@@ -551,14 +576,14 @@ mod tests {
             checkpoint_created_within_range: true,
         };
 
-        let result = compute_attestation_check_result(
-            &attestation,
+        let attestation_check_context = AttestationCheckContext {
+            latest_signed_attestation: &attestation,
             latest_ethereum_block_number,
-            &calculated_ethereum_block_merkle_root,
+            calculated_ethereum_block_merkle_root: &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
-            checkpoint_created_in_range_checker,
-            None,
-            Some(GraphQLAttestationCheckResult {
+            check_point_created_in_range_checker: checkpoint_created_in_range_checker,
+            maybe_elected_attestors: None,
+            graphql_attestation_check_result: Some(GraphQLAttestationCheckResult {
                 checkpoint_chain_node: AttestationCheckpointChainNode {
                     checkpoint_number: "50".to_string(),
                     last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
@@ -571,7 +596,10 @@ mod tests {
                     root: hex::encode(attestation.attestation.root),
                 },
             }),
-        );
+            continuity_proof_is_valid: true,
+        };
+
+        let result = compute_attestation_check_result(&attestation_check_context);
 
         assert!(!result.is_block_height_exceeded());
         assert!(result.merkle_roots_match());
@@ -599,14 +627,14 @@ mod tests {
             checkpoint_created_within_range: true,
         };
 
-        let result = compute_attestation_check_result(
-            &attestation,
+        let attestation_check_context = AttestationCheckContext {
+            latest_signed_attestation: &attestation,
             latest_ethereum_block_number,
-            &calculated_ethereum_block_merkle_root,
+            calculated_ethereum_block_merkle_root: &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
-            checkpoint_created_in_range_checker,
-            None,
-            Some(GraphQLAttestationCheckResult {
+            check_point_created_in_range_checker: checkpoint_created_in_range_checker,
+            maybe_elected_attestors: None,
+            graphql_attestation_check_result: Some(GraphQLAttestationCheckResult {
                 checkpoint_chain_node: AttestationCheckpointChainNode {
                     checkpoint_number: "50".to_string(),
                     last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
@@ -619,7 +647,10 @@ mod tests {
                     root: hex::encode(attestation.attestation.root),
                 },
             }),
-        );
+            continuity_proof_is_valid: true,
+        };
+
+        let result = compute_attestation_check_result(&attestation_check_context);
 
         assert!(!result.is_block_height_exceeded());
         assert!(result.header_hash_matches());
@@ -646,14 +677,15 @@ mod tests {
             latest_ethereum_block_number: 100,
             checkpoint_created_within_range: false,
         };
-        let result = compute_attestation_check_result(
-            &attestation,
+
+        let attestation_check_context = AttestationCheckContext {
+            latest_signed_attestation: &attestation,
             latest_ethereum_block_number,
-            &calculated_ethereum_block_merkle_root,
+            calculated_ethereum_block_merkle_root: &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
-            checkpoint_created_in_range_checker,
-            Some(vec![AccountId32::from([0u8; 32])]),
-            Some(GraphQLAttestationCheckResult {
+            check_point_created_in_range_checker: checkpoint_created_in_range_checker,
+            maybe_elected_attestors: None,
+            graphql_attestation_check_result: Some(GraphQLAttestationCheckResult {
                 checkpoint_chain_node: AttestationCheckpointChainNode {
                     checkpoint_number: "50".to_string(),
                     last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
@@ -666,7 +698,9 @@ mod tests {
                     root: hex::encode(attestation.attestation.root),
                 },
             }),
-        );
+            continuity_proof_is_valid: true,
+        };
+        let result = compute_attestation_check_result(&attestation_check_context);
 
         assert!(!result.is_block_height_exceeded());
         assert!(result.header_hash_matches());
@@ -694,6 +728,7 @@ mod tests {
             },
             signature: [0u8; 96],
             attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([2u8; 32])],
+            continuity_proof: AttestationFragmentSerializable::default(),
         };
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(100u64.into());
@@ -705,14 +740,14 @@ mod tests {
         };
         let maybe_elected_attestors = Some(vec![AccountId32::from([0u8; 32])]);
 
-        let result = compute_attestation_check_result(
-            &attestation,
+        let attestation_check_context = AttestationCheckContext {
+            latest_signed_attestation: &attestation,
             latest_ethereum_block_number,
-            &calculated_ethereum_block_merkle_root,
+            calculated_ethereum_block_merkle_root: &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
-            checkpoint_created_in_range_checker,
-            maybe_elected_attestors.clone(),
-            Some(GraphQLAttestationCheckResult {
+            check_point_created_in_range_checker: checkpoint_created_in_range_checker,
+            maybe_elected_attestors: maybe_elected_attestors.clone(),
+            graphql_attestation_check_result: Some(GraphQLAttestationCheckResult {
                 checkpoint_chain_node: AttestationCheckpointChainNode {
                     checkpoint_number: "50".to_string(),
                     last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
@@ -725,7 +760,9 @@ mod tests {
                     root: hex::encode(attestation.attestation.root),
                 },
             }),
-        );
+            continuity_proof_is_valid: true,
+        };
+        let result = compute_attestation_check_result(&attestation_check_context);
 
         let unelected = result.get_unelected_attestors();
         assert!(!result.is_block_height_exceeded());
@@ -758,15 +795,17 @@ mod tests {
             AccountId32::from([1u8; 32]),
         ]);
 
-        let result = compute_attestation_check_result(
-            &attestation,
+        let attestation_check_context = AttestationCheckContext {
+            latest_signed_attestation: &attestation,
             latest_ethereum_block_number,
-            &calculated_ethereum_block_merkle_root,
+            calculated_ethereum_block_merkle_root: &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
-            checkpoint_created_in_range_checker,
-            maybe_elected_attestors.clone(),
-            None,
-        );
+            check_point_created_in_range_checker: checkpoint_created_in_range_checker,
+            maybe_elected_attestors: maybe_elected_attestors.clone(),
+            graphql_attestation_check_result: None,
+            continuity_proof_is_valid: true,
+        };
+        let result = compute_attestation_check_result(&attestation_check_context);
 
         let unelected = result.get_unelected_attestors();
         assert!(unelected.is_empty());
@@ -784,6 +823,7 @@ mod tests {
             },
             signature: [0u8; 96],
             attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([2u8; 32])],
+            continuity_proof: AttestationFragmentSerializable::default(),
         };
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(100u64.into());
@@ -798,15 +838,17 @@ mod tests {
             AccountId32::from([1u8; 32]),
         ]);
 
-        let result = compute_attestation_check_result(
-            &attestation,
+        let attestation_check_context = AttestationCheckContext {
+            latest_signed_attestation: &attestation,
             latest_ethereum_block_number,
-            &calculated_ethereum_block_merkle_root,
+            calculated_ethereum_block_merkle_root: &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
-            checkpoint_created_in_range_checker,
-            maybe_elected_attestors.clone(),
-            None,
-        );
+            check_point_created_in_range_checker: checkpoint_created_in_range_checker,
+            maybe_elected_attestors: maybe_elected_attestors.clone(),
+            graphql_attestation_check_result: None,
+            continuity_proof_is_valid: true,
+        };
+        let result = compute_attestation_check_result(&attestation_check_context);
 
         let unelected = result.get_unelected_attestors();
         assert_eq!(unelected, vec![AccountId32::from([2u8; 32])]);
@@ -854,6 +896,7 @@ mod tests {
                     root: hex::encode(dummy_attestation(10, [0u8; 32]).attestation.root),
                 },
             }),
+            continuity_proof_is_valid: true,
         };
 
         assert!(result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
@@ -894,6 +937,7 @@ mod tests {
                     root: hex::encode(dummy_attestation(10, [0u8; 32]).attestation.root),
                 },
             }),
+            continuity_proof_is_valid: true,
         };
         assert!(!result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
         assert!(
@@ -938,6 +982,7 @@ mod tests {
                     root: hex::encode(dummy_attestation(10, [0u8; 32]).attestation.root),
                 },
             }),
+            continuity_proof_is_valid: true,
         };
 
         assert!(result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
@@ -983,10 +1028,56 @@ mod tests {
                     root: hex::encode(dummy_attestation(10, [0u8; 32]).attestation.root),
                 },
             }),
+            continuity_proof_is_valid: true,
         };
         assert!(!result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
         assert!(
             result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
         );
+    }
+
+    #[test]
+    fn continuity_flag_is_propagated_from_compute() {
+        let attestation = dummy_attestation(10, [0u8; 32]);
+        let common = (
+            0u64,          // latest_ethereum_block_number
+            String::new(), // calculated_ethereum_block_merkle_root
+            None::<U64>,   // fetched_ethereum_block_number_by_hash
+            CheckpointCreatedWithinRangeResult {
+                last_checkpoint_block_number: 10,
+                latest_ethereum_block_number: 0,
+                checkpoint_created_within_range: true,
+            },
+            None as Option<Vec<AccountId32>>, // maybe_elected_attestors
+            None as Option<GraphQLAttestationCheckResult>,
+        );
+
+        let attestation_check_context_continuity_true = AttestationCheckContext {
+            latest_signed_attestation: &attestation,
+            latest_ethereum_block_number: common.0,
+            calculated_ethereum_block_merkle_root: &common.1,
+            fetched_ethereum_block_number_by_hash: common.2,
+            check_point_created_in_range_checker: common.3,
+            maybe_elected_attestors: common.4.clone(),
+            graphql_attestation_check_result: common.5.clone(),
+            continuity_proof_is_valid: true,
+        };
+
+        let res_true = compute_attestation_check_result(&attestation_check_context_continuity_true);
+        assert!(res_true.continuity_proof_is_valid);
+
+        let attestation_check_context_continuity_false = AttestationCheckContext {
+            latest_signed_attestation: &attestation,
+            latest_ethereum_block_number: common.0,
+            calculated_ethereum_block_merkle_root: &common.1,
+            fetched_ethereum_block_number_by_hash: common.2,
+            check_point_created_in_range_checker: common.3,
+            maybe_elected_attestors: common.4,
+            graphql_attestation_check_result: common.5,
+            continuity_proof_is_valid: false,
+        };
+        let res_false =
+            compute_attestation_check_result(&attestation_check_context_continuity_false);
+        assert!(!res_false.continuity_proof_is_valid);
     }
 }

@@ -1,14 +1,36 @@
 use crate::clients::usc::{SignedAttestation, SupportedChain};
 use anyhow::Result;
-use attestor_primitives::{AttestationCheckpoint, AttestationData, BlsSignature};
+use attestor_primitives::{
+    attestation_fragment::AttestationFragmentSerializable, AttestationCheckpoint, AttestationData,
+    BlsSignature,
+};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use parity_scale_codec::{Decode, Encode};
 use scale_info::prelude::*;
 use sp_core::H256;
-use subxt::dynamic::{DecodedValueThunk, Value};
+use subxt::dynamic::{storage, DecodedValueThunk, Value};
 use subxt::ext::scale_value::{Composite, Primitive, ValueDef};
 use subxt::utils::AccountId32;
+use subxt::{OnlineClient, PolkadotConfig};
 use tracing::{debug, info, warn};
+
+/// How the continuity_proof field was obtained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode)]
+pub enum ContinuityProofStatus {
+    /// continuity_proof decoded successfully from storage.
+    Present,
+    /// continuity_proof field was missing in the dynamic value.
+    Missing,
+    /// continuity_proof field was present but failed to SCALE-decode.
+    DecodeFailed,
+}
+
+/// Signed attestation + metadata about its continuity_proof field.
+#[derive(Debug, Clone, Decode)]
+pub struct DecodedSignedAttestation {
+    pub value: SignedAttestation<H256, AccountId32>,
+    pub proof_status: ContinuityProofStatus,
+}
 
 pub fn decode_chain_key_dynamic<T>(val: &Value<T>) -> Option<u64> {
     match &val.value {
@@ -262,9 +284,7 @@ where
     }
 }
 /// Try to decode a `SignedAttestation` by falling back to a composite.
-pub fn decode_signed_attestation_dynamic<T>(
-    val: &Value<T>,
-) -> Option<SignedAttestation<H256, AccountId32>> {
+pub fn decode_signed_attestation_dynamic<T>(val: &Value<T>) -> Option<DecodedSignedAttestation> {
     let ValueDef::Composite(Composite::Named(fields)) = &val.value else {
         warn!(
             "decode_signed_attestation_dynamic: Expected Named Composite, got non-composite value (type {}).",
@@ -276,6 +296,7 @@ pub fn decode_signed_attestation_dynamic<T>(
     let mut attestation_bytes = None;
     let mut signature_bytes = None;
     let mut attestors_bytes = None;
+    let mut continuity_proof_bytes = None;
 
     for (name, field) in fields {
         let bytes = match value_to_scale_bytes(field) {
@@ -293,9 +314,10 @@ pub fn decode_signed_attestation_dynamic<T>(
             "attestation" => attestation_bytes = Some(bytes),
             "signature" => signature_bytes = Some(bytes),
             "attestors" => attestors_bytes = Some(bytes),
-            _ => debug!(
+            "continuity_proof" => continuity_proof_bytes = Some(bytes),
+            other => debug!(
                 "decode_signed_attestation_dynamic: Ignoring unexpected field '{}'",
-                name
+                other
             ),
         }
     }
@@ -327,18 +349,50 @@ pub fn decode_signed_attestation_dynamic<T>(
             }
         };
 
-        debug!(
-            "Successfully decoded SignedAttestation ({} attestors)",
-            attestors.len()
-        );
+        // continuity_proof + status
+        let (continuity_proof, proof_status) = if let Some(cp_bytes) = continuity_proof_bytes {
+            match AttestationFragmentSerializable::decode(&mut &cp_bytes[..]) {
+                Ok(cp) => {
+                    debug!(
+                            "decode_signed_attestation_dynamic: Successfully decoded continuity_proof ({} blocks)",
+                            cp.blocks.len()
+                        );
+                    (cp, ContinuityProofStatus::Present)
+                }
+                Err(e) => {
+                    warn!(
+                            "decode_signed_attestation_dynamic: Failed to decode continuity_proof: {e:?}; treating proof as invalid"
+                        );
+                    // We still return a SignedAttestation with empty proof, but mark status.
+                    (
+                        AttestationFragmentSerializable { blocks: vec![] },
+                        ContinuityProofStatus::DecodeFailed,
+                    )
+                }
+            }
+        } else {
+            debug!(
+                    "decode_signed_attestation_dynamic: continuity_proof field missing; treating proof as invalid"
+                );
+            (
+                AttestationFragmentSerializable { blocks: vec![] },
+                ContinuityProofStatus::Missing,
+            )
+        };
 
-        Some(SignedAttestation {
+        let signed = SignedAttestation {
             attestation,
             signature,
             attestors,
+            continuity_proof,
+        };
+
+        Some(DecodedSignedAttestation {
+            value: signed,
+            proof_status,
         })
     } else {
-        warn!("decode_signed_attestation_dynamic: Missing one or more required fields");
+        warn!("decode_signed_attestation_dynamic: Missing one or more required fields (attestation / signature / attestors)");
         None
     }
 }
@@ -437,5 +491,34 @@ pub fn value_to_scale_bytes<T>(val: &Value<T>) -> Option<Vec<u8>> {
         }
 
         ValueDef::BitSequence(bits) => Some(bits.encode()),
+    }
+}
+
+pub async fn fetch_genesis_block_dynamic(
+    api: &OnlineClient<PolkadotConfig>,
+    chain_key: u64,
+) -> Result<Option<u64>> {
+    // SCALE encode the key, then wrap as dynamic Value
+    let key_value = Value {
+        value: ValueDef::Primitive(Primitive::U128(chain_key as u128)),
+        context: (),
+    };
+    let storage_addr = storage(
+        "Attestation",
+        "AttestationChainGenesisBlockNumber",
+        vec![key_value],
+    );
+
+    let storage_at = api.storage().at_latest().await?;
+    let maybe_val = storage_at.fetch(&storage_addr).await?;
+
+    if let Some(thunk) = maybe_val {
+        let encoded = thunk.encoded();
+        let decoded = u64::decode(&mut &encoded[..])?;
+        debug!("✅ Chain {} → Genesis block number: {}", chain_key, decoded);
+        Ok(Some(decoded))
+    } else {
+        debug!("⚠️ No value found for chain key {}", chain_key);
+        Ok(None)
     }
 }

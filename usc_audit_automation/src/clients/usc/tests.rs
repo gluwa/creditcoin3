@@ -148,11 +148,14 @@ mod decode {
             .expect("Expected to decode realistic signed attestation");
 
         // --- assert ---
-        assert_eq!(decoded.attestation.chain_key, 1);
-        assert_eq!(decoded.attestation.header_number, 42);
-        assert_eq!(decoded.attestation.header_hash, H256::repeat_byte(0xab));
-        assert_eq!(decoded.attestors.len(), 1);
-        assert_eq!(decoded.attestors[0], AccountId32([0xaa; 32]));
+        assert_eq!(decoded.value.attestation.chain_key, 1);
+        assert_eq!(decoded.value.attestation.header_number, 42);
+        assert_eq!(
+            decoded.value.attestation.header_hash,
+            H256::repeat_byte(0xab)
+        );
+        assert_eq!(decoded.value.attestors.len(), 1);
+        assert_eq!(decoded.value.attestors[0], AccountId32([0xaa; 32]));
     }
 
     #[test]
