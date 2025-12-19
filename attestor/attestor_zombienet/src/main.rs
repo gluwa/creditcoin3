@@ -291,8 +291,8 @@ async fn main() -> anyhow::Result<()> {
     let mut futures_attestors = tokio::task::JoinSet::new();
     for (index, (name, secret, account_id)) in attestor_info.iter().enumerate() {
         // Assign unique P2P port for each attestor
-        let p2p_port = args.p2p_port_base + index as u16 + args.offset as u16;
-        let metrics_port = args.metrics_port_base + index as u16 + args.offset as u16;
+        let port_p2p = args.p2p_port_base + index as u16 + args.offset as u16;
+        let port_metrics = args.metrics_port_base + index as u16 + args.offset as u16;
 
         let mut attestor = tokio::process::Command::new(&args.bin);
         attestor
@@ -303,8 +303,8 @@ async fn main() -> anyhow::Result<()> {
             .arg(format!("--chain-key={}", args.chain_key))
             .arg(format!("--eth-url={}", args.eth_url))
             .arg(format!("--cc3-url={}", args.cc3_url))
-            .arg(format!("--p2p-port={p2p_port}"))
-            .arg(format!("--metrics-port={metrics_port}"));
+            .arg(format!("--p2p-port={port_p2p}"))
+            .arg(format!("--metrics-port={port_metrics}"));
 
         attestor
             .args(&args.trailing)

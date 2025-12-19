@@ -17,11 +17,5 @@ pub type AttestationSigned = attestor_primitives::SignedAttestation<
     attestor_primitives::Digest,
     attestor_primitives::AttestorId,
 >;
-pub type Batch = Vec<
-    cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
-        cc_client::H256,
-        cc_client::AccountId32,
-    >,
->;
 
-pub type Metrics = std::sync::Arc<parking_lot::Mutex<crate::worker::api::metrics::Metrics>>;
+pub(crate) type Metrics = std::sync::Arc<crate::worker::api::metrics::Metrics>;

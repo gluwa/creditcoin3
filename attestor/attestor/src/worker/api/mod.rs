@@ -52,7 +52,6 @@ impl super::Worker for WorkerApi {
 async fn handle_metrics(
     axum::extract::State(state): axum::extract::State<common::types::Metrics>,
 ) -> impl axum::response::IntoResponse {
-    let state = state.lock();
     let mut buffer = String::new();
     prometheus_client::encoding::text::encode(&mut buffer, &state.registry).unwrap();
 

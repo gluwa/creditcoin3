@@ -52,11 +52,17 @@ impl Attestor {
     pub async fn run(self) -> Result<(), Error> {
         use std::str::FromStr as _;
 
+        // --------------------------------------* Identity *--------------------------------------
+
         let secret_uri = subxt_signer::SecretUri::from_str(&self.config.cc3.cc3_key.to_string())
             .expect("Failed to create secret uri");
-        let keypair = subxt_signer::sr25519::Keypair::from_uri(&secret_uri)
+        let keypair_cc3 = subxt_signer::sr25519::Keypair::from_uri(&secret_uri)
             .expect("Failed to create secret keypair");
-        let account_id = cc_client::AccountId32(keypair.public_key().0);
+        let account_id = cc_client::AccountId32(keypair_cc3.public_key().0);
+
+        let mut seed = self.config.cc3.cc3_key.to_seed_normalized("");
+        let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed[..32]).unwrap();
+        let peer_id = libp2p::PeerId::from_public_key(&keypair_p2p.public());
 
         tracing::info!(name = self.config.name, %account_id, chain_key = self.config.chain_key, "🙋‍♀️ Starting attestor");
 
@@ -259,20 +265,22 @@ impl Attestor {
         let (attestation_latest_sender, attestation_latest_receiver) =
             tokio::sync::watch::channel(None);
 
-        // ---------------------------------------* API *--------------------------------------- //
-
-        tracing::info!("⏳ [1/4] Starting API worker");
+        // ---------------------------------------* Metrics *--------------------------------------
 
         let config = worker::api::metrics::ConfigBuilder::new()
             .with_name(self.config.name)
             .with_address(account_id.clone())
-            // .with_peer_id(peer_id)
+            .with_peer_id(peer_id)
             .with_chain_key(self.config.chain_key)
+            .with_attestation_latest_eth(eth.block_latest())
             .with_attestation_latest_cc3(attestation_latest_cc3)
+            .with_attestation_interval(attestation_interval)
             .build();
-        let metrics = std::sync::Arc::new(parking_lot::Mutex::new(
-            worker::api::metrics::Metrics::new(config),
-        ));
+        let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
+
+        // -----------------------------------------* API *----------------------------------------
+
+        tracing::info!("⏳ [1/4] Starting API worker");
 
         let config = self
             .config
@@ -283,7 +291,7 @@ impl Attestor {
 
         let handle_api = monitor.spawn(api);
 
-        // ------------------------------* Attestation Production *----------------------------- //
+        // -------------------------------* Attestation Production *-------------------------------
 
         tracing::info!("⏳ [2/4] Starting attestation production worker");
 
@@ -297,7 +305,9 @@ impl Attestor {
             .with_sender_attestation_latest(attestation_latest_sender)
             .with_can_broadcast(can_broadcast_production)
             .with_attestation_start_cc3(attestation_start_cc3)
+            .with_attestation_interval(attestation_interval)
             .with_epoch(epoch)
+            .with_start_height(start_height)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let attestation_production = worker::production::WorkerAttestationProduction::new(config)
@@ -305,7 +315,7 @@ impl Attestor {
             .map_err(Error::WorkerError)?;
         let handle_production = monitor.spawn(attestation_production);
 
-        // ------------------------------* Attestation Validation *----------------------------- //
+        // -------------------------------* Attestation Validation *-------------------------------
 
         tracing::info!("⏳ [3/4] Starting attestation validation worker");
 
@@ -316,35 +326,31 @@ impl Attestor {
             .with_receiver_attestation_latest(attestation_latest_receiver)
             .with_api_calls(cc_client::Client::runtime_api())
             .with_api(api)
-            .with_keypair(keypair)
+            .with_keypair(keypair_cc3)
             .with_start_height(start_height)
             .build();
         let attestation_validation = worker::validation::WorkerAttestationValidation::new(config);
         let handle_validation = monitor.spawn(attestation_validation);
 
-        // -------------------------------------* P2P Sync *------------------------------------ //
+        // --------------------------------------* P2P Sync *--------------------------------------
 
         tracing::info!("⏳ [4/4] Starting P2P worker");
-
-        let mut seed = self.config.cc3.cc3_key.to_seed_normalized("");
-        let keypair = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed[..32]).unwrap();
 
         let config = self
             .config
             .p2p
-            .with_keypair(keypair)
+            .with_keypair(keypair_p2p)
             .with_receiver_p2p(p2p_receiver)
             .with_sender_validation(validation_sender)
             .with_can_broadcast(can_broadcast_p2p)
             .with_chain_key(self.config.chain_key)
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::WorkerError)?;
-        let peer_id = p2p.peer_id();
         let handle_p2p = monitor.spawn(p2p);
 
         tracing::info!("✅ All services online!");
 
-        // ----------------------------------* Thread waiting *--------------------------------- //
+        // -----------------------------------* Thread waiting *-----------------------------------
 
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {

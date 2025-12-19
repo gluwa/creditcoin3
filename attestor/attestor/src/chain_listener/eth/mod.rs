@@ -70,9 +70,9 @@ pub(crate) struct Ethereum {
     catchup: super::Catchup,
 
     // CHAIN DATA
-    pub chain_id: attestor_primitives::ChainId,
-    pub attestation_interval: std::num::NonZero<common::types::Height>,
-    pub start_height: common::types::Height,
+    chain_id: attestor_primitives::ChainId,
+    attestation_interval: std::num::NonZero<common::types::Height>,
+    start_height: common::types::Height,
 }
 
 impl Ethereum {
@@ -160,7 +160,7 @@ impl Ethereum {
     }
 
     /// Retrieves the **full** source chain block at a given height.
-    pub async fn get_block(
+    pub async fn block_get(
         &self,
         height: common::types::Height,
     ) -> Result<eth::OrderedBlock, Error> {
@@ -195,6 +195,10 @@ impl Ethereum {
             ccnext_abi_encoding::common::EncodingVersion::V1,
         )
         .map_err(Error::OrderedBlockConversion)
+    }
+
+    pub fn block_latest(&self) -> common::types::Height {
+        self.catchup.stop
     }
 }
 

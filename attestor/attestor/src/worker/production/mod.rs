@@ -150,11 +150,12 @@ pub struct Config {
     sender_attestation_latest: tokio::sync::watch::Sender<Option<common::types::Height>>,
 
     attestation_start_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
+    attestation_interval: std::num::NonZero<common::types::Height>,
     epoch: common::types::Epoch,
+    start_height: common::types::Height,
+
     metrics: common::types::Metrics,
-
     account_id: cc_client::AccountId32,
-
     can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -172,9 +173,13 @@ pub(crate) struct WorkerAttestationProduction {
     sender_attestation_latest: tokio::sync::watch::Sender<Option<common::types::Height>>,
 
     // CHAIN DATA
-    attestation_latest_eth: Option<(attestor_primitives::Digest, common::types::Height)>,
+    attestation_local: Option<(attestor_primitives::Digest, common::types::Height)>,
     attestation_latest_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
+    attestation_interval: std::num::NonZero<common::types::Height>,
     epoch: common::types::Epoch,
+    start_height: common::types::Height,
+
+    // METRICS
     metrics: common::types::Metrics,
 
     // ATTESTOR DATA
@@ -201,9 +206,12 @@ impl WorkerAttestationProduction {
             sender_validation: config.sender_validation,
             sender_attestation_latest: config.sender_attestation_latest,
 
-            attestation_latest_eth: None,
+            attestation_local: None,
             attestation_latest_cc3: config.attestation_start_cc3,
+            attestation_interval: config.attestation_interval,
             epoch: config.epoch,
+            start_height: config.start_height,
+
             metrics: config.metrics,
 
             account_id: config.account_id,
@@ -268,11 +276,7 @@ impl WorkerAttestationProduction {
 
         let continuity_fragment = match self
             .cc3
-            .create_continuity_proof(
-                height,
-                self.attestation_latest_eth,
-                self.attestation_latest_cc3,
-            )
+            .create_continuity_proof(height, self.attestation_local, self.attestation_latest_cc3)
             .await
         {
             Some(Ok(continuity_fragment)) => continuity_fragment,
@@ -282,7 +286,7 @@ impl WorkerAttestationProduction {
 
         // STEP 2] GENERATE ATTESTATION
 
-        let block = self.eth.get_block(height).await.map_err(Error::EthError)?;
+        let block = self.eth.block_get(height).await.map_err(Error::EthError)?;
         let prev_digest = continuity_fragment.head().map(|head| head.digest);
 
         let attestation = attestor_primitives::AttestationData::<attestor_primitives::Digest>::new(
@@ -298,8 +302,6 @@ impl WorkerAttestationProduction {
             .sign_attestation(attestation, continuity_fragment, self.epoch)
             .await;
 
-        // STEP 3] BROADCAST ATTESTATION
-
         let digest = attestation_signed.digest();
         let digest_prev = attestation_signed.prev_digest();
         let attestor_id = &attestation_signed.attestor;
@@ -311,7 +313,27 @@ impl WorkerAttestationProduction {
             "📡 Generated attestation"
         );
 
-        self.metrics.lock().set_attestation_local(height);
+        // STEP 3] UPDATE METRICS
+
+        let attestation_latest_cc3 = self
+            .attestation_latest_cc3
+            .map(|(_digest, height)| height)
+            .unwrap_or(self.start_height);
+
+        self.metrics.set_attestation_local(height);
+
+        self.metrics.update_attestation_lag_eth(
+            height,
+            self.eth.block_latest(),
+            self.attestation_interval,
+        );
+        self.metrics.update_attestation_lag_cc3(
+            height,
+            attestation_latest_cc3,
+            self.attestation_interval,
+        );
+
+        // STEP 4] BROADCAST ATTESTATION
 
         // From the tokio docs:
         //
@@ -328,7 +350,7 @@ impl WorkerAttestationProduction {
             "🗳️ Sending local attestation over for validation"
         );
 
-        // STEP 4] STORE ATTESTATION
+        // STEP 5] STORE ATTESTATION
 
         assert!(
             self.attestations
@@ -341,9 +363,9 @@ impl WorkerAttestationProduction {
             err.log_error(digest);
         }
 
-        // STEP 5] UPDATE SYNC STATUS
+        // STEP 6] UPDATE SYNC STATUS
 
-        self.attestation_latest_eth = Some((digest, height));
+        self.attestation_local = Some((digest, height));
         self.rebroadcast.note_attestation_production(height);
 
         Ok(())
@@ -367,14 +389,16 @@ impl WorkerAttestationProduction {
                     if attestation.chain_key() == self.cc3.get_chain_key() {
                         let digest = attestation.digest();
                         let height = attestation.header_number();
+                        let attestation_local = self
+                            .attestation_local
+                            .map(|(_digest, height)| height)
+                            .unwrap_or(self.start_height);
 
                         tracing::info!(
                             height,
                             %digest,
                             "💾 New execution chain attestation"
                         );
-
-                        self.metrics.lock().set_attestation_finalized(height);
 
                         self.attestation_latest_cc3 = Some((digest, height));
 
@@ -423,6 +447,14 @@ impl WorkerAttestationProduction {
                         //
                         // Clear local state
                         self.attestations.retain(|h, _att| *h > height);
+
+                        // 6. Metrics
+                        self.metrics.set_attestation_finalized(height);
+                        self.metrics.update_attestation_lag_cc3(
+                            attestation_local,
+                            height,
+                            self.attestation_interval,
+                        );
                     }
                 }
 
@@ -456,18 +488,33 @@ impl WorkerAttestationProduction {
                         self.rebroadcast
                             .note_attestation_interval_change(interval, attestation_latest_cc3);
 
-                        // 2. Attestation pool
+                        // 3. Attestation pool
                         //
                         // Update quorum validation to expect the new target height and attestation
                         // interval.
                         self.sender_validation
                             .note_attestation_interval_change(interval, attestation_latest_cc3);
 
-                        // 3. Production
+                        // 4. Production
                         //
                         // Clear local state
-                        self.attestation_latest_eth = None;
+                        self.attestation_local = None;
                         self.attestations.clear();
+                        self.attestation_interval = interval;
+
+                        // 5. Metrics
+                        let attestation_latest_cc3 =
+                            attestation_latest_cc3.unwrap_or(self.start_height);
+                        self.metrics.update_attestation_lag_eth(
+                            attestation_latest_cc3,
+                            self.eth.block_latest(),
+                            interval,
+                        );
+                        self.metrics.update_attestation_lag_cc3(
+                            attestation_latest_cc3,
+                            attestation_latest_cc3,
+                            interval,
+                        );
                     }
                 }
 
