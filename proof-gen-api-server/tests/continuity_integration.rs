@@ -44,7 +44,7 @@ async fn continuity_endpoint_returns_proof() {
 
     // roots[*] - roots are H256 values (merkle roots)
     for (i, root) in resp.continuity_proof.roots.iter().enumerate() {
-        let root_str = format!("0x{root}");
+        let root_str = format!("0x{root:x}");
         assert_h256_str(&format!("roots[{i}]"), &root_str);
     }
 }

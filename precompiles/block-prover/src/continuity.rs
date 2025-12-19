@@ -8,7 +8,7 @@ use log::debug;
 use pallet_evm::AddressMapping;
 use sp_core::H256;
 
-use crate::verify::{CONTINUITY_BLOCK_HASH_COST, GAS_STORAGE_LOOKUP};
+use crate::verify::CONTINUITY_BLOCK_HASH_COST;
 use crate::BlockProverPrecompile;
 
 /// Error type for continuity verification (both query block digest and chain validation)
@@ -113,6 +113,16 @@ where
             return Err(ContinuityVerificationError::InsufficientBlocks);
         }
 
+        // Validate the continuity chain reaches the query height (fail early before digest computation)
+        let final_block_number = start_block_number + (continuity_proof.roots.len() - 1) as u64;
+
+        if final_block_number < height {
+            debug!(
+                "❌ Continuity chain ends at block {final_block_number}, but query requires block {height}"
+            );
+            return Err(ContinuityVerificationError::ChainDoesNotReachQueryHeight);
+        }
+
         // Charge gas for continuity block verification upfront
         let total_continuity_gas = CONTINUITY_BLOCK_HASH_COST
             .checked_mul(continuity_proof.roots.len() as u64)
@@ -124,24 +134,9 @@ where
         // Compute final digest by hashing through all blocks
         let final_digest = continuity_proof.compute_continuity_digest(start_block_number);
 
-        // Validate the continuity chain reaches the query height
-        let final_block_number = start_block_number + (continuity_proof.roots.len() - 1) as u64;
-
-        if final_block_number < height {
-            debug!(
-                "❌ Continuity chain ends at block {final_block_number}, but query requires block {height}"
-            );
-            return Err(ContinuityVerificationError::ChainDoesNotReachQueryHeight);
-        }
-
-        // The last block should be at a checkpoint or attestation height
-        // Charge for attestation storage lookup
-        handle
-            .record_cost(GAS_STORAGE_LOOKUP)
-            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?;
-
-        // Check if there's an attestation at this exact block height with matching digest
-        let attestation_matches = Self::get_attestation(chain_key, final_digest)
+        // Check if there's an attestation or checkpoint at this exact block height with matching digest
+        // Gas is charged inside get_attestation() and get_checkpoint()
+        let attestation_matches = Self::get_attestation(handle, chain_key, final_digest)
             .map(|a| a.attestation.header_number == final_block_number)
             .unwrap_or(false);
 
@@ -149,23 +144,22 @@ where
         let checkpoint_matches = if attestation_matches {
             false // No need to check checkpoint if attestation matches
         } else {
-            // Charge for checkpoint storage lookup only if we need to check it
-            handle
-                .record_cost(GAS_STORAGE_LOOKUP)
-                .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?;
-
-            Self::get_checkpoint(chain_key, final_block_number)
+            Self::get_checkpoint(handle, chain_key, final_block_number)
                 .map(|digest| digest == final_digest)
                 .unwrap_or(false)
         };
 
+        // Combine attestation_matches and checkpoint_matches into a single boolean
+        // since they're always used together
+        let they_match = attestation_matches || checkpoint_matches;
+
         // Special case: If the continuity chain ends at query height and query height
         // is a checkpoint/attestation, that's valid (allows queries at checkpoint/attestation heights)
-        if final_block_number == height && (attestation_matches || checkpoint_matches) {
+        if final_block_number == height && they_match {
             debug!(
                 "✅ Continuity chain ends at query height {height} which is a checkpoint/attestation"
             );
-        } else if !attestation_matches && !checkpoint_matches {
+        } else if !they_match {
             // Chain must end at a checkpoint/attestation
             debug!(
                 "❌ Continuity chain ends at block {final_block_number} with digest {final_digest:?}, but no matching attestation or checkpoint found at that height"
@@ -227,8 +221,7 @@ where
         }
 
         // Verify the previous block is actually at queryHeight - 1 (safety check)
-        let prev_block_number = start_block_number + (query_block_idx - 1) as u64;
-        if prev_block_number != height.saturating_sub(1) {
+        if start_block_number + (query_block_idx - 1) as u64 != height.saturating_sub(1) {
             return Err(crate::verify::ContinuityVerificationError::PreviousBlockNotFound);
         }
 
@@ -237,9 +230,9 @@ where
         // Total hashes: query_block_idx (for blocks 0..query_block_idx) + 1 (for query block itself)
         let hash_cost = CONTINUITY_BLOCK_HASH_COST
             .checked_mul((query_block_idx + 1) as u64)
-            .ok_or(crate::verify::ContinuityVerificationError::DigestMismatch)?;
+            .ok_or(crate::verify::ContinuityVerificationError::ChainLinkBroken)?;
         handle.record_cost(hash_cost).map_err(|_| {
-            crate::verify::ContinuityVerificationError::DigestMismatch // Use a generic error if gas recording fails
+            crate::verify::ContinuityVerificationError::ChainLinkBroken // Use ChainLinkBroken error if gas recording fails
         })?;
 
         // Compute prev_digest for the query block by computing digest of previous block

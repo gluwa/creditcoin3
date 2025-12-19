@@ -293,10 +293,19 @@ where
     ///
     /// Retrieves a signed attestation that anchors a specific block digest
     /// to the Creditcoin3 consensus. Used to validate continuity chain endpoints.
+    /// Charges gas for the storage lookup.
     fn get_attestation(
+        handle: &mut impl PrecompileHandle,
         chain_key: u64,
         digest: H256,
     ) -> Option<attestor_primitives::SignedAttestation<Runtime::Hash, Runtime::AccountId>> {
+        use crate::continuity::ContinuityVerificationError;
+        use crate::verify::GAS_STORAGE_LOOKUP;
+        // Charge for attestation storage lookup
+        handle
+            .record_cost(GAS_STORAGE_LOOKUP)
+            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)
+            .ok()?;
         pallet_attestation_poc::Pallet::<Runtime>::attestations(chain_key, digest)
     }
 
@@ -314,7 +323,19 @@ where
     ///
     /// Returns the digest if the block number matches a checkpoint,
     /// None otherwise. Used as a fallback when attestation lookup fails.
-    fn get_checkpoint(chain_key: u64, block_number: u64) -> Option<H256> {
+    /// Charges gas for the storage lookup.
+    fn get_checkpoint(
+        handle: &mut impl PrecompileHandle,
+        chain_key: u64,
+        block_number: u64,
+    ) -> Option<H256> {
+        use crate::continuity::ContinuityVerificationError;
+        use crate::verify::GAS_STORAGE_LOOKUP;
+        // Charge for checkpoint storage lookup only if we need to check it
+        handle
+            .record_cost(GAS_STORAGE_LOOKUP)
+            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)
+            .ok()?;
         pallet_attestation_poc::Pallet::<Runtime>::checkpoints(chain_key, block_number)
     }
 }
