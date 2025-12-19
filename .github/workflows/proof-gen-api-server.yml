@@ -270,6 +270,54 @@ jobs:
             --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
             --api-url http://localhost:3100
 
+      - name: Simulate Redis going down
+        working-directory: proof-gen-api-server
+        run: |
+          docker compose start db
+          docker compose stop redis
+          sleep 30
+
+      - name: Exercise TransferWaitAndSubmit.js
+        working-directory: scripts
+        run: |
+          # Using Anvil Account #0 on source chain & Alith on execution chain
+          node TransferWaitAndSubmit.js \
+            --source-rpc-url http://127.0.0.1:8141 \
+            --cc3-rpc-url ws://localhost:9944 \
+            --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
+            --api-url http://localhost:3100
+
+      - name: Simulate both DB & Redis going down
+        working-directory: proof-gen-api-server
+        run: |
+          docker compose down
+
+      - name: Exercise TransferWaitAndSubmit.js
+        working-directory: scripts
+        run: |
+          # Using Anvil Account #0 on source chain & Alith on execution chain
+          node TransferWaitAndSubmit.js \
+            --source-rpc-url http://127.0.0.1:8141 \
+            --cc3-rpc-url ws://localhost:9944 \
+            --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
+            --api-url http://localhost:3100
+
+      - name: Restart both DB & Redis
+        working-directory: proof-gen-api-server
+        run: |
+          docker compose up -d
+          sleep 30
+
+      - name: Exercise TransferWaitAndSubmit.js
+        working-directory: scripts
+        run: |
+          # Using Anvil Account #0 on source chain & Alith on execution chain
+          node TransferWaitAndSubmit.js \
+            --source-rpc-url http://127.0.0.1:8141 \
+            --cc3-rpc-url ws://localhost:9944 \
+            --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
+            --api-url http://localhost:3100
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v6
