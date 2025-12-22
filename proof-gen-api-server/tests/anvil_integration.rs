@@ -10,7 +10,7 @@ use std::time::Duration;
 use axum::Router;
 use continuity::{mocks::MockCcRpcProvider, ContinuityBuilder, ContinuityConfig};
 use proof_gen_api_server::db::DbManager;
-use proof_gen_api_server::{build_app, ContinuityService};
+use proof_gen_api_server::{build_app, ContinuityService, ErrorResponse};
 
 #[path = "test_utils.rs"]
 mod test_utils;
@@ -20,28 +20,20 @@ use test_utils::{
 };
 
 /// Spawns an Anvil instance with deterministic accounts.
-fn spawn_anvil(port: u16) -> AnvilInstance {
+/// Anvil will automatically bind to a random OS-assigned port.
+fn spawn_anvil() -> AnvilInstance {
     let mnemonic =
         "abstract vacuum mammal awkward pudding scene penalty purchase dinner depart evoke puzzle";
 
-    Anvil::new()
-        .port(port)
-        .chain_id(31337)
-        .mnemonic(mnemonic)
-        .spawn()
+    Anvil::new().chain_id(31337).mnemonic(mnemonic).spawn()
 }
 
 #[cfg_attr(not(feature = "anvil-integration"), ignore)]
 #[tokio::test]
 async fn anvil_integration_tx_hash_flow() -> Result<()> {
-    // Arrange: select a free TCP port for Anvil to improve parallelism
-    let probe = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind probe port");
-    let port: u16 = probe.local_addr().unwrap().port();
-    drop(probe);
-    // Spawn anvil on the chosen port
-    let anvil = spawn_anvil(port);
+    // Arrange: Spawn anvil (Alloy will automatically assign a free port)
+    let anvil = spawn_anvil();
+    let port = anvil.port();
 
     // Seed a transaction using alloy (no external dependencies)
     let tx_hash = send_test_tx_via_alloy(port, &anvil).await.expect(
@@ -61,7 +53,7 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
     let cfg = ContinuityConfig {
         cc3_rpc_url: "ws://unused".into(),
         cc3_key: "//Alice".into(),
-        eth_rpc_url: format!("ws://127.0.0.1:{port}"),
+        eth_rpc_url: anvil.ws_endpoint(),
         chain_key,
     };
 
@@ -233,18 +225,13 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
 #[tokio::test]
 async fn anvil_integration_health_check_db_failure() -> Result<()> {
     // Arrange: Start anvil for continuity builder (minimal setup)
-    let probe = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind probe port");
-    let port: u16 = probe.local_addr().unwrap().port();
-    drop(probe);
-    let _anvil = spawn_anvil(port);
+    let _anvil = spawn_anvil();
 
     let chain_key = 31337;
     let cfg = ContinuityConfig {
         cc3_rpc_url: "ws://unused".into(),
         cc3_key: "//Alice".into(),
-        eth_rpc_url: format!("ws://127.0.0.1:{port}"),
+        eth_rpc_url: _anvil.ws_endpoint(),
         chain_key,
     };
 
@@ -468,18 +455,13 @@ async fn anvil_integration_health_check_rpc_failure() -> Result<()> {
     // but database remains functional (demonstrating "degraded" vs "healthy" status)
 
     // Arrange: Start anvil for initial setup
-    let probe = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind probe port");
-    let port: u16 = probe.local_addr().unwrap().port();
-    drop(probe);
-    let anvil = spawn_anvil(port);
+    let anvil = spawn_anvil();
 
     let chain_key = 31337;
     let cfg = ContinuityConfig {
         cc3_rpc_url: "ws://unused".into(),
         cc3_key: "//Alice".into(),
-        eth_rpc_url: format!("ws://127.0.0.1:{port}"),
+        eth_rpc_url: anvil.ws_endpoint(),
         chain_key,
     };
 
@@ -589,6 +571,105 @@ async fn anvil_integration_health_check_rpc_failure() -> Result<()> {
             .and_then(|v| v.as_bool()),
         Some(false),
         "ETH RPC should not be ready after Anvil shutdown"
+    );
+
+    // Teardown
+    server.abort();
+    Ok(())
+}
+
+#[cfg_attr(not(feature = "anvil-integration"), ignore)]
+#[tokio::test]
+async fn anvil_integration_unattested_block_error() -> Result<()> {
+    // This test validates proper error handling when querying a block that hasn't been attested yet
+    // Arrange: Start anvil
+    let anvil = spawn_anvil();
+    let port = anvil.port();
+
+    // Send transactions to advance beyond the highest attestation
+    // MockCcRpcProvider returns attestations at: 0, 10, 20, 30, ...
+    // So we'll advance to block 50 and query block 35 (after attestation 30, but before attestation 40)
+    for _ in 0..50 {
+        let _ = send_test_tx_via_alloy(port, &anvil).await;
+    }
+
+    let chain_key = 31337;
+    let cfg = ContinuityConfig {
+        cc3_rpc_url: "ws://unused".into(),
+        cc3_key: "//Alice".into(),
+        eth_rpc_url: anvil.ws_endpoint(),
+        chain_key,
+    };
+
+    // Build providers with Mock CC that only has attestations up to block 30
+    let cc_provider = Arc::new(MockCcRpcProvider { chain_key });
+    let eth_client = eth::Client::new(&cfg.eth_rpc_url, None)
+        .await
+        .expect("eth client");
+    let eth_provider: Arc<dyn continuity::rpc::EthRpcProvider> = Arc::new(eth_client);
+    let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider.clone(), eth_provider);
+
+    // Start Postgres
+    let pg = setup_test_postgres().await;
+    let db = DbManager::new(test_db_manager_postgres_uri(&pg).await).expect("db manager init");
+    db.run_migrations().await.expect("migrations");
+    let service = Arc::new(ContinuityService::new(
+        cc_provider,
+        Arc::new(builder),
+        Arc::new(db),
+    ));
+    let app: Router = build_app(service, chain_key);
+
+    // Start HTTP server
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind http");
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    let base = format!("http://{addr}");
+    let client = reqwest::Client::new();
+
+    // Act: Query for block 35 (after attestation 30, but no attestation exists after it yet)
+    let block_url = format!("{base}/api/v1/proof/31337/35");
+    let resp = client.get(&block_url).send().await.expect("http send");
+
+    // Assert: Should return 503 SERVICE_UNAVAILABLE with meaningful error
+    assert_eq!(
+        resp.status(),
+        reqwest::StatusCode::SERVICE_UNAVAILABLE,
+        "unattested block should return 503 SERVICE_UNAVAILABLE"
+    );
+
+    let error_body = resp
+        .json::<ErrorResponse>()
+        .await
+        .expect("parse error json");
+
+    // Verify error structure with type-safe deserialization
+    assert_eq!(
+        error_body.code, "BlockNotReady",
+        "error code should be BlockNotReady"
+    );
+
+    assert!(error_body.retriable, "error should be marked as retriable");
+
+    assert_eq!(
+        error_body.block_number,
+        Some(35),
+        "error should include the requested block_number"
+    );
+
+    assert!(
+        error_body.current_block.is_some(),
+        "error should include current_block"
+    );
+
+    assert!(
+        error_body.message.contains("not attested"),
+        "error message should mention attestation: {}",
+        error_body.message
     );
 
     // Teardown

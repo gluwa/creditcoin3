@@ -128,4 +128,16 @@ Error Response Shape:
 }
 ```
 
+For `BlockNotReady` errors, additional fields are included:
+
+```jsonc
+{
+  "code": "BlockNotReady",
+  "message": "The continuity proof cannot be created because block 35 is not attested to yet",
+  "retriable": true,
+  "block_number": 35, // the requested block number
+  "current_block": 50 // the current block height
+}
+```
+
 Note: This section is intentionally kept here (not in the repo root) until the API stabilizes.

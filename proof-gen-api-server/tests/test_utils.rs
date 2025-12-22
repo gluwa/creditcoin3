@@ -202,12 +202,32 @@ mod anvil_integration {
     }
 
     /// Get DbManager config from the running Postgres container.
+    /// Retries port retrieval to handle testcontainers timing issues.
     pub async fn test_db_manager_postgres_uri(container: &ContainerAsync<Postgres>) -> String {
-        let port = container
-            .get_host_port_ipv4(5432)
-            .await
-            .expect("get postgres port");
-        format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres")
+        // Retry up to 10 times with 50ms delay to handle container port exposure timing
+        const MAX_ATTEMPTS: usize = 10;
+        const RETRY_DELAY_MS: u64 = 50;
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            match container.get_host_port_ipv4(5432).await {
+                Ok(port) => {
+                    return format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+                }
+                Err(_e) if attempt < MAX_ATTEMPTS => {
+                    // Port not exposed yet, wait and retry
+                    tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                }
+                Err(e) => {
+                    panic!(
+                        "Failed to get postgres port after {} attempts ({}ms total): {}",
+                        MAX_ATTEMPTS,
+                        MAX_ATTEMPTS as u64 * RETRY_DELAY_MS,
+                        e
+                    );
+                }
+            }
+        }
+        unreachable!()
     }
 
     /// Starts test app with PostgreSQL and mock providers.

@@ -21,6 +21,7 @@ pub mod services;
 // Re-exports for integration tests and external callers
 pub use networking::build_app;
 pub use services::continuity_service::ContinuityService;
+pub use services::errors::ErrorResponse;
 
 pub struct Server {
     // proof-gen-api-server is configured using `Config`

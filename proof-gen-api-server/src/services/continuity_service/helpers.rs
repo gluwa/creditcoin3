@@ -90,13 +90,31 @@ impl ContinuityService {
             return ServiceError::from(continuity_err.clone());
         }
 
-        // Check for "Failed to get block" errors from eth client
+        // TODO: Update continuity builder to return proper ContinuityError variants instead of
+        // anyhow::Error for these cases. Then we can match on error type instead of string content.
+        // Currently checking error message strings, which is fragile.
+        // Affected: continuity/src/builder/build.rs
         let error_msg = error.to_string();
+
+        // Check for "Failed to get block" errors from eth client
         if error_msg.contains("Failed to get block") {
             tracing::warn!(
                 query_block,
                 current_block,
                 "Query block is not attested to yet"
+            );
+            return ServiceError::BlockNotReady {
+                block_number: query_block,
+                current_block,
+            };
+        }
+
+        // Check for "No attestation or checkpoint found after block" errors
+        if error_msg.contains("No attestation or checkpoint found after block") {
+            tracing::warn!(
+                query_block,
+                current_block,
+                "No attestation found after query block - block not attested yet"
             );
             return ServiceError::BlockNotReady {
                 block_number: query_block,

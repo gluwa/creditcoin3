@@ -1,5 +1,51 @@
 use continuity::ContinuityError;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+/// HTTP error response structure returned by the API.
+/// This struct is used for both serialization (API responses) and deserialization (tests).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ErrorResponse {
+    /// Error code (e.g., "BlockNotReady", "Internal")
+    pub code: String,
+    /// Human-readable error message
+    pub message: String,
+    /// Whether the client should retry this request
+    pub retriable: bool,
+    /// Optional: block number for BlockNotReady errors
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_number: Option<u64>,
+    /// Optional: current block for BlockNotReady errors
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_block: Option<u64>,
+}
+
+impl ErrorResponse {
+    /// Create an ErrorResponse from a ServiceError
+    pub fn from_service_error(err: &ServiceError) -> Self {
+        let code = err.code().to_string();
+        let message = err.to_string();
+        let retriable = err.retriable();
+
+        let (block_number, current_block) = if let ServiceError::BlockNotReady {
+            block_number,
+            current_block,
+        } = err
+        {
+            (Some(*block_number), Some(*current_block))
+        } else {
+            (None, None)
+        };
+
+        Self {
+            code,
+            message,
+            retriable,
+            block_number,
+            current_block,
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum ServiceError {
