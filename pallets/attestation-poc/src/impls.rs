@@ -258,7 +258,7 @@ impl<T: Config> Pallet<T> {
                 // The extrinsic didn't fail even if checkpointing failed. We want
                 // to keep the new attestation rather than removing it from storage
                 // via extrinsic rollback in the case of checkpointing failure.
-                if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key) {
+                if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key, header_number) {
                     log::error!("Error: {e:?}");
                 }
                 CheckpointingQueues::<T>::insert(chain_key, queue);
@@ -328,7 +328,7 @@ impl<T: Config> Pallet<T> {
         // The extrinsic didn't fail even if checkpointing failed. We want
         // to keep the new attestation rather than removing it from storage
         // via extrinsic rollback in the case of checkpointing failure.
-        if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key) {
+        if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key, header_number) {
             log::error!("Error: {e:?}");
         }
         CheckpointingQueues::<T>::insert(chain_key, queue);
@@ -800,19 +800,42 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    // When current checkpoint interval is completed by the commitment of its final attestation,
-    // then the prior checkpoint interval is considered "stabilized". We condense all the
-    // attestations for that prior interval into a single checkpoint.
+    /// When enough blocks have been attested since the last checkpoint,
+    /// create a new checkpoint condensing prior attestations.
+    /// The checkpoint will be created at the next block that is a multiple of
+    /// chain_attestation_interval * attestation_checkpoint_interval after the last checkpoint.
     #[transactional]
     pub(crate) fn try_make_checkpoint(
         queue: &mut VecDeque<Digest>,
         chain_key: ChainKey,
+        attestation_header: u64,
     ) -> DispatchResult {
-        let num_to_condense = Self::attestation_checkpoint_interval(chain_key);
-        // Only move forward if two full checkpoints of attestations are committed.
-        if queue.len() < (num_to_condense * 2) as usize {
+        // We get the last checkpoint header number, or we error out if there is none
+        // since the first checkpoint should have already been created before calling this function
+        let last_checkpoint_header = LastCheckpoint::<T>::get(chain_key)
+            .ok_or(Error::<T>::LastCheckpointEmpty)?
+            .block_number;
+
+        // Compute the checkpoint width
+        let attestation_interval = Self::chain_attestation_interval(chain_key);
+        let checkpoint_interval = Self::attestation_checkpoint_interval(chain_key);
+        let checkpoint_width = attestation_interval.saturating_mul(checkpoint_interval as u64);
+        ensure!(checkpoint_width > 0, Error::<T>::CheckpointWidthIsZero);
+
+        // Check if the current attestation span is enough to create a new checkpoint
+        let attestation_block_span = attestation_header.saturating_sub(last_checkpoint_header);
+        if attestation_block_span < (checkpoint_width * 2) + 1 {
             return Ok(());
         }
+
+        // Compute the header block number for the new checkpoint
+        let target_block = {
+            // First we compute the next checkpoint block after the last checkpoint
+            let next_checkpoint_block = last_checkpoint_header.saturating_add(checkpoint_width);
+
+            // Then we round it down to the nearest multiple of checkpoint_width
+            next_checkpoint_block - (next_checkpoint_block % checkpoint_width)
+        };
 
         // Queue used to time the removal of attestations for some duration after checkpoint creation
         let mut attestation_removal_queue: VecDeque<Digest> =
@@ -822,50 +845,100 @@ impl<T: Config> Pallet<T> {
         // returns, it isn't covered by the #[transactional] macro and must be manually
         // rolled back.
         let mut checkpointing_rollback: Vec<Digest> = Vec::new();
-        for i in 0..num_to_condense {
-            let to_be_condensed: Digest = match queue.pop_front() {
+
+        let new_checkpoint = loop {
+            let attestation_digest: Digest = match queue.pop_front() {
                 Some(digest) => digest,
                 None => {
                     for digest in checkpointing_rollback {
                         queue.push_front(digest);
                     }
-                    return Err(Error::<T>::CheckpointCreationError.into());
+                    return Err(Error::<T>::CheckpointingQueueDrained.into());
                 }
             };
-            checkpointing_rollback.push(to_be_condensed);
-            attestation_removal_queue.push_back(to_be_condensed);
+            checkpointing_rollback.push(attestation_digest);
 
-            // Until then, removing attestations from storage breaks proving.
-            let condensed = match Attestations::<T>::get(chain_key, to_be_condensed) {
+            let attestation = match Attestations::<T>::get(chain_key, attestation_digest) {
                 Some(attestation) => attestation,
                 None => {
                     for digest in checkpointing_rollback {
                         queue.push_front(digest);
                     }
-                    return Err(Error::<T>::CheckpointCreationError.into());
+                    return Err(Error::<T>::AttestationNotFound.into());
                 }
             };
 
-            if i == num_to_condense - 1 {
-                let checkpoint = AttestationCheckpoint {
-                    block_number: condensed.header_number(),
-                    digest: condensed.digest(),
-                };
+            match attestation.header_number().cmp(&target_block) {
+                sp_std::cmp::Ordering::Less => {
+                    // If the header is smaller than the target block, we need to keep condensing into, at least,
+                    // the next attestation
+                    attestation_removal_queue.push_back(attestation_digest);
+                }
+                sp_std::cmp::Ordering::Equal => {
+                    // If the attestation header matches the target block, we can both use it and mark it for removal
+                    attestation_removal_queue.push_back(attestation_digest);
 
-                Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
+                    break AttestationCheckpoint {
+                        block_number: attestation.header_number(),
+                        digest: attestation.digest(),
+                    };
+                }
+                sp_std::cmp::Ordering::Greater => {
+                    // If the attestation header is greater than the target block,
+                    // we need to find the block within its continuity proof
+                    // that matches the target block we want to condense to
+                    let mut maybe_digest = None;
+                    for proof in attestation.continuity_proof.iter() {
+                        if proof.block_number == target_block {
+                            maybe_digest = Some(proof.digest);
+                            break;
+                        }
+                    }
 
-                Checkpoints::<T>::insert(chain_key, checkpoint.block_number, checkpoint.digest);
-                CheckpointBuckets::<T>::insert(
-                    (
-                        chain_key,
-                        Self::compute_block_index_for(checkpoint.block_number),
-                        checkpoint.block_number,
-                    ),
-                    (),
-                );
-                LastCheckpoint::<T>::insert(chain_key, &checkpoint);
+                    match maybe_digest {
+                        Some(digest) => {
+                            // We found the target block within this attestation's continuity proof
+                            // we build the checkpoint and return the attestation digest back to the queue
+                            // since it will be used in the next checkpointing round
+                            queue.push_front(attestation_digest);
+
+                            break AttestationCheckpoint {
+                                block_number: target_block,
+                                digest,
+                            };
+                        }
+                        None => {
+                            // We couldn't find the target block within this attestation's continuity proof
+                            for digest in checkpointing_rollback {
+                                queue.push_front(digest);
+                            }
+                            return Err(Error::<T>::CheckpointTargetNotFound.into());
+                        }
+                    }
+                }
             }
-        }
+        };
+
+        Self::deposit_event(Event::<T>::CheckpointReached(
+            chain_key,
+            new_checkpoint.clone(),
+        ));
+
+        Checkpoints::<T>::insert(
+            chain_key,
+            new_checkpoint.block_number,
+            new_checkpoint.digest,
+        );
+        CheckpointBuckets::<T>::insert(
+            (
+                chain_key,
+                Self::compute_block_index_for(new_checkpoint.block_number),
+                new_checkpoint.block_number,
+            ),
+            (),
+        );
+        LastCheckpoint::<T>::insert(chain_key, &new_checkpoint);
+
         Self::remove_attestations(chain_key, attestation_removal_queue)?;
 
         Ok(())

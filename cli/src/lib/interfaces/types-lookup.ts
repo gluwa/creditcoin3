@@ -3592,6 +3592,11 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidBlsSignature: boolean;
         readonly isInvalidProofOfPossession: boolean;
         readonly isCheckpointCreationError: boolean;
+        readonly isLastCheckpointEmpty: boolean;
+        readonly isCheckpointWidthIsZero: boolean;
+        readonly isCheckpointingQueueDrained: boolean;
+        readonly isAttestationNotFound: boolean;
+        readonly isCheckpointTargetNotFound: boolean;
         readonly isInvalidAttestorAccount: boolean;
         readonly isInsufficientBalance: boolean;
         readonly isNotStash: boolean;
@@ -3637,6 +3642,11 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidBlsSignature'
             | 'InvalidProofOfPossession'
             | 'CheckpointCreationError'
+            | 'LastCheckpointEmpty'
+            | 'CheckpointWidthIsZero'
+            | 'CheckpointingQueueDrained'
+            | 'AttestationNotFound'
+            | 'CheckpointTargetNotFound'
             | 'InvalidAttestorAccount'
             | 'InsufficientBalance'
             | 'NotStash'

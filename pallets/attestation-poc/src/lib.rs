@@ -587,6 +587,17 @@ pub mod pallet {
         // or attestations. This error should not occur unless there
         // is a bug in this pallet.
         CheckpointCreationError,
+        // The last checkpoint is empty when it is not expected to be
+        LastCheckpointEmpty,
+        // Checkpoint width calculated as zero which should be impossible
+        CheckpointWidthIsZero,
+        // Not enough attestations to create a checkpoint found in the checkpointing queue
+        CheckpointingQueueDrained,
+        // The attestation referenced in the queue points to a non-existent attestation
+        AttestationNotFound,
+        // The attestation in which the target checkpoint block should have been
+        // doesn't contain the expected block number
+        CheckpointTargetNotFound,
         // Invalid attestor account
         InvalidAttestorAccount,
         // Insufficient balance to bond

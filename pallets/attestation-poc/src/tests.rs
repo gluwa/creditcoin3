@@ -1930,6 +1930,126 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
 }
 
 #[test]
+fn bootstrap_chain_should_trigger_checkpoint_creation_with_expected_boundaries() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        // Initial genesis attestation
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+
+        // We create a second attestation that covers blocks 1-229, which should trigger a checkpoint immediately
+        // upon calling bootstrap_chain, but it should only create a checkpoint up to block 100
+        let fragment = construct_fragment(None, RangeInclusive::new(1, 229));
+        let attestation_for_block_230 = create_signed_attestation(
+            vec![attestor],
+            SUPPORTED_CHAIN_KEY,
+            230,
+            Some(attestation.digest()),
+            Some(fragment),
+        );
+
+        let expected_initial_checkpoint = AttestationCheckpoint {
+            block_number: attestation.header_number(),
+            digest: attestation.digest(),
+        };
+
+        assert_eq!(
+            Attestation::last_attestation_digest(SUPPORTED_CHAIN_KEY),
+            None
+        );
+        assert_eq!(
+            Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()),
+            None
+        );
+        assert_eq!(
+            Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
+            0
+        );
+        assert_eq!(Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY), None);
+
+        assert_ok!(Attestation::bootstrap_chain(
+            RuntimeOrigin::root(),
+            attestation.clone(),
+        ),);
+
+        // storage
+        assert_eq!(
+            Attestation::last_attestation_digest(SUPPORTED_CHAIN_KEY),
+            Some((attestation.header_number(), attestation.digest()))
+        );
+        // Initial attestation still present
+        assert_eq!(
+            Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()),
+            Some(attestation.clone())
+        );
+        // Shouldn't add first attestation for chain to checkpointing queue
+        assert_eq!(
+            Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
+            0
+        );
+
+        // event
+        System::assert_last_event(
+            Event::CheckpointReached(SUPPORTED_CHAIN_KEY, expected_initial_checkpoint.clone())
+                .into(),
+        );
+
+        // assert last checkpoint
+        assert_eq!(
+            Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
+            Some(expected_initial_checkpoint.clone())
+        );
+
+        assert_ok!(Attestation::bootstrap_chain(
+            RuntimeOrigin::root(),
+            attestation_for_block_230.clone(),
+        ),);
+
+        // storage
+        assert_eq!(
+            Attestation::last_attestation_digest(SUPPORTED_CHAIN_KEY),
+            Some((
+                attestation_for_block_230.header_number(),
+                attestation_for_block_230.digest()
+            ))
+        );
+        assert_eq!(
+            Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation_for_block_230.digest()),
+            Some(attestation_for_block_230.clone())
+        );
+        // Attestation should still be in the checkpointing queue, since the first checkpoint
+        // only consumed up to block 100
+        assert_eq!(
+            Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
+            1
+        );
+
+        let expected_block = attestation_for_block_230
+            .continuity_proof
+            .blocks
+            .iter()
+            .find(|b| b.block_number == 100)
+            .expect("Block 100 should be in the continuity proof");
+        let expected_second_checkpoint = AttestationCheckpoint {
+            block_number: expected_block.block_number,
+            digest: expected_block.digest,
+        };
+
+        assert_eq!(
+            Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
+            Some(expected_second_checkpoint.clone())
+        );
+
+        // event
+        System::assert_last_event(
+            Event::CheckpointReached(SUPPORTED_CHAIN_KEY, expected_second_checkpoint.clone())
+                .into(),
+        );
+    })
+}
+
+#[test]
 fn commit_attestation_interval_10_works() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
@@ -2865,7 +2985,9 @@ fn creating_checkpoint_works() {
         progress_to_block(5);
         let mut last_digest: Option<H256> = None;
         let mut checkpoint_attestation: Option<SignedAttestation<H256, u64>> = None;
-        for i in 0..(att_per_check * 2 + 1) as usize {
+        // Since chekpoint creation triggers at (att_interval * att_per_check * 2) + 1,
+        // wee need create the initial genesis attestation plus (att_per_check * 2 + 1)
+        for i in 0..(att_per_check * 2 + 2) as usize {
             let attestation_header_number = att_interval * i as u64;
             let fragment_start = attestation_header_number.saturating_sub(att_interval) + 1;
             let fragment = construct_fragment(
@@ -2897,7 +3019,7 @@ fn creating_checkpoint_works() {
 
         assert_eq!(
             Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
-            att_per_check as usize
+            att_per_check as usize + 1
         );
 
         let unwrapped_att =
@@ -2918,6 +3040,138 @@ fn creating_checkpoint_works() {
             Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
             Some(resulting_checkpoint)
         );
+    })
+}
+
+#[test]
+fn creating_checkpoint_works_at_expected_intervals() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let att_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
+        assert_eq!(att_interval, 10);
+        let att_per_check = Attestation::attestation_checkpoint_interval(SUPPORTED_CHAIN_KEY);
+        assert_eq!(att_per_check, 10);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+        let mut last_digest: Option<H256>;
+        let mut checkpoint: Option<AttestationCheckpoint> = None;
+
+        progress_to_block(5);
+
+        // Initial genesis attestation
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.stash.clone(),
+            attestation.clone(),
+        ));
+        last_digest = Some(attestation.digest());
+
+        // Now we create a second attestation with a different number than the expected interval
+        let fragment = construct_fragment(last_digest, RangeInclusive::new(1, 12));
+        let attestation_for_block_13 = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            13,
+            last_digest,
+            Some(fragment),
+        );
+        assert_ok!(Attestation::commit_attestation(
+            attestor.stash.clone(),
+            attestation_for_block_13.clone()
+        ));
+        last_digest = Some(attestation_for_block_13.digest());
+
+        // Since right now we have attestations up to block 13, we need to create 19 attestations to trigger
+        // checkpoint creation:
+        // (1 + 13 + (10 * 18)) = 194 < ((100 * 2) + 1) - At the 18th attestation, no checkpoint yet
+        // (1 + 13 + (10 * 19)) = 204 > ((100 * 2) + 1) - At the 19th attestation, checkpoint creation should trigger
+        for i in 0..19 {
+            let attestation_header_number =
+                (att_interval * (i + 1) as u64) + attestation_for_block_13.header_number();
+            let fragment_start = attestation_header_number.saturating_sub(att_interval) + 1;
+            let fragment = construct_fragment(
+                last_digest,
+                RangeInclusive::new(fragment_start, attestation_header_number.saturating_sub(1)),
+            );
+
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                attestation_header_number,
+                last_digest,
+                Some(fragment),
+            );
+            last_digest = Some(attestation.digest());
+            assert_ok!(Attestation::commit_attestation(
+                attestor.stash.clone(),
+                attestation.clone(),
+            ));
+
+            if i == 8 {
+                // In the 8th attestation the header will be at 93, so no checkpoint yet
+                // But in the 9th the header will be at 103, so the checkpoint's header is going to be
+                // contained in this attestation's continuity proof
+
+                // The checkpoint should be exactly at block 100
+                let maybe_block = attestation
+                    .continuity_proof
+                    .blocks
+                    .iter()
+                    .find(|b| b.block_number == 100);
+                assert!(maybe_block.is_some());
+
+                let checkpoint_block = maybe_block.unwrap();
+
+                checkpoint = Some(AttestationCheckpoint {
+                    block_number: checkpoint_block.block_number,
+                    digest: checkpoint_block.digest,
+                });
+            }
+        }
+
+        // We should have left 11 attestations in the checkpointing queue
+        // attestations 0 and 1 should have been completely consumed and after that
+        // we should have consumed attestations 2 to 8 fully and attestation 9 partially,
+        // leaving attestations 10 to 19 in the queue.
+        assert_eq!(
+            Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
+            11
+        );
+
+        // Verify that the front attestation in the queue is the one at header 103
+        let queue = Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY);
+        let front_attestation = queue
+            .front()
+            .and_then(|digest| Attestation::attestations(SUPPORTED_CHAIN_KEY, *digest))
+            .expect("Front attestation should exist in storage.");
+        assert_eq!(front_attestation.header_number(), 103,);
+
+        let resulting_checkpoint = checkpoint.expect("Checkpoint should have been set in loop.");
+        System::assert_last_event(
+            crate::Event::CheckpointReached(SUPPORTED_CHAIN_KEY, resulting_checkpoint.clone())
+                .into(),
+        );
+        assert_eq!(
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, resulting_checkpoint.block_number),
+            Some(resulting_checkpoint.digest)
+        );
+        assert_eq!(
+            Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
+            Some(resulting_checkpoint.clone())
+        );
+        // Assert that the checkpoint is at block 100
+        assert_eq!(resulting_checkpoint.block_number, 100);
     })
 }
 
@@ -2957,7 +3211,7 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
         let mut removed_by_checkpoint: Vec<H256> = Vec::new();
         let mut kept_after_checkpoint: Vec<SignedAttestation<H256, u64>> = Vec::new();
 
-        for i in 0..att_per_check * checkpoints_to_create + 1 {
+        for i in 0..((att_per_check * checkpoints_to_create + 1) + 1) {
             let attestation_header_number = att_interval * i as u64;
             let fragment_start = attestation_header_number.saturating_sub(att_interval) + 1;
             let fragment = construct_fragment(

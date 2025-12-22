@@ -27,6 +27,7 @@ declare module '@polkadot/api-base/types/errors' {
             AlreadyBonded: AugmentedError<ApiType>;
             AttestationExists: AugmentedError<ApiType>;
             AttestationFoundWhileImporting: AugmentedError<ApiType>;
+            AttestationNotFound: AugmentedError<ApiType>;
             AttestationsAlreadyExist: AugmentedError<ApiType>;
             AttestorAlreadyAuthorized: AugmentedError<ApiType>;
             /**
@@ -42,6 +43,9 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             ChainNotSupported: AugmentedError<ApiType>;
             CheckpointCreationError: AugmentedError<ApiType>;
+            CheckpointingQueueDrained: AugmentedError<ApiType>;
+            CheckpointTargetNotFound: AugmentedError<ApiType>;
+            CheckpointWidthIsZero: AugmentedError<ApiType>;
             DuplicateAttestor: AugmentedError<ApiType>;
             EmptyContinuityProof: AugmentedError<ApiType>;
             InsufficientBalance: AugmentedError<ApiType>;
@@ -69,6 +73,7 @@ declare module '@polkadot/api-base/types/errors' {
              * The invulnerable list is full
              **/
             InvulnerableListFull: AugmentedError<ApiType>;
+            LastCheckpointEmpty: AugmentedError<ApiType>;
             MajorityNotReached: AugmentedError<ApiType>;
             /**
              * The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
