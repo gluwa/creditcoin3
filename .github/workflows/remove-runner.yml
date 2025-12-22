@@ -1,0 +1,47 @@
+---
+name: Reusable workflow to remove a self-hosted runner
+
+"on":
+  workflow_call:
+    inputs:
+      RUNNER_VM_NAME:
+        required: true
+        type: string
+      proxy:
+        required: false
+        type: string
+      secret:
+        required: false
+        type: string
+      proxy_type:
+        required: false
+        type: string
+
+permissions: read-all
+
+jobs:
+  remove-runner:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create inputs.txt
+        run: |
+          echo "proxy=${{ inputs.proxy }} / secret=${{ inputs.secret }} / type=${{ inputs.proxy_type }}" > inputs.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('inputs.txt') }}" | cut -c1-7)
+          rm inputs.txt
+
+          echo "runner_vm_name=${{ inputs.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
