@@ -50,7 +50,7 @@ jobs:
       - name: Unzip & Restore executable permissions
         working-directory: target/release
         run: |
-          unzip *.zip
+          unzip ./*.zip
 
           chmod a+x ./usc_audit_automation
 

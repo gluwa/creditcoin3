@@ -40,7 +40,7 @@ jobs:
           CAST_BIN=$(readlink -f ~/.foundry/bin/cast)
           echo "CAST_BIN=$CAST_BIN" >> "$GITHUB_ENV"
 
-          echo "$HOME/.foundry/bin" >> $GITHUB_PATH
+          echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
