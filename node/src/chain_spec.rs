@@ -1,6 +1,5 @@
 use hex_literal::hex;
 use serde::{Deserialize, Serialize};
-use sp_core::H256;
 use std::{
     collections::{BTreeMap, HashSet},
     str::FromStr,
@@ -8,9 +7,7 @@ use std::{
 use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 
 // Substrate
-use attestor_primitives::{
-    AttestationChainConfiguration, AttestationCheckpoint, ChainEncodingVersion, ChainId,
-};
+use attestor_primitives::{AttestationChainConfiguration, ChainEncodingVersion, ChainId};
 use sc_chain_spec::{ChainSpecExtension, ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
