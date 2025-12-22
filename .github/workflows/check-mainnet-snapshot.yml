@@ -1,0 +1,41 @@
+---
+name: Check Mainnet Snapshot
+
+on:
+  schedule:
+    # at 7:20, every Wednesday
+    - cron: "20 7 * * 3"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  deploy-runner:
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "us-ord"
+      # Shared CPU, Linode 32 GB, 8 vCPU, disk: 640 GB, 0.288 $/hr
+      LINODE_VM_SIZE: "g6-standard-8"
+      proxy_type: "mainnet"
+    secrets: inherit
+
+  check-snapshot:
+    needs:
+      - deploy-runner
+    uses: ./.github/workflows/check-snapshot.yml
+    with:
+      target-chain: "mainnet"
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-mainnet']"
+    secrets: inherit
+
+  remove-runner:
+    needs:
+      - deploy-runner
+      - check-snapshot
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy_type: "mainnet"
+    secrets: inherit
