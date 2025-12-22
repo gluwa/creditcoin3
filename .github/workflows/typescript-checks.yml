@@ -4,6 +4,7 @@ name: typescript-checks
 # Controls when the action will run.
 "on":
   pull_request:
+    branches: [main, testnet, poc_external_attestation_network]
     paths:
       - '**.ts'
       - '**.js'

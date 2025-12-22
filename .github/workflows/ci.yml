@@ -4,6 +4,7 @@ name: CI
 # Controls when the action will run.
 "on":
   pull_request:
+    branches: [main, testnet, poc_external_attestation_network]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:

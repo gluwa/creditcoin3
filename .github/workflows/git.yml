@@ -3,6 +3,7 @@ name: git
 
 "on":
   pull_request:
+    branches: [main, testnet, poc_external_attestation_network]
   workflow_dispatch:
 
 concurrency:
