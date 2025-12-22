@@ -173,4 +173,4 @@ jobs:
           status: ${{ job.status }}
           inputs: ${{ toJson(inputs) }}
           channel: "#noti-creditcoin-snapshots"
-          message: "cc <@U028EMRHS3S>"
+          message: "Checking ${{ inputs.target-chain }} snapshot complete! cc <@U028EMRHS3S>"
