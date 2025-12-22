@@ -26,7 +26,7 @@ jobs:
     uses: ./.github/workflows/check-snapshot.yml
     with:
       target-chain: "devnet"
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-${{ matrix.proxy_type }}']"
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-devnet']"
     secrets: inherit
 
   remove-runner:
