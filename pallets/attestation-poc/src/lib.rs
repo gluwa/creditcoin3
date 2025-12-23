@@ -476,6 +476,9 @@ pub mod pallet {
                     );
                 }
 
+                // Track the checkpoint with the highest block_number for LastCheckpoint
+                let mut last_checkpoint: Option<AttestationCheckpoint> = None;
+
                 for checkpoint in chain_configuration.checkpoints.iter() {
                     Checkpoints::<T>::insert(
                         chain_configuration.chain_key,
@@ -490,7 +493,17 @@ pub mod pallet {
                         ),
                         (),
                     );
-                    LastCheckpoint::<T>::insert(chain_configuration.chain_key, checkpoint.clone());
+
+                    // Only update last_checkpoint if this checkpoint has a higher block_number
+                    if last_checkpoint
+                        .as_ref()
+                        .is_none_or(|lc| checkpoint.block_number >= lc.block_number)
+                    {
+                        last_checkpoint = Some(checkpoint.clone());
+                    }
+                }
+                if let Some(checkpoint) = last_checkpoint {
+                    LastCheckpoint::<T>::insert(chain_configuration.chain_key, checkpoint);
                 }
             }
         }
