@@ -44,7 +44,7 @@ impl USCClient {
     pub async fn new(url: impl Into<String>, mnemonic: &str) -> Result<Self> {
         let url = url.into();
 
-        info!("Connecting to USC node at {}", url);
+        info!("Connecting to USC node at {url}");
         let api = OnlineClient::<PolkadotConfig>::from_url(&url).await?;
 
         // Create signer from mnemonic

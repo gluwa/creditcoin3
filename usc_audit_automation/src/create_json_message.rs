@@ -10,7 +10,8 @@ const ICON_ALERT: &str = ":rotating_light:";
 const CODE_FENCE: &str = "```";
 
 fn code_block(s: impl AsRef<str>) -> String {
-    format!("{CODE_FENCE}{}{CODE_FENCE}", s.as_ref())
+    let content = s.as_ref();
+    format!("{CODE_FENCE}{content}{CODE_FENCE}")
 }
 
 fn slack_payload(text: impl Into<String>, icon: &str) -> Value {

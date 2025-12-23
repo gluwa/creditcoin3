@@ -1,0 +1,14 @@
+# USC Testnet Configuration
+# Secrets (slack_webhook_url, slack_alert_group, usc_account_mnemonic, API keys) are loaded from environment variables
+
+log_verbose = true
+usc_attestations_graphql_url = "https://attestations-graphql.usc-testnet.creditcoin.network"
+usc_network_name = "Creditcoin USC Testnet"
+usc_rpc_url = "wss://rpc.usc-testnet.creditcoin.network"
+
+# Ethereum RPC providers (API keys loaded from USC_INFURA_API_KEY and USC_ALCHEMY_API_KEY env vars)
+[[rpc_providers]]
+name = "infura"
+
+[[rpc_providers]]
+name = "alchemy"

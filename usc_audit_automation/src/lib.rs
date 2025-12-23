@@ -39,13 +39,36 @@ pub struct SanitiesChecker {
     pub config_file: PathBuf,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct RpcProvider {
-    name: String,
-    api_key: String,
+    pub name: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Default)]
+impl std::fmt::Debug for RpcProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RpcProvider")
+            .field("name", &self.name)
+            .field("api_key", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl RpcProvider {
+    /// Set the API key (used when merging config file with environment variables)
+    pub fn with_api_key(mut self, api_key: String) -> Self {
+        self.api_key = Some(api_key);
+        self
+    }
+
+    /// Get the API key, panicking if not set
+    pub fn api_key(&self) -> &str {
+        self.api_key.as_ref().expect("API key must be set")
+    }
+}
+
+#[derive(Deserialize, Default)]
 pub struct SanitiesConfigFile {
     #[serde(default)]
     pub slack_webhook_url: String,
@@ -63,6 +86,24 @@ pub struct SanitiesConfigFile {
     pub rpc_providers: Vec<RpcProvider>,
     #[serde(default)]
     pub usc_attestations_graphql_url: String,
+}
+
+impl std::fmt::Debug for SanitiesConfigFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SanitiesConfigFile")
+            .field("slack_webhook_url", &"[REDACTED]")
+            .field("slack_alert_group", &self.slack_alert_group)
+            .field("log_verbose", &self.log_verbose)
+            .field("usc_network_name", &self.usc_network_name)
+            .field("usc_rpc_url", &self.usc_rpc_url)
+            .field("usc_account_mnemonic", &"[REDACTED]")
+            .field("rpc_providers", &self.rpc_providers)
+            .field(
+                "usc_attestations_graphql_url",
+                &self.usc_attestations_graphql_url,
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -270,7 +311,7 @@ pub(crate) async fn check_attestation_checkpoint_created_within_block_interval_r
     let checkpoint_block_range =
         checkpoint_interval as u64 * attestation_interval * attestation_vote_acceptance_window;
 
-    info!("Checkpoint expected range: {}", checkpoint_block_range);
+    info!("Checkpoint expected range: {checkpoint_block_range}");
 
     let last_checkpoint = client
         .get_last_attestation_checkpoint(chain_key)
@@ -310,7 +351,7 @@ pub(crate) async fn calculate_merkle_root(
     eth_client: &impl EthereumProvider,
     block_number: u64,
 ) -> Result<[u8; 32]> {
-    debug!("Calculating Merkle root for block number: {}", block_number);
+    debug!("Calculating Merkle root for block number: {block_number}");
     let ordered_block = eth_client
         .get_block_by_number(block_number)
         .await?
@@ -413,7 +454,7 @@ pub async fn get_graphql_attestation_check_result(
     "#
     );
 
-    info!("Attestation GraphQL URL: {}", graphql_url);
+    info!("Attestation GraphQL URL: {graphql_url}");
     let res = client
         .post(graphql_url)
         .json(&serde_json::json!({ "query": query }))

@@ -57,7 +57,8 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
     let chain_info = fetch_chains_json(&client).await?;
     let chain_cache = ChainCache::from_chains(chain_info.context("No chain info found")?);
 
-    info!("Connecting to USC RPC at {}", &config.usc_rpc_url);
+    let usc_rpc_url = &config.usc_rpc_url;
+    info!("Connecting to USC RPC at {usc_rpc_url}");
     // Create USC client
     let usc_client =
         USCClientWrapper(USCClient::new(&config.usc_rpc_url, &config.usc_account_mnemonic).await?);
@@ -131,7 +132,10 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
             );
             continue;
         };
-        info!("Using Ethereum RPC URL: {}", eth_rpc_url);
+        info!(
+            "Using Ethereum RPC URL: {}",
+            crate::ethereum_rpc::redact_api_key_from_url(&eth_rpc_url)
+        );
 
         // Create Ethereum client
         let eth_client: EthClient = EthClient::new(&eth_rpc_url, None).await?;
@@ -228,7 +232,8 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
         .await?;
 
         let ethereum_block_calculated_merkle_root = hex::encode(calculated_ethereum_block_root);
-        info!("Ethereum block calculated merkle root 0x{ethereum_block_calculated_merkle_root} for block number: {}", latest_signed_attestation.attestation.header_number());
+        let block_number = latest_signed_attestation.attestation.header_number();
+        info!("Ethereum block calculated merkle root 0x{ethereum_block_calculated_merkle_root} for block number: {block_number}");
 
         let check_point_created_within_range_checker =
             check_attestation_checkpoint_created_within_block_interval_range(

@@ -37,6 +37,8 @@ jobs:
         network: [Devnet, Testnet]
 
     steps:
+      - uses: actions/checkout@v6
+
       - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
         with:
@@ -56,17 +58,15 @@ jobs:
 
           ls -l
 
-      - name: Create Config File
+      - name: Run USC Audit Automation for ${{ matrix.network }}
         shell: bash
         env:
-          AUDIT_CONFIG_TOML: >-
-            ${{
-              (matrix.network == 'Devnet' && secrets.USC_DEVNET_AUDIT_AUTOMATION_CONFIG_TOML) ||
-              (matrix.network == 'Testnet' && secrets.USC_TESTNET_AUDIT_AUTOMATION_CONFIG_TOML)
-            }}
+          USC_SLACK_WEBHOOK_URL: ${{ secrets.USC_SLACK_WEBHOOK_URL }}
+          USC_SLACK_ALERT_GROUP: ${{ secrets.USC_SLACK_ALERT_GROUP }}
+          USC_ACCOUNT_MNEMONIC: ${{ secrets.USC_ACCOUNT_MNEMONIC }}
+          USC_INFURA_API_KEY: ${{ secrets.USC_INFURA_API_KEY }}
+          USC_ALCHEMY_API_KEY: ${{ secrets.USC_ALCHEMY_API_KEY }}
         run: |
-          printf "%b" "$AUDIT_CONFIG_TOML" > config.toml
-
-      - name: Run USC Audit Automation
-        shell: bash
-        run: ./target/release/usc_audit_automation --config-file config.toml
+          NETWORK_LOWER=$(echo "${{ matrix.network }}" | tr '[:upper:]' '[:lower:]')
+          CONFIG_FILE="usc_audit_automation/config-${NETWORK_LOWER}.toml"
+          ./target/release/usc_audit_automation --config-file "$CONFIG_FILE"

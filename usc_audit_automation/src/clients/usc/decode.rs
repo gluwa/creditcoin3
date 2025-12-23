@@ -515,10 +515,10 @@ pub async fn fetch_genesis_block_dynamic(
     if let Some(thunk) = maybe_val {
         let encoded = thunk.encoded();
         let decoded = u64::decode(&mut &encoded[..])?;
-        debug!("✅ Chain {} → Genesis block number: {}", chain_key, decoded);
+        debug!("✅ Chain {chain_key} → Genesis block number: {decoded}");
         Ok(Some(decoded))
     } else {
-        debug!("⚠️ No value found for chain key {}", chain_key);
+        debug!("⚠️ No value found for chain key {chain_key}");
         Ok(None)
     }
 }
