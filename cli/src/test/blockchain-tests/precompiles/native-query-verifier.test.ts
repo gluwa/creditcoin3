@@ -447,23 +447,33 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty entries array
             };
+            // Continuity proof must have at least 2 blocks (queryHeight-1 and queryHeight)
+            // for security reasons (to verify query block digest using prev block)
+            const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        merkleRoot: ethers.keccak256(txData),
+                        // Block at height-1 (queryHeight-1)
+                        merkleRoot: prevBlockMerkleRoot,
                         digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                    {
+                        // Block at height (queryHeight)
+                        merkleRoot: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x02', 32),
                     },
                 ],
             };
 
-            // Note: Merkle proof validation happens first, so this fails at Merkle validation
-            // To test continuity validation, we would need valid Merkle proofs
+            // Continuity chain validation happens first, checking that the chain
+            // ends at a valid attestation. Without attestation data on-chain,
+            // this fails at the continuity validation step.
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
             await expect(
                 verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
-            ).rejects.toThrow(/Merkle proof validation failed/);
+            ).rejects.toThrow(/Continuity proof does not match attestation or checkpoint|Continuity chain/);
         });
 
         test('should fail with empty transaction data', async () => {
@@ -502,23 +512,31 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 siblings: [], // Empty entries array
             };
 
+            // Provide 2 blocks as required by the precompile
+            const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        merkleRoot: ethers.keccak256(txData),
+                        // Block at height-1 (queryHeight-1)
+                        merkleRoot: prevBlockMerkleRoot,
                         digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                    {
+                        // Block at height (queryHeight)
+                        merkleRoot: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x02', 32),
                     },
                 ],
             };
 
-            // Note: Merkle proof validation happens first, so this fails at Merkle validation
-            // To test continuity validation, we would need valid Merkle proofs
+            // This test verifies the precompile properly rejects queries when
+            // the continuity chain cannot be validated against on-chain attestations.
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
             await expect(
                 verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
-            ).rejects.toThrow(/Merkle proof validation failed/);
+            ).rejects.toThrow(/Continuity proof does not match attestation or checkpoint|Continuity chain/);
         });
 
         test('should fail with invalid continuity proof', async () => {
@@ -530,23 +548,31 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: ethers.keccak256(txData),
                 siblings: [], // Empty entries array
             };
+            // Provide 2 blocks with invalid/random digests that won't match on-chain data
+            const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        merkleRoot: ethers.keccak256(txData),
+                        // Block at height-1 (queryHeight-1)
+                        merkleRoot: prevBlockMerkleRoot,
                         digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                    {
+                        // Block at height (queryHeight)
+                        merkleRoot: ethers.keccak256(txData),
+                        digest: ethers.zeroPadBytes('0x02', 32),
                     },
                 ],
             };
 
-            // Note: Merkle proof validation happens first, so this fails at Merkle validation
-            // To test continuity validation, we would need valid Merkle proofs
+            // Continuity chain validation happens first, checking that the chain
+            // ends at a valid attestation. With invalid data, this fails at continuity validation.
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
             await expect(
                 verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
-            ).rejects.toThrow(/Merkle proof validation failed/);
+            ).rejects.toThrow(/Continuity proof does not match attestation or checkpoint|Continuity chain/);
         });
 
         test('should fail with mismatched merkle root', async () => {
@@ -554,25 +580,36 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const height = 100;
 
             const txData = ethers.randomBytes(100);
+            const wrongRoot = ethers.keccak256(ethers.toUtf8Bytes('wrongRoot')); // Wrong root, doesn't match txData
             const merkleProof = {
-                root: ethers.keccak256('0xdeadbeef'), // Wrong root, doesn't match txData
+                root: wrongRoot,
                 siblings: [{ hash: ethers.randomBytes(32), isLeft: false }],
             };
+            // Provide 2 blocks as required by the precompile
+            const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 blocks: [
                     {
-                        merkleRoot: ethers.keccak256('0xdeadbeef'), // Wrong root to match merkle proof
+                        // Block at height-1 (queryHeight-1)
+                        merkleRoot: prevBlockMerkleRoot,
                         digest: ethers.zeroPadBytes('0x01', 32),
+                    },
+                    {
+                        // Block at height (queryHeight) - wrong root to match merkle proof
+                        merkleRoot: ethers.keccak256(ethers.toUtf8Bytes('wrongRoot')),
+                        digest: ethers.zeroPadBytes('0x02', 32),
                     },
                 ],
             };
 
+            // Continuity chain validation happens first (checking on-chain attestations),
+            // so even with a mismatched merkle root, we fail at continuity validation.
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
             await expect(
                 verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
-            ).rejects.toThrow(/Merkle proof validation failed/);
+            ).rejects.toThrow(/Continuity proof does not match attestation or checkpoint|Continuity chain/);
         });
     });
 });
