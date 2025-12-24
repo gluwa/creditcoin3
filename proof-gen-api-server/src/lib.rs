@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -114,10 +115,18 @@ impl Server {
         // Build axum application
         let app = build_app(service, self.config.chain_key);
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
-        let server = run_http_server(app, &self.config.bind_addr, http_shutdown_rx);
+
+        // Parse bind address properly to support both IPv4 and IPv6
+        let bind_host = &self.config.bind_host;
+        let ip = bind_host.parse::<IpAddr>().with_context(|| {
+            format!("Invalid bind host: '{bind_host}'. Expected IP address (e.g., '0.0.0.0', '127.0.0.1', '::1', '::')")
+        })?;
+        let bind_addr = SocketAddr::new(ip, self.config.bind_port);
+
+        let server = run_http_server(app, bind_addr, http_shutdown_rx);
         tokio::pin!(server);
 
-        info!("Server listening on {}", self.config.bind_addr);
+        info!("Server listening on {}", bind_addr);
 
         // Define attestation event listening channel – placeholder for future attestation stream
         let (attestation_events_tx, mut attestation_events_rx) =

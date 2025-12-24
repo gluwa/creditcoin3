@@ -42,7 +42,7 @@ pub struct ProofGenApiServer {
     #[arg(
         long,
         default_value = "0.0.0.0",
-        help = "Bind address for the prometheus metrics server."
+        help = "IP address for the prometheus metrics server (e.g., '0.0.0.0', '::1')"
     )]
     prometheus_host: String,
 
@@ -55,10 +55,17 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
-        required = false,
-        help = "Port which the proof gen server exposes for API requests"
+        default_value = "0.0.0.0",
+        help = "IP address which the proof gen server binds to for API requests (e.g., '0.0.0.0', '::1')"
     )]
-    bind_addr: Option<String>,
+    bind_host: String,
+
+    #[arg(
+        long,
+        default_value_t = 3100,
+        help = "Port which the proof gen server binds to for API requests"
+    )]
+    bind_port: u16,
 
     #[arg(
         long,
@@ -98,16 +105,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Prefer CLI, fallback to env var for backward compatibility
     let resolved_cc3_key = args.cc3_key.or_else(|| env::var("CC3_KEY").ok());
 
-    let resolved_bind_addr = args
-        .bind_addr
-        .or_else(|| env::var("BIND_ADDR").ok())
-        .unwrap_or_else(|| {
-            info!("bind_addr not provided in arg --bind_addr or set via env var BIND_ADDR. Using default: 0.0.0.0:3100");
-            "0.0.0.0:3100".to_string()
-        });
-
     let config = Config {
-        bind_addr: resolved_bind_addr,
+        bind_host: args.bind_host,
+        bind_port: args.bind_port,
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: resolved_cc3_key,
         chain_key: args.chain_key,

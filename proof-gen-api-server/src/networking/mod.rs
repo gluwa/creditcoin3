@@ -72,11 +72,9 @@ pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
 
 pub async fn run_http_server(
     app: Router,
-    addr: &str,
+    addr: SocketAddr,
     shutdown_rx: Receiver<()>,
 ) -> anyhow::Result<()> {
-    let addr: SocketAddr = addr.parse().expect("Invalid BIND_ADDR format");
-    // Bind address (default in config.rs = 0.0.0.0:3100)
     let listener = TcpListener::bind(addr).await?;
     let shutdown_closure = async move {
         // this future completes when we send on http_shutdown_tx
