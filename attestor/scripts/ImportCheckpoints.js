@@ -55,7 +55,8 @@ async function main() {
         const checkpointVec = batch.map(([digestHex, { block_number }]) => {
             return api.createType('AttestorPrimitivesAttestationCheckpoint', {
                 digest: hexToU8a(digestHex),
-                block_number: Number(block_number),
+                // Use bigint to avoid precision loss when block numbers exceed Number.MAX_SAFE_INTEGER
+                block_number: BigInt(block_number),
             });
         });
 

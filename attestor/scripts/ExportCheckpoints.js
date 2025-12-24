@@ -24,11 +24,12 @@ async function main() {
     const entries = await api.query.attestation.checkpoints.entries(chainKey);
 
     for (const [key, value] of entries) {
-        const digest = key.args[1].toHuman();
-        const checkpoint = value.toJSON(); // Prefer toJSON() for clean data
+        // Storage key: (chain_key, block_number) => digest
+        const blockNumber = key.args[1].toNumber();
+        const digestHex = value.toHex();
 
-        checkpoints[digest] = {
-            block_number: checkpoint, // assumes this field exists
+        checkpoints[digestHex] = {
+            block_number: blockNumber,
         };
     }
 
