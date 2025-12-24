@@ -24,6 +24,26 @@ pub(crate) struct Metrics {
         labels::LabelAttestationChain,
         prometheus_client::metrics::gauge::Gauge,
     >,
+
+    pub metrics_hw: prometheus_client::metrics::family::Family<
+        labels::LabelHardware,
+        prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
+    >,
+
+    pub metrics_delay: prometheus_client::metrics::family::Family<
+        labels::LabelAttestationLifecycle,
+        prometheus_client::metrics::histogram::Histogram,
+    >,
+
+    pub metrics_p2p: prometheus_client::metrics::family::Family<
+        labels::LabelPeerToPeer,
+        prometheus_client::metrics::counter::Counter<u64, std::sync::atomic::AtomicU64>,
+    >,
+
+    pub metrics_error: prometheus_client::metrics::family::Family<
+        labels::LabelFailedState,
+        prometheus_client::metrics::counter::Counter<u64, std::sync::atomic::AtomicU64>,
+    >,
 }
 
 impl Metrics {
@@ -31,6 +51,17 @@ impl Metrics {
         let mut registry = prometheus_client::registry::Registry::default();
         let metrics_production = prometheus_client::metrics::family::Family::default();
         let metrics_lag = prometheus_client::metrics::family::Family::default();
+        let metrics_hw = prometheus_client::metrics::family::Family::default();
+        let metrics_delay = prometheus_client::metrics::family::Family::<
+            labels::LabelAttestationLifecycle,
+            _,
+        >::new_with_constructor(|| {
+            prometheus_client::metrics::histogram::Histogram::new(
+                prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15),
+            )
+        });
+        let metrics_p2p = prometheus_client::metrics::family::Family::default();
+        let metrics_error = prometheus_client::metrics::family::Family::default();
 
         registry.register(
             "attestor",
@@ -55,10 +86,34 @@ impl Metrics {
             metrics_lag.clone(),
         );
 
+        registry.register("hardware", "Hardware usage metrics", metrics_hw.clone());
+
+        registry.register(
+            "attestation_delay",
+            "Attestation processing delay per lifecycle stage",
+            metrics_delay.clone(),
+        );
+
+        registry.register(
+            "peer_to_peer",
+            "Peer-to-peer networking metrics",
+            metrics_p2p.clone(),
+        );
+
+        registry.register(
+            "failed_states",
+            "Counts of various failure states",
+            metrics_error.clone(),
+        );
+
         let metrics = Self {
             registry,
             metrics_production,
             metrics_lag,
+            metrics_hw,
+            metrics_delay,
+            metrics_p2p,
+            metrics_error,
         };
 
         metrics.set_attestation_local(config.attestation_latest_cc3);
@@ -132,6 +187,74 @@ impl Metrics {
             .inner()
             .set(lag_cc3);
     }
+
+    // Sets CPU usage and Memory usage as percentage (0-100)
+    pub fn set_cpu_usage(&self, usage: u64) {
+        self.metrics_hw
+            .get_or_create(&labels::LabelHardware {
+                hardware: labels::Hardware::Cpu,
+            })
+            .set(usage);
+    }
+
+    // Sets CPU usage and Memory usage as percentage (0-100)
+    pub fn set_memory_usage(&self, usage: u64) {
+        self.metrics_hw
+            .get_or_create(&labels::LabelHardware {
+                hardware: labels::Hardware::Memory,
+            })
+            .set(usage);
+    }
+
+    pub fn update_attestation_delay_for(
+        &self,
+        lifecycle: labels::AttestationLifecycle,
+        delay: f64,
+    ) {
+        self.metrics_delay
+            .get_or_create(&labels::LabelAttestationLifecycle { lifecycle })
+            .observe(delay);
+    }
+
+    pub fn increase_peer_count(&self) {
+        self.metrics_p2p
+            .get_or_create(&labels::LabelPeerToPeer {
+                peer_to_peer: labels::PeerToPeer::Count,
+            })
+            .inc();
+    }
+
+    pub fn increase_gossipsub_message_count(&self) {
+        self.metrics_p2p
+            .get_or_create(&labels::LabelPeerToPeer {
+                peer_to_peer: labels::PeerToPeer::GossipsubMessage,
+            })
+            .inc();
+    }
+
+    pub fn increase_invalid_attestation_count(&self) {
+        self.metrics_error
+            .get_or_create(&labels::LabelFailedState {
+                failed_state: labels::FailedState::InvalidAttestation,
+            })
+            .inc();
+    }
+
+    pub fn increase_equivocation_count(&self) {
+        self.metrics_error
+            .get_or_create(&labels::LabelFailedState {
+                failed_state: labels::FailedState::Equivocation,
+            })
+            .inc();
+    }
+
+    pub fn increase_connection_failure_count(&self) {
+        self.metrics_error
+            .get_or_create(&labels::LabelFailedState {
+                failed_state: labels::FailedState::ConnectionFailure,
+            })
+            .inc();
+    }
 }
 
 mod items {
@@ -165,5 +288,52 @@ mod labels {
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
     pub struct LabelAttestationChain {
         pub chain: AttestationChain,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelValue)]
+    pub enum Hardware {
+        Cpu,
+        Memory,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
+    pub struct LabelHardware {
+        pub hardware: Hardware,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelValue)]
+    pub enum AttestationLifecycle {
+        Production,
+        Quorum,
+        Finalization,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
+    pub struct LabelAttestationLifecycle {
+        pub lifecycle: AttestationLifecycle,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelValue)]
+    pub enum PeerToPeer {
+        Count,
+        GossipsubMessage,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
+    pub struct LabelPeerToPeer {
+        pub peer_to_peer: PeerToPeer,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelValue)]
+    pub enum FailedState {
+        InvalidAttestation,
+        Equivocation,
+        GossipsubMessage,
+        ConnectionFailure,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
+    pub struct LabelFailedState {
+        pub failed_state: FailedState,
     }
 }

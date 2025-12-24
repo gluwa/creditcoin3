@@ -118,6 +118,8 @@ pub struct Config {
     can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
     #[specify_later]
     chain_key: attestor_primitives::ChainKey,
+    #[specify_later]
+    metrics: common::types::Metrics,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -128,6 +130,9 @@ pub(crate) struct WorkerP2P {
     can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
     topic: libp2p::gossipsub::IdentTopic,
     listen_addr: libp2p::Multiaddr,
+
+    // METRICS
+    metrics: common::types::Metrics,
 
     // MESSAGE CHANNELS
     receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
@@ -187,6 +192,8 @@ impl WorkerP2P {
             can_broadcast: config.can_broadcast,
             topic,
             listen_addr,
+
+            metrics: config.metrics,
 
             receiver_p2p: config.receiver_p2p,
             sender_validation: config.sender_validation,
@@ -323,6 +330,8 @@ impl WorkerP2P {
                     for address in addresses.iter() {
                         tracing::info!(%address, "📋 at");
                     }
+
+                    self.metrics.increase_peer_count();
                 } else if let Some(peer) = old_peer {
                     tracing::info!(peer_id = %peer, "📋 Removed peer from the routing table");
                 } else {
@@ -363,6 +372,9 @@ impl WorkerP2P {
                     message,
                 },
             )) => {
+                // Update metrics
+                self.metrics.increase_gossipsub_message_count();
+
                 let decode = common::types::Attestation::decode(&mut message.data.as_ref());
                 let Ok(attestation) = decode else {
                     tracing::error!(peer_id = %propagation_source, "⛔ Received invalid attestation");
@@ -518,6 +530,9 @@ impl WorkerP2P {
             } => {
                 tracing::error!(connection = %connection_id, "⛔ Dialing");
                 tracing::error!(?peer_id, %error, "⛔  Outgoing connection error");
+
+                // Update metrics
+                self.metrics.increase_connection_failure_count();
 
                 // WARNING: ERROR HANDLING
                 //

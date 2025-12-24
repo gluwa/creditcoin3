@@ -344,6 +344,7 @@ impl Attestor {
             .with_sender_validation(validation_sender)
             .with_can_broadcast(can_broadcast_p2p)
             .with_chain_key(self.config.chain_key)
+            .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::WorkerError)?;
         let handle_p2p = monitor.spawn(p2p);
