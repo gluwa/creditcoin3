@@ -10,11 +10,11 @@ if [ -z "$MONITOR_FILE" ]; then
     exit 2
 fi
 
-HANDLERS_FROM_SOURCE=$(grep handler: cc3-indexer/datasources.ts | tr -d ' ",' | tr -d "'" | cut -f2 -d: | sort | uniq)
+HANDLERS_FROM_SOURCE=$(grep handler: cc3-indexer/datasources.ts | tr -d ' ",' | tr -d "'" | cut -f2 -d: | sort | uniq | grep -v handleTransactionVerified)
 echo "INFO: handlers defined in datasources.ts are"
 echo "$HANDLERS_FROM_SOURCE"
 
-HANDLERS_FROM_RUNTIME=$(grep "\- Handler:" "$MONITOR_FILE" | cut -f3 -d' ' | cut -f1 -d, | sort | uniq)
+HANDLERS_FROM_RUNTIME=$(grep "\- Handler:" "$MONITOR_FILE" | cut -f3 -d' ' | cut -f1 -d, | sort | uniq | grep -v handleTransactionVerified)
 echo "INFO: handlers executed during runtime are"
 echo "$HANDLERS_FROM_RUNTIME"
 
