@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Download locally built docker image
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/gluwa/
@@ -43,7 +43,7 @@ jobs:
           docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
           docker images
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -183,7 +183,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: docker-logs
           path: docker-*.log
@@ -196,7 +196,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.base_ref == 'dev'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -232,7 +232,7 @@ jobs:
   sanity-tests:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -266,7 +266,7 @@ jobs:
   sanity-test-cli:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -293,7 +293,7 @@ jobs:
   sanity-test-precompiles:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -336,7 +336,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -361,7 +361,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -396,7 +396,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -428,7 +428,7 @@ jobs:
   unit-test-creditcoin:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -499,12 +499,12 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -545,7 +545,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
       - name: Install Node Dependencies
@@ -555,7 +555,7 @@ jobs:
       - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -571,7 +571,7 @@ jobs:
       #Upload logs if nodes are not connecting.
       #head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
       - name: Upload logs
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           if-no-files-found: warn
@@ -585,7 +585,7 @@ jobs:
   unit-test-cli:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -636,7 +636,7 @@ jobs:
     name: deploy-github-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -704,7 +704,7 @@ jobs:
     name: remove-github-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -768,14 +768,14 @@ jobs:
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -876,7 +876,7 @@ jobs:
 
       - name: Upload logs from Alice and Bob
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
           path: /tmp/creditcoin3-node-*.std*
@@ -905,12 +905,12 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -965,12 +965,12 @@ jobs:
     name: integration-test-chainspec-${{ matrix.chainspec }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: binary-for-${{ matrix.chainspec }}
           path: target/release
@@ -1020,7 +1020,7 @@ jobs:
     name: cargo audit
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -1064,7 +1064,7 @@ jobs:
     name: "🐚 Shellcheck"
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
       - name: Run ShellCheck
@@ -1081,7 +1081,7 @@ jobs:
         command: [lint, typecheck, check-format]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -1102,12 +1102,12 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -1245,7 +1245,7 @@ jobs:
           # npx hardhat node --fork https://rpc.cc3-testnet.creditcoin.network
 
       - name: Upload logs
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           if-no-files-found: warn
