@@ -22,7 +22,7 @@ jobs:
   dry-run-install-subwasm:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -47,11 +47,11 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/dev'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v7
         with:
           name: binary-for-wasm
           path: wasm
