@@ -219,7 +219,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.62.62
+        uses: taiki-e/install-action@v2.65.10
         with:
           tool: cargo-llvm-cov
 
@@ -231,7 +231,7 @@ jobs:
               --ignore-filename-regex "(benchmarking.rs|mock.rs|tests(.*).rs|weights.rs)"
 
       - name: Upload coverage report as artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-report
           path: target/llvm-cov/html/

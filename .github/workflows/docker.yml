@@ -38,7 +38,7 @@ jobs:
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-test"]
     steps:
       - name: Download locally built docker image
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/gluwa/
@@ -126,7 +126,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: docker-logs
           path: docker-*.log
