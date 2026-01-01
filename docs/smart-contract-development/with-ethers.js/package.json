@@ -12,6 +12,6 @@
     "ethers": "^6.15.0"
   },
   "devDependencies": {
-    "vite": "^7.1.11"
+    "vite": "^7.3.0"
   }
 }
