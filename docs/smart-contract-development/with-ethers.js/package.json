@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "ethers": "^6.15.0"
+    "ethers": "^6.16.0"
   },
   "devDependencies": {
     "vite": "^7.1.11"
