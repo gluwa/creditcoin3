@@ -17,7 +17,7 @@ jobs:
   docker-build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
@@ -33,7 +33,7 @@ jobs:
 
       - name: Upload exported image for use by other CI jobs
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/${{ github.repository }}.tar
