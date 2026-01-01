@@ -17,7 +17,7 @@ jobs:
     # checkov:skip=CKV2_GHA_1:We need this for auto-commit
     permissions: write-all
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
           token: ${{ secrets.ATODOROV_TOKEN }}
