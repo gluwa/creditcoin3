@@ -12,7 +12,7 @@
     },
     "dependencies": {
         "ethers": "^6.15.0",
-        "@polkadot/api": "^12.0.0"
+        "@polkadot/api": "16.5.2"
     },
     "devDependencies": {
         "eslint": "^8.57.0",
