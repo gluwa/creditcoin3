@@ -6,3 +6,4 @@ paths:
     ignore:
       # Ignore the specific error from shellcheck
       - "shellcheck reported issue in this script: SC2129:.+"
+      - "condition \"false\" is always evaluated to false. remove the if: section.*"
