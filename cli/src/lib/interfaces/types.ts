@@ -2,3 +2,5 @@
 /* eslint-disable */
 
 export * from './dummy/types.js';
+
+export type PHANTOM_GENERATED = 'generated';
