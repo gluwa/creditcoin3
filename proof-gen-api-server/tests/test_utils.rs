@@ -42,7 +42,7 @@ mod anvil_integration {
         let rpc_url = format!("http://127.0.0.1:{port}");
         let url = rpc_url
             .parse()
-            .map_err(|e| anyhow::anyhow!("Invalid RPC URL '{}': {}", rpc_url, e))?;
+            .map_err(|e| anyhow::anyhow!("Invalid RPC URL '{rpc_url}': {e}"))?;
 
         // Build Provider with wallet using Anvil's first account
         let signer = PrivateKeySigner::from(anvil.keys()[0].clone());
@@ -67,16 +67,16 @@ mod anvil_integration {
         let pending = provider
             .send_transaction(tx)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send transaction to Anvil: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to send transaction to Anvil: {e}"))?;
 
         let receipt = pending
             .get_receipt()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to get transaction receipt from Anvil: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to get transaction receipt from Anvil: {e}"))?;
 
         // Ensure transaction was successful
         if !receipt.status() {
-            return Err(anyhow::anyhow!("Transaction failed: {:?}", receipt));
+            return Err(anyhow::anyhow!("Transaction failed: {receipt:?}"));
         }
 
         Ok(format!("{:#x}", receipt.transaction_hash))
@@ -89,8 +89,7 @@ mod anvil_integration {
         // Validate input transaction hash format
         if !tx_hash.starts_with("0x") || tx_hash.len() != 66 {
             return Err(anyhow::anyhow!(
-                "Invalid transaction hash format: {}. Expected 0x + 64 hex characters.",
-                tx_hash
+                "Invalid transaction hash format: {tx_hash}. Expected 0x + 64 hex characters."
             ));
         }
 
@@ -111,10 +110,8 @@ mod anvil_integration {
 
             let resp = client.post(&rpc).json(&payload).send().await.map_err(|e| {
                 anyhow::anyhow!(
-                    "Failed to connect to Anvil RPC at {}. \
-                     Ensure Anvil is running and accessible. Error: {}",
-                    rpc,
-                    e
+                    "Failed to connect to Anvil RPC at {rpc}. \
+                     Ensure Anvil is running and accessible. Error: {e}"
                 )
             })?;
 
@@ -126,12 +123,12 @@ mod anvil_integration {
             }
 
             let v: Value = resp.json().await.map_err(|e| {
-                anyhow::anyhow!("Failed to parse JSON response from Anvil RPC: {}", e)
+                anyhow::anyhow!("Failed to parse JSON response from Anvil RPC: {e}")
             })?;
 
             // Check for JSON-RPC error
             if let Some(error) = v.get("error") {
-                return Err(anyhow::anyhow!("Anvil RPC returned error: {}", error));
+                return Err(anyhow::anyhow!("Anvil RPC returned error: {error}"));
             }
 
             let result = v.get("result");
@@ -143,9 +140,8 @@ mod anvil_integration {
                     continue;
                 } else {
                     return Err(anyhow::anyhow!(
-                        "Transaction {} not found after {} attempts ({} ms). \
-                         Verify the transaction hash is correct and the transaction was submitted to the right chain.",
-                        tx_hash, MAX_ATTEMPTS, TOTAL_WAIT_TIME_MS
+                        "Transaction {tx_hash} not found after {MAX_ATTEMPTS} attempts ({TOTAL_WAIT_TIME_MS} ms). \
+                         Verify the transaction hash is correct and the transaction was submitted to the right chain."
                     ));
                 }
             }
@@ -159,19 +155,18 @@ mod anvil_integration {
                     .and_then(|x| x.as_str())
                     .ok_or_else(|| {
                         anyhow::anyhow!(
-                            "Transaction {} found but missing transactionIndex field. \
-                         This indicates a malformed response from Anvil.",
-                            tx_hash
+                            "Transaction {tx_hash} found but missing transactionIndex field. \
+                         This indicates a malformed response from Anvil."
                         )
                     })?;
 
                 let block_number = u64::from_str_radix(block_hex.trim_start_matches("0x"), 16)
                     .map_err(|e| {
-                        anyhow::anyhow!("Invalid blockNumber hex format '{}': {}", block_hex, e)
+                        anyhow::anyhow!("Invalid blockNumber hex format '{block_hex}': {e}")
                     })?;
                 let tx_index =
                     u64::from_str_radix(txi_hex.trim_start_matches("0x"), 16).map_err(|e| {
-                        anyhow::anyhow!("Invalid transactionIndex hex format '{}': {}", txi_hex, e)
+                        anyhow::anyhow!("Invalid transactionIndex hex format '{txi_hex}': {e}")
                     })?;
 
                 return Ok((block_number, tx_index));
@@ -184,12 +179,9 @@ mod anvil_integration {
         }
 
         Err(anyhow::anyhow!(
-            "Transaction {} not mined after {} attempts ({} ms). \
+            "Transaction {tx_hash} not mined after {MAX_ATTEMPTS} attempts ({TOTAL_WAIT_TIME_MS} ms). \
              Anvil might not be mining blocks automatically. \
-             Check Anvil configuration and logs.",
-            tx_hash,
-            MAX_ATTEMPTS,
-            TOTAL_WAIT_TIME_MS
+             Check Anvil configuration and logs."
         ))
     }
 

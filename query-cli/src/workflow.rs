@@ -294,7 +294,7 @@ async fn execute_transfer_query(
     };
     submit_native_query(params)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to execute query: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to execute query: {e}"))?;
 
     Ok(QueryResult {
         query_id: tx_hash.to_string(),

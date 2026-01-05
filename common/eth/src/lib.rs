@@ -272,8 +272,7 @@ impl Client {
 
             _ => {
                 return Err(anyhow::anyhow!(
-                    "Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {}",
-                    url_scheme
+                    "Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {url_scheme}"
                 )
                 .into());
             }
@@ -307,7 +306,7 @@ impl Client {
                 Ok(ConnectionTransport::Ws(ws))
             }
             "https" | "http" => Ok(ConnectionTransport::Http(self.url.clone())),
-            _ => Err(anyhow::anyhow!("Unsupported scheme: {}", scheme)),
+            _ => Err(anyhow::anyhow!("Unsupported scheme: {scheme}")),
         }
     }
 
@@ -468,23 +467,18 @@ impl Client {
             .map_err(Error::from)?;
 
         let tx = tx_opt.ok_or_else(|| {
-            Error::ClientError(anyhow::anyhow!(
-                "Transaction not found for hash {}",
-                tx_hash
-            ))
+            Error::ClientError(anyhow::anyhow!("Transaction not found for hash {tx_hash}"))
         })?;
 
         // Extract block number and transaction index (both should be Some for mined tx)
         let block_number = tx.block_number.ok_or_else(|| {
             Error::ClientError(anyhow::anyhow!(
-                "Transaction not in a block (pending): {}",
-                tx_hash
+                "Transaction not in a block (pending): {tx_hash}"
             ))
         })?;
         let tx_index = tx.transaction_index.ok_or_else(|| {
             Error::ClientError(anyhow::anyhow!(
-                "Missing transactionIndex for tx: {}",
-                tx_hash
+                "Missing transactionIndex for tx: {tx_hash}"
             ))
         })?;
 

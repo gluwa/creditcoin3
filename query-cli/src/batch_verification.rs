@@ -357,13 +357,7 @@ pub async fn execute_batch_query(
             .items()
             .iter()
             .position(|tx| format!("0x{:x}", tx.tx_hash()) == *tx_hash)
-            .ok_or_else(|| {
-                anyhow!(
-                    "Transaction {} not found in block {}",
-                    tx_hash,
-                    block_height
-                )
-            })?;
+            .ok_or_else(|| anyhow!("Transaction {tx_hash} not found in block {block_height}"))?;
 
         let tx_rx = &block.items()[tx_index];
         let full_tx_data = tx_rx.to_bytes();

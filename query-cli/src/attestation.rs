@@ -171,9 +171,7 @@ impl AttestationMonitor {
             if elapsed > self.config.max_wait_time {
                 subscription.cancel()?;
                 return Err(anyhow::anyhow!(
-                    "Timeout waiting for attestation of block {} (waited {:?})",
-                    block_number,
-                    elapsed
+                    "Timeout waiting for attestation of block {block_number} (waited {elapsed:?})"
                 ));
             }
 

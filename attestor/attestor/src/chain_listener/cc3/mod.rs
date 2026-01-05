@@ -404,7 +404,7 @@ impl CC3Events {
         &mut self,
     ) -> Result<impl Iterator<Item = Result<cc_client::attestation::CcEvent, Error>>, Error> {
         let events = self.block.events().await.map_err(Error::SubxtError)?;
-        let iter = cc_client::Client::extract_events(self.chain_key, events)
+        let iter = cc_client::Client::extract_events(self.chain_key, &events)
             .map(|event| event.map_err(|err| Error::SubxtError(err.into())));
 
         Ok(iter)

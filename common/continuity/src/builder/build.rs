@@ -138,8 +138,7 @@ impl ContinuityBuilder {
         // The proof MUST end at an attestation or checkpoint for verification to succeed
         let upper = upper
             .ok_or_else(|| anyhow!(
-                "No attestation or checkpoint found after block {}. The continuity proof requires an upper bound (next attestation/checkpoint) to verify the chain ends at a consensus point.",
-                max_query
+                "No attestation or checkpoint found after block {max_query}. The continuity proof requires an upper bound (next attestation/checkpoint) to verify the chain ends at a consensus point."
             ))?;
 
         Ok((lower, upper, ends_in_attestation))

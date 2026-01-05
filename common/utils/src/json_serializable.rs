@@ -84,7 +84,7 @@ pub trait JsonSerializable: Sized + Serialize + for<'de> Deserialize<'de> {
 
         let mut writer = BufWriter::new(file);
         serde_json::to_writer_pretty(&mut writer, self)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize to JSON: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to serialize to JSON: {e}"))?;
 
         writer.flush().map_err(|e| {
             anyhow::anyhow!("Failed to flush file '{}': {}", path.as_ref().display(), e)

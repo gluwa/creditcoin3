@@ -111,7 +111,7 @@ impl Client {
                 match blocks_sub.next().await {
                     Some(Ok(block)) => {
                         let events = block.events().await?;
-                        for event in Self::extract_events(filter, events) {
+                        for event in Self::extract_events(filter, &events) {
                             // FIXME: remove this `unwrap`
                             if sender.send(event.unwrap()).await.is_err() {
                                 break;
@@ -141,7 +141,7 @@ impl Client {
     #[tracing::instrument(skip(events))]
     pub fn extract_events(
         filter: ChainKey,
-        events: subxt::events::Events<subxt::SubstrateConfig>,
+        events: &subxt::events::Events<subxt::SubstrateConfig>,
     ) -> impl Iterator<Item = Result<CcEvent, subxt::ext::subxt_core::Error>> {
         events.iter().filter_map(move |event| match event {
             Ok(event) => {
