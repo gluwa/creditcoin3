@@ -330,10 +330,10 @@ impl WorkerP2P {
                     for address in addresses.iter() {
                         tracing::info!(%address, "📋 at");
                     }
-
                     self.metrics.increase_peer_count();
                 } else if let Some(peer) = old_peer {
                     tracing::info!(peer_id = %peer, "📋 Removed peer from the routing table");
+                    self.metrics.decrease_peer_count();
                 } else {
                     tracing::info!("📋 Updated the addresses of a peer in the routing table");
                     for address in addresses.iter() {
@@ -378,6 +378,7 @@ impl WorkerP2P {
                 let decode = common::types::Attestation::decode(&mut message.data.as_ref());
                 let Ok(attestation) = decode else {
                     tracing::error!(peer_id = %propagation_source, "⛔ Received invalid attestation");
+                    self.metrics.increase_invalid_gossipsub_count();
 
                     self.swarm
                         .behaviour_mut()
@@ -421,8 +422,18 @@ impl WorkerP2P {
                     // Failures which depend on finality lag are not considered as malicious but are
                     // not propagated to the rest of the network as they are out-of-date.
                     Err(crate::worker::validation::pool::Error::InvalidHeight(..))
-                    | Err(crate::worker::validation::pool::Error::InvalidDigest(..))
-                    | Err(crate::worker::validation::pool::Error::Equivocation(..)) => {
+                    | Err(crate::worker::validation::pool::Error::InvalidDigest(..)) => {
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .report_message_validation_result(
+                                &message_id,
+                                &propagation_source,
+                                libp2p::gossipsub::MessageAcceptance::Ignore,
+                            );
+                    }
+                    Err(crate::worker::validation::pool::Error::Equivocation(..)) => {
+                        self.metrics.increase_equivocation_count();
                         self.swarm
                             .behaviour_mut()
                             .gossipsub

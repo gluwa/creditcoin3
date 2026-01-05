@@ -12,6 +12,7 @@ pub(crate) struct Config {
     attestation_interval: std::num::NonZero<common::types::Height>,
 }
 
+#[derive(Debug)]
 pub(crate) struct Metrics {
     pub registry: prometheus_client::registry::Registry,
 
@@ -25,7 +26,7 @@ pub(crate) struct Metrics {
         prometheus_client::metrics::gauge::Gauge,
     >,
 
-    pub metrics_hw: prometheus_client::metrics::family::Family<
+    pub metrics_hardware: prometheus_client::metrics::family::Family<
         labels::LabelHardware,
         prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
     >,
@@ -37,7 +38,7 @@ pub(crate) struct Metrics {
 
     pub metrics_p2p: prometheus_client::metrics::family::Family<
         labels::LabelPeerToPeer,
-        prometheus_client::metrics::counter::Counter<u64, std::sync::atomic::AtomicU64>,
+        prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
     >,
 
     pub metrics_error: prometheus_client::metrics::family::Family<
@@ -51,13 +52,13 @@ impl Metrics {
         let mut registry = prometheus_client::registry::Registry::default();
         let metrics_production = prometheus_client::metrics::family::Family::default();
         let metrics_lag = prometheus_client::metrics::family::Family::default();
-        let metrics_hw = prometheus_client::metrics::family::Family::default();
+        let metrics_hardware = prometheus_client::metrics::family::Family::default();
         let metrics_delay = prometheus_client::metrics::family::Family::<
             labels::LabelAttestationLifecycle,
             _,
         >::new_with_constructor(|| {
             prometheus_client::metrics::histogram::Histogram::new(
-                prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15),
+                prometheus_client::metrics::histogram::exponential_buckets(0.01, 2.0, 15),
             )
         });
         let metrics_p2p = prometheus_client::metrics::family::Family::default();
@@ -86,7 +87,11 @@ impl Metrics {
             metrics_lag.clone(),
         );
 
-        registry.register("hardware", "Hardware usage metrics", metrics_hw.clone());
+        registry.register(
+            "hardware",
+            "Hardware usage metrics",
+            metrics_hardware.clone(),
+        );
 
         registry.register(
             "attestation_delay",
@@ -110,7 +115,7 @@ impl Metrics {
             registry,
             metrics_production,
             metrics_lag,
-            metrics_hw,
+            metrics_hardware,
             metrics_delay,
             metrics_p2p,
             metrics_error,
@@ -188,31 +193,65 @@ impl Metrics {
             .set(lag_cc3);
     }
 
-    // Sets CPU usage and Memory usage as percentage (0-100)
-    pub fn set_cpu_usage(&self, usage: u64) {
-        self.metrics_hw
+    pub async fn update_hardware(&self) {
+        // We initialize a new hardware interface on each call to avoid having to acquire a
+        // blocking lock on a global resource due to mutable requirements on `refresh_specifics`.
+        let specifics = sysinfo::RefreshKind::nothing()
+            .with_cpu(sysinfo::CpuRefreshKind::nothing().with_cpu_usage())
+            .with_memory(sysinfo::MemoryRefreshKind::nothing().with_ram());
+        let mut sys = sysinfo::System::new_with_specifics(specifics);
+
+        // NOTE: CPU USAGE
+        //
+        // From the sysinfo docs: "Please note that the result [of calling global_cpu_usage] will
+        // very likely be inaccurate at the first call. You need to call [refresh_cpu_usage] at
+        // least twice (with a bit of time between each call, like 200 ms, take a look at
+        // MINIMUM_CPU_UPDATE_INTERVAL for more information) to get accurate value as it uses
+        // previous results to compute the next value."
+        tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
+        sys.refresh_specifics(specifics);
+
+        let cpu_global = sys.global_cpu_usage();
+        let cpu_count = sys.cpus().len() as f32;
+        let usage_cpu = (cpu_global / cpu_count) as u64;
+
+        let total_memory = sys.total_memory();
+        let used_memory = sys.used_memory();
+        let usage_memory = (used_memory / total_memory) * 100;
+
+        self.metrics_hardware
             .get_or_create(&labels::LabelHardware {
                 hardware: labels::Hardware::Cpu,
             })
-            .set(usage);
-    }
-
-    // Sets CPU usage and Memory usage as percentage (0-100)
-    pub fn set_memory_usage(&self, usage: u64) {
-        self.metrics_hw
+            .set(usage_cpu);
+        self.metrics_hardware
             .get_or_create(&labels::LabelHardware {
                 hardware: labels::Hardware::Memory,
             })
-            .set(usage);
+            .set(usage_memory);
     }
 
-    pub fn update_attestation_delay_for(
-        &self,
-        lifecycle: labels::AttestationLifecycle,
-        delay: f64,
-    ) {
+    pub fn update_attestation_delay_production(&self, delay: f64) {
         self.metrics_delay
-            .get_or_create(&labels::LabelAttestationLifecycle { lifecycle })
+            .get_or_create(&labels::LabelAttestationLifecycle {
+                lifecycle: labels::AttestationLifecycle::Production,
+            })
+            .observe(delay);
+    }
+
+    pub fn update_attestation_delay_quorum(&self, delay: f64) {
+        self.metrics_delay
+            .get_or_create(&labels::LabelAttestationLifecycle {
+                lifecycle: labels::AttestationLifecycle::Quorum,
+            })
+            .observe(delay);
+    }
+
+    pub fn update_attestation_delay_finalization(&self, delay: f64) {
+        self.metrics_delay
+            .get_or_create(&labels::LabelAttestationLifecycle {
+                lifecycle: labels::AttestationLifecycle::Finalization,
+            })
             .observe(delay);
     }
 
@@ -222,6 +261,14 @@ impl Metrics {
                 peer_to_peer: labels::PeerToPeer::Count,
             })
             .inc();
+    }
+
+    pub fn decrease_peer_count(&self) {
+        self.metrics_p2p
+            .get_or_create(&labels::LabelPeerToPeer {
+                peer_to_peer: labels::PeerToPeer::Count,
+            })
+            .dec();
     }
 
     pub fn increase_gossipsub_message_count(&self) {
@@ -244,6 +291,14 @@ impl Metrics {
         self.metrics_error
             .get_or_create(&labels::LabelFailedState {
                 failed_state: labels::FailedState::Equivocation,
+            })
+            .inc();
+    }
+
+    pub fn increase_invalid_gossipsub_count(&self) {
+        self.metrics_error
+            .get_or_create(&labels::LabelFailedState {
+                failed_state: labels::FailedState::GossipsubMessage,
             })
             .inc();
     }

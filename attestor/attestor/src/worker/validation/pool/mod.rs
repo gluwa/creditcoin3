@@ -153,6 +153,8 @@ pub struct Config {
     /// [attestation config]: crate::attestation
     #[specify_later]
     start_height: common::types::Height,
+    #[specify_later]
+    metrics: common::types::Metrics,
 }
 
 // ----------------------------------------- [ Types ] ----------------------------------------- //
@@ -199,7 +201,7 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
         config.attestation_interval,
     );
 
-    let pool = AttestationPool::new(quorum, config.attestors);
+    let pool = AttestationPool::new(quorum, config.attestors, config.metrics);
 
     let common_send = std::sync::Arc::new(AttestationPoolCommon::new(pool, config.start_height));
     let common_recv = std::sync::Arc::clone(&common_send);
@@ -325,11 +327,18 @@ struct AttestationPoolInner {
     validate_quorum: ValidateQuorum,
     validate_attestor: Box<dyn ValidateAttestor>,
 
+    metrics: common::types::Metrics,
+    attestation_delay: std::collections::BTreeMap<common::types::Height, std::time::Instant>,
+
     wakers: std::collections::VecDeque<std::task::Waker>,
 }
 
 impl AttestationPool {
-    fn new(validate_quorum: ValidateQuorum, validate_attestor: Box<dyn ValidateAttestor>) -> Self {
+    fn new(
+        validate_quorum: ValidateQuorum,
+        validate_attestor: Box<dyn ValidateAttestor>,
+        metrics: common::types::Metrics,
+    ) -> Self {
         Self::Open(AttestationPoolInner {
             forks: AttestationPoolForks::new(),
             quorums: std::collections::VecDeque::new(),
@@ -337,6 +346,9 @@ impl AttestationPool {
 
             validate_quorum,
             validate_attestor,
+
+            metrics,
+            attestation_delay: std::collections::BTreeMap::new(),
 
             wakers: std::collections::VecDeque::new(),
         })
@@ -353,7 +365,13 @@ impl AttestationPool {
 
 impl AttestationPoolInner {
     #[tracing::instrument(skip_all, fields(digest = %attestation.digest()))]
-    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), Error> {
+    fn push(
+        &mut self,
+        attestation: common::types::Attestation,
+        now: std::time::Instant,
+    ) -> Result<(), Error> {
+        let height = attestation.header_number();
+
         tracing::debug!("Validating sender");
         self.validate_attestor.validate(&attestation)?;
 
@@ -366,7 +384,7 @@ impl AttestationPoolInner {
             return Err(Error::InvalidHeight(
                 attestation.attestor.clone(),
                 attestation.epoch,
-                attestation.header_number(),
+                height,
                 self.validate_quorum.target_height,
             ));
         }
@@ -377,13 +395,13 @@ impl AttestationPoolInner {
         if self
             .forks
             .invalid
-            .get(&attestation.header_number())
+            .get(&height)
             .is_some_and(|invalid| invalid.contains(&digest))
         {
             return Err(Error::InvalidDigest(
                 attestation.attestor.clone(),
                 attestation.epoch,
-                attestation.header_number(),
+                height,
                 digest,
             ));
         }
@@ -397,6 +415,8 @@ impl AttestationPoolInner {
             waker.wake();
         }
 
+        self.attestation_delay.insert(height, now);
+
         Ok(())
     }
 
@@ -404,8 +424,18 @@ impl AttestationPoolInner {
         match self.forks.peek() {
             Some(fork) if self.validate_quorum.validate(&fork) => {
                 let quorum = Quorum(fork.votes.clone());
-                let key = (fork.attestation.header_number(), fork.attestation.digest());
+                let height = fork.attestation.header_number();
+                let key = (height, fork.attestation.digest());
                 let permit = AttestationPermit(key);
+
+                let elapsed = self
+                    .attestation_delay
+                    .get(&height)
+                    .expect("Invariant violated, missing attestation insertion time")
+                    .elapsed();
+                self.metrics
+                    .update_attestation_delay_quorum(elapsed.as_secs_f64());
+
                 Some((quorum, permit))
             }
             _ => None,
@@ -669,7 +699,7 @@ impl AttestationPoolSender {
     pub fn send(&self, attestation: common::types::Attestation) -> Option<Result<(), Error>> {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             tracing::debug!("Inserting attestation into the inner pool");
-            Some(inner.push(attestation))
+            Some(inner.push(attestation, std::time::Instant::now()))
         } else {
             None
         }
@@ -724,6 +754,13 @@ impl AttestationPoolSender {
                 .is_some_and(|quorum| quorum.attestation.header_number <= latest_attestation_cc3)
             {
                 inner.quorums.pop_back();
+            }
+
+            // Update metrics
+            if let Some(then) = inner.attestation_delay.remove(&latest_attestation_cc3) {
+                inner
+                    .metrics
+                    .update_attestation_delay_finalization(then.elapsed().as_secs_f64());
             }
         }
     }

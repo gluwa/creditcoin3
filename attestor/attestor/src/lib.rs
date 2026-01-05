@@ -233,6 +233,19 @@ impl Attestor {
             .build();
         let rebroadcast = chain_listener::rebroadcast::Rebroadcast::new(config).await;
 
+        // ---------------------------------------* Metrics *--------------------------------------
+
+        let config = worker::api::metrics::ConfigBuilder::new()
+            .with_name(self.config.name)
+            .with_address(account_id.clone())
+            .with_peer_id(peer_id)
+            .with_chain_key(self.config.chain_key)
+            .with_attestation_latest_eth(eth.block_latest())
+            .with_attestation_latest_cc3(attestation_latest_cc3)
+            .with_attestation_interval(attestation_interval)
+            .build();
+        let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
+
         // ----------------------------------* Message passing *-------------------------------- //
 
         // P2P Subscriber changes
@@ -257,6 +270,7 @@ impl Attestor {
             .with_quorum(quorum)
             .with_start_height(start_height)
             .with_attestation_interval(attestation_interval)
+            .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let (validation_sender, validation_receiver) =
             worker::validation::pool::attestation_pool(config);
@@ -264,19 +278,6 @@ impl Attestor {
         // attestation production -> attestation validation
         let (attestation_latest_sender, attestation_latest_receiver) =
             tokio::sync::watch::channel(None);
-
-        // ---------------------------------------* Metrics *--------------------------------------
-
-        let config = worker::api::metrics::ConfigBuilder::new()
-            .with_name(self.config.name)
-            .with_address(account_id.clone())
-            .with_peer_id(peer_id)
-            .with_chain_key(self.config.chain_key)
-            .with_attestation_latest_eth(eth.block_latest())
-            .with_attestation_latest_cc3(attestation_latest_cc3)
-            .with_attestation_interval(attestation_interval)
-            .build();
-        let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
 
         // -----------------------------------------* API *----------------------------------------
 
@@ -328,6 +329,7 @@ impl Attestor {
             .with_api(api)
             .with_keypair(keypair_cc3)
             .with_start_height(start_height)
+            .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let attestation_validation = worker::validation::WorkerAttestationValidation::new(config);
         let handle_validation = monitor.spawn(attestation_validation);
@@ -344,7 +346,7 @@ impl Attestor {
             .with_sender_validation(validation_sender)
             .with_can_broadcast(can_broadcast_p2p)
             .with_chain_key(self.config.chain_key)
-            .with_metrics(std::sync::Arc::clone(&metrics))
+            .with_metrics(metrics)
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::WorkerError)?;
         let handle_p2p = monitor.spawn(p2p);

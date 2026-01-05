@@ -271,6 +271,7 @@ impl WorkerAttestationProduction {
         // STEP 1] GENERATE CONTINUITY PROOF
 
         let height = event.map_err(Error::EthError)?;
+        let now = std::time::Instant::now();
 
         tracing::debug!(height, "Generating attestation");
 
@@ -301,6 +302,10 @@ impl WorkerAttestationProduction {
             .cc3
             .sign_attestation(attestation, continuity_fragment, self.epoch)
             .await;
+
+        let elapsed = now.elapsed();
+        self.metrics
+            .update_attestation_delay_production(elapsed.as_secs_f64());
 
         let digest = attestation_signed.digest();
         let digest_prev = attestation_signed.prev_digest();

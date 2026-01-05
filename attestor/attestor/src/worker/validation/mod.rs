@@ -101,6 +101,7 @@ pub struct Config {
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
     keypair: subxt_signer::sr25519::Keypair,
     start_height: common::types::Height,
+    metrics: common::types::Metrics,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -122,6 +123,9 @@ pub(crate) struct WorkerAttestationValidation {
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
     start_height: common::types::Height,
+
+    // METRICS
+    metrics: common::types::Metrics,
 }
 
 impl WorkerAttestationValidation {
@@ -139,6 +143,8 @@ impl WorkerAttestationValidation {
             api_calls: config.api_calls,
             api: config.api,
             start_height: config.start_height,
+
+            metrics: config.metrics,
         }
     }
 }
@@ -245,6 +251,7 @@ impl WorkerAttestationValidation {
             // Remove the attestation from the pool, it will eventually be re-generated
             Some(Err(Error::InvalidAttestation(_))) => {
                 self.receiver_validation.mark_invalid(permit);
+                self.metrics.increase_invalid_attestation_count();
             }
             // CASE 4] EXTERNAL ERROR
             //
