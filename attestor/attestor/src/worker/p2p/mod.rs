@@ -497,7 +497,6 @@ impl WorkerP2P {
             } => {
                 tracing::info!(connection = %connection_id, "⛓️‍💥 Dialing");
                 tracing::info!(%peer_id, "⛓️‍💥 Connection closed");
-                tracing::warn!(%peer_id, "🚪 Removing disconnecting peer from the routing table");
 
                 let topic_attestation = self.topic.hash();
                 self.can_broadcast.store(
@@ -509,8 +508,6 @@ impl WorkerP2P {
                         .is_some(),
                     std::sync::atomic::Ordering::Release,
                 );
-
-                self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
             }
 
             // Failed to initialize a new connection with a remote peer
