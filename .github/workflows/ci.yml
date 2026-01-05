@@ -171,7 +171,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - proxy: build-creditcoin-node-for-testing-benchmarks
           - proxy: build-creditcoin-node-for-testing-ci
     uses: ./.github/workflows/deploy-runner.yml
     with:
@@ -179,17 +178,6 @@ jobs:
       LINODE_REGION: "nl-ams"
       LINODE_VM_SIZE: "g6-standard-4"
       proxy: ${{ matrix.proxy }}
-    secrets: inherit
-
-  build-creditcoin-node-for-testing-benchmarks:
-    needs:
-      - deploy-runner-build-creditcoin-for-testing
-    uses: ./.github/workflows/build-native.yml
-    with:
-      build-options: "--release --features=fast-runtime --features=runtime-benchmarks"
-      version-string: testing-benchmarks
-      cache-key-name: build-creditcoin-node
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-benchmarks']"
     secrets: inherit
 
   build-creditcoin-node-for-testing-ci:
@@ -319,16 +307,6 @@ jobs:
       proxy_type: ${{ matrix.proxy_type }}
     secrets: inherit
 
-  rm-gh-runner-benchmark:
-    needs:
-      - benchmark
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "benchmark"
-    secrets: inherit
-
   rm-gh-runner-attestator-network:
     needs:
       - integration-test-attestator-network
@@ -351,14 +329,12 @@ jobs:
 
   rm-gh-runner-build-creditcoin-node-for-testing:
     needs:
-      - build-creditcoin-node-for-testing-benchmarks
       - build-creditcoin-node-for-testing-ci
     if: ${{ always() }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - proxy: build-creditcoin-node-for-testing-benchmarks
           - proxy: build-creditcoin-node-for-testing-ci
     uses: ./.github/workflows/remove-runner.yml
     with:
@@ -1126,112 +1102,6 @@ jobs:
           name: "creditcoin3-node-logs"
           path: |
             /var/tmp/creditcoin3-node.log
-
-  deploy-runner-benchmark:
-    needs:
-      - build-creditcoin-node-for-testing-benchmarks
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "benchmark"
-    secrets: inherit
-
-  benchmark:
-    needs:
-      # because of the shared cache
-      - build-creditcoin-node-for-testing-benchmarks
-      - deploy-runner-benchmark
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-benchmark"]
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Inspect benchmark CI config
-        run: |
-          # WARNING: Command below may differ depending on which workflow config file
-          # your job is defined in !!! Don't copy&paste it blindly !!!
-          PALLETS_IN_CI_CONFIG=$(grep " .github/bench.sh -p" .github/workflows/ci.yml | grep -v PALLETS_IN_CI_CONFIG | tr -s ' ' | cut -d' ' -f4 | sort | xargs)
-
-          PALLETS_IN_SOURCE=$(.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets)
-          if [ "$PALLETS_IN_CI_CONFIG" != "$PALLETS_IN_SOURCE" ]; then
-              echo "FAIL: Pallet mismatch between source code and benchmark CI config"
-              echo "INFO: in source: '$PALLETS_IN_SOURCE'"
-              echo "INFO: CI config: '$PALLETS_IN_CI_CONFIG'"
-              exit 1
-          fi
-
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y curl
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-          components: rust-src
-
-      # use cache from previous build jobs
-      # WARNING: always before actions/download-artifact
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-
-      # WARNING: always after Swatinem/rust-cache
-      - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v7
-        with:
-          name: binary-for-testing-benchmarks
-          path: target/release
-
-      - name: DEBUG
-        continue-on-error: true
-        run: |
-          ls -l  ./target/
-          ls -lR ./target/release/
-          md5sum ./target/release/creditcoin3-node
-
-      - name: Check if runner machine meets chain's requirements
-        continue-on-error: true
-        run: |
-          chmod a+x ./target/release/creditcoin3-node
-          .github/check-hardware.sh
-
-      - name: Run benchmarks to generate dummy weights
-        run: |
-          .github/bench.sh -p attestation_poc -b -r 1 -s 2
-          .github/bench.sh -p randomness -b -r 1 -s 2
-          .github/bench.sh -p supported_chains -b -r 1 -s 2
-
-      - name: git diff
-        run: |
-          git diff
-
-      # check if automatically generated weights compile
-      - name: Rebuild SUT with newly generated weights
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   deploy-runner-cc3-indexer:
     needs:
