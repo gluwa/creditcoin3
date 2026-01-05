@@ -4,6 +4,15 @@ name: test-benchmarks
 "on":
   pull_request:
     branches: [main, testnet, poc_external_attestation_network]
+    paths:
+      - "pallets/**"
+      - "**weights.rs"
+      - "**benchmarking.rs"
+      - "**.toml"
+      - '**Cargo**'
+      - ".github/**bench**"
+      - ".github/check-hardware.sh"
+      - ".github/workflows/test-benchmarks.yml"
   workflow_dispatch:
 
 concurrency:
