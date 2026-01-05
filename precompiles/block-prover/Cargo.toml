@@ -43,10 +43,8 @@ sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
-sp-weights = { workspace = true }
 
 # Frontier
-fp-account = { workspace = true }
 fp-evm = { workspace = true }
 pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 
@@ -56,7 +54,6 @@ ethabi = { workspace = true, default-features = false }
 derive_more = { workspace = true }
 env_logger = { workspace = true }
 frame-election-provider-support = { workspace = true }
-hex = { workspace = true }
 pallet-attestation-poc = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
@@ -73,7 +70,6 @@ default = ["std"]
 std = [
     "log/std",
     "precompile-utils/std",
-    "fp-account/std",
     "fp-evm/std",
     "frame-support/std",
     "frame-system/std",
@@ -86,7 +82,6 @@ std = [
     "sp-io/std",
     "sp-runtime/std",
     "sp-std/std",
-    "sp-weights/std",
     "pallet-supported-chains/std",
     "pallet-attestation-poc/std",
     "attestor-primitives/std",

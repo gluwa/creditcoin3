@@ -21,7 +21,6 @@ serde = { workspace = true, features = [
 serde_json = { workspace = true, features = [
     "alloc",
 ], default-features = false }
-sp-io = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
 
 [dev-dependencies]
@@ -34,7 +33,6 @@ std = [
     "serde_json/std",
     "anyhow/std",
     "sp-std/std",
-    "sp-io/std",
     "fs2",
     "parity-scale-codec/std",
     "scale-info/std",

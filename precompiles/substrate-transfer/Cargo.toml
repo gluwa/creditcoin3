@@ -30,13 +30,10 @@ pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 
 [dev-dependencies]
 derive_more = { workspace = true }
-hex-literal = { workspace = true }
-libsecp256k1 = { workspace = true }
 pallet-timestamp = { workspace = true, features = ["std"] }
 precompile-utils = { workspace = true, features = ["std", "testing"] }
 scale-info = { workspace = true, features = ["derive"] }
 serde = { workspace = true }
-sha3 = { workspace = true }
 sp-runtime = { workspace = true, features = ["std"] }
 
 [features]

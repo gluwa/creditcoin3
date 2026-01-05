@@ -37,17 +37,13 @@ sp-runtime = { workspace = true }
 sp-std = { workspace = true }
 
 # Frontier
-fp-account = { workspace = true }
 fp-evm = { workspace = true }
 pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
-
-ethabi = { workspace = true, default-features = false }
 
 [dev-dependencies]
 derive_more = { workspace = true }
 env_logger = { workspace = true }
 frame-election-provider-support = { workspace = true }
-hex = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
@@ -63,7 +59,6 @@ runtime-benchmarks = []
 std = [
     "log/std",
     "precompile-utils/std",
-    "fp-account/std",
     "fp-evm/std",
     "frame-support/std",
     "frame-system/std",
@@ -83,5 +78,4 @@ std = [
     "sp-staking/std",
     "pallet-staking/std",
     "supported-chains-primitives/std",
-    "ethabi/std",
 ]

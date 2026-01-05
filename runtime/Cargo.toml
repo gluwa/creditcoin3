@@ -61,7 +61,6 @@ pallet-utility = { workspace = true }
 
 log = { workspace = true }
 # Frontier
-fp-account = { workspace = true }
 fp-evm = { workspace = true, features = ["serde"] }
 fp-rpc = { workspace = true }
 fp-self-contained = { workspace = true, features = ["serde"] }
@@ -79,7 +78,6 @@ pallet-hotfix-sufficients = { workspace = true }
 
 # Tracing
 ethereum = { workspace = true }
-evm-tracing-events = { workspace = true, optional = true }
 moonbeam-evm-tracer = { workspace = true, optional = true }
 moonbeam-rpc-primitives-debug = { workspace = true }
 
@@ -98,7 +96,10 @@ randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
 [build-dependencies]
-substrate-wasm-builder = { workspace = true, optional = true }
+substrate-wasm-builder = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = ["substrate-wasm-builder"]
 
 [features]
 default = ["std"]
@@ -150,7 +151,6 @@ std = [
     "sp-std/std",
     "sp-transaction-pool/std",
     "sp-version/std",
-    "substrate-wasm-builder",
     # Substrate FRAME
     "frame-benchmarking/std",
     "frame-election-provider-support/std",
@@ -185,7 +185,6 @@ std = [
     "fp-evm/std",
     "fp-rpc/std",
     "fp-self-contained/std",
-    "fp-account/std",
     # Frontier FRAME
     "pallet-base-fee/std",
     "pallet-dynamic-fee/std",
@@ -208,5 +207,4 @@ std = [
     "log/std",
     "pallet-randomness/std",
     "randomness-primitives/std",
-    "evm-tracing-events/std",
 ]

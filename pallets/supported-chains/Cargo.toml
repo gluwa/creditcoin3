@@ -10,6 +10,9 @@ version.workspace = true
 [lints.clippy]
 too_many_arguments = "allow"
 
+[package.metadata.cargo-machete]
+ignored = ["parity-scale-codec"]
+
 [dependencies]
 parity-scale-codec = { workspace = true, default-features = false }
 scale-info = { workspace = true }

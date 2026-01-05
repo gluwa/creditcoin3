@@ -110,6 +110,9 @@ supported-chains-primitives = { workspace = true }
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
 
+[package.metadata.cargo-machete]
+ignored = ["substrate-build-script-utils"]
+
 [features]
 default = ["creditcoin3-runtime", "rocksdb", "sql", "txpool"]
 rocksdb = [

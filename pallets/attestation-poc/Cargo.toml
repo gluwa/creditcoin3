@@ -30,14 +30,12 @@ pallet-balances = { workspace = true }
 attestor-primitives = { workspace = true }
 bls-signatures = { workspace = true, default-features = false }
 randomness-primitives = { workspace = true, default-features = false }
-serde = { workspace = true, default-features = false, features = ["derive"] }
 supported-chains-primitives = { workspace = true }
 
 [dev-dependencies]
 env_logger = { workspace = true }
 extend = "1.2.0"
 frame-election-provider-support = { workspace = true }
-hex = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-offences = { workspace = true }
@@ -77,7 +75,6 @@ std = [
     "pallet-supported-chains/std",
     "supported-chains-primitives/std",
     "bls-signatures/std",
-    "serde/std",
     "sp-staking/std",
     "frame-election-provider-support/std",
     "pallet-authorship/std",

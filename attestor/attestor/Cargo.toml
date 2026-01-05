@@ -75,7 +75,6 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 anyhow = { workspace = true }
 
 # other
-merkle = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true, features = ["std_rng"] }
 
