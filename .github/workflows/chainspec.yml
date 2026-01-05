@@ -4,6 +4,12 @@ name: chainspec
 "on":
   pull_request:
     branches: [main, testnet, poc_external_attestation_network]
+    paths:
+      - "runtime/**"
+      - "chainspecs/**"
+      - "cli/src/test/**ChainspecSetup.ts"
+      - "cli/src/test/blockchain-tests/**"
+      - ".github/workflows/chainspec.yml"
   workflow_dispatch:
 
 concurrency:
