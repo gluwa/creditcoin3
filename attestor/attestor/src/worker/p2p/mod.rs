@@ -331,14 +331,16 @@ impl WorkerP2P {
                         tracing::info!(%address, "📋 at");
                     }
                     self.metrics.increase_peer_count();
-                } else if let Some(peer) = old_peer {
-                    tracing::info!(peer_id = %peer, "📋 Removed peer from the routing table");
-                    self.metrics.decrease_peer_count();
                 } else {
                     tracing::info!("📋 Updated the addresses of a peer in the routing table");
                     for address in addresses.iter() {
                         tracing::info!(%address, "📋 at");
                     }
+                }
+
+                if let Some(peer) = old_peer {
+                    tracing::info!(peer_id = %peer, "📋 Removed peer from the routing table");
+                    self.metrics.decrease_peer_count();
                 }
             }
 

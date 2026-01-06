@@ -770,11 +770,16 @@ impl AttestationPoolSender {
             }
 
             // Update metrics
-            if let Some(then) = inner.attestation_delay.remove(&latest_attestation_cc3) {
-                inner
-                    .metrics
-                    .update_attestation_delay_finalization(then.elapsed().as_secs_f64());
-            }
+            inner.attestation_delay.retain(|height, then| {
+                if *height <= latest_attestation_cc3 {
+                    inner
+                        .metrics
+                        .update_attestation_delay_finalization(then.elapsed().as_secs_f64());
+                    false
+                } else {
+                    true
+                }
+            });
         }
     }
 
@@ -803,6 +808,7 @@ impl AttestationPoolSender {
             inner.forks.equivocations.clear();
             inner.forks.invalid.clear();
             inner.quorums.clear();
+            inner.attestation_delay.clear();
         }
     }
 

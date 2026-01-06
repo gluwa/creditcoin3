@@ -320,9 +320,7 @@ impl Metrics {
         tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
         sys.refresh_specifics(specifics);
 
-        let cpu_global = sys.global_cpu_usage() as f64;
-        let cpu_count = sys.cpus().len() as f64;
-        let usage_cpu = cpu_global / cpu_count * 100.0;
+        let usage_cpu = sys.global_cpu_usage() as f64;
 
         let total_memory = sys.total_memory() as f64;
         let used_memory = sys.used_memory() as f64;
