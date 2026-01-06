@@ -3,8 +3,8 @@ name: Check Testnet Snapshot
 
 on:
   schedule:
-    # at 8:30, on Tusday, 1st and 3rd week of the month
-    - cron: "30 8 1-7,15-21 * 2"
+    # at 08:30 on every 14th day-of-month
+    - cron: "30 8 */14 * *"
   workflow_dispatch:
 
 permissions: read-all
