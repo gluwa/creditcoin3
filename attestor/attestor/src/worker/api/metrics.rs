@@ -49,7 +49,7 @@ pub struct Metrics {
     /// [`update_hardware`]: Self::update_hardware
     pub metrics_hardware: prometheus_client::metrics::family::Family<
         labels::LabelHardware,
-        prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
+        prometheus_client::metrics::gauge::Gauge<f64, std::sync::atomic::AtomicU64>,
     >,
 
     /// Metrics which keep track of attestation production relative to the execution chain.
@@ -320,13 +320,13 @@ impl Metrics {
         tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
         sys.refresh_specifics(specifics);
 
-        let cpu_global = sys.global_cpu_usage();
-        let cpu_count = sys.cpus().len() as f32;
-        let usage_cpu = (cpu_global / cpu_count) as u64;
+        let cpu_global = sys.global_cpu_usage() as f64;
+        let cpu_count = sys.cpus().len() as f64;
+        let usage_cpu = cpu_global / cpu_count * 100.0;
 
-        let total_memory = sys.total_memory();
-        let used_memory = sys.used_memory();
-        let usage_memory = (used_memory / total_memory) * 100;
+        let total_memory = sys.total_memory() as f64;
+        let used_memory = sys.used_memory() as f64;
+        let usage_memory = (used_memory / total_memory) * 100.0;
 
         self.metrics_hardware
             .get_or_create(&labels::LabelHardware {
