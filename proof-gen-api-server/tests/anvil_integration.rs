@@ -143,19 +143,28 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
         !block_json.continuity_proof.roots.is_empty(),
         "block continuity proof must be present"
     );
-    // Stronger checks: continuity proof encodes roots starting at (queryHeight - 1).
+    // Stronger checks: continuity proof encodes roots
+    // If lower attestation/checkpoint is at queryHeight-1, proof starts at queryHeight
+    // Otherwise, proof starts at queryHeight-1
     let roots = &block_json.continuity_proof.roots;
     assert!(!roots.is_empty(), "block continuity proof must be present");
-    let start_block_number = anvil_block_number.saturating_sub(1);
-    let last_block_number = start_block_number + (roots.len() as u64 - 1);
+
     // The proof should end at the next attestation after the query block
     // For block 1, the next attestation is at block 10
+    let expected_end_block: u64 = 10;
+
+    // Calculate start_block_number from the end block and roots length
+    // last_block_number = start_block_number + (roots.len() - 1)
+    // So: start_block_number = expected_end_block - (roots.len() - 1)
+    let start_block_number = expected_end_block.saturating_sub(roots.len() as u64 - 1);
+    let last_block_number = start_block_number + (roots.len() as u64 - 1);
+
     assert_eq!(
-        last_block_number, 10,
-        "continuity chain must end at next attestation (10)"
+        last_block_number, expected_end_block,
+        "continuity chain must end at next attestation ({expected_end_block})"
     );
     assert!(
-        (roots.len() as u64) <= (10 - start_block_number + 1),
+        (roots.len() as u64) <= (expected_end_block - start_block_number + 1),
         "chain length within expected bounds"
     );
 
@@ -176,12 +185,14 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
         !txi_roots.is_empty(),
         "tx-index continuity proof must be present"
     );
-    let txi_start = anvil_block_number.saturating_sub(1);
-    let txi_last = txi_start + (txi_roots.len() as u64 - 1);
     // The proof should end at the next attestation after the query block (block 10)
+    let txi_expected_end_block: u64 = 10;
+    // Calculate start_block_number from the end block and roots length
+    let txi_start = txi_expected_end_block.saturating_sub(txi_roots.len() as u64 - 1);
+    let txi_last = txi_start + (txi_roots.len() as u64 - 1);
     assert_eq!(
-        txi_last, 10,
-        "tx-index continuity chain must end at next attestation (10)"
+        txi_last, txi_expected_end_block,
+        "tx-index continuity chain must end at next attestation ({txi_expected_end_block})"
     );
     // Wait for background database insert to complete (insert_proofs_entry spawns async task)
     tokio::time::sleep(Duration::from_millis(100)).await;

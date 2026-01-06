@@ -24,11 +24,98 @@ impl ContinuityBuilder {
         // Determine the starting digest for build_continuity_blocks
         // build_continuity_blocks expects the digest of the block BEFORE build_start
         let (build_start, start_digest) = if lower.block_number == required_start {
-            // Special case: lower attestation is at required_start, use prev_digest
+            // Special case: lower attestation/checkpoint is at required_start
             match lower.prev_digest {
-                Some(prev_digest) => (required_start, prev_digest),
+                Some(prev_digest) => {
+                    // Attestation case: prev_digest is available
+                    (required_start, prev_digest)
+                }
                 None => {
-                    bail!("Lower attestation has no prev_digest");
+                    // Checkpoint case: need to find previous checkpoint and build continuity
+                    // to get the digest of block (checkpoint_height - 1)
+                    // Special case: if checkpoint is at block 0, use zero digest (genesis block)
+                    if lower.block_number == 0 {
+                        // Genesis checkpoint: use zero digest as lower_endpoint_digest
+                        (required_start, sp_core::H256::default())
+                    } else {
+                        let checkpoints = self
+                            .cc_provider
+                            .get_checkpoints_for_chain(self.config.chain_key)
+                            .await
+                            .ok();
+                        let attestations = self.fetch_attestations().await.ok().unwrap_or_default();
+
+                        // Find previous checkpoint before lower.block_number
+                        let prev_checkpoint = checkpoints.as_ref().and_then(|cps| {
+                            cps.iter()
+                                .filter(|c| c.block_number < lower.block_number)
+                                .max_by_key(|c| c.block_number)
+                        });
+
+                        // Find previous attestation before lower.block_number
+                        let prev_attestation = attestations
+                            .iter()
+                            .filter(|a| a.attestation.header_number < lower.block_number)
+                            .max_by_key(|a| a.attestation.header_number);
+
+                        // Use the closest previous consensus point (highest block number)
+                        let (prev_block_number, prev_digest) = match (
+                            prev_checkpoint,
+                            prev_attestation,
+                        ) {
+                            (Some(c), Some(a)) => {
+                                if c.block_number > a.attestation.header_number {
+                                    (c.block_number, c.digest)
+                                } else {
+                                    (a.attestation.header_number, a.attestation.digest())
+                                }
+                            }
+                            (Some(c), None) => (c.block_number, c.digest),
+                            (None, Some(a)) => {
+                                (a.attestation.header_number, a.attestation.digest())
+                            }
+                            (None, None) => {
+                                return Err(anyhow!(
+                                    "No previous checkpoint or attestation found before checkpoint at block {}. Cannot build continuity proof.",
+                                    lower.block_number
+                                ));
+                            }
+                        };
+
+                        // Build continuity from previous consensus point to (checkpoint_height - 1)
+                        // to get the digest of block (checkpoint_height - 1)
+                        let target_height = lower.block_number.saturating_sub(1);
+                        let prev_block_digest = if prev_block_number == target_height {
+                            // Previous consensus point is exactly at target_height, use its digest directly
+                            prev_digest
+                        } else {
+                            // Build continuity chain from previous consensus point to target_height
+                            let intermediate_blocks = self
+                                .eth_provider
+                                .build_continuity_blocks(
+                                    prev_digest,
+                                    prev_block_number + 1,
+                                    target_height,
+                                )
+                                .await
+                                .context(
+                                    "Failed to build intermediate continuity blocks to get prev_digest",
+                                )?;
+
+                            // Get the digest of the last block (target_height = checkpoint_height - 1)
+                            intermediate_blocks
+                                .last()
+                                .map(|b| b.digest)
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "Failed to get digest of block {target_height} (checkpoint_height - 1)"
+                                )
+                            })?
+                        };
+
+                        // Build from required_start (checkpoint height), using digest of block (checkpoint_height - 1)
+                        (required_start, prev_block_digest)
+                    }
                 }
             }
         } else {

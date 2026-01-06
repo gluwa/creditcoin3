@@ -42,6 +42,7 @@ pub async fn verify_query(
 
     // Convert Vec<Block> to ContinuityProof for the optimized API
     let continuity_proof = ContinuityProof::from_blocks(continuity_blocks.clone());
+    tracing::debug!("Continuity proof: {:?}", continuity_proof);
 
     // Try to estimate gas (optional, may fail if continuity is not ready)
     let gas_estimate = verifier

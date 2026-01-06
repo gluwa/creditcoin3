@@ -81,17 +81,25 @@ impl ContinuityBuilder {
             });
 
         // Find checkpoint lower bound if checkpoints were provided
-        // Note: checkpoints don't have prev_digest, so it will be None
-        let checkpoint_lower = checkpoints.and_then(|cps| {
+        // If checkpoint is at required_before (query height = checkpoint height + 1),
+        // we need to find the previous checkpoint and build continuity to get the digest
+        // of block (checkpoint_height - 1) to use as lower_endpoint_digest
+        let checkpoint_lower = if let Some(cps) = checkpoints {
             cps.iter()
                 .filter(|c| c.block_number <= required_before)
                 .max_by_key(|c| c.block_number)
-                .map(|c| AttestationInfo {
-                    block_number: c.block_number,
-                    digest: c.digest,
-                    prev_digest: None,
+                .map(|c| {
+                    // If checkpoint is exactly at required_before, prev_digest will be computed
+                    // in build.rs by finding the previous checkpoint and building continuity
+                    AttestationInfo {
+                        block_number: c.block_number,
+                        digest: c.digest,
+                        prev_digest: None, // Will be computed in build.rs if needed
+                    }
                 })
-        });
+        } else {
+            None
+        };
 
         // Choose the closest one (highest block number)
         match (attestation_lower, checkpoint_lower) {
