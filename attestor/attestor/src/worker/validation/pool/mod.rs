@@ -378,11 +378,7 @@ impl AttestationPool {
 
 impl AttestationPoolInner {
     #[tracing::instrument(skip_all, fields(digest = %attestation.digest()))]
-    fn push(
-        &mut self,
-        attestation: common::types::Attestation,
-        now: std::time::Instant,
-    ) -> Result<(), Error> {
+    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), Error> {
         let height = attestation.header_number();
 
         tracing::debug!("Validating sender");
@@ -423,12 +419,18 @@ impl AttestationPoolInner {
 
         self.forks.push(attestation)?;
 
+        tracing::trace!("Updating metrics");
+
+        if let std::collections::btree_map::Entry::Vacant(entry) =
+            self.attestation_delay.entry(height)
+        {
+            entry.insert(std::time::Instant::now());
+        }
+
         if let Some(waker) = self.wakers.pop_back() {
             tracing::debug!("A receiver was found waiting, waking it up...");
             waker.wake();
         }
-
-        self.attestation_delay.insert(height, now);
 
         Ok(())
     }
@@ -712,7 +714,7 @@ impl AttestationPoolSender {
     pub fn send(&self, attestation: common::types::Attestation) -> Option<Result<(), Error>> {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             tracing::debug!("Inserting attestation into the inner pool");
-            Some(inner.push(attestation, std::time::Instant::now()))
+            Some(inner.push(attestation))
         } else {
             None
         }
