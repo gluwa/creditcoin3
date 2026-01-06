@@ -740,6 +740,8 @@ fn test_empty_continuity_chain_reverts_with_message() {
         let tx_data = vec![0u8; 32];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
 
+        // Empty continuity proof - find_query_block_index will return None, failing with
+        // "Query block not found in continuity chain" (empty check is redundant)
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -752,7 +754,7 @@ fn test_empty_continuity_chain_reverts_with_message() {
                     continuity_proof: ContinuityProof::from_blocks(vec![]), // Empty!
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain cannot be empty");
+            .execute_reverts(|output| output == b"Query block not found in continuity chain");
     });
 }
 

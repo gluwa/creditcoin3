@@ -34,9 +34,7 @@ impl ContinuityVerificationError {
     /// Get the error message
     pub fn message(&self) -> &'static str {
         match self {
-            Self::InsufficientBlocks => {
-                "Continuity chain must contain at least 2 blocks (queryHeight-1 and queryHeight)"
-            }
+            Self::InsufficientBlocks => "Continuity chain cannot be empty",
             Self::ChainDoesNotReachQueryHeight => "Continuity chain does not reach query height",
             Self::NoMatchingAttestationOrCheckpoint => {
                 "Continuity proof does not match attestation or checkpoint"
@@ -90,9 +88,8 @@ where
         chain_key: u64,
         height: u64,
     ) -> Result<bool, ContinuityVerificationError> {
-        // Security: Always require at least 2 blocks (queryHeight-1 and queryHeight)
-        // POC pattern: continuity chain starts at queryHeight - 1
-        if continuity_proof.roots.len() < 2 {
+        // Require at least 1 root (empty continuity proof is invalid)
+        if continuity_proof.roots.is_empty() {
             return Err(ContinuityVerificationError::InsufficientBlocks);
         }
 

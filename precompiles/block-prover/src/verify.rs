@@ -154,6 +154,8 @@ where
         let tx_bytes: Vec<u8> = encoded_transaction.into();
 
         // Validate inputs
+        // Note: Technically redundant - Merkle proof verification would fail if proof doesn't match,
+        // but this provides clearer error messages for empty transaction data
         if tx_bytes.is_empty() {
             debug!(
                 "Empty transaction data submitted for query: chain_key={chain_key}, height={height}"
@@ -165,20 +167,41 @@ where
             });
         }
 
-        // Check for empty continuity chain
-        if continuity_proof.roots.is_empty() {
-            debug!("Empty continuity chain for query: chain_key={chain_key}, height={height}");
-            return Err(PrecompileFailure::Revert {
-                output: encode_revert_message("Continuity chain cannot be empty"),
-                exit_status: ExitRevert::Reverted,
-            });
-        }
-
         // Gas costs (CONTINUITY_BLOCK_HASH_COST) already account for all computational work
         // No separate weight tracking needed - gas is the single source of truth for resource consumption
 
-        // Step 1: Verify continuity proof chain first (gas charged inside, computes digests on-chain)
-        // This validates the chain structure and computes digests before we check the query block
+        // Step 1: Verify merkle proof for the transaction (gas charged inside)
+        // Verify the cheaper operation first - if Merkle proof fails, we can fail fast
+        // without computing expensive continuity chain digests
+        if !Self::verify_merkle_proof(handle, &merkle_proof, &tx_bytes)? {
+            debug!("Merkle proof validation failed for chain_key={chain_key}, height={height}");
+            return Self::revert_with_message("Merkle proof validation failed");
+        }
+
+        // Step 2: Verify the query block exists in continuity proof and merkle root matches
+        // Check that continuity proof contains the Merkle root before verifying continuity chain
+        // Note: Empty continuity proof check is redundant here - find_query_block_index will return None
+        // if roots.is_empty(), which will fail with "Query block not found in continuity chain"
+        let query_block_idx = match continuity_proof
+            .find_query_block_index(start_block_number, height)
+        {
+            Some(idx) => idx,
+            None => return Self::revert_with_message("Query block not found in continuity chain"),
+        };
+
+        // Verify that the continuity proof's root matches the Merkle proof's root
+        // For single queries: query_block_idx is typically 1 (roots[0] is at height-1, roots[1] is at height)
+        // but could be different if continuity proof starts earlier
+        let query_root = &continuity_proof.roots[query_block_idx];
+        if *query_root != merkle_proof.root {
+            return Self::revert_with_message("Merkle root mismatch");
+        }
+
+        // Step 3: Verify continuity proof chain (gas charged inside, computes digests on-chain)
+        // This validates the chain structure and verifies digests match attestations/checkpoints
+        // We do this last since it's the most expensive operation, but now we know:
+        // - Merkle proof is valid
+        // - Continuity proof contains the correct root
         if let Err(err) = crate::BlockProverPrecompile::<Runtime>::verify_continuity_chain(
             handle,
             &continuity_proof,
@@ -187,27 +210,6 @@ where
             height,
         ) {
             return Self::revert_with_message(err.message());
-        }
-
-        // Step 2: Verify merkle proof for the transaction (gas charged inside)
-        if !Self::verify_merkle_proof(handle, &merkle_proof, &tx_bytes)? {
-            debug!("Merkle proof validation failed for chain_key={chain_key}, height={height}");
-            return Self::revert_with_message("Merkle proof validation failed");
-        }
-
-        // Step 3: Verify the query block exists and merkle root matches
-        // verify_continuity_chain already verifies all block digests are correct,
-        // so we just need to verify the merkle root matches
-        let query_block_idx = match continuity_proof
-            .find_query_block_index(start_block_number, height)
-        {
-            Some(idx) => idx,
-            None => return Self::revert_with_message("Query block not found in continuity chain"),
-        };
-
-        let query_root = &continuity_proof.roots[query_block_idx];
-        if *query_root != merkle_proof.root {
-            return Self::revert_with_message("Merkle root mismatch");
         }
 
         // Emit TransactionVerified event on success
@@ -294,19 +296,19 @@ where
         let min_height = min_height.unwrap();
         let max_height = max_height.unwrap();
 
-        // Check for empty continuity proof
-        if shared_continuity_proof.roots.is_empty() {
-            debug!("Empty continuity proof for batch queries");
-            return Err(PrecompileFailure::Revert {
-                output: encode_revert_message("Continuity proof cannot be empty"),
-                exit_status: ExitRevert::Reverted,
-            });
-        }
-
         // For batch queries: roots[0] is at min(queryHeights)-1
         let start_block_number = min_height.saturating_sub(1);
 
         // Verify continuity chain covers the range of all queries
+        // Note: Empty continuity proof check is redundant - if roots.is_empty(), then
+        // last_block_number calculation would underflow. We check this explicitly to avoid panic.
+        if shared_continuity_proof.roots.is_empty() {
+            return Err(PrecompileFailure::Revert {
+                output: encode_revert_message("Continuity chain cannot be empty"),
+                exit_status: ExitRevert::Reverted,
+            });
+        }
+
         let first_block_number = start_block_number;
         if first_block_number > min_height {
             return Err(PrecompileFailure::Revert {
@@ -331,6 +333,7 @@ where
         // Verify the continuity chain itself (gas charged inside)
         // For batch queries, we need to ensure the chain reaches at least max_height
         // and ends at an attestation/checkpoint
+        // Note: verify_continuity_chain will check for empty roots internally
         if let Err(err) = Self::verify_continuity_chain(
             handle,
             &shared_continuity_proof,
@@ -369,15 +372,17 @@ where
             // Gas costs already account for all computational work - no separate weight tracking needed
 
             // 1. Verify Merkle proof for transaction inclusion (gas charged inside)
+            // Verify the cheaper operation first - if Merkle proof fails, we can fail fast
             if !Self::verify_merkle_proof(handle, &merkle_proof, &tx_bytes)? {
                 debug!("Merkle proof validation failed for query at height {height}");
                 // Don't emit events on failure (as per user requirement)
                 return Self::revert_with_message("Merkle proof validation failed");
             }
 
-            // 2. Verify query block exists and merkle root matches
-            // verify_continuity_chain already verifies all block digests are correct,
-            // so we just need to verify the merkle root matches
+            // 2. Verify query block exists in continuity proof and merkle root matches
+            // Check that continuity proof contains the Merkle root
+            // Note: Empty continuity proof check is redundant - find_query_block_index will return None
+            // if roots.is_empty(), which will fail with "Query block not found in continuity chain"
             let query_block_idx = match shared_continuity_proof
                 .find_query_block_index(start_block_number, height)
             {
@@ -387,6 +392,8 @@ where
                 }
             };
 
+            // Verify that the continuity proof's root matches the Merkle proof's root
+            // For batch queries: query_block_idx depends on the query height relative to min_height
             let query_root = &shared_continuity_proof.roots[query_block_idx];
             if *query_root != merkle_proof.root {
                 debug!("Merkle root mismatch for query at height {height}");

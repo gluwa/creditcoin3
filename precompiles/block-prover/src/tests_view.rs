@@ -108,6 +108,8 @@ fn test_verify_query_view_empty_continuity_chain() {
         let merkle_proof = create_simple_merkle_proof(&tx_data);
 
         // Empty continuity blocks should cause a revert
+        // Note: Empty check is redundant - find_query_block_index will return None for empty roots,
+        // which fails with "Query block not found in continuity chain"
         let continuity_blocks = vec![];
 
         precompiles()
@@ -122,7 +124,7 @@ fn test_verify_query_view_empty_continuity_chain() {
                     continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
                 },
             )
-            .execute_reverts(|output| output == b"Continuity chain cannot be empty");
+            .execute_reverts(|output| output == b"Query block not found in continuity chain");
     });
 }
 
