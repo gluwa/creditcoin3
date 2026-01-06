@@ -10,6 +10,20 @@
  *   --api-url <url>        Proof API server URL (default: http://localhost:3100)
  *   --cc3-rpc-url <url>    Creditcoin3 RPC URL (default: http://localhost:9944)
  *   --precompile-addr <addr> Precompile address (default: 0x0000000000000000000000000000000000000FD2)
+ *   -v, --verbose          Enable verbose logging (shows API response details)
+ *
+ * Verbose Logging:
+ *   When enabled with -v or --verbose, the script will output:
+ *   - The exact API URL being called
+ *   - HTTP response status and headers
+ *   - Complete API response JSON (including continuity_proof, merkle_proof, tx_bytes, etc.)
+ *   - Error response bodies if API calls fail
+ *
+ *   This is useful for debugging proof structure issues, comparing API responses,
+ *   and understanding the continuity proof format.
+ *
+ *   Example:
+ *     node SubmitProof.js 3 9986381 0x... --private-key 0x... -v
  */
 
 const { ethers } = require('ethers');
@@ -32,6 +46,7 @@ function parseArgs() {
         apiUrl: DEFAULT_API_URL,
         cc3RpcUrl: DEFAULT_CC3_HTTP_URL,
         precompileAddr: DEFAULT_PRECOMPILE_ADDRESS,
+        verbose: false,
     };
 
     let i = 0;
@@ -44,6 +59,8 @@ function parseArgs() {
             options.cc3RpcUrl = args[++i];
         } else if (args[i] === '--precompile-addr' && i + 1 < args.length) {
             options.precompileAddr = args[++i];
+        } else if (args[i] === '-v' || args[i] === '--verbose') {
+            options.verbose = true;
         } else if (!options.chainKey) {
             options.chainKey = args[i];
         } else if (!options.blockHeight) {
@@ -63,6 +80,7 @@ function parseArgs() {
         console.error(
             '  --precompile-addr <addr> Precompile address (default: 0x0000000000000000000000000000000000000FD2)',
         );
+        console.error('  -v, --verbose          Enable verbose logging (shows API response details)');
         process.exit(1);
     }
 
@@ -80,8 +98,18 @@ async function main() {
     try {
         // Fetch proof from API
         console.log('Fetching proof from API...');
-        const apiProof = await fetchProof(options.apiUrl, options.chainKey, options.txHash);
+        const apiProof = await fetchProof(options.apiUrl, options.chainKey, options.txHash, 5, 2000, options.verbose);
         console.log(`✓ Proof fetched (cached: ${apiProof.cached})\n`);
+
+        // Log full API response in verbose mode
+        // This includes the complete proof structure: continuity_proof (with all blocks),
+        // merkle_proof (with siblings), tx_bytes, and metadata
+        if (options.verbose) {
+            console.log('=== API Response (Verbose) ===');
+            console.log('Full API response JSON:');
+            console.log(JSON.stringify(apiProof, null, 2));
+            console.log('');
+        }
 
         // Get transaction bytes
         if (!apiProof.tx_bytes) {

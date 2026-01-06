@@ -156,10 +156,49 @@ node SubmitProof.js 2 18000000 0x1234...abcd \
 - `--private-key <key>` - Private key for signing transactions (required)
 - `--api-url <url>` - Proof generation API server URL (default: http://localhost:3100)
 - `--cc3-rpc-url <url>` - Creditcoin3 RPC URL (default: http://localhost:9944)
-- `--precompile-addr <addr>` - Precompile address (default: 0x0000000000000000000000000000000000000FD2)
+- `--precompile-addr <addr>` - Precompile address (default: 0x0000000000000000000000000000000FD2)
+- `-v, --verbose` - Enable verbose logging (shows API response details)
 
 **What it does:**
 
 1. Requests a proof from the proof-gen-api-server using the transaction hash
 2. Converts the proof format to match the precompile interface
 3. Submits the proof to the block-prover precompile using `verifyAndEmit`
+
+**Verbose Logging:**
+
+When enabled with `-v` or `--verbose`, the script outputs detailed debugging information:
+
+- **API Request Details:**
+  - The exact API URL being called
+  - HTTP response status code and status text
+  - Response headers
+
+- **Full API Response:**
+  - Complete JSON response from the proof API, including:
+    - `continuity_proof` - All blocks in the continuity chain with their digests
+    - `merkle_proof` - Merkle proof structure with siblings
+    - `tx_bytes` - Raw transaction bytes
+    - `chain_key`, `header_number`, `tx_index`, `tx_hash` - Transaction metadata
+    - `cached` - Whether the proof was cached
+    - `generated_at` - Timestamp when the proof was generated
+
+- **Error Details:**
+  - Full error response bodies if API calls fail
+
+**Use Cases:**
+
+- **Debugging proof structure issues** - Inspect the continuity proof format and block digests
+- **Comparing API responses** - See how proofs differ between API versions or requests
+- **Understanding proof format** - Learn the structure of continuity proofs and merkle proofs
+- **Troubleshooting API connectivity** - Verify API endpoints and response formats
+
+**Example with verbose logging:**
+
+```bash
+node SubmitProof.js 3 9986381 0xd93880ebc927784c9ab2605d319a1e4ff78c3d91e7d744012ee2defae273f85f \
+  --private-key 0x1234...5678 \
+  --api-url https://proof-gen-api.usc-devnet.creditcoin.network \
+  --cc3-rpc-url https://rpc.usc-devnet.creditcoin.network \
+  -v
+```

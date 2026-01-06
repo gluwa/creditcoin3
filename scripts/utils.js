@@ -94,7 +94,7 @@ async function waitForAttestation(api, chainKey, blockNumber, maxWaitTime = 3000
 
                     // Check for BlockAttested event
                     if (event.section === 'attestation' && event.method === 'BlockAttested') {
-                        const [eventChainKey, headerNumber, digest] = event.data;
+                        const [eventChainKey, headerNumber, _digest] = event.data;
                         const attestedChainKey = eventChainKey.toNumber();
                         const attestedBlockNumber = headerNumber.toNumber();
 
@@ -179,20 +179,63 @@ async function waitForCreditcoin3Blocks(api, numBlocks = 2) {
 }
 
 // Proof Functions
-async function fetchProof(apiUrl, chainKey, txHash, maxRetries = 5, initialDelay = 2000) {
+
+/**
+ * Fetch proof from the proof generation API
+ *
+ * @param {string} apiUrl - Base URL of the proof API server
+ * @param {number|string} chainKey - Chain key identifier
+ * @param {string} txHash - Transaction hash to fetch proof for
+ * @param {number} maxRetries - Maximum number of retry attempts (default: 5)
+ * @param {number} initialDelay - Initial delay between retries in ms (default: 2000)
+ * @param {boolean} verbose - Enable verbose logging (default: false)
+ * @returns {Promise<Object>} Proof object containing continuity_proof, merkle_proof, and tx_bytes
+ *
+ * @description
+ * Verbose logging (when verbose=true) outputs:
+ * - The exact API URL being called
+ * - HTTP response status code and status text
+ * - Response headers
+ * - Success confirmation when response is received
+ * - Error response bodies if API calls fail
+ *
+ * This is useful for debugging API connectivity issues and understanding
+ * the proof structure returned by the API.
+ */
+async function fetchProof(apiUrl, chainKey, txHash, maxRetries = 5, initialDelay = 2000, verbose = false) {
     const url = `${apiUrl}/api/v1/proof-by-tx/${chainKey}/${txHash}`;
+
+    if (verbose) {
+        console.log(`API URL: ${url}`);
+    }
 
     let lastError = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
             const response = await fetch(url);
 
+            // Verbose logging: Show HTTP response details
+            if (verbose) {
+                console.log(`Response status: ${response.status} ${response.statusText}`);
+                console.log(`Response headers:`, Object.fromEntries(response.headers.entries()));
+            }
+
             if (response.ok) {
-                return await response.json();
+                const jsonData = await response.json();
+                // Verbose logging: Confirm successful response reception
+                if (verbose) {
+                    console.log('API Response received successfully');
+                }
+                return jsonData;
             }
 
             // Read error text once (response body can only be consumed once)
             const errorText = await response.text();
+
+            // Verbose logging: Show error response body for debugging
+            if (verbose) {
+                console.log(`Error response body: ${errorText}`);
+            }
 
             // If it's a 500 error about missing attestation/checkpoint, retry
             if (response.status === 500) {
