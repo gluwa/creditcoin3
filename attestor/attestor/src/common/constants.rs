@@ -35,7 +35,7 @@ pub const DEFAULT_P2P_PORT: u16 = 9000;
 /// Default port used for the `/metrics` enpoint in the [`api worker`].
 ///
 /// [`api worker`]: crate::worker::api
-pub const DEFAULT_METRICS_PORT: u16 = 8080;
+pub const DEFAULT_METRICS_PORT: u16 = 9100;
 
 /// Header used for the `/metrics` enpoint in the [`api worker`].
 ///

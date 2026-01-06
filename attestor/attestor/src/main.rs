@@ -198,7 +198,7 @@ impl Config {
                     .long_help(
                         "Prometheus metrics port. \
                         Exposes a /metrics endpoints to query OpenTelemetry-style metrics \
-                        about the attestor's operationnal state."
+                        about the attestor's operational state."
                     )
                     .env("ATTESTOR_METRICS_PORT")
                     .required(false)
