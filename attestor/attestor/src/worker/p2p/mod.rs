@@ -205,34 +205,32 @@ impl WorkerP2P {
 
 impl super::Worker for WorkerP2P {
     #[tracing::instrument(name = "p2p_engine", skip_all)]
-    fn task(
+    async fn task(
         mut self,
         mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
-    ) -> impl std::future::Future<Output = common::types::Result<()>> {
-        async move {
-            use futures::StreamExt as _;
+    ) -> common::types::Result<()> {
+        use futures::StreamExt as _;
 
-            // Tell the swarm to listen on all interfaces on the configured port.
-            // Default port is 9000, which is useful for Kubernetes LoadBalancer services.
-            self.swarm.listen_on(self.listen_addr.clone())?;
+        // Tell the swarm to listen on all interfaces on the configured port.
+        // Default port is 9000, which is useful for Kubernetes LoadBalancer services.
+        self.swarm.listen_on(self.listen_addr.clone())?;
 
-            loop {
-                let can_broadcast = self
-                    .can_broadcast
-                    .load(std::sync::atomic::Ordering::Acquire);
+        loop {
+            let can_broadcast = self
+                .can_broadcast
+                .load(std::sync::atomic::Ordering::Acquire);
 
-                tokio::select! {
-                    biased;
+            tokio::select! {
+                biased;
 
-                    _ = &mut shutdown => {
-                        break self.handle_event_shutdown().await;
-                    }
-                    attestation = self.receiver_p2p.recv(), if can_broadcast => {
-                        self.handle_event_attestation(attestation).await?;
-                    }
-                    event = self.swarm.select_next_some() => {
-                        self.handle_event_p2p(event).await?;
-                    }
+                _ = &mut shutdown => {
+                    break self.handle_event_shutdown().await;
+                }
+                attestation = self.receiver_p2p.recv(), if can_broadcast => {
+                    self.handle_event_attestation(attestation).await?;
+                }
+                event = self.swarm.select_next_some() => {
+                    self.handle_event_p2p(event).await?;
                 }
             }
         }

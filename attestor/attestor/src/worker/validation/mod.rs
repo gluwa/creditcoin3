@@ -151,27 +151,25 @@ impl WorkerAttestationValidation {
 
 impl super::Worker for WorkerAttestationValidation {
     #[tracing::instrument(name = "validation", skip_all)]
-    fn task(
+    async fn task(
         mut self,
         mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
-    ) -> impl std::future::Future<Output = common::types::Result<()>> {
-        async move {
-            use futures::StreamExt as _;
+    ) -> common::types::Result<()> {
+        use futures::StreamExt as _;
 
-            loop {
-                tokio::select! {
-                    biased;
+        loop {
+            tokio::select! {
+                biased;
 
-                    _ = &mut shutdown => {
-                        break self.handle_event_shutdown().await;
-                    }
-                    event = &mut self.watch_submission => {
-                        self.handle_event_submission(event).await?;
-                    }
-                    event = self.receiver_validation.next() => {
-                        self.handle_event_quorum(event).await?;
-                    },
+                _ = &mut shutdown => {
+                    break self.handle_event_shutdown().await;
                 }
+                event = &mut self.watch_submission => {
+                    self.handle_event_submission(event).await?;
+                }
+                event = self.receiver_validation.next() => {
+                    self.handle_event_quorum(event).await?;
+                },
             }
         }
     }

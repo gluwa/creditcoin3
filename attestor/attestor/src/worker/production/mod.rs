@@ -228,31 +228,29 @@ impl WorkerAttestationProduction {
 
 impl super::Worker for WorkerAttestationProduction {
     #[tracing::instrument(name = "production", skip_all)]
-    fn task(
+    async fn task(
         mut self,
         mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
-    ) -> impl std::future::Future<Output = common::types::Result<()>> {
-        async move {
-            loop {
-                let can_broadcast = self
-                    .can_broadcast
-                    .load(std::sync::atomic::Ordering::Acquire);
+    ) -> common::types::Result<()> {
+        loop {
+            let can_broadcast = self
+                .can_broadcast
+                .load(std::sync::atomic::Ordering::Acquire);
 
-                tokio::select! {
-                    biased;
+            tokio::select! {
+                biased;
 
-                    _ = &mut shutdown => {
-                        break self.handle_event_shutdown().await;
-                    }
-                    Some(event) = self.cc3.next() => {
-                        self.handle_event_cc3(event).await?;
-                    }
-                    Some(event) = self.rebroadcast.next(), if self.can_attest && can_broadcast => {
-                        self.handle_event_rebroadcast(event).await?;
-                    }
-                    Some(event) = self.eth.next(), if self.can_attest => {
-                        self.handle_event_eth(event).await?;
-                    }
+                _ = &mut shutdown => {
+                    break self.handle_event_shutdown().await;
+                }
+                Some(event) = self.cc3.next() => {
+                    self.handle_event_cc3(event).await?;
+                }
+                Some(event) = self.rebroadcast.next(), if self.can_attest && can_broadcast => {
+                    self.handle_event_rebroadcast(event).await?;
+                }
+                Some(event) = self.eth.next(), if self.can_attest => {
+                    self.handle_event_eth(event).await?;
                 }
             }
         }

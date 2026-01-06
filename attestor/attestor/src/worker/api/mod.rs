@@ -42,31 +42,29 @@ impl WorkerApi {
 }
 
 impl super::Worker for WorkerApi {
-    fn task(
+    async fn task(
         self,
         shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
-    ) -> impl std::future::Future<Output = common::types::Result<()>> {
-        async move {
-            let state = AppState {
-                metrics: self.metrics,
-            };
+    ) -> common::types::Result<()> {
+        let state = AppState {
+            metrics: self.metrics,
+        };
 
-            let router = axum::Router::new()
-                .route("/metrics", axum::routing::get(handle_metrics))
-                .with_state(std::sync::Arc::new(state));
+        let router = axum::Router::new()
+            .route("/metrics", axum::routing::get(handle_metrics))
+            .with_state(std::sync::Arc::new(state));
 
-            let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.port)).await?;
-            let address = listener.local_addr().unwrap();
+        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.port)).await?;
+        let address = listener.local_addr().unwrap();
 
-            tracing::info!(?address, "📌 Staring api server");
+        tracing::info!(?address, "📌 Staring api server");
 
-            tokio::select! {
-                res = axum::serve(listener, router) => res?,
-                _ = shutdown => {}
-            }
-
-            Ok(())
+        tokio::select! {
+            res = axum::serve(listener, router) => res?,
+            _ = shutdown => {}
         }
+
+        Ok(())
     }
 }
 
