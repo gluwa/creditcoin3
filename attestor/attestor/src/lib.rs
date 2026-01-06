@@ -240,6 +240,7 @@ impl Attestor {
             .with_address(account_id.clone())
             .with_peer_id(peer_id)
             .with_chain_key(self.config.chain_key)
+            .with_start_height(start_height)
             .with_attestation_latest_eth(eth.block_latest())
             .with_attestation_latest_cc3(attestation_latest_cc3)
             .with_attestation_interval(attestation_interval)

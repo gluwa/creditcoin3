@@ -1334,6 +1334,7 @@ pub mod fixtures {
             .with_address(cc_client::AccountId32([0; 32]))
             .with_peer_id(libp2p::PeerId::random())
             .with_chain_key(2u64)
+            .with_start_height(common::types::Height::MIN)
             .with_attestation_latest_eth(common::types::Height::MIN)
             .with_attestation_latest_cc3(common::types::Height::MIN)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
