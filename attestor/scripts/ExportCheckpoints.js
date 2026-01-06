@@ -9,9 +9,9 @@ async function main() {
     if (!sourceChain) {
         throw new Error('SOURCE_CHAIN not found in .env file');
     }
-    const chainKey = process.env.CHAIN_KEY_ON_TARGET;
+    const chainKey = process.env.CHAIN_KEY_ON_SOURCE;
     if (!chainKey) {
-        throw new Error('CHAIN_KEY_ON_TARGET not found in .env file');
+        throw new Error('CHAIN_KEY_ON_SOURCE not found in .env file');
     }
 
     // Connect to a Substrate node
