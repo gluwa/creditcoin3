@@ -1,8 +1,20 @@
-mod error;
-pub(crate) mod metrics;
+//! Public API endpoints for the attestor binary. By default endpoints are exposed on
+//! [`DEFAULT_METRICS_PORT`].
+//!
+//! # Endpoints
+//!
+//! ## `/metrics`
+//!
+//! [Prometheus] metrics endpoint, follows the [openmetrics] standard, see [`metrics`] for more
+//! information.
+//!
+//! [`DEFAULT_METRICS_PORT`]: common::constants::DEFAULT_METRICS_PORT
+//! [Prometheus]: prometheus_client
+//! [openmetrics]: https://openmetrics.io/
+
+pub mod metrics;
 
 use crate::prelude::*;
-pub use error::*;
 
 #[derive(attestor_macro::Builder)]
 pub struct Config {
@@ -42,10 +54,11 @@ impl super::Worker for WorkerApi {
             let router = axum::Router::new()
                 .route("/metrics", axum::routing::get(handle_metrics))
                 .with_state(std::sync::Arc::new(state));
+
             let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.port)).await?;
             let address = listener.local_addr().unwrap();
 
-            tracing::info!(?address, "📌 Staring metrics server");
+            tracing::info!(?address, "📌 Staring api server");
 
             tokio::select! {
                 res = axum::serve(listener, router) => res?,
@@ -60,7 +73,6 @@ impl super::Worker for WorkerApi {
 async fn handle_metrics(
     axum::extract::State(state): axum::extract::State<std::sync::Arc<AppState>>,
 ) -> impl axum::response::IntoResponse {
-    // Update hardware metrics before encoding
     state.metrics.update_hardware().await;
 
     let mut buffer = String::new();
@@ -70,7 +82,7 @@ async fn handle_metrics(
         .status(axum::http::StatusCode::OK)
         .header(
             axum::http::header::CONTENT_TYPE,
-            "application/openmetrics-text; version=1.0.0; charset=utf-8",
+            common::constants::METRICS_HEADER,
         )
         .body(axum::body::Body::from(buffer))
         .unwrap()

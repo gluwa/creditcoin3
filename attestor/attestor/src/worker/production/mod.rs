@@ -1,4 +1,3 @@
-#![doc = include_str!("../../../../mermaid.html")]
 //! A [`Worker`] thread responsible for the production of new attestations.
 //!
 //! # Ethereum Data
@@ -21,6 +20,7 @@
 //!
 //! ## Attestation production flow
 //!
+#![doc = include_str!("../../../../mermaid.html")]
 //! <pre class="mermaid">
 //! sequenceDiagram
 //!     box Networks

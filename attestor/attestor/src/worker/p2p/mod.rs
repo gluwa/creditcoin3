@@ -1,4 +1,3 @@
-#![doc = include_str!("../../../../mermaid.html")]
 //! A [`Worker`] thread responsible for the dissemination and reception of new attestations.
 //!
 //! # Gossiping
@@ -26,6 +25,7 @@
 //!
 //! # Attestation network p2p flow
 //!
+#![doc = include_str!("../../../../mermaid.html")]
 //! <pre class="mermaid">
 //! sequenceDiagram
 //!     box Networks

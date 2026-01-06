@@ -1,4 +1,3 @@
-#![doc = include_str!("../../../../mermaid.html")]
 //! A [`Worker`] thread responsible for the validation and submission of attestations which have
 //! reached [`Quorum`].
 //!
@@ -30,6 +29,7 @@
 //!
 //! # Attestation submission flow
 //!
+#![doc = include_str!("../../../../mermaid.html")]
 //! <pre class="mermaid">
 //! sequenceDiagram
 //!     box Networks
