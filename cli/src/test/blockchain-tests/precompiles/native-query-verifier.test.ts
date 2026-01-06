@@ -17,6 +17,20 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
     let verifySingle: any;
     let verifyAndEmitSingle: any;
 
+    // Helper to create a valid merkle proof for a single transaction
+    // For single transactions, root = keccak256(0x00 || tx_data) with empty siblings
+    const createValidMerkleProof = (txData: Uint8Array) => {
+        // Prepend 0x00 (LEAF_HASH_PREPEND_VALUE) to transaction data
+        const prefixed = new Uint8Array(txData.length + 1);
+        prefixed[0] = 0x00;
+        prefixed.set(txData, 1);
+        const root = ethers.keccak256(prefixed);
+        return {
+            root,
+            siblings: [], // Empty for single transaction
+        };
+    };
+
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
@@ -31,12 +45,12 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
         contract = new ethers.Contract(PRECOMPILE_ADDRESS, contractABI, alith);
 
         // Get the single-query verify function overload explicitly
-        // Signature: verify(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))
+        // Signature: verify(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))
         verifySingle = contract.getFunction(
-            'verify(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))',
+            'verify(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
         );
         verifyAndEmitSingle = contract.getFunction(
-            'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,(bytes32,bytes32)[]))',
+            'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
         );
     }, 90_000);
 
@@ -72,12 +86,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                ],
+                roots: [ethers.keccak256(txData)],
             };
 
             try {
@@ -107,12 +116,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                ],
+                roots: [ethers.keccak256(txData)],
             };
 
             try {
@@ -146,12 +150,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        merkleRoot: ethers.keccak256(smallTxData),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                ],
+                roots: [ethers.keccak256(smallTxData)],
             };
 
             try {
@@ -171,12 +170,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 const largeContinuityProof = {
                     // eslint-disable-next-line @typescript-eslint/naming-convention
                     lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                    blocks: [
-                        {
-                            merkleRoot: ethers.keccak256(largeTxData),
-                            digest: ethers.zeroPadBytes('0x01', 32),
-                        },
-                    ],
+                    roots: [ethers.keccak256(largeTxData)],
                 };
 
                 const largeGas = await verifySingle.estimateGas(
@@ -218,12 +212,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                ],
+                roots: [ethers.keccak256(txData)],
             };
 
             try {
@@ -264,34 +253,17 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const shortContinuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                ],
+                roots: [ethers.keccak256(txData)],
             };
 
             const longContinuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                    {
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x02', 32),
-                    },
-                    {
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x03', 32),
-                    },
-                    {
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x04', 32),
-                    },
+                roots: [
+                    ethers.keccak256(txData),
+                    ethers.keccak256(txData),
+                    ethers.keccak256(txData),
+                    ethers.keccak256(txData),
                 ],
             };
 
@@ -335,12 +307,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                ],
+                roots: [ethers.keccak256(txData)],
             };
 
             try {
@@ -367,12 +334,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        merkleRoot: ethers.zeroPadBytes('0x01', 32),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                ],
+                roots: [ethers.zeroPadBytes('0x01', 32)],
             };
 
             try {
@@ -392,22 +354,21 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const height = 100;
 
             const txData = ethers.randomBytes(100);
-            const merkleProof = {
-                root: ethers.keccak256(txData),
-                siblings: [], // Empty entries array
-            };
+            // Create valid merkle proof so we can test continuity validation
+            const merkleProof = createValidMerkleProof(txData);
 
-            // Malformed continuity proof with empty block array
+            // Malformed continuity proof with empty roots array
             const malformedProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [], // Empty array
+                roots: [], // Empty array
             };
 
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
+            // Empty roots will cause "Query block not found in continuity chain" error
             await expect(
                 verifySingle.staticCall(chainKey, height, txData, merkleProof, malformedProof),
-            ).rejects.toThrow(/Continuity chain cannot be empty/);
+            ).rejects.toThrow(/Query block not found in continuity chain/);
         });
 
         test('should fail with invalid hex encoding in transaction data', async () => {
@@ -421,12 +382,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        merkleRoot: ethers.zeroPadBytes('0x01', 32),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                ],
+                roots: [ethers.zeroPadBytes('0x01', 32)],
             };
 
             // Pass non-hex string as transaction data - should fail at ethers.js validation level
@@ -443,33 +399,24 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const height = 100;
 
             const txData = ethers.randomBytes(100);
-            const merkleProof = {
-                root: ethers.keccak256(txData),
-                siblings: [], // Empty entries array
-            };
+            // Create valid merkle proof so we can test continuity validation
+            const merkleProof = createValidMerkleProof(txData);
             // Continuity proof must have at least 2 blocks (queryHeight-1 and queryHeight)
             // for security reasons (to verify query block digest using prev block)
             const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        // Block at height-1 (queryHeight-1)
-                        merkleRoot: prevBlockMerkleRoot,
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                    {
-                        // Block at height (queryHeight)
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x02', 32),
-                    },
+                roots: [
+                    // Block at height-1 (queryHeight-1)
+                    prevBlockMerkleRoot,
+                    // Block at height (queryHeight) - must match merkle proof root
+                    merkleProof.root,
                 ],
             };
 
-            // Continuity chain validation happens first, checking that the chain
-            // ends at a valid attestation. Without attestation data on-chain,
-            // this fails at the continuity validation step.
+            // Continuity chain validation happens after merkle proof validation.
+            // Without attestation data on-chain, this fails at the continuity validation step.
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
             await expect(
                 verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
@@ -488,12 +435,7 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        merkleRoot: ethers.zeroPadBytes('0x00', 32),
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                ],
+                roots: [ethers.zeroPadBytes('0x00', 32)],
             };
 
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
@@ -507,27 +449,19 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const height = 100;
 
             const txData = ethers.randomBytes(100);
-            const merkleProof = {
-                root: ethers.keccak256(txData),
-                siblings: [], // Empty entries array
-            };
+            // Create valid merkle proof so we can test continuity validation
+            const merkleProof = createValidMerkleProof(txData);
 
             // Provide 2 blocks as required by the precompile
             const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        // Block at height-1 (queryHeight-1)
-                        merkleRoot: prevBlockMerkleRoot,
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                    {
-                        // Block at height (queryHeight)
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x02', 32),
-                    },
+                roots: [
+                    // Block at height-1 (queryHeight-1)
+                    prevBlockMerkleRoot,
+                    // Block at height (queryHeight) - must match merkle proof root
+                    merkleProof.root,
                 ],
             };
 
@@ -544,31 +478,23 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const height = 100;
 
             const txData = ethers.randomBytes(100);
-            const merkleProof = {
-                root: ethers.keccak256(txData),
-                siblings: [], // Empty entries array
-            };
+            // Create valid merkle proof so we can test continuity validation
+            const merkleProof = createValidMerkleProof(txData);
             // Provide 2 blocks with invalid/random digests that won't match on-chain data
             const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        // Block at height-1 (queryHeight-1)
-                        merkleRoot: prevBlockMerkleRoot,
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                    {
-                        // Block at height (queryHeight)
-                        merkleRoot: ethers.keccak256(txData),
-                        digest: ethers.zeroPadBytes('0x02', 32),
-                    },
+                roots: [
+                    // Block at height-1 (queryHeight-1)
+                    prevBlockMerkleRoot,
+                    // Block at height (queryHeight) - must match merkle proof root
+                    merkleProof.root,
                 ],
             };
 
-            // Continuity chain validation happens first, checking that the chain
-            // ends at a valid attestation. With invalid data, this fails at continuity validation.
+            // Continuity chain validation happens after merkle proof validation.
+            // With invalid data, this fails at continuity validation.
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
             await expect(
                 verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
@@ -580,36 +506,31 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const height = 100;
 
             const txData = ethers.randomBytes(100);
+            // Create invalid merkle proof with wrong root
             const wrongRoot = ethers.keccak256(ethers.toUtf8Bytes('wrongRoot')); // Wrong root, doesn't match txData
             const merkleProof = {
                 root: wrongRoot,
-                siblings: [{ hash: ethers.randomBytes(32), isLeft: false }],
+                siblings: [], // Empty siblings for single transaction
             };
             // Provide 2 blocks as required by the precompile
             const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
-                blocks: [
-                    {
-                        // Block at height-1 (queryHeight-1)
-                        merkleRoot: prevBlockMerkleRoot,
-                        digest: ethers.zeroPadBytes('0x01', 32),
-                    },
-                    {
-                        // Block at height (queryHeight) - wrong root to match merkle proof
-                        merkleRoot: ethers.keccak256(ethers.toUtf8Bytes('wrongRoot')),
-                        digest: ethers.zeroPadBytes('0x02', 32),
-                    },
+                roots: [
+                    // Block at height-1 (queryHeight-1)
+                    prevBlockMerkleRoot,
+                    // Block at height (queryHeight) - wrong root to match merkle proof
+                    wrongRoot,
                 ],
             };
 
-            // Continuity chain validation happens first (checking on-chain attestations),
-            // so even with a mismatched merkle root, we fail at continuity validation.
+            // Merkle proof validation happens first, so with an invalid merkle proof,
+            // we fail at merkle proof validation before reaching continuity validation.
             // Use staticCall to simulate without sending transaction (avoids nonce conflicts)
             await expect(
                 verifySingle.staticCall(chainKey, height, txData, merkleProof, continuityProof),
-            ).rejects.toThrow(/Continuity proof does not match attestation or checkpoint|Continuity chain/);
+            ).rejects.toThrow(/Merkle proof validation failed/);
         });
     });
 });
