@@ -98,10 +98,12 @@ async fn main() -> Result<()> {
 
     debug!("CLI args: {:?}", args);
 
-    if let Err(e) = attestation_checks::run_attestation_sanity_checks(&config).await {
-        error!("attestation sanity checks failed: {e}");
-        return Ok(());
-    }
+    attestation_checks::run_attestation_sanity_checks(&config)
+        .await
+        .map_err(|e| {
+            error!("attestation sanity checks failed: {e}");
+            e
+        })?;
 
     Ok(())
 }
