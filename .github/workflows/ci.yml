@@ -481,6 +481,26 @@ jobs:
           yarn install
           yarn test:attestation
 
+      - name: Run ExportCheckpoints.js
+        if: always()
+        working-directory: ./attestor/scripts
+        run: |
+          npm install
+
+          node ExportCheckpoints.js
+
+          jq -r < checkpoints.json
+        env:
+          SOURCE_CHAIN: "ws://127.0.0.1:9944"
+          CHAIN_KEY_ON_SOURCE: 2
+
+      - name: Upload checkpoints.json
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: checkpoints.json
+          path: attestor/scripts/checkpoints.json
+
       - name: TERM binaries
         if: always()
         continue-on-error: true
