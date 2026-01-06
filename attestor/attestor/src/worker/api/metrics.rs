@@ -303,39 +303,55 @@ impl Metrics {
     }
 
     pub async fn update_hardware(&self) {
-        // We initialize a new hardware interface on each call to avoid having to acquire a
-        // blocking lock on a global resource due to mutable requirements on `refresh_specifics`.
-        let specifics = sysinfo::RefreshKind::nothing()
-            .with_cpu(sysinfo::CpuRefreshKind::nothing().with_cpu_usage())
-            .with_memory(sysinfo::MemoryRefreshKind::nothing().with_ram());
-        let mut sys = sysinfo::System::new_with_specifics(specifics);
+        if let Ok(pid) = sysinfo::get_current_pid() {
+            // We initialize a new hardware interface on each call to avoid having to acquire a
+            // blocking lock on a global resource due to mutable requirements on
+            // `refresh_specifics`.
+            let specifics = sysinfo::RefreshKind::nothing()
+                .with_cpu(sysinfo::CpuRefreshKind::nothing().with_cpu_usage())
+                .with_memory(sysinfo::MemoryRefreshKind::nothing().with_ram())
+                .with_processes(
+                    sysinfo::ProcessRefreshKind::nothing()
+                        .with_cpu()
+                        .with_memory(),
+                );
+            let mut sys = sysinfo::System::new_with_specifics(specifics);
 
-        // NOTE: CPU USAGE
-        //
-        // From the sysinfo docs: "Please note that the result [of calling global_cpu_usage] will
-        // very likely be inaccurate at the first call. You need to call [refresh_cpu_usage] at
-        // least twice (with a bit of time between each call, like 200 ms, take a look at
-        // MINIMUM_CPU_UPDATE_INTERVAL for more information) to get accurate value as it uses
-        // previous results to compute the next value."
-        tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
-        sys.refresh_specifics(specifics);
+            // NOTE: CPU USAGE
+            //
+            // From the sysinfo docs: "Please note that the result [of calling global_cpu_usage]
+            // will very likely be inaccurate at the first call. You need to call
+            // [refresh_cpu_usage] at least twice (with a bit of time between each call, like 200
+            // ms, take a look at MINIMUM_CPU_UPDATE_INTERVAL for more information) to get accurate
+            // value as it uses previous results to compute the next value."
+            tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
+            sys.refresh_specifics(specifics);
 
-        let usage_cpu = sys.global_cpu_usage() as f64;
+            // NOTE: METRICS
+            //
+            // Methods like `global_cpu_usage` target system-wide hardware metrics -we need to make
+            // sure we retrieve hardware data for the current process only.
+            if let Some(process) = sys.process(pid) {
+                let cpu_process = process.cpu_usage() as f64;
+                let cpu_count = sys.cpus().len() as f64;
+                let usage_cpu = cpu_process / cpu_count;
 
-        let total_memory = sys.total_memory() as f64;
-        let used_memory = sys.used_memory() as f64;
-        let usage_memory = (used_memory / total_memory) * 100.0;
+                let memory_process = process.memory() as f64;
+                let memory_total = sys.total_memory() as f64;
+                let usage_memory = (memory_process / memory_total) * 100.0;
 
-        self.metrics_hardware
-            .get_or_create(&labels::LabelHardware {
-                hardware: labels::Hardware::Cpu,
-            })
-            .set(usage_cpu);
-        self.metrics_hardware
-            .get_or_create(&labels::LabelHardware {
-                hardware: labels::Hardware::Memory,
-            })
-            .set(usage_memory);
+                self.metrics_hardware
+                    .get_or_create(&labels::LabelHardware {
+                        hardware: labels::Hardware::Cpu,
+                    })
+                    .set(usage_cpu);
+                self.metrics_hardware
+                    .get_or_create(&labels::LabelHardware {
+                        hardware: labels::Hardware::Memory,
+                    })
+                    .set(usage_memory);
+            }
+        };
     }
 
     pub fn set_attestation_local(&self, height: common::types::Height) {
