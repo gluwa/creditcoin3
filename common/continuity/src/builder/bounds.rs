@@ -77,9 +77,11 @@ impl ContinuityBuilder {
             .map(|a| AttestationInfo {
                 block_number: a.attestation.header_number,
                 digest: a.attestation.digest(),
+                prev_digest: a.prev_digest(),
             });
 
         // Find checkpoint lower bound if checkpoints were provided
+        // Note: checkpoints don't have prev_digest, so it will be None
         let checkpoint_lower = checkpoints.and_then(|cps| {
             cps.iter()
                 .filter(|c| c.block_number <= required_before)
@@ -87,6 +89,7 @@ impl ContinuityBuilder {
                 .map(|c| AttestationInfo {
                     block_number: c.block_number,
                     digest: c.digest,
+                    prev_digest: None,
                 })
         });
 
@@ -130,9 +133,11 @@ impl ContinuityBuilder {
             .map(|a| AttestationInfo {
                 block_number: a.attestation.header_number,
                 digest: a.attestation.digest(),
+                prev_digest: a.prev_digest(),
             });
 
         // Find checkpoint upper bound if checkpoints were provided
+        // Note: checkpoints don't have prev_digest, so it will be None
         let checkpoint_upper = checkpoints.and_then(|cps| {
             cps.iter()
                 .filter(|c| c.block_number >= max_query)
@@ -140,6 +145,7 @@ impl ContinuityBuilder {
                 .map(|c| AttestationInfo {
                     block_number: c.block_number,
                     digest: c.digest,
+                    prev_digest: None,
                 })
         });
 

@@ -21,13 +21,19 @@ impl ContinuityBuilder {
         // The proof MUST end at an attestation or checkpoint for verification to succeed
         let end_height = upper.block_number;
 
-        // Build from attestation to end to get correct digests
-        // Special case: if lower bound is at required_start (e.g., block 0 checkpoint for query at block 1),
-        // we need to include that block in the build, so start from lower.block_number instead of lower.block_number + 1
-        let build_start = if lower.block_number == required_start {
-            lower.block_number
+        // Determine the starting digest for build_continuity_blocks
+        // build_continuity_blocks expects the digest of the block BEFORE build_start
+        let (build_start, start_digest) = if lower.block_number == required_start {
+            // Special case: lower attestation is at required_start, use prev_digest
+            match lower.prev_digest {
+                Some(prev_digest) => (required_start, prev_digest),
+                None => {
+                    bail!("Lower attestation has no prev_digest");
+                }
+            }
         } else {
-            lower.block_number + 1
+            // Normal case: build from lower.block_number + 1, use lower.digest (digest of lower.block_number)
+            (lower.block_number + 1, lower.digest)
         };
 
         info!(
@@ -40,7 +46,7 @@ impl ContinuityBuilder {
         // Create continuity fragment
         let all_blocks: Vec<Block> = self
             .eth_provider
-            .build_continuity_blocks(lower.digest, build_start, end_height)
+            .build_continuity_blocks(start_digest, build_start, end_height)
             .await
             .context("Failed to build continuity blocks")?;
 

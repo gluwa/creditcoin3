@@ -371,17 +371,33 @@ async function submitToPrecompile(
     try {
         await provider.call({ to: precompileAddr, data, from: signerAddress });
     } catch (simError) {
-        const revertReason = decodeRevertReason(iface, simError.data || simError.error?.data);
+        // Try to extract revert data from various error formats
+        let revertData = simError.data || simError.error?.data || simError.reason?.data;
+
+        // If revertData is a string, try to extract it
+        if (typeof revertData === 'string' && revertData.startsWith('0x')) {
+            // Already in hex format
+        } else if (simError.reason) {
+            revertData = simError.reason.data;
+        }
+
+        const revertReason = decodeRevertReason(iface, revertData);
         if (revertReason) {
             if (revertReason.type === 'error') {
                 throw new Error(`Transaction will revert: ${revertReason.message}`);
             } else if (revertReason.type === 'panic') {
                 throw new Error(`Transaction will panic: code ${revertReason.code}`);
+            } else if (revertReason.type === 'custom') {
+                throw new Error(`Transaction will revert: ${revertReason.name}(${revertReason.args?.join(', ') || ''})`);
             } else {
-                throw new Error(`Transaction will revert: ${revertReason.name}`);
+                throw new Error(`Transaction will revert: ${revertReason.name || 'Unknown error'}`);
             }
         }
-        throw new Error(`Transaction will revert: ${simError.message}`);
+
+        // If we couldn't decode, show the raw error
+        const errorMsg = simError.message || simError.toString();
+        const dataStr = revertData ? ` (data: ${typeof revertData === 'string' ? revertData.substring(0, 100) : JSON.stringify(revertData)})` : '';
+        throw new Error(`Transaction will revert: ${errorMsg}${dataStr}`);
     }
 
     // Send transaction
