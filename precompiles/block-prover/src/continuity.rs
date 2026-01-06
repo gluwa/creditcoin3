@@ -69,7 +69,7 @@ where
     /// - `height`: Query block height (used to verify chain covers query height)
     ///
     /// # Returns
-    /// - `Ok(true)`: Chain is valid and ends at attestation/checkpoint
+    /// - `Ok(())`: Chain is valid and ends at attestation/checkpoint
     /// - `Err(ContinuityVerificationError)`: Structured error with status code and message
     ///
     /// # Gas Costs
@@ -87,7 +87,7 @@ where
         start_block_number: u64,
         chain_key: u64,
         height: u64,
-    ) -> Result<bool, ContinuityVerificationError> {
+    ) -> Result<(), ContinuityVerificationError> {
         // Require at least 1 root (empty continuity proof is invalid)
         if continuity_proof.roots.is_empty() {
             return Err(ContinuityVerificationError::InsufficientBlocks);
@@ -116,7 +116,9 @@ where
 
         // Check if there's an attestation or checkpoint at this exact block height with matching digest
         // Gas is charged inside get_attestation() and get_checkpoint()
-        let attestation_matches = Self::get_attestation(handle, chain_key, final_digest)
+        // These functions return Result<Option<T>, ContinuityVerificationError> to properly propagate
+        // gas recording errors
+        let attestation_matches = Self::get_attestation(handle, chain_key, final_digest)?
             .map(|a| a.attestation.header_number == final_block_number)
             .unwrap_or(false);
 
@@ -124,7 +126,7 @@ where
         let checkpoint_matches = if attestation_matches {
             false // No need to check checkpoint if attestation matches
         } else {
-            Self::get_checkpoint(handle, chain_key, final_block_number)
+            Self::get_checkpoint(handle, chain_key, final_block_number)?
                 .map(|digest| digest == final_digest)
                 .unwrap_or(false)
         };
@@ -147,6 +149,6 @@ where
             return Err(ContinuityVerificationError::NoMatchingAttestationOrCheckpoint);
         }
 
-        Ok(true)
+        Ok(())
     }
 }

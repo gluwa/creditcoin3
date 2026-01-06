@@ -22,6 +22,9 @@ use attestor_primitives::block::ContinuityProof;
 use ethabi::{encode, Token};
 use sp_std::vec::Vec;
 
+use crate::continuity::ContinuityVerificationError;
+use crate::verify::GAS_STORAGE_LOOKUP;
+
 // Use the TransactionMerkleProof from merkle
 use merkle::TransactionMerkleProof;
 
@@ -294,19 +297,24 @@ where
     /// Retrieves a signed attestation that anchors a specific block digest
     /// to the Creditcoin3 consensus. Used to validate continuity chain endpoints.
     /// Charges gas for the storage lookup.
+    ///
+    /// Returns `Result<Option<T>, ContinuityVerificationError>` to properly propagate
+    /// gas recording errors instead of swallowing them.
     fn get_attestation(
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         digest: H256,
-    ) -> Option<attestor_primitives::SignedAttestation<Runtime::Hash, Runtime::AccountId>> {
-        use crate::continuity::ContinuityVerificationError;
-        use crate::verify::GAS_STORAGE_LOOKUP;
+    ) -> Result<
+        Option<attestor_primitives::SignedAttestation<Runtime::Hash, Runtime::AccountId>>,
+        crate::continuity::ContinuityVerificationError,
+    > {
         // Charge for attestation storage lookup
         handle
             .record_cost(GAS_STORAGE_LOOKUP)
-            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)
-            .ok()?;
-        pallet_attestation_poc::Pallet::<Runtime>::attestations(chain_key, digest)
+            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?;
+        Ok(pallet_attestation_poc::Pallet::<Runtime>::attestations(
+            chain_key, digest,
+        ))
     }
 
     /// Get the last checkpoint for a chain
@@ -324,18 +332,21 @@ where
     /// Returns the digest if the block number matches a checkpoint,
     /// None otherwise. Used as a fallback when attestation lookup fails.
     /// Charges gas for the storage lookup.
+    ///
+    /// Returns `Result<Option<T>, ContinuityVerificationError>` to properly propagate
+    /// gas recording errors instead of swallowing them.
     fn get_checkpoint(
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         block_number: u64,
-    ) -> Option<H256> {
-        use crate::continuity::ContinuityVerificationError;
-        use crate::verify::GAS_STORAGE_LOOKUP;
+    ) -> Result<Option<H256>, crate::continuity::ContinuityVerificationError> {
         // Charge for checkpoint storage lookup only if we need to check it
         handle
             .record_cost(GAS_STORAGE_LOOKUP)
-            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)
-            .ok()?;
-        pallet_attestation_poc::Pallet::<Runtime>::checkpoints(chain_key, block_number)
+            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?;
+        Ok(pallet_attestation_poc::Pallet::<Runtime>::checkpoints(
+            chain_key,
+            block_number,
+        ))
     }
 }
