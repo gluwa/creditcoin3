@@ -75,15 +75,12 @@ async fn handle_metrics(
 ) -> impl axum::response::IntoResponse {
     state.metrics.update_hardware().await;
 
-    let mut buffer = String::new();
-    prometheus_client::encoding::text::encode(&mut buffer, &state.metrics.registry).unwrap();
-
     axum::response::Response::builder()
         .status(axum::http::StatusCode::OK)
         .header(
             axum::http::header::CONTENT_TYPE,
             common::constants::METRICS_HEADER,
         )
-        .body(axum::body::Body::from(buffer))
+        .body(axum::body::Body::from(state.metrics.encode()))
         .unwrap()
 }

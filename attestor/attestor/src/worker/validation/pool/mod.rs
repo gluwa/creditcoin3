@@ -47,12 +47,13 @@
 //! # Example
 //!
 //! ```rust
+//! # use attestor::prelude::*;
 //! # use attestor::worker::validation::pool::attestation_pool;
 //! # use attestor::worker::validation::pool::ConfigBuilder;
 //! # use attestor::worker::validation::pool::AttestorValidatePermissionless;
 //! #
-//! # fn attestation(attestor: attestor_primitives::AttestorId) -> attestor::common::types::Attestation {
-//! #   attestor::common::types::Attestation {
+//! # fn attestation(attestor: attestor_primitives::AttestorId) -> common::types::Attestation {
+//! #   common::types::Attestation {
 //! #       attestation_data: attestor_primitives::AttestationData {
 //! #           header_number: 0,
 //! #           prev_digest: Some(sp_core::H256(*b"digest_0________________________")),
@@ -81,6 +82,17 @@
 //! #   let attestation_1 = attestation(attestor_primitives::AttestorId::from_public(*b"attestor_valid_1________________"));
 //! #   let attestation_2 = attestation(attestor_primitives::AttestorId::from_public(*b"attestor_valid_2________________"));
 //! #
+//! #   let config = attestor::worker::api::metrics::ConfigBuilder::new()
+//! #       .with_name("test")
+//! #       .with_address(cc_client::AccountId32([0; 32]))
+//! #       .with_peer_id(libp2p::PeerId::random())
+//! #       .with_chain_key(2u64)
+//! #       .with_attestation_latest_eth(common::types::Height::MIN)
+//! #       .with_attestation_latest_cc3(common::types::Height::MIN)
+//! #       .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
+//! #       .build();
+//! #   let metrics = std::sync::Arc::new(attestor::worker::api::metrics::Metrics::new(config));
+//! #
 //! // Initializes the attestation pool with some configuration
 //! let (sx, mut rx) = attestation_pool(
 //!     ConfigBuilder::new()
@@ -89,6 +101,7 @@
 //!         .with_attestors(AttestorValidatePermissionless)
 //!         .with_start_height(0u64)
 //!         .with_attestation_interval(std::num::NonZeroU64::new(1).unwrap())
+//!         .with_metrics(metrics)
 //!         .build(),
 //! );
 //!
@@ -1307,10 +1320,25 @@ pub mod fixtures {
     }
 
     #[rstest::fixture]
+    pub fn metrics() -> common::types::Metrics {
+        let config = crate::worker::api::metrics::ConfigBuilder::new()
+            .with_name("test")
+            .with_address(cc_client::AccountId32([0; 32]))
+            .with_peer_id(libp2p::PeerId::random())
+            .with_chain_key(2u64)
+            .with_attestation_latest_eth(common::types::Height::MIN)
+            .with_attestation_latest_cc3(common::types::Height::MIN)
+            .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
+            .build();
+        std::sync::Arc::new(crate::worker::api::metrics::Metrics::new(config))
+    }
+
+    #[rstest::fixture]
     pub fn config(
         quorum_validate: ValidateQuorum,
         #[default(100)] capacity: usize,
         permissioned: AttestorValidatePermissioned,
+        metrics: common::types::Metrics,
     ) -> Config {
         ConfigBuilder::new()
             .with_capacity(std::num::NonZeroUsize::new(capacity).unwrap())
@@ -1318,6 +1346,7 @@ pub mod fixtures {
             .with_quorum(quorum_validate.target_quorum)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
             .with_start_height(common::types::Height::MIN)
+            .with_metrics(metrics)
             .build()
     }
 

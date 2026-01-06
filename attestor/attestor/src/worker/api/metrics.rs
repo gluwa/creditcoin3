@@ -5,7 +5,7 @@
 use crate::prelude::*;
 
 #[derive(attestor_macro::Builder)]
-pub(crate) struct Config {
+pub struct Config {
     name: String,
     address: cc_client::AccountId32,
     peer_id: libp2p::PeerId,
@@ -206,7 +206,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    pub(crate) fn new(config: Config) -> Self {
+    pub fn new(config: Config) -> Self {
         let mut registry = prometheus_client::registry::Registry::default();
         let metrics_production = prometheus_client::metrics::family::Family::default();
         let metrics_lag = prometheus_client::metrics::family::Family::default();
@@ -294,6 +294,12 @@ impl Metrics {
         );
 
         metrics
+    }
+
+    pub fn encode(&self) -> String {
+        let mut buffer = String::new();
+        prometheus_client::encoding::text::encode(&mut buffer, &self.registry).unwrap();
+        buffer
     }
 
     pub async fn update_hardware(&self) {
