@@ -7,7 +7,7 @@ mod test_utils;
 use test_utils::{assert_h256_str, start_app_with_postgres};
 use tower::util::ServiceExt; // for oneshot helper
 
-#[cfg_attr(not(feature = "anvil-integration"), ignore)]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 #[tokio::test]
 async fn continuity_endpoint_returns_proof() {
     // Arrange: app backed by a real Postgres container

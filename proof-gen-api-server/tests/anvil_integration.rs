@@ -1,6 +1,6 @@
 //! Integration tests using alloy-based Anvil and Postgres.
 //!
-//! Run with: `cargo test --features anvil-integration`
+//! Run with: `cargo test --features integration-tests`
 
 use alloy::node_bindings::{Anvil, AnvilInstance};
 use anyhow::Result;
@@ -28,7 +28,7 @@ fn spawn_anvil() -> AnvilInstance {
     Anvil::new().chain_id(31337).mnemonic(mnemonic).spawn()
 }
 
-#[cfg_attr(not(feature = "anvil-integration"), ignore)]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 #[tokio::test]
 async fn anvil_integration_tx_hash_flow() -> Result<()> {
     // Arrange: Spawn anvil (Alloy will automatically assign a free port)
@@ -221,7 +221,7 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
     Ok(())
 }
 
-#[cfg_attr(not(feature = "anvil-integration"), ignore)]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 #[tokio::test]
 async fn anvil_integration_health_check_db_failure() -> Result<()> {
     // Arrange: Start anvil for continuity builder (minimal setup)
@@ -448,7 +448,7 @@ async fn anvil_integration_health_check_db_failure() -> Result<()> {
     Ok(())
 }
 
-#[cfg_attr(not(feature = "anvil-integration"), ignore)]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 #[tokio::test]
 async fn anvil_integration_health_check_rpc_failure() -> Result<()> {
     // This test validates health check behavior when Anvil (ETH RPC) is stopped
@@ -578,7 +578,7 @@ async fn anvil_integration_health_check_rpc_failure() -> Result<()> {
     Ok(())
 }
 
-#[cfg_attr(not(feature = "anvil-integration"), ignore)]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 #[tokio::test]
 async fn anvil_integration_unattested_block_error() -> Result<()> {
     // This test validates proper error handling when querying a block that hasn't been attested yet

@@ -30,9 +30,15 @@ struct_field_names = "allow"
 release = false
 
 [dependencies]
+bigdecimal = { version = "0.4", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive", "deprecated", "env"] }
-diesel = { version = "2.3", features = ["postgres", "serde_json", "chrono"] }
+diesel = { version = "2.3", features = [
+    "postgres",
+    "serde_json",
+    "chrono",
+    "numeric",
+] }
 diesel-async = { version = "0.7", features = [
     "postgres",
     "deadpool",
@@ -66,8 +72,8 @@ merkle = { workspace = true }
 prometheus = { workspace = true }
 
 [features]
-anvil-integration = []
 default = []
+integration-tests = []
 
 [dev-dependencies]
 alloy-node-bindings = "0.11" # kept at 0.11 due to compatibility with alloy

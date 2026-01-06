@@ -1,4 +1,5 @@
 use anyhow::Result;
+use bigdecimal::{BigDecimal, ToPrimitive};
 use chrono::Utc;
 use hex;
 use sp_core::H256;
@@ -17,8 +18,8 @@ impl TryFrom<ContinuityProofItem> for ContinuityProofInsertable {
 
     fn try_from(cont_proof: ContinuityProofItem) -> Result<Self> {
         Ok(ContinuityProofInsertable {
-            chain_key: to_storage_int(cont_proof.chain_key),
-            header_number: to_storage_int(cont_proof.header_number),
+            chain_key: cont_proof.chain_key as i64,
+            header_number: BigDecimal::from(cont_proof.header_number),
             continuity_proof: serde_json::to_value(cont_proof.continuity_proof)?,
             ends_in_attestation: cont_proof.ends_in_attestation,
         })
@@ -29,9 +30,14 @@ impl TryFrom<ContinuityProofRecord> for ContinuityProofItem {
     type Error = anyhow::Error;
 
     fn try_from(entry: ContinuityProofRecord) -> Result<Self> {
+        let header_number = entry
+            .header_number
+            .to_u64()
+            .ok_or_else(|| anyhow::anyhow!("header_number out of u64 range"))?;
+
         Ok(ContinuityProofItem {
-            chain_key: from_storage_int(entry.chain_key),
-            header_number: from_storage_int(entry.header_number),
+            chain_key: entry.chain_key as u64,
+            header_number,
             continuity_proof: serde_json::from_value::<ContinuityProof>(entry.continuity_proof)?,
             ends_in_attestation: entry.ends_in_attestation,
         })
@@ -57,16 +63,6 @@ impl From<(MerkleProofItem, ContinuityProofItem)> for ContinuityResponse {
             generated_at: Utc::now(), // Maybe retain created_at and fill here
         }
     }
-}
-
-#[must_use]
-pub fn to_storage_int(num: u64) -> i64 {
-    i64::from_ne_bytes(num.to_ne_bytes())
-}
-
-#[must_use]
-pub fn from_storage_int(num: i64) -> u64 {
-    u64::from_ne_bytes(num.to_ne_bytes())
 }
 
 // TODO: Use this for attestation storage in future pr

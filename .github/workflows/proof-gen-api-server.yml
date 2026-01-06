@@ -17,14 +17,14 @@ concurrency:
 permissions: read-all
 
 jobs:
-  e2e-test:
+  integration-tests:
     needs:
-      - deploy-runner-proof-gen-api-server-e2e-test
+      - deploy-runner-proof-gen-api-server-integration-tests
     runs-on:
       [
         self-hosted,
         "workflow-${{ github.run_id }}",
-        "proxy-proof-gen-api-server-e2e-test",
+        "proxy-proof-gen-api-server-integration-tests",
       ]
     steps:
       - uses: actions/checkout@v6
@@ -71,7 +71,7 @@ jobs:
         run: |
           cargo llvm-cov \
               --release \
-              --package proof-gen-api-server --features anvil-integration \
+              --package proof-gen-api-server --features integration-tests  \
               --html --show-missing-lines --hide-instantiations \
               --ignore-filename-regex "(tests(.*).rs)"
         env:
@@ -84,23 +84,23 @@ jobs:
           name: coverage-report
           path: target/llvm-cov/html/
 
-  deploy-runner-proof-gen-api-server-e2e-test:
+  deploy-runner-proof-gen-api-server-integration-tests:
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       LINODE_REGION: "nl-ams"
       LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "proof-gen-api-server-e2e-test"
+      proxy: "proof-gen-api-server-integration-tests"
     secrets: inherit
 
-  rm-gh-runner-proof-gen-api-server-e2e-test:
+  rm-gh-runner-proof-gen-api-server-integration-tests:
     needs:
-      - e2e-test
+      - integration-tests
     if: ${{ always() }}
     uses: ./.github/workflows/remove-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "proof-gen-api-server-e2e-test"
+      proxy: "proof-gen-api-server-integration-tests"
     secrets: inherit
 
   deploy-runner-build-proof-gen:

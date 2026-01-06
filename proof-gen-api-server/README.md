@@ -72,12 +72,12 @@ Endpoints:
 - `GET /proof/{chain_key}/{header_number}/{tx_index}` – continuity + merkle proof for the transaction at `tx_index` (supports empty block with index 0).
 - `GET /proof-by-tx/{chain_key}/{tx_hash}` – currently disabled (returns TxHashLookupUnavailable) until reverse lookup is implemented.
 
-### Anvil Integration Testing
+### Integration Testing
 
-Integration tests exercise the HTTP API with real Anvil (Ethereum test node) and Postgres, but mock CC3 providers. Uses alloy for anvil process management and transaction sending - no external dependencies required. Run with:
+Integration tests include database layer tests and E2E tests that exercise all proof endpoints with Anvil and ephemeral Postgres. Prerequisites: Docker (and [Foundry](https://book.getfoundry.sh/getting-started/installation) for E2E tests with `anvil`, `cast`). Run with:
 
 ```bash
-cargo test -p proof-gen-api-server --test anvil_integration --features anvil-integration
+cargo test -p proof-gen-api-server --features integration-tests
 ```
 
 ### Testing Using submit-proof.js

@@ -148,7 +148,6 @@ mod anvil_integration {
 
             let result = result.expect("result was validated to be Some above");
 
-            // Check if blockNumber exists (transaction is mined)
             if let Some(block_hex) = result.get("blockNumber").and_then(|x| x.as_str()) {
                 let txi_hex = result
                     .get("transactionIndex")

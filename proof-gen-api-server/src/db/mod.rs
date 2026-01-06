@@ -14,9 +14,14 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
 pub type PgPool = Pool<AsyncPgConnection>;
 
+pub mod continuity_blocks;
 pub mod continuity_proofs;
-mod schema;
+pub mod models;
+pub mod schema;
 mod type_conversions;
+
+// Re-export the main types for continuity blocks
+pub use models::ContinuityBlockItem;
 
 #[derive(Clone)]
 pub struct DbManager {
@@ -47,6 +52,7 @@ impl DbManager {
         })
         .await?;
 
+        info!("✅ Database migrations completed successfully");
         Ok(())
     }
 
@@ -68,6 +74,8 @@ impl DbManager {
         })
         .await??;
 
+        // Re-run migrations after reset
+        self.run_migrations().await?;
         Ok(())
     }
 
@@ -77,5 +85,10 @@ impl DbManager {
         let mut conn = self.pool.get().await?;
         let count_result: i64 = continuity_proofs.select(count(id)).first(&mut conn).await?;
         Ok(count_result)
+    }
+
+    // Expose the pool for direct access by attestation/checkpoint modules
+    pub fn pool(&self) -> &Pool<AsyncPgConnection> {
+        &self.pool
     }
 }

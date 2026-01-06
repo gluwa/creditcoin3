@@ -10,7 +10,6 @@ use tracing::error;
 
 use crate::db::{
     schema::continuity_proofs::{self as cp, dsl::continuity_proofs as continuity_proofs_table},
-    type_conversions::to_storage_int,
     DbManager,
 };
 use attestor_primitives::block::ContinuityProof;
@@ -31,7 +30,7 @@ pub struct ContinuityProofItem {
 #[diesel(table_name = cp)]
 pub struct ContinuityProofInsertable {
     pub chain_key: i64,
-    pub header_number: i64,
+    pub header_number: bigdecimal::BigDecimal,
     pub continuity_proof: Value,
     pub ends_in_attestation: bool,
 }
@@ -43,7 +42,7 @@ pub struct ContinuityProofInsertable {
 pub struct ContinuityProofRecord {
     pub id: i32,
     pub chain_key: i64,
-    pub header_number: i64,
+    pub header_number: bigdecimal::BigDecimal,
     pub continuity_proof: Value,
     pub ends_in_attestation: bool,
     pub created_at: Option<NaiveDateTime>,
@@ -101,11 +100,12 @@ impl DbManager {
         chain_key: u64,
         header_number: u64,
     ) -> Result<Option<ContinuityProofRecord>> {
+        use bigdecimal::BigDecimal;
         let mut conn = self.pool.get().await?;
 
         let rows: Vec<ContinuityProofRecord> = continuity_proofs_table
-            .filter(cp::chain_key.eq(to_storage_int(chain_key)))
-            .filter(cp::header_number.eq(to_storage_int(header_number)))
+            .filter(cp::chain_key.eq(chain_key as i64))
+            .filter(cp::header_number.eq(BigDecimal::from(header_number)))
             .limit(2)
             .load(&mut conn)
             .await?;
