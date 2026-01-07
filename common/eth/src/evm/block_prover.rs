@@ -190,7 +190,7 @@ impl BlockProver {
             sol_proof_struct.clone(),
         );
 
-        // Try to estimate gas, fall back to a reasonable default if estimation fails
+        // Try to estimate gas, fall back to a size-based calculation if estimation fails
         // This can happen with larger continuity proofs due to how gas estimation works
         let gas_limit = match tx_builder.estimate_gas().await {
             Ok(estimate) => {
@@ -198,14 +198,17 @@ impl BlockProver {
                 estimate
             }
             Err(e) => {
-                // Fall back to a reasonable default for verification transactions
-                // Base: 21000 + calldata (~100000) + execution (~100000) + safety margin
-                let default_gas = 500_000u64;
+                // Gas estimation can fail in certain scenarios (e.g., pallet-evm issues)
+                // Calculate a reasonable estimate based on the continuity proof size
+                // This matches the formula used in estimate_gas()
+                let continuity_blocks = continuity_proof.roots.len();
+                // Base: 21000 (tx) + ~5000 per continuity block + ~10000 for merkle + overhead
+                let calculated_gas = 21000u64 + (continuity_blocks as u64 * 5000) + 20000;
                 debug!(
-                    "Gas estimation failed ({}), using default gas limit: {}",
-                    e, default_gas
+                    "Gas estimation failed ({}), using calculated gas limit: {} for {} continuity blocks",
+                    e, calculated_gas, continuity_blocks
                 );
-                default_gas
+                calculated_gas
             }
         };
         let tx_builder = tx_builder.gas(gas_limit);
