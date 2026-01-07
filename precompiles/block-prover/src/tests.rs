@@ -985,11 +985,8 @@ fn test_continuity_chain_broken_link_fails() {
 #[test]
 fn test_continuity_no_finalized_attestation_fails() {
     ExtBuilder::default().build().execute_with(|| {
-        let chain_key = 1;
-        let height = 2;
-        let tx_data = get_sample_tx_data();
-        let (merkle_proof, _txs) = create_valid_merkle_proof(&tx_data, 0, 1);
-        let continuity_blocks = create_continuity_blocks(2);
+        // Use deterministic test scenario with properly matching merkle roots
+        let scenario = TestScenario::new_valid(5, 0);
 
         // Don't setup any attestation or checkpoint
         // This will fail at continuity chain validation when checking for attestations
@@ -999,16 +996,15 @@ fn test_continuity_no_finalized_attestation_fails() {
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify {
-                    chain_key,
-                    height,
-                    encoded_transaction: tx_data.into(),
-                    merkle_proof,
-                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
+                    chain_key: scenario.chain_key,
+                    height: scenario.height,
+                    encoded_transaction: scenario.tx_data.into(),
+                    merkle_proof: scenario.merkle_proof,
+                    continuity_proof: ContinuityProof::from_blocks(scenario.continuity_blocks),
                 },
             )
             .execute_reverts(|output| {
-                output == b"Merkle proof validation failed"
-                    || output == b"Continuity proof does not match attestation or checkpoint"
+                output == b"Continuity proof does not match attestation or checkpoint"
             });
     });
 }
