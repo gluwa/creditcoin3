@@ -193,8 +193,10 @@ describe('BlockAttested events', (): void => {
                 (endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval,
             );
 
-            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(expectedBlockAttestedEvents_Anvil1 - 1);
-            expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 1);
+            // note: ±2 tolerance accounts for timing differences between when startBlock was captured
+            // (in beforeAll) vs when event counting started, plus Math.floor rounding effects
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(expectedBlockAttestedEvents_Anvil1 - 2);
+            expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 2);
             // note: interval for Anvil2 changes dynamically during this test
             expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(40);
 
