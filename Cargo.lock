@@ -17324,8 +17324,6 @@ version = "3.82.0"
 dependencies = [
  "anyhow",
  "fs2",
- "parity-scale-codec",
- "scale-info",
  "serde",
  "serde_json",
  "sp-std",

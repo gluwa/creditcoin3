@@ -12,8 +12,6 @@ anyhow = { workspace = true, default-features = false }
 fs2 = { version = "0.4.3", optional = true, default-features = false }
 
 # Workspace dependencies
-parity-scale-codec = { workspace = true, default-features = false }
-scale-info = { workspace = true, default-features = false }
 serde = { workspace = true, features = [
     "derive",
     "alloc",
@@ -28,12 +26,4 @@ tempfile = "3.8"
 
 [features]
 default = ["std"]
-std = [
-    "serde/std",
-    "serde_json/std",
-    "anyhow/std",
-    "sp-std/std",
-    "fs2",
-    "parity-scale-codec/std",
-    "scale-info/std",
-]
+std = ["serde/std", "serde_json/std", "anyhow/std", "sp-std/std", "fs2"]
