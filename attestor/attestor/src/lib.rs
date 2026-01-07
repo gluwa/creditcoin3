@@ -31,7 +31,7 @@ pub struct Config {
     eth: chain_listener::eth::ConfigIncomplete,
     cc3: chain_listener::cc3::ConfigIncomplete,
     p2p: worker::p2p::ConfigIncomplete,
-    metrics: worker::api::ConfigIncomplete,
+    api: worker::api::ConfigIncomplete,
     pool: worker::validation::pool::ConfigIncomplete,
     attestation: attestation::Config,
 }
@@ -286,7 +286,7 @@ impl Attestor {
 
         let config = self
             .config
-            .metrics
+            .api
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let api = worker::api::WorkerApi::new(config);

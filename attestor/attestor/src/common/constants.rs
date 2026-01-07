@@ -32,10 +32,10 @@ pub const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 /// LoadBalancer services.
 pub const DEFAULT_P2P_PORT: u16 = 9000;
 
-/// Default port used for the `/metrics` enpoint in the [`api worker`].
+/// Default port used to expose the attestor API in the [`api worker`].
 ///
 /// [`api worker`]: crate::worker::api
-pub const DEFAULT_METRICS_PORT: u16 = 9100;
+pub const DEFAULT_API_PORT: u16 = 9100;
 
 /// Header used for the `/metrics` enpoint in the [`api worker`].
 ///

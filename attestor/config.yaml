@@ -26,8 +26,11 @@ attestor:
   #
   # logs: ./logs
 
-metrics:
-  port: 8080
+api:
+  # Optional: API endpoints port
+  #   If not specified, defaults to 9100.
+  #
+  # port: 9100
 
 p2p:
   # Optional: Boot nodes for peer discovery

@@ -13,7 +13,7 @@ struct Config {
     secret: bip39::Mnemonic,
     chain_key: attestor_primitives::ChainKey,
     public_addr: Option<String>,
-    metrics_port: u16,
+    api_port: u16,
     boot_nodes: Vec<libp2p::Multiaddr>,
     p2p_port: u16, // Defaults to 9000 if not specified
     eth_url: url::Url,
@@ -29,7 +29,7 @@ struct ConfigFile {
     #[serde(default)]
     attestor: ConfigFileAttestor,
     #[serde(default)]
-    metrics: ConfigFileMetrics,
+    api: ConfigFileApi,
     #[serde(default)]
     p2p: ConfigFileP2P,
     #[serde(default)]
@@ -57,7 +57,7 @@ fn default_logs() -> std::path::PathBuf {
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
-struct ConfigFileMetrics {
+struct ConfigFileApi {
     port: Option<u16>,
 }
 
@@ -193,14 +193,14 @@ impl Config {
                     .value_parser(clap::value_parser!(String)),
             )
             .arg(
-                clap::arg!(--"metrics-port" <PORT>)
-                    .help("Prometheus metrics port")
+                clap::arg!(--"api-port" <PORT>)
+                    .help("Attestor api port")
                     .long_help(
-                        "Prometheus metrics port. \
+                        "Attestor api port. \
                         Exposes a /metrics endpoints to query OpenTelemetry-style metrics \
-                        about the attestor's operational state."
+                        summarizing the attestor's operational state."
                     )
-                    .env("ATTESTOR_METRICS_PORT")
+                    .env("ATTESTOR_API_PORT")
                     .required(false)
                     .value_parser(clap::value_parser!(u16))
             )
@@ -353,11 +353,11 @@ impl Config {
             },
         };
 
-        let metrics_port = matches
-            .get_one::<u16>("metrics-port")
+        let api_port = matches
+            .get_one::<u16>("api-port")
             .cloned()
-            .or(config_file.metrics.port)
-            .unwrap_or(common::constants::DEFAULT_METRICS_PORT);
+            .or(config_file.api.port)
+            .unwrap_or(common::constants::DEFAULT_API_PORT);
 
         let boot_nodes = matches
             .get_one::<Vec<libp2p::Multiaddr>>("boot-nodes")
@@ -427,7 +427,7 @@ impl Config {
             secret,
             boot_nodes,
             public_addr,
-            metrics_port,
+            api_port,
             p2p_port,
             eth_url,
             cc3_url,
@@ -516,7 +516,7 @@ async fn main() -> anyhow::Result<()> {
                 .with_start_height(args.start_height)
                 .build(),
         )
-        .with_metrics(attestor::worker::api::ConfigBuilder::new().with_port(args.metrics_port))
+        .with_api(attestor::worker::api::ConfigBuilder::new().with_port(args.api_port))
         .build();
 
     // ----------------------------------------* Main loop *---------------------------------------
