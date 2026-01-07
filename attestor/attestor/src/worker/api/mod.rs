@@ -57,7 +57,7 @@ impl super::Worker for WorkerApi {
         let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.port)).await?;
         let address = listener.local_addr().unwrap();
 
-        tracing::info!(?address, "📌 Staring api server");
+        tracing::info!(?address, "📌 Starting api server");
 
         tokio::select! {
             res = axum::serve(listener, router) => res?,
