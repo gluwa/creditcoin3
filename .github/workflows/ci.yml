@@ -490,8 +490,56 @@ jobs:
           node ExportCheckpoints.js
 
           jq -r < checkpoints.json
+
+          cp checkpoints.json checkpoints.json.from_alice
         env:
           SOURCE_CHAIN: "ws://127.0.0.1:9944"
+          CHAIN_KEY_ON_SOURCE: 2
+
+      - name: Start creditcoin3-node - Dave - stand alone chain
+        if: always()
+        env:
+          RUST_LOG: debug
+        run: |
+          # WARNING: not using --bootnode on purpose
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --dave  --pruning archive \
+            --node-key 0000000000000000000000000000000000000000000000000000000000000022 \
+            --port 30777 --rpc-port 9977 \
+            --base-path ./dave-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-dave.log 2>&1 &
+
+      - name: Check that creditcoin3-node Dave is running
+        if: always()
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9977'
+
+      - name: Run ImportCheckpoints.js
+        if: always()
+        working-directory: ./attestor/scripts
+        run: |
+          node ImportCheckpoints.js --dev
+        env:
+          MNEMONIC: "//Alice"
+          DESTINATION_CHAIN: "ws://127.0.0.1:9977"
+          CHAIN_KEY_ON_DESTINATION: 2
+
+      - name: Export the imported checkpoints and compare with origin
+        if: always()
+        working-directory: ./attestor/scripts
+        run: |
+          sudo apt-get install colordiff
+
+          node ExportCheckpoints.js
+          jq -r < checkpoints.json
+
+          cp checkpoints.json checkpoints.json.from_dave
+
+          # both files should match b/c they represent the same data
+          diff -u checkpoints.json.from_alice checkpoints.json.from_dave | colordiff
+          diff -u checkpoints.json.from_alice checkpoints.json.from_dave
+        env:
+          SOURCE_CHAIN: "ws://127.0.0.1:9977"
           CHAIN_KEY_ON_SOURCE: 2
 
       - name: Upload checkpoints.json
@@ -499,7 +547,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: checkpoints.json
-          path: attestor/scripts/checkpoints.json
+          path: attestor/scripts/checkpoints.json*
 
       - name: TERM binaries
         if: always()
