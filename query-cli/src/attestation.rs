@@ -94,29 +94,18 @@ impl AttestationMonitor {
     }
 
     /// Check if a block is already attested
+    ///
+    /// IMPORTANT: We check checkpoints FIRST before attestations to avoid a race condition.
+    /// If a checkpoint exists for a block, the corresponding attestation may have been evicted
+    /// from the retention buffer. By checking checkpoints first (which are permanent), we ensure
+    /// we always find attested blocks even if attestations have been removed.
     async fn check_existing_attestation(
         &self,
         chain_key: u64,
         block_number: u64,
     ) -> Result<Option<AttestationResult>> {
-        let attestations = self
-            .cc3_client
-            .get_attestations_for_chain(chain_key)
-            .await
-            .unwrap_or_default();
-
-        for attestation in attestations {
-            if attestation.attestation.header_number >= block_number {
-                return Ok(Some(AttestationResult {
-                    attested_block: attestation.attestation.header_number,
-                    wait_duration: Duration::from_secs(0),
-                }));
-            }
-        }
-
-        // Also check checkpoints
-        // Note: We need to be careful here - checkpoint.block_number refers to the Ethereum block
-        // that was checkpointed, not the Creditcoin3 block where the checkpoint was created.
+        // Check checkpoints FIRST - they're permanent and won't be evicted
+        // Note: checkpoint.block_number refers to the Ethereum block that was checkpointed.
         // A checkpoint at block X means that block X (and all previous blocks) have been checkpointed.
         let checkpoints = self
             .cc3_client
@@ -124,7 +113,6 @@ impl AttestationMonitor {
             .await
             .unwrap_or_default();
 
-        // Filter out invalid/corrupted checkpoint block numbers
         for checkpoint in checkpoints {
             // Validate checkpoint block number is reasonable
             if checkpoint.block_number > MAX_REASONABLE_BLOCK {
@@ -139,6 +127,22 @@ impl AttestationMonitor {
             if checkpoint.block_number >= block_number {
                 return Ok(Some(AttestationResult {
                     attested_block: checkpoint.block_number,
+                    wait_duration: Duration::from_secs(0),
+                }));
+            }
+        }
+
+        // Then check attestations (may be evicted after checkpoint creation)
+        let attestations = self
+            .cc3_client
+            .get_attestations_for_chain(chain_key)
+            .await
+            .unwrap_or_default();
+
+        for attestation in attestations {
+            if attestation.attestation.header_number >= block_number {
+                return Ok(Some(AttestationResult {
+                    attested_block: attestation.attestation.header_number,
                     wait_duration: Duration::from_secs(0),
                 }));
             }

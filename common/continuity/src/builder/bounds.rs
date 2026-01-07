@@ -22,21 +22,14 @@ impl ContinuityBuilder {
         let required_before = min_query.saturating_sub(1);
 
         // If we have a lower attestation, then all checkpoints should be at
-        // even lower block heights. So we don't need to use checkpoints at all.
-        let has_attestation_lower = attestations
-            .iter()
-            .any(|a| a.attestation.header_number <= required_before);
-
-        // Only fetch checkpoints if we need them (attestations don't fully cover the range)
-        // This avoids expensive RPC calls when attestations are sufficient
-        let checkpoints: Option<Vec<AttestationCheckpoint>> = if !has_attestation_lower {
-            self.cc_provider
-                .get_checkpoints_for_chain(self.config.chain_key)
-                .await
-                .ok()
-        } else {
-            None
-        };
+        // IMPORTANT: Always fetch checkpoints FIRST before attestations to avoid race condition.
+        // If a checkpoint exists, the corresponding attestation may have been evicted from the
+        // retention buffer. Checkpoints are permanent and won't be evicted.
+        let checkpoints: Option<Vec<AttestationCheckpoint>> = self
+            .cc_provider
+            .get_checkpoints_for_chain(self.config.chain_key)
+            .await
+            .ok();
 
         // Find lower bound
         let lower_info = self
@@ -65,11 +58,25 @@ impl ContinuityBuilder {
         attestations: &[SignedAttestation<H256, AccountId32>],
         checkpoints: Option<&[AttestationCheckpoint]>,
     ) -> Result<AttestationInfo> {
+        // IMPORTANT: Check checkpoints FIRST before attestations to avoid race condition.
+        // Checkpoints are permanent and won't be evicted, while attestations may be evicted
+        // from the retention buffer after a checkpoint is created.
+
+        // Find checkpoint lower bound if checkpoints were provided
+        let checkpoint_lower = if let Some(cps) = checkpoints {
+            cps.iter()
+                .filter(|c| c.block_number <= required_before)
+                .max_by_key(|c| c.block_number)
+                .map(|c| AttestationInfo {
+                    block_number: c.block_number,
+                    digest: c.digest,
+                    prev_digest: None, // Checkpoints don't have prev_digest, will be computed in build.rs if needed
+                })
+        } else {
+            None
+        };
+
         // Find the best attestation at or before required_before
-        // We allow exact matches (non-strict) because when lower.block_number == required_start,
-        // the build logic in build_and_trim_continuity handles this case correctly by using
-        // the lower bound's digest appropriately. The continuity chain construction ensures
-        // proper digest chaining even when the lower bound matches required_start.
         let attestation_lower = attestations
             .iter()
             .filter(|a| a.attestation.header_number <= required_before)
@@ -80,36 +87,16 @@ impl ContinuityBuilder {
                 prev_digest: a.prev_digest(),
             });
 
-        // Find checkpoint lower bound if checkpoints were provided
-        // If checkpoint is at required_before (query height = checkpoint height + 1),
-        // we need to find the previous checkpoint and build continuity to get the digest
-        // of block (checkpoint_height - 1) to use as lower_endpoint_digest
-        let checkpoint_lower = if let Some(cps) = checkpoints {
-            cps.iter()
-                .filter(|c| c.block_number <= required_before)
-                .max_by_key(|c| c.block_number)
-                .map(|c| {
-                    // If checkpoint is exactly at required_before, prev_digest will be computed
-                    // in build.rs by finding the previous checkpoint and building continuity
-                    AttestationInfo {
-                        block_number: c.block_number,
-                        digest: c.digest,
-                        prev_digest: None, // Will be computed in build.rs if needed
-                    }
-                })
-        } else {
-            None
-        };
-
         // Choose the closest one (highest block number)
-        match (attestation_lower, checkpoint_lower) {
-            (Some(a), Some(c)) => Ok(if a.block_number > c.block_number {
-                a
-            } else {
+        // Prefer checkpoint if both exist at the same block number (checkpoint is permanent)
+        match (checkpoint_lower, attestation_lower) {
+            (Some(c), Some(a)) => Ok(if c.block_number >= a.block_number {
                 c
+            } else {
+                a
             }),
-            (Some(a), None) => Ok(a),
-            (None, Some(c)) => Ok(c),
+            (Some(c), None) => Ok(c),
+            (None, Some(a)) => Ok(a),
             (None, None) => {
                 let query_height = required_before + 1;
                 tracing::error!(
@@ -127,25 +114,14 @@ impl ContinuityBuilder {
     }
 
     // Additionally returns a bool indicating whether the upper bound is an attestation `ends_in_attestation`
+    // IMPORTANT: Check checkpoints FIRST before attestations to avoid race condition.
     fn find_upper_bound(
         &self,
         max_query: u64,
         attestations: &[SignedAttestation<H256, AccountId32>],
         checkpoints: Option<&[AttestationCheckpoint]>,
     ) -> Result<(Option<AttestationInfo>, EndsInAttestation)> {
-        // Find next consensus point after max_query
-        let attestation_upper = attestations
-            .iter()
-            .filter(|a| a.attestation.header_number >= max_query)
-            .min_by_key(|a| a.attestation.header_number)
-            .map(|a| AttestationInfo {
-                block_number: a.attestation.header_number,
-                digest: a.attestation.digest(),
-                prev_digest: a.prev_digest(),
-            });
-
-        // Find checkpoint upper bound if checkpoints were provided
-        // Note: checkpoints don't have prev_digest, so it will be None
+        // Find checkpoint upper bound first (checkpoints are permanent, won't be evicted)
         let checkpoint_upper = checkpoints.and_then(|cps| {
             cps.iter()
                 .filter(|c| c.block_number >= max_query)
@@ -157,16 +133,29 @@ impl ContinuityBuilder {
                 })
         });
 
-        Ok(match (attestation_upper, checkpoint_upper) {
-            (Some(a), Some(c)) => {
-                if a.block_number < c.block_number {
-                    (Some(a), EndsInAttestation::True)
-                } else {
+        // Find next attestation after max_query (may be evicted after checkpoint creation)
+        let attestation_upper = attestations
+            .iter()
+            .filter(|a| a.attestation.header_number >= max_query)
+            .min_by_key(|a| a.attestation.header_number)
+            .map(|a| AttestationInfo {
+                block_number: a.attestation.header_number,
+                digest: a.attestation.digest(),
+                prev_digest: a.prev_digest(),
+            });
+
+        // Choose the closest one (lowest block number)
+        // Prefer checkpoint if both exist at the same block number (checkpoint is permanent)
+        Ok(match (checkpoint_upper, attestation_upper) {
+            (Some(c), Some(a)) => {
+                if c.block_number <= a.block_number {
                     (Some(c), EndsInAttestation::False)
+                } else {
+                    (Some(a), EndsInAttestation::True)
                 }
             }
-            (Some(a), None) => (Some(a), EndsInAttestation::True),
-            (None, Some(c)) => (Some(c), EndsInAttestation::False),
+            (Some(c), None) => (Some(c), EndsInAttestation::False),
+            (None, Some(a)) => (Some(a), EndsInAttestation::True),
             (None, None) => (None, EndsInAttestation::False),
         })
     }
