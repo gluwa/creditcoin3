@@ -30,7 +30,7 @@ use std::str::FromStr;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tracing::{error, info, trace};
-use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
+use utils::block_item_traits::BlockItem;
 
 pub use alloy::core::primitives::Address;
 
@@ -78,7 +78,6 @@ pub enum Error {
 
 #[derive(Debug, Clone)]
 pub struct TxRx {
-    id: BlockItemIdentifier,
     tx: Transaction,
     rx: TransactionReceipt,
     encoding: EncodingVersion,
@@ -86,17 +85,11 @@ pub struct TxRx {
 
 impl TxRx {
     pub fn try_create(
-        id: BlockItemIdentifier,
         tx: Transaction,
         rx: TransactionReceipt,
         encoding: EncodingVersion,
     ) -> Result<Self, ConversionError> {
-        Ok(Self {
-            id,
-            tx,
-            rx,
-            encoding,
-        })
+        Ok(Self { tx, rx, encoding })
     }
 
     pub fn tx(&self) -> &Transaction {
@@ -118,10 +111,6 @@ impl BlockItem for TxRx {
             .expect("Transaction and receipt should be encodable.")
             .abi()
             .to_vec()
-    }
-
-    fn id(&self) -> &BlockItemIdentifier {
-        &self.id
     }
 
     fn tx_type(&self) -> Option<u8> {
@@ -158,15 +147,7 @@ impl OrderedBlock {
         let items = transactions
             .into_iter()
             .zip(receipts.into_iter())
-            .enumerate()
-            .map(|(index, tx_rx)| {
-                TxRx::try_create(
-                    BlockItemIdentifier::new(number, index as u64),
-                    tx_rx.0,
-                    tx_rx.1,
-                    encoding,
-                )
-            })
+            .map(|tx_rx| TxRx::try_create(tx_rx.0, tx_rx.1, encoding))
             .collect::<Result<_, _>>()?;
 
         Ok(Self {

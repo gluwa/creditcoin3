@@ -47,7 +47,7 @@ impl TryFrom<ContinuityProofRecord> for ContinuityProofItem {
 impl From<(MerkleProofItem, ContinuityProofItem)> for ContinuityResponse {
     fn from(proofs: (MerkleProofItem, ContinuityProofItem)) -> Self {
         let (merkle, continuity) = proofs;
-        // Convert tx_bytes
+        // Convert tx_bytes to hex
         let tx_bytes_hex = merkle
             .tx_bytes
             .map(|bytes| format!("0x{}", hex::encode(&bytes)));

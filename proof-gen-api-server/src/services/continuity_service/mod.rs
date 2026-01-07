@@ -24,7 +24,7 @@ pub struct MerkleProofItem {
     pub header_number: u64,
     pub tx_index: Option<u64>, // Maybe should make this non-null if we remove intended support for full block merkle proofs
     pub tx_hash: Option<H256>,
-    pub tx_bytes: Option<Vec<u8>>, // Cached transaction bytes (includes BlockItem identifier prefix)
+    pub tx_bytes: Option<Vec<u8>>, // Cached transaction bytes (payload only)
     // Use concrete types for downstream consumers; we'll serialize only at DB boundary.
     pub merkle_proof: TransactionMerkleProof,
     pub merkle_root: H256,
@@ -39,7 +39,7 @@ pub struct ContinuityResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx_bytes: Option<String>, // Hex-encoded transaction bytes (includes BlockItem identifier prefix)
+    pub tx_bytes: Option<String>, // Hex-encoded transaction bytes (payload only)
     pub continuity_proof: ContinuityProof,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merkle_proof: Option<TransactionMerkleProof>,

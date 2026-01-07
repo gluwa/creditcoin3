@@ -12,22 +12,17 @@ use frame_support::{assert_err, assert_ok};
 use merkle::{KeccakMerkleTree, MerkleProofEntry, TransactionMerkleProof};
 use precompile_utils::{evm::logs::log3, solidity, testing::*};
 use sp_core::{H256, U256};
-use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
+use utils::block_item_traits::BlockItem;
 
 use crate::verify::{CONTINUITY_BLOCK_HASH_COST, GAS_STORAGE_LOOKUP};
 
 /// Simple test transaction item for merkle tree construction
 #[derive(Debug, Clone)]
 pub(crate) struct TestTransaction {
-    id: BlockItemIdentifier,
     data: Vec<u8>,
 }
 
 impl BlockItem for TestTransaction {
-    fn id(&self) -> &BlockItemIdentifier {
-        &self.id
-    }
-
     fn payload_bytes(&self) -> Vec<u8> {
         self.data.clone()
     }
@@ -79,10 +74,7 @@ pub(crate) fn create_valid_merkle_proof(
             data[0] = i as u8;
         }
 
-        transactions.push(TestTransaction {
-            id: BlockItemIdentifier::new(100, i as u64),
-            data,
-        });
+        transactions.push(TestTransaction { data });
     }
 
     // Build merkle tree using KeccakMerkleTree (matches POC)

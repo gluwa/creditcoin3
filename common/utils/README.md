@@ -21,11 +21,7 @@ utils = { path = "../common/utils" }
 ### Basic Usage
 
 ```rust
-use utils::{BlockItemIdentifier, Felt, felts_from_bytes};
-
-// Create a block item identifier
-let id = BlockItemIdentifier::new(100, 5);
-println!("Block: {}, Index: {}", id.block_number(), id.index());
+use utils::{BlockItem, Felt, felts_from_bytes};
 
 // Work with Starknet Felts
 let felt = Felt::from(42u64);
@@ -61,19 +57,14 @@ let negative_felt = try_parse_felt("-42")?;
 ### Block Items
 
 ```rust
-use utils::{BlockItem, BlockItemIdentifier};
+use utils::BlockItem;
 
 #[derive(Debug)]
 struct Transaction {
-    id: BlockItemIdentifier,
     data: Vec<u8>,
 }
 
 impl BlockItem for Transaction {
-    fn id(&self) -> &BlockItemIdentifier {
-        &self.id
-    }
-
     fn payload_bytes(&self) -> Vec<u8> {
         self.data.clone()
     }
@@ -84,7 +75,6 @@ impl BlockItem for Transaction {
 }
 
 let tx = Transaction {
-    id: BlockItemIdentifier::new(100, 0),
     data: vec![1, 2, 3, 4],
 };
 
@@ -116,19 +106,9 @@ let hash = pedersen_array(&felts);
 use utils::JsonSerializable;
 
 #[cfg(feature = "std")]
-impl JsonSerializable for BlockItemIdentifier {}
-
-#[cfg(feature = "std")]
-fn save_and_load_example() -> anyhow::Result<()> {
-    let id = BlockItemIdentifier::new(42, 100);
-
-    // Save to file
-    id.to_file("block_item.json")?;
-
-    // Load from file
-    let loaded_id = BlockItemIdentifier::try_from_file("block_item.json")?;
-
-    assert_eq!(id, loaded_id);
+fn json_serialization_example() -> anyhow::Result<()> {
+    // JSON serialization is available for types implementing JsonSerializable
+    // Example usage would depend on your specific type
     Ok(())
 }
 ```
@@ -150,7 +130,7 @@ fn save_and_load_example() -> anyhow::Result<()> {
 ### Types
 
 - `Felt`: Starknet field element type (alias for `starknet_crypto::Felt`)
-- `BlockItemIdentifier`: Unique identifier for items within a block
+- `BlockItem`: Trait for items that can be stored in a block
 - `StarknetPedersenMerkleTree`: Merkle tree using Starknet Pedersen hash
 - `StarknetPedersenMerkleProof`: Merkle proof using Starknet Pedersen hash
 

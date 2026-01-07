@@ -17,12 +17,18 @@
 //! ## Usage
 //!
 //! ```rust
-//! use utils::BlockItemIdentifier;
+//! use utils::BlockItem;
 //!
-//! // Create a block item identifier
-//! let id = BlockItemIdentifier::new(100, 5);
-//! assert_eq!(id.block_number(), 100);
-//! assert_eq!(id.index(), 5);
+//! // Implement BlockItem for your types
+//! struct MyBlockItem {
+//!     data: Vec<u8>,
+//! }
+//!
+//! impl BlockItem for MyBlockItem {
+//!     fn payload_bytes(&self) -> Vec<u8> {
+//!         self.data.clone()
+//!     }
+//! }
 //! ```
 
 // =============================================================================
@@ -39,25 +45,8 @@ pub mod json_serializable;
 // =============================================================================
 
 // Core traits and types
-pub use block_item_traits::{BlockItem, BlockItemIdentifier};
+pub use block_item_traits::BlockItem;
 
 // JSON serialization (std only)
 #[cfg(feature = "std")]
 pub use json_serializable::JsonSerializable;
-
-// =============================================================================
-// Crate-level Tests
-// =============================================================================
-
-#[cfg(test)]
-mod integration_tests {
-    use super::*;
-
-    #[cfg(feature = "std")]
-    #[test]
-    fn test_json_serializable_available() {
-        // Just verify the trait is available when std is enabled
-        fn _test_json_serializable<T: JsonSerializable>() {}
-        _test_json_serializable::<BlockItemIdentifier>();
-    }
-}
