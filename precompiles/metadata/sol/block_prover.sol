@@ -24,15 +24,15 @@ interface INativeQueryVerifier {
     }
 
     /// @notice Continuity proof structure
-    /// @dev Block number for index i = startBlock + i, where startBlock = queryBlockHeight - 1
-    /// @dev The verification block is always at index 1 in the continuity proof
+    /// @dev Block number for index i = startBlock + i, where startBlock = queryBlockHeight
+    /// @dev The verification block is always at index 0 in the continuity proof
     /// @dev Digests are computed on-chain from roots to reduce calldata size
     struct ContinuityProof {
         /// The digest of the block before the continuity chain starts
         /// This is the prev_digest of the first block
         bytes32 lowerEndpointDigest;
         /// Array of merkle roots (digests computed on-chain)
-        /// Block numbers are inferred: roots[i] is at (queryHeight - 1) + i for single query
+        /// Block numbers are inferred: roots[i] is at queryHeight + i for single query
         /// Digests are computed on-chain using hash_payload(block_number, merkle_root, prev_digest)
         bytes32[] roots;
     }
@@ -54,7 +54,7 @@ interface INativeQueryVerifier {
     /// @param height The block height to verify
     /// @param encodedTransaction Raw transaction data to verify
     /// @param merkleProof Merkle proof for transaction inclusion (with position info)
-    /// @param continuityProof Continuity proof (roots[0] is at queryHeight-1)
+    /// @param continuityProof Continuity proof (roots[0] is at queryHeight)
     /// @return true on successful verification (reverts on failure)
     ///
     /// Events Emitted:
@@ -163,7 +163,7 @@ interface INativeQueryVerifier {
     /// @param height The block height to verify
     /// @param encodedTransaction Raw transaction data to verify
     /// @param merkleProof Merkle proof for transaction inclusion (with position info)
-    /// @param continuityProof Continuity proof (roots[0] is at queryHeight-1)
+    /// @param continuityProof Continuity proof (roots[0] is at queryHeight)
     /// @return true on successful verification (reverts on failure)
     ///
     /// Note: This function does not emit events. For event emissions, use verifyAndEmit() instead.

@@ -163,12 +163,12 @@ impl TestScenario {
         // Create merkle proof
         let merkle_proof = create_valid_merkle_proof_for_block(&test_block, tx_index);
 
-        // POC pattern: attestation should ideally be at queryHeight - 2
+        // Lower attestation should be at queryHeight - 1
         // This provides the lowerEndpointDigest for the continuity chain
-        let attestation_block_number = query_height.saturating_sub(2);
+        let attestation_block_number = query_height.saturating_sub(1);
 
-        // POC pattern: continuity chain starts at queryHeight - 1
-        let start_height = query_height.saturating_sub(1);
+        // Continuity chain starts at queryHeight (query block at index 0)
+        let start_height = query_height;
 
         // Upper attestation should be a few blocks after the query
         // This ensures the continuity chain ends at a consensus point
@@ -180,7 +180,7 @@ impl TestScenario {
             create_deterministic_continuity_chain(start_height, block_count, &[test_block]);
 
         // The lower attestation digest is the prev_digest of the first continuity block
-        // This represents the digest AT the lower attestation block
+        // This represents the digest AT the lower attestation block (queryHeight - 1)
         let attestation_digest = continuity_blocks[0].prev_digest;
 
         // The upper attestation digest is the digest of the last continuity block

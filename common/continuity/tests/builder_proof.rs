@@ -22,21 +22,20 @@ async fn builder_builds_trimmed_continuity_chain_for_single_query() -> Result<()
         .build_for_single_query(query_height, lower_attestation, upper_attestation)
         .await?;
 
-    // Expect chain starts at queryHeight - 1 (14) and ends at next attestation (20)
+    // Expect chain starts at queryHeight (15) and ends at next attestation (20)
     let first = proof.blocks.first().expect("non-empty continuity chain");
     let last = proof.blocks.last().expect("non-empty continuity chain");
 
     assert_eq!(
-        first.block_number,
-        query_height - 1,
-        "continuity chain must start at queryHeight-1"
+        first.block_number, query_height,
+        "continuity chain must start at queryHeight (query at index 0)"
     );
     assert_eq!(
         last.block_number, 20,
         "continuity chain must end at next attestation height"
     );
     assert!(
-        proof.blocks.len() <= ((20 - (query_height - 1) + 1) as usize),
+        proof.blocks.len() <= ((20 - query_height + 1) as usize),
         "chain length within expected bounds"
     );
 

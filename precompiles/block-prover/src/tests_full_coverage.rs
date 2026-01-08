@@ -200,10 +200,10 @@ fn create_valid_continuity_chain_with_root(
 
     for i in 0..count {
         let block_number = start_block + i as u64;
-        // Use the provided merkle_root for the query block (index 1 when start_block = queryHeight - 1)
+        // Use the provided merkle_root for the query block (index 0 when start_block = queryHeight)
         // Otherwise generate one deterministically
-        let root = if i == 1 {
-            // Query block is at index 1 (second block) when continuity chain starts at queryHeight - 1
+        let root = if i == 0 {
+            // Query block is at index 0 (first block) when continuity chain starts at queryHeight
             merkle_root.unwrap_or_else(|| {
                 H256::from(keccak_256(format!("root_{block_number}").as_bytes()))
             })
@@ -257,7 +257,7 @@ fn test_successful_verification_single_transaction() {
 
         // Create valid continuity chain with the same merkle root as the proof
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
 
         // Setup attestation
         setup_valid_attestation_chain(1, &continuity_blocks);
@@ -299,7 +299,7 @@ fn test_successful_verification_multiple_transactions() {
 
         // Create valid continuity chain with the same merkle root as the proof
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         precompiles()
@@ -340,7 +340,7 @@ fn test_extract_less_than_32_bytes() {
             let tx_data = vec![value; size];
             let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
             let continuity_blocks =
-                create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+                create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
             setup_valid_attestation_chain(1, &continuity_blocks);
 
             precompiles()
@@ -368,9 +368,9 @@ fn test_extract_exactly_32_bytes() {
 
         let tx_data = (0..32).map(|i| i as u8).collect::<Vec<_>>();
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
+        // Continuity chain starts at queryHeight (query block at index 0)
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         precompiles()
@@ -398,7 +398,7 @@ fn test_extract_more_than_32_bytes() {
         let tx_data = (0..100).map(|i| i as u8).collect::<Vec<_>>();
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         precompiles()
@@ -429,9 +429,9 @@ fn test_continuity_with_checkpoint_fallback() {
 
         let tx_data = vec![0u8; 32];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
+        // Continuity chain starts at queryHeight (query block at index 0)
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
 
         // Setup checkpoint instead of attestation (testing fallback)
         let checkpoint = AttestationCheckpoint::new(
@@ -494,10 +494,10 @@ fn test_continuity_attestation_header_validation() {
 
         let tx_data = vec![0u8; 32];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
-        // Create blocks 99, 100, 101, 102 (4 blocks total)
+        // Continuity chain starts at queryHeight (query block at index 0)
+        // Create blocks 100, 101, 102, 103 (4 blocks total)
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 4, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 4, Some(merkle_proof.root));
 
         // Setup attestation with correct header number
         use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
@@ -577,9 +577,9 @@ fn test_continuity_wrong_attestation_header_succeeds() {
 
         let tx_data = vec![0u8; 32];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
+        // Continuity chain starts at queryHeight (query block at index 0)
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
 
         // Setup attestation with WRONG header number at start (doesn't matter anymore)
         use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
@@ -770,9 +770,9 @@ fn test_no_end_attestation_or_checkpoint_reverts() {
 
         let tx_data = vec![0u8; 32];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
+        // Continuity chain starts at queryHeight (query block at index 0)
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
 
         // Don't setup any attestation or checkpoint - should revert because no end attestation
 
@@ -807,7 +807,7 @@ fn test_segment_out_of_bounds_reverts_properly() {
         let tx_data = vec![0u8; 100];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         // Should succeed (no data extraction in new interface)
@@ -845,7 +845,7 @@ fn test_merkle_root_mismatch_fails() {
         // Create continuity chain with a DIFFERENT root (this is an attack scenario)
         let different_root = H256::from([0xFF; 32]);
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(different_root));
+            create_valid_continuity_chain_with_root(100, 3, Some(different_root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         // Should fail with MerkleRootMismatch status
@@ -878,7 +878,7 @@ fn test_merkle_root_matching_succeeds() {
 
         // Create continuity chain with the SAME root (correct scenario)
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         // Should succeed
@@ -984,10 +984,10 @@ fn test_attack_scenario_valid_proof_wrong_block() {
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
 
         // Create continuity chain for block 100 with different root
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
+        // Continuity chain starts at queryHeight (query block at index 0)
         let block_100_root = H256::from([0x10; 32]); // Different from merkle_proof.root
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(block_100_root));
+            create_valid_continuity_chain_with_root(100, 3, Some(block_100_root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         // Attack should fail - merkle proof is valid but for wrong block
@@ -1016,16 +1016,16 @@ fn test_query_block_not_in_continuity_chain() {
         let tx_data = vec![0xDD; 50];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
 
-        // Create continuity chain starting at queryHeight - 1 = 105 - 1 = 104
-        // We need at least 2 blocks, so create blocks 104 and 105
+        // Create continuity chain starting at queryHeight = 105
+        // We need at least 2 blocks to reach an attestation, so create blocks 105, 106
         // But we'll make block 105 have a wrong root so it fails merkle root verification
         // This way we test that block 105 exists but has wrong data
         let mut continuity_blocks = Vec::new();
         let mut prev_digest = H256::zero();
         use attestor_primitives::block::Block as FragmentBlock;
 
-        // Create blocks 104 and 105 (minimum required: queryHeight-1 and queryHeight)
-        for block_number in [104, 105] {
+        // Create blocks 105 and 106 (query block at index 0)
+        for block_number in [105, 106] {
             // Use random root (wrong root for block 105 to fail merkle root verification)
             let root = H256::random();
             let digest = FragmentBlock::hash_payload(&block_number, &root, &prev_digest);
@@ -1085,7 +1085,7 @@ fn test_merkle_root_verification_with_binary_tree() {
 
         // Create continuity chain with matching root
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         // Should succeed with correct merkle root
@@ -1134,7 +1134,7 @@ fn test_merkle_root_mismatch_event_emission() {
 
         // Create continuity chain with different root
         let wrong_root = H256::from([0x99; 32]);
-        let continuity_blocks = create_valid_continuity_chain_with_root(99, 2, Some(wrong_root));
+        let continuity_blocks = create_valid_continuity_chain_with_root(100, 3, Some(wrong_root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         // Execute and check that it returns the correct status
@@ -1158,34 +1158,40 @@ fn test_merkle_root_mismatch_event_emission() {
 #[test]
 fn test_continuity_chain_with_correct_query_block() {
     ExtBuilder::default().build().execute_with(|| {
-        // Test that we correctly find the query block in the middle of continuity chain
+        // Test that we correctly find the query block at the start of continuity chain
         let chain_key = 1;
-        let height = 102; // Middle block in chain
+        let height = 102; // Query block
 
         let tx_data = vec![0x55; 100];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
 
-        // Create continuity chain starting at queryHeight - 1 = 102 - 1 = 101
-        // Chain: 101, 102, 103, 104, 105, 106 (6 blocks)
-        let mut continuity_blocks = create_valid_continuity_chain(101, 6);
+        // Create continuity chain starting at queryHeight = 102 (query at index 0)
+        // Chain: 102, 103, 104, 105, 106, 107 (6 blocks)
+        let mut continuity_blocks = create_valid_continuity_chain(102, 6);
 
-        // Set the merkle root for block 102 (index 1) to match our proof
-        continuity_blocks[1].root = merkle_proof.root;
+        // Set the merkle root for block 102 (index 0) to match our proof
+        continuity_blocks[0].root = merkle_proof.root;
 
         // Need to recompute digests after changing root
         use attestor_primitives::block::Block as FragmentBlock;
-        for i in 1..continuity_blocks.len() {
+        for i in 0..continuity_blocks.len() {
             let block_number = continuity_blocks[i].block_number;
             let root = continuity_blocks[i].root;
-            let prev_digest = continuity_blocks[i - 1].digest;
+            let prev_digest = if i == 0 {
+                continuity_blocks[i].prev_digest
+            } else {
+                continuity_blocks[i - 1].digest
+            };
             continuity_blocks[i].digest =
                 FragmentBlock::hash_payload(&block_number, &root, &prev_digest);
-            continuity_blocks[i].prev_digest = prev_digest;
+            if i > 0 {
+                continuity_blocks[i].prev_digest = prev_digest;
+            }
         }
 
         setup_valid_attestation_chain(1, &continuity_blocks);
 
-        // Should succeed - query block is correctly found at index 1 (block 102)
+        // Should succeed - query block is correctly found at index 0 (block 102)
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -1232,7 +1238,7 @@ fn test_security_verification_prevents_cross_block_attack() {
 
         // Create attested continuity chain for block 100 with its correct root
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(proof_block_100.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(proof_block_100.root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         // Query claiming to extract data from block 100
@@ -1291,51 +1297,48 @@ fn test_batch_queries_success() {
         let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2);
         let proof3 = create_proper_merkle_proof_for_single_tx(&tx_data3);
 
-        // Create continuity chain covering blocks 99-102 (must include queryHeight - 1 for digest verification)
+        // Create continuity chain covering blocks 100-103 (query at index 0)
         // Compute digests correctly using Block::hash_payload
         use attestor_primitives::block::Block as FragmentBlock;
-        let mut prev_digest = H256::from([0x88; 32]); // Starting digest
-
-        let block99_root = H256::from([0x88; 32]); // Dummy root for previous block
-        let block99_digest = FragmentBlock::hash_payload(&99, &block99_root, &prev_digest);
-        prev_digest = block99_digest;
+        let prev_digest = H256::from([0x88; 32]); // Starting digest (digest of block 99)
 
         let block100_digest = FragmentBlock::hash_payload(&100, &proof1.root, &prev_digest);
-        prev_digest = block100_digest;
 
-        let block101_digest = FragmentBlock::hash_payload(&101, &proof2.root, &prev_digest);
-        prev_digest = block101_digest;
+        let block101_digest = FragmentBlock::hash_payload(&101, &proof2.root, &block100_digest);
 
-        let block102_digest = FragmentBlock::hash_payload(&102, &proof3.root, &prev_digest);
+        let block102_digest = FragmentBlock::hash_payload(&102, &proof3.root, &block101_digest);
+
+        let block103_root = H256::from([0x99; 32]); // Dummy root for end block
+        let block103_digest = FragmentBlock::hash_payload(&103, &block103_root, &block102_digest);
 
         let continuity_blocks = vec![
-            // Block 99 (required for query at height 100)
-            Block {
-                block_number: 99,
-                root: block99_root,
-                prev_digest: H256::from([0x88; 32]),
-                digest: block99_digest,
-            },
-            // Block 100
+            // Block 100 (first query at index 0)
             Block {
                 block_number: 100,
                 root: proof1.root,
-                prev_digest: block99_digest,
+                prev_digest,
                 digest: block100_digest,
             },
-            // Block 101
+            // Block 101 (query at index 1)
             Block {
                 block_number: 101,
                 root: proof2.root,
                 prev_digest: block100_digest,
                 digest: block101_digest,
             },
-            // Block 102
+            // Block 102 (query at index 2)
             Block {
                 block_number: 102,
                 root: proof3.root,
                 prev_digest: block101_digest,
                 digest: block102_digest,
+            },
+            // Block 103 (end attestation)
+            Block {
+                block_number: 103,
+                root: block103_root,
+                prev_digest: block102_digest,
+                digest: block103_digest,
             },
         ];
 
@@ -1384,8 +1387,8 @@ fn test_batch_queries_mixed_results() {
         let proof1 = create_proper_merkle_proof_for_single_tx(&tx_data1);
         let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2); // Valid proof for tx_data2
 
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
-        let continuity_blocks = create_valid_continuity_chain_with_root(99, 2, Some(proof1.root));
+        // Continuity chain starts at queryHeight (query block at index 0)
+        let continuity_blocks = create_valid_continuity_chain_with_root(100, 3, Some(proof1.root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         // Execute batch with one success and one failure
@@ -1427,48 +1430,40 @@ fn test_batch_queries_continuity_failure() {
         let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2);
 
         // Create invalid continuity chain (broken link)
-        // Start at min(queryHeights) - 1 = 100 - 1 = 99
+        // Start at min(queryHeights) = 100 (query at index 0)
         use attestor_primitives::block::Block as FragmentBlock;
-        let mut prev_digest = H256::zero();
-        let block0_digest = FragmentBlock::hash_payload(&99, &H256::random(), &prev_digest);
-        prev_digest = block0_digest;
+        let prev_digest = H256::zero(); // Digest of block 99
 
-        let block1_digest = FragmentBlock::hash_payload(&100, &proof1.root, &prev_digest);
+        let block100_digest = FragmentBlock::hash_payload(&100, &proof1.root, &prev_digest);
 
         // Break the chain by using wrong root for block 101
         // With wrong root, computed digest will be wrong
         let wrong_root = H256::from([0xA1; 32]); // Wrong root!
         let continuity_blocks = vec![
             Block {
-                block_number: 99,
-                root: H256::random(),
-                prev_digest: H256::zero(),
-                digest: block0_digest,
-            },
-            Block {
                 block_number: 100,
                 root: proof1.root,
-                prev_digest: block0_digest,
-                digest: block1_digest,
+                prev_digest,
+                digest: block100_digest,
             },
             Block {
                 block_number: 101,
                 root: wrong_root, // Wrong root - will cause computed digest to be wrong
-                prev_digest: block1_digest,
-                digest: FragmentBlock::hash_payload(&101, &wrong_root, &block1_digest), // Computed with wrong root
+                prev_digest: block100_digest,
+                digest: FragmentBlock::hash_payload(&101, &wrong_root, &block100_digest), // Computed with wrong root
             },
         ];
 
         // Setup attestation at the end of the chain (block 101) with CORRECT digest
         // This ensures continuity check will fail because computed digest from wrong root won't match
-        let correct_digest = FragmentBlock::hash_payload(&101, &proof2.root, &block1_digest);
+        let correct_digest = FragmentBlock::hash_payload(&101, &proof2.root, &block100_digest);
         use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
         let attestation = AttestationData {
             chain_key: 1,
             header_number: 101,
             header_hash: H256::random(),
             root: H256::from([0u8; 32]),
-            prev_digest: Some(block1_digest),
+            prev_digest: Some(block100_digest),
         };
         let signed_attestation = SignedAttestation {
             attestation,
@@ -1520,7 +1515,7 @@ fn test_batch_queries_invalid_input_lengths() {
 
         let tx_data = vec![0x11; 50];
         let proof = create_proper_merkle_proof_for_single_tx(&tx_data);
-        let continuity_blocks = create_valid_continuity_chain_with_root(99, 2, Some(proof.root));
+        let continuity_blocks = create_valid_continuity_chain_with_root(100, 3, Some(proof.root));
 
         // Mismatched array lengths
         precompiles()
@@ -1610,35 +1605,26 @@ fn test_batch_queries_shared_continuity_optimization() {
         let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2);
         let proof3 = create_proper_merkle_proof_for_single_tx(&tx_data3);
 
-        // Create shared continuity chain for blocks 99-102 (must include queryHeight - 1 for digest verification)
+        // Create shared continuity chain for blocks 100-103 (query at index 0)
         // Compute digests correctly using Block::hash_payload
         use attestor_primitives::block::Block as FragmentBlock;
-        let mut prev_digest = H256::from([0x88; 32]); // Starting digest
-
-        let block99_root = H256::from([0x88; 32]); // Dummy root for previous block
-        let block99_digest = FragmentBlock::hash_payload(&99, &block99_root, &prev_digest);
-        prev_digest = block99_digest;
+        let prev_digest = H256::from([0x88; 32]); // Starting digest (digest of block 99)
 
         let block100_digest = FragmentBlock::hash_payload(&100, &proof1.root, &prev_digest);
-        prev_digest = block100_digest;
 
-        let block101_digest = FragmentBlock::hash_payload(&101, &proof3.root, &prev_digest); // Note: query3 is for block 101
-        prev_digest = block101_digest;
+        let block101_digest = FragmentBlock::hash_payload(&101, &proof3.root, &block100_digest); // Note: query3 is for block 101
 
-        let block102_digest = FragmentBlock::hash_payload(&102, &proof2.root, &prev_digest); // Note: query2 is for block 102
+        let block102_digest = FragmentBlock::hash_payload(&102, &proof2.root, &block101_digest); // Note: query2 is for block 102
+
+        let block103_root = H256::from([0x99; 32]); // Dummy root for end block
+        let block103_digest = FragmentBlock::hash_payload(&103, &block103_root, &block102_digest);
 
         let continuity_blocks = vec![
-            // Block 99 (required for query at height 100)
-            Block {
-                block_number: 99,
-                root: block99_root,
-                prev_digest: H256::from([0x88; 32]),
-                digest: block99_digest,
-            },
+            // Block 100 (first query at index 0)
             Block {
                 block_number: 100,
                 root: proof1.root,
-                prev_digest: block99_digest,
+                prev_digest,
                 digest: block100_digest,
             },
             Block {
@@ -1652,6 +1638,12 @@ fn test_batch_queries_shared_continuity_optimization() {
                 root: proof2.root, // Note: query2 is for block 102
                 prev_digest: block101_digest,
                 digest: block102_digest,
+            },
+            Block {
+                block_number: 103,
+                root: block103_root,
+                prev_digest: block102_digest,
+                digest: block103_digest,
             },
         ];
 
@@ -1703,36 +1695,26 @@ fn test_verify_batch_queries_with_mismatched_proof_order_returns_2_failed_querie
         let proof2 = create_proper_merkle_proof_for_single_tx(&tx_data2);
         let proof3 = create_proper_merkle_proof_for_single_tx(&tx_data3);
 
-        // Create continuity chain covering blocks 99-102 (must include queryHeight - 1 for digest verification)
+        // Create continuity chain covering blocks 100-103 (query at index 0)
         // Compute digests correctly using Block::hash_payload
         use attestor_primitives::block::Block as FragmentBlock;
-        let mut prev_digest = H256::from([0x88; 32]); // Starting digest
-
-        let block99_root = H256::from([0x88; 32]); // Dummy root for previous block
-        let block99_digest = FragmentBlock::hash_payload(&99, &block99_root, &prev_digest);
-        prev_digest = block99_digest;
+        let prev_digest = H256::from([0x88; 32]); // Starting digest (digest of block 99)
 
         let block100_digest = FragmentBlock::hash_payload(&100, &proof1.root, &prev_digest);
-        prev_digest = block100_digest;
 
-        let block101_digest = FragmentBlock::hash_payload(&101, &proof2.root, &prev_digest);
-        prev_digest = block101_digest;
+        let block101_digest = FragmentBlock::hash_payload(&101, &proof2.root, &block100_digest);
 
-        let block102_digest = FragmentBlock::hash_payload(&102, &proof3.root, &prev_digest);
+        let block102_digest = FragmentBlock::hash_payload(&102, &proof3.root, &block101_digest);
+
+        let block103_root = H256::from([0x99; 32]); // Dummy root for end block
+        let block103_digest = FragmentBlock::hash_payload(&103, &block103_root, &block102_digest);
 
         let continuity_blocks = vec![
-            // Block 99 (required for query at height 100)
-            Block {
-                block_number: 99,
-                root: block99_root,
-                prev_digest: H256::from([0x88; 32]),
-                digest: block99_digest,
-            },
-            // Block 100
+            // Block 100 (first query at index 0)
             Block {
                 block_number: 100,
                 root: proof1.root,
-                prev_digest: block99_digest,
+                prev_digest,
                 digest: block100_digest,
             },
             // Block 101
@@ -1748,6 +1730,13 @@ fn test_verify_batch_queries_with_mismatched_proof_order_returns_2_failed_querie
                 root: proof3.root,
                 prev_digest: block101_digest,
                 digest: block102_digest,
+            },
+            // Block 103 (end attestation)
+            Block {
+                block_number: 103,
+                root: block103_root,
+                prev_digest: block102_digest,
+                digest: block103_digest,
             },
         ];
 
@@ -1799,7 +1788,7 @@ fn test_log_costs_are_recorded() {
         let tx_data = vec![0xAA; 100];
         let merkle_proof = create_proper_merkle_proof_for_single_tx(&tx_data);
         let continuity_blocks =
-            create_valid_continuity_chain_with_root(99, 2, Some(merkle_proof.root));
+            create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
         setup_valid_attestation_chain(1, &continuity_blocks);
 
         // Execute - log costs should be recorded internally (line 168 of lib.rs)

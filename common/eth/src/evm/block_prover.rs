@@ -104,7 +104,7 @@ impl BlockProver {
     /// * `height` - The block height to verify
     /// * `encoded_transaction` - Raw transaction data to verify
     /// * `merkle_proof` - Merkle proof for transaction inclusion
-    /// * `continuity_proof` - Optimized continuity proof (blocks[0] is at queryHeight-1)
+    /// * `continuity_proof` - Optimized continuity proof (roots[0] is at queryHeight)
     ///
     /// # Returns
     /// `true` on successful verification (reverts on failure)
@@ -154,7 +154,7 @@ impl BlockProver {
     /// * `height` - The block height to verify
     /// * `encoded_transaction` - Raw transaction data to verify
     /// * `merkle_proof` - Merkle proof for transaction inclusion
-    /// * `continuity_proof` - Optimized continuity proof (blocks[0] is at queryHeight-1)
+    /// * `continuity_proof` - Optimized continuity proof (roots[0] is at queryHeight)
     ///
     /// # Returns
     /// `true` on successful verification (reverts on failure)

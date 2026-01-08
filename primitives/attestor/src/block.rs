@@ -207,13 +207,14 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
 ///
 /// ABI structure: (bytes32, bytes32[])
 /// Tuple with lowerEndpointDigest and array of roots
-/// Block number for index i = startBlock + i, where startBlock = queryBlockHeight - 1
+/// Block number for index i = startBlock + i, where startBlock = queryBlockHeight
+/// The query block is at index 0 for optimal proof size
 #[derive(Debug, Clone, Default, Codec, Serialize, Deserialize, Encode, Decode, TypeInfo)]
 pub struct ContinuityProof {
-    /// The digest of the block before the continuity chain starts
+    /// The digest of the block before the continuity chain starts (digest of queryHeight - 1)
     pub lower_endpoint_digest: H256,
     /// Array of merkle roots (digests computed on-chain)
-    /// Block number for index i = startBlock + i, where startBlock = queryBlockHeight - 1
+    /// Block number for index i = startBlock + i, where startBlock = queryBlockHeight
     pub roots: Vec<H256>,
 }
 

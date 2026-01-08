@@ -30,13 +30,13 @@ impl BlockItem for TestTransaction {
 
 // Helper functions removed - no longer using Query type
 
-/// Helper to trim continuity blocks to start at queryHeight-1
-/// This is needed because ContinuityProof assumes roots[0] is at queryHeight-1
+/// Helper to trim continuity blocks to start at queryHeight
+/// This is needed because ContinuityProof assumes roots[0] is at queryHeight (query at index 0)
 pub(crate) fn trim_continuity_blocks_for_query(
     blocks: Vec<Block>,
     query_height: u64,
 ) -> Vec<Block> {
-    let start_height = query_height.saturating_sub(1);
+    let start_height = query_height;
     blocks
         .into_iter()
         .filter(|b| b.block_number >= start_height)
@@ -424,39 +424,39 @@ fn test_verify_continuity_chain_errors_when_continuity_chain_doesnt_reach_query_
 #[test]
 fn test_continuity_chain_at_attestation_height() {
     ExtBuilder::default().build().execute_with(|| {
-        // Query at an attestation height - requires at least 2 blocks (queryHeight-1 and queryHeight)
+        // Query at an attestation height - query block at index 0
         let query_height = 100;
         let test_block = create_test_block(query_height, 4);
         let tx_data = test_block.transactions[0].data.clone();
         let merkle_proof = create_valid_merkle_proof_for_block(&test_block, 0);
 
-        // Create continuity chain with 2 blocks: queryHeight-1 and queryHeight
-        let prev_height = query_height - 1;
-        let prev_test_block = create_test_block(prev_height, 4);
-        let prev_root = prev_test_block.merkle_root;
-        let prev_prev_digest = H256::zero();
-        let prev_digest = compute_test_digest(prev_height, &prev_root, &prev_prev_digest);
+        // Create continuity chain starting at query_height (query at index 0)
+        let prev_digest = H256::zero(); // Digest of block 99
 
         let root = test_block.merkle_root;
         let digest = compute_test_digest(query_height, &root, &prev_digest);
 
+        // Add one more block to reach attestation point
+        let next_root = H256::from([0x99; 32]);
+        let next_digest = compute_test_digest(query_height + 1, &next_root, &digest);
+
         let continuity_blocks = vec![
-            Block {
-                block_number: prev_height,
-                root: prev_root,
-                prev_digest: prev_prev_digest,
-                digest: prev_digest,
-            },
             Block {
                 block_number: query_height,
                 root,
                 prev_digest,
                 digest,
             },
+            Block {
+                block_number: query_height + 1,
+                root: next_root,
+                prev_digest: digest,
+                digest: next_digest,
+            },
         ];
 
-        // Setup attestation at query_height
-        setup_attestation(1, query_height, digest);
+        // Setup attestation at end of chain
+        setup_attestation(1, query_height + 1, next_digest);
 
         // This should succeed - continuity chain at attestation height
         precompiles()
@@ -478,39 +478,39 @@ fn test_continuity_chain_at_attestation_height() {
 #[test]
 fn test_continuity_chain_at_checkpoint_height() {
     ExtBuilder::default().build().execute_with(|| {
-        // Query at a checkpoint height - requires at least 2 blocks (queryHeight-1 and queryHeight)
+        // Query at a checkpoint height - query block at index 0
         let query_height = 100;
         let test_block = create_test_block(query_height, 4);
         let tx_data = test_block.transactions[0].data.clone();
         let merkle_proof = create_valid_merkle_proof_for_block(&test_block, 0);
 
-        // Create continuity chain with 2 blocks: queryHeight-1 and queryHeight
-        let prev_height = query_height - 1;
-        let prev_test_block = create_test_block(prev_height, 4);
-        let prev_root = prev_test_block.merkle_root;
-        let prev_prev_digest = H256::zero();
-        let prev_digest = compute_test_digest(prev_height, &prev_root, &prev_prev_digest);
+        // Create continuity chain starting at query_height (query at index 0)
+        let prev_digest = H256::zero(); // Digest of block 99
 
         let root = test_block.merkle_root;
         let digest = compute_test_digest(query_height, &root, &prev_digest);
 
+        // Add one more block to reach checkpoint point
+        let next_root = H256::from([0x99; 32]);
+        let next_digest = compute_test_digest(query_height + 1, &next_root, &digest);
+
         let continuity_blocks = vec![
-            Block {
-                block_number: prev_height,
-                root: prev_root,
-                prev_digest: prev_prev_digest,
-                digest: prev_digest,
-            },
             Block {
                 block_number: query_height,
                 root,
                 prev_digest,
                 digest,
             },
+            Block {
+                block_number: query_height + 1,
+                root: next_root,
+                prev_digest: digest,
+                digest: next_digest,
+            },
         ];
 
-        // Setup checkpoint at query_height
-        setup_checkpoint(1, query_height, digest);
+        // Setup checkpoint at end of chain
+        setup_checkpoint(1, query_height + 1, next_digest);
 
         // This should succeed - continuity chain at checkpoint height
         precompiles()
@@ -539,34 +539,33 @@ fn test_query_at_attestation_height() {
         let tx_data = test_block.transactions[0].data.clone();
         let merkle_proof = create_valid_merkle_proof_for_block(&test_block, 0);
 
-        // Create continuity chain with 2 blocks: queryHeight-1 and queryHeight
-        // The query block (queryHeight) is at an attestation height
-        let prev_height = query_height - 1;
-        let prev_test_block = create_test_block(prev_height, 4);
-        let prev_root = prev_test_block.merkle_root;
-        let prev_prev_digest = H256::zero();
-        let prev_digest = compute_test_digest(prev_height, &prev_root, &prev_prev_digest);
+        // Create continuity chain starting at query_height (query at index 0)
+        let prev_digest = H256::zero(); // Digest of block 199
 
         let root = test_block.merkle_root;
         let digest = compute_test_digest(query_height, &root, &prev_digest);
 
+        // Add one more block to reach attestation point
+        let next_root = H256::from([0x99; 32]);
+        let next_digest = compute_test_digest(query_height + 1, &next_root, &digest);
+
         let continuity_blocks = vec![
-            Block {
-                block_number: prev_height,
-                root: prev_root,
-                prev_digest: prev_prev_digest,
-                digest: prev_digest,
-            },
             Block {
                 block_number: query_height,
                 root,
                 prev_digest,
                 digest,
             },
+            Block {
+                block_number: query_height + 1,
+                root: next_root,
+                prev_digest: digest,
+                digest: next_digest,
+            },
         ];
 
-        // Setup attestation at query_height (the query is ON the attestation height)
-        setup_attestation(1, query_height, digest);
+        // Setup attestation at end of chain
+        setup_attestation(1, query_height + 1, next_digest);
 
         // This should succeed - query is at attestation height and continuity chain ends there
         precompiles()
@@ -595,34 +594,33 @@ fn test_query_at_checkpoint_height() {
         let tx_data = test_block.transactions[0].data.clone();
         let merkle_proof = create_valid_merkle_proof_for_block(&test_block, 0);
 
-        // Create continuity chain with 2 blocks: queryHeight-1 and queryHeight
-        // The query block (queryHeight) is at a checkpoint height
-        let prev_height = query_height - 1;
-        let prev_test_block = create_test_block(prev_height, 4);
-        let prev_root = prev_test_block.merkle_root;
-        let prev_prev_digest = H256::zero();
-        let prev_digest = compute_test_digest(prev_height, &prev_root, &prev_prev_digest);
+        // Create continuity chain starting at query_height (query at index 0)
+        let prev_digest = H256::zero(); // Digest of block 299
 
         let root = test_block.merkle_root;
         let digest = compute_test_digest(query_height, &root, &prev_digest);
 
+        // Add one more block to reach checkpoint point
+        let next_root = H256::from([0x99; 32]);
+        let next_digest = compute_test_digest(query_height + 1, &next_root, &digest);
+
         let continuity_blocks = vec![
-            Block {
-                block_number: prev_height,
-                root: prev_root,
-                prev_digest: prev_prev_digest,
-                digest: prev_digest,
-            },
             Block {
                 block_number: query_height,
                 root,
                 prev_digest,
                 digest,
             },
+            Block {
+                block_number: query_height + 1,
+                root: next_root,
+                prev_digest: digest,
+                digest: next_digest,
+            },
         ];
 
-        // Setup checkpoint at query_height (the query is ON the checkpoint height)
-        setup_checkpoint(1, query_height, digest);
+        // Setup checkpoint at end of chain
+        setup_checkpoint(1, query_height + 1, next_digest);
 
         // This should succeed - query is at checkpoint height and continuity chain ends there
         precompiles()
@@ -662,8 +660,8 @@ fn test_single_block_continuity_chain_fails() {
             digest,
         }];
 
-        // This should fail - verify_impl expects start_block_number = height - 1,
-        // so a single block at query_height won't be found (it would be at query_height - 1)
+        // With query at index 0, the single block IS found, but the chain doesn't end at
+        // an attestation/checkpoint, so it should fail with attestation mismatch
         precompiles()
             .prepare_test(
                 Account::Alice,
@@ -677,8 +675,7 @@ fn test_single_block_continuity_chain_fails() {
                 },
             )
             .execute_reverts(|output| {
-                output == b"Continuity chain does not reach query height"
-                    || output == b"Query block not found in continuity chain"
+                output == b"Continuity proof does not match attestation or checkpoint"
             });
     });
 }
@@ -1340,16 +1337,16 @@ fn test_continuity_chain_height_validation() {
         };
 
         // Test 1: Continuity chain with wrong merkle root at query height
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
+        // Continuity chain starts at queryHeight (query at index 0)
         // Block 100 has wrong root, so verification should fail
         let mut continuity_blocks_wrong_root = Vec::new();
         let mut prev_digest = H256::zero();
 
-        // Create blocks 99 and 100 (minimum required: queryHeight-1 and queryHeight)
+        // Create blocks 100 and 101 (query at index 0)
         // Block 100 has wrong root to test error path
         for i in 0..2 {
-            let block_number = 99 + i; // Will create blocks 99, 100
-                                       // Use random root (wrong root for block 100 to test error path)
+            let block_number = 100 + i; // Will create blocks 100, 101
+                                        // Use random root (wrong root for block 100 to test error path)
             let root = H256::random();
             let digest = compute_test_digest(block_number, &root, &prev_digest);
 
@@ -1363,10 +1360,8 @@ fn test_continuity_chain_height_validation() {
             prev_digest = digest;
         }
 
-        // Setup attestation at block 98 to make the chain valid (start)
-        setup_attestation(1, 98, continuity_blocks_wrong_root[0].prev_digest);
-        // Setup attestation at block 100 where the chain ends
-        setup_attestation(1, 100, continuity_blocks_wrong_root.last().unwrap().digest);
+        // Setup attestation at block 101 where the chain ends
+        setup_attestation(1, 101, continuity_blocks_wrong_root.last().unwrap().digest);
 
         // This should fail because block 100 has wrong merkle root
         precompiles()
@@ -1383,16 +1378,16 @@ fn test_continuity_chain_height_validation() {
             )
             .execute_reverts(|output| output == b"Merkle root mismatch");
 
-        // Test 2: Continuity chain that reaches exactly the query height (block 100)
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
+        // Test 2: Continuity chain that starts at query height (block 100)
+        // Continuity chain starts at queryHeight (query at index 0)
         let mut continuity_blocks_valid = Vec::new();
         prev_digest = H256::zero();
 
-        // Create blocks 99 and 100 (minimum required: queryHeight-1 and queryHeight)
+        // Create blocks 100 and 101 (query at index 0)
         // Block 100 must have the correct merkle root to match the query
         for i in 0..2 {
-            let block_number = 99 + i; // Will create blocks 99, 100
-                                       // Use merkle root for block 100 where the transaction is
+            let block_number = 100 + i; // Will create blocks 100, 101
+                                        // Use merkle root for block 100 where the transaction is
             let root = if block_number == 100 {
                 merkle_proof.root
             } else {
@@ -1410,10 +1405,8 @@ fn test_continuity_chain_height_validation() {
             prev_digest = digest;
         }
 
-        // Setup attestation at block 98 to make the chain valid (start)
-        setup_attestation(1, 98, continuity_blocks_valid[0].prev_digest);
-        // Setup attestation at block 100 where the chain ends (with correct digest)
-        setup_attestation(1, 100, continuity_blocks_valid.last().unwrap().digest);
+        // Setup attestation at block 101 where the chain ends (with correct digest)
+        setup_attestation(1, 101, continuity_blocks_valid.last().unwrap().digest);
 
         // This should pass all validations and return success
         precompiles()
@@ -1431,15 +1424,15 @@ fn test_continuity_chain_height_validation() {
             .execute_returns(true);
 
         // Test 3: Continuity chain that extends beyond query height
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
-        // Chain extends to block 101, which is acceptable
+        // Continuity chain starts at queryHeight (query at index 0)
+        // Chain extends to block 102, which is acceptable
         let mut continuity_blocks_extended = Vec::new();
         prev_digest = H256::zero();
 
-        // Create blocks 99, 100, 101 (starting at queryHeight - 1)
+        // Create blocks 100, 101, 102 (query at index 0)
         for i in 0..3 {
-            let block_number = 99 + i; // Will create blocks 99, 100, 101
-                                       // Use merkle root for block 100 where the transaction is
+            let block_number = 100 + i; // Will create blocks 100, 101, 102
+                                        // Use merkle root for block 100 where the transaction is
             let root = if block_number == 100 {
                 merkle_proof.root
             } else {
@@ -1457,10 +1450,8 @@ fn test_continuity_chain_height_validation() {
             prev_digest = digest;
         }
 
-        // Setup attestation at block 98 to make the chain valid (start)
-        setup_attestation(1, 98, continuity_blocks_extended[0].prev_digest);
-        // Setup attestation at block 101 where the extended chain ends
-        setup_attestation(1, 101, continuity_blocks_extended.last().unwrap().digest);
+        // Setup attestation at block 102 where the extended chain ends
+        setup_attestation(1, 102, continuity_blocks_extended.last().unwrap().digest);
 
         // This should also pass - extending beyond query height is acceptable
         precompiles()
@@ -1569,38 +1560,31 @@ fn test_transaction_verified_event_with_correct_tx_index() {
         // Create merkle proof for transaction at index 2
         let merkle_proof = create_valid_merkle_proof_for_block(&test_block, tx_index);
 
-        // Create continuity chain starting at height - 1
-        let start_height = height - 1;
+        // Create continuity chain starting at height (query at index 0)
         let mut continuity_blocks = Vec::new();
-        let mut prev_digest = H256::zero();
-
-        // Create block at height - 1
-        let root1 = H256::random();
-        let digest1 = compute_test_digest(start_height, &root1, &prev_digest);
-        continuity_blocks.push(Block {
-            block_number: start_height,
-            root: root1,
-            prev_digest,
-            digest: digest1,
-        });
-        prev_digest = digest1;
+        let prev_digest = H256::zero();
 
         // Create block at height with the merkle root
-        let digest2 = compute_test_digest(height, &merkle_proof.root, &prev_digest);
+        let digest1 = compute_test_digest(height, &merkle_proof.root, &prev_digest);
         continuity_blocks.push(Block {
             block_number: height,
             root: merkle_proof.root,
             prev_digest,
+            digest: digest1,
+        });
+
+        // Create block at height + 1 to reach attestation
+        let root2 = H256::random();
+        let digest2 = compute_test_digest(height + 1, &root2, &digest1);
+        continuity_blocks.push(Block {
+            block_number: height + 1,
+            root: root2,
+            prev_digest: digest1,
             digest: digest2,
         });
 
-        // Setup attestations
-        setup_attestation(
-            chain_key,
-            start_height - 1,
-            continuity_blocks[0].prev_digest,
-        );
-        setup_attestation(chain_key, height, continuity_blocks[1].digest);
+        // Setup attestation at end of chain
+        setup_attestation(chain_key, height + 1, continuity_blocks[1].digest);
 
         // Calculate expected transaction index from merkle proof
         // The calculate_tx_index function reconstructs it from siblings
@@ -1689,38 +1673,31 @@ fn test_transaction_verified_event_batch_with_correct_tx_indices() {
             expected_tx_indices.push(expected_tx_index);
         }
 
-        // Create continuity chain starting at height - 1
-        let start_height = height - 1;
+        // Create continuity chain starting at height (query at index 0)
         let mut continuity_blocks = Vec::new();
-        let mut prev_digest = H256::zero();
-
-        // Create block at height - 1
-        let root1 = H256::random();
-        let digest1 = compute_test_digest(start_height, &root1, &prev_digest);
-        continuity_blocks.push(Block {
-            block_number: start_height,
-            root: root1,
-            prev_digest,
-            digest: digest1,
-        });
-        prev_digest = digest1;
+        let prev_digest = H256::zero();
 
         // Create block at height with the merkle root from first proof
-        let digest2 = compute_test_digest(height, &merkle_proofs[0].root, &prev_digest);
+        let digest1 = compute_test_digest(height, &merkle_proofs[0].root, &prev_digest);
         continuity_blocks.push(Block {
             block_number: height,
             root: merkle_proofs[0].root,
             prev_digest,
+            digest: digest1,
+        });
+
+        // Create block at height + 1 to reach attestation
+        let root2 = H256::random();
+        let digest2 = compute_test_digest(height + 1, &root2, &digest1);
+        continuity_blocks.push(Block {
+            block_number: height + 1,
+            root: root2,
+            prev_digest: digest1,
             digest: digest2,
         });
 
-        // Setup attestations
-        setup_attestation(
-            chain_key,
-            start_height - 1,
-            continuity_blocks[0].prev_digest,
-        );
-        setup_attestation(chain_key, height, continuity_blocks[1].digest);
+        // Setup attestation at end of chain
+        setup_attestation(chain_key, height + 1, continuity_blocks[1].digest);
 
         // Execute batch verification
         // Build event expectations first

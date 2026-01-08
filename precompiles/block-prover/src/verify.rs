@@ -125,7 +125,7 @@ where
     /// - `height`: Block height to query
     /// - `encoded_transaction`: Raw transaction data to verify
     /// - `merkle_proof`: Proof of transaction inclusion in the block
-    /// - `continuity_proof`: Optimized continuity proof (blocks[0] is at queryHeight-1)
+    /// - `continuity_proof`: Optimized continuity proof (roots[0] is at queryHeight)
     /// - `emit_events`: Whether to emit events (true for non-view functions)
     ///
     /// # Returns
@@ -147,8 +147,8 @@ where
         continuity_proof: ContinuityProof,
         emit_events: bool,
     ) -> EvmResult<bool> {
-        // For single query: roots[0] is at queryHeight-1
-        let start_block_number = height.saturating_sub(1);
+        // For single query: roots[0] is at queryHeight (query block at index 0)
+        let start_block_number = height;
 
         // Convert bounded bytes to Vec<u8>
         let tx_bytes: Vec<u8> = encoded_transaction.into();
@@ -190,8 +190,7 @@ where
         };
 
         // Verify that the continuity proof's root matches the Merkle proof's root
-        // For single queries: query_block_idx is typically 1 (roots[0] is at height-1, roots[1] is at height)
-        // but could be different if continuity proof starts earlier
+        // For single queries: query_block_idx is 0 (roots[0] is at queryHeight)
         let query_root = &continuity_proof.roots[query_block_idx];
         if *query_root != merkle_proof.root {
             return Self::revert_with_message("Merkle root mismatch");
@@ -296,8 +295,8 @@ where
         let min_height = min_height.unwrap();
         let max_height = max_height.unwrap();
 
-        // For batch queries: roots[0] is at min(queryHeights)-1
-        let start_block_number = min_height.saturating_sub(1);
+        // For batch queries: roots[0] is at min(queryHeights) (query block at index 0)
+        let start_block_number = min_height;
 
         // Verify continuity chain covers the range of all queries
         // Note: Empty continuity proof check is redundant - if roots.is_empty(), then
@@ -393,7 +392,7 @@ where
             };
 
             // Verify that the continuity proof's root matches the Merkle proof's root
-            // For batch queries: query_block_idx depends on the query height relative to min_height
+            // For batch queries: query_block_idx = height - min_height (min query at index 0)
             let query_root = &shared_continuity_proof.roots[query_block_idx];
             if *query_root != merkle_proof.root {
                 debug!("Merkle root mismatch for query at height {height}");

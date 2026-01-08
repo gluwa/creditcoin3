@@ -32,14 +32,15 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
         let merkle_proof = create_simple_merkle_proof(&tx_data);
 
         // Create continuity blocks that reach the query height
-        // POC pattern: continuity chain starts at queryHeight - 1 (block 99)
+        // Continuity chain starts at queryHeight (block 100, query at index 0)
         let mut continuity_blocks = Vec::new();
         let mut prev_digest = H256::zero();
 
-        // Create blocks 99 and 100 (minimum required: queryHeight-1 and queryHeight)
-        for i in 0..2 {
-            let block_number = 99 + i; // Blocks 99, 100
-                                       // Use merkle root for block 100 so merkle verification passes
+        // Create block 100 (minimum required: just the query block)
+        // But we need to end at an attestation, so create blocks 100-102
+        for i in 0..3 {
+            let block_number = 100 + i; // Blocks 100, 101, 102
+                                        // Use merkle root for block 100 so merkle verification passes
             let root = if block_number == 100 {
                 merkle_proof.root
             } else {
@@ -59,11 +60,11 @@ fn test_verify_query_view_returns_same_result_as_non_view() {
             prev_digest = digest;
         }
 
-        // Setup attestation at block before first continuity block (start)
-        setup_attestation(1, 98, continuity_blocks[0].prev_digest);
+        // Setup attestation at block before first continuity block (queryHeight - 1)
+        setup_attestation(1, 99, continuity_blocks[0].prev_digest);
 
         // Setup attestation at the end of continuity chain
-        setup_attestation(1, 100, continuity_blocks.last().unwrap().digest);
+        setup_attestation(1, 102, continuity_blocks.last().unwrap().digest);
 
         // Execute view function - should not emit events
         precompiles()
@@ -172,15 +173,9 @@ fn test_verify_query_view_no_attestation() {
         let tx_data = vec![0u8; 32];
         let merkle_proof = create_simple_merkle_proof(&tx_data);
 
-        // Need at least 2 blocks: queryHeight-1 and queryHeight
-        let prev_height = 99;
-        let prev_root = H256::random();
-        let prev_prev_digest = H256::zero();
-        let prev_digest = attestor_primitives::block::Block::hash_payload(
-            &prev_height,
-            &prev_root,
-            &prev_prev_digest,
-        );
+        // Query block at index 0 - need at least 1 block (the query block)
+        // But we still need to end at an attestation, so create blocks 100-101
+        let prev_digest = H256::zero(); // Would be digest of block 99
 
         let query_height = 100;
         let query_root = merkle_proof.root;
@@ -190,18 +185,26 @@ fn test_verify_query_view_no_attestation() {
             &prev_digest,
         );
 
+        let next_height = 101;
+        let next_root = H256::random();
+        let next_digest = attestor_primitives::block::Block::hash_payload(
+            &next_height,
+            &next_root,
+            &query_digest,
+        );
+
         let continuity_blocks = vec![
-            Block {
-                block_number: prev_height,
-                root: prev_root,
-                prev_digest: prev_prev_digest,
-                digest: prev_digest,
-            },
             Block {
                 block_number: query_height,
                 root: query_root,
                 prev_digest,
                 digest: query_digest,
+            },
+            Block {
+                block_number: next_height,
+                root: next_root,
+                prev_digest: query_digest,
+                digest: next_digest,
             },
         ];
 
@@ -237,14 +240,14 @@ fn test_verify_batch_queries_view_success() {
         let merkle_proof1 = create_simple_merkle_proof(&tx_data1);
         let merkle_proof2 = create_simple_merkle_proof(&tx_data2);
 
-        // Create continuity blocks for both queries (98-100, starts at min(queryHeights) - 1)
+        // Create continuity blocks for both queries (99-102, starts at min(queryHeights))
         // Compute digests correctly using Block::hash_payload
         use attestor_primitives::block::Block as FragmentBlock;
         let mut continuity_blocks = Vec::new();
         let mut prev_digest = H256::zero();
 
-        // Start at min(queryHeights) - 1 = 99 - 1 = 98
-        for i in 98..=100 {
+        // Start at min(queryHeights) = 99 (query at index 0)
+        for i in 99..=102 {
             let block_number = i;
             let root = if block_number == 99 {
                 merkle_proof1.root
@@ -265,9 +268,9 @@ fn test_verify_batch_queries_view_success() {
             prev_digest = digest;
         }
 
-        setup_attestation(1, 97, continuity_blocks[0].prev_digest);
+        setup_attestation(1, 98, continuity_blocks[0].prev_digest);
         // Setup end attestation
-        setup_attestation(1, 100, continuity_blocks.last().unwrap().digest);
+        setup_attestation(1, 102, continuity_blocks.last().unwrap().digest);
 
         // Test batch view function - should not emit events
         precompiles()
@@ -324,14 +327,14 @@ fn test_verify_batch_queries_view_mixed_results() {
             siblings: vec![],
         };
 
-        // Create continuity blocks (98-100, starts at min(queryHeights) - 1)
+        // Create continuity blocks (99-102, starts at min(queryHeights))
         // Compute digests correctly using Block::hash_payload
         use attestor_primitives::block::Block as FragmentBlock;
         let mut continuity_blocks = Vec::new();
         let mut prev_digest = H256::zero();
 
-        // Start at min(queryHeights) - 1 = 99 - 1 = 98
-        for i in 98..=100 {
+        // Start at min(queryHeights) = 99 (query at index 0)
+        for i in 99..=102 {
             let block_number = i;
             let root = if block_number == 99 {
                 merkle_proof1.root
@@ -350,9 +353,9 @@ fn test_verify_batch_queries_view_mixed_results() {
             prev_digest = digest;
         }
 
-        setup_attestation(1, 97, continuity_blocks[0].prev_digest);
+        setup_attestation(1, 98, continuity_blocks[0].prev_digest);
         // Setup end attestation
-        setup_attestation(1, 100, continuity_blocks.last().unwrap().digest);
+        setup_attestation(1, 102, continuity_blocks.last().unwrap().digest);
 
         // Test batch view function - will revert on first failure (no partial success)
         precompiles()
