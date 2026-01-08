@@ -53,6 +53,28 @@ To build the chain, execute the following commands from the project root:
 cargo build --release
 ```
 
+If you are running newer GCC/Clang and are seeing issues with RocksDB, something like:
+
+```
+warning: librocksdb-sys@0.11.0+8.1.1: In file included from rocksdb/db/blob/blob_file_meta.cc:6:
+warning: librocksdb-sys@0.11.0+8.1.1: rocksdb/db/blob/blob_file_meta.h:28:7: error: 'uint64_t' has not been declared
+warning: librocksdb-sys@0.11.0+8.1.1:    28 |       uint64_t blob_file_number, uint64_t total_blob_count,
+warning: librocksdb-sys@0.11.0+8.1.1:       |       ^~~~~~~~
+warning: librocksdb-sys@0.11.0+8.1.1: rocksdb/db/blob/blob_file_meta.h:15:1: note: 'uint64_t' is defined in header '<cstdint>'; this is probably fixable by adding '#include <cstdint>'
+warning: librocksdb-sys@0.11.0+8.1.1:    14 | #include "rocksdb/rocksdb_namespace.h"
+warning: librocksdb-sys@0.11.0+8.1.1:   +++ |+#include <cstdint>
+```
+
+then try building like so:
+
+```bash
+export CXXFLAGS="-include cstdint"
+cargo build --release
+```
+
+See <https://github.com/rust-rocksdb/rust-rocksdb/pull/1007> for context.
+
+
 To execute the chain, run:
 
 ```bash
