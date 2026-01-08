@@ -848,7 +848,7 @@ jobs:
           node-version: 20
       - run: npm install -g yarn
 
-      - name: Start Node 1
+      - name: Start creditcoin3-node - Alice
         env:
           RUST_LOG: debug
         run: |
@@ -861,9 +861,63 @@ jobs:
             --ethapi=debug,trace,txpool \
             --base-path ./alice-data >/var/tmp/integration-test-blockchain/creditcoin3-node.log 2>&1 &
 
-      - name: Wait for node(s)s to start
+      - name: Start Ethereum simulation with Anvil
         run: |
-          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          export FOUNDRY_DIR="$HOME/.foundry"
+          # first install it
+          curl -L https://foundry.paradigm.xyz | bash
+          ~/.foundry/bin/foundryup
+
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+
+      - name: Check that creditcoin3-node and anvil are running
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+
+      - name: Simulate a native token transfer on Anvil 1
+        id: native-transfer-anvil-1
+        working-directory: attestor/scripts
+        run: |
+          npm install
+
+          OUTPUT=$(ETH_RPC_URL=http://127.0.0.1:8141 node Transfer.js)
+          echo "$OUTPUT"
+
+          BLOCK_NUMBER=$(echo "$OUTPUT" | grep block: | cut -f2 -d: | tr -d ' ')
+          TXN_HASH=$(echo "$OUTPUT" | grep hash: | cut -f2 -d: | tr -d ' ')
+
+          # Provide default values if extraction failed
+          if [ -z "$BLOCK_NUMBER" ]; then
+            echo "ERROR: Could not extract block number from Transfer.js output"
+            exit 1
+          fi
+          if [ -z "$TXN_HASH" ]; then
+            echo "ERROR: Could not extract transaction hash from Transfer.js output"
+            exit 2
+          fi
+
+          echo "block_number=$BLOCK_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Start Attestation Zombienet for Alice - Anvil 1
+        run: |
+          chmod a+x ./target/release/attestor*
+
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8141 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                --chain-key=2 &
+
+      - name: Wait for 3 attestors to be registered
+        run: |
+          # note: chain_key is hard-coded in this script so waiting only on Anvil_1
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
 
       - name: Install Solidity compiler
         run: |
@@ -918,6 +972,8 @@ jobs:
       - name: Run blockchain tests
         if: always()
         working-directory: ./cli
+        env:
+          ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
         run: |
           yarn test:blockchain
 

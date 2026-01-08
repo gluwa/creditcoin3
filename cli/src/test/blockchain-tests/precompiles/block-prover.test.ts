@@ -1,13 +1,20 @@
-import { WebSocketProvider, ethers } from 'ethers';
+import * as proof from '@gluwa/cc-next-query-builder/dist/proof-generator';
+import { EncodingVersion } from '@gluwa/cc-next-query-builder/dist/encodings';
+import { JsonRpcProvider, WebSocketProvider, ethers } from 'ethers';
 import { ApiPromise, BN, MICROUNITS_PER_CTC, newApi } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
+import { chain_Anvil1_Key, chain_Anvil1_Url } from '../pallets/supported-chains/consts';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABIJSON = require('../artifacts/block_prover.json');
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 const PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 
-describe('Precompile: block-prover::verify() + verify_and_emit()', (): void => {
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import chainInfoABIJSON = require('../artifacts/chain_info.json');
+const chainInfoABI = chainInfoABIJSON as unknown as ethers.InterfaceAbi;
+
+describe('Precompile: block-prover', (): void => {
     let contract: any;
     let provider: any;
     let alith: any;
@@ -62,6 +69,56 @@ describe('Precompile: block-prover::verify() + verify_and_emit()', (): void => {
         gasPrice = (await provider.getFeeData()).gasPrice;
         // Wait a bit to avoid nonce conflicts between tests
         await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    describe('verify()', () => {
+        test('should return true when called with valid input', async () => {
+            // we need a running Anvil at this address
+            const anvil1Provider = new JsonRpcProvider(chain_Anvil1_Url.replace('ws://', 'http://'));
+            const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
+
+            const continuityProvider = new proof.raw.continuityProvider.PrecompileContinuityProvider(alith);
+
+            // this value needs to be passed from the outside
+            const transactionHash = process.env.ANVIL1_TXN_HASH;
+            expect(transactionHash).toBeTruthy();
+
+            // make sure we have attestations for this source block
+            const sourceTxn = await anvil1Provider.getTransaction(transactionHash!);
+            expect(sourceTxn).toBeDefined();
+            expect(sourceTxn!.blockNumber).toBeDefined();
+            const sourceBlockNumber = sourceTxn!.blockNumber!;
+
+            const chainInfo = new ethers.Contract('0x0000000000000000000000000000000000000fd3', chainInfoABI, alith);
+
+            const latestAttestation = await chainInfo.get_latest_attestation_height_and_hash(chain_Anvil1_Key, {
+                gasPrice: (await provider.getFeeData()).gasPrice,
+                gasLimit: 10000000,
+            });
+            expect(latestAttestation).toBeDefined();
+            expect(latestAttestation.exists).toBe(true);
+            expect(latestAttestation.height).toBeGreaterThanOrEqual(sourceBlockNumber);
+            // we're now sure that there are enough attestations on the execution chain
+
+            const rawProofGenerator = new proof.raw.RawProofGenerator(
+                chain_Anvil1_Key,
+                blockProvider,
+                continuityProvider,
+                EncodingVersion.V1,
+            );
+            const rawProofResult = await rawProofGenerator.generateProof(transactionHash!);
+            expect(rawProofResult.success).toBe(true);
+
+            const proofData = rawProofResult.data!;
+            const proveResultRaw = await verifySingle.staticCall(
+                proofData.chainKey,
+                proofData.headerNumber,
+                proofData.txBytes,
+                proofData.merkleProof,
+                proofData.continuityProof,
+            );
+            expect(proveResultRaw).toBe(true);
+        });
     });
 
     describe('Precompile Deployment', () => {
