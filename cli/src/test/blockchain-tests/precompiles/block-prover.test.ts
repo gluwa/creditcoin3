@@ -7,7 +7,7 @@ import contractABIJSON = require('../artifacts/block_prover.json');
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 const PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 
-describe('Precompile: Native Query Verifier Integration Tests', (): void => {
+describe('Precompile: block-prover::verify() + verify_and_emit()', (): void => {
     let contract: any;
     let provider: any;
     let alith: any;
