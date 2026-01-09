@@ -39,7 +39,6 @@ pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
             get(continuity::get_proofs_by_tx_hash),
         )
         .layer(Extension(service))
-        .layer(cors)
         .layer(axum::middleware::from_fn_with_state(
             chain_key,
             move |request: axum::extract::Request, next: axum::middleware::Next| {
@@ -52,6 +51,8 @@ pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
                 }
             },
         ))
+        // CORS must be outside the middleware so error responses also get CORS headers
+        .layer(cors)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
