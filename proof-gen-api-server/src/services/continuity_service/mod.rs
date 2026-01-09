@@ -98,7 +98,9 @@ impl ContinuityService {
     /// Validate that the requested block can be processed:
     /// 1. Not before attestation genesis
     /// 2. Exists on source chain (ETH)
-    async fn validate_block(&self, header_number: u64) -> ServiceResult<()> {
+    ///
+    /// Returns the current block height for reuse in validating predicted attestation bounds.
+    async fn validate_block(&self, header_number: u64) -> ServiceResult<u64> {
         // Check genesis bound
         if header_number < self.attestation_genesis_block {
             tracing::warn!(
@@ -132,7 +134,7 @@ impl ContinuityService {
                 current_block,
             });
         }
-        Ok(())
+        Ok(current_block)
     }
 
     /// Try to get a valid cached continuity proof, updating cache counters.
@@ -221,7 +223,7 @@ impl ContinuityService {
         header_number: u64,
         tx_index: Option<u64>,
     ) -> ServiceResult<ContinuityResponse> {
-        self.validate_block(header_number).await?;
+        let current_block = self.validate_block(header_number).await?;
 
         if let Some(continuity) = self
             .try_get_cached_continuity(chain_key, header_number)
@@ -247,7 +249,7 @@ impl ContinuityService {
                 }),
             }
         } else {
-            self.generate_and_cache_response(chain_key, header_number, tx_index)
+            self.generate_and_cache_response(chain_key, header_number, tx_index, current_block)
                 .await
         }
     }

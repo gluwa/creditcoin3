@@ -17,7 +17,8 @@ async fn builder_builds_trimmed_continuity_chain_for_single_query() -> Result<()
     let builder = ContinuityBuilder::new_with_providers(config, cc, eth);
 
     let query_height = 15; // Between attestations at 10 and 20
-    let (lower_attestation, upper_attestation, _) = builder.get_endpoints(&[query_height]).await?;
+    let (lower_attestation, upper_attestation, _) =
+        builder.get_endpoints(&[query_height], None).await?;
     let proof = builder
         .build_for_single_query(query_height, lower_attestation, upper_attestation)
         .await?;

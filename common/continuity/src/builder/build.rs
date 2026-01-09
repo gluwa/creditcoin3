@@ -111,6 +111,7 @@ impl ContinuityBuilder {
     pub async fn get_endpoints(
         &self,
         query_heights: &[u64],
+        current_block: Option<u64>,
     ) -> ContinuityResult<(AttestationInfo, AttestationInfo, EndsInAttestation)> {
         // Find the query range
         let min_query = *query_heights
@@ -121,6 +122,20 @@ impl ContinuityBuilder {
             .iter()
             .max()
             .ok_or(ContinuityError::EmptyQuery)?;
+
+        let predicted = self.predict_next_attestation(max_query).await?;
+
+        // Validate that the predicted block exists on the source chain if current_block is provided
+        // This allows us to fail fast before doing more expensive work
+        if let Some(current_block) = current_block {
+            if predicted.block_number > current_block {
+                return Err(ContinuityError::UpperBoundNotOnSourceChain {
+                    query_block: max_query,
+                    upper_block: predicted.block_number,
+                    current_block,
+                });
+            }
+        }
 
         // Fetch attestations (always needed)
         let attestations = self
@@ -144,10 +159,10 @@ impl ContinuityBuilder {
         let (upper, ends_in_attestation) = match upper {
             Some(u) => (u, ends_in_attestation),
             None => {
-                let predicted = self.predict_next_attestation(max_query).await?;
                 info!(
                     max_query,
                     predicted_upper = predicted.block_number,
+                    current_block = current_block.unwrap_or(0),
                     "No attestation found after query block - using predicted upper bound"
                 );
                 // Predicted upper bounds don't end in an attestation yet

@@ -14,17 +14,23 @@ impl ContinuityService {
     /// This is mainly useful inside tests or internal utilities that need a
     /// raw proof without involving the persistence layer.
     ///
+    /// <div class="warning">
+    ///
     /// Note: Callers should validate the block via `validate_block_not_before_genesis`
     /// before calling this method. If the block is not yet attested, the builder
     /// will use "eager" proof generation with a predicted upper bound.
+    ///
+    /// </div>
     pub(crate) async fn build_continuity(
         &self,
         header_number: u64,
+        current_block: u64,
     ) -> Result<(ContinuityProof, EndsInAttestation), ServiceError> {
         // TODO: Fetch these AttestationInfo from the postgres DB rather than getting them inefficiently
+        // Pass current_block to get_endpoints so it can validate predicted blocks immediately and fail fast
         let (lower_attestation, upper_attestation, ends_in_attestation) = self
             .builder
-            .get_endpoints(&[header_number])
+            .get_endpoints(&[header_number], Some(current_block))
             .await
             .map_err(ServiceError::from)?;
 
@@ -67,9 +73,11 @@ impl ContinuityService {
         chain_key: u64,
         header_number: u64,
         tx_index: Option<u64>,
+        current_block: u64,
     ) -> ServiceResult<ContinuityResponse> {
         // Generate continuity
-        let (continuity_proof, ends_in_attestation) = self.build_continuity(header_number).await?;
+        let (continuity_proof, ends_in_attestation) =
+            self.build_continuity(header_number, current_block).await?;
         tracing::info!(
             chain_key,
             header_number,

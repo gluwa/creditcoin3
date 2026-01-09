@@ -7,32 +7,6 @@ use crate::services::errors::{ErrorResponse, ServiceError};
 
 type ApiResult = Result<Json<ContinuityResponse>, (StatusCode, Json<ErrorResponse>)>;
 
-impl ServiceError {
-    fn status_code(&self) -> StatusCode {
-        match self {
-            Self::AttestationsMissing { .. } => StatusCode::NOT_FOUND,
-            Self::QueryOutOfRange { .. }
-            | Self::TxIndexOutOfBounds { .. }
-            | Self::InvalidParameter { .. }
-            | Self::BlockBeforeGenesis { .. } => StatusCode::BAD_REQUEST,
-            Self::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
-            Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
-            Self::TxHashNotFound { .. }
-            | Self::BlockNotReady { .. }
-            | Self::BlockNotOnSourceChain { .. } => StatusCode::NOT_FOUND,
-            Self::DbError { .. } | Self::MerkleError { .. } | Self::Internal { .. } => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        }
-    }
-
-    fn into_response(self) -> (StatusCode, Json<ErrorResponse>) {
-        let status = self.status_code();
-        let response = ErrorResponse::from_service_error(&self);
-        (status, Json(response))
-    }
-}
-
 pub async fn get_proof(
     Path((chain_key, header_number)): Path<(u64, u64)>,
     Extension(service): Extension<Arc<ContinuityService>>,

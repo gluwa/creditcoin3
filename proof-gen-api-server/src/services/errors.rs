@@ -1,3 +1,5 @@
+use axum::http::StatusCode;
+use axum::Json;
 use continuity::ContinuityError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -113,6 +115,30 @@ impl ServiceError {
             ServiceError::BlockNotOnSourceChain { .. } => "BlockNotOnSourceChain",
         }
     }
+
+    pub fn status_code(&self) -> StatusCode {
+        match self {
+            Self::AttestationsMissing { .. } => StatusCode::NOT_FOUND,
+            Self::QueryOutOfRange { .. }
+            | Self::TxIndexOutOfBounds { .. }
+            | Self::InvalidParameter { .. }
+            | Self::BlockBeforeGenesis { .. } => StatusCode::BAD_REQUEST,
+            Self::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
+            Self::TxHashNotFound { .. }
+            | Self::BlockNotReady { .. }
+            | Self::BlockNotOnSourceChain { .. } => StatusCode::NOT_FOUND,
+            Self::DbError { .. } | Self::MerkleError { .. } | Self::Internal { .. } => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        }
+    }
+
+    pub fn into_response(self) -> (StatusCode, Json<ErrorResponse>) {
+        let status = self.status_code();
+        let response = ErrorResponse::from_service_error(&self);
+        (status, Json(response))
+    }
 }
 
 impl From<ContinuityError> for ServiceError {
@@ -155,6 +181,14 @@ impl From<ContinuityError> for ServiceError {
             }
             ContinuityError::EmptyQuery => ServiceError::InvalidParameter {
                 message: "Empty query: no block heights provided".to_string(),
+            },
+            ContinuityError::UpperBoundNotOnSourceChain {
+                query_block: _,
+                upper_block,
+                current_block,
+            } => ServiceError::BlockNotOnSourceChain {
+                requested_block: upper_block,
+                current_block,
             },
         }
     }

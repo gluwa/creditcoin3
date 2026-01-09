@@ -93,7 +93,7 @@ pub async fn fetch_continuity_proof(
     };
 
     let builder = ContinuityBuilder::new(config).await?;
-    let (lower_attestation, upper_attestation, _) = builder.get_endpoints(&[height]).await?;
+    let (lower_attestation, upper_attestation, _) = builder.get_endpoints(&[height], None).await?;
     let proof = builder
         .build_for_single_query(height, lower_attestation, upper_attestation)
         .await?;
@@ -118,7 +118,8 @@ pub async fn fetch_continuity_proof_batch(
 
     let builder = ContinuityBuilder::new(config).await?;
 
-    let (lower_attestation, upper_attestation, _) = builder.get_endpoints(query_heights).await?;
+    let (lower_attestation, upper_attestation, _) =
+        builder.get_endpoints(query_heights, None).await?;
     let proof = builder
         .build_for_batch_queries(query_heights, lower_attestation, upper_attestation)
         .await?;

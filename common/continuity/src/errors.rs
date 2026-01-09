@@ -1,3 +1,4 @@
+use attestor_primitives::ChainKey;
 use thiserror::Error;
 
 #[derive(Debug, Error, Clone)]
@@ -33,8 +34,15 @@ pub enum ContinuityError {
     NoConsensusPointBefore { block_number: u64 },
 
     #[error("Attestation interval not configured for chain_key {chain_key}. Cannot predict upper bound.")]
-    AttestationIntervalNotConfigured { chain_key: u64 },
+    AttestationIntervalNotConfigured { chain_key: ChainKey },
 
     #[error("Empty query: no block heights provided")]
     EmptyQuery,
+
+    #[error("Cannot build continuity proof yet: predicted upper attestation bound (block {upper_block}) does not exist on the source chain yet. Current source chain height: {current_block}. Query block {query_block} exists, but the proof requires the next attestation block which hasn't been mined yet.")]
+    UpperBoundNotOnSourceChain {
+        query_block: u64,
+        upper_block: u64,
+        current_block: u64,
+    },
 }

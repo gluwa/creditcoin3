@@ -680,11 +680,11 @@ async fn anvil_integration_eager_proof_generation() -> Result<()> {
         "continuity proof should have roots"
     );
 
-    // The proof should start at block 34 (query_height - 1) and end at block 40 (predicted attestation)
+    // The proof should start at block 35 (query_height) and end at block 40 (predicted attestation)
     // ContinuityProof has roots where index i corresponds to block (start_block + i)
-    // For query_height=35, start_block=34, and with attestation interval=10, end_block=40
-    // So we expect 7 roots: blocks 34, 35, 36, 37, 38, 39, 40
-    let expected_start_block = 34u64;
+    // For query_height=35, start_block=35, and with attestation interval=10, end_block=40
+    // So we expect 6 roots: blocks 35, 36, 37, 38, 39, 40
+    let expected_start_block = 35u64;
     let expected_end_block = 40u64;
     let expected_roots_count = (expected_end_block - expected_start_block + 1) as usize;
 
