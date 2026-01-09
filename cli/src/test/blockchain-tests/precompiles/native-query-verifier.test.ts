@@ -401,16 +401,12 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100);
             // Create valid merkle proof so we can test continuity validation
             const merkleProof = createValidMerkleProof(txData);
-            // Continuity proof must have at least 2 blocks (queryHeight-1 and queryHeight)
-            // for security reasons (to verify query block digest using prev block)
-            const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
+            // Continuity proof: roots[0] is at queryHeight (query block at index 0)
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 roots: [
-                    // Block at height-1 (queryHeight-1)
-                    prevBlockMerkleRoot,
-                    // Block at height (queryHeight) - must match merkle proof root
+                    // Block at queryHeight (index 0) - must match merkle proof root
                     merkleProof.root,
                 ],
             };
@@ -452,15 +448,12 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             // Create valid merkle proof so we can test continuity validation
             const merkleProof = createValidMerkleProof(txData);
 
-            // Provide 2 blocks as required by the precompile
-            const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
+            // Continuity proof: roots[0] is at queryHeight (query block at index 0)
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 roots: [
-                    // Block at height-1 (queryHeight-1)
-                    prevBlockMerkleRoot,
-                    // Block at height (queryHeight) - must match merkle proof root
+                    // Block at queryHeight (index 0) - must match merkle proof root
                     merkleProof.root,
                 ],
             };
@@ -480,15 +473,13 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
             const txData = ethers.randomBytes(100);
             // Create valid merkle proof so we can test continuity validation
             const merkleProof = createValidMerkleProof(txData);
-            // Provide 2 blocks with invalid/random digests that won't match on-chain data
-            const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
+            // Continuity proof: roots[0] is at queryHeight (query block at index 0)
+            // The merkle root matches, but the continuity chain won't validate against on-chain data
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 roots: [
-                    // Block at height-1 (queryHeight-1)
-                    prevBlockMerkleRoot,
-                    // Block at height (queryHeight) - must match merkle proof root
+                    // Block at queryHeight (index 0) - must match merkle proof root
                     merkleProof.root,
                 ],
             };
@@ -512,15 +503,12 @@ describe('Precompile: Native Query Verifier Integration Tests', (): void => {
                 root: wrongRoot,
                 siblings: [], // Empty siblings for single transaction
             };
-            // Provide 2 blocks as required by the precompile
-            const prevBlockMerkleRoot = ethers.keccak256(ethers.randomBytes(32));
+            // Continuity proof: roots[0] is at queryHeight (query block at index 0)
             const continuityProof = {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 lowerEndpointDigest: ethers.zeroPadBytes('0x00', 32),
                 roots: [
-                    // Block at height-1 (queryHeight-1)
-                    prevBlockMerkleRoot,
-                    // Block at height (queryHeight) - wrong root to match merkle proof
+                    // Block at queryHeight (index 0) - wrong root but matches continuity
                     wrongRoot,
                 ],
             };
