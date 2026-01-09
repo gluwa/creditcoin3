@@ -15,9 +15,9 @@ pub struct ErrorResponse {
     /// Optional: block number for BlockNotReady errors
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_number: Option<u64>,
-    /// Optional: current block for BlockNotReady errors
+    /// Optional: last attested block for BlockNotReady errors
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_block: Option<u64>,
+    pub last_attested_block: Option<u64>,
 }
 
 impl ErrorResponse {
@@ -27,12 +27,12 @@ impl ErrorResponse {
         let message = err.to_string();
         let retriable = err.retriable();
 
-        let (block_number, current_block) = if let ServiceError::BlockNotReady {
+        let (block_number, last_attested_block) = if let ServiceError::BlockNotReady {
             block_number,
-            current_block,
+            last_attested_block,
         } = err
         {
-            (Some(*block_number), Some(*current_block))
+            (Some(*block_number), Some(*last_attested_block))
         } else {
             (None, None)
         };
@@ -42,7 +42,7 @@ impl ErrorResponse {
             message,
             retriable,
             block_number,
-            current_block,
+            last_attested_block,
         }
     }
 }
@@ -69,10 +69,15 @@ pub enum ServiceError {
     TxHashLookupUnavailable { tx_hash: String },
     #[error("tx hash not found: {tx_hash}")]
     TxHashNotFound { tx_hash: String },
-    #[error("The continuity proof cannot be created because block {block_number} is not attested to yet")]
+    #[error("The continuity proof cannot be created because block {block_number} is not attested to yet. Last attested block: {last_attested_block}")]
     BlockNotReady {
         block_number: u64,
-        current_block: u64,
+        last_attested_block: u64,
+    },
+    #[error("Block {requested_block} is before attestation genesis block {genesis_block}. Cannot generate proofs for blocks before the attestation system was initialized.")]
+    BlockBeforeGenesis {
+        requested_block: u64,
+        genesis_block: u64,
     },
 }
 
@@ -98,6 +103,7 @@ impl ServiceError {
             ServiceError::TxHashLookupUnavailable { .. } => "TxHashLookupUnavailable",
             ServiceError::TxHashNotFound { .. } => "TxHashNotFound",
             ServiceError::BlockNotReady { .. } => "BlockNotReady",
+            ServiceError::BlockBeforeGenesis { .. } => "BlockBeforeGenesis",
         }
     }
 }
@@ -107,10 +113,10 @@ impl From<ContinuityError> for ServiceError {
         match e {
             ContinuityError::BlockNotReady {
                 block_number,
-                current_block,
+                last_attested_block,
             } => ServiceError::BlockNotReady {
                 block_number,
-                current_block,
+                last_attested_block,
             },
             ContinuityError::NoAttestations(chain_key) => {
                 ServiceError::AttestationsMissing { chain_key }
@@ -120,6 +126,13 @@ impl From<ContinuityError> for ServiceError {
             ContinuityError::InvalidBounds(msg) => ServiceError::InvalidParameter { message: msg },
             ContinuityError::MissingBlock => ServiceError::Internal {
                 message: "Block not found in continuity chain".to_string(),
+            },
+            ContinuityError::BlockBeforeGenesis {
+                requested_block,
+                genesis_block,
+            } => ServiceError::BlockBeforeGenesis {
+                requested_block,
+                genesis_block,
             },
         }
     }

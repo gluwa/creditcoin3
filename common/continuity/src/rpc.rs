@@ -33,6 +33,16 @@ pub trait CcRpcProvider: Send + Sync {
 
     /// Get the chain name for health check purposes
     async fn get_chain_name(&self) -> Result<String>;
+
+    /// Get the last digest for a chain (lightweight query)
+    async fn fetch_last_digest(&self, chain_key: u64) -> Result<Option<H256>>;
+
+    /// Get a specific attestation by its digest
+    async fn get_attestation_by_digest(
+        &self,
+        chain_key: u64,
+        digest: H256,
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>>;
 }
 
 /// Abstraction over source chain (ETH) RPC required to build continuity fragments.
@@ -108,6 +118,32 @@ impl CcRpcProvider for CcClient {
         self.get_chain_name()
             .await
             .map_err(|e| anyhow!("Failed to fetch chain name: {e}"))
+    }
+
+    async fn fetch_last_digest(&self, chain_key: u64) -> Result<Option<H256>> {
+        self.fetch_last_digest(chain_key)
+            .await
+            .map(|opt| opt.map(|d| H256::from_slice(d.as_bytes())))
+            .map_err(|e| anyhow!("Failed to fetch last digest: {e}"))
+    }
+
+    async fn get_attestation_by_digest(
+        &self,
+        chain_key: u64,
+        digest: H256,
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
+        let sp_digest = sp_core::H256::from_slice(digest.as_bytes());
+        self.get_attestation_by_digest(chain_key, sp_digest)
+            .await
+            .map(|opt| {
+                opt.map(|att| SignedAttestation {
+                    attestation: att.attestation,
+                    signature: att.signature,
+                    attestors: att.attestors,
+                    continuity_proof: att.continuity_proof,
+                })
+            })
+            .map_err(|e| anyhow!("Failed to fetch attestation by digest: {e}"))
     }
 }
 

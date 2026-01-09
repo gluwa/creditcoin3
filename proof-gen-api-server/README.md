@@ -133,10 +133,10 @@ For `BlockNotReady` errors, additional fields are included:
 ```jsonc
 {
   "code": "BlockNotReady",
-  "message": "The continuity proof cannot be created because block 35 is not attested to yet",
+  "message": "The continuity proof cannot be created because block 35 is not attested to yet. Last attested block: 30",
   "retriable": true,
   "block_number": 35, // the requested block number
-  "current_block": 50 // the current block height
+  "last_attested_block": 30 // the highest block that has been attested
 }
 ```
 

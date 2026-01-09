@@ -17,71 +17,55 @@ impl ContinuityService {
         &self,
         header_number: u64,
     ) -> Result<(ContinuityProof, EndsInAttestation), ServiceError> {
-        // Check if the requested block is available before attempting to build proof
-        let current_block =
-            self.builder
-                .get_last_block()
-                .await
-                .map_err(|e| ServiceError::RpcUnavailable {
-                    message: format!("Failed to get current block height: {e}"),
-                })?;
-
-        if header_number > current_block {
-            tracing::warn!(
-                block_number = header_number,
-                current_block,
-                "Query block is not attested to yet"
-            );
-            return Err(ServiceError::BlockNotReady {
-                block_number: header_number,
-                current_block,
-            });
-        }
-
         // TODO: Fetch these AttestationInfo from the postgres DB rather than getting them innefficiently
-        let (lower_attestation, upper_attestation, ends_in_attestation) = self
-            .builder
-            .get_endpoints(&[header_number])
-            .await
-            .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
-        let proof = self
+        let endpoints_result = self.builder.get_endpoints(&[header_number]).await;
+        let (lower_attestation, upper_attestation, ends_in_attestation) = match endpoints_result {
+            Ok(v) => v,
+            Err(e) => return Err(self.handle_build_error_async(e, header_number).await),
+        };
+
+        let proof_result = self
             .builder
             .build_for_single_query(header_number, lower_attestation, upper_attestation)
-            .await
-            .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
+            .await;
+        let proof = match proof_result {
+            Ok(v) => v,
+            Err(e) => return Err(self.handle_build_error_async(e, header_number).await),
+        };
+
         Ok((
             ContinuityProof::from_blocks(proof.blocks),
             ends_in_attestation,
         ))
     }
 
-    /// Convert anyhow::Error from continuity builder to ServiceError with appropriate logging
-    pub(crate) fn handle_build_error(
+    /// Convert anyhow::Error from continuity builder to ServiceError with appropriate logging.
+    /// Only fetches last_attested_block lazily when we're creating a BlockNotReady error.
+    pub(crate) async fn handle_build_error_async(
         &self,
         error: anyhow::Error,
         query_block: u64,
-        current_block: u64,
     ) -> ServiceError {
         // Try to extract ContinuityError first (using downcast_ref to avoid moving)
         if let Some(continuity_err) = error.downcast_ref::<ContinuityError>() {
             // Special handling for BlockNotReady to add contextual logging
             if let ContinuityError::BlockNotReady {
                 block_number,
-                current_block: err_current_block,
+                last_attested_block: err_last_attested,
             } = continuity_err
             {
                 let is_query_block = *block_number == query_block;
                 if is_query_block {
                     tracing::warn!(
                         query_block = *block_number,
-                        current_block = *err_current_block,
+                        last_attested_block = *err_last_attested,
                         "Query block is not attested to yet"
                     );
                 } else {
                     tracing::warn!(
                         end_block = *block_number,
                         query_block,
-                        current_block = *err_current_block,
+                        last_attested_block = *err_last_attested,
                         "End block for continuity proof is not attested to yet"
                     );
                 }
@@ -96,29 +80,22 @@ impl ContinuityService {
         // Affected: continuity/src/builder/build.rs
         let error_msg = error.to_string();
 
-        // Check for "Failed to get block" errors from eth client
-        if error_msg.contains("Failed to get block") {
-            tracing::warn!(
-                query_block,
-                current_block,
-                "Query block is not attested to yet"
-            );
-            return ServiceError::BlockNotReady {
-                block_number: query_block,
-                current_block,
-            };
-        }
+        // Check for errors that indicate block is not attested yet
+        let is_block_not_ready = error_msg.contains("Failed to get block")
+            || error_msg.contains("No attestation or checkpoint found after block");
 
-        // Check for "No attestation or checkpoint found after block" errors
-        if error_msg.contains("No attestation or checkpoint found after block") {
+        if is_block_not_ready {
+            // Only fetch last_attested_block when we actually need it for the error
+            let last_attested_block = self.builder.get_last_attested_block().await.unwrap_or(0);
+
             tracing::warn!(
                 query_block,
-                current_block,
+                last_attested_block,
                 "No attestation found after query block - block not attested yet"
             );
             return ServiceError::BlockNotReady {
                 block_number: query_block,
-                current_block,
+                last_attested_block,
             };
         }
 
@@ -313,7 +290,6 @@ impl ContinuityService {
         &self,
         chain_key: u64,
         header_number: u64,
-        current_block: u64,
     ) -> ServiceResult<ContinuityResponse> {
         tracing::info!(
             chain_key,
@@ -321,16 +297,20 @@ impl ContinuityService {
             "Building continuity proof (cache miss)"
         );
         // TODO: Fetch these AttestationInfo from the postgres DB rather than getting them innefficiently
-        let (lower_attestation, upper_attestation, ends_in_attestation) = self
-            .builder
-            .get_endpoints(&[header_number])
-            .await
-            .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
-        let proof = self
+        let endpoints_result = self.builder.get_endpoints(&[header_number]).await;
+        let (lower_attestation, upper_attestation, ends_in_attestation) = match endpoints_result {
+            Ok(v) => v,
+            Err(e) => return Err(self.handle_build_error_async(e, header_number).await),
+        };
+
+        let proof_result = self
             .builder
             .build_for_single_query(header_number, lower_attestation, upper_attestation)
-            .await
-            .map_err(|e| self.handle_build_error(e, header_number, current_block))?;
+            .await;
+        let proof = match proof_result {
+            Ok(v) => v,
+            Err(e) => return Err(self.handle_build_error_async(e, header_number).await),
+        };
         // Convert raw blocks into optimized ContinuityProof (attestor primitives)
         let continuity = ContinuityProof::from_blocks(proof.blocks);
         tracing::info!(

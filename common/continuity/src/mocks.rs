@@ -10,6 +10,8 @@ use std::sync::Arc;
 /// Mock Creditcoin RPC provider returning deterministic fake attestations & checkpoints.
 pub struct MockCcRpcProvider {
     pub chain_key: u64,
+    /// Genesis block number for attestation chain (default 0)
+    pub genesis_block: u64,
 }
 
 #[async_trait]
@@ -75,13 +77,42 @@ impl CcRpcProvider for MockCcRpcProvider {
     }
 
     async fn get_attestation_chain_genesis_block_number(&self, _chain_key: u64) -> Result<u64> {
-        // Mock returns 0 for backward compatibility, but can be any number
-        Ok(0)
+        Ok(self.genesis_block)
     }
 
     async fn get_chain_name(&self) -> Result<String> {
         // Mock returns a test chain name
         Ok("Mock CC3 Chain".to_string())
+    }
+
+    async fn fetch_last_digest(&self, _chain_key: u64) -> Result<Option<H256>> {
+        // Mock returns digest for block 30 (highest attestation)
+        Ok(Some(H256::from_low_u64_be(30)))
+    }
+
+    async fn get_attestation_by_digest(
+        &self,
+        chain_key: u64,
+        digest: H256,
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
+        // Extract header_number from the mock digest format
+        let header_number =
+            u64::from_be_bytes(digest.as_bytes()[24..32].try_into().unwrap_or([0; 8]));
+        if header_number == 0 {
+            return Ok(None);
+        }
+        Ok(Some(SignedAttestation {
+            attestation: AttestationData {
+                chain_key,
+                header_number,
+                header_hash: H256::from_low_u64_be(header_number),
+                root: H256::from_low_u64_be(header_number + 1000),
+                prev_digest: None,
+            },
+            signature: [0u8; 96],
+            attestors: vec![],
+            continuity_proof: Default::default(),
+        }))
     }
 }
 
@@ -164,7 +195,10 @@ impl EthRpcProvider for MockEthRpcProvider {
 
 pub fn make_mock_providers(chain_key: u64) -> (Arc<MockCcRpcProvider>, Arc<MockEthRpcProvider>) {
     (
-        Arc::new(MockCcRpcProvider { chain_key }),
+        Arc::new(MockCcRpcProvider {
+            chain_key,
+            genesis_block: 0,
+        }),
         Arc::new(MockEthRpcProvider),
     )
 }

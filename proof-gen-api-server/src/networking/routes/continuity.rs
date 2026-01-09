@@ -17,7 +17,10 @@ fn map_service_error(err: ServiceError) -> (StatusCode, Json<ErrorResponse>) {
         ServiceError::DbError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         ServiceError::MerkleError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         ServiceError::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
-        ServiceError::BlockNotReady { .. } => StatusCode::SERVICE_UNAVAILABLE,
+        // Block not yet attested - client should retry later
+        ServiceError::BlockNotReady { .. } => StatusCode::NOT_FOUND,
+        // Block before genesis - permanent error, won't ever be available
+        ServiceError::BlockBeforeGenesis { .. } => StatusCode::BAD_REQUEST,
     };
     let response = ErrorResponse::from_service_error(&err);
     (status, Json(response))

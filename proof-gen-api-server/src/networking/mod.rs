@@ -1,9 +1,12 @@
-use axum::{routing::get, Extension, Router};
+use axum::{http::Method, routing::get, Extension, Router};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot::Receiver;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 use tracing::Level;
 
 use crate::services::continuity_service::ContinuityService;
@@ -13,6 +16,12 @@ pub mod middleware;
 pub mod routes;
 
 pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
+    // Configure CORS to allow browser-based applications to access the API
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(Any);
+
     Router::new()
         .route("/api/v1/health", get(health::health_check))
         .route("/health/live", get(health::liveness_check))
@@ -30,6 +39,7 @@ pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
             get(continuity::get_proofs_by_tx_hash),
         )
         .layer(Extension(service))
+        .layer(cors)
         .layer(axum::middleware::from_fn_with_state(
             chain_key,
             move |request: axum::extract::Request, next: axum::middleware::Next| {

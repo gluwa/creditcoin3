@@ -190,4 +190,38 @@ impl ContinuityBuilder {
             .await
             .context("Failed to get ETH chain ID")
     }
+
+    /// Get the attestation genesis block number for the configured chain.
+    /// This is the first block that can be attested to.
+    pub async fn get_attestation_genesis_block(&self) -> Result<u64> {
+        self.cc_provider
+            .get_attestation_chain_genesis_block_number(self.config.chain_key)
+            .await
+            .context("Failed to get attestation genesis block number")
+    }
+
+    /// Get the last attested block number for the configured chain.
+    /// Returns the highest attestation header_number (used for error messages).
+    /// Uses lightweight queries: fetch_last_digest + get_attestation_by_digest
+    pub async fn get_last_attested_block(&self) -> Result<u64> {
+        // First, get the last digest (lightweight query)
+        let last_digest = self
+            .cc_provider
+            .fetch_last_digest(self.config.chain_key)
+            .await?;
+
+        let Some(digest) = last_digest else {
+            return Ok(0); // No attestations yet
+        };
+
+        // Then fetch the attestation by digest to get the header_number
+        let attestation = self
+            .cc_provider
+            .get_attestation_by_digest(self.config.chain_key, digest)
+            .await?;
+
+        Ok(attestation
+            .map(|a| a.attestation.header_number)
+            .unwrap_or(0))
+    }
 }

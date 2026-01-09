@@ -60,6 +60,7 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
     // Build providers: mock CC, real ETH
     let cc_provider = Arc::new(MockCcRpcProvider {
         chain_key: cfg.chain_key,
+        genesis_block: 0,
     });
     let eth_client = eth::Client::new(&cfg.eth_rpc_url, None)
         .await
@@ -247,7 +248,10 @@ async fn anvil_integration_health_check_db_failure() -> Result<()> {
     };
 
     // Build providers: mock CC, real ETH
-    let cc_provider = Arc::new(MockCcRpcProvider { chain_key });
+    let cc_provider = Arc::new(MockCcRpcProvider {
+        chain_key,
+        genesis_block: 0,
+    });
     let eth_client = eth::Client::new(&cfg.eth_rpc_url, None)
         .await
         .expect("eth client");
@@ -477,7 +481,10 @@ async fn anvil_integration_health_check_rpc_failure() -> Result<()> {
     };
 
     // Build providers: mock CC, real ETH (will be stopped later)
-    let cc_provider = Arc::new(MockCcRpcProvider { chain_key });
+    let cc_provider = Arc::new(MockCcRpcProvider {
+        chain_key,
+        genesis_block: 0,
+    });
     let eth_client = eth::Client::new(&cfg.eth_rpc_url, None)
         .await
         .expect("eth client");
@@ -613,7 +620,10 @@ async fn anvil_integration_unattested_block_error() -> Result<()> {
     };
 
     // Build providers with Mock CC that only has attestations up to block 30
-    let cc_provider = Arc::new(MockCcRpcProvider { chain_key });
+    let cc_provider = Arc::new(MockCcRpcProvider {
+        chain_key,
+        genesis_block: 0,
+    });
     let eth_client = eth::Client::new(&cfg.eth_rpc_url, None)
         .await
         .expect("eth client");
@@ -646,11 +656,12 @@ async fn anvil_integration_unattested_block_error() -> Result<()> {
     let block_url = format!("{base}/api/v1/proof/31337/35");
     let resp = client.get(&block_url).send().await.expect("http send");
 
-    // Assert: Should return 503 SERVICE_UNAVAILABLE with meaningful error
+    // Assert: Should return 404 NOT_FOUND with meaningful error
+    // (Block not yet attested - may be attested in the future, but currently not available)
     assert_eq!(
         resp.status(),
-        reqwest::StatusCode::SERVICE_UNAVAILABLE,
-        "unattested block should return 503 SERVICE_UNAVAILABLE"
+        reqwest::StatusCode::NOT_FOUND,
+        "unattested block should return 404 NOT_FOUND"
     );
 
     let error_body = resp
@@ -673,13 +684,106 @@ async fn anvil_integration_unattested_block_error() -> Result<()> {
     );
 
     assert!(
-        error_body.current_block.is_some(),
-        "error should include current_block"
+        error_body.last_attested_block.is_some(),
+        "error should include last_attested_block"
     );
 
     assert!(
         error_body.message.contains("not attested"),
         "error message should mention attestation: {}",
+        error_body.message
+    );
+
+    // Teardown
+    server.abort();
+    Ok(())
+}
+
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
+#[tokio::test]
+async fn anvil_integration_block_before_genesis_error() -> Result<()> {
+    // This test validates proper error handling when querying a block before attestation genesis
+    // Arrange: Start anvil
+    let anvil = spawn_anvil();
+    let port = anvil.port();
+
+    // Send some transactions to have blocks
+    for _ in 0..20 {
+        let _ = send_test_tx_via_alloy(port, &anvil).await;
+    }
+
+    let chain_key = 31337;
+    let cfg = ContinuityConfig {
+        cc3_rpc_url: "ws://unused".into(),
+        cc3_key: "//Alice".into(),
+        eth_rpc_url: anvil.ws_endpoint(),
+        chain_key,
+    };
+
+    // Build providers with Mock CC that has genesis at block 10
+    // This means blocks 0-9 are "before genesis" and cannot be attested
+    let cc_provider = Arc::new(MockCcRpcProvider {
+        chain_key,
+        genesis_block: 10,
+    });
+    let eth_client = eth::Client::new(&cfg.eth_rpc_url, None)
+        .await
+        .expect("eth client");
+    let eth_provider: Arc<dyn continuity::rpc::EthRpcProvider> = Arc::new(eth_client);
+    let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider.clone(), eth_provider);
+
+    // Start Postgres
+    let pg = setup_test_postgres().await;
+    let db = DbManager::new(test_db_manager_postgres_uri(&pg).await).expect("db manager init");
+    db.run_migrations().await.expect("migrations");
+    let service = Arc::new(ContinuityService::new(
+        cc_provider,
+        Arc::new(builder),
+        Arc::new(db),
+    ));
+    let app: Router = build_app(service, chain_key);
+
+    // Start HTTP server
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind http");
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    let base = format!("http://{addr}");
+    let client = reqwest::Client::new();
+
+    // Act: Query for block 5 (before genesis block 10)
+    let block_url = format!("{base}/api/v1/proof/31337/5");
+    let resp = client.get(&block_url).send().await.expect("http send");
+
+    // Assert: Should return 400 BAD_REQUEST with meaningful error
+    assert_eq!(
+        resp.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "block before genesis should return 400 BAD_REQUEST"
+    );
+
+    let error_body = resp
+        .json::<ErrorResponse>()
+        .await
+        .expect("parse error json");
+
+    // Verify error structure
+    assert_eq!(
+        error_body.code, "BlockBeforeGenesis",
+        "error code should be BlockBeforeGenesis"
+    );
+
+    assert!(
+        !error_body.retriable,
+        "error should NOT be marked as retriable (permanent error)"
+    );
+
+    assert!(
+        error_body.message.contains("before attestation genesis"),
+        "error message should mention genesis: {}",
         error_body.message
     );
 

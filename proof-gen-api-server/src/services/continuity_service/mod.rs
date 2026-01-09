@@ -57,6 +57,9 @@ pub struct ContinuityService {
     start_time: Instant,
     cache_hits: AtomicU64,
     cache_misses: AtomicU64,
+    /// The genesis block number for the attestation chain.
+    /// Blocks before this number cannot be attested to.
+    attestation_genesis_block: AtomicU64,
 }
 
 impl ContinuityService {
@@ -72,7 +75,73 @@ impl ContinuityService {
             start_time: Instant::now(),
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
+            // Initialize to 0, will be fetched lazily on first request
+            attestation_genesis_block: AtomicU64::new(0),
         }
+    }
+
+    /// Get the attestation genesis block number, fetching it if not yet cached.
+    async fn get_attestation_genesis(&self) -> ServiceResult<u64> {
+        // Check if already cached (non-zero value)
+        let cached = self.attestation_genesis_block.load(Ordering::Relaxed);
+        if cached > 0 {
+            return Ok(cached);
+        }
+
+        // Fetch from RPC
+        let genesis = self
+            .builder
+            .get_attestation_genesis_block()
+            .await
+            .map_err(|e| ServiceError::RpcUnavailable {
+                message: format!("Failed to get attestation genesis block: {e}"),
+            })?;
+
+        // Cache it (if genesis is 0, we store 0 which is valid - means attestation starts at block 0)
+        // We use compare_exchange to handle race conditions - first writer wins
+        let _ = self.attestation_genesis_block.compare_exchange(
+            0,
+            genesis,
+            Ordering::SeqCst,
+            Ordering::Relaxed,
+        );
+
+        Ok(genesis)
+    }
+
+    /// Validate that the requested block is not before the attestation genesis.
+    async fn validate_block_not_before_genesis(&self, header_number: u64) -> ServiceResult<()> {
+        let genesis = self.get_attestation_genesis().await?;
+        if header_number < genesis {
+            tracing::warn!(
+                requested_block = header_number,
+                genesis_block = genesis,
+                "Requested block is before attestation genesis"
+            );
+            return Err(ServiceError::BlockBeforeGenesis {
+                requested_block: header_number,
+                genesis_block: genesis,
+            });
+        }
+        Ok(())
+    }
+
+    /// Check if block is attested yet. Returns error early if not, avoiding expensive operations.
+    /// TODO: replace me when we have attestation event subscriptions implemented.
+    async fn validate_block_is_attested(&self, header_number: u64) -> ServiceResult<()> {
+        let last_attested_block = self.builder.get_last_attested_block().await.unwrap_or(0);
+        if header_number > last_attested_block {
+            tracing::warn!(
+                header_number,
+                last_attested_block,
+                "Block not attested yet - failing fast"
+            );
+            return Err(ServiceError::BlockNotReady {
+                block_number: header_number,
+                last_attested_block,
+            });
+        }
+        Ok(())
     }
 
     pub fn uptime_seconds(&self) -> u64 {
@@ -137,13 +206,12 @@ impl ContinuityService {
         chain_key: u64,
         header_number: u64,
     ) -> ServiceResult<ContinuityResponse> {
-        let current_block =
-            self.builder
-                .get_last_block()
-                .await
-                .map_err(|e| ServiceError::RpcUnavailable {
-                    message: format!("Failed to get current block height: {e}"),
-                })?;
+        // Validate block is not before attestation genesis
+        self.validate_block_not_before_genesis(header_number)
+            .await?;
+
+        // Check if block is attested yet (fast check before expensive operations)
+        self.validate_block_is_attested(header_number).await?;
 
         // Attempt to look up continuity proof first
         let maybe_continuity = self
@@ -180,14 +248,14 @@ impl ContinuityService {
                     header_number,
                     "Cache hit, but continuity proof is no longer verifyable. Rebuilding proof."
                 );
-                self.build_and_cache_continuity(chain_key, header_number, current_block)
+                self.build_and_cache_continuity(chain_key, header_number)
                     .await
             }
         } else {
             // Increment cache miss counter (not found)
             self.cache_misses.fetch_add(1, Ordering::Relaxed);
             // Cache miss. Must build continuity.
-            self.build_and_cache_continuity(chain_key, header_number, current_block)
+            self.build_and_cache_continuity(chain_key, header_number)
                 .await
         }
     }
@@ -200,6 +268,13 @@ impl ContinuityService {
         header_number: u64,
         tx_index: u64,
     ) -> ServiceResult<ContinuityResponse> {
+        // Validate block is not before attestation genesis
+        self.validate_block_not_before_genesis(header_number)
+            .await?;
+
+        // Check if block is attested yet (fast check before expensive operations)
+        self.validate_block_is_attested(header_number).await?;
+
         // Attempt to fetch continuity proof first
         let maybe_continuity = self
             .fetch_continuity_by_height(chain_key, header_number)
@@ -245,6 +320,11 @@ impl ContinuityService {
         let tx_h256 = parse_tx_hash(&tx_hash)?;
 
         let (header_number, tx_index) = self.get_height_and_index_for_tx_hash(tx_h256).await?;
+
+        // Validate block is not before attestation genesis
+        // (The get_proofs_by_height_and_index call also validates, but we check here for clearer error messages)
+        self.validate_block_not_before_genesis(header_number)
+            .await?;
 
         let response = self
             .get_proofs_by_height_and_index(chain_key, header_number, tx_index)
