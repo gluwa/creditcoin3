@@ -5,83 +5,81 @@ use std::sync::Arc;
 use crate::services::continuity_service::{ContinuityResponse, ContinuityService};
 use crate::services::errors::{ErrorResponse, ServiceError};
 
-fn map_service_error(err: ServiceError) -> (StatusCode, Json<ErrorResponse>) {
-    let status = match &err {
-        ServiceError::AttestationsMissing { .. } => StatusCode::NOT_FOUND,
-        ServiceError::QueryOutOfRange { .. } => StatusCode::BAD_REQUEST,
-        ServiceError::TxIndexOutOfBounds { .. } => StatusCode::BAD_REQUEST,
-        ServiceError::InvalidParameter { .. } => StatusCode::BAD_REQUEST,
-        ServiceError::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
-        ServiceError::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
-        ServiceError::TxHashNotFound { .. } => StatusCode::NOT_FOUND,
-        ServiceError::DbError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
-        ServiceError::MerkleError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
-        ServiceError::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
-        // Block not yet attested - client should retry later
-        ServiceError::BlockNotReady { .. } => StatusCode::NOT_FOUND,
-        // Block before genesis - permanent error, won't ever be available
-        ServiceError::BlockBeforeGenesis { .. } => StatusCode::BAD_REQUEST,
-    };
-    let response = ErrorResponse::from_service_error(&err);
-    (status, Json(response))
-}
+type ApiResult = Result<Json<ContinuityResponse>, (StatusCode, Json<ErrorResponse>)>;
 
-pub async fn get_continuity_proof(
-    Path((chain_key, header_number)): Path<(u64, u64)>,
-    Extension(service): Extension<Arc<ContinuityService>>,
-) -> Result<Json<ContinuityResponse>, (StatusCode, Json<ErrorResponse>)> {
-    match service.get_continuity_proof(chain_key, header_number).await {
-        Ok(resp) => {
-            tracing::info!(
-                chain_key,
-                header_number,
-                cached = resp.cached,
-                "Request served successfully"
-            );
-            Ok(Json(resp))
+impl ServiceError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            Self::AttestationsMissing { .. } => StatusCode::NOT_FOUND,
+            Self::QueryOutOfRange { .. }
+            | Self::TxIndexOutOfBounds { .. }
+            | Self::InvalidParameter { .. }
+            | Self::BlockBeforeGenesis { .. } => StatusCode::BAD_REQUEST,
+            Self::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
+            Self::TxHashNotFound { .. }
+            | Self::BlockNotReady { .. }
+            | Self::BlockNotOnSourceChain { .. } => StatusCode::NOT_FOUND,
+            Self::DbError { .. } | Self::MerkleError { .. } | Self::Internal { .. } => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
-        Err(e) => Err(map_service_error(e)),
+    }
+
+    fn into_response(self) -> (StatusCode, Json<ErrorResponse>) {
+        let status = self.status_code();
+        let response = ErrorResponse::from_service_error(&self);
+        (status, Json(response))
     }
 }
 
-pub async fn get_proofs_by_height_and_index(
+pub async fn get_proof(
+    Path((chain_key, header_number)): Path<(u64, u64)>,
+    Extension(service): Extension<Arc<ContinuityService>>,
+) -> ApiResult {
+    service
+        .get_proof(chain_key, header_number, None)
+        .await
+        .inspect(|r| {
+            tracing::info!(
+                chain_key,
+                header_number,
+                cached = r.cached,
+                "Request served"
+            )
+        })
+        .map(Json)
+        .map_err(ServiceError::into_response)
+}
+
+pub async fn get_proof_with_tx(
     Path((chain_key, header_number, tx_index)): Path<(u64, u64, u64)>,
     Extension(service): Extension<Arc<ContinuityService>>,
-) -> Result<Json<ContinuityResponse>, (StatusCode, Json<ErrorResponse>)> {
-    match service
-        .get_proofs_by_height_and_index(chain_key, header_number, tx_index)
+) -> ApiResult {
+    service
+        .get_proof(chain_key, header_number, Some(tx_index))
         .await
-    {
-        Ok(resp) => {
+        .inspect(|r| {
             tracing::info!(
                 chain_key,
                 header_number,
                 tx_index,
-                cached = resp.cached,
-                "Request served successfully"
-            );
-            Ok(Json(resp))
-        }
-        Err(e) => Err(map_service_error(e)),
-    }
+                cached = r.cached,
+                "Request served"
+            )
+        })
+        .map(Json)
+        .map_err(ServiceError::into_response)
 }
 
 pub async fn get_proofs_by_tx_hash(
     Path((chain_key, tx_hash)): Path<(u64, String)>,
     Extension(service): Extension<Arc<ContinuityService>>,
-) -> Result<Json<ContinuityResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let tx_hash_clone = tx_hash.clone();
-    match service.get_proofs_by_tx_hash(chain_key, tx_hash).await {
-        Ok(resp) => {
-            tracing::info!(
-                chain_key,
-                tx_hash = %tx_hash_clone,
-                header_number = resp.header_number,
-                cached = resp.cached,
-                "Request served successfully"
-            );
-            Ok(Json(resp))
-        }
-        Err(e) => Err(map_service_error(e)),
-    }
+) -> ApiResult {
+    service
+        .get_proofs_by_tx_hash(chain_key, tx_hash.clone())
+        .await
+        .inspect(|r| tracing::info!(chain_key, %tx_hash, header_number = r.header_number, cached = r.cached, "Request served"))
+        .map(Json)
+        .map_err(ServiceError::into_response)
 }

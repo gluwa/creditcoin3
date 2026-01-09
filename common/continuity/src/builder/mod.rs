@@ -12,15 +12,17 @@ mod bounds;
 mod build;
 mod fetch;
 
+pub use build::ContinuityResult;
 pub use fetch::*;
 
 use crate::{
     config::ContinuityConfig,
+    errors::ContinuityError,
     proof::ContinuityProof,
     rpc::{SharedCcProvider, SharedEthProvider},
     AttestationInfo,
 };
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use cc_client::Client as CcClient;
 use eth::Client as EthClient;
 use sp_core::H256;
@@ -111,7 +113,7 @@ impl ContinuityBuilder {
         height: u64,
         lower_attestation: AttestationInfo,
         upper_attestation: AttestationInfo,
-    ) -> Result<ContinuityProof> {
+    ) -> ContinuityResult<ContinuityProof> {
         info!(
             query_height = height,
             "Building continuity proof for single query"
@@ -119,6 +121,7 @@ impl ContinuityBuilder {
         self.build_for_heights(&[height], lower_attestation, upper_attestation)
             .await
     }
+
     /// Build continuity proof for multiple queries (batch)
     ///
     /// Optimizes gas usage by building a single continuity chain that covers
@@ -129,9 +132,9 @@ impl ContinuityBuilder {
         query_heights: &[u64],
         lower_attestation: AttestationInfo,
         upper_attestation: AttestationInfo,
-    ) -> Result<ContinuityProof> {
+    ) -> ContinuityResult<ContinuityProof> {
         if query_heights.is_empty() {
-            return Err(anyhow!("No query heights provided"));
+            return Err(ContinuityError::EmptyQuery);
         }
 
         let (min, max) = (

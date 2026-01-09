@@ -11,7 +11,7 @@ use std::time::Instant;
 use crate::db::{continuity_proofs::ContinuityProofItem, DbManager};
 use crate::services::continuity_service::helpers::*;
 use attestor_primitives::block::ContinuityProof;
-use continuity::{builder::EndsInAttestation, CcRpcProvider, ContinuityBuilder, ContinuityError};
+use continuity::{builder::EndsInAttestation, CcRpcProvider, ContinuityBuilder};
 use merkle::proof::TransactionMerkleProof;
 
 pub mod helpers;
@@ -95,8 +95,11 @@ impl ContinuityService {
         })
     }
 
-    /// Validate that the requested block is not before the attestation genesis.
-    fn validate_block_not_before_genesis(&self, header_number: u64) -> ServiceResult<()> {
+    /// Validate that the requested block can be processed:
+    /// 1. Not before attestation genesis
+    /// 2. Exists on source chain (ETH)
+    async fn validate_block(&self, header_number: u64) -> ServiceResult<()> {
+        // Check genesis bound
         if header_number < self.attestation_genesis_block {
             tracing::warn!(
                 requested_block = header_number,
@@ -108,40 +111,67 @@ impl ContinuityService {
                 genesis_block: self.attestation_genesis_block,
             });
         }
-        Ok(())
-    }
 
-    /// Check if block is attested yet. Returns error early if not, avoiding expensive operations.
-    /// TODO: replace me when we have attestation event subscriptions implemented.
-    async fn validate_block_is_attested(&self, header_number: u64) -> ServiceResult<()> {
-        let last_attested_block = self.builder.get_last_attested_block().await.map_err(|e| {
-            ServiceError::RpcUnavailable {
-                message: format!("Failed to get last attested block: {e}"),
-            }
-        })?;
+        // Check source chain existence
+        let current_block =
+            self.builder
+                .get_last_block()
+                .await
+                .map_err(|e| ServiceError::RpcUnavailable {
+                    message: format!("Failed to get current block height from source chain: {e}"),
+                })?;
 
-        // If None, no blocks have been attested yet - all blocks are "not ready"
-        // If Some(n), check if requested block is beyond the last attested
-        let is_not_ready = match last_attested_block {
-            None => true, // No attestations exist yet
-            Some(last) => header_number > last,
-        };
-
-        if is_not_ready {
-            // For error message: use 0 when no attestations exist to indicate "none attested"
-            let last_for_error = last_attested_block.unwrap_or(0);
+        if header_number > current_block {
             tracing::warn!(
-                header_number,
-                last_attested_block = last_for_error,
-                has_attestations = last_attested_block.is_some(),
-                "Block not attested yet - failing fast"
+                requested_block = header_number,
+                current_block,
+                "Requested block does not exist on source chain yet"
             );
-            return Err(ServiceError::BlockNotReady {
-                block_number: header_number,
-                last_attested_block: last_for_error,
+            return Err(ServiceError::BlockNotOnSourceChain {
+                requested_block: header_number,
+                current_block,
             });
         }
         Ok(())
+    }
+
+    /// Try to get a valid cached continuity proof, updating cache counters.
+    /// Returns `Some(proof)` on cache hit, `None` on cache miss or invalid cache.
+    async fn try_get_cached_continuity(
+        &self,
+        chain_key: u64,
+        header_number: u64,
+    ) -> ServiceResult<Option<ContinuityProofItem>> {
+        let maybe_continuity = self
+            .fetch_continuity_by_height(chain_key, header_number)
+            .await?;
+
+        match maybe_continuity {
+            Some(continuity) => {
+                let verifiable = self.check_continuity_is_current(&continuity).await?;
+                if verifiable {
+                    self.cache_hits.fetch_add(1, Ordering::Relaxed);
+                    tracing::info!(
+                        chain_key,
+                        header_number,
+                        "Cache hit: returning cached continuity proof"
+                    );
+                    Ok(Some(continuity))
+                } else {
+                    self.cache_misses.fetch_add(1, Ordering::Relaxed);
+                    tracing::info!(
+                        chain_key,
+                        header_number,
+                        "Cache hit, but continuity proof is no longer verifiable. Rebuilding."
+                    );
+                    Ok(None)
+                }
+            }
+            None => {
+                self.cache_misses.fetch_add(1, Ordering::Relaxed);
+                Ok(None)
+            }
+        }
     }
 
     pub fn uptime_seconds(&self) -> u64 {
@@ -178,175 +208,76 @@ impl ContinuityService {
         Ok(())
     }
 
-    /// Build and return a continuity proof for a given (chain_key, header_number).
+    /// Get proof for a block, optionally including merkle proof for a specific transaction.
+    /// - `tx_index = None`: returns continuity proof only
+    /// - `tx_index = Some(idx)`: returns continuity + merkle proof for transaction at `idx`
     ///
-    /// This method is responsible for:
-    /// 1. Performing a cache lookup in the DB (tx_index = NULL case).
-    /// 2. Falling back to the underlying `ContinuityBuilder` when no cached entry exists.
-    /// 3. Converting the builder-level proof (raw blocks) into the
-    ///    production `attestor_primitives::block::ContinuityProof`
-    ///    used by the HTTP API.
-    /// 4. Persisting newly-built proofs back into the DB.
-    ///
-    /// How this differs from `build_continuity`:
-    /// - `build_continuity` is a small internal helper that always builds a
-    ///   fresh proof using the `ContinuityBuilder` and returns an
-    ///   in-memory `ContinuityProof` with *no DB reads or writes*.
-    ///
-    /// - `continuity_proof` is the public service entry point used by the HTTP
-    ///   layer. It includes cache lookup, DB insertion, and full response
-    ///   construction. This is the method called by the route handlers.
-    ///
-    /// When to use:
-    /// - Use `get_continuity_proof` in all API code paths.
-    /// - Use `build_continuity` only inside tests or other internal helpers
-    ///   when you explicitly want a fresh proof without touching the DB.
-    pub async fn get_continuity_proof(
+    /// Used by:
+    /// - `/api/v1/proof/{chain_key}/{header_number}` (tx_index = None)
+    /// - `/api/v1/proof/{chain_key}/{header_number}/{tx_index}` (tx_index = Some)
+    pub async fn get_proof(
         &self,
         chain_key: u64,
         header_number: u64,
+        tx_index: Option<u64>,
     ) -> ServiceResult<ContinuityResponse> {
-        // Validate block is not before attestation genesis
-        self.validate_block_not_before_genesis(header_number)?;
+        self.validate_block(header_number).await?;
 
-        // Check if block is attested yet (fast check before expensive operations)
-        self.validate_block_is_attested(header_number).await?;
-
-        // Attempt to look up continuity proof first
-        let maybe_continuity = self
-            .fetch_continuity_by_height(chain_key, header_number)
-            .await?;
-
-        if let Some(continuity) = maybe_continuity {
-            // Check that the continuity proof is verifyable (not based on pruned attestations)
-            let verifyable = self.check_continuity_is_current(&continuity).await?;
-            if verifyable {
-                // Increment cache hit counter
-                self.cache_hits.fetch_add(1, Ordering::Relaxed);
-                tracing::info!(
-                    chain_key,
-                    header_number,
-                    "Cache hit: returning cached continuity proof"
-                );
-                Ok(ContinuityResponse {
+        if let Some(continuity) = self
+            .try_get_cached_continuity(chain_key, header_number)
+            .await?
+        {
+            match tx_index {
+                Some(idx) => {
+                    let merkle = self
+                        .generate_merkle_proof(chain_key, header_number, idx)
+                        .await?;
+                    build_response_from_proofs(merkle, continuity)
+                }
+                None => Ok(ContinuityResponse {
                     chain_key,
                     header_number,
                     tx_index: None,
                     tx_hash: None,
-                    tx_bytes: None, // continuity proof doesn't include tx bytes
+                    tx_bytes: None,
                     continuity_proof: continuity.continuity_proof,
                     merkle_proof: None,
                     cached: true,
                     generated_at: Utc::now(),
-                })
-            } else {
-                // Increment cache miss counter (found but not verifiable)
-                self.cache_misses.fetch_add(1, Ordering::Relaxed);
-                tracing::info!(
-                    chain_key,
-                    header_number,
-                    "Cache hit, but continuity proof is no longer verifyable. Rebuilding proof."
-                );
-                self.build_and_cache_continuity(chain_key, header_number)
-                    .await
+                }),
             }
         } else {
-            // Increment cache miss counter (not found)
-            self.cache_misses.fetch_add(1, Ordering::Relaxed);
-            // Cache miss. Must build continuity.
-            self.build_and_cache_continuity(chain_key, header_number)
+            self.generate_and_cache_response(chain_key, header_number, tx_index)
                 .await
         }
     }
 
-    // Top level function responsible for handling requests to the following api endpoint:
-    //  /api/v1/proof/{chain_key}/{header_number}/{tx_index}
-    pub async fn get_proofs_by_height_and_index(
-        &self,
-        chain_key: u64,
-        header_number: u64,
-        tx_index: u64,
-    ) -> ServiceResult<ContinuityResponse> {
-        // Validate block is not before attestation genesis
-        self.validate_block_not_before_genesis(header_number)?;
-
-        // Check if block is attested yet (fast check before expensive operations)
-        self.validate_block_is_attested(header_number).await?;
-
-        // Attempt to fetch continuity proof first
-        let maybe_continuity = self
-            .fetch_continuity_by_height(chain_key, header_number)
-            .await?;
-
-        match maybe_continuity {
-            // Case: Continuity present in DB
-            Some(continuity) => {
-                // Check that the continuity proof is verifyable (not based on pruned attestations)
-                let verifyable = self.check_continuity_is_current(&continuity).await?;
-                if verifyable {
-                    // Increment cache hit counter
-                    self.cache_hits.fetch_add(1, Ordering::Relaxed);
-                    let merkle = self
-                        .generate_merkle_proof(chain_key, header_number, tx_index)
-                        .await?;
-                    build_response_from_proofs(merkle, continuity)
-                } else {
-                    // Increment cache miss counter (found but not verifiable)
-                    self.cache_misses.fetch_add(1, Ordering::Relaxed);
-                    // Continuity present but not verifyable. Must build both proofs
-                    self.generate_and_cache_response(chain_key, header_number, tx_index)
-                        .await
-                }
-            }
-            None => {
-                // Increment cache miss counter (not found)
-                self.cache_misses.fetch_add(1, Ordering::Relaxed);
-                // Builds both continuity and merkle proofs, then caches continuity proof before returning response
-                self.generate_and_cache_response(chain_key, header_number, tx_index)
-                    .await
-            }
-        }
-    }
-
-    // Top level function responsible for handling requests to the following api endpoint:
-    //  /api/v1/proof-by-tx/{chain_key}/{tx_hash}
+    /// Get proofs by transaction hash (resolves to block/index, then builds proofs).
+    /// Used by: `/api/v1/proof-by-tx/{chain_key}/{tx_hash}`
     pub async fn get_proofs_by_tx_hash(
         &self,
         chain_key: u64,
         tx_hash: String,
     ) -> ServiceResult<ContinuityResponse> {
         let tx_h256 = parse_tx_hash(&tx_hash)?;
-
         let (header_number, tx_index) = self.get_height_and_index_for_tx_hash(tx_h256).await?;
 
-        // Validate block is not before attestation genesis
-        // (The get_proofs_by_height_and_index call also validates, but we check here for clearer error messages)
-        self.validate_block_not_before_genesis(header_number)?;
-
         let response = self
-            .get_proofs_by_height_and_index(chain_key, header_number, tx_index)
+            .get_proof(chain_key, header_number, Some(tx_index))
             .await?;
 
-        // Verify that the computed tx_hash matches the requested hash
-        if let Some(computed_hash) = &response.tx_hash {
-            let computed_h256 = parse_tx_hash(computed_hash)?;
-            if computed_h256 != tx_h256 {
-                let tx_index = response.tx_index;
-                let header_number = response.header_number;
-                Err(ServiceError::TxHashNotFound {
-                    tx_hash: format!(
-                        "Transaction hash mismatch: requested 0x{tx_h256:x}, but found {computed_hash} at block {header_number} index {tx_index:?}"
-                    ),
-                })
-            } else {
-                Ok(response)
-            }
-        } else {
-            Err(ServiceError::Internal {
-                message: format!(
-                    "tx_hash somehow missing from generated proof. tx_hash: {tx_h256:x}"
+        // Verify tx_hash matches
+        match &response.tx_hash {
+            Some(computed_hash) if parse_tx_hash(computed_hash)? == tx_h256 => Ok(response),
+            Some(computed_hash) => Err(ServiceError::TxHashNotFound {
+                tx_hash: format!(
+                    "Transaction hash mismatch: requested 0x{tx_h256:x}, found {computed_hash} at block {} index {:?}",
+                    response.header_number, response.tx_index
                 ),
-            })
+            }),
+            None => Err(ServiceError::Internal {
+                message: format!("tx_hash missing from generated proof. tx_hash: {tx_h256:x}"),
+            }),
         }
     }
 }

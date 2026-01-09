@@ -43,6 +43,9 @@ pub trait CcRpcProvider: Send + Sync {
         chain_key: u64,
         digest: H256,
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>>;
+
+    /// Get the attestation interval for a chain (number of source blocks between attestations)
+    async fn get_attestation_interval(&self, chain_key: u64) -> Result<Option<u64>>;
 }
 
 /// Abstraction over source chain (ETH) RPC required to build continuity fragments.
@@ -144,6 +147,12 @@ impl CcRpcProvider for CcClient {
                 })
             })
             .map_err(|e| anyhow!("Failed to fetch attestation by digest: {e}"))
+    }
+
+    async fn get_attestation_interval(&self, chain_key: u64) -> Result<Option<u64>> {
+        self.chain_attestation_interval(chain_key)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch attestation interval: {e}"))
     }
 }
 

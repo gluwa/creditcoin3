@@ -79,6 +79,11 @@ pub enum ServiceError {
         requested_block: u64,
         genesis_block: u64,
     },
+    #[error("Block {requested_block} does not exist on the source chain yet. Current source chain height: {current_block}")]
+    BlockNotOnSourceChain {
+        requested_block: u64,
+        current_block: u64,
+    },
 }
 
 impl ServiceError {
@@ -88,6 +93,7 @@ impl ServiceError {
             ServiceError::RpcUnavailable { .. }
                 | ServiceError::DbError { .. }
                 | ServiceError::BlockNotReady { .. }
+                | ServiceError::BlockNotOnSourceChain { .. }
         )
     }
     pub fn code(&self) -> &'static str {
@@ -104,6 +110,7 @@ impl ServiceError {
             ServiceError::TxHashNotFound { .. } => "TxHashNotFound",
             ServiceError::BlockNotReady { .. } => "BlockNotReady",
             ServiceError::BlockBeforeGenesis { .. } => "BlockBeforeGenesis",
+            ServiceError::BlockNotOnSourceChain { .. } => "BlockNotOnSourceChain",
         }
     }
 }
@@ -133,6 +140,21 @@ impl From<ContinuityError> for ServiceError {
             } => ServiceError::BlockBeforeGenesis {
                 requested_block,
                 genesis_block,
+            },
+            ContinuityError::NoConsensusPointBefore { block_number } => ServiceError::Internal {
+                message: format!(
+                    "No consensus point (attestation or checkpoint) found before block {block_number}"
+                ),
+            },
+            ContinuityError::AttestationIntervalNotConfigured { chain_key } => {
+                ServiceError::Internal {
+                    message: format!(
+                        "Attestation interval not configured for chain_key {chain_key}"
+                    ),
+                }
+            }
+            ContinuityError::EmptyQuery => ServiceError::InvalidParameter {
+                message: "Empty query: no block heights provided".to_string(),
             },
         }
     }

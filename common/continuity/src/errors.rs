@@ -28,4 +28,13 @@ pub enum ContinuityError {
         requested_block: u64,
         genesis_block: u64,
     },
+
+    #[error("No consensus point (attestation or checkpoint) found before block {block_number}. Cannot build continuity proof.")]
+    NoConsensusPointBefore { block_number: u64 },
+
+    #[error("Attestation interval not configured for chain_key {chain_key}. Cannot predict upper bound.")]
+    AttestationIntervalNotConfigured { chain_key: u64 },
+
+    #[error("Empty query: no block heights provided")]
+    EmptyQuery,
 }

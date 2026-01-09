@@ -9,9 +9,11 @@ use tracing::{error, info};
 use crate::prom::ProofGenServerMetrics;
 use cc_client::Client as CcClient;
 use config::Config;
+use continuity::ContinuityBuilder;
 use db::DbManager;
 use eth::Client as EthClient;
 use networking::run_http_server;
+use prometheus::Registry;
 
 pub mod config;
 pub mod db;
@@ -31,6 +33,8 @@ pub struct Server {
     db_manager: DbManager,
     // Client which allows us to request info from Creditcoin3 and follow events
     cc3_client: Arc<CcClient>,
+    // Builder for continuity proofs (owns ETH + CC3 clients internally)
+    builder: Arc<ContinuityBuilder>,
     // Prometheus metrics server, if enabled
     // TODO: Actually increment metrics where appropriate
     #[allow(unused)]
@@ -51,11 +55,47 @@ impl Server {
         let supported_chain_id = supported_chain.chain_id;
 
         // Initialize source chain client and validate chain id matches
-        let source_chain_client = EthClient::new(&config.eth_rpc_url, None).await?;
-        let chain_id = source_chain_client.chain_id();
+        // Use cached client if Redis is configured, otherwise regular client
+        let eth_client = if let Some(ref redis_url) = config.redis_url {
+            info!("Using Redis block caching at {}", redis_url);
+            let cache_config = eth::block_cache::BlockCacheConfig {
+                redis_url: redis_url.clone(),
+                metrics_registry: Arc::new(prometheus::Registry::new()), // TODO: Add metrics registry from server
+            };
+            Arc::new(EthClient::new_with_cache(&config.eth_rpc_url, None, cache_config).await?)
+        } else {
+            Arc::new(EthClient::new(&config.eth_rpc_url, None).await?)
+        };
+        let chain_id = eth_client.chain_id();
         if supported_chain_id != chain_id {
             bail!("Wrong chain. Source chain endpoint chain id: {chain_id}, Supported chain id: {supported_chain_id}");
         }
+
+        // Log CC3 connection
+        let chain_name = cc3_client
+            .get_chain_name()
+            .await
+            .context("cc3_client failed to get chain_name")?;
+        info!(
+            "✅ Connected to Creditcoin chain: {} with id: {}",
+            chain_name, config.chain_key
+        );
+
+        // Create continuity builder with validated clients
+        let continuity_config = continuity::ContinuityConfig {
+            cc3_rpc_url: config.cc3_rpc_url.clone(),
+            cc3_key: config
+                .cc3_key
+                .clone()
+                .unwrap_or_else(|| "//Alice".to_string()),
+            eth_rpc_url: config.eth_rpc_url.clone(),
+            chain_key: config.chain_key,
+        };
+        let builder = Arc::new(ContinuityBuilder::new_with_providers(
+            continuity_config,
+            cc3_client.clone(),
+            eth_client,
+        ));
 
         // Register metrics server if configured
         let metrics = if config.enable_prometheus_metrics {
@@ -67,21 +107,12 @@ impl Server {
         } else {
             None
         };
-        {
-            let chain_name = cc3_client
-                .get_chain_name()
-                .await
-                .context("cc3_client failed to get chain_name")?;
-            info!(
-                "✅ Connected to Creditcoin chain: {} with id: {}",
-                chain_name, config.chain_key
-            );
-        }
 
         Ok(Server {
             config,
             db_manager,
             cc3_client,
+            builder,
             metrics,
         })
     }
@@ -90,38 +121,10 @@ impl Server {
         // Run migrations (only after passing guard)
         self.db_manager.run_migrations().await?;
 
-        // Continuity builder configuration
-        // Note: cc3_key is not needed for read-only operations, but ContinuityConfig still requires it
-        // We use a dummy key since it won't be used for signing
-        let continuity_config = continuity::ContinuityConfig {
-            cc3_rpc_url: self.config.cc3_rpc_url.clone(),
-            cc3_key: self
-                .config
-                .cc3_key
-                .clone()
-                .unwrap_or_else(|| "//Alice".to_string()),
-            eth_rpc_url: self.config.eth_rpc_url.clone(),
-            chain_key: self.config.chain_key,
-        };
-
-        // Always use real providers for continuity
-        let builder = if let Some(ref redis_url) = self.config.redis_url {
-            info!("Using Redis block caching at {}", redis_url);
-            let cache_config = eth::block_cache::BlockCacheConfig {
-                redis_url: redis_url.clone(),
-                metrics_registry: Arc::new(prometheus::Registry::new()), // TODO: Add metrics registry from server
-            };
-
-            continuity::ContinuityBuilder::new_with_block_caching(continuity_config, cache_config)
-                .await?
-        } else {
-            continuity::ContinuityBuilder::new(continuity_config).await?
-        };
-
         let service = Arc::new(
             services::continuity_service::ContinuityService::new(
                 self.cc3_client.clone(),
-                Arc::new(builder),
+                self.builder.clone(),
                 Arc::new(self.db_manager.clone()),
             )
             .await?,

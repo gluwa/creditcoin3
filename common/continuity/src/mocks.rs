@@ -114,6 +114,11 @@ impl CcRpcProvider for MockCcRpcProvider {
             continuity_proof: Default::default(),
         }))
     }
+
+    async fn get_attestation_interval(&self, _chain_key: u64) -> Result<Option<u64>> {
+        // Mock returns 10 blocks per attestation (matching mock attestations at 10, 20, 30)
+        Ok(Some(10))
+    }
 }
 
 /// Mock ETH provider building continuity blocks with simple incremental digests.

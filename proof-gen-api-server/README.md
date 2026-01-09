@@ -128,7 +128,11 @@ Error Response Shape:
 }
 ```
 
-For `BlockNotReady` errors, additional fields are included:
+**Eager Proof Generation**: When requesting a block that hasn't been attested yet, the server
+will predict the next attestation using the attestation interval and generate an "eager" proof.
+This proof will become verifiable once the predicted attestation is created on-chain.
+
+In rare cases where no attestations exist at all, a `BlockNotReady` error is returned:
 
 ```jsonc
 {

@@ -1,10 +1,15 @@
 use super::ContinuityBuilder;
+use crate::errors::ContinuityError;
 use crate::proof::ContinuityProof;
 use crate::{attestation::AttestationInfo, builder::EndsInAttestation};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use attestor_primitives::block::Block;
+use sp_core::H256;
 use tracing::{debug, info};
+
+/// Result type for continuity builder operations that return typed errors.
+pub type ContinuityResult<T> = Result<T, ContinuityError>;
 
 impl ContinuityBuilder {
     /// Build continuity blocks and trim to required range
@@ -72,32 +77,33 @@ impl ContinuityBuilder {
         query_heights: &[u64],
         lower_attestation: AttestationInfo,
         upper_attestation: AttestationInfo,
-    ) -> Result<ContinuityProof> {
+    ) -> ContinuityResult<ContinuityProof> {
         // Find the query range
         let min_query = *query_heights
             .iter()
             .min()
-            .ok_or(anyhow!("query_heights has 0 entries."))?;
+            .ok_or(ContinuityError::EmptyQuery)?;
         let max_query = *query_heights
             .iter()
             .max()
-            .ok_or(anyhow!("query_heights has 0 entries."))?;
+            .ok_or(ContinuityError::EmptyQuery)?;
 
         // Verify that parameters are valid.
         // The query heights are contained within the attestation bounds.
         if max_query > upper_attestation.block_number || min_query <= lower_attestation.block_number
         {
-            bail!(
+            return Err(ContinuityError::InvalidBounds(format!(
                 "Query heights not contained by attestation bounds! min_query: {min_query}, max_query: {max_query}, lower_attestation: {}, upper_attestation: {}",
                 lower_attestation.block_number,
                 upper_attestation.block_number,
-            );
+            )));
         }
 
         // Build and trim continuity blocks
         let blocks = self
             .build_and_trim_continuity(lower_attestation, upper_attestation, min_query)
-            .await?;
+            .await
+            .map_err(|e| ContinuityError::Rpc(e.to_string()))?;
 
         Ok(ContinuityProof::from_blocks(blocks))
     }
@@ -105,39 +111,85 @@ impl ContinuityBuilder {
     pub async fn get_endpoints(
         &self,
         query_heights: &[u64],
-    ) -> Result<(AttestationInfo, AttestationInfo, EndsInAttestation)> {
+    ) -> ContinuityResult<(AttestationInfo, AttestationInfo, EndsInAttestation)> {
         // Find the query range
         let min_query = *query_heights
             .iter()
             .min()
-            .ok_or(anyhow!("query_heights has 0 entries."))?;
+            .ok_or(ContinuityError::EmptyQuery)?;
         let max_query = *query_heights
             .iter()
             .max()
-            .ok_or(anyhow!("query_heights has 0 entries."))?;
+            .ok_or(ContinuityError::EmptyQuery)?;
 
         // Fetch attestations (always needed)
-        let attestations = self.fetch_attestations().await?;
+        let attestations = self
+            .fetch_attestations()
+            .await
+            .map_err(|e| ContinuityError::Rpc(e.to_string()))?;
         if attestations.is_empty() {
-            bail!(
-                "No attestations found for chain_key {}. Queries require at least one attestation.",
-                self.config.chain_key
-            );
+            return Err(ContinuityError::NoAttestations(self.config.chain_key));
         }
 
         // Find attestation bounds (handles queries at attestation/checkpoint heights)
         // Checkpoints are fetched lazily only when needed
         let (lower, upper, ends_in_attestation) = self
             .find_attestation_bounds(min_query, max_query, &attestations)
-            .await?;
+            .await
+            .map_err(|e| ContinuityError::Rpc(e.to_string()))?;
 
-        // Determine end height (next consensus point - REQUIRED)
-        // The proof MUST end at an attestation or checkpoint for verification to succeed
-        let upper = upper
-            .ok_or_else(|| anyhow!(
-                "No attestation or checkpoint found after block {max_query}. The continuity proof requires an upper bound (next attestation/checkpoint) to verify the chain ends at a consensus point."
-            ))?;
+        // If no upper bound exists (block not yet attested), predict the next attestation
+        // using the attestation interval. This enables "eager" proof generation where
+        // proofs can be created before the attestation exists.
+        let (upper, ends_in_attestation) = match upper {
+            Some(u) => (u, ends_in_attestation),
+            None => {
+                let predicted = self.predict_next_attestation(max_query).await?;
+                info!(
+                    max_query,
+                    predicted_upper = predicted.block_number,
+                    "No attestation found after query block - using predicted upper bound"
+                );
+                // Predicted upper bounds don't end in an attestation yet
+                (predicted, EndsInAttestation::False)
+            }
+        };
 
         Ok((lower, upper, ends_in_attestation))
+    }
+
+    /// Predict the next attestation block number based on the attestation interval.
+    /// This is used for "eager" proof generation when a block is not yet attested.
+    ///
+    /// The formula aligns to the attestation interval boundary:
+    /// `next_attestation = ((block / interval) + 1) * interval`
+    async fn predict_next_attestation(&self, block: u64) -> ContinuityResult<AttestationInfo> {
+        let interval = self
+            .cc_provider
+            .get_attestation_interval(self.config.chain_key)
+            .await
+            .map_err(|e| ContinuityError::Rpc(e.to_string()))?
+            .ok_or(ContinuityError::AttestationIntervalNotConfigured {
+                chain_key: self.config.chain_key,
+            })?;
+
+        // Calculate the next attestation block aligned to the interval
+        // e.g., if block=25 and interval=10, next attestation is at block 30
+        let next_attestation_block = ((block / interval) + 1) * interval;
+
+        debug!(
+            query_block = block,
+            interval,
+            predicted_attestation = next_attestation_block,
+            "Predicted next attestation block"
+        );
+
+        // Return a predicted AttestationInfo with a zero digest (will be computed from source chain blocks)
+        // The digest field is not used for the upper bound in build_and_trim_continuity
+        Ok(AttestationInfo {
+            block_number: next_attestation_block,
+            digest: H256::default(),
+            prev_digest: None,
+        })
     }
 }

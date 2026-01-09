@@ -28,11 +28,11 @@ pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
         .route("/health/ready", get(health::readiness_check))
         .route(
             "/api/v1/proof/{chain_key}/{header_number}",
-            get(continuity::get_continuity_proof),
+            get(continuity::get_proof),
         )
         .route(
             "/api/v1/proof/{chain_key}/{header_number}/{tx_index}",
-            get(continuity::get_proofs_by_height_and_index),
+            get(continuity::get_proof_with_tx),
         )
         .route(
             "/api/v1/proof-by-tx/{chain_key}/{tx_hash}",

@@ -3,7 +3,7 @@
 /**
  * Submit proof to block-prover precompile
  *
- * Usage: node SubmitProof.js <chainKey> <blockHeight> <txHash> --private-key <key> [options]
+ * Usage: node SubmitProof.js <chainKey> <txHash> --private-key <key> [options]
  *
  * Options:
  *   --private-key <key>    Private key for signing transactions (required)
@@ -11,6 +11,8 @@
  *   --cc3-rpc-url <url>    Creditcoin3 RPC URL (default: http://localhost:9944)
  *   --precompile-addr <addr> Precompile address (default: 0x0000000000000000000000000000000000000FD2)
  *   -v, --verbose          Enable verbose logging (shows API response details)
+ *
+ * Note: The block height is automatically extracted from the API response (header_number).
  *
  * Verbose Logging:
  *   When enabled with -v or --verbose, the script will output:
@@ -23,7 +25,7 @@
  *   and understanding the continuity proof format.
  *
  *   Example:
- *     node SubmitProof.js 3 9986381 0x... --private-key 0x... -v
+ *     node SubmitProof.js 3 0x... --private-key 0x... -v
  */
 
 const { ethers } = require('ethers');
@@ -40,7 +42,6 @@ function parseArgs() {
     const args = process.argv.slice(2);
     const options = {
         chainKey: null,
-        blockHeight: null,
         txHash: null,
         privateKey: null,
         apiUrl: DEFAULT_API_URL,
@@ -63,16 +64,14 @@ function parseArgs() {
             options.verbose = true;
         } else if (!options.chainKey) {
             options.chainKey = args[i];
-        } else if (!options.blockHeight) {
-            options.blockHeight = args[i];
         } else if (!options.txHash) {
             options.txHash = args[i];
         }
         i++;
     }
 
-    if (!options.chainKey || !options.blockHeight || !options.txHash || !options.privateKey) {
-        console.error('Usage: node SubmitProof.js <chainKey> <blockHeight> <txHash> --private-key <key> [options]');
+    if (!options.chainKey || !options.txHash || !options.privateKey) {
+        console.error('Usage: node SubmitProof.js <chainKey> <txHash> --private-key <key> [options]');
         console.error('\nOptions:');
         console.error('  --private-key <key>    Private key for signing transactions (required)');
         console.error('  --api-url <url>        Proof API server URL (default: http://localhost:3100)');
@@ -92,14 +91,20 @@ async function main() {
 
     console.log('=== Proof Submission ===\n');
     console.log(`Chain Key: ${options.chainKey}`);
-    console.log(`Block Height: ${options.blockHeight}`);
     console.log(`Transaction Hash: ${options.txHash}\n`);
 
     try {
         // Fetch proof from API
         console.log('Fetching proof from API...');
         const apiProof = await fetchProof(options.apiUrl, options.chainKey, options.txHash, 5, 2000, options.verbose);
-        console.log(`✓ Proof fetched (cached: ${apiProof.cached})\n`);
+        
+        // Extract block height from API response
+        const blockHeight = apiProof.header_number;
+        if (!blockHeight) {
+            throw new Error('Block height (header_number) not found in API response');
+        }
+        console.log(`✓ Proof fetched (cached: ${apiProof.cached})`);
+        console.log(`✓ Block height: ${blockHeight}\n`);
 
         // Log full API response in verbose mode
         // This includes the complete proof structure: continuity_proof (with all blocks),
@@ -143,7 +148,7 @@ async function main() {
             signer,
             options.precompileAddr,
             BigInt(options.chainKey),
-            BigInt(options.blockHeight),
+            BigInt(blockHeight),
             txBytes,
             merkleProof,
             continuityProof,

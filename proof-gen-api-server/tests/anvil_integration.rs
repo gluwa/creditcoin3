@@ -10,6 +10,7 @@ use std::time::Duration;
 use axum::Router;
 use continuity::{mocks::MockCcRpcProvider, ContinuityBuilder, ContinuityConfig};
 use proof_gen_api_server::db::DbManager;
+use proof_gen_api_server::services::continuity_service::ContinuityResponse;
 use proof_gen_api_server::{build_app, ContinuityService, ErrorResponse};
 
 #[path = "test_utils.rs"]
@@ -93,8 +94,6 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
     });
     let base = format!("http://{addr}");
     let client = reqwest::Client::new();
-
-    use proof_gen_api_server::services::continuity_service::ContinuityResponse;
 
     // --- First: health check endpoint (validate basic server functionality)
     let health_url = format!("{base}/api/v1/health");
@@ -598,15 +597,20 @@ async fn anvil_integration_health_check_rpc_failure() -> Result<()> {
 
 #[cfg_attr(not(feature = "integration-tests"), ignore)]
 #[tokio::test]
-async fn anvil_integration_unattested_block_error() -> Result<()> {
-    // This test validates proper error handling when querying a block that hasn't been attested yet
+async fn anvil_integration_eager_proof_generation() -> Result<()> {
+    // This test validates "eager" proof generation for blocks not yet attested.
+    // When a block is not yet attested, the builder should predict the next attestation
+    // using the attestation interval and create a proof that will become verifiable
+    // once the attestation is created.
+    //
     // Arrange: Start anvil
     let anvil = spawn_anvil();
     let port = anvil.port();
 
     // Send transactions to advance beyond the highest attestation
-    // MockCcRpcProvider returns attestations at: 0, 10, 20, 30, ...
+    // MockCcRpcProvider returns attestations at: 10, 20, 30 (interval = 10)
     // So we'll advance to block 50 and query block 35 (after attestation 30, but before attestation 40)
+    // The builder should predict attestation at block 40 and build proof from 30 to 40
     for _ in 0..50 {
         let _ = send_test_tx_via_alloy(port, &anvil).await;
     }
@@ -652,46 +656,42 @@ async fn anvil_integration_unattested_block_error() -> Result<()> {
     let base = format!("http://{addr}");
     let client = reqwest::Client::new();
 
-    // Act: Query for block 35 (after attestation 30, but no attestation exists after it yet)
+    // Act: Query for block 35 (after attestation 30, but no attestation at 40 yet)
+    // With eager proof generation, this should succeed and return a proof
+    // that ends at the predicted attestation block 40
     let block_url = format!("{base}/api/v1/proof/31337/35");
     let resp = client.get(&block_url).send().await.expect("http send");
 
-    // Assert: Should return 404 NOT_FOUND with meaningful error
-    // (Block not yet attested - may be attested in the future, but currently not available)
+    // Assert: Should return 200 OK with a valid proof
+    // The proof is "eager" - it's built before the attestation exists at block 40
     assert_eq!(
         resp.status(),
-        reqwest::StatusCode::NOT_FOUND,
-        "unattested block should return 404 NOT_FOUND"
+        reqwest::StatusCode::OK,
+        "eager proof generation should succeed for unattested blocks"
     );
 
-    let error_body = resp
-        .json::<ErrorResponse>()
-        .await
-        .expect("parse error json");
+    let response: ContinuityResponse = resp.json().await.expect("parse response json");
 
-    // Verify error structure with type-safe deserialization
-    assert_eq!(
-        error_body.code, "BlockNotReady",
-        "error code should be BlockNotReady"
-    );
-
-    assert!(error_body.retriable, "error should be marked as retriable");
-
-    assert_eq!(
-        error_body.block_number,
-        Some(35),
-        "error should include the requested block_number"
-    );
-
+    // Verify the response structure
+    assert_eq!(response.chain_key, chain_key, "chain_key should match");
+    assert_eq!(response.header_number, 35, "header_number should be 35");
     assert!(
-        error_body.last_attested_block.is_some(),
-        "error should include last_attested_block"
+        !response.continuity_proof.roots.is_empty(),
+        "continuity proof should have roots"
     );
 
-    assert!(
-        error_body.message.contains("not attested"),
-        "error message should mention attestation: {}",
-        error_body.message
+    // The proof should start at block 34 (query_height - 1) and end at block 40 (predicted attestation)
+    // ContinuityProof has roots where index i corresponds to block (start_block + i)
+    // For query_height=35, start_block=34, and with attestation interval=10, end_block=40
+    // So we expect 7 roots: blocks 34, 35, 36, 37, 38, 39, 40
+    let expected_start_block = 34u64;
+    let expected_end_block = 40u64;
+    let expected_roots_count = (expected_end_block - expected_start_block + 1) as usize;
+
+    assert_eq!(
+        response.continuity_proof.roots.len(),
+        expected_roots_count,
+        "continuity proof should have {expected_roots_count} roots (blocks {expected_start_block} to {expected_end_block})"
     );
 
     // Teardown
