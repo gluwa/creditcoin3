@@ -74,11 +74,11 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
     let db =
         DbManager::new(test_db_manager_postgres_uri(&container).await).expect("db manager init");
     db.run_migrations().await.expect("migrations");
-    let service = Arc::new(ContinuityService::new(
-        cc_provider,
-        Arc::new(builder),
-        Arc::new(db),
-    ));
+    let service = Arc::new(
+        ContinuityService::new(cc_provider, Arc::new(builder), Arc::new(db))
+            .await
+            .expect("service init"),
+    );
 
     // Build the app router
     let app: Router = build_app(service, chain_key);
@@ -263,11 +263,11 @@ async fn anvil_integration_health_check_db_failure() -> Result<()> {
 
     let db = DbManager::new(test_db_manager_postgres_uri(&pg).await).expect("db manager init");
     db.run_migrations().await.expect("migrations");
-    let service = Arc::new(ContinuityService::new(
-        cc_provider,
-        Arc::new(builder),
-        Arc::new(db),
-    ));
+    let service = Arc::new(
+        ContinuityService::new(cc_provider, Arc::new(builder), Arc::new(db))
+            .await
+            .expect("service init"),
+    );
 
     // Build the app router
     let app: Router = build_app(service, chain_key);
@@ -495,11 +495,11 @@ async fn anvil_integration_health_check_rpc_failure() -> Result<()> {
     let pg = setup_test_postgres().await;
     let db = DbManager::new(test_db_manager_postgres_uri(&pg).await).expect("db manager init");
     db.run_migrations().await.expect("migrations");
-    let service = Arc::new(ContinuityService::new(
-        cc_provider,
-        Arc::new(builder),
-        Arc::new(db),
-    ));
+    let service = Arc::new(
+        ContinuityService::new(cc_provider, Arc::new(builder), Arc::new(db))
+            .await
+            .expect("service init"),
+    );
     let app: Router = build_app(service, chain_key);
 
     // Start HTTP server
@@ -634,11 +634,11 @@ async fn anvil_integration_unattested_block_error() -> Result<()> {
     let pg = setup_test_postgres().await;
     let db = DbManager::new(test_db_manager_postgres_uri(&pg).await).expect("db manager init");
     db.run_migrations().await.expect("migrations");
-    let service = Arc::new(ContinuityService::new(
-        cc_provider,
-        Arc::new(builder),
-        Arc::new(db),
-    ));
+    let service = Arc::new(
+        ContinuityService::new(cc_provider, Arc::new(builder), Arc::new(db))
+            .await
+            .expect("service init"),
+    );
     let app: Router = build_app(service, chain_key);
 
     // Start HTTP server
@@ -736,11 +736,11 @@ async fn anvil_integration_block_before_genesis_error() -> Result<()> {
     let pg = setup_test_postgres().await;
     let db = DbManager::new(test_db_manager_postgres_uri(&pg).await).expect("db manager init");
     db.run_migrations().await.expect("migrations");
-    let service = Arc::new(ContinuityService::new(
-        cc_provider,
-        Arc::new(builder),
-        Arc::new(db),
-    ));
+    let service = Arc::new(
+        ContinuityService::new(cc_provider, Arc::new(builder), Arc::new(db))
+            .await
+            .expect("service init"),
+    );
     let app: Router = build_app(service, chain_key);
 
     // Start HTTP server

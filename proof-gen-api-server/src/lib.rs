@@ -118,11 +118,14 @@ impl Server {
             continuity::ContinuityBuilder::new(continuity_config).await?
         };
 
-        let service = Arc::new(services::continuity_service::ContinuityService::new(
-            self.cc3_client.clone(),
-            Arc::new(builder),
-            Arc::new(self.db_manager.clone()),
-        ));
+        let service = Arc::new(
+            services::continuity_service::ContinuityService::new(
+                self.cc3_client.clone(),
+                Arc::new(builder),
+                Arc::new(self.db_manager.clone()),
+            )
+            .await?,
+        );
 
         // Build axum application
         let app = build_app(service, self.config.chain_key);

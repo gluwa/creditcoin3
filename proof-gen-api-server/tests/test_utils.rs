@@ -238,11 +238,11 @@ mod anvil_integration {
         )
         .expect("db manager init");
         db.run_migrations().await.expect("migrations");
-        let service = Arc::new(ContinuityService::new(
-            cc_provider,
-            Arc::new(builder),
-            Arc::new(db),
-        ));
+        let service = Arc::new(
+            ContinuityService::new(cc_provider, Arc::new(builder), Arc::new(db))
+                .await
+                .expect("service init"),
+        );
         std::mem::forget(container);
         build_app(service, chain_key)
     }

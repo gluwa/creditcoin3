@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
@@ -50,10 +50,6 @@ pub struct ContinuityResponse {
 use crate::services::errors::ServiceError;
 pub type ServiceResult<T> = Result<T, ServiceError>;
 
-/// Sentinel value indicating attestation genesis has not been fetched yet.
-/// We use u64::MAX because it's an impossible genesis block number.
-const GENESIS_NOT_FETCHED: u64 = u64::MAX;
-
 pub struct ContinuityService {
     builder: Arc<ContinuityBuilder>,
     db: Arc<DbManager>,
@@ -63,68 +59,53 @@ pub struct ContinuityService {
     cache_misses: AtomicU64,
     /// The genesis block number for the attestation chain.
     /// Blocks before this number cannot be attested to.
-    /// Uses GENESIS_NOT_FETCHED as sentinel for "not yet fetched".
-    attestation_genesis_block: AtomicU64,
+    /// Fetched once at service startup and cached for the lifetime of the service.
+    attestation_genesis_block: u64,
 }
 
 impl ContinuityService {
-    pub fn new(
+    /// Create a new ContinuityService, fetching the attestation genesis block from the chain.
+    ///
+    /// # Errors
+    /// Returns an error if the attestation genesis block cannot be fetched from RPC.
+    pub async fn new(
         cc3_client: Arc<dyn CcRpcProvider>,
         builder: Arc<ContinuityBuilder>,
         db: Arc<DbManager>,
-    ) -> Self {
-        Self {
+    ) -> anyhow::Result<Self> {
+        // Fetch genesis block at startup - fail fast if RPC is unavailable
+        let attestation_genesis_block = builder
+            .get_attestation_genesis_block()
+            .await
+            .context("Failed to fetch attestation genesis block during service initialization")?;
+
+        tracing::info!(
+            attestation_genesis_block,
+            "ContinuityService initialized with attestation genesis block"
+        );
+
+        Ok(Self {
             cc3_client,
             builder,
             db,
             start_time: Instant::now(),
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
-            // Initialize to sentinel, will be fetched lazily on first request
-            attestation_genesis_block: AtomicU64::new(GENESIS_NOT_FETCHED),
-        }
-    }
-
-    /// Get the attestation genesis block number, fetching it if not yet cached.
-    async fn get_attestation_genesis(&self) -> ServiceResult<u64> {
-        // Check if already cached
-        let cached = self.attestation_genesis_block.load(Ordering::Relaxed);
-        if cached != GENESIS_NOT_FETCHED {
-            return Ok(cached);
-        }
-
-        // Fetch from RPC
-        let genesis = self
-            .builder
-            .get_attestation_genesis_block()
-            .await
-            .map_err(|e| ServiceError::RpcUnavailable {
-                message: format!("Failed to get attestation genesis block: {e}"),
-            })?;
-
-        // Cache it - use compare_exchange to handle race conditions (first writer wins)
-        let _ = self.attestation_genesis_block.compare_exchange(
-            GENESIS_NOT_FETCHED,
-            genesis,
-            Ordering::SeqCst,
-            Ordering::Relaxed,
-        );
-
-        Ok(genesis)
+            attestation_genesis_block,
+        })
     }
 
     /// Validate that the requested block is not before the attestation genesis.
-    async fn validate_block_not_before_genesis(&self, header_number: u64) -> ServiceResult<()> {
-        let genesis = self.get_attestation_genesis().await?;
-        if header_number < genesis {
+    fn validate_block_not_before_genesis(&self, header_number: u64) -> ServiceResult<()> {
+        if header_number < self.attestation_genesis_block {
             tracing::warn!(
                 requested_block = header_number,
-                genesis_block = genesis,
+                genesis_block = self.attestation_genesis_block,
                 "Requested block is before attestation genesis"
             );
             return Err(ServiceError::BlockBeforeGenesis {
                 requested_block: header_number,
-                genesis_block: genesis,
+                genesis_block: self.attestation_genesis_block,
             });
         }
         Ok(())
@@ -226,8 +207,7 @@ impl ContinuityService {
         header_number: u64,
     ) -> ServiceResult<ContinuityResponse> {
         // Validate block is not before attestation genesis
-        self.validate_block_not_before_genesis(header_number)
-            .await?;
+        self.validate_block_not_before_genesis(header_number)?;
 
         // Check if block is attested yet (fast check before expensive operations)
         self.validate_block_is_attested(header_number).await?;
@@ -288,8 +268,7 @@ impl ContinuityService {
         tx_index: u64,
     ) -> ServiceResult<ContinuityResponse> {
         // Validate block is not before attestation genesis
-        self.validate_block_not_before_genesis(header_number)
-            .await?;
+        self.validate_block_not_before_genesis(header_number)?;
 
         // Check if block is attested yet (fast check before expensive operations)
         self.validate_block_is_attested(header_number).await?;
@@ -342,8 +321,7 @@ impl ContinuityService {
 
         // Validate block is not before attestation genesis
         // (The get_proofs_by_height_and_index call also validates, but we check here for clearer error messages)
-        self.validate_block_not_before_genesis(header_number)
-            .await?;
+        self.validate_block_not_before_genesis(header_number)?;
 
         let response = self
             .get_proofs_by_height_and_index(chain_key, header_number, tx_index)
