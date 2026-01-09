@@ -139,15 +139,25 @@ impl ContinuityService {
             }
         })?;
 
-        if header_number > last_attested_block {
+        // If None, no blocks have been attested yet - all blocks are "not ready"
+        // If Some(n), check if requested block is beyond the last attested
+        let is_not_ready = match last_attested_block {
+            None => true, // No attestations exist yet
+            Some(last) => header_number > last,
+        };
+
+        if is_not_ready {
+            // For error message: use 0 when no attestations exist to indicate "none attested"
+            let last_for_error = last_attested_block.unwrap_or(0);
             tracing::warn!(
                 header_number,
-                last_attested_block,
+                last_attested_block = last_for_error,
+                has_attestations = last_attested_block.is_some(),
                 "Block not attested yet - failing fast"
             );
             return Err(ServiceError::BlockNotReady {
                 block_number: header_number,
-                last_attested_block,
+                last_attested_block: last_for_error,
             });
         }
         Ok(())

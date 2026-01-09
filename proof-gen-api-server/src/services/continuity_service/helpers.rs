@@ -87,7 +87,7 @@ impl ContinuityService {
         if is_block_not_ready {
             // Only fetch last_attested_block when we actually need it for the error
             let last_attested_block = match self.builder.get_last_attested_block().await {
-                Ok(block) => block,
+                Ok(maybe_block) => maybe_block.unwrap_or(0), // 0 indicates "no attestations yet"
                 Err(e) => {
                     // If we can't get the last attested block, return RPC error instead
                     return ServiceError::RpcUnavailable {

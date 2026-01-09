@@ -201,9 +201,10 @@ impl ContinuityBuilder {
     }
 
     /// Get the last attested block number for the configured chain.
-    /// Returns the highest attestation header_number (used for error messages).
+    /// Returns `None` if no attestations exist yet, otherwise returns the highest
+    /// attestation header_number.
     /// Uses lightweight queries: fetch_last_digest + get_attestation_by_digest
-    pub async fn get_last_attested_block(&self) -> Result<u64> {
+    pub async fn get_last_attested_block(&self) -> Result<Option<u64>> {
         // First, get the last digest (lightweight query)
         let last_digest = self
             .cc_provider
@@ -211,7 +212,7 @@ impl ContinuityBuilder {
             .await?;
 
         let Some(digest) = last_digest else {
-            return Ok(0); // No attestations yet
+            return Ok(None); // No attestations yet
         };
 
         // Then fetch the attestation by digest to get the header_number
@@ -220,8 +221,6 @@ impl ContinuityBuilder {
             .get_attestation_by_digest(self.config.chain_key, digest)
             .await?;
 
-        Ok(attestation
-            .map(|a| a.attestation.header_number)
-            .unwrap_or(0))
+        Ok(attestation.map(|a| a.attestation.header_number))
     }
 }
