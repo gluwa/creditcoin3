@@ -118,7 +118,7 @@ impl crate::events::EventAttestationFinalization for AttestationBlockCache {
 
     async fn note_attestation_finalization(
         &mut self,
-        latest_attestation_cc3: common::types::Height,
+        _latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
         self.0.clear();
         Ok(())

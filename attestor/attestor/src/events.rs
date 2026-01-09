@@ -5,7 +5,7 @@ pub trait EventAttestationProduction {
 
     async fn note_attestation_production(
         &mut self,
-        latest_attestation_eth: common::types::Height,
+        latest_attestation_eth: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error>;
 }
 
@@ -14,7 +14,7 @@ pub trait EventAttestationFinalization {
 
     async fn note_attestation_finalization(
         &mut self,
-        latest_attestation_cc3: common::types::Height,
+        latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error>;
 }
 
