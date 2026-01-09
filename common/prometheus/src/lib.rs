@@ -1,4 +1,6 @@
-pub use prometheus_std::{Encoder, Error, Gauge, GaugeVec, Opts, Registry, TextEncoder};
+pub use prometheus_std::{
+    Counter, Encoder, Error, Gauge, GaugeVec, IntCounter, IntGauge, Opts, Registry, TextEncoder,
+};
 
 use axum::{
     extract::State,

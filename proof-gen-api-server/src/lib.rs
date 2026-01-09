@@ -103,8 +103,20 @@ impl Server {
             eth_rpc_url: self.config.eth_rpc_url.clone(),
             chain_key: self.config.chain_key,
         };
+
         // Always use real providers for continuity
-        let builder = continuity::ContinuityBuilder::new(continuity_config).await?;
+        let builder = if let Some(ref redis_url) = self.config.redis_url {
+            info!("Using Redis block caching at {}", redis_url);
+            let cache_config = eth::block_cache::BlockCacheConfig {
+                redis_url: redis_url.clone(),
+                metrics_registry: Arc::new(prometheus::Registry::new()), // TODO: Add metrics registry from server
+            };
+
+            continuity::ContinuityBuilder::new_with_block_caching(continuity_config, cache_config)
+                .await?
+        } else {
+            continuity::ContinuityBuilder::new(continuity_config).await?
+        };
 
         let service = Arc::new(services::continuity_service::ContinuityService::new(
             self.cc3_client.clone(),

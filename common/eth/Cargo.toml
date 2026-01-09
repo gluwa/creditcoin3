@@ -16,6 +16,13 @@ ccnext-abi-encoding = { workspace = true }
 futures = "0.3.30"
 futures-util = { workspace = true }
 hex = { workspace = true }
+redis = { workspace = true, features = [
+    "connection-manager",
+    "tokio-comp",
+], optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+serde_json = { workspace = true, optional = true }
+snap = { workspace = true, optional = true }
 sp-core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -25,4 +32,9 @@ url = { workspace = true }
 # Local dependencies
 attestor-primitives = { workspace = true }
 merkle = { workspace = true }
+prometheus = { workspace = true, optional = true }
 utils = { workspace = true }
+
+[features]
+block_cache = ["redis", "serde", "serde_json", "snap", "prometheus"]
+default = []

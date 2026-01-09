@@ -36,6 +36,11 @@ pub use alloy::core::primitives::Address;
 
 use crate::subscription::Height;
 
+#[cfg(feature = "block_cache")]
+pub mod block_cache;
+#[cfg(feature = "block_cache")]
+pub mod metrics;
+
 pub mod continuity;
 pub mod evm;
 pub mod subscription;
@@ -74,9 +79,16 @@ pub enum Error {
     FailedToGetBlockByHash(String),
     #[error("Failed to path rpc url {0}")]
     UrlParseError(#[from] url::ParseError),
+    #[cfg(feature = "block_cache")]
+    #[error("Redis error {0}")]
+    RedisError(#[from] redis::RedisError),
+    #[cfg(feature = "block_cache")]
+    #[error("Failed to register prometheus metrics")]
+    FailedToRegisterMetrics,
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "block_cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct TxRx {
     tx: Transaction,
     rx: TransactionReceipt,
@@ -125,6 +137,7 @@ impl BlockItem for TxRx {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "block_cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct OrderedBlock {
     chain_id: u64,
     number: u64,
@@ -231,10 +244,12 @@ pub struct Client {
     // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
     // and not rely on ethereum chain ids?
     chain_id: u64,
+    #[cfg(feature = "block_cache")]
+    cache: Option<block_cache::Cache>,
 }
 
 impl Client {
-    pub async fn new(url: &str, private_key: Option<&str>) -> Result<Self, Error> {
+    async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
         let url = Url::parse(url)?;
         let url_scheme = url.scheme();
 
@@ -266,11 +281,19 @@ impl Client {
             Error::FailedToGetChainId(e.to_string())
         })?;
 
+        Ok((url, rpc_provider, chain_id))
+    }
+
+    pub async fn new(url: &str, private_key: Option<&str>) -> Result<Self, Error> {
+        let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
+
         Ok(Self {
             url,
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
             chain_id,
+            #[cfg(feature = "block_cache")]
+            cache: None,
         })
     }
 
@@ -318,7 +341,7 @@ impl Client {
         Ok(PrivateKeySigner::from_signing_key(signing_key))
     }
 
-    pub async fn get_block(
+    async fn try_fetch_block(
         &self,
         number: u64,
         encoding: EncodingVersion,
@@ -381,6 +404,15 @@ impl Client {
         .map_err(Error::TransactionConversion);
 
         Some(block)
+    }
+
+    #[cfg(not(feature = "block_cache"))]
+    pub async fn get_block(
+        &self,
+        number: u64,
+        encoding: EncodingVersion,
+    ) -> Option<Result<OrderedBlock, Error>> {
+        Self::try_fetch_block(self, number, encoding).await
     }
 
     async fn get_receipts(&self, number: u64) -> Result<Vec<TransactionReceipt>, Error> {

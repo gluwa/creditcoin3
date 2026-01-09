@@ -17,3 +17,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  redis:
+    build:
+      context: .
+      dockerfile: redis.Dockerfile
+    container_name: proof-gen-redis
+    restart: always
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

@@ -73,6 +73,13 @@ pub struct ProofGenApiServer {
         help = "The connection string used to access the server's postgres DB"
     )]
     postgres_uri: String,
+
+    #[arg(
+        long,
+        required = false,
+        help = "Redis connection URL for block caching layer"
+    )]
+    redis_url: Option<String>,
 }
 
 #[tokio::main]
@@ -115,6 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         enable_prometheus_metrics: args.enable_prometheus_metrics,
         prometheus_host: args.prometheus_host,
         prometheus_port: args.prometheus_port,
+        redis_url: args.redis_url,
     };
 
     if args.reset_db {

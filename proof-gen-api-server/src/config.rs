@@ -6,9 +6,10 @@
 /// - `cc3_key`: Mnemonic for a creditcoin3 account (optional, not needed for read-only operations)
 /// - `chain_key`: Chain key for the source chain, must match the chain key on creditcoin3
 /// - `eth_rpc_url`: Ethereum RPC url
-/// - `enable_prometheus_metrics`: Enable Prometheus metrics endpoint
-/// - `prometheus_host`: The IP address for the Prometheus metrics server
-/// - `prometheus_port`: The port for the Prometheus metrics server
+/// - `enable_prometheus_metrics`:
+/// - `prometheus_host`:
+/// - `prometheus_port`:
+/// - `redis_url`: Optional Redis URL for Ethereum block caching
 pub struct Config {
     pub bind_host: String,
     pub bind_port: u16,
@@ -19,6 +20,7 @@ pub struct Config {
     pub enable_prometheus_metrics: bool,
     pub prometheus_host: String,
     pub prometheus_port: u16,
+    pub redis_url: Option<String>,
 }
 
 impl Config {
@@ -37,6 +39,7 @@ impl Config {
             enable_prometheus_metrics: false,
             prometheus_host: "127.0.0.1".to_string(),
             prometheus_port: 9090,
+            redis_url: None,
         }
     }
 }

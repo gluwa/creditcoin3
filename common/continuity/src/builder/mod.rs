@@ -60,6 +60,27 @@ impl ContinuityBuilder {
         let eth_client = EthClient::new(&config.eth_rpc_url, None)
             .await
             .context("Failed to create ETH client")?;
+
+        Ok(Self::new_with_providers(
+            config,
+            Arc::new(cc_client),
+            Arc::new(eth_client),
+        ))
+    }
+
+    #[cfg(feature = "block_cache")]
+    pub async fn new_with_block_caching(
+        config: ContinuityConfig,
+        cache_config: eth::block_cache::BlockCacheConfig,
+    ) -> Result<Self> {
+        let cc_client = CcClient::new_read_only(&config.cc3_rpc_url)
+            .await
+            .context("Failed to create CC client")?;
+
+        let eth_client = EthClient::new_with_cache(&config.eth_rpc_url, None, cache_config)
+            .await
+            .context("Failed to create caching ETH client")?;
+
         Ok(Self::new_with_providers(
             config,
             Arc::new(cc_client),
