@@ -86,7 +86,17 @@ impl ContinuityService {
 
         if is_block_not_ready {
             // Only fetch last_attested_block when we actually need it for the error
-            let last_attested_block = self.builder.get_last_attested_block().await.unwrap_or(0);
+            let last_attested_block = match self.builder.get_last_attested_block().await {
+                Ok(block) => block,
+                Err(e) => {
+                    // If we can't get the last attested block, return RPC error instead
+                    return ServiceError::RpcUnavailable {
+                        message: format!(
+                            "Block not ready and failed to get last attested block: {e}"
+                        ),
+                    };
+                }
+            };
 
             tracing::warn!(
                 query_block,

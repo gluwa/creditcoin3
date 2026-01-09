@@ -50,6 +50,10 @@ pub struct ContinuityResponse {
 use crate::services::errors::ServiceError;
 pub type ServiceResult<T> = Result<T, ServiceError>;
 
+/// Sentinel value indicating attestation genesis has not been fetched yet.
+/// We use u64::MAX because it's an impossible genesis block number.
+const GENESIS_NOT_FETCHED: u64 = u64::MAX;
+
 pub struct ContinuityService {
     builder: Arc<ContinuityBuilder>,
     db: Arc<DbManager>,
@@ -59,6 +63,7 @@ pub struct ContinuityService {
     cache_misses: AtomicU64,
     /// The genesis block number for the attestation chain.
     /// Blocks before this number cannot be attested to.
+    /// Uses GENESIS_NOT_FETCHED as sentinel for "not yet fetched".
     attestation_genesis_block: AtomicU64,
 }
 
@@ -75,16 +80,16 @@ impl ContinuityService {
             start_time: Instant::now(),
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
-            // Initialize to 0, will be fetched lazily on first request
-            attestation_genesis_block: AtomicU64::new(0),
+            // Initialize to sentinel, will be fetched lazily on first request
+            attestation_genesis_block: AtomicU64::new(GENESIS_NOT_FETCHED),
         }
     }
 
     /// Get the attestation genesis block number, fetching it if not yet cached.
     async fn get_attestation_genesis(&self) -> ServiceResult<u64> {
-        // Check if already cached (non-zero value)
+        // Check if already cached
         let cached = self.attestation_genesis_block.load(Ordering::Relaxed);
-        if cached > 0 {
+        if cached != GENESIS_NOT_FETCHED {
             return Ok(cached);
         }
 
@@ -97,10 +102,9 @@ impl ContinuityService {
                 message: format!("Failed to get attestation genesis block: {e}"),
             })?;
 
-        // Cache it (if genesis is 0, we store 0 which is valid - means attestation starts at block 0)
-        // We use compare_exchange to handle race conditions - first writer wins
+        // Cache it - use compare_exchange to handle race conditions (first writer wins)
         let _ = self.attestation_genesis_block.compare_exchange(
-            0,
+            GENESIS_NOT_FETCHED,
             genesis,
             Ordering::SeqCst,
             Ordering::Relaxed,
@@ -129,7 +133,12 @@ impl ContinuityService {
     /// Check if block is attested yet. Returns error early if not, avoiding expensive operations.
     /// TODO: replace me when we have attestation event subscriptions implemented.
     async fn validate_block_is_attested(&self, header_number: u64) -> ServiceResult<()> {
-        let last_attested_block = self.builder.get_last_attested_block().await.unwrap_or(0);
+        let last_attested_block = self.builder.get_last_attested_block().await.map_err(|e| {
+            ServiceError::RpcUnavailable {
+                message: format!("Failed to get last attested block: {e}"),
+            }
+        })?;
+
         if header_number > last_attested_block {
             tracing::warn!(
                 header_number,
