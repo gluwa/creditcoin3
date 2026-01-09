@@ -869,7 +869,16 @@ pub mod pallet {
             origin: OriginFor<T>,
             attestation: SignedAttestation<T::Hash, T::AccountId>,
         ) -> DispatchResult {
-            ensure_signed(origin)?;
+            // Only allow active attestors to commit attestations
+            let account = ensure_signed(origin)?;
+            let chain_key = attestation.chain_key();
+            let active_attestors = ActiveAttestors::<T>::get(chain_key)
+                .into_iter()
+                .collect::<BTreeSet<_>>();
+            ensure!(
+                active_attestors.contains(&account),
+                Error::<T>::AttestorNotActive
+            );
 
             Self::do_commit_attestation(attestation)
         }

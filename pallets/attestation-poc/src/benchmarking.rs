@@ -326,9 +326,6 @@ mod benchmarks {
     ) {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let signed_origin = <T as frame_system::Config>::RuntimeOrigin::signed(
-            create_funded_user_with_balance::<T>("attestor", 4),
-        );
 
         log::info!("Benchmark parameters: s = {s}, m = {m}");
 
@@ -371,9 +368,11 @@ mod benchmarks {
             <T as frame_system::Config>::AccountId,
         > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1, 0, None);
 
+        let attestor_origin = attestors[0].attestor_origin.clone();
+
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
         assert_ok!(Attestation::<T>::commit_attestation(
-            signed_origin.clone(),
+            attestor_origin.clone(),
             attestation_prev.clone(),
         ));
 
@@ -403,7 +402,7 @@ mod benchmarks {
 
         #[extrinsic_call]
         _(
-            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            attestor_origin as <T as frame_system::Config>::RuntimeOrigin,
             attestation,
         )
     }
