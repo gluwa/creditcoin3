@@ -4,6 +4,7 @@
 //! [chain listener]: crate::chain_listener
 //! [production worker]: crate::worker::production
 
+mod cache;
 mod error;
 
 use crate::prelude::*;
@@ -52,13 +53,24 @@ pub struct Config {
 /// [chain listener]: crate::chain_listener
 /// [production worker]: crate::worker::production
 pub(crate) struct CC3 {
+    // FETCHERS
     cc3: cc_client::Client,
     eth: eth::Client,
+    cache: cache::AttestationBlockCache,
+
+    // RUNTIME
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
     stream: common::types::SubxtBlockStream,
+
+    // ATTESTOR DATA
     bls_key: bls_signatures::PrivateKey,
+
+    // CHAIN DATA
     chain_key: attestor_primitives::ChainKey,
     start_height: common::types::Height,
+
+    // FIXME: bools in structs are a sign of late decision: remove this and hoist the edge case of
+    // committing to an empty chain to startup.
     empty_chain: bool,
 }
 
@@ -130,9 +142,13 @@ impl CC3 {
         Ok(Self {
             cc3,
             eth,
+            cache: cache::AttestationBlockCache::new(),
+
             api,
             stream,
+
             bls_key,
+
             chain_key: config.chain_key,
             start_height: config.start_height,
             empty_chain: config.empty_chain,
@@ -235,11 +251,6 @@ impl CC3 {
     ) -> Option<
         Result<attestor_primitives::attestation_fragment::AttestationFragmentSerializable, Error>,
     > {
-        use futures::FutureExt as _;
-        use rayon::iter::IndexedParallelIterator as _;
-        use rayon::iter::IntoParallelIterator as _;
-        use rayon::iter::ParallelIterator as _;
-
         // ------------------------------------* Range checks *------------------------------------
 
         // TODO: move this special case out of this function
@@ -248,7 +259,7 @@ impl CC3 {
             return Some(Ok(Default::default()));
         }
 
-        let (from_digest, from_block) = match (latest_attestation_cc3, latest_attestation_eth) {
+        let (from_digest, block_start) = match (latest_attestation_cc3, latest_attestation_eth) {
             (Some((digest, height)), None) | (None, Some((digest, height))) => {
                 (digest, height.saturating_add(1))
             }
@@ -262,7 +273,7 @@ impl CC3 {
             (None, None) => (attestor_primitives::Digest::zero(), self.start_height),
         };
 
-        let until_block = if height == from_block {
+        let block_stop = if height == block_start {
             // Meaning it's the first attestation in the chain
             height
         } else {
@@ -271,8 +282,8 @@ impl CC3 {
         };
 
         tracing::debug!(
-            from_block,
-            until_block,
+            block_start,
+            block_stop,
             %from_digest,
             "Generating continuity proof"
         );
@@ -283,73 +294,24 @@ impl CC3 {
         // block height we are aware of to fall behind chain finalization. Rather than treat this as
         // an error and try and handle every possible edge case, we simply let this fly and move on
         // to the next source chain attestation.
-        if from_block > height {
+        if block_start > height {
             return None;
         }
 
         // ----------------------------------* Continuity proof *----------------------------------
 
-        let fragment_size = (until_block - from_block + 1) as usize;
-
-        // STEP 1] SOURCE BLOCKS
-        //
-        // Tries to fetch each source chain block CONCURRENTLY, but NOT IN PARALLEL
-        let encoding = ccnext_abi_encoding::common::EncodingVersion::V1;
-        let blocks = (from_block..=until_block).map(|height| {
-            self.eth
-                .get_block(height, encoding)
-                .map(|opt| opt.transpose().map_err(Error::EthClient))
-        });
-        let blocks = match futures::future::try_join_all(blocks).await {
+        let blocks = match self
+            .cache
+            .fetch_blocks(&mut self.eth, height, from_digest, block_start, block_stop)
+            .await
+        {
             Ok(blocks) => blocks,
             Err(err) => return Some(Err(err)),
         };
 
-        // STEP 2] MERKLE ROOT
-        //
-        // Computes each block's MMR root CONCURRENTLY and IN PARALLEL
-        let mut blocks_with_roots = Vec::with_capacity(fragment_size);
-        blocks
-            .into_par_iter()
-            .map(|opt| opt.map(|block| (eth::simple_merkle_tree(&block).root(), block)))
-            .collect_into_vec(&mut blocks_with_roots);
-
-        // STEP 3] FRAGMENT AGGREGATION
-        //
-        // Aggregate each block into a single fragment
-        let mut fragment_blocks =
-            Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(fragment_size);
-        for opt in blocks_with_roots {
-            let Some((root, block)) = opt else {
-                // NOTE: INTERRUPT
-                //
-                // User-initiated shutdown. See the implementation of `self.eth.get_block` to
-                // understand why this is here.
-                return None;
-            };
-
-            let block = if let Some(head) = fragment_blocks.last() {
-                attestor_primitives::block::Block::new_from_prev_digest(
-                    block.number(),
-                    root,
-                    head.digest,
-                )
-            } else {
-                attestor_primitives::block::Block::new_from_prev_digest(
-                    block.number(),
-                    root,
-                    from_digest,
-                )
-            };
-
-            fragment_blocks.push(attestor_primitives::block::BlockSerializable::from(block));
-        }
-
-        let fragment = attestor_primitives::attestation_fragment::AttestationFragmentSerializable {
-            blocks: fragment_blocks,
-        };
-
-        Some(Ok(fragment))
+        Some(Ok(
+            attestor_primitives::attestation_fragment::AttestationFragmentSerializable { blocks },
+        ))
     }
 
     // TODO: remove this

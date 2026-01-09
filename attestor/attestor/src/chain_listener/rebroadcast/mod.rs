@@ -118,9 +118,9 @@ impl Rebroadcast {
     /// rebroadcasted.
     ///
     /// [production worker]: crate::worker::production
-    pub fn note_attestation_production(&mut self, attestation_latest_cc3: common::types::Height) {
-        if self.catchup.stop <= attestation_latest_cc3 {
-            self.catchup.stop = attestation_latest_cc3 + self.attestation_interval.get();
+    pub fn note_attestation_production(&mut self, attestation_latest_eth: common::types::Height) {
+        if self.catchup.stop <= attestation_latest_eth {
+            self.catchup.stop = attestation_latest_eth + self.attestation_interval.get();
         }
     }
 

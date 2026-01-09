@@ -4,6 +4,7 @@ pub mod common;
 pub mod worker;
 
 mod error;
+mod events;
 mod util;
 
 pub use error::Error;
