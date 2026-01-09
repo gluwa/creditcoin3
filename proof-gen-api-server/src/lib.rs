@@ -13,7 +13,6 @@ use continuity::ContinuityBuilder;
 use db::DbManager;
 use eth::Client as EthClient;
 use networking::run_http_server;
-use prometheus::Registry;
 
 pub mod config;
 pub mod db;
