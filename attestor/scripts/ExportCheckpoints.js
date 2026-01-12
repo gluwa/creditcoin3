@@ -25,7 +25,7 @@ async function main() {
 
     for (const [key, value] of entries) {
         // Storage key: (chain_key, block_number) => digest
-        const blockNumber = key.args[1].toNumber();
+        const blockNumber = key.args[1].toString();
         const digestHex = value.toHex();
 
         checkpoints[digestHex] = {
