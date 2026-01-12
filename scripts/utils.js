@@ -478,6 +478,225 @@ async function submitToPrecompile(
     return receipt;
 }
 
+/**
+ * Submit batch proof to precompile
+ *
+ * @param {Object} provider - ethers provider
+ * @param {Object} signer - ethers signer
+ * @param {string} precompileAddr - Precompile contract address
+ * @param {bigint} chainKey - Chain key identifier
+ * @param {bigint[]} heights - Array of block heights
+ * @param {Buffer[]} txBytesArray - Array of transaction bytes
+ * @param {Object[]} merkleProofs - Array of merkle proofs { root, siblings: [{ hash, isLeft }] }
+ * @param {Object} sharedContinuityProof - Shared continuity proof { lowerEndpointDigest, roots }
+ * @returns {Promise<Object>} Transaction receipt
+ */
+async function submitBatchToPrecompile(
+    provider,
+    signer,
+    precompileAddr,
+    chainKey,
+    heights,
+    txBytesArray,
+    merkleProofs,
+    sharedContinuityProof,
+) {
+    const PRECOMPILE_ABI = loadPrecompileABI();
+    const precompile = new ethers.Contract(precompileAddr, PRECOMPILE_ABI, signer);
+    const iface = precompile.interface;
+    const signerAddress = await signer.getAddress();
+
+    // Get the batch verifyAndEmit function
+    const funcFragment = iface.getFunction(
+        'verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))',
+    );
+
+    // Convert tx bytes to hex
+    const txBytesHexArray = txBytesArray.map((txBytes) =>
+        Buffer.isBuffer(txBytes)
+            ? '0x' + txBytes.toString('hex')
+            : txBytes.startsWith('0x')
+              ? txBytes
+              : '0x' + txBytes,
+    );
+
+    // Convert merkle proofs to tuple format
+    const merkleProofTuples = merkleProofs.map((proof) => [
+        proof.root,
+        proof.siblings.map((s) => [s.hash, s.isLeft]),
+    ]);
+
+    // Convert continuity proof to tuple format
+    const continuityProofTuple = [sharedContinuityProof.lowerEndpointDigest, sharedContinuityProof.roots];
+
+    const params = [chainKey, heights, txBytesHexArray, merkleProofTuples, continuityProofTuple];
+    const data = iface.encodeFunctionData(funcFragment, params);
+
+    // Simulate call to check for revert reasons
+    try {
+        await provider.call({ to: precompileAddr, data, from: signerAddress });
+    } catch (simError) {
+        let revertData = simError.data || simError.error?.data || simError.reason?.data;
+
+        if (typeof revertData === 'string' && revertData.startsWith('0x')) {
+            // Already in hex format
+        } else if (simError.reason) {
+            revertData = simError.reason.data;
+        }
+
+        const revertReason = decodeRevertReason(iface, revertData);
+        if (revertReason) {
+            if (revertReason.type === 'error') {
+                throw new Error(`Transaction will revert: ${revertReason.message}`);
+            } else if (revertReason.type === 'panic') {
+                throw new Error(`Transaction will panic: code ${revertReason.code}`);
+            } else if (revertReason.type === 'custom') {
+                throw new Error(`Transaction will revert: ${revertReason.name}(${revertReason.args?.join(', ') || ''})`);
+            } else {
+                throw new Error(`Transaction will revert: ${revertReason.name || 'Unknown error'}`);
+            }
+        }
+
+        const errorMsg = simError.message || simError.toString();
+        const dataStr = revertData
+            ? ` (data: ${typeof revertData === 'string' ? revertData.substring(0, 100) : JSON.stringify(revertData)})`
+            : '';
+        throw new Error(`Transaction will revert: ${errorMsg}${dataStr}`);
+    }
+
+    // Send transaction
+    console.log('📤 Sending batch transaction...');
+    const tx = await signer.sendTransaction({
+        to: precompileAddr,
+        data,
+        gasLimit: 10000000, // Higher gas limit for batch
+    });
+
+    console.log(`✅ Transaction submitted: ${tx.hash}`);
+    console.log('⏳ Waiting for confirmation...');
+
+    const receipt = await tx.wait();
+
+    if (receipt.status !== 1) {
+        const revertReason = decodeRevertReason(iface, receipt.data);
+        if (revertReason?.type === 'error') {
+            throw new Error(`Transaction reverted: ${revertReason.message}`);
+        }
+        throw new Error('Transaction reverted');
+    }
+
+    // Check for TransactionVerified events
+    const events = receipt.logs
+        .map((log) => {
+            try {
+                return precompile.interface.parseLog(log);
+            } catch {
+                return null;
+            }
+        })
+        .filter((parsed) => parsed?.name === 'TransactionVerified');
+
+    console.log(`\n✅ Batch verification complete!`);
+    console.log(`   ${events.length} TransactionVerified events emitted:`);
+
+    for (const event of events) {
+        console.log(`   - Chain Key: ${event.args.chainKey}, Height: ${event.args.height}, TX Index: ${event.args.transactionIndex}`);
+    }
+
+    console.log(`\n✅ Transaction confirmed in block ${receipt.blockNumber}`);
+    console.log(`   Gas used: ${receipt.gasUsed.toString()}`);
+
+    return receipt;
+}
+
+/**
+ * Build a shared continuity proof from multiple query proofs.
+ *
+ * The shared continuity proof covers from min(heights) to max(heights) + attestation blocks.
+ *
+ * @param {Object[]} queryProofs - Array of { height, proof } objects
+ * @param {boolean} verbose - Enable verbose logging
+ * @returns {Object} Shared continuity proof { lowerEndpointDigest, roots }
+ */
+function buildSharedContinuityProof(queryProofs, verbose = false) {
+    if (queryProofs.length === 0) {
+        throw new Error('No query proofs provided');
+    }
+
+    // Sort by height to find min and max
+    const sortedByHeight = [...queryProofs].sort((a, b) => a.height - b.height);
+    const minHeight = sortedByHeight[0].height;
+    const maxHeight = sortedByHeight[sortedByHeight.length - 1].height;
+
+    if (verbose) {
+        console.log(`\n=== Building Shared Continuity Proof ===`);
+        console.log(`Min height: ${minHeight}`);
+        console.log(`Max height: ${maxHeight}`);
+        console.log(`Range: ${maxHeight - minHeight + 1} blocks`);
+    }
+
+    // Create a map of height -> root from all proofs
+    const heightToRoot = new Map();
+    const heightToLowerDigest = new Map();
+
+    for (const { height, proof } of queryProofs) {
+        const cp = proof.continuity_proof;
+        if (!cp || !cp.roots) continue;
+
+        // The proof's first root is at the query height
+        // Store the lower endpoint digest for this height
+        heightToLowerDigest.set(height, cp.lower_endpoint_digest);
+
+        // Map each root to its height
+        for (let i = 0; i < cp.roots.length; i++) {
+            const blockHeight = height + i;
+            if (!heightToRoot.has(blockHeight)) {
+                heightToRoot.set(blockHeight, cp.roots[i]);
+            }
+        }
+    }
+
+    if (verbose) {
+        console.log(`Collected roots for ${heightToRoot.size} distinct heights`);
+    }
+
+    // Build the shared continuity proof starting from minHeight
+    const lowerEndpointDigest = heightToLowerDigest.get(minHeight);
+    if (!lowerEndpointDigest) {
+        throw new Error(`No lower endpoint digest found for min height ${minHeight}`);
+    }
+
+    // Find the maximum height we have a root for
+    const allHeights = [...heightToRoot.keys()].sort((a, b) => a - b);
+    const actualMaxHeight = allHeights[allHeights.length - 1];
+
+    if (actualMaxHeight < maxHeight) {
+        throw new Error(
+            `Continuity proof doesn't cover max query height. ` +
+                `Need ${maxHeight}, but only have roots up to ${actualMaxHeight}`,
+        );
+    }
+
+    // Build roots array from minHeight to actualMaxHeight
+    const roots = [];
+    for (let h = minHeight; h <= actualMaxHeight; h++) {
+        const root = heightToRoot.get(h);
+        if (!root) {
+            throw new Error(`Missing root for height ${h} in shared continuity proof`);
+        }
+        roots.push(root);
+    }
+
+    if (verbose) {
+        console.log(`Shared continuity proof: ${roots.length} blocks (${minHeight} to ${actualMaxHeight})`);
+    }
+
+    return {
+        lowerEndpointDigest,
+        roots,
+    };
+}
+
 module.exports = {
     // Constants
     DEFAULT_SOURCE_RPC_URL,
@@ -500,4 +719,6 @@ module.exports = {
     loadPrecompileABI,
     decodeRevertReason,
     submitToPrecompile,
+    submitBatchToPrecompile,
+    buildSharedContinuityProof,
 };
