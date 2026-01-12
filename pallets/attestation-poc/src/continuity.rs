@@ -51,13 +51,27 @@ impl<T: Config> Pallet<T> {
         if attestation_prev_digest == last_finalized_digest
             && attestation.continuity_proof.is_empty()
         {
-            let prev_attestation = Self::get(chain_key, attestation_prev_digest).ok_or_else(|| {
-                error!("❌ Previous attestation with digest {attestation_prev_digest:?} not found in storage");
-                Error::<T>::InvalidAttestationPrevDigest
-            })?;
+            // Try to get the previous header number from either an attestation or the last checkpoint.
+            // When linking to a checkpoint, it must be the LastCheckpoint since attestations
+            // always build on top of the latest finalized state.
+            let prev_header_number = if let Some(prev_attestation) =
+                Self::get(chain_key, attestation_prev_digest)
+            {
+                prev_attestation.header_number()
+            } else if let Some(checkpoint) = LastCheckpoint::<T>::get(chain_key) {
+                if checkpoint.digest == attestation_prev_digest {
+                    checkpoint.block_number
+                } else {
+                    error!("❌ Previous digest {attestation_prev_digest:?} does not match last checkpoint digest {:?}", checkpoint.digest);
+                    return Err(Error::<T>::InvalidAttestationPrevDigest.into());
+                }
+            } else {
+                error!("❌ Previous attestation/checkpoint with digest {attestation_prev_digest:?} not found in storage");
+                return Err(Error::<T>::InvalidAttestationPrevDigest.into());
+            };
 
             ensure!(
-                attestation_header_number == prev_attestation.header_number() + 1,
+                attestation_header_number == prev_header_number + 1,
                 Error::<T>::InvalidAttestationPrevDigest
             );
 
@@ -88,14 +102,27 @@ impl<T: Config> Pallet<T> {
         debug!("📝 Checking continuity proof tail: {tail:?}");
         let tail_prev_digest = tail.prev_digest;
 
-        // Verify the tail's prev_digest points to a known finalized attestation
-        if let Some(prev_attestation) = Self::get(chain_key, tail_prev_digest) {
-            if prev_attestation.header_number() != tail.block_number - 1 {
-                error!("❌ Continuity proof tail prev digest points to an attestation with header number {}, but expected {}", prev_attestation.header_number(), tail.block_number - 1);
+        // Verify the tail's prev_digest points to a known finalized attestation or the last checkpoint.
+        // When linking to a checkpoint, it must be the LastCheckpoint since attestations
+        // always build on top of the latest finalized state.
+        let tail_prev_header_number = if let Some(prev_attestation) =
+            Self::get(chain_key, tail_prev_digest)
+        {
+            prev_attestation.header_number()
+        } else if let Some(checkpoint) = LastCheckpoint::<T>::get(chain_key) {
+            if checkpoint.digest == tail_prev_digest {
+                checkpoint.block_number
+            } else {
+                error!("❌ Continuity proof tail prev digest {tail_prev_digest:?} does not match last checkpoint digest {:?}", checkpoint.digest);
                 return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
             }
         } else {
-            error!("❌ Continuity proof tail prev digest {tail_prev_digest:?} does not point to any known finalized attestation");
+            error!("❌ Continuity proof tail prev digest {tail_prev_digest:?} does not point to any known finalized attestation or checkpoint");
+            return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
+        };
+
+        if tail_prev_header_number != tail.block_number - 1 {
+            error!("❌ Continuity proof tail prev digest points to an attestation/checkpoint with header number {}, but expected {}", tail_prev_header_number, tail.block_number - 1);
             return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
         }
 
