@@ -785,6 +785,17 @@ impl AttestationPoolSender {
         }
     }
 
+    pub fn note_target_sample_size_change(&self, target_sample_size_new: u32) {
+        let threshold = attestor_primitives::calculate_threshold(target_sample_size_new) as usize;
+        let quorum_new = std::num::NonZeroUsize::new(threshold);
+
+        if let Some(quorum_new) = quorum_new {
+            if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
+                inner.validate_quorum.target_quorum = quorum_new;
+            }
+        }
+    }
+
     /// A new attestation interval has been set on-chain.
     //
     // Clear the attestation pool and update the target height and locally tracked attestation

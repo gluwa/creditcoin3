@@ -251,15 +251,14 @@ impl AttestationMonitor {
                     }));
                 }
             }
-            CcEvent::CheckpointReached(checkpoint_chain, checkpoint) => {
+            CcEvent::CheckpointReached(checkpoint) => {
                 debug!(
                     "Received CheckpointReached event for block {} on chain_key {}",
-                    checkpoint.block_number, checkpoint_chain
+                    checkpoint.block_number, chain_key
                 );
 
                 // Validate checkpoint block number is reasonable before using it
-                if checkpoint_chain == chain_key
-                    && checkpoint.block_number <= MAX_REASONABLE_BLOCK
+                if checkpoint.block_number <= MAX_REASONABLE_BLOCK
                     && checkpoint.block_number >= block_number
                 {
                     info!(
@@ -278,13 +277,8 @@ impl AttestationMonitor {
                     );
                 }
             }
-            CcEvent::RandomnessChanged(..)
-            | CcEvent::AttestationIntervalChanged(..)
-            | CcEvent::AttestorsElected(..)
-            | CcEvent::AttestorActivated(..)
-            | CcEvent::AttestorChilled(..)
-            | CcEvent::AttestorKicked(..) => {
-                // Ignore these events
+            _ => {
+                // Ignore other events
             }
         }
 

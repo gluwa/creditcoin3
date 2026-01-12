@@ -461,113 +461,112 @@ impl WorkerAttestationProduction {
                     }
                 }
 
-                // CASE 2] NEW ATTESTATION INTERVAL
-                cc_client::attestation::CcEvent::AttestationIntervalChanged(
-                    chain_key,
-                    interval,
-                ) => {
-                    if chain_key == self.cc3.get_chain_key() {
-                        tracing::info!(interval, "🔢 New source chain attestation interval");
+                // CASE 2] NEW TARGET SAMPLE SIZE
+                cc_client::attestation::CcEvent::TargetSampleSizeChanged(target_sample_size) => {
+                    tracing::info!(target_sample_size, "📏 New target sample size");
 
-                        let interval = std::num::NonZero::<common::types::Height>::new(interval)
-                            .unwrap_or(std::num::NonZero::<common::types::Height>::MIN);
-
-                        let attestation_latest_cc3 = self
-                            .attestation_latest_cc3
-                            .as_ref()
-                            .map(|(_digest, height)| *height);
-
-                        // 1. Chain listener - Eth
-                        //
-                        // Catchup to the new target height and update the attestation interval.
-                        self.eth
-                            .note_attestation_interval_change(interval, attestation_latest_cc3)
-                            .await
-                            .map_err(Error::EthError)?;
-
-                        // 2. Chain listener - Rebroadcast
-                        //
-                        // Rebroadcast attestations at the new interval.
-                        self.rebroadcast
-                            .note_attestation_interval_change(interval, attestation_latest_cc3);
-
-                        // 3. Attestation pool
-                        //
-                        // Update quorum validation to expect the new target height and attestation
-                        // interval.
-                        self.sender_validation
-                            .note_attestation_interval_change(interval, attestation_latest_cc3);
-
-                        // 4. Production
-                        //
-                        // Clear local state
-                        self.attestation_local = None;
-                        self.attestations.clear();
-                        self.attestation_interval = interval;
-
-                        // 5. Metrics
-                        let attestation_latest_cc3 =
-                            attestation_latest_cc3.unwrap_or(self.start_height);
-                        self.metrics.update_attestation_lag_eth(
-                            attestation_latest_cc3,
-                            self.eth.block_latest(),
-                            interval,
-                        );
-                        self.metrics.update_attestation_lag_cc3(
-                            attestation_latest_cc3,
-                            attestation_latest_cc3,
-                            interval,
-                        );
-                    }
+                    self.sender_validation
+                        .note_target_sample_size_change(target_sample_size);
                 }
 
-                // CASE 3] NEW ATTESTATION CHECKPOINT
-                cc_client::attestation::CcEvent::CheckpointReached(chain_key, checkpoint) => {
-                    if chain_key == self.cc3.get_chain_key() {
-                        tracing::info!(
-                            height = checkpoint.block_number,
-                            digest = ?checkpoint.digest,
-                            "🛟 New execution chain attestation checkpoint"
-                        )
-                    }
+                // CASE 3] NEW ATTESTATION INTERVAL
+                cc_client::attestation::CcEvent::AttestationIntervalChanged(interval) => {
+                    tracing::info!(interval, "🔢 New source chain attestation interval");
+
+                    let interval = std::num::NonZero::<common::types::Height>::new(interval)
+                        .unwrap_or(std::num::NonZero::<common::types::Height>::MIN);
+
+                    let attestation_latest_cc3 = self
+                        .attestation_latest_cc3
+                        .as_ref()
+                        .map(|(_digest, height)| *height);
+
+                    // 1. Chain listener - Eth
+                    //
+                    // Catchup to the new target height and update the attestation interval.
+                    self.eth
+                        .note_attestation_interval_change(interval, attestation_latest_cc3)
+                        .await
+                        .map_err(Error::EthError)?;
+
+                    // 2. Chain listener - Rebroadcast
+                    //
+                    // Rebroadcast attestations at the new interval.
+                    self.rebroadcast
+                        .note_attestation_interval_change(interval, attestation_latest_cc3);
+
+                    // 3. Attestation pool
+                    //
+                    // Update quorum validation to expect the new target height and attestation
+                    // interval.
+                    self.sender_validation
+                        .note_attestation_interval_change(interval, attestation_latest_cc3);
+
+                    // 4. Production
+                    //
+                    // Clear local state
+                    self.attestation_local = None;
+                    self.attestations.clear();
+                    self.attestation_interval = interval;
+
+                    // 5. Metrics
+                    let attestation_latest_cc3 =
+                        attestation_latest_cc3.unwrap_or(self.start_height);
+                    self.metrics.update_attestation_lag_eth(
+                        attestation_latest_cc3,
+                        self.eth.block_latest(),
+                        interval,
+                    );
+                    self.metrics.update_attestation_lag_cc3(
+                        attestation_latest_cc3,
+                        attestation_latest_cc3,
+                        interval,
+                    );
                 }
 
-                // CASE 4] NEW EPOCH
+                // CASE 4] NEW ATTESTATION CHECKPOINT
+                cc_client::attestation::CcEvent::CheckpointReached(checkpoint) => {
+                    tracing::info!(
+                        height = checkpoint.block_number,
+                        digest = ?checkpoint.digest,
+                        "🛟 New execution chain attestation checkpoint"
+                    )
+                }
+
+                // CASE 5] NEW EPOCH
                 cc_client::attestation::CcEvent::RandomnessChanged((epoch, _randomness)) => {
                     tracing::info!(epoch, "🎲 New epoch rotation");
                     self.epoch = epoch;
                 }
 
-                // CASE 5] ATTESTOR ELECTION
-                cc_client::attestation::CcEvent::AttestorsElected(chain_key, attestors) => {
-                    if chain_key == self.cc3.get_chain_key() {
-                        tracing::info!("⏰ New attestors elected");
+                // CASE 6] ATTESTOR ELECTION
+                cc_client::attestation::CcEvent::AttestorsElected(attestors) => {
+                    tracing::info!("⏰ New attestors elected");
 
-                        // 1. Attestor status
-                        //
-                        // Update local attestation eligibility.
-                        if attestors.contains(&self.account_id) {
-                            self.can_attest = true;
-                            tracing::info!(
-                                account_id = %self.account_id,
-                                "☀️ Attestor is eligible for production"
-                            );
-                        } else {
-                            self.can_attest = false;
-                            tracing::info!(
-                                account_id = %self.account_id,
-                                "🛏️ Waiting for attestor to be elected"
-                            );
-                        }
-
-                        // 2. Attestor validation
-                        //
-                        // Update the set of legal attestors in the attestation pool.
-                        self.sender_validation.note_attestors_elected(attestors);
+                    // 1. Attestor status
+                    //
+                    // Update local attestation eligibility.
+                    if attestors.contains(&self.account_id) {
+                        self.can_attest = true;
+                        tracing::info!(
+                            account_id = %self.account_id,
+                            "☀️ Attestor is eligible for production"
+                        );
+                    } else {
+                        self.can_attest = false;
+                        tracing::info!(
+                            account_id = %self.account_id,
+                            "🛏️ Waiting for attestor to be elected"
+                        );
                     }
+
+                    // 2. Attestor validation
+                    //
+                    // Update the set of legal attestors in the attestation pool.
+                    self.sender_validation.note_attestors_elected(attestors);
                 }
 
-                // CASE 6] ATTESTOR ACTIVATION
+                // CASE 7] ATTESTOR ACTIVATION
                 cc_client::attestation::CcEvent::AttestorActivated(attestor) => {
                     if attestor == self.account_id {
                         tracing::info!(
@@ -577,7 +576,7 @@ impl WorkerAttestationProduction {
                     }
                 }
 
-                // CASE 7] ATTESTOR DEACTIVATION
+                // CASE 8] ATTESTOR DEACTIVATION
                 cc_client::attestation::CcEvent::AttestorChilled(attestor) => {
                     if attestor == self.account_id {
                         self.can_attest = false;
@@ -588,7 +587,7 @@ impl WorkerAttestationProduction {
                     }
                 }
 
-                // CASE 8] ATTESTOR FORCE-KICK
+                // CASE 9] ATTESTOR FORCE-KICK
                 cc_client::attestation::CcEvent::AttestorKicked(attestor) => {
                     if attestor == self.account_id {
                         self.can_attest = false;

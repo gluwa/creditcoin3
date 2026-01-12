@@ -12,7 +12,7 @@ use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest};
 use crate::cc3::{
     attestation::events::{
         AttestationIntervalChanged, AttestorActivated, AttestorChilled, AttestorsElected,
-        BlockAttested, CheckpointReached,
+        BlockAttested, CheckpointReached, TargetSampleSizeChanged,
     },
     randomness::events::StoreRandomnessForEpoch,
     staking::events::Kicked,
@@ -48,9 +48,10 @@ impl BlockAttestedMetadata {
 pub enum CcEvent {
     BlockAttested(BlockAttestedMetadata),
     RandomnessChanged((u64, Randomness)),
-    CheckpointReached(ChainKey, AttestationCheckpoint),
-    AttestationIntervalChanged(ChainKey, u64),
-    AttestorsElected(ChainKey, Vec<AccountId32>),
+    CheckpointReached(AttestationCheckpoint),
+    AttestationIntervalChanged(u64),
+    TargetSampleSizeChanged(u32),
+    AttestorsElected(Vec<AccountId32>),
     AttestorActivated(AccountId32),
     AttestorChilled(AccountId32),
     AttestorKicked(AccountId32),
@@ -194,7 +195,21 @@ impl Client {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::CheckpointReached(chain_key, checkpoint.into())))
+                        Some(Ok(CcEvent::CheckpointReached(checkpoint.into())))
+                    }
+                    (TargetSampleSizeChanged::PALLET, TargetSampleSizeChanged::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<TargetSampleSizeChanged>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        let TargetSampleSizeChanged(chain_key, new_sample_size) = event;
+
+                        if chain_key != filter {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::TargetSampleSizeChanged(new_sample_size)))
                     }
                     (AttestationIntervalChanged::PALLET, AttestationIntervalChanged::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestationIntervalChanged>() else {
@@ -208,10 +223,7 @@ impl Client {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::AttestationIntervalChanged(
-                            chain_key,
-                            new_interval,
-                        )))
+                        Some(Ok(CcEvent::AttestationIntervalChanged(new_interval)))
                     }
                     (AttestorsElected::PALLET, AttestorsElected::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestorsElected>() else {
@@ -219,10 +231,17 @@ impl Client {
                             return None;
                         };
 
-                        Some(Ok(CcEvent::AttestorsElected(
-                            event.chain_key,
-                            event.attestors,
-                        )))
+                        let AttestorsElected {
+                            epoch: _,
+                            chain_key,
+                            attestors,
+                        } = event;
+
+                        if chain_key != filter {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::AttestorsElected(attestors)))
                     }
                     (AttestorActivated::PALLET, AttestorActivated::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestorActivated>() else {
