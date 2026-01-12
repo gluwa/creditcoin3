@@ -461,8 +461,15 @@ impl AttestationPoolInner {
     fn mark_valid(&mut self, permit: AttestationPermit) {
         let (height, digest) = permit.0;
 
-        self.forks.forks.remove(&height);
-        self.forks.equivocations.remove(&height);
+        let removed = self
+            .forks
+            .forks_by_height
+            .remove(&height)
+            .expect("Missing mapping in forks_by_height");
+
+        for digest in removed {
+            self.forks.remove_by_digest(digest);
+        }
 
         self.validate_quorum.target_height = util::next_multiple_of(
             self.validate_quorum.attestation_interval,
@@ -472,25 +479,21 @@ impl AttestationPoolInner {
     }
 
     fn mark_invalid(&mut self, permit: AttestationPermit) {
-        if let std::collections::btree_map::Entry::Occupied(mut entry) =
-            self.forks.forks.entry(permit.0 .0)
-        {
-            let fork = entry.get_mut();
-            fork.pop(permit.0);
+        let (height, digest) = permit.0;
 
-            if fork.is_empty() {
+        if let std::collections::btree_map::Entry::Occupied(mut entry) =
+            self.forks.forks_by_height.entry(height)
+        {
+            let forks = entry.get_mut();
+            assert!(forks.remove(&digest), "Missing mapping in forks_by_height");
+
+            if forks.is_empty() {
                 entry.remove();
             }
 
-            // Save the vote as invalid.
-            //
-            // This can be used for future filtering of known invalid votes, for example by the p2p
-            // worker.
-            self.forks
-                .invalid
-                .entry(permit.0 .0)
-                .or_default()
-                .insert(permit.0 .1);
+            self.forks.remove_by_digest(digest);
+        } else {
+            panic!("Missing mapping in forks_by_height");
         }
     }
 
@@ -508,13 +511,16 @@ impl AttestationPoolInner {
 /// contentious forks, past equivocations and known invalid votes. Attestation [`Quorum`]s which can
 /// be validated ahead of finality are stored separately in an unbounded collection.
 struct AttestationPoolForks {
-    forks_by_size: std::collections::BTreeMap<usize, std::collections::HashSet<AttestationVote>>,
+    forks_by_size: std::collections::BTreeMap<
+        usize,
+        std::collections::HashMap<attestor_primitives::Digest, AttestationVote>,
+    >,
     forks_by_digest: std::collections::HashMap<attestor_primitives::Digest, usize>,
     forks_by_height: std::collections::BTreeMap<
         common::types::Height,
         std::collections::HashSet<attestor_primitives::Digest>,
     >,
-    forks_best: usize,
+    forks_best: Option<AttestationVote>,
 
     pending:
         std::collections::HashMap<attestor_primitives::Digest, Vec<common::types::Attestation>>,
@@ -563,14 +569,28 @@ impl AttestationPoolForks {
             }
         }
 
-        if prev_digest != self.prev_digest {
-            self.pending
-                .entry(prev_digest)
-                .or_default()
-                .push(attestation);
-            self.pending_count += 1;
+        match (prev_digest, self.prev_digest) {
+            // CASE 1] PREV_DIGEST MATCHES
+            (Some(prev_digest_att), Some(prev_digest_pool)) if prev_digest == prev_digest_pool => {}
 
-            return Ok(());
+            // CASE 2] NO PREV_DIGEST
+            (None, None) => {}
+
+            // CASE 3] UPDATE PREV_DIGEST
+            (Some(prev_digest_att), None) => {
+                self.prev_digest = Some(prev_digest_att);
+            }
+
+            // CASE 4] PENDING PREV_DIGET
+            _ => {
+                self.pending
+                    .entry(prev_digest)
+                    .or_default()
+                    .push(attestation);
+                self.pending_count += 1;
+
+                return Ok(());
+            }
         }
 
         let vote = AttestationVote::new(attestation);
@@ -591,23 +611,58 @@ impl AttestationPoolForks {
             }
         }
 
-        self.forks_by_size.entry(size_new).or_default().insert(vote);
+        if self
+            .forks_best
+            .is_none_or(|best| best.votes.len() < size_new)
+        {
+            self.forks_best = Some(vote.clone());
+        }
+
+        self.forks_by_size
+            .entry(size_new)
+            .or_default()
+            .insert(digest, vote);
         self.forks_by_height
             .entry(height)
             .or_default()
             .insert(digest);
-
-        if size_new > self.forks_best {
-            self.forks_best = size_new;
-        }
     }
 
     fn peek(&self) -> Option<AttestationVote> {
-        todo!()
+        self.forks_best.clone()
     }
 
-    fn pop(&self) -> Option<AttestationVote> {
-        todo!()
+    fn remove_by_digest(&mut self, digest: attestor_primitives::Digest) {
+        let size = self
+            .forks_by_digest
+            .remove(&digest)
+            .expect("Missing mapping in forks_by_digest");
+
+        if let std::collections::btree_map::Entry::Occupied(mut entry) =
+            self.forks_by_size.entry(size)
+        {
+            let votes = entry.get_mut();
+            let removed = votes
+                .remove(&digest)
+                .expect("Missing mapping in forks_by_size");
+
+            assert_eq!(
+                removed.attestation.digest(),
+                digest,
+                "Invalid digest mapping in forks_by_size"
+            );
+
+            if votes.is_empty() {
+                entry.remove();
+            }
+        } else {
+            panic!("Missing mapping in forks_by_size");
+        }
+
+        self.forks_best = self
+            .forks_by_size
+            .last_key_value()
+            .map(|(_size, best)| best.iter().next());
     }
 }
 
@@ -618,8 +673,15 @@ impl crate::events::EventAttestationFinalization for AttestationPoolForks {
         &mut self,
         latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
-        let (height, prev_digest) = latest_attestation_cc3;
-        self.prev_digest = prev_digest;
+        let (prev_digest, height) = latest_attestation_cc3;
+        self.prev_digest = Some(prev_digest);
+
+        let removed = self.forks_by_height.split_off(&(height.saturating_add(1)));
+        std::mem::swap(&mut self.forks_by_height, &mut removed);
+
+        for digest in removed.into_values().flatten() {
+            self.remove_by_digest(digest);
+        }
 
         if let Some(pending) = self.pending.remove(&prev_digest) {
             for attestation in pending {
