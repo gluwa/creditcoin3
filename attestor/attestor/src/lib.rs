@@ -151,22 +151,23 @@ impl Attestor {
             })),
         );
 
-        let (start_height, attestation_latest_cc3, empty_chain) =
+        let (start_height, attestation_latest_cc3, digest_latest_cc3, empty_chain) =
             match self.config.attestation.start_height {
                 Some(start_height) => match attestation_start_cc3 {
-                    Some((_digest, height)) => (start_height, height, false),
+                    Some((digest, height)) => (start_height, height, Some(digest), false),
                     None => {
                         let genesis = cc3_client
                             .get_attestation_chain_genesis_block_number(self.config.chain_key)
                             .await
                             .unwrap_or_default();
-                        (start_height, genesis, true)
+                        (start_height, genesis, None, true)
                     }
                 },
                 None => match attestation_start_cc3 {
-                    Some((_digest, height)) => (
+                    Some((digest, height)) => (
                         util::next_multiple_of(attestation_interval, height),
                         height,
+                        Some(digest),
                         false,
                     ),
                     None => {
@@ -174,7 +175,7 @@ impl Attestor {
                             .get_attestation_chain_genesis_block_number(self.config.chain_key)
                             .await
                             .unwrap_or_default();
-                        (genesis, genesis, true)
+                        (genesis, genesis, None, true)
                     }
                 },
             };
@@ -271,6 +272,7 @@ impl Attestor {
             .with_attestors(attestors)
             .with_quorum(quorum)
             .with_start_height(start_height)
+            .with_digest_latest_cc3(digest_latest_cc3)
             .with_attestation_interval(attestation_interval)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();

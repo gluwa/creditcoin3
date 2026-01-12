@@ -380,6 +380,10 @@ impl WorkerAttestationProduction {
         &mut self,
         res: Result<crate::chain_listener::cc3::CC3Events, crate::chain_listener::cc3::Error>,
     ) -> Result<(), Error> {
+        use crate::events::EventAttestationFinalization as _;
+        use crate::events::EventAttestationIntervalChange as _;
+        use crate::events::EventAttestorsElected as _;
+
         for event in res
             .map_err(Error::CC3Error)?
             .events()
@@ -396,6 +400,7 @@ impl WorkerAttestationProduction {
                             .attestation_local
                             .map(|(_digest, height)| height)
                             .unwrap_or(self.start_height);
+                        let attestation_latest_cc3 = (digest, height);
 
                         tracing::info!(
                             height,
@@ -403,7 +408,7 @@ impl WorkerAttestationProduction {
                             "💾 New execution chain attestation"
                         );
 
-                        self.attestation_latest_cc3 = Some((digest, height));
+                        self.attestation_latest_cc3 = Some(attestation_latest_cc3);
 
                         // 1. Chain Listener - Eth
                         //
@@ -428,7 +433,10 @@ impl WorkerAttestationProduction {
                         // here and also update the target block height (if necessary, it is also
                         // possible that we are in advance of the execution chain in which case we do
                         // not want to update the target height and this a no-op).
-                        self.sender_validation.note_attestation_finalization(height);
+                        self.sender_validation
+                            .note_attestation_finalization(attestation_latest_cc3)
+                            .await
+                            .expect("Infallible");
 
                         // 4. Notify the validation worker
                         //
@@ -469,7 +477,7 @@ impl WorkerAttestationProduction {
                         .note_target_sample_size_change(target_sample_size);
                 }
 
-                // CASE 3] NEW ATTESTATION INTERVAL
+                // CASE 2] NEW ATTESTATION INTERVAL
                 cc_client::attestation::CcEvent::AttestationIntervalChanged(interval) => {
                     tracing::info!(interval, "🔢 New source chain attestation interval");
 
@@ -500,7 +508,9 @@ impl WorkerAttestationProduction {
                     // Update quorum validation to expect the new target height and attestation
                     // interval.
                     self.sender_validation
-                        .note_attestation_interval_change(interval, attestation_latest_cc3);
+                        .note_attestation_interval_change(interval, attestation_latest_cc3)
+                        .await
+                        .expect("Infallible");
 
                     // 4. Production
                     //
@@ -563,7 +573,10 @@ impl WorkerAttestationProduction {
                     // 2. Attestor validation
                     //
                     // Update the set of legal attestors in the attestation pool.
-                    self.sender_validation.note_attestors_elected(attestors);
+                    self.sender_validation
+                        .note_attestors_elected(attestors)
+                        .await
+                        .expect("Infallible");
                 }
 
                 // CASE 7] ATTESTOR ACTIVATION
