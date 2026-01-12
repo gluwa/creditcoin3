@@ -5,9 +5,7 @@ pragma solidity >=0.8.3;
 address constant CHAIN_INFO_ADDRESS = 0x0000000000000000000000000000000000000fD3;
 
 /// @dev Instance of the ChainInfoContract interface at the precompiled address.
-ChainInfoContract constant CHAIN_INFO_CONTRACT_ADRRESS = ChainInfoContract(
-    CHAIN_INFO_ADDRESS
-);
+ChainInfoContract constant CHAIN_INFO_CONTRACT_ADRRESS = ChainInfoContract(CHAIN_INFO_ADDRESS);
 
 /**
  * @dev Chain information structure
@@ -88,6 +86,13 @@ interface ChainInfoContract {
     function get_chain_by_key(uint64 chainKey) external view returns (ChainInfoResult memory result);
 
     /**
+     * @dev Get attestation genesis height for a chain
+     * @param chainKey The chain key to query
+     * @return genesisHeight The genesis height for attestations
+     */
+    function get_attestation_genesis_height(uint64 chainKey) external view returns (uint64 genesisHeight);
+
+    /**
      * @dev Get latest attestation height and hash for a chain
      * @param chainKey The chain key to query
      * @return result Latest attestation height and agreed-upon hash
@@ -102,7 +107,10 @@ interface ChainInfoContract {
      * @param chainKey The chain key to query
      * @return result Latest checkpoint height and agreed-upon hash
      */
-    function get_latest_checkpoint_height_and_hash(uint64 chainKey) external view returns (HeightHashResult memory result);
+    function get_latest_checkpoint_height_and_hash(uint64 chainKey)
+        external
+        view
+        returns (HeightHashResult memory result);
 
     /**
      * @dev Find highest attested block BEFORE target height

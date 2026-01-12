@@ -12,8 +12,8 @@ use sp_std::vec::Vec;
 
 use attestor_primitives::{ChainId, ChainKey};
 use pallet_attestation_poc::{
-    Attestations, CheckpointBuckets, Checkpoints, LastCheckpoint, LastDigest,
-    Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
+    AttestationChainGenesisBlockNumber, Attestations, CheckpointBuckets, Checkpoints,
+    LastCheckpoint, LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
 };
 use pallet_evm::AddressMapping;
 use pallet_supported_chains::SupportedChains;
@@ -136,6 +136,19 @@ where
             // We want an empty return rather than a revert here
             Ok(ChainInfoResult::default())
         }
+    }
+
+    #[precompile::public("get_attestation_genesis_height(uint64)")]
+    #[precompile::view]
+    fn get_attestation_genesis_height(
+        handle: &mut impl PrecompileHandle,
+        chain_key: ChainKey,
+    ) -> EvmResult<u64> {
+        let height = AttestationChainGenesisBlockNumber::<Runtime>::get(chain_key);
+
+        handle.record_db_read::<Runtime>(height.encoded_size())?;
+
+        Ok(height)
     }
 
     #[precompile::public("get_latest_attestation_height_and_hash(uint64)")]

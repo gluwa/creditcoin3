@@ -91,6 +91,33 @@ fn get_chain_by_key_works() {
 }
 
 #[test]
+fn get_attestation_genesis_height_works() {
+    let alice: H160 = Alice.into();
+
+    let expected_result: u64 = 23;
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            pallet_attestation_poc::AttestationChainGenesisBlockNumber::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                expected_result,
+            );
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_attestation_genesis_height {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
 fn get_chain_by_key_returns_default_data_with_unknown_chain_key() {
     let alice: H160 = Alice.into();
 
