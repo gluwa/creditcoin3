@@ -1,7 +1,7 @@
-use crate::{encode_revert_message, ConstU10MB};
+use crate::ConstU10MB;
 use attestor_primitives::block::ContinuityProof;
 use ethabi::Token;
-use fp_evm::{ExitError, ExitRevert, PrecompileFailure, PrecompileHandle};
+use fp_evm::{ExitError, PrecompileFailure, PrecompileHandle};
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
@@ -160,11 +160,7 @@ where
             debug!(
                 "Empty transaction data submitted for query: chain_key={chain_key}, height={height}"
             );
-            let encoded_revert = encode_revert_message("Transaction data cannot be empty");
-            return Err(PrecompileFailure::Revert {
-                output: encoded_revert,
-                exit_status: ExitRevert::Reverted,
-            });
+            return Self::revert_with_message("Transaction data cannot be empty");
         }
 
         // Gas costs (CONTINUITY_BLOCK_HASH_COST) already account for all computational work
@@ -302,31 +298,15 @@ where
         // Note: Empty continuity proof check is redundant - if roots.is_empty(), then
         // last_block_number calculation would underflow. We check this explicitly to avoid panic.
         if shared_continuity_proof.roots.is_empty() {
-            return Err(PrecompileFailure::Revert {
-                output: encode_revert_message("Continuity chain cannot be empty"),
-                exit_status: ExitRevert::Reverted,
-            });
-        }
-
-        let first_block_number = start_block_number;
-        if first_block_number > min_height {
-            return Err(PrecompileFailure::Revert {
-                output: encode_revert_message(
-                    "Continuity chain doesn't cover minimum query height",
-                ),
-                exit_status: ExitRevert::Reverted,
-            });
+            return Self::revert_with_message("Continuity chain cannot be empty");
         }
 
         let last_block_number =
             start_block_number + (shared_continuity_proof.roots.len() - 1) as u64;
         if last_block_number < max_height {
-            return Err(PrecompileFailure::Revert {
-                output: encode_revert_message(
-                    "Continuity chain doesn't cover maximum query height",
-                ),
-                exit_status: ExitRevert::Reverted,
-            });
+            return Self::revert_with_message(
+                "Continuity chain doesn't cover maximum query height",
+            );
         }
 
         // Verify the continuity chain itself (gas charged inside)
