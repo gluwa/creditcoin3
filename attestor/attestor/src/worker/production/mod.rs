@@ -266,6 +266,8 @@ impl WorkerAttestationProduction {
         &mut self,
         event: Result<crate::common::types::Height, crate::chain_listener::eth::Error>,
     ) -> Result<(), Error> {
+        use crate::events::EventAttestationProduction as _;
+
         // STEP 1] GENERATE CONTINUITY PROOF
 
         let height = event.map_err(Error::EthError)?;
@@ -368,8 +370,12 @@ impl WorkerAttestationProduction {
 
         // STEP 6] UPDATE SYNC STATUS
 
-        self.attestation_local = Some((digest, height));
-        self.rebroadcast.note_attestation_production(height);
+        let attestation_latest_eth = (digest, height);
+        self.attestation_local = Some(attestation_latest_eth);
+        self.rebroadcast
+            .note_attestation_production(attestation_latest_eth)
+            .await
+            .expect("Infallible");
 
         Ok(())
     }
@@ -414,7 +420,10 @@ impl WorkerAttestationProduction {
                         //
                         // This is ensure that we keep producing new attestation starting from the
                         // latest finalized on-chain attestation.
-                        self.eth.note_attestation_finalization(height);
+                        self.eth
+                            .note_attestation_finalization(attestation_latest_cc3)
+                            .await
+                            .expect("Infallible");
 
                         // 2. Chain Listener - Rebroadcast
                         //
@@ -422,7 +431,10 @@ impl WorkerAttestationProduction {
                         // finalized on-chain (it is still possible for a race condition to occur where
                         // we would re-submit a past attestation before noticing the `BlockAttested`
                         // event, but that is handled as a non-failure case by the validation worker).
-                        self.rebroadcast.note_attestation_finalization(height);
+                        self.rebroadcast
+                            .note_attestation_finalization(attestation_latest_cc3)
+                            .await
+                            .expect("Infallible");
 
                         // 3. Update the attestation pool
                         //
@@ -501,7 +513,9 @@ impl WorkerAttestationProduction {
                     //
                     // Rebroadcast attestations at the new interval.
                     self.rebroadcast
-                        .note_attestation_interval_change(interval, attestation_latest_cc3);
+                        .note_attestation_interval_change(interval, attestation_latest_cc3)
+                        .await
+                        .expect("Infallible");
 
                     // 3. Attestation pool
                     //

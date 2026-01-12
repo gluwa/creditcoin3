@@ -204,30 +204,40 @@ impl Ethereum {
 
 // ----------------------------------------- [ Events ] ---------------------------------------- //
 
-// Handling in response to execution chain events.
-impl Ethereum {
+impl crate::events::EventAttestationFinalization for Ethereum {
+    type Error = std::convert::Infallible;
+
     /// A new attestation has reached finality on the execution chain.
     ///
     /// If we are catching up, we need to make sure we do not re-generate this attestation.
-    pub fn note_attestation_finalization(&mut self, attestation_latest_cc3: common::types::Height) {
-        let target_start_new =
-            util::next_multiple_of(self.attestation_interval, attestation_latest_cc3);
+    async fn note_attestation_finalization(
+        &mut self,
+        attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
+    ) -> Result<(), Self::Error> {
+        let (_digest, height) = attestation_latest_cc3;
+        let target_start_new = util::next_multiple_of(self.attestation_interval, height);
 
         if self.catchup.start < target_start_new {
             self.catchup.start = target_start_new
         }
+
+        Ok(())
     }
+}
+
+impl crate::events::EventAttestationIntervalChange for Ethereum {
+    type Error = Error;
 
     /// A new attestation interval has been set on-chain.
     //
     /// We need to make sure the next source chain block we attest to is a multiple of the new
     /// attestation interval. If we are catching up on past attestations, we also need to make sure
     /// we skip any attestations before that point.
-    pub async fn note_attestation_interval_change(
+    async fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
         attestation_latest_cc3: Option<common::types::Height>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Self::Error> {
         self.catchup.start = if let Some(attestation_latest_cc3) = attestation_latest_cc3 {
             util::next_multiple_of(interval_new, attestation_latest_cc3)
         } else {

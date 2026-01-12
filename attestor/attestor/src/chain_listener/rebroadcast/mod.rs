@@ -98,37 +98,56 @@ impl Rebroadcast {
 
 // ----------------------------------------- [ Events ] ---------------------------------------- //
 
-// Handling in response to execution chain events.
-impl Rebroadcast {
+impl crate::events::EventAttestationFinalization for Rebroadcast {
+    type Error = std::convert::Infallible;
+
     /// A new attestation has reached finality on the execution chain.
     ///
     /// If we are re-broadcasting attestations, we need to make sure we do not re-broadcast this
     /// attestation.
-    pub fn note_attestation_finalization(&mut self, attestation_latest_cc3: common::types::Height) {
-        let start_new = util::next_multiple_of(self.attestation_interval, attestation_latest_cc3);
+    async fn note_attestation_finalization(
+        &mut self,
+        attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
+    ) -> Result<(), Self::Error> {
+        let (_digest, height) = attestation_latest_cc3;
+        let start_new = util::next_multiple_of(self.attestation_interval, height);
 
         if self.catchup.start < start_new {
             self.catchup.start = start_new;
         }
 
         self.start = start_new;
+        Ok(())
     }
+}
+
+impl crate::events::EventAttestationProduction for Rebroadcast {
+    type Error = std::convert::Infallible;
 
     /// A new attestation has been produced by the [production worker]. Marks it as ready to be
     /// rebroadcasted.
     ///
     /// [production worker]: crate::worker::production
-    pub fn note_attestation_production(&mut self, attestation_latest_eth: common::types::Height) {
-        if self.catchup.stop <= attestation_latest_eth {
-            self.catchup.stop = attestation_latest_eth + self.attestation_interval.get();
+    async fn note_attestation_production(
+        &mut self,
+        attestation_latest_eth: (attestor_primitives::Digest, common::types::Height),
+    ) -> Result<(), Self::Error> {
+        let (_digest, height) = attestation_latest_eth;
+        if self.catchup.stop <= height {
+            self.catchup.stop = height + self.attestation_interval.get();
         }
+        Ok(())
     }
+}
 
-    pub fn note_attestation_interval_change(
+impl crate::events::EventAttestationIntervalChange for Rebroadcast {
+    type Error = std::convert::Infallible;
+
+    async fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
         attestation_latest_cc3: Option<common::types::Height>,
-    ) {
+    ) -> Result<(), Self::Error> {
         let start_new = if let Some(attestation_latest_cc3) = attestation_latest_cc3 {
             util::next_multiple_of(interval_new, attestation_latest_cc3)
         } else {
@@ -141,5 +160,7 @@ impl Rebroadcast {
             stop: start_new,
         };
         self.start = start_new;
+
+        Ok(())
     }
 }
