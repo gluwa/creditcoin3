@@ -4,11 +4,11 @@ import { JsonRpcProvider, WebSocketProvider, ethers } from 'ethers';
 import { ApiPromise, BN, MICROUNITS_PER_CTC, newApi } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
 import { chain_Anvil1_Key, chain_Anvil1_Url } from '../pallets/supported-chains/consts';
+import { blockProverAddress, chainInfoAddress } from './consts';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABIJSON = require('../artifacts/block_prover.json');
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
-const PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import chainInfoABIJSON = require('../artifacts/chain_info.json');
@@ -49,7 +49,7 @@ describe('Precompile: block-prover', (): void => {
         const result = await fundFromSudo(alith.address, MICROUNITS_PER_CTC.mul(new BN(1_000_000)));
         expect(result.status).toBe(0);
 
-        contract = new ethers.Contract(PRECOMPILE_ADDRESS, contractABI, alith);
+        contract = new ethers.Contract(blockProverAddress, contractABI, alith);
 
         // Get the single-query verify function overload explicitly
         // Signature: verify(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))
@@ -89,7 +89,7 @@ describe('Precompile: block-prover', (): void => {
             expect(sourceTxn!.blockNumber).toBeDefined();
             const sourceBlockNumber = sourceTxn!.blockNumber!;
 
-            const chainInfo = new ethers.Contract('0x0000000000000000000000000000000000000fd3', chainInfoABI, alith);
+            const chainInfo = new ethers.Contract(chainInfoAddress, chainInfoABI, alith);
 
             const latestAttestation = await chainInfo.get_latest_attestation_height_and_hash(chain_Anvil1_Key, {
                 gasPrice: (await provider.getFeeData()).gasPrice,
@@ -125,8 +125,8 @@ describe('Precompile: block-prover', (): void => {
         test('should verify precompile is deployed at correct address', async () => {
             // Verify precompile exists at the expected address
             // Note: Precompiles may not have bytecode but should respond to calls
-            const code = await provider.getCode(PRECOMPILE_ADDRESS);
-            expect(PRECOMPILE_ADDRESS).toBe('0x0000000000000000000000000000000000000FD2');
+            const code = await provider.getCode(blockProverAddress);
+            expect(blockProverAddress).toBe('0x0000000000000000000000000000000000000FD2');
             // Precompiles might return '0x' or have some bytecode
             expect(code).toBeDefined();
         });

@@ -4,6 +4,7 @@ import { WebSocketProvider, ethers } from 'ethers';
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../pallets/supported-chains/consts';
+import { chainInfoAddress } from './consts';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABIJSON = require('../artifacts/chain_info.json');
@@ -26,9 +27,6 @@ describe('Precompile: ChainInfo', (): void => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
 
-        // precompile contract deployed at 4051 to hex, see runtime/src/precompiles.rs for more
-        const precompileContractAddress = '0x0000000000000000000000000000000000000fd3';
-
         const privateKey = (global as any).CREDITCOIN_EVM_PRIVATE_KEY('alice');
         alith = new ethers.Wallet(privateKey, provider);
         // will only work when connected to a chain locally and //Alice is root
@@ -38,7 +36,7 @@ describe('Precompile: ChainInfo', (): void => {
         // note: balances.Transfer is happy to accept Address20 directly too
         expect(result.status).toBe(0);
 
-        contract = new ethers.Contract(precompileContractAddress, contractABI, alith);
+        contract = new ethers.Contract(chainInfoAddress, contractABI, alith);
 
         gasLimit = 10000000;
         // note: larger timeout b/c this also executes against Testnet forks where block time is 15s
