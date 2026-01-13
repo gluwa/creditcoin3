@@ -31,6 +31,7 @@ pub struct MerkleProofItem {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ContinuityResponse {
     pub chain_key: u64,
     pub header_number: u64,

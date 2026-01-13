@@ -36,6 +36,7 @@ pub struct TransactionMerkleProof {
     Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Default, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "precompile-support", derive(Codec))]
+#[serde(rename_all = "camelCase")]
 pub struct MerkleProofEntry {
     /// The sibling hash
     pub hash: H256,

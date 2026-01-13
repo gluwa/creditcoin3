@@ -210,6 +210,7 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
 /// Block number for index i = startBlock + i, where startBlock = queryBlockHeight
 /// The query block is at index 0 for optimal proof size
 #[derive(Debug, Clone, Default, Codec, Serialize, Deserialize, Encode, Decode, TypeInfo)]
+#[serde(rename_all = "camelCase")]
 pub struct ContinuityProof {
     /// The digest of the block before the continuity chain starts (digest of queryHeight - 1)
     pub lower_endpoint_digest: H256,
