@@ -513,7 +513,7 @@ type TransactionVerified @entity {
     timestamp: BigInt!
 
     # Transaction hash at which the event occurred
-    txHash: String!
+    txHash: String! @index
 }
 
 type SupportedChain @entity {

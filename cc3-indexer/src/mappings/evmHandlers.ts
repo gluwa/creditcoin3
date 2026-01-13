@@ -21,6 +21,14 @@ export async function handleTransactionVerified(event: FrontierEvmEvent<Transact
 
     logger.info(`Transaction verified: chainKey=${chainKey}, height=${height}, transactionIndex=${transactionIndex}`);
 
+    // Validate that transaction hash is present - every EVM event originates from a transaction
+    if (!event.transactionHash) {
+        logger.error(
+            `Transaction hash is missing for TransactionVerified event at block ${event.blockNumber}, transactionIndex ${event.transactionIndex}. Skipping record.`,
+        );
+        return;
+    }
+
     // Create a unique ID for this verification event
     const id = `${event.blockNumber}-${event.transactionIndex}-${event.logIndex || 0}`;
 
@@ -33,7 +41,7 @@ export async function handleTransactionVerified(event: FrontierEvmEvent<Transact
         transactionIndex: BigInt(transactionIndex), // Transaction index from the event
         ccBlockNumber: BigInt(event.blockNumber), // Creditcoin3 block number when verification occurred
         timestamp: event.blockTimestamp ? BigInt(event.blockTimestamp.getTime()) : BigInt(Date.now()),
-        txHash: event.transactionHash || '', // Transaction hash at which the event occurred
+        txHash: event.transactionHash, // Transaction hash at which the event occurred
     });
 
     await verification.save();
