@@ -35,10 +35,12 @@ pub struct Server {
     cc3_client: Arc<CcClient>,
     // Builder for continuity proofs (owns ETH + CC3 clients internally)
     builder: Arc<ContinuityBuilder>,
-    // Prometheus metrics server, if enabled
+    // Prometheus metrics (always enabled)
     // TODO: Actually increment metrics where appropriate
     #[allow(unused)]
-    metrics: Option<ProofGenServerMetrics>,
+    metrics: ProofGenServerMetrics,
+    // Prometheus registry for serving metrics on main API server
+    prometheus_registry: Arc<prometheus::Registry>,
 }
 
 impl Server {
@@ -97,17 +99,9 @@ impl Server {
             eth_client,
         ));
 
-        // Register metrics server if configured
-        let metrics = if config.enable_prometheus_metrics {
-            let prom_host = &config.prometheus_host;
-            let prom_port = config.prometheus_port;
-            info!(
-                "📈 Starting Prometheus metrics server on http://{prom_host}:{prom_port}/metrics"
-            );
-            prom::start_prom_server(&config)
-        } else {
-            None
-        };
+        // Initialize Prometheus metrics (always enabled, served on main API server)
+        info!("📈 Prometheus metrics enabled and available at /metrics");
+        let (metrics, prometheus_registry) = prom::init_metrics(&config);
 
         Ok(Server {
             config,
@@ -115,6 +109,7 @@ impl Server {
             cc3_client,
             builder,
             metrics,
+            prometheus_registry,
         })
     }
 
@@ -135,7 +130,11 @@ impl Server {
         );
 
         // Build axum application
-        let app = build_app(service, self.config.chain_key);
+        let app = build_app(
+            service,
+            self.config.chain_key,
+            self.prometheus_registry.clone(),
+        );
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
 
         // Parse bind address properly to support both IPv4 and IPv6

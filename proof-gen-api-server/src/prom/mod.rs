@@ -1,30 +1,24 @@
-use prometheus::{
-    register_metrics, Error, Gauge, GaugeVec, HttpServer, Opts, PrometheusRegister, Registry,
-};
+use prometheus::{register_metrics, Error, Gauge, GaugeVec, Opts, PrometheusRegister, Registry};
 use std::sync::Arc;
 
 use crate::metric_set;
 use crate::Config;
 
-/// Starts the Prometheus metrics server and registers the prover metrics.
-/// returns an optional `ProverMetrics` instance if registration is successful.
-#[allow(dead_code)]
-pub fn start_prom_server(config: &Config) -> Option<ProofGenServerMetrics> {
+/// Initializes Prometheus metrics and registers them.
+/// Returns a tuple of (metrics, registry) for use in the main API server.
+pub fn init_metrics(config: &Config) -> (ProofGenServerMetrics, Arc<Registry>) {
     let prometheus_registry: Arc<Registry> = Arc::new(Registry::new());
-    let metrics: Option<ProofGenServerMetrics> = register_metrics(&prometheus_registry.clone());
+    let metrics: ProofGenServerMetrics =
+        register_metrics(&prometheus_registry).expect("Failed to register Prometheus metrics");
 
     // set initial metrics
-    metric_set!(metrics, gen_server_chain_key, &config.chain_key);
+    metric_set!(
+        Some(metrics.clone()),
+        gen_server_chain_key,
+        &config.chain_key
+    );
 
-    // Create http server for metrics
-    let http_server = Arc::new(HttpServer {
-        prometheus_registry,
-        bind_address: config.prometheus_host.clone(),
-        port: config.prometheus_port,
-    });
-    tokio::spawn(http_server.clone().run_http_server());
-
-    metrics
+    (metrics, prometheus_registry)
 }
 
 // TODO: Actually increment all of these where appropriate

@@ -12,6 +12,7 @@ mod anvil_integration {
     use anyhow::Result;
     use axum::Router;
     use continuity::{ContinuityBuilder, ContinuityConfig};
+    use prometheus::Registry;
     use proof_gen_api_server::{build_app, ContinuityService};
     use serde_json::Value;
     use std::sync::Arc;
@@ -264,7 +265,8 @@ mod anvil_integration {
                 .expect("service init"),
         );
         std::mem::forget(container);
-        build_app(service, chain_key)
+        let registry = Arc::new(Registry::new());
+        build_app(service, chain_key, registry)
     }
 
     /// Assert a string is a strict 0x-prefixed, lowercase H256 hex.

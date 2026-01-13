@@ -35,26 +35,6 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
-        help = "Flag indicating the attestor will launch a server to expose metrics."
-    )]
-    enable_prometheus_metrics: bool,
-
-    #[arg(
-        long,
-        default_value = "0.0.0.0",
-        help = "IP address for the prometheus metrics server (e.g., '0.0.0.0', '::1')"
-    )]
-    prometheus_host: String,
-
-    #[arg(
-        long,
-        default_value_t = 9100,
-        help = "Port to expose the Prometheus metrics endpoint on. Defaults to 9100."
-    )]
-    prometheus_port: u16,
-
-    #[arg(
-        long,
         default_value = "0.0.0.0",
         help = "IP address which the proof gen server binds to for API requests (e.g., '0.0.0.0', '::1')"
     )]
@@ -126,9 +106,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cc3_key: resolved_cc3_key,
         chain_key: args.chain_key,
         eth_rpc_url: args.eth_rpc_url,
-        enable_prometheus_metrics: args.enable_prometheus_metrics,
-        prometheus_host: args.prometheus_host,
-        prometheus_port: args.prometheus_port,
         redis_url: args.redis_url,
         indexer_url: args.indexer_url,
     };

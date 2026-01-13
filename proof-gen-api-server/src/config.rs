@@ -6,9 +6,6 @@
 /// - `cc3_key`: Mnemonic for a creditcoin3 account (optional, not needed for read-only operations)
 /// - `chain_key`: Chain key for the source chain, must match the chain key on creditcoin3
 /// - `eth_rpc_url`: Ethereum RPC url
-/// - `enable_prometheus_metrics`:
-/// - `prometheus_host`:
-/// - `prometheus_port`:
 /// - `redis_url`: Optional Redis URL for Ethereum block caching
 /// - `indexer_url`: Optional CC3 Indexer GraphQL URL for pre-fetching continuity proofs
 pub struct Config {
@@ -18,9 +15,6 @@ pub struct Config {
     pub cc3_key: Option<String>,
     pub chain_key: u64,
     pub eth_rpc_url: String,
-    pub enable_prometheus_metrics: bool,
-    pub prometheus_host: String,
-    pub prometheus_port: u16,
     pub redis_url: Option<String>,
     pub indexer_url: Option<String>,
 }
@@ -38,9 +32,6 @@ impl Config {
             cc3_key: None,
             chain_key,
             eth_rpc_url: "http://mock".to_string(),
-            enable_prometheus_metrics: false,
-            prometheus_host: "127.0.0.1".to_string(),
-            prometheus_port: 9090,
             redis_url: None,
             indexer_url: None,
         }
