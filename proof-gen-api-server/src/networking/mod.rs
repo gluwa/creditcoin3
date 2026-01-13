@@ -26,7 +26,7 @@ pub fn build_app(
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers(Any);
 
-    let mut router = Router::new()
+    Router::new()
         .route("/api/v1/health", get(health::health_check))
         .route("/health/live", get(health::liveness_check))
         .route("/health/ready", get(health::readiness_check))
@@ -41,15 +41,11 @@ pub fn build_app(
         .route(
             "/api/v1/proof-by-tx/{chain_key}/{tx_hash}",
             get(continuity::get_proofs_by_tx_hash),
-        );
-
-    // Add /metrics route (always available)
-    router = router.route(
-        "/metrics",
-        get(move || metrics::metrics_handler(prometheus_registry.clone())),
-    );
-
-    router
+        )
+        .route(
+            "/metrics",
+            get(move || metrics::metrics_handler(prometheus_registry.clone())),
+        )
         .layer(Extension(service))
         .layer(axum::middleware::from_fn_with_state(
             chain_key,

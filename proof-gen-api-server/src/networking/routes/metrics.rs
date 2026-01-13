@@ -10,7 +10,10 @@ pub async fn metrics_handler(registry: Arc<prometheus::Registry>) -> impl IntoRe
     match encoder.encode_to_string(&metric_families) {
         Ok(metrics) => (
             StatusCode::OK,
-            [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
+            [(
+                "content-type",
+                "application/openmetrics-text; version=1.0.0; charset=utf-8",
+            )],
             metrics,
         )
             .into_response(),
