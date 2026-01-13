@@ -112,8 +112,7 @@ jobs:
 
   rebase-check:
     runs-on: ubuntu-24.04
-    # revert when we have a clean testnet branch, see CSUB-1901
-    if: false
+    if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -157,8 +156,7 @@ jobs:
 
   merge-check:
     runs-on: ubuntu-24.04
-    # revert when we have a clean testnet branch, see CSUB-1901
-    if: false
+    if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
     steps:
       - uses: actions/checkout@v6
         with:

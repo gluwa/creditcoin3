@@ -28,11 +28,6 @@ paths:
     ignore:
       # Ignore the specific error from shellcheck
       - "shellcheck reported issue in this script: SC2129:.+"
-  .github/workflows/git.yml:
-    ignore:
-      # jobs disabled until we have a clean testnet branch, see CSUB-1901
-      - "condition \"false\" is always evaluated to false. remove the if: section.*"
-
   .github/workflows/ci.yml:
     ignore:
       # jobs disabled until we have a new testnet deployed, see CSUB-1907
