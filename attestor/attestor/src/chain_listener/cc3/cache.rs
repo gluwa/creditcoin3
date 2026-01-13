@@ -13,7 +13,6 @@ impl AttestationBlockCache {
     pub async fn fetch_blocks(
         &mut self,
         eth: &mut eth::Client,
-        height: common::types::Height,
         from_digest: attestor_primitives::Digest,
         block_start: common::types::Height,
         block_stop: common::types::Height,

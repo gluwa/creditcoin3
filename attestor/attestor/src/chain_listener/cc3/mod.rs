@@ -302,7 +302,7 @@ impl CC3 {
 
         let blocks = match self
             .cache
-            .fetch_blocks(&mut self.eth, height, from_digest, block_start, block_stop)
+            .fetch_blocks(&mut self.eth, from_digest, block_start, block_stop)
             .await
         {
             Ok(blocks) => blocks,
