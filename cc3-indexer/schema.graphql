@@ -511,6 +511,9 @@ type TransactionVerified @entity {
 
     # Timestamp of verification
     timestamp: BigInt!
+
+    # Transaction hash at which the event occurred
+    txHash: String!
 }
 
 type SupportedChain @entity {

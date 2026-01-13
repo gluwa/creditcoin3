@@ -33,6 +33,7 @@ export async function handleTransactionVerified(event: FrontierEvmEvent<Transact
         transactionIndex: BigInt(transactionIndex), // Transaction index from the event
         ccBlockNumber: BigInt(event.blockNumber), // Creditcoin3 block number when verification occurred
         timestamp: event.blockTimestamp ? BigInt(event.blockTimestamp.getTime()) : BigInt(Date.now()),
+        txHash: event.transactionHash || '', // Transaction hash at which the event occurred
     });
 
     await verification.save();
