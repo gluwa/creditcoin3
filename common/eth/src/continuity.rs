@@ -69,14 +69,18 @@ impl<'a> Manager<'a> {
             self.start_block, self.end_block
         );
 
-        // Get all blocks first in parallel
+        // Get all blocks with limited concurrency to avoid overwhelming Redis
+        // Limit to 20 concurrent requests - Redis can handle this with increased timeout
         // This list is sorted because we provide the futures in order
-        let blocks = futures::future::join_all((self.start_block..=self.end_block).map(|i| {
-            self.eth_client
-                .get_block(i, encoding)
-                .map(|res| res.expect("Not handling user interrupts here"))
-        }))
-        .await;
+        let blocks = stream::iter(self.start_block..=self.end_block)
+            .map(|i| {
+                self.eth_client
+                    .get_block(i, encoding)
+                    .map(|res| res.expect("Not handling user interrupts here"))
+            })
+            .buffered(20) // Limit to 20 concurrent block fetches
+            .collect::<Vec<_>>()
+            .await;
 
         // Handle errors and collect blocks
         let collected_blocks = blocks.into_iter().collect::<Result<Vec<_>, _>>()?;

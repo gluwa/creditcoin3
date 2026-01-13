@@ -9,9 +9,13 @@ use alloy::eips::{BlockId, BlockNumberOrTag};
 use ccnext_abi_encoding::common::EncodingVersion;
 use prometheus::Registry;
 
-use redis::{aio::MultiplexedConnection, AsyncCommands, ExistenceCheck, SetExpiry, SetOptions};
+use redis::{
+    aio::MultiplexedConnection, AsyncCommands, AsyncConnectionConfig, ExistenceCheck, SetExpiry,
+    SetOptions,
+};
 use serde_json::{from_slice, to_vec};
 use snap::{read::FrameDecoder, write::FrameEncoder};
+use std::time::Duration;
 
 const ONE_HOUR_TTL: u64 = 60 * 60;
 const DBSIZE_COMMAND: &str = "DBSIZE";
@@ -165,9 +169,14 @@ impl Client {
     ) -> Result<Self, Error> {
         let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
 
-        // Obtain redis connection
+        // Obtain redis connection with increased timeouts to handle concurrent requests
         let client = redis::Client::open(config.redis_url.as_str())?;
-        let redis_conn = client.get_multiplexed_async_connection().await?;
+        let connection_config = AsyncConnectionConfig::new()
+            .set_connection_timeout(Some(Duration::from_secs(10)))
+            .set_response_timeout(Some(Duration::from_secs(30))); // Increased timeout for concurrent requests
+        let redis_conn = client
+            .get_multiplexed_async_connection_with_config(&connection_config)
+            .await?;
 
         // Register prometheus metrics
         let metrics = prometheus::register_metrics(&config.metrics_registry)
