@@ -1720,288 +1720,287 @@ mod test {
         assert_eq!(actual, expected,);
     }
 
-    // #[tokio::test]
-    // #[rstest::rstest]
-    // #[timeout(TIMEOUT)]
-    // async fn attestation_pool_sanity_mark_valid(
-    //     _logs: (),
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_0], 0, 0, DIGEST_0)]
-    //     attestation_0: AttestationVote,
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_1], 0, 0, DIGEST_0)]
-    //     attestation_1: AttestationVote,
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_2], 0, 0, DIGEST_1)]
-    //     attestation_2: AttestationVote,
-    //     #[from(quorum)]
-    //     #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 0, 0, DIGEST_0)]
-    //     quorum_expected: Quorum,
-    //     config: Config,
-    // ) {
-    //     use futures::stream::StreamExt as _;
-    //
-    //     let (sx, mut rx) = attestation_pool(config);
-    //
-    //     assert!(sx.send(attestation_0.votes[0].clone()).unwrap().is_ok());
-    //     assert!(sx.send(attestation_1.votes[0].clone()).unwrap().is_ok());
-    //     assert!(sx.send(attestation_2.votes[0].clone()).unwrap().is_ok());
-    //
-    //     let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
-    //
-    //     assert_eq!(quorum_actual, quorum_expected);
-    //
-    //     rx.mark_valid(permit);
-    //
-    //     let mut pool = rx.common.pool.lock();
-    //     let inner = pool.expect_open();
-    //
-    //     assert!(!inner.forks.forks.contains_key(&0));
-    //     assert_eq!(
-    //         inner.digest_local,
-    //         Some(cc_client::H256(attestation_1.votes[0].digest().0))
-    //     );
-    // }
-    //
-    // #[tokio::test]
-    // #[rstest::rstest]
-    // #[timeout(TIMEOUT)]
-    // async fn attestation_pool_sanity_mark_invalid(
-    //     _logs: (),
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_0])]
-    //     attestation_0: AttestationVote,
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_1])]
-    //     attestation_1: AttestationVote,
-    //     #[from(quorum)]
-    //     #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
-    //     quorum_expected: Quorum,
-    //     config: Config,
-    // ) {
-    //     use futures::stream::StreamExt as _;
-    //
-    //     let (sx, mut rx) = attestation_pool(config);
-    //
-    //     assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-    //     assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
-    //
-    //     let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
-    //
-    //     assert_eq!(quorum_actual, quorum_expected);
-    //     rx.mark_invalid(permit);
-    //
-    //     let mut pool = rx.common.pool.lock();
-    //     let inner = pool.expect_open();
-    //
-    //     assert_eq!(inner.forks.forks.len(), 0);
-    //     assert!(inner
-    //         .forks
-    //         .invalid
-    //         .get(&0)
-    //         .unwrap()
-    //         .contains(&attestation_0.attestation.digest()));
-    // }
-    //
-    // #[tokio::test]
-    // #[rstest::rstest]
-    // #[timeout(TIMEOUT)]
-    // async fn attestation_pool_mark_for_later(
-    //     _logs: (),
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_0])]
-    //     attestation_0: AttestationVote,
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_1])]
-    //     attestation_1: AttestationVote,
-    //     #[from(attestation_signed)] attestation_signed: common::types::AttestationSigned,
-    //     #[from(quorum)]
-    //     #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
-    //     quorum_expected: Quorum,
-    //     config: Config,
-    // ) {
-    //     use futures::stream::StreamExt as _;
-    //
-    //     let (sx, mut rx) = attestation_pool(config);
-    //
-    //     assert_matches::assert_matches!(rx.take_next_validated(), None);
-    //
-    //     assert!(sx.send(attestation_0.votes[0].clone()).unwrap().is_ok());
-    //     assert!(sx.send(attestation_1.votes[0].clone()).unwrap().is_ok());
-    //
-    //     let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
-    //
-    //     assert_eq!(quorum_actual, quorum_expected);
-    //     rx.mark_for_later(permit, attestation_signed.clone());
-    //
-    //     // Such types, much wow... -fuck subxt and the incompatible dependencies which make using
-    //     // our own types an even more royal pain $$%%^#$#
-    //     let attestation_expected: cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
-    //         cc_client::H256,
-    //         cc_client::AccountId32,
-    //     > = attestation_signed.clone().into();
-    //
-    //     assert_matches::assert_matches!(rx.take_next_validated(), Some((height, digest, attestation)) => {
-    //         assert_eq!(height, attestation_0.attestation.header_number());
-    //         assert_eq!(digest, attestation_0.attestation.digest());
-    //         // Other types in this don't implement PartialEq and Eq...
-    //         assert_eq!(attestation.attestors, attestation_expected.attestors);
-    //     });
-    //
-    //     assert_eq!(
-    //         sx.common.pool.lock().expect_open().digest_local,
-    //         Some(cc_client::H256(attestation_signed.digest().0))
-    //     );
-    // }
-    //
-    // #[tokio::test]
-    // #[rstest::rstest]
-    // #[timeout(TIMEOUT)]
-    // async fn attestation_pool_sanity_err_invalid_attestor(
-    //     #[with([ATTESTOR_INVALID])] attestation: AttestationVote,
-    //     config: Config,
-    // ) {
-    //     let (sx, _rx) = attestation_pool(config);
-    //
-    //     assert_matches::assert_matches!(
-    //         sx.send(attestation.votes[0].clone()),
-    //         Some(Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0)))
-    //     );
-    // }
-    //
-    // #[tokio::test]
-    // #[rstest::rstest]
-    // #[timeout(TIMEOUT)]
-    // async fn attestation_pool_async_wake_receiver(
-    //     _logs: (),
-    //     #[with([ATTESTOR_VALID_0])] attestation: AttestationVote,
-    //     #[with([ATTESTOR_VALID_0])] permit: AttestationPermit,
-    //     #[with([ATTESTOR_VALID_0])] quorum: Quorum,
-    //     #[from(quorum_validate)]
-    //     #[with(1)]
-    //     _quorum_validate: ValidateQuorum,
-    //     #[with(_quorum_validate.clone())] config: Config,
-    // ) {
-    //     use futures::stream::StreamExt as _;
-    //
-    //     let (sx, mut rx) = attestation_pool(config);
-    //     let mut fut = tokio_test::task::spawn(rx.next());
-    //
-    //     tokio_test::assert_pending!(fut.poll());
-    //     assert!(sx.send(attestation.votes[0].clone()).unwrap().is_ok());
-    //     tokio_test::assert_ready_eq!(fut.poll(), Some((quorum, permit, None)));
-    // }
-    //
-    // #[tokio::test]
-    // #[rstest::rstest]
-    // #[timeout(TIMEOUT)]
-    // async fn attestation_pool_async_close(_logs: (), config: Config) {
-    //     use futures::stream::StreamExt as _;
-    //
-    //     let (sx, mut rx) = attestation_pool(config);
-    //     let mut fut = tokio_test::task::spawn(rx.next());
-    //
-    //     tokio_test::assert_pending!(fut.poll());
-    //     sx.close();
-    //     tokio_test::assert_ready_eq!(fut.poll(), None);
-    // }
-    //
-    // #[tokio::test]
-    // #[rstest::rstest]
-    // #[timeout(TIMEOUT)]
-    // async fn attestation_pool_close_sender(
-    //     _logs: (),
-    //     #[with([ATTESTOR_VALID_1])] attestation: AttestationVote,
-    //     config: Config,
-    // ) {
-    //     let (sx, rx) = attestation_pool(config);
-    //     rx.close();
-    //     assert_matches::assert_matches!(sx.send(attestation.votes[0].clone()), None);
-    // }
-    //
-    // #[tokio::test]
-    // #[rstest::rstest]
-    // #[timeout(TIMEOUT)]
-    // async fn attestation_pool_close_receiver(
-    //     _logs: (),
-    //     #[with([ATTESTOR_VALID_1])] attestation: AttestationVote,
-    //     config: Config,
-    // ) {
-    //     use futures::stream::StreamExt as _;
-    //
-    //     let (sx, mut rx) = attestation_pool(config);
-    //     assert!(sx.send(attestation.votes[0].clone()).unwrap().is_ok());
-    //
-    //     sx.close();
-    //     assert!(rx.next().await.is_none());
-    // }
-    //
-    // #[rstest::rstest]
-    // fn quorum_parameters_validate(
-    //     _logs: (),
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
-    //     attestation_0: AttestationVote,
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_0])]
-    //     attestation_1: AttestationVote,
-    //     quorum_validate: ValidateQuorum,
-    // ) {
-    //     assert!(quorum_validate.validate(&attestation_0));
-    //     assert!(!quorum_validate.validate(&attestation_1));
-    // }
-    //
-    // #[rstest::rstest]
-    // fn validator_parameters_validate_permissioned(
-    //     _logs: (),
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_0])]
-    //     attestation_0: AttestationVote,
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_INVALID])]
-    //     attestation_2: AttestationVote,
-    //     permissioned: AttestorValidatePermissioned,
-    // ) {
-    //     assert!(permissioned.validate(&attestation_0.votes[0]).is_ok());
-    //     assert_matches::assert_matches!(
-    //         permissioned.validate(&attestation_2.votes[0]),
-    //         Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0))
-    //     );
-    // }
-    //
-    // #[rstest::rstest]
-    // fn validator_parameters_validate_permissionless(
-    //     _logs: (),
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_0])]
-    //     attestation_0: AttestationVote,
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_INVALID])]
-    //     attestation_2: AttestationVote,
-    //     permissionless: AttestorValidatePermissionless,
-    // ) {
-    //     assert!(permissionless.validate(&attestation_0.votes[0]).is_ok());
-    //     assert!(permissionless.validate(&attestation_2.votes[0]).is_ok());
-    // }
-    //
-    // #[rstest::rstest]
-    // fn validator_parameters_validate_deny(
-    //     _logs: (),
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_VALID_0])]
-    //     attestation_0: AttestationVote,
-    //     #[from(attestation)]
-    //     #[with([ATTESTOR_INVALID])]
-    //     attestation_2: AttestationVote,
-    //     deny: AttestorValidateDeny,
-    // ) {
-    //     assert_matches::assert_matches!(
-    //         deny.validate(&attestation_0.votes[0]),
-    //         Err(Error::Unauthorized(ATTESTOR_VALID_0, 0, 0))
-    //     );
-    //     assert_matches::assert_matches!(
-    //         deny.validate(&attestation_2.votes[0]),
-    //         Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0))
-    //     );
-    // }
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_sanity_mark_valid(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 0, 0, DIGEST_0)]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1], 0, 0, DIGEST_0)]
+        attestation_1: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_2], 0, 0, DIGEST_1)]
+        attestation_2: AttestationVote,
+        #[from(quorum)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 0, 0, DIGEST_0)]
+        quorum_expected: Quorum,
+        config: Config,
+    ) {
+        use futures::stream::StreamExt as _;
+
+        let (sx, mut rx) = attestation_pool(config);
+
+        assert!(sx.send(attestation_0.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_2.votes[0].clone()).unwrap().is_ok());
+
+        let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
+
+        assert_eq!(quorum_actual, quorum_expected);
+
+        rx.mark_valid(permit);
+
+        let mut pool = rx.common.pool.lock();
+        let inner = pool.expect_open();
+
+        assert!(!inner.forks.forks_by_height.contains_key(&0));
+        assert_eq!(
+            inner.digest_local,
+            Some(cc_client::H256(attestation_1.votes[0].digest().0))
+        );
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_sanity_mark_invalid(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1])]
+        attestation_1: AttestationVote,
+        #[from(quorum)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
+        quorum_expected: Quorum,
+        config: Config,
+    ) {
+        use futures::stream::StreamExt as _;
+
+        let (sx, mut rx) = attestation_pool(config);
+
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+
+        let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
+
+        assert_eq!(quorum_actual, quorum_expected);
+        rx.mark_invalid(permit);
+
+        let mut pool = rx.common.pool.lock();
+        let inner = pool.expect_open();
+
+        assert!(inner
+            .forks
+            .forks_invalid
+            .get(&0)
+            .unwrap()
+            .contains(&attestation_0.attestation.digest()));
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_mark_for_later(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1])]
+        attestation_1: AttestationVote,
+        #[from(attestation_signed)] attestation_signed: common::types::AttestationSigned,
+        #[from(quorum)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
+        quorum_expected: Quorum,
+        config: Config,
+    ) {
+        use futures::stream::StreamExt as _;
+
+        let (sx, mut rx) = attestation_pool(config);
+
+        assert_matches::assert_matches!(rx.take_next_validated(), None);
+
+        assert!(sx.send(attestation_0.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.votes[0].clone()).unwrap().is_ok());
+
+        let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
+
+        assert_eq!(quorum_actual, quorum_expected);
+        rx.mark_for_later(permit, attestation_signed.clone());
+
+        // Such types, much wow... -fuck subxt and the incompatible dependencies which make using
+        // our own types an even more royal pain $$%%^#$#
+        let attestation_expected: cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
+            cc_client::H256,
+            cc_client::AccountId32,
+        > = attestation_signed.clone().into();
+
+        assert_matches::assert_matches!(rx.take_next_validated(), Some((height, digest, attestation)) => {
+            assert_eq!(height, attestation_0.attestation.header_number());
+            assert_eq!(digest, attestation_0.attestation.digest());
+            // Other types in this don't implement PartialEq and Eq...
+            assert_eq!(attestation.attestors, attestation_expected.attestors);
+        });
+
+        assert_eq!(
+            sx.common.pool.lock().expect_open().digest_local,
+            Some(cc_client::H256(attestation_signed.digest().0))
+        );
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_sanity_err_invalid_attestor(
+        #[with([ATTESTOR_INVALID])] attestation: AttestationVote,
+        config: Config,
+    ) {
+        let (sx, _rx) = attestation_pool(config);
+
+        assert_matches::assert_matches!(
+            sx.send(attestation.votes[0].clone()),
+            Some(Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0)))
+        );
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_async_wake_receiver(
+        _logs: (),
+        #[with([ATTESTOR_VALID_0])] attestation: AttestationVote,
+        #[with([ATTESTOR_VALID_0])] permit: AttestationPermit,
+        #[with([ATTESTOR_VALID_0])] quorum: Quorum,
+        #[from(quorum_validate)]
+        #[with(1)]
+        _quorum_validate: ValidateQuorum,
+        #[with(_quorum_validate.clone())] config: Config,
+    ) {
+        use futures::stream::StreamExt as _;
+
+        let (sx, mut rx) = attestation_pool(config);
+        let mut fut = tokio_test::task::spawn(rx.next());
+
+        tokio_test::assert_pending!(fut.poll());
+        assert!(sx.send(attestation.votes[0].clone()).unwrap().is_ok());
+        tokio_test::assert_ready_eq!(fut.poll(), Some((quorum, permit, None)));
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_async_close(_logs: (), config: Config) {
+        use futures::stream::StreamExt as _;
+
+        let (sx, mut rx) = attestation_pool(config);
+        let mut fut = tokio_test::task::spawn(rx.next());
+
+        tokio_test::assert_pending!(fut.poll());
+        sx.close();
+        tokio_test::assert_ready_eq!(fut.poll(), None);
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_close_sender(
+        _logs: (),
+        #[with([ATTESTOR_VALID_1])] attestation: AttestationVote,
+        config: Config,
+    ) {
+        let (sx, rx) = attestation_pool(config);
+        rx.close();
+        assert_matches::assert_matches!(sx.send(attestation.votes[0].clone()), None);
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_close_receiver(
+        _logs: (),
+        #[with([ATTESTOR_VALID_1])] attestation: AttestationVote,
+        config: Config,
+    ) {
+        use futures::stream::StreamExt as _;
+
+        let (sx, mut rx) = attestation_pool(config);
+        assert!(sx.send(attestation.votes[0].clone()).unwrap().is_ok());
+
+        sx.close();
+        assert!(rx.next().await.is_none());
+    }
+
+    #[rstest::rstest]
+    fn quorum_parameters_validate(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_1: AttestationVote,
+        quorum_validate: ValidateQuorum,
+    ) {
+        assert!(quorum_validate.validate(&attestation_0));
+        assert!(!quorum_validate.validate(&attestation_1));
+    }
+
+    #[rstest::rstest]
+    fn validator_parameters_validate_permissioned(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_INVALID])]
+        attestation_2: AttestationVote,
+        permissioned: AttestorValidatePermissioned,
+    ) {
+        assert!(permissioned.validate(&attestation_0.votes[0]).is_ok());
+        assert_matches::assert_matches!(
+            permissioned.validate(&attestation_2.votes[0]),
+            Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0))
+        );
+    }
+
+    #[rstest::rstest]
+    fn validator_parameters_validate_permissionless(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_INVALID])]
+        attestation_2: AttestationVote,
+        permissionless: AttestorValidatePermissionless,
+    ) {
+        assert!(permissionless.validate(&attestation_0.votes[0]).is_ok());
+        assert!(permissionless.validate(&attestation_2.votes[0]).is_ok());
+    }
+
+    #[rstest::rstest]
+    fn validator_parameters_validate_deny(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_INVALID])]
+        attestation_2: AttestationVote,
+        deny: AttestorValidateDeny,
+    ) {
+        assert_matches::assert_matches!(
+            deny.validate(&attestation_0.votes[0]),
+            Err(Error::Unauthorized(ATTESTOR_VALID_0, 0, 0))
+        );
+        assert_matches::assert_matches!(
+            deny.validate(&attestation_2.votes[0]),
+            Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0))
+        );
+    }
 }
