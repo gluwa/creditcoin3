@@ -10,16 +10,12 @@ use tower_http::{
 use tracing::Level;
 
 use crate::services::continuity_service::ContinuityService;
-use routes::{continuity, health, metrics};
+use routes::{continuity, health};
 
 pub mod middleware;
 pub mod routes;
 
-pub fn build_app(
-    service: Arc<ContinuityService>,
-    chain_key: u64,
-    prometheus_registry: Arc<prometheus::Registry>,
-) -> Router {
+pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
     // Configure CORS to allow browser-based applications to access the API
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -41,10 +37,6 @@ pub fn build_app(
         .route(
             "/api/v1/proof-by-tx/{chain_key}/{tx_hash}",
             get(continuity::get_proofs_by_tx_hash),
-        )
-        .route(
-            "/metrics",
-            get(move || metrics::metrics_handler(prometheus_registry.clone())),
         )
         .layer(Extension(service))
         .layer(axum::middleware::from_fn_with_state(

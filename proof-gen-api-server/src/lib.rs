@@ -5,7 +5,6 @@ use tokio::signal;
 use tokio::{select, sync::oneshot::channel};
 use tracing::{error, info};
 
-use crate::prom::ProofGenServerMetrics;
 use cc_client::Client as CcClient;
 use config::Config;
 use continuity::ContinuityBuilder;
@@ -18,7 +17,6 @@ pub mod db;
 pub mod events;
 pub mod indexer;
 pub mod networking;
-mod prom;
 pub mod services;
 
 // Re-exports for integration tests and external callers
@@ -35,12 +33,6 @@ pub struct Server {
     cc3_client: Arc<CcClient>,
     // Builder for continuity proofs (owns ETH + CC3 clients internally)
     builder: Arc<ContinuityBuilder>,
-    // Prometheus metrics (always enabled)
-    // TODO: Actually increment metrics where appropriate
-    #[allow(unused)]
-    metrics: ProofGenServerMetrics,
-    // Prometheus registry for serving metrics on main API server
-    prometheus_registry: Arc<prometheus::Registry>,
 }
 
 impl Server {
@@ -62,7 +54,7 @@ impl Server {
             info!("Using Redis block caching at {}", redis_url);
             let cache_config = eth::block_cache::BlockCacheConfig {
                 redis_url: redis_url.clone(),
-                metrics_registry: Arc::new(prometheus::Registry::new()), // TODO: Add metrics registry from server
+                metrics_registry: None,
             };
             Arc::new(EthClient::new_with_cache(&config.eth_rpc_url, None, cache_config).await?)
         } else {
@@ -99,17 +91,11 @@ impl Server {
             eth_client,
         ));
 
-        // Initialize Prometheus metrics (always enabled, served on main API server)
-        info!("📈 Prometheus metrics enabled and available at /metrics");
-        let (metrics, prometheus_registry) = prom::init_metrics(&config);
-
         Ok(Server {
             config,
             db_manager,
             cc3_client,
             builder,
-            metrics,
-            prometheus_registry,
         })
     }
 
@@ -130,11 +116,7 @@ impl Server {
         );
 
         // Build axum application
-        let app = build_app(
-            service,
-            self.config.chain_key,
-            self.prometheus_registry.clone(),
-        );
+        let app = build_app(service, self.config.chain_key);
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
 
         // Parse bind address properly to support both IPv4 and IPv6

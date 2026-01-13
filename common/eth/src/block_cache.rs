@@ -7,7 +7,6 @@ use std::{
 
 use alloy::eips::{BlockId, BlockNumberOrTag};
 use ccnext_abi_encoding::common::EncodingVersion;
-use prometheus::Registry;
 
 use redis::{
     aio::MultiplexedConnection, AsyncCommands, AsyncConnectionConfig, ExistenceCheck, SetExpiry,
@@ -27,13 +26,13 @@ const REDIS_RESPONSE_TIMEOUT_SECS: u64 = 30;
 
 pub struct BlockCacheConfig {
     pub redis_url: String,
-    pub metrics_registry: Arc<Registry>,
+    pub metrics_registry: Option<Arc<prometheus::Registry>>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct Cache {
     redis_conn: MultiplexedConnection,
-    metrics: BlockCacheMetrics,
+    metrics: Option<BlockCacheMetrics>,
 }
 
 fn compress(buff: &[u8]) -> IoResult<Vec<u8>> {
@@ -186,9 +185,12 @@ impl Client {
             .get_multiplexed_async_connection_with_config(&connection_config)
             .await?;
 
-        // Register prometheus metrics
-        let metrics = prometheus::register_metrics(&config.metrics_registry)
-            .ok_or(Error::FailedToRegisterMetrics)?;
+        // Register prometheus metrics if registry is provided
+        let metrics = if let Some(ref registry) = config.metrics_registry {
+            BlockCacheMetrics::register(registry).ok()
+        } else {
+            None
+        };
 
         let cache = Cache {
             redis_conn,
@@ -228,12 +230,16 @@ impl Client {
 
         match get_cached_block(conn.clone(), self.chain_id, number).await {
             Some(block) => {
-                metrics.observe_cache_hit();
+                if let Some(ref metrics) = metrics {
+                    metrics.observe_cache_hit();
+                }
 
                 Some(Ok(block))
             }
             None => {
-                metrics.observe_cache_miss();
+                if let Some(ref metrics) = metrics {
+                    metrics.observe_cache_miss();
+                }
 
                 let lock_key = format!("lock:block:{}:{}", self.chain_id, number);
 
@@ -272,8 +278,12 @@ impl Client {
                             }
 
                             // Update the total cached blocks count
-                            if let Ok(cache_blocks) = get_total_cached_blocks(conn.clone()).await {
-                                metrics.set_total_cached_blocks(cache_blocks as i64);
+                            if let Some(ref metrics) = metrics {
+                                if let Ok(cache_blocks) =
+                                    get_total_cached_blocks(conn.clone()).await
+                                {
+                                    metrics.set_total_cached_blocks(cache_blocks as i64);
+                                }
                             }
 
                             Some(Ok(block))

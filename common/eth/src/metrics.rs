@@ -1,4 +1,4 @@
-use prometheus::{Error, IntCounter, IntGauge, PrometheusRegister, Registry};
+use prometheus::{Error, IntCounter, IntGauge, Registry};
 
 #[derive(Clone, Debug)]
 pub struct BlockCacheMetrics {
@@ -7,31 +7,8 @@ pub struct BlockCacheMetrics {
     pub total_cached_blocks: IntGauge,
 }
 
-impl Default for BlockCacheMetrics {
-    fn default() -> Self {
-        Self {
-            cache_hits: IntCounter::new(
-                "number_of_cache_hits",
-                "The number of cache hits in the block cache",
-            )
-            .unwrap(),
-            cache_misses: IntCounter::new(
-                "number_of_cache_misses",
-                "The number of cache misses in the block cache",
-            )
-            .unwrap(),
-            total_cached_blocks: IntGauge::new(
-                "total_cached_blocks",
-                "Total number of cached blocks",
-            )
-            .unwrap(),
-        }
-    }
-}
-
-impl PrometheusRegister for BlockCacheMetrics {
-    const DESCRIPTION: &'static str = "block_cache";
-    fn register(registry: &Registry) -> Result<Self, Error> {
+impl BlockCacheMetrics {
+    pub fn register(registry: &Registry) -> Result<Self, Error> {
         let cache_hits = IntCounter::new(
             "number_of_cache_hits",
             "The number of cache hits in the block cache",

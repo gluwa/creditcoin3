@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use axum::Router;
 use continuity::{mocks::MockCcRpcProvider, ContinuityBuilder, ContinuityConfig};
-use prometheus::Registry;
 use proof_gen_api_server::db::DbManager;
 use proof_gen_api_server::services::continuity_service::ContinuityResponse;
 use proof_gen_api_server::{build_app, ContinuityService, ErrorResponse};
@@ -83,8 +82,7 @@ async fn anvil_integration_tx_hash_flow() -> Result<()> {
     );
 
     // Build the app router
-    let registry = Arc::new(Registry::new());
-    let app: Router = build_app(service, chain_key, registry);
+    let app: Router = build_app(service, chain_key);
 
     // Serve app and exercise with reqwest
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -271,8 +269,7 @@ async fn anvil_integration_health_check_db_failure() -> Result<()> {
     );
 
     // Build the app router
-    let registry = Arc::new(Registry::new());
-    let app: Router = build_app(service, chain_key, registry);
+    let app: Router = build_app(service, chain_key);
 
     // Start HTTP server
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -502,8 +499,7 @@ async fn anvil_integration_health_check_rpc_failure() -> Result<()> {
             .await
             .expect("service init"),
     );
-    let registry = Arc::new(Registry::new());
-    let app: Router = build_app(service, chain_key, registry);
+    let app: Router = build_app(service, chain_key);
 
     // Start HTTP server
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -647,8 +643,7 @@ async fn anvil_integration_eager_proof_generation() -> Result<()> {
             .await
             .expect("service init"),
     );
-    let registry = Arc::new(Registry::new());
-    let app: Router = build_app(service, chain_key, registry);
+    let app: Router = build_app(service, chain_key);
 
     // Start HTTP server
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -746,8 +741,7 @@ async fn anvil_integration_block_before_genesis_error() -> Result<()> {
             .await
             .expect("service init"),
     );
-    let registry = Arc::new(Registry::new());
-    let app: Router = build_app(service, chain_key, registry);
+    let app: Router = build_app(service, chain_key);
 
     // Start HTTP server
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

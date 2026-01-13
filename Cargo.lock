@@ -4138,7 +4138,7 @@ dependencies = [
  "futures-util",
  "hex",
  "merkle",
- "prometheus 3.86.0",
+ "prometheus 0.14.0",
  "redis",
  "serde",
  "serde_json",
@@ -11183,17 +11183,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prometheus"
-version = "3.86.0"
-dependencies = [
- "axum",
- "prometheus 0.14.0",
- "tokio",
- "tower 0.5.2",
- "tracing",
-]
-
-[[package]]
 name = "prometheus-client"
 version = "0.21.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11272,8 +11261,6 @@ dependencies = [
  "eth",
  "hex",
  "merkle",
- "prometheus 3.86.0",
- "reqwest 0.12.15",
  "serde",
  "serde_json",
  "sp-core",

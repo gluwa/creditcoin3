@@ -288,8 +288,6 @@ continuity = { path = "common/continuity", default-features = false }
 eth = { path = "common/eth", default-features = false }
 libp2p = { version = "0.56", default-features = false }
 merkle = { path = "common/merkle", default-features = false }
-# TODO: depreciate
-prometheus = { path = "common/prometheus" }
 prometheus-client = { version = "0.24.0" }
 sysinfo = { version = "0.37.2" }
 utils = { path = "common/utils", default-features = false }

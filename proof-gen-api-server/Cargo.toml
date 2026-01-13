@@ -69,8 +69,6 @@ continuity = { workspace = true, features = ["block_cache"] }
 eth = { workspace = true, features = ["block_cache"] }
 hex = { workspace = true }
 merkle = { workspace = true }
-prometheus = { workspace = true }
-reqwest = { workspace = true, features = ["json"] }
 
 [features]
 default = []
