@@ -692,10 +692,10 @@
   resolved "https://registry.npmjs.org/@eslint/js/-/js-8.57.0.tgz"
   integrity sha512-Ys+3g2TaW7gADOJzPt83SJtCDhMjndcDMFVQ/Tj9iA1BfJzFKD9mAUXT3OenpuPHbI6P/myECxRJrofUsDx/5g==
 
-"@gluwa/cc-next-query-builder@0.4.5":
-  version "0.4.5"
-  resolved "https://registry.yarnpkg.com/@gluwa/cc-next-query-builder/-/cc-next-query-builder-0.4.5.tgz#6ba1f478920919439c9a03f9378ddfd85765b8e9"
-  integrity sha512-7nikssacFiFMxCroUmgce1sDlKAmo5QIx81tM6siQxJ0jRWS85mjvLQkeAl8TibBI4JVOde3rUIrJ3I1zL4r5A==
+"@gluwa/cc-next-query-builder@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@gluwa/cc-next-query-builder/-/cc-next-query-builder-0.5.0.tgz#68553ff5af9fb232172273e46d3627ec1e0d963d"
+  integrity sha512-xTMz4G2F2BPyVsthnUf4YQaBA3BWbmGb31Z8nbNRQsM5z8PkeBB82Y50Yi9gvQUV3FWwg5KhgF5X+VcIIIi/cQ==
   dependencies:
     axios "^1.13.2"
     dotenv "^17.2.3"

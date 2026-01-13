@@ -1,18 +1,14 @@
 import * as proof from '@gluwa/cc-next-query-builder/dist/proof-generator';
 import { EncodingVersion } from '@gluwa/cc-next-query-builder/dist/encodings';
-import { JsonRpcProvider, WebSocketProvider, ethers } from 'ethers';
+import { WebSocketProvider, ethers } from 'ethers';
 import { ApiPromise, BN, MICROUNITS_PER_CTC, newApi } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
 import { chain_Anvil1_Key, chain_Anvil1_Url } from '../pallets/supported-chains/consts';
-import { blockProverAddress, chainInfoAddress } from './consts';
+import { blockProverAddress } from './consts';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABIJSON = require('../artifacts/block_prover.json');
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import chainInfoABIJSON = require('../artifacts/chain_info.json');
-const chainInfoABI = chainInfoABIJSON as unknown as ethers.InterfaceAbi;
 
 describe('Precompile: block-prover', (): void => {
     let contract: any;
@@ -74,10 +70,7 @@ describe('Precompile: block-prover', (): void => {
     describe('verify()', () => {
         test('should return true when called with valid input', async () => {
             // we need a running Anvil at this address
-            const anvil1Provider = new JsonRpcProvider(chain_Anvil1_Url.replace('ws://', 'http://'));
-            const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
-
-            const continuityProvider = new proof.raw.continuityProvider.PrecompileContinuityProvider(alith);
+            const anvil1Provider = new WebSocketProvider(chain_Anvil1_Url);
 
             // this value needs to be passed from the outside
             const transactionHash = process.env.ANVIL1_TXN_HASH;
@@ -87,23 +80,21 @@ describe('Precompile: block-prover', (): void => {
             const sourceTxn = await anvil1Provider.getTransaction(transactionHash!);
             expect(sourceTxn).toBeDefined();
             expect(sourceTxn!.blockNumber).toBeDefined();
-            const sourceBlockNumber = sourceTxn!.blockNumber!;
 
-            const chainInfo = new ethers.Contract(chainInfoAddress, chainInfoABI, alith);
-
-            const latestAttestation = await chainInfo.get_latest_attestation_height_and_hash(chain_Anvil1_Key, {
-                gasPrice: (await provider.getFeeData()).gasPrice,
-                gasLimit: 10000000,
-            });
-            expect(latestAttestation).toBeDefined();
-            expect(latestAttestation.exists).toBe(true);
-            expect(latestAttestation.height).toBeGreaterThanOrEqual(sourceBlockNumber);
+            const chainInfoProvider = new proof.chainInfo.PrecompileChainInfoProvider(provider);
+            await chainInfoProvider.waitUntilHeightAttested(
+                chain_Anvil1_Key,
+                sourceTxn!.blockNumber!,
+                5_000, // 5 sec poll interval
+                300_000, // 5 min wait Timeout
+            );
             // we're now sure that there are enough attestations on the execution chain
 
+            const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
             const rawProofGenerator = new proof.raw.RawProofGenerator(
                 chain_Anvil1_Key,
                 blockProvider,
-                continuityProvider,
+                chainInfoProvider,
                 EncodingVersion.V1,
             );
             const rawProofResult = await rawProofGenerator.generateProof(transactionHash!);
@@ -118,7 +109,7 @@ describe('Precompile: block-prover', (): void => {
                 proofData.continuityProof,
             );
             expect(proveResultRaw).toBe(true);
-        });
+        }, 360_000);
     });
 
     describe('Precompile Deployment', () => {
