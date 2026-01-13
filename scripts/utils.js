@@ -189,7 +189,7 @@ async function waitForCreditcoin3Blocks(api, numBlocks = 2) {
  * @param {number} maxRetries - Maximum number of retry attempts (default: 5)
  * @param {number} initialDelay - Initial delay between retries in ms (default: 2000)
  * @param {boolean} verbose - Enable verbose logging (default: false)
- * @returns {Promise<Object>} Proof object containing continuity_proof, merkle_proof, and tx_bytes
+ * @returns {Promise<Object>} Proof object containing continuityProof, merkleProof, and txBytes
  *
  * @description
  * Verbose logging (when verbose=true) outputs:
@@ -287,20 +287,20 @@ async function fetchProof(apiUrl, chainKey, txHash, maxRetries = 5, initialDelay
 }
 
 function convertProofFormat(apiProof) {
-    if (!apiProof.merkle_proof) {
+    if (!apiProof.merkleProof) {
         throw new Error('Merkle proof is missing from API response');
     }
 
     return {
         continuityProof: {
-            lowerEndpointDigest: apiProof.continuity_proof.lower_endpoint_digest,
-            roots: apiProof.continuity_proof.roots || apiProof.continuity_proof.blocks?.map((b) => b.merkle_root) || [],
+            lowerEndpointDigest: apiProof.continuityProof.lowerEndpointDigest,
+            roots: apiProof.continuityProof.roots || apiProof.continuityProof.blocks?.map((b) => b.merkleRoot) || [],
         },
         merkleProof: {
-            root: apiProof.merkle_proof.root,
-            siblings: apiProof.merkle_proof.siblings.map((s) => ({
+            root: apiProof.merkleProof.root,
+            siblings: apiProof.merkleProof.siblings.map((s) => ({
                 hash: s.hash,
-                isLeft: s.is_left,
+                isLeft: s.isLeft,
             })),
         },
     };

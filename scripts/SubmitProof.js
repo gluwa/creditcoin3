@@ -12,13 +12,13 @@
  *   --precompile-addr <addr> Precompile address (default: 0x0000000000000000000000000000000000000FD2)
  *   -v, --verbose          Enable verbose logging (shows API response details)
  *
- * Note: The block height is automatically extracted from the API response (header_number).
+ * Note: The block height is automatically extracted from the API response (headerNumber).
  *
  * Verbose Logging:
  *   When enabled with -v or --verbose, the script will output:
  *   - The exact API URL being called
  *   - HTTP response status and headers
- *   - Complete API response JSON (including continuity_proof, merkle_proof, tx_bytes, etc.)
+ *   - Complete API response JSON (including continuityProof, merkleProof, txBytes, etc.)
  *   - Error response bodies if API calls fail
  *
  *   This is useful for debugging proof structure issues, comparing API responses,
@@ -99,16 +99,16 @@ async function main() {
         const apiProof = await fetchProof(options.apiUrl, options.chainKey, options.txHash, 5, 2000, options.verbose);
         
         // Extract block height from API response
-        const blockHeight = apiProof.header_number;
+        const blockHeight = apiProof.headerNumber;
         if (!blockHeight) {
-            throw new Error('Block height (header_number) not found in API response');
+            throw new Error('Block height (headerNumber) not found in API response');
         }
         console.log(`✓ Proof fetched (cached: ${apiProof.cached})`);
         console.log(`✓ Block height: ${blockHeight}\n`);
 
         // Log full API response in verbose mode
-        // This includes the complete proof structure: continuity_proof (with all blocks),
-        // merkle_proof (with siblings), tx_bytes, and metadata
+        // This includes the complete proof structure: continuityProof (with all blocks),
+        // merkleProof (with siblings), txBytes, and metadata
         if (options.verbose) {
             console.log('=== API Response (Verbose) ===');
             console.log('Full API response JSON:');
@@ -117,11 +117,11 @@ async function main() {
         }
 
         // Get transaction bytes
-        if (!apiProof.tx_bytes) {
+        if (!apiProof.txBytes) {
             throw new Error('Transaction bytes not found in API response');
         }
         const txBytes = Buffer.from(
-            apiProof.tx_bytes.startsWith('0x') ? apiProof.tx_bytes.slice(2) : apiProof.tx_bytes,
+            apiProof.txBytes.startsWith('0x') ? apiProof.txBytes.slice(2) : apiProof.txBytes,
             'hex',
         );
         console.log(`✓ Transaction bytes: ${txBytes.length} bytes\n`);

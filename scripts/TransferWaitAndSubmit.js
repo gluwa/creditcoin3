@@ -187,11 +187,11 @@ async function main() {
         console.log(`✓ Proof fetched (cached: ${apiProof.cached})\n`);
 
         // Get transaction bytes
-        if (!apiProof.tx_bytes) {
+        if (!apiProof.txBytes) {
             throw new Error('Transaction bytes not found in API response');
         }
         const txBytes = Buffer.from(
-            apiProof.tx_bytes.startsWith('0x') ? apiProof.tx_bytes.slice(2) : apiProof.tx_bytes,
+            apiProof.txBytes.startsWith('0x') ? apiProof.txBytes.slice(2) : apiProof.txBytes,
             'hex',
         );
         console.log(`✓ Transaction bytes: ${txBytes.length} bytes\n`);

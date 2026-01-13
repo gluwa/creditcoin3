@@ -176,12 +176,12 @@ When enabled with `-v` or `--verbose`, the script outputs detailed debugging inf
 
 - **Full API Response:**
   - Complete JSON response from the proof API, including:
-    - `continuity_proof` - All blocks in the continuity chain with their digests
-    - `merkle_proof` - Merkle proof structure with siblings
-    - `tx_bytes` - Raw transaction bytes
-    - `chain_key`, `header_number`, `tx_index`, `tx_hash` - Transaction metadata
+    - `continuityProof` - All blocks in the continuity chain with their digests
+    - `merkleProof` - Merkle proof structure with siblings
+    - `txBytes` - Raw transaction bytes
+    - `chainKey`, `headerNumber`, `txIndex`, `txHash` - Transaction metadata
     - `cached` - Whether the proof was cached
-    - `generated_at` - Timestamp when the proof was generated
+    - `generatedAt` - Timestamp when the proof was generated
 
 - **Error Details:**
   - Full error response bodies if API calls fail
