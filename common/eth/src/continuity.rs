@@ -13,6 +13,12 @@ use attestor_primitives::{
     block::{Block as FragmentBlock, BlockError},
 };
 
+/// Maximum number of concurrent block fetches when building continuity chains.
+/// This limits concurrency to avoid overwhelming Redis with too many simultaneous requests.
+/// Redis supports concurrent connections via multiplexed connections, but limiting concurrency
+/// prevents timeouts and ensures better performance when fetching many blocks.
+const MAX_CONCURRENT_BLOCK_FETCHES: usize = 20;
+
 // Removed Felt import - using H256 instead
 
 #[derive(Debug, thiserror::Error)]
@@ -70,7 +76,6 @@ impl<'a> Manager<'a> {
         );
 
         // Get all blocks with limited concurrency to avoid overwhelming Redis
-        // Limit to 20 concurrent requests - Redis can handle this with increased timeout
         // This list is sorted because we provide the futures in order
         let blocks = stream::iter(self.start_block..=self.end_block)
             .map(|i| {
@@ -78,7 +83,7 @@ impl<'a> Manager<'a> {
                     .get_block(i, encoding)
                     .map(|res| res.expect("Not handling user interrupts here"))
             })
-            .buffered(20) // Limit to 20 concurrent block fetches
+            .buffered(MAX_CONCURRENT_BLOCK_FETCHES)
             .collect::<Vec<_>>()
             .await;
 

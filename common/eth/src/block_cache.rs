@@ -19,6 +19,11 @@ use std::time::Duration;
 
 const ONE_HOUR_TTL: u64 = 60 * 60;
 const DBSIZE_COMMAND: &str = "DBSIZE";
+/// Connection timeout for Redis connections (time to establish connection)
+const REDIS_CONNECTION_TIMEOUT_SECS: u64 = 10;
+/// Response timeout for Redis operations (time to wait for response after request)
+/// Increased to handle concurrent block fetches without timing out
+const REDIS_RESPONSE_TIMEOUT_SECS: u64 = 30;
 
 pub struct BlockCacheConfig {
     pub redis_url: String,
@@ -170,10 +175,13 @@ impl Client {
         let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
 
         // Obtain redis connection with increased timeouts to handle concurrent requests
+        // Note: Redis supports concurrent connections via multiplexed connections, but we limit
+        // concurrency in block fetching (see continuity.rs) to avoid overwhelming Redis with
+        // too many simultaneous requests, which can cause timeouts even with multiplexed connections.
         let client = redis::Client::open(config.redis_url.as_str())?;
         let connection_config = AsyncConnectionConfig::new()
-            .set_connection_timeout(Some(Duration::from_secs(10)))
-            .set_response_timeout(Some(Duration::from_secs(30))); // Increased timeout for concurrent requests
+            .set_connection_timeout(Some(Duration::from_secs(REDIS_CONNECTION_TIMEOUT_SECS)))
+            .set_response_timeout(Some(Duration::from_secs(REDIS_RESPONSE_TIMEOUT_SECS)));
         let redis_conn = client
             .get_multiplexed_async_connection_with_config(&connection_config)
             .await?;
