@@ -2,7 +2,6 @@ use anyhow::{anyhow, bail, Context, Result};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::signal;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::{select, sync::oneshot::channel};
 use tracing::{error, info};
 
@@ -16,6 +15,8 @@ use networking::run_http_server;
 
 pub mod config;
 pub mod db;
+pub mod events;
+pub mod indexer;
 pub mod networking;
 mod prom;
 pub mod services;
@@ -98,9 +99,10 @@ impl Server {
 
         // Register metrics server if configured
         let metrics = if config.enable_prometheus_metrics {
+            let prom_host = &config.prometheus_host;
+            let prom_port = config.prometheus_port;
             info!(
-                "📈 Starting Prometheus metrics server on http://{}:{}/metrics",
-                config.prometheus_host, config.prometheus_port
+                "📈 Starting Prometheus metrics server on http://{prom_host}:{prom_port}/metrics"
             );
             prom::start_prom_server(&config)
         } else {
@@ -119,6 +121,9 @@ impl Server {
     pub async fn run(&self) -> Result<()> {
         // Run migrations (only after passing guard)
         self.db_manager.run_migrations().await?;
+
+        // Create Arc<DbManager> once and reuse it (avoid repeated allocations in event loop)
+        let db_manager = Arc::new(self.db_manager.clone());
 
         let service = Arc::new(
             services::continuity_service::ContinuityService::new(
@@ -143,55 +148,47 @@ impl Server {
         let server = run_http_server(app, bind_addr, http_shutdown_rx);
         tokio::pin!(server);
 
-        info!("Server listening on {}", bind_addr);
+        info!("Server listening on {bind_addr}");
 
-        // Define attestation event listening channel – placeholder for future attestation stream
-        let (attestation_events_tx, mut attestation_events_rx) =
-            unbounded_channel::<AttestationEvent>();
+        // Start CC3 event subscription with the configured chain key
+        // Events are processed directly in the subscription loop
+        let cc3_client_clone = self.cc3_client.clone();
+        let db_manager_clone = Arc::clone(&db_manager);
+        let chain_key = self.config.chain_key;
 
-        // Main server loop
-        loop {
-            select! {
-                // Attestation event received
-                event = attestation_events_rx.recv() => {
-                    info!("Event: {event:?}");
+        // Create indexer client if URL is configured (for pre-fetching continuity proofs)
+        let indexer_client = self.config.indexer_url.as_ref().map(|url| {
+            info!("Indexer client configured at: {}", url);
+            Arc::new(indexer::IndexerClient::new(url.clone()))
+        });
+
+        tokio::spawn(async move {
+            if let Err(e) = events::start_cc3_event_subscription(
+                cc3_client_clone,
+                db_manager_clone,
+                chain_key,
+                indexer_client,
+            )
+            .await
+            {
+                error!("CC3 event subscription failed: {e}");
+            }
+        });
+
+        // Wait for server exit or shutdown signal
+        select! {
+            res = &mut server => {
+                if let Err(err) = res {
+                    error!("❌ HTTP server exited with error: {err}");
                 }
-                // HTTP server completed (only on error or manual shutdown)
-                res = &mut server => {
-                    if let Err(err) = res {
-                        error!("❌ HTTP server exited with error: {err}");
-                    }
-                    bail!("API HTTP server exited!");
-                }
-                // Run DB Tests – temporary hook for ongoing DB design iterations
-                res = self.run_db_tests(attestation_events_tx.clone()) => {
-                    bail!("Db tests completed: {res:?}")
-                }
-                // Global shutdown (Ctrl+C / SIGTERM)
-                _ = shutdown_signal() => {
-                    // Shut down axum http layer
-                    let _ = http_shutdown_tx.send(());
-                    tracing::info!("🛑 Global shutdown requested, exiting main loop");
-                    return Ok(())
-                }
+                bail!("API HTTP server exited!");
+            }
+            _ = shutdown_signal() => {
+                let _ = http_shutdown_tx.send(());
+                tracing::info!("🛑 Global shutdown requested, exiting");
+                Ok(())
             }
         }
-    }
-}
-
-// TODO: Implement this event types enum based on all the cc3 attestation events we want to listen for.
-// Probably want to implement in a different file.
-#[derive(Debug)]
-pub enum AttestationEvent {
-    NewAttestation,
-}
-
-// Temporary DB tests hook. Replace with CI/Integration tests when DB design stabilizes.
-impl Server {
-    async fn run_db_tests(&self, _tx: UnboundedSender<AttestationEvent>) -> Result<()> {
-        // Placeholder: pending future that never completes, keeping the select branch inactive.
-        // Replace with actual DB tests implementation when ready.
-        std::future::pending().await
     }
 }
 

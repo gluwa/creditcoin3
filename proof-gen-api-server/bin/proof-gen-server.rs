@@ -80,6 +80,13 @@ pub struct ProofGenApiServer {
         help = "Redis connection URL for block caching layer"
     )]
     redis_url: Option<String>,
+
+    #[arg(
+        long,
+        required = false,
+        help = "CC3 Indexer GraphQL URL for pre-fetching continuity proofs"
+    )]
+    indexer_url: Option<String>,
 }
 
 #[tokio::main]
@@ -123,6 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         prometheus_host: args.prometheus_host,
         prometheus_port: args.prometheus_port,
         redis_url: args.redis_url,
+        indexer_url: args.indexer_url,
     };
 
     if args.reset_db {

@@ -10,6 +10,7 @@
 /// - `prometheus_host`:
 /// - `prometheus_port`:
 /// - `redis_url`: Optional Redis URL for Ethereum block caching
+/// - `indexer_url`: Optional CC3 Indexer GraphQL URL for pre-fetching continuity proofs
 pub struct Config {
     pub bind_host: String,
     pub bind_port: u16,
@@ -21,6 +22,7 @@ pub struct Config {
     pub prometheus_host: String,
     pub prometheus_port: u16,
     pub redis_url: Option<String>,
+    pub indexer_url: Option<String>,
 }
 
 impl Config {
@@ -40,6 +42,7 @@ impl Config {
             prometheus_host: "127.0.0.1".to_string(),
             prometheus_port: 9090,
             redis_url: None,
+            indexer_url: None,
         }
     }
 }

@@ -70,6 +70,7 @@ eth = { workspace = true, features = ["block_cache"] }
 hex = { workspace = true }
 merkle = { workspace = true }
 prometheus = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 
 [features]
 default = []
@@ -77,8 +78,9 @@ integration-tests = []
 
 [dev-dependencies]
 alloy-node-bindings = "0.11" # kept at 0.11 due to compatibility with alloy
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 testcontainers = { version = "0.17", default-features = false }
 testcontainers-modules = { version = "0.5", default-features = false, features = [
     "postgres",
 ] }
+tokio-postgres = "0.7"
+wiremock = "0.6"

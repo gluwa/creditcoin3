@@ -20,7 +20,7 @@ pub mod models;
 pub mod schema;
 mod type_conversions;
 
-// Re-export the main types for continuity blocks
+// Re-export the main types for continuity blocks (unified model for attestations, checkpoints, and regular blocks)
 pub use models::ContinuityBlockItem;
 
 #[derive(Clone)]
@@ -87,7 +87,7 @@ impl DbManager {
         Ok(count_result)
     }
 
-    // Expose the pool for direct access by attestation/checkpoint modules
+    /// Expose the pool for direct access (used by event processing)
     pub fn pool(&self) -> &Pool<AsyncPgConnection> {
         &self.pool
     }

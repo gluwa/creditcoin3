@@ -1,22 +1,5 @@
 //! Shared test utilities for integration tests using alloy and testcontainers.
 
-/// Asserts that a string is a valid 0x-prefixed, lowercase H256 hex string.
-pub fn assert_h256_str(label: &str, s: &str) {
-    assert!(s.starts_with("0x"), "{label} must start with 0x: {s}");
-    assert_eq!(
-        s.len(),
-        66,
-        "{label} must be 0x + 64 hex chars (len=66), got len={}",
-        s.len()
-    );
-    assert!(
-        s.chars()
-            .skip(2)
-            .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_lowercase() || c.is_ascii_digit())),
-        "{label} must be lowercase hex (0-9a-f). Got: {s}"
-    );
-}
-
 #[allow(dead_code)]
 mod anvil_integration {
     use alloy::network::{EthereumWallet, TransactionBuilder};
@@ -193,26 +176,63 @@ mod anvil_integration {
     }
 
     /// Get DbManager config from the running Postgres container.
-    /// Retries port retrieval to handle testcontainers timing issues.
+    /// Retries port retrieval and connection to handle testcontainers timing issues.
     pub async fn test_db_manager_postgres_uri(container: &ContainerAsync<Postgres>) -> String {
         // Retry up to 10 times with 50ms delay to handle container port exposure timing
-        const MAX_ATTEMPTS: usize = 10;
-        const RETRY_DELAY_MS: u64 = 50;
+        const PORT_MAX_ATTEMPTS: usize = 10;
+        const PORT_RETRY_DELAY_MS: u64 = 50;
 
-        for attempt in 1..=MAX_ATTEMPTS {
-            match container.get_host_port_ipv4(5432).await {
-                Ok(port) => {
-                    return format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+        let port = {
+            let mut port_result = None;
+            for attempt in 1..=PORT_MAX_ATTEMPTS {
+                match container.get_host_port_ipv4(5432).await {
+                    Ok(p) => {
+                        port_result = Some(p);
+                        break;
+                    }
+                    Err(_e) if attempt < PORT_MAX_ATTEMPTS => {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(PORT_RETRY_DELAY_MS))
+                            .await;
+                    }
+                    Err(e) => {
+                        panic!(
+                            "Failed to get postgres port after {} attempts ({}ms total): {}",
+                            PORT_MAX_ATTEMPTS,
+                            PORT_MAX_ATTEMPTS as u64 * PORT_RETRY_DELAY_MS,
+                            e
+                        );
+                    }
                 }
-                Err(_e) if attempt < MAX_ATTEMPTS => {
-                    // Port not exposed yet, wait and retry
-                    tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+            }
+            port_result.expect("Port should be set")
+        };
+
+        let uri = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+
+        // Wait for PostgreSQL to be ready to accept connections
+        // The port can be exposed before PostgreSQL finishes initialization
+        const READY_MAX_ATTEMPTS: usize = 30;
+        const READY_RETRY_DELAY_MS: u64 = 100;
+
+        for attempt in 1..=READY_MAX_ATTEMPTS {
+            match tokio_postgres::connect(&uri, tokio_postgres::NoTls).await {
+                Ok((client, connection)) => {
+                    // Spawn connection task and immediately drop it - we just wanted to test connectivity
+                    tokio::spawn(async move {
+                        let _ = connection.await;
+                    });
+                    drop(client);
+                    return uri;
+                }
+                Err(_) if attempt < READY_MAX_ATTEMPTS => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(READY_RETRY_DELAY_MS))
+                        .await;
                 }
                 Err(e) => {
                     panic!(
-                        "Failed to get postgres port after {} attempts ({}ms total): {}",
-                        MAX_ATTEMPTS,
-                        MAX_ATTEMPTS as u64 * RETRY_DELAY_MS,
+                        "PostgreSQL not ready after {} attempts ({}ms total): {}",
+                        READY_MAX_ATTEMPTS,
+                        READY_MAX_ATTEMPTS as u64 * READY_RETRY_DELAY_MS,
                         e
                     );
                 }
@@ -246,10 +266,27 @@ mod anvil_integration {
         std::mem::forget(container);
         build_app(service, chain_key)
     }
+
+    /// Assert a string is a strict 0x-prefixed, lowercase H256 hex.
+    pub fn assert_h256_str(label: &str, s: &str) {
+        assert!(s.starts_with("0x"), "{label} must start with 0x: {s}");
+        assert_eq!(
+            s.len(),
+            66,
+            "{label} must be 0x + 64 hex chars (len=66), got len={}",
+            s.len()
+        );
+        assert!(
+            s.chars()
+                .skip(2)
+                .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_lowercase() || c.is_ascii_digit())),
+            "{label} must be lowercase hex (0-9a-f). Got: {s}"
+        );
+    }
 }
 
 #[allow(unused_imports)]
 pub use anvil_integration::{
-    get_tx_info_via_rpc, send_test_tx_via_alloy, setup_test_postgres, start_app_with_postgres,
-    test_db_manager_postgres_uri,
+    assert_h256_str, get_tx_info_via_rpc, send_test_tx_via_alloy, setup_test_postgres,
+    start_app_with_postgres, test_db_manager_postgres_uri,
 };

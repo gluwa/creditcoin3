@@ -108,11 +108,11 @@ async fn test_checkpoint_storage_and_retrieval() -> Result<()> {
         digest: H256::from_low_u64_be(2000),
     };
 
-    // Insert checkpoints
-    let checkpoint_item1 = ContinuityBlockItem::from_checkpoint(1, &checkpoint1);
-    let checkpoint_item2 = ContinuityBlockItem::from_checkpoint(1, &checkpoint2);
-    continuity_blocks::insert_checkpoint(&mut conn, &checkpoint_item1).await?;
-    continuity_blocks::insert_checkpoint(&mut conn, &checkpoint_item2).await?;
+    // Insert checkpoints using upsert_checkpoint (creates both attestation and checkpoint flags)
+    let digest1 = format!("0x{:x}", checkpoint1.digest);
+    let digest2 = format!("0x{:x}", checkpoint2.digest);
+    continuity_blocks::upsert_checkpoint(&mut conn, 1, checkpoint1.block_number, &digest1).await?;
+    continuity_blocks::upsert_checkpoint(&mut conn, 1, checkpoint2.block_number, &digest2).await?;
 
     // Test get_highest_checkpoint_at_or_before
     let result = continuity_blocks::get_highest_checkpoint_at_or_before(&mut conn, 1, 1500).await?;
@@ -178,41 +178,49 @@ async fn test_duplicate_attestation_same_location_handling() -> Result<()> {
 
 #[cfg_attr(not(feature = "integration-tests"), ignore)]
 #[tokio::test]
-async fn test_duplicate_checkpoint_same_location_handling() -> Result<()> {
+async fn test_upsert_checkpoint_upgrades_attestation_in_place() -> Result<()> {
     let (_container, mut conn) = setup_test_db().await?;
 
-    let checkpoint1 = AttestationCheckpoint {
-        block_number: 1000,
-        digest: H256::from_low_u64_be(12345),
-    };
-
-    // Insert the first checkpoint
-    let checkpoint_item1 = ContinuityBlockItem::from_checkpoint(1, &checkpoint1);
-    continuity_blocks::insert_checkpoint(&mut conn, &checkpoint_item1).await?;
-
-    // Attempt to insert another checkpoint at same (chain_key, header_number) with different digest
-    // This tests the partial unique index with filter_target - should be silently ignored via do_nothing()
-    let checkpoint2 = AttestationCheckpoint {
-        block_number: 1000,
-        digest: H256::from_low_u64_be(99999),
-    };
-    let checkpoint_item2 = ContinuityBlockItem::from_checkpoint(1, &checkpoint2);
-    continuity_blocks::insert_checkpoint(&mut conn, &checkpoint_item2).await?;
-
-    // Verify only the first record exists with original values (conflict was ignored)
-    let result = continuity_blocks::get_highest_checkpoint_at_or_before(&mut conn, 1, 1000).await?;
-    assert!(result.is_some());
-    let stored = result.unwrap();
-    assert_eq!(stored.chain_key, 1);
-    assert_eq!(
-        stored.header_number,
-        BigDecimal::from(checkpoint1.block_number)
+    // Insert an attestation first
+    let attestation = ContinuityBlockItem::from_attestation(
+        1,
+        1000,
+        "0x1234567890abcdef111111111111111111111111111111111111111111111111".to_string(),
     );
-    assert_eq!(stored.digest, format!("0x{:x}", checkpoint1.digest));
-    assert_ne!(
-        stored.digest,
-        format!("0x{:x}", checkpoint2.digest),
-        "Second checkpoint should have been ignored"
+    continuity_blocks::insert_attestation(&mut conn, &attestation).await?;
+
+    // Verify it's stored as attestation only
+    let before_upgrade =
+        continuity_blocks::get_highest_attestation_at_or_before(&mut conn, 1, 1000).await?;
+    assert!(before_upgrade.is_some());
+    let before = before_upgrade.unwrap();
+    assert!(before.is_attestation);
+    assert!(!before.is_checkpoint);
+    let original_id = before.id;
+
+    // Now upsert checkpoint at the same location - should UPDATE, not INSERT
+    let digest = "0x1234567890abcdef111111111111111111111111111111111111111111111111";
+    continuity_blocks::upsert_checkpoint(&mut conn, 1, 1000, digest).await?;
+
+    // Verify the row was upgraded in place (same id, both flags now true)
+    let after_upgrade =
+        continuity_blocks::get_highest_checkpoint_at_or_before(&mut conn, 1, 1000).await?;
+    assert!(after_upgrade.is_some());
+    let after = after_upgrade.unwrap();
+    assert!(after.is_attestation, "Should still be an attestation");
+    assert!(after.is_checkpoint, "Should now also be a checkpoint");
+    assert_eq!(
+        after.id, original_id,
+        "Should be the same row (updated in place)"
+    );
+
+    // Verify there's only one row at this location by checking the range query
+    let all_at_location =
+        continuity_blocks::get_continuity_blocks_in_range(&mut conn, 1, 1000, 1000).await?;
+    assert_eq!(
+        all_at_location.len(),
+        1,
+        "Should only have one row after upsert upgrade"
     );
 
     Ok(())
@@ -300,12 +308,13 @@ async fn test_checkpoint_boundary_exact_match() -> Result<()> {
         digest: H256::from_low_u64_be(3000),
     };
 
-    let checkpoint_item1 = ContinuityBlockItem::from_checkpoint(1, &checkpoint1);
-    let checkpoint_item2 = ContinuityBlockItem::from_checkpoint(1, &checkpoint2);
-    let checkpoint_item3 = ContinuityBlockItem::from_checkpoint(1, &checkpoint3);
-    continuity_blocks::insert_checkpoint(&mut conn, &checkpoint_item1).await?;
-    continuity_blocks::insert_checkpoint(&mut conn, &checkpoint_item2).await?;
-    continuity_blocks::insert_checkpoint(&mut conn, &checkpoint_item3).await?;
+    // Insert checkpoints using upsert_checkpoint
+    let digest1 = format!("0x{:x}", checkpoint1.digest);
+    let digest2 = format!("0x{:x}", checkpoint2.digest);
+    let digest3 = format!("0x{:x}", checkpoint3.digest);
+    continuity_blocks::upsert_checkpoint(&mut conn, 1, checkpoint1.block_number, &digest1).await?;
+    continuity_blocks::upsert_checkpoint(&mut conn, 1, checkpoint2.block_number, &digest2).await?;
+    continuity_blocks::upsert_checkpoint(&mut conn, 1, checkpoint3.block_number, &digest3).await?;
 
     // Test get_highest_checkpoint_at_or_before with exact match
     // Querying at 2000 should return checkpoint2 (inclusive)
@@ -389,13 +398,12 @@ async fn test_get_continuity_blocks_in_range() -> Result<()> {
         "0x1000111111111111111111111111111111111111111111111111111111111111".to_string(),
     );
 
-    let checkpoint = ContinuityBlockItem::from_checkpoint(
-        1,
-        &AttestationCheckpoint {
-            block_number: 1005,
-            digest: H256::from_low_u64_be(1005),
-        },
-    );
+    // Checkpoints are now also attestations (is_attestation=true, is_checkpoint=true)
+    let checkpoint = AttestationCheckpoint {
+        block_number: 1005,
+        digest: H256::from_low_u64_be(1005),
+    };
+    let checkpoint_digest = format!("0x{:x}", checkpoint.digest);
 
     let regular1 = ContinuityBlockItem::from_regular_block(
         1,
@@ -417,7 +425,8 @@ async fn test_get_continuity_blocks_in_range() -> Result<()> {
     );
 
     continuity_blocks::insert_attestation(&mut conn, &attestation).await?;
-    continuity_blocks::insert_checkpoint(&mut conn, &checkpoint).await?;
+    continuity_blocks::upsert_checkpoint(&mut conn, 1, checkpoint.block_number, &checkpoint_digest)
+        .await?;
     continuity_blocks::insert_continuity_blocks(&mut conn, vec![regular1, regular2]).await?;
     continuity_blocks::insert_attestation(&mut conn, &attestation_duplicate).await?;
 
