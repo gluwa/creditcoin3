@@ -756,26 +756,20 @@ impl<T: Config> Pallet<T> {
             .into_iter()
             .collect::<BTreeSet<_>>(); // or HashSet if std is available
 
-        ensure!(
-            attestation
-                .attestors
-                .iter()
-                .all(|attestor| active_attestors.contains(attestor)),
-            Error::<T>::AttestorNotActive
-        );
-
-        // Ensure no duplicate attestors
-        let unique_attestors: BTreeSet<&T::AccountId> = attestation.attestors.iter().collect();
-        ensure!(
-            unique_attestors.len() == attestation.attestors.len(),
-            Error::<T>::DuplicateAttestor
-        );
+        let (eligible_attestors, _ineligible_attestors): (
+            BTreeSet<T::AccountId>,
+            BTreeSet<T::AccountId>,
+        ) = attestation
+            .attestors
+            .iter()
+            .cloned()
+            .partition(|attestor| active_attestors.contains(attestor));
 
         // Threshold validation
         let target_sample_size = Self::target_sample_size(chain_key);
         let threshold = calculate_threshold(target_sample_size);
         ensure!(
-            attestation.attestors.len() as u32 >= threshold,
+            eligible_attestors.len() as u32 >= threshold,
             Error::<T>::MajorityNotReached
         );
 
