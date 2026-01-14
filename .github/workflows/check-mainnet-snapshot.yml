@@ -23,6 +23,10 @@ jobs:
   check-snapshot:
     needs:
       - deploy-runner
+    # b/c of azure/login
+    permissions:
+      id-token: write
+      contents: read
     uses: ./.github/workflows/check-snapshot.yml
     with:
       target-chain: "mainnet"
