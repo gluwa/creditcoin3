@@ -147,7 +147,7 @@ pub struct Config {
     /// Maximum number of attestations which can be held in the pool before the pool begins
     /// evicting the highest attestations.
     #[allow(unused)]
-    capacity: std::num::NonZeroUsize,
+    max_size: std::num::NonZeroUsize,
 
     /// Attestor validation policy, can be either [`AttestorValidatePermissionless`] or
     /// [`AttestorValidatePermissioned`].
@@ -212,7 +212,7 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
     }
 
     tracing::info!("📮 Starting attestor pool");
-    tracing::info!(capacity = %config.capacity, "📮  with");
+    tracing::info!(max_size = %config.max_size, "📮  with");
     tracing::info!(height = %config.start_height, "📮  with");
     tracing::info!(interval = %config.attestation_interval, "📮  with");
     tracing::info!(quorum = %config.quorum, "📮  with");
@@ -230,6 +230,7 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
         config.attestors,
         config.metrics,
         config.digest_latest_cc3,
+        config.max_size,
     );
 
     let common_send = std::sync::Arc::new(AttestationPoolCommon::new(pool));
@@ -365,9 +366,10 @@ impl AttestationPool {
         validate_attestor: Box<dyn ValidateAttestor>,
         metrics: common::types::Metrics,
         prev_digest: Option<attestor_primitives::Digest>,
+        max_size: std::num::NonZeroUsize,
     ) -> Self {
         Self::Open(AttestationPoolInner {
-            forks: AttestationPoolForks::new(prev_digest),
+            forks: AttestationPoolForks::new(prev_digest, max_size),
             quorums: AttestationPoolQuorums::new(),
             digest_local: None,
 
@@ -546,12 +548,15 @@ struct AttestationPoolForks {
         common::types::Height,
         std::collections::HashMap<attestor_primitives::AttestorId, attestor_primitives::Digest>,
     >,
-
     prev_digest: Option<attestor_primitives::Digest>,
+    max_size: std::num::NonZeroUsize,
 }
 
 impl AttestationPoolForks {
-    fn new(prev_digest: Option<attestor_primitives::Digest>) -> Self {
+    fn new(
+        prev_digest: Option<attestor_primitives::Digest>,
+        max_size: std::num::NonZeroUsize,
+    ) -> Self {
         Self {
             forks_by_size: Default::default(),
             forks_by_digest: Default::default(),
@@ -563,8 +568,8 @@ impl AttestationPoolForks {
             pending_count: Default::default(),
 
             votes: Default::default(),
-
             prev_digest,
+            max_size,
         }
     }
 
@@ -581,6 +586,17 @@ impl AttestationPoolForks {
                 .is_none_or(|invalid| !invalid.contains(&digest)),
             "Trying to insert known invalid attestation"
         );
+
+        tracing::debug!("Make sure there is enough space for insertion");
+
+        if !self.try_evict_if_necessary(digest) {
+            tracing::error!(
+                %digest,
+                height,
+                "⛔ Failed to make space for attestation during insertion"
+            );
+            return Ok(());
+        }
 
         tracing::debug!("Checking for equivocations");
 
@@ -688,6 +704,55 @@ impl AttestationPoolForks {
 
     fn peek(&self) -> Option<AttestationVote> {
         self.forks_best.clone()
+    }
+
+    fn try_evict_if_necessary(&mut self, digest: attestor_primitives::Digest) -> bool {
+        if self.forks_by_digest.len() + self.pending_count >= self.max_size.get() {
+            // We start by trying to remove pending votes, as they are not currently contributing
+            // to finality
+            if let Some(key) = self.pending.keys().cloned().next() {
+                self.pending.remove(&key).expect("Checked above");
+            } else {
+                if self.forks_by_size.len() > 1 {
+                    // If that fails, we remove the fork with least votes to it
+                    for (digest, vote) in self.forks_by_size.pop_first().expect("Checked above").1 {
+                        self.forks_by_digest
+                            .remove(&digest)
+                            .expect("Missing mapping in forks_by_digest");
+
+                        if let std::collections::btree_map::Entry::Occupied(mut entry) =
+                            self.forks_by_height.entry(vote.attestation.header_number())
+                        {
+                            let digests = entry.get_mut();
+                            assert!(
+                                digests.remove(&digest),
+                                "Missing mapping in forks_by_height"
+                            );
+
+                            if digests.is_empty() {
+                                entry.remove();
+                            }
+                        } else {
+                            panic!("Missing mapping in forks_by_height");
+                        }
+                    }
+                } else {
+                    // If we only have a single fork, we do not remove it. Instead, we allow for
+                    // the insertion of the attestation only if it matches that fork's digest
+                    // (which by default is the best fork as we only have one). This should only
+                    // ever happens on a very small max_size, which is a sign of misconfiguration.
+                    // Still, we handle this error to try and maintain finality by allowing votes
+                    // to be inserted past the pool limit if they contribute to the only known
+                    // fork.
+                    return self
+                        .forks_best
+                        .as_ref()
+                        .is_some_and(|best| best.attestation.digest() == digest);
+                }
+            }
+        }
+
+        true
     }
 
     fn remove_by_digest(&mut self, digest: attestor_primitives::Digest) {
@@ -973,7 +1038,7 @@ impl crate::events::EventAttestationFinalization for AttestationPoolSender {
     /// attestation pool.
     #[tracing::instrument(
         skip_all,
-        fields(digest = %attestation_latest_cc3.0, height = latest_attestation_cc3.1),
+        fields(digest = %attestation_latest_cc3.0, height = attestation_latest_cc3.1),
         level = "debug"
     )]
     async fn note_attestation_finalization(
@@ -1673,7 +1738,7 @@ pub mod fixtures {
         metrics: common::types::Metrics,
     ) -> Config {
         ConfigBuilder::new()
-            .with_capacity(std::num::NonZeroUsize::new(capacity).unwrap())
+            .with_max_size(std::num::NonZeroUsize::new(capacity).unwrap())
             .with_attestors(permissioned)
             .with_quorum(quorum_validate.target_quorum)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
