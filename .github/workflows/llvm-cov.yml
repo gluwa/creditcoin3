@@ -9,6 +9,9 @@ permissions: read-all
 
 jobs:
   produce-coverage-info:
+    # b/c of azure/login
+    permissions:
+      id-token: write
     outputs:
       uncovered_lines: ${{ steps.coverage.outputs.uncovered_lines }}
     runs-on: ubuntu-24.04
@@ -65,14 +68,16 @@ jobs:
           UNCOVERED_LINES="${UNCOVERED_LINES//$'\r'/'%0D'}"
           echo "uncovered_lines=$UNCOVERED_LINES" >> "$GITHUB_OUTPUT"
 
-      - name: Azure login
+      - name: Azure Login with OIDC
         if: env.GITHUB_TOKEN
         env:
           GITHUB_TOKEN: ${{ secrets.CREDITCOIN_GITHUB_API_TOKEN }}
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-          allow-no-subscriptions: true
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          # https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-azure
 
       - name: Upload coverage report to Azure Storage
         if: env.GITHUB_TOKEN
