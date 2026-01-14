@@ -11261,6 +11261,7 @@ dependencies = [
  "eth",
  "hex",
  "merkle",
+ "reqwest 0.12.15",
  "serde",
  "serde_json",
  "sp-core",
