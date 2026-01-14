@@ -400,12 +400,22 @@ async function submitToPrecompile(
         throw new Error(`Transaction will revert: ${errorMsg}${dataStr}`);
     }
 
+    // Estimate gas and add 35% buffer
+    console.log('⏳ Estimating gas...');
+    const estimatedGas = await provider.estimateGas({
+        to: precompileAddr,
+        data,
+        from: signerAddress,
+    });
+    const gasLimit = (estimatedGas * BigInt(135)) / BigInt(100); // Add 35% buffer
+    console.log(`   Estimated gas: ${estimatedGas.toString()}, Gas limit with buffer: ${gasLimit.toString()}`);
+
     // Send transaction
     console.log('📤 Sending transaction...');
     const tx = await signer.sendTransaction({
         to: precompileAddr,
         data,
-        gasLimit: 5000000,
+        gasLimit,
     });
 
     console.log(`✅ Transaction submitted: ${tx.hash}`);
