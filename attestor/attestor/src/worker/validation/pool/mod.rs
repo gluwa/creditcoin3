@@ -709,62 +709,65 @@ impl AttestationPoolForks {
         &mut self,
         digest: attestor_primitives::Digest,
     ) -> Result<Vec<common::types::Attestation>, ()> {
-        if self.forks_by_digest.len() + self.pending_count >= self.max_size.get() {
-            // We start by trying to remove pending votes, as they are not currently contributing
-            // to finality
-            if let Some((_key, removed)) = self.pending.pop_first() {
-                Ok(removed)
-            } else {
-                if self.forks_by_size.len() > 1 {
-                    // If that fails, we remove the fork with least votes to it
-                    let fork = self.forks_by_size.pop_first().expect("Checked above").1;
-                    let mut removed = Vec::with_capacity(fork.len());
-                    for (digest, vote) in fork {
-                        self.forks_by_digest
-                            .remove(&digest)
-                            .expect("Missing mapping in forks_by_digest");
-
-                        if let std::collections::btree_map::Entry::Occupied(mut entry) =
-                            self.forks_by_height.entry(vote.attestation.header_number())
-                        {
-                            let digests = entry.get_mut();
-                            assert!(
-                                digests.remove(&digest),
-                                "Missing mapping in forks_by_height"
-                            );
-
-                            if digests.is_empty() {
-                                entry.remove();
-                            }
-                        } else {
-                            panic!("Missing mapping in forks_by_height");
-                        }
-
-                        removed.push(vote.attestation);
-                        removed.extend(vote.votes);
-                    }
-
-                    Ok(removed)
-                } else if self
-                    .forks_best
-                    .as_ref()
-                    .is_some_and(|best| best.attestation.digest() == digest)
-                {
-                    // If we only have a single fork, we do not remove it. Instead, we allow for
-                    // the insertion of the attestation only if it matches that fork's digest
-                    // (which by default is the best fork as we only have one). This should only
-                    // ever happens on a very small max_size, which is a sign of misconfiguration.
-                    // Still, we handle this error to try and maintain finality by allowing votes
-                    // to be inserted past the pool limit if they contribute to the only known
-                    // fork.
-                    Ok(Vec::new())
-                } else {
-                    Err(())
-                }
-            }
-        } else {
-            Ok(Vec::new())
+        // No eviction needed
+        if self.forks_by_digest.len() + self.pending_count < self.max_size.get() {
+            return Ok(Vec::new());
         }
+
+        // We start by trying to remove pending votes, as they are not currently contributing to
+        // finality
+        if let Some((_key, removed)) = self.pending.pop_first() {
+            return Ok(removed);
+        }
+
+        // If that fails, we remove the fork with the least votes
+        if self.forks_by_size.len() > 1 {
+            let fork = self.forks_by_size.pop_first().expect("checked above").1;
+            let mut removed = Vec::with_capacity(fork.len());
+
+            for (digest, vote) in fork {
+                self.forks_by_digest
+                    .remove(&digest)
+                    .expect("Missing mapping in forks_by_digest");
+
+                let height = vote.attestation.header_number();
+                let digests = self
+                    .forks_by_height
+                    .get_mut(&height)
+                    .expect("Missing mapping in forks_by_height");
+
+                assert!(digests.remove(&digest), "Missing digest in forks_by_height");
+
+                if digests.is_empty() {
+                    self.forks_by_height.remove(&height);
+                }
+
+                removed.push(vote.attestation);
+                removed.extend(vote.votes);
+            }
+
+            return Ok(removed);
+        }
+
+        // If we only have a single fork, we do not remove it. Instead, we allow for the insertion
+        // of the attestation only if it matches that fork's digest (which by default is the best
+        // fork as we only have one). This should only ever happens on a very small max_size, which
+        // is a sign of misconfiguration. Still, we handle this error to try and maintain finality
+        // by allowing votes to be inserted past the pool limit if they contribute to the only known
+        // fork.
+        if self
+            .forks_best
+            .as_ref()
+            .is_some_and(|best| best.attestation.digest() == digest)
+        {
+            return Ok(Vec::new());
+        }
+
+        // If no space could be made and the new vote does not already match the best fork, we do
+        // not insert it.
+        //
+        // WARNING: Stalling
+        Err(())
     }
 
     fn remove_by_digest(&mut self, digest: attestor_primitives::Digest) {
