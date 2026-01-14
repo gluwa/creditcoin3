@@ -270,7 +270,7 @@ jobs:
           curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
           sudo apt install -y jq
           az version
-      
+
       - name: Azure Login with OIDC
         uses: azure/login@v1
         with:
@@ -279,12 +279,12 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           # The 'use-oidc: true' parameter is implied/default in newer versions but can be explicit
           use-oidc: true
-          
+
       - name: Download latest chain snapshot for ${{ needs.setup.outputs.snapshot_container }}
         working-directory: /mnt
         run: |
           df -h
-          
+
           LATEST_SNAPSHOT=$(az storage blob list --auth-mode=login --account-name=snapshotexportaccount --container-name=${{ needs.setup.outputs.snapshot_container }} | jq -r ".[].name" | tail -n1)
           echo "INFO: latest snapshot=$LATEST_SNAPSHOT"
 
