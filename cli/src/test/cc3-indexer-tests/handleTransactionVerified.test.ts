@@ -94,7 +94,7 @@ describe('handleTransactionVerified()', () => {
                     transactionVerifieds(
                         last: 1
                     ) { nodes {
-                        id, chainId, height, transactionIndex, ccBlockNumber, timestamp
+                        id, chainId, height, transactionIndex, ccBlockNumber, timestamp, txHash
                     }}
                 }`,
             );
@@ -110,6 +110,9 @@ describe('handleTransactionVerified()', () => {
                 expect(BigInt(node.ccBlockNumber)).toBeGreaterThan(startingBlock);
                 expect(BigInt(node.timestamp)).toBeGreaterThan(0);
                 expect(BigInt(node.timestamp)).toBeLessThan(Date.now());
+                // note: this is the transaction hash on the Creditcoin 3 chain
+                // not on the source chain, iow not the transaction in the query
+                expect(node.txHash.startsWith('0x')).toEqual(true);
             }
         });
     });
