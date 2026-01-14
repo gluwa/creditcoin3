@@ -7,6 +7,11 @@ pub enum Error {
         common::types::Epoch,
         common::types::Height,
     ),
+    NoSpaceLeft(
+        attestor_primitives::AttestorId,
+        common::types::Epoch,
+        common::types::Height,
+    ),
     Unauthorized(
         attestor_primitives::AttestorId,
         common::types::Epoch,
@@ -38,7 +43,7 @@ impl Error {
                 );
             }
             err => {
-                tracing::error!(%err, "⛔ Failed to send remote attestation over for validation");
+                tracing::error!(%err, "⛔ Failed to insert vote into the attestation pool");
             }
         }
     }
@@ -52,6 +57,14 @@ impl std::fmt::Display for Error {
                     f,
                     "Attestor {address} \
                     has already submitted a different vote \
+                    at epoch {epoch} \
+                    for source chain height {height}"
+                )
+            }
+            Error::NoSpaceLeft(address, epoch, height) => {
+                write!(
+                    f,
+                    "Failed to make more space for vote by attestor {address} \
                     at epoch {epoch} \
                     for source chain height {height}"
                 )

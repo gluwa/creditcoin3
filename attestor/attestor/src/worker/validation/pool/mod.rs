@@ -541,7 +541,7 @@ struct AttestationPoolForks {
     forks_best: Option<AttestationVote>,
 
     pending:
-        std::collections::HashMap<attestor_primitives::Digest, Vec<common::types::Attestation>>,
+        std::collections::BTreeMap<attestor_primitives::Digest, Vec<common::types::Attestation>>,
     pending_count: usize,
 
     votes: std::collections::BTreeMap<
@@ -573,7 +573,10 @@ impl AttestationPoolForks {
         }
     }
 
-    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), Error> {
+    fn push(
+        &mut self,
+        attestation: common::types::Attestation,
+    ) -> Result<Vec<common::types::Attestation>, Error> {
         let epoch = attestation.epoch;
         let height = attestation.header_number();
         let digest = attestation.digest();
@@ -589,14 +592,9 @@ impl AttestationPoolForks {
 
         tracing::debug!("Make sure there is enough space for insertion");
 
-        if !self.try_evict_if_necessary(digest) {
-            tracing::error!(
-                %digest,
-                height,
-                "⛔ Failed to make space for attestation during insertion"
-            );
-            return Ok(());
-        }
+        let removed = self
+            .try_evict_if_necessary(digest)
+            .map_err(|_| Error::NoSpaceLeft(attestor_id.clone(), epoch, height))?;
 
         tracing::debug!("Checking for equivocations");
 
@@ -655,7 +653,8 @@ impl AttestationPoolForks {
                         .push(attestation);
                     self.pending_count += 1;
                 }
-                return Ok(());
+
+                return Ok(removed);
             }
         }
 
@@ -699,23 +698,28 @@ impl AttestationPoolForks {
             .or_default()
             .insert(digest);
 
-        Ok(())
+        Ok(removed)
     }
 
     fn peek(&self) -> Option<AttestationVote> {
         self.forks_best.clone()
     }
 
-    fn try_evict_if_necessary(&mut self, digest: attestor_primitives::Digest) -> bool {
+    fn try_evict_if_necessary(
+        &mut self,
+        digest: attestor_primitives::Digest,
+    ) -> Result<Vec<common::types::Attestation>, ()> {
         if self.forks_by_digest.len() + self.pending_count >= self.max_size.get() {
             // We start by trying to remove pending votes, as they are not currently contributing
             // to finality
-            if let Some(key) = self.pending.keys().cloned().next() {
-                self.pending.remove(&key).expect("Checked above");
+            if let Some((_key, removed)) = self.pending.pop_first() {
+                Ok(removed)
             } else {
                 if self.forks_by_size.len() > 1 {
                     // If that fails, we remove the fork with least votes to it
-                    for (digest, vote) in self.forks_by_size.pop_first().expect("Checked above").1 {
+                    let fork = self.forks_by_size.pop_first().expect("Checked above").1;
+                    let mut removed = Vec::with_capacity(fork.len());
+                    for (digest, vote) in fork {
                         self.forks_by_digest
                             .remove(&digest)
                             .expect("Missing mapping in forks_by_digest");
@@ -735,8 +739,17 @@ impl AttestationPoolForks {
                         } else {
                             panic!("Missing mapping in forks_by_height");
                         }
+
+                        removed.push(vote.attestation);
+                        removed.extend(vote.votes);
                     }
-                } else {
+
+                    Ok(removed)
+                } else if self
+                    .forks_best
+                    .as_ref()
+                    .is_some_and(|best| best.attestation.digest() == digest)
+                {
                     // If we only have a single fork, we do not remove it. Instead, we allow for
                     // the insertion of the attestation only if it matches that fork's digest
                     // (which by default is the best fork as we only have one). This should only
@@ -744,15 +757,14 @@ impl AttestationPoolForks {
                     // Still, we handle this error to try and maintain finality by allowing votes
                     // to be inserted past the pool limit if they contribute to the only known
                     // fork.
-                    return self
-                        .forks_best
-                        .as_ref()
-                        .is_some_and(|best| best.attestation.digest() == digest);
+                    Ok(Vec::new())
+                } else {
+                    Err(())
                 }
             }
+        } else {
+            Ok(Vec::new())
         }
-
-        true
     }
 
     fn remove_by_digest(&mut self, digest: attestor_primitives::Digest) {

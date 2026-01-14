@@ -417,12 +417,24 @@ impl WorkerP2P {
                                 libp2p::gossipsub::MessageAcceptance::Accept,
                             );
                     }
+                    Err(err @ crate::worker::validation::pool::Error::NoSpaceLeft(..)) => {
+                        err.log_error(digest);
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .report_message_validation_result(
+                                &message_id,
+                                &propagation_source,
+                                libp2p::gossipsub::MessageAcceptance::Accept,
+                            );
+                    }
                     // CASE 2] IGNORE
                     //
                     // Failures which depend on finality lag are not considered as malicious but are
                     // not propagated to the rest of the network as they are out-of-date.
-                    Err(crate::worker::validation::pool::Error::InvalidHeight(..))
-                    | Err(crate::worker::validation::pool::Error::InvalidDigest(..)) => {
+                    Err(err @ crate::worker::validation::pool::Error::InvalidHeight(..))
+                    | Err(err @ crate::worker::validation::pool::Error::InvalidDigest(..)) => {
+                        err.log_error(digest);
                         self.swarm
                             .behaviour_mut()
                             .gossipsub
@@ -432,7 +444,8 @@ impl WorkerP2P {
                                 libp2p::gossipsub::MessageAcceptance::Ignore,
                             );
                     }
-                    Err(crate::worker::validation::pool::Error::Equivocation(..)) => {
+                    Err(err @ crate::worker::validation::pool::Error::Equivocation(..)) => {
+                        err.log_error(digest);
                         self.metrics.increase_equivocation_count();
                         self.swarm
                             .behaviour_mut()
@@ -447,7 +460,8 @@ impl WorkerP2P {
                     //
                     // Failures which depend solely on the sender are considered malicious. They are
                     // not propagated to the rest of the network.
-                    Err(crate::worker::validation::pool::Error::Unauthorized(..)) => {
+                    Err(err @ crate::worker::validation::pool::Error::Unauthorized(..)) => {
+                        err.log_error(digest);
                         self.swarm
                             .behaviour_mut()
                             .gossipsub
