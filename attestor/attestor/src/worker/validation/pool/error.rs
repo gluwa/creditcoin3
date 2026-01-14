@@ -7,11 +7,6 @@ pub enum Error {
         common::types::Epoch,
         common::types::Height,
     ),
-    AlreadyVoted(
-        attestor_primitives::AttestorId,
-        common::types::Epoch,
-        common::types::Height,
-    ),
     Unauthorized(
         attestor_primitives::AttestorId,
         common::types::Epoch,
@@ -57,15 +52,6 @@ impl std::fmt::Display for Error {
                     f,
                     "Attestor {address} \
                     has already submitted a different vote \
-                    at epoch {epoch} \
-                    for source chain height {height}"
-                )
-            }
-            Error::AlreadyVoted(address, epoch, height) => {
-                write!(
-                    f,
-                    "Attestor {address} \
-                    has already voted \
                     at epoch {epoch} \
                     for source chain height {height}"
                 )

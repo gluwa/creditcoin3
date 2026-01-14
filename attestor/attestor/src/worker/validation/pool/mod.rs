@@ -1,4 +1,4 @@
-//! r strongly ordered data structure which efficiently keeps track of pending attestations.
+//! A strongly ordered data structure which efficiently keeps track of pending attestations.
 //!
 //! # Usage
 //!
@@ -391,7 +391,6 @@ impl AttestationPool {
 }
 
 impl AttestationPoolInner {
-    #[tracing::instrument(skip_all, fields(digest = %attestation.digest()))]
     fn push(&mut self, attestation: common::types::Attestation) -> Result<(), Error> {
         let height = attestation.header_number();
 
@@ -569,7 +568,6 @@ impl AttestationPoolForks {
         }
     }
 
-    #[tracing::instrument(skip_all, fields(height = attestation.header_number()))]
     fn push(&mut self, attestation: common::types::Attestation) -> Result<(), Error> {
         let epoch = attestation.epoch;
         let height = attestation.header_number();
@@ -596,8 +594,6 @@ impl AttestationPoolForks {
                 let past_vote = entry.get();
                 if past_vote != &digest {
                     return Err(Error::Equivocation(attestor_id, epoch, height));
-                } else {
-                    return Err(Error::AlreadyVoted(attestor_id, epoch, height));
                 }
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
@@ -605,7 +601,11 @@ impl AttestationPoolForks {
             }
         }
 
-        tracing::debug!("Validating prev_digest");
+        tracing::debug!(
+            prev_digest_pool = ?self.prev_digest,
+            prev_digest_att = ?prev_digest,
+            "Validating prev_digest"
+        );
 
         match (prev_digest, self.prev_digest) {
             // CASE 1] PREV_DIGEST MATCHES
@@ -623,9 +623,8 @@ impl AttestationPoolForks {
             // CASE 4] PENDING PREV_DIGET
             _ => {
                 tracing::warn!(
-                    %digest,
-                    prev_digest_pool = ?prev_digest,
-                    prev_digest_att = ?self.prev_digest,
+                    prev_digest_pool = ?self.prev_digest,
+                    prev_digest_att = ?prev_digest,
                     "Received pending attestation"
                 );
 
@@ -734,6 +733,8 @@ impl crate::events::EventAttestationFinalization for AttestationPoolForks {
         &mut self,
         latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating forks");
+
         let (prev_digest, height) = latest_attestation_cc3;
         self.prev_digest = Some(prev_digest);
 
@@ -771,6 +772,8 @@ impl crate::events::EventAttestationIntervalChange for AttestationPoolForks {
         _interval_new: std::num::NonZero<common::types::Height>,
         _attestation_latest_cc3: Option<common::types::Height>,
     ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating forks");
+
         self.forks_by_size.clear();
         self.forks_by_digest.clear();
         self.forks_invalid.clear();
@@ -832,6 +835,8 @@ impl crate::events::EventAttestationFinalization for AttestationPoolQuorums {
         &mut self,
         latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating known quorums");
+
         let (_digest, height) = latest_attestation_cc3;
 
         while self
@@ -888,6 +893,7 @@ impl crate::events::EventAttestationFinalization for AttestationPoolDelays {
         &mut self,
         latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating quorum delays");
         let (_digest, height) = latest_attestation_cc3;
         self.time = self.time.split_off(&(height.saturating_add(1)));
         Ok(())
@@ -902,6 +908,7 @@ impl crate::events::EventAttestationIntervalChange for AttestationPoolDelays {
         _interval_new: std::num::NonZero<common::types::Height>,
         _attestation_latest_cc3: Option<common::types::Height>,
     ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating quorum delays");
         self.time.clear();
         Ok(())
     }
@@ -914,10 +921,9 @@ impl AttestationPoolSender {
     /// [`closed`].
     ///
     /// [`closed`]: Self::close
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(digest = %attestation.digest(), height = attestation.header_number()))]
     pub fn send(&self, attestation: common::types::Attestation) -> Option<Result<(), Error>> {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
-            tracing::debug!("Inserting attestation into the inner pool");
             Some(inner.push(attestation))
         } else {
             None
@@ -965,38 +971,43 @@ impl crate::events::EventAttestationFinalization for AttestationPoolSender {
     ///
     /// Remove all attestations _up to and including_ that attestation height from the inner
     /// attestation pool.
+    #[tracing::instrument(
+        skip_all,
+        fields(digest = %attestation_latest_cc3.0, height = latest_attestation_cc3.1),
+        level = "debug"
+    )]
     async fn note_attestation_finalization(
         &mut self,
-        latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
+        attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
-            let (_digest, _height) = latest_attestation_cc3;
+            let (_digest, _height) = attestation_latest_cc3;
 
             // Updating validation
             inner
                 .validate_quorum
-                .note_attestation_finalization(latest_attestation_cc3)
+                .note_attestation_finalization(attestation_latest_cc3)
                 .await
                 .expect("Infallible");
 
             // Updating the inner pool
             inner
                 .forks
-                .note_attestation_finalization(latest_attestation_cc3)
+                .note_attestation_finalization(attestation_latest_cc3)
                 .await
                 .expect("Infallible");
 
             // Remove past quorums
             inner
                 .quorums
-                .note_attestation_finalization(latest_attestation_cc3)
+                .note_attestation_finalization(attestation_latest_cc3)
                 .await
                 .expect("Infallible");
 
             // Update metrics
             inner
                 .attestation_delay
-                .note_attestation_finalization(latest_attestation_cc3)
+                .note_attestation_finalization(attestation_latest_cc3)
                 .await
                 .expect("Infallible");
         }
@@ -1012,6 +1023,11 @@ impl crate::events::EventAttestationIntervalChange for AttestationPoolSender {
     //
     // Clear the attestation pool and update the target height and locally tracked attestation
     // interval.
+    #[tracing::instrument(
+        skip_all,
+        fields(interval = interval_new, height = attestation_latest_cc3),
+        level = "debug"
+    )]
     async fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
@@ -1048,6 +1064,7 @@ impl crate::events::EventAttestationIntervalChange for AttestationPoolSender {
 impl crate::events::EventAttestorsElected for AttestationPoolSender {
     type Error = std::convert::Infallible;
 
+    #[tracing::instrument(skip_all, fields(?attestors), level = "debug")]
     async fn note_attestors_elected(
         &mut self,
         attestors: Vec<cc_client::AccountId32>,
@@ -1361,6 +1378,8 @@ impl crate::events::EventAttestationFinalization for ValidateQuorum {
         &mut self,
         latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating quorum validation");
+
         let (_digest, height) = latest_attestation_cc3;
         let height_new = util::next_multiple_of(self.attestation_interval, height);
 
@@ -1380,6 +1399,8 @@ impl crate::events::EventAttestationIntervalChange for ValidateQuorum {
         interval_new: std::num::NonZero<common::types::Height>,
         attestation_latest_cc3: Option<common::types::Height>,
     ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating quorum validation");
+
         let target_height_new = if let Some(attestation_latest_cc3) = attestation_latest_cc3 {
             util::next_multiple_of(interval_new, attestation_latest_cc3)
         } else {
@@ -1656,6 +1677,7 @@ pub mod fixtures {
             .with_attestors(permissioned)
             .with_quorum(quorum_validate.target_quorum)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
+            .with_digest_latest_cc3(DIGEST_0)
             .with_start_height(common::types::Height::MIN)
             .with_metrics(metrics)
             .build()
@@ -1761,6 +1783,48 @@ mod test {
             inner.digest_local,
             Some(cc_client::H256(attestation_1.votes[0].digest().0))
         );
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_sanity_pending(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 0, 1, DIGEST_1)]
+        attestation_pending: AttestationVote,
+        config: Config,
+    ) {
+        use crate::events::EventAttestationFinalization as _;
+        use futures::StreamExt as _;
+
+        let (mut sx, rx) = attestation_pool(config);
+
+        assert!(sx
+            .send(attestation_pending.votes[0].clone())
+            .unwrap()
+            .is_ok());
+
+        {
+            let mut pool = rx.common.pool.lock();
+            let inner = pool.expect_open();
+            let pending = inner.forks.pending.get(&DIGEST_1).unwrap();
+
+            assert_eq!(inner.forks.pending_count, 1);
+            assert_eq!(&pending[0], &attestation_pending.votes[0]);
+        }
+
+        sx.note_attestation_finalization((DIGEST_1, 0))
+            .await
+            .unwrap();
+
+        {
+            let mut pool = rx.common.pool.lock();
+            let inner = pool.expect_open();
+            let vote = AttestationVote::new(attestation_pending.votes[0].clone());
+
+            assert_eq!(inner.forks.forks_best.clone().unwrap(), vote);
+        }
     }
 
     #[tokio::test]

@@ -422,8 +422,7 @@ impl WorkerP2P {
                     // Failures which depend on finality lag are not considered as malicious but are
                     // not propagated to the rest of the network as they are out-of-date.
                     Err(crate::worker::validation::pool::Error::InvalidHeight(..))
-                    | Err(crate::worker::validation::pool::Error::InvalidDigest(..))
-                    | Err(crate::worker::validation::pool::Error::AlreadyVoted(..)) => {
+                    | Err(crate::worker::validation::pool::Error::InvalidDigest(..)) => {
                         self.swarm
                             .behaviour_mut()
                             .gossipsub
