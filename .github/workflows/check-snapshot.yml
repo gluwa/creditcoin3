@@ -18,6 +18,8 @@ permissions:
 
 jobs:
   check-snapshot:
+    # b/c of azure/login
+    environment: snapshot
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     name: check snapshot for ${{ inputs.target-chain }}
     steps:
