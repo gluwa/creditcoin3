@@ -33,12 +33,6 @@ jobs:
           # switch back to the branch of the PR
           git checkout "$GITHUB_HEAD_REF"
 
-      - name: Install Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-      - run: npm install -g yarn
-
       - name: Check for Merge commit(s)
         run: |
           commits=$(git log "$GITHUB_BASE_REF".."$GITHUB_HEAD_REF" | grep "Merge: " || echo -n)
@@ -50,6 +44,12 @@ jobs:
       - name: Check for duplicate files
         run: |
           .github/check-for-duplicate-files.sh
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - run: npm install -g yarn
 
       - name: Install Solidity compiler
         run: |
@@ -64,51 +64,6 @@ jobs:
       - name: Check for broken symlinks
         run: |
           .github/check-for-broken-symlinks.sh
-
-      - name: Install commitlint and conventional-changelog
-        run: yarn install
-
-      - name: Check PR title
-        if: always()
-        # https://docs.github.com/en/actions/reference/security/secure-use#good-practices-for-mitigating-script-injection-attacks
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          if ! echo "$TITLE" | yarn commitlint --verbose; then
-            echo "::error title=Malformed PR::PR title must follow conventional commit conventions: https://www.conventionalcommits.org/en/v1.0.0/"
-            exit 1
-          fi
-
-      - name: Check commit messages
-        if: always()
-        shell: bash
-        run: |
-          has_valid=false
-          commits="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
-
-          for commit in $(git rev-list "$commits"); do
-            if git log -1 --format=%B "$commit" | yarn commitlint --verbose; then
-              has_valid=true
-              break
-            fi
-          done
-
-          if [ "$has_valid" = true ]; then
-            echo "Found valid commit"
-            exit 0
-          else
-            echo "::error title=No valid commit found::At least one commit message in the PR must follow the conventionnal commits style: https://www.conventionalcommits.org/en/v1.0.0/"
-            exit 1
-          fi
-
-      - name: Check Changelog
-        if: always()
-        run: |
-          yarn conventional-changelog -p conventionalcommits -r 1 -u -o /var/tmp/changelog.md
-
-          echo "===== DEBUG ====="
-          cat /var/tmp/changelog.md
-          echo "===== END ====="
 
   rebase-check:
     runs-on: ubuntu-24.04

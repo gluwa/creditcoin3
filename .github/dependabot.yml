@@ -99,7 +99,6 @@ updates:
       - "/docs/smart-contract-development/with-hardhat"
       - "/docs/smart-contract-development/with-ethers.js"
       - "/scripts"
-      - "/"
     groups:
       prod-dependencies:
         dependency-type: "production"
