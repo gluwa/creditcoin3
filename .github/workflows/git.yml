@@ -4,7 +4,6 @@ name: git
 "on":
   pull_request:
     branches: [main, testnet, poc_external_attestation_network]
-  workflow_dispatch:
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -13,6 +12,54 @@ concurrency:
 permissions: read-all
 
 jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      previous_release: ${{ steps.devnet-env.outputs.previous_release || steps.testnet-env.outputs.previous_release || steps.mainnet-env.outputs.previous_release }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Devnet ENV
+        id: devnet-env
+        if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "devnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Testnet ENV
+        id: testnet-env
+        if: github.base_ref == 'testnet'
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "testnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Mainnet ENV
+        id: mainnet-env
+        if: github.base_ref == 'main'
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "mainnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+  check-changelog:
+    needs: setup
+    uses: ./.github/workflows/generate-changelog.yml
+    with:
+      previous-release: "${{ needs.setup.outputs.previous_release }}"
+    secrets: inherit
+
   sanity:
     # note: github.{base_ref|head_ref} only available on pull requests
     if: github.event_name == 'pull_request'
