@@ -1,0 +1,56 @@
+---
+name: Reusable workflow to generate changelog
+
+"on":
+  workflow_call:
+    inputs:
+      previous-release:
+        required: true
+        type: string
+
+permissions: read-all
+
+jobs:
+  generate-changelog:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install ruby-dev
+          # note: also update faraday b/c of
+          # https://github.com/github-changelog-generator/github-changelog-generator/issues/1056
+          sudo gem install faraday github_changelog_generator
+
+      - name: Generate changelog
+        id: generate-changelog
+        run: |
+          # shellcheck disable=SC2129
+          github_changelog_generator \
+            -u ${{ github.repository_owner }} \
+            -p ${{ github.event.repository.name }} \
+            --since-tag ${{ inputs.previous-release }} \
+            -t ${{ secrets.GITHUB_TOKEN }} \
+            --output /var/tmp/changelog.md
+
+          echo "===== DEBUG ====="
+          cat /var/tmp/changelog.md
+          echo "===== END ====="
+
+      - name: Upload changelog
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: changelog
+          path: /var/tmp/changelog.md
+          if-no-files-found: error
+
+      - name: Check changelog
+        run: |
+          MIN_CHARS="999"
+          FILE_CHARS=$(wc -c < /var/tmp/changelog.md)
+          if [ "$FILE_CHARS" -le "$MIN_CHARS" ]; then
+              echo "FAIL: Changelog contains $FILE_CHARS characters <= $MIN_CHARS"
+              exit 1
+          fi
