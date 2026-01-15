@@ -2014,7 +2014,7 @@ dependencies = [
 [[package]]
 name = "bls-signatures"
 version = "0.15.0"
-source = "git+https://github.com/gluwa/bls-signatures#ce93cd5f3ca8e9fd569005a0d7c848433de3855e"
+source = "git+https://github.com/gluwa/bls-signatures?tag=v0.15.0#ce93cd5f3ca8e9fd569005a0d7c848433de3855e"
 dependencies = [
  "acid_io",
  "bls12_381",

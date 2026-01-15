@@ -280,7 +280,7 @@ rand = { version = "0.9.0", default-features = false }
 randomness-primitives = { path = "primitives/randomness", default-features = false }
 
 # Common
-bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-features = false, features = [
+bls-signatures = { git = "https://github.com/gluwa/bls-signatures", tag = "v0.15.0", default-features = false, features = [
     "pairing",
 ] }
 cc-client = { path = "common/cc-client" }
