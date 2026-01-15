@@ -97,7 +97,7 @@
 //! // Initializes the attestation pool with some configuration
 //! let (sx, mut rx) = attestation_pool(
 //!     ConfigBuilder::new()
-//!         .with_capacity(std::num::NonZeroUsize::new(100).unwrap())
+//!         .with_max_size(std::num::NonZeroUsize::new(100).unwrap())
 //!         .with_attestors(AttestorValidatePermissionless)
 //!         .with_quorum(std::num::NonZeroUsize::new(3).unwrap())
 //!         .with_attestation_interval(std::num::NonZeroU64::new(1).unwrap())
@@ -393,7 +393,10 @@ impl AttestationPool {
 }
 
 impl AttestationPoolInner {
-    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), Error> {
+    fn push(
+        &mut self,
+        attestation: common::types::Attestation,
+    ) -> Result<Vec<common::types::Attestation>, Error> {
         let height = attestation.header_number();
 
         tracing::debug!("Validating sender");
@@ -432,7 +435,7 @@ impl AttestationPoolInner {
 
         tracing::debug!("Adding attestation to pool");
 
-        self.forks.push(attestation)?;
+        let removed = self.forks.push(attestation)?;
 
         tracing::trace!("Updating metrics");
 
@@ -443,7 +446,7 @@ impl AttestationPoolInner {
             waker.wake();
         }
 
-        Ok(())
+        Ok(removed)
     }
 
     fn peek(&mut self) -> Option<(Quorum, AttestationPermit)> {
@@ -548,6 +551,8 @@ struct AttestationPoolForks {
         common::types::Height,
         std::collections::HashMap<attestor_primitives::AttestorId, attestor_primitives::Digest>,
     >,
+    votes_count: usize,
+
     prev_digest: Option<attestor_primitives::Digest>,
     max_size: std::num::NonZeroUsize,
 }
@@ -565,9 +570,11 @@ impl AttestationPoolForks {
             forks_best: Default::default(),
 
             pending: Default::default(),
-            pending_count: Default::default(),
+            pending_count: 0,
 
             votes: Default::default(),
+            votes_count: 0,
+
             prev_digest,
             max_size,
         }
@@ -697,6 +704,7 @@ impl AttestationPoolForks {
             .entry(height)
             .or_default()
             .insert(digest);
+        self.votes_count += 1;
 
         Ok(removed)
     }
@@ -710,13 +718,15 @@ impl AttestationPoolForks {
         digest: attestor_primitives::Digest,
     ) -> Result<Vec<common::types::Attestation>, ()> {
         // No eviction needed
-        if self.forks_by_digest.len() + self.pending_count < self.max_size.get() {
+        if self.votes_count + self.pending_count < self.max_size.get() {
             return Ok(Vec::new());
         }
 
         // We start by trying to remove pending votes, as they are not currently contributing to
         // finality
         if let Some((_key, removed)) = self.pending.pop_first() {
+            assert!(self.pending_count > 0, "Invalid pending_count");
+            self.pending_count -= 1;
             return Ok(removed);
         }
 
@@ -742,7 +752,8 @@ impl AttestationPoolForks {
                     self.forks_by_height.remove(&height);
                 }
 
-                removed.push(vote.attestation);
+                assert!(self.votes_count >= vote.votes.len(), "Invalid votes_count");
+                self.votes_count -= vote.votes.len();
                 removed.extend(vote.votes);
             }
 
@@ -789,6 +800,12 @@ impl AttestationPoolForks {
                 digest,
                 "Invalid digest mapping in forks_by_size"
             );
+            assert!(
+                self.votes_count >= removed.votes.len(),
+                "Invalid votes_count"
+            );
+
+            self.votes_count -= removed.votes.len();
 
             if votes.is_empty() {
                 entry.remove();
@@ -806,10 +823,10 @@ impl AttestationPoolForks {
     }
 }
 
-impl crate::events::EventAttestationFinalization for AttestationPoolForks {
+impl crate::events::EventAttestationFinalizationAsync for AttestationPoolForks {
     type Error = std::convert::Infallible;
 
-    async fn note_attestation_finalization(
+    async fn note_attestation_finalization_async(
         &mut self,
         latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
@@ -843,11 +860,12 @@ impl crate::events::EventAttestationFinalization for AttestationPoolForks {
         Ok(())
     }
 }
+impl crate::events::EventAttestationFinalization for AttestationPoolForks {}
 
-impl crate::events::EventAttestationIntervalChange for AttestationPoolForks {
+impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolForks {
     type Error = std::convert::Infallible;
 
-    async fn note_attestation_interval_change(
+    async fn note_attestation_interval_change_async(
         &mut self,
         _interval_new: std::num::NonZero<common::types::Height>,
         _attestation_latest_cc3: Option<common::types::Height>,
@@ -863,10 +881,12 @@ impl crate::events::EventAttestationIntervalChange for AttestationPoolForks {
         self.pending_count = 0;
 
         self.votes.clear();
+        self.votes_count = 0;
 
         Ok(())
     }
 }
+impl crate::events::EventAttestationIntervalChange for AttestationPoolForks {}
 
 struct AttestationPoolQuorums {
     quorums: std::collections::VecDeque<common::types::AttestationSigned>,
@@ -908,10 +928,10 @@ impl AttestationPoolQuorums {
     }
 }
 
-impl crate::events::EventAttestationFinalization for AttestationPoolQuorums {
+impl crate::events::EventAttestationFinalizationAsync for AttestationPoolQuorums {
     type Error = std::convert::Infallible;
 
-    async fn note_attestation_finalization(
+    async fn note_attestation_finalization_async(
         &mut self,
         latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
@@ -930,11 +950,12 @@ impl crate::events::EventAttestationFinalization for AttestationPoolQuorums {
         Ok(())
     }
 }
+impl crate::events::EventAttestationFinalization for AttestationPoolQuorums {}
 
-impl crate::events::EventAttestationIntervalChange for AttestationPoolQuorums {
+impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolQuorums {
     type Error = std::convert::Infallible;
 
-    async fn note_attestation_interval_change(
+    async fn note_attestation_interval_change_async(
         &mut self,
         _interval_new: std::num::NonZero<common::types::Height>,
         _attestation_latest_cc3: Option<common::types::Height>,
@@ -943,6 +964,7 @@ impl crate::events::EventAttestationIntervalChange for AttestationPoolQuorums {
         Ok(())
     }
 }
+impl crate::events::EventAttestationIntervalChange for AttestationPoolQuorums {}
 
 struct AttestationPoolDelays {
     time: std::collections::BTreeMap<common::types::Height, std::time::Instant>,
@@ -966,10 +988,10 @@ impl AttestationPoolDelays {
     }
 }
 
-impl crate::events::EventAttestationFinalization for AttestationPoolDelays {
+impl crate::events::EventAttestationFinalizationAsync for AttestationPoolDelays {
     type Error = std::convert::Infallible;
 
-    async fn note_attestation_finalization(
+    async fn note_attestation_finalization_async(
         &mut self,
         latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
@@ -979,11 +1001,12 @@ impl crate::events::EventAttestationFinalization for AttestationPoolDelays {
         Ok(())
     }
 }
+impl crate::events::EventAttestationFinalization for AttestationPoolDelays {}
 
-impl crate::events::EventAttestationIntervalChange for AttestationPoolDelays {
+impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolDelays {
     type Error = std::convert::Infallible;
 
-    async fn note_attestation_interval_change(
+    async fn note_attestation_interval_change_async(
         &mut self,
         _interval_new: std::num::NonZero<common::types::Height>,
         _attestation_latest_cc3: Option<common::types::Height>,
@@ -993,6 +1016,7 @@ impl crate::events::EventAttestationIntervalChange for AttestationPoolDelays {
         Ok(())
     }
 }
+impl crate::events::EventAttestationIntervalChange for AttestationPoolDelays {}
 
 // ----------------------------------- [ Attestation Sender ] ---------------------------------- //
 
@@ -1002,7 +1026,10 @@ impl AttestationPoolSender {
     ///
     /// [`closed`]: Self::close
     #[tracing::instrument(skip_all, fields(digest = %attestation.digest(), height = attestation.header_number()))]
-    pub fn send(&self, attestation: common::types::Attestation) -> Option<Result<(), Error>> {
+    pub fn send(
+        &self,
+        attestation: common::types::Attestation,
+    ) -> Option<Result<Vec<common::types::Attestation>, Error>> {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             Some(inner.push(attestation))
         } else {
@@ -1044,7 +1071,7 @@ impl AttestationPoolSender {
 
 // ----------------------------------------- [ Events ] ---------------------------------------- //
 
-impl crate::events::EventAttestationFinalization for AttestationPoolSender {
+impl crate::events::EventAttestationFinalizationAsync for AttestationPoolSender {
     type Error = std::convert::Infallible;
 
     /// A new attestation has reached finality on the execution chain.
@@ -1056,10 +1083,12 @@ impl crate::events::EventAttestationFinalization for AttestationPoolSender {
         fields(digest = %attestation_latest_cc3.0, height = attestation_latest_cc3.1),
         level = "debug"
     )]
-    async fn note_attestation_finalization(
+    async fn note_attestation_finalization_async(
         &mut self,
         attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
+        use crate::events::EventAttestationFinalization as _;
+
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             let (_digest, _height) = attestation_latest_cc3;
 
@@ -1067,36 +1096,33 @@ impl crate::events::EventAttestationFinalization for AttestationPoolSender {
             inner
                 .validate_quorum
                 .note_attestation_finalization(attestation_latest_cc3)
-                .await
                 .expect("Infallible");
 
             // Updating the inner pool
             inner
                 .forks
                 .note_attestation_finalization(attestation_latest_cc3)
-                .await
                 .expect("Infallible");
 
             // Remove past quorums
             inner
                 .quorums
                 .note_attestation_finalization(attestation_latest_cc3)
-                .await
                 .expect("Infallible");
 
             // Update metrics
             inner
                 .attestation_delay
                 .note_attestation_finalization(attestation_latest_cc3)
-                .await
                 .expect("Infallible");
         }
 
         Ok(())
     }
 }
+impl crate::events::EventAttestationFinalization for AttestationPoolSender {}
 
-impl crate::events::EventAttestationIntervalChange for AttestationPoolSender {
+impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolSender {
     type Error = std::convert::Infallible;
 
     /// A new attestation interval has been set on-chain.
@@ -1108,44 +1134,44 @@ impl crate::events::EventAttestationIntervalChange for AttestationPoolSender {
         fields(interval = interval_new, height = attestation_latest_cc3),
         level = "debug"
     )]
-    async fn note_attestation_interval_change(
+    async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
         attestation_latest_cc3: Option<common::types::Height>,
     ) -> Result<(), Self::Error> {
+        use crate::events::EventAttestationIntervalChange as _;
+
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             // Updating quorum
             inner
                 .validate_quorum
                 .note_attestation_interval_change(interval_new, attestation_latest_cc3)
-                .await
                 .expect("Infallible");
 
             // Updating the inner pool
             inner
                 .forks
                 .note_attestation_interval_change(interval_new, attestation_latest_cc3)
-                .await
                 .expect("Infallible");
 
             // Update metrics
             inner
                 .attestation_delay
                 .note_attestation_interval_change(interval_new, attestation_latest_cc3)
-                .await
                 .expect("Infallible");
         }
 
         Ok(())
     }
 }
+impl crate::events::EventAttestationIntervalChange for AttestationPoolSender {}
 
 // Handling in response to execution chain events.
-impl crate::events::EventAttestorsElected for AttestationPoolSender {
+impl crate::events::EventAttestorsElectedAsync for AttestationPoolSender {
     type Error = std::convert::Infallible;
 
     #[tracing::instrument(skip_all, fields(?attestors), level = "debug")]
-    async fn note_attestors_elected(
+    async fn note_attestors_elected_async(
         &mut self,
         attestors: Vec<cc_client::AccountId32>,
     ) -> Result<(), Self::Error> {
@@ -1164,6 +1190,7 @@ impl crate::events::EventAttestorsElected for AttestationPoolSender {
         Ok(())
     }
 }
+impl crate::events::EventAttestorsElected for AttestationPoolSender {}
 
 impl Clone for AttestationPoolSender {
     fn clone(&self) -> Self {
@@ -1451,10 +1478,10 @@ impl ValidateQuorum {
     }
 }
 
-impl crate::events::EventAttestationFinalization for ValidateQuorum {
+impl crate::events::EventAttestationFinalizationAsync for ValidateQuorum {
     type Error = std::convert::Infallible;
 
-    async fn note_attestation_finalization(
+    async fn note_attestation_finalization_async(
         &mut self,
         latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
@@ -1471,10 +1498,12 @@ impl crate::events::EventAttestationFinalization for ValidateQuorum {
     }
 }
 
-impl crate::events::EventAttestationIntervalChange for ValidateQuorum {
+impl crate::events::EventAttestationFinalization for ValidateQuorum {}
+
+impl crate::events::EventAttestationIntervalChangeAsync for ValidateQuorum {
     type Error = std::convert::Infallible;
 
-    async fn note_attestation_interval_change(
+    async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
         attestation_latest_cc3: Option<common::types::Height>,
@@ -1493,6 +1522,7 @@ impl crate::events::EventAttestationIntervalChange for ValidateQuorum {
         Ok(())
     }
 }
+impl crate::events::EventAttestationIntervalChange for ValidateQuorum {}
 
 // ----------------------------------- [ Attestor Validation ] --------------------------------- //
 
@@ -1602,6 +1632,8 @@ pub mod constants {
         attestor_primitives::AttestorId::from_public(*b"attestor_valid_1________________");
     pub const ATTESTOR_VALID_2: attestor_primitives::AttestorId =
         attestor_primitives::AttestorId::from_public(*b"attestor_valid_2________________");
+    pub const ATTESTOR_VALID_3: attestor_primitives::AttestorId =
+        attestor_primitives::AttestorId::from_public(*b"attestor_valid_3________________");
     pub const ATTESTOR_INVALID: attestor_primitives::AttestorId =
         attestor_primitives::AttestorId::from_public(*b"attestor_invalid________________");
 
@@ -1712,7 +1744,7 @@ pub mod fixtures {
 
     #[rstest::fixture]
     pub fn permissioned(
-        #[default([ATTESTOR_VALID_0, ATTESTOR_VALID_1, ATTESTOR_VALID_2])]
+        #[default([ATTESTOR_VALID_0, ATTESTOR_VALID_1, ATTESTOR_VALID_2, ATTESTOR_VALID_3])]
         attestor_set: impl IntoIterator<Item = attestor_primitives::AttestorId>,
     ) -> AttestorValidatePermissioned {
         AttestorValidatePermissioned {
@@ -1813,8 +1845,8 @@ mod test {
 
         let (sx, mut rx) = attestation_pool(config);
 
-        assert!(sx.send(attestation_0.votes[0].clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
 
         let actual = rx.next().await;
         let expected = Some((quorum, permit, None));
@@ -1845,9 +1877,9 @@ mod test {
 
         let (sx, mut rx) = attestation_pool(config);
 
-        assert!(sx.send(attestation_0.votes[0].clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.votes[0].clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_2.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
 
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
@@ -1861,7 +1893,7 @@ mod test {
         assert!(!inner.forks.forks_by_height.contains_key(&0));
         assert_eq!(
             inner.digest_local,
-            Some(cc_client::H256(attestation_1.votes[0].digest().0))
+            Some(cc_client::H256(attestation_1.attestation.digest().0))
         );
     }
 
@@ -1875,13 +1907,12 @@ mod test {
         attestation_pending: AttestationVote,
         config: Config,
     ) {
-        use crate::events::EventAttestationFinalization as _;
-        use futures::StreamExt as _;
+        use crate::events::EventAttestationFinalizationAsync as _;
 
         let (mut sx, rx) = attestation_pool(config);
 
         assert!(sx
-            .send(attestation_pending.votes[0].clone())
+            .send(attestation_pending.attestation.clone())
             .unwrap()
             .is_ok());
 
@@ -1891,17 +1922,17 @@ mod test {
             let pending = inner.forks.pending.get(&DIGEST_1).unwrap();
 
             assert_eq!(inner.forks.pending_count, 1);
-            assert_eq!(&pending[0], &attestation_pending.votes[0]);
+            assert_eq!(&pending[0], &attestation_pending.attestation);
         }
 
-        sx.note_attestation_finalization((DIGEST_1, 0))
+        sx.note_attestation_finalization_async((DIGEST_1, 0))
             .await
             .unwrap();
 
         {
             let mut pool = rx.common.pool.lock();
             let inner = pool.expect_open();
-            let vote = AttestationVote::new(attestation_pending.votes[0].clone());
+            let vote = AttestationVote::new(attestation_pending.attestation.clone());
 
             assert_eq!(inner.forks.forks_best.clone().unwrap(), vote);
         }
@@ -1969,8 +2000,8 @@ mod test {
 
         assert_matches::assert_matches!(rx.take_next_validated(), None);
 
-        assert!(sx.send(attestation_0.votes[0].clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
 
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
@@ -2007,7 +2038,7 @@ mod test {
         let (sx, _rx) = attestation_pool(config);
 
         assert_matches::assert_matches!(
-            sx.send(attestation.votes[0].clone()),
+            sx.send(attestation.attestation.clone()),
             Some(Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0)))
         );
     }
@@ -2031,7 +2062,7 @@ mod test {
         let mut fut = tokio_test::task::spawn(rx.next());
 
         tokio_test::assert_pending!(fut.poll());
-        assert!(sx.send(attestation.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation.attestation.clone()).unwrap().is_ok());
         tokio_test::assert_ready_eq!(fut.poll(), Some((quorum, permit, None)));
     }
 
@@ -2052,6 +2083,230 @@ mod test {
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
+    async fn attestation_pool_evict_pending(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1], 0, 1, DIGEST_1)]
+        attestation_1: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_2])]
+        attestation_2: AttestationVote,
+        #[from(quorum_validate)]
+        #[with(1)]
+        _quorum_validate: ValidateQuorum,
+        #[from(config)]
+        #[with(_quorum_validate.clone(), 2)]
+        config: Config,
+    ) {
+        let (sx, rx) = attestation_pool(config);
+
+        assert!(sx
+            .send(attestation_0.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+        assert!(sx
+            .send(attestation_1.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+
+        assert_eq!(
+            sx.send(attestation_2.attestation.clone()).unwrap().unwrap(),
+            vec![attestation_1.attestation.clone()]
+        );
+
+        let mut pool = rx.common.pool.lock();
+        let inner = pool.expect_open();
+
+        assert!(inner.forks.pending.is_empty());
+        assert_eq!(inner.forks.pending_count, 0);
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_evict_fork(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1])]
+        attestation_1: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_2], 0, 1)]
+        attestation_2: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_3])]
+        attestation_3: AttestationVote,
+        #[from(quorum_validate)]
+        #[with(1)]
+        _quorum_validate: ValidateQuorum,
+        #[from(config)]
+        #[with(_quorum_validate.clone(), 3)]
+        config: Config,
+    ) {
+        let (sx, rx) = attestation_pool(config);
+
+        assert!(sx
+            .send(attestation_0.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+        assert!(sx
+            .send(attestation_1.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+        assert!(sx
+            .send(attestation_2.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+
+        {
+            let mut pool = rx.common.pool.lock();
+            let inner = pool.expect_open();
+
+            assert_eq!(inner.forks.forks_by_size.len(), 2);
+            assert_eq!(inner.forks.forks_by_size.get(&1).unwrap().len(), 1);
+            assert_eq!(
+                &inner
+                    .forks
+                    .forks_by_size
+                    .get(&1)
+                    .unwrap()
+                    .get(&attestation_2.attestation.digest())
+                    .unwrap()
+                    .attestation,
+                &attestation_2.attestation.clone()
+            );
+        }
+
+        assert_eq!(
+            sx.send(attestation_3.attestation.clone()).unwrap().unwrap(),
+            vec![attestation_2.attestation.clone()]
+        );
+
+        {
+            let mut pool = rx.common.pool.lock();
+            let inner = pool.expect_open();
+
+            assert!(!inner
+                .forks
+                .forks_by_digest
+                .contains_key(&attestation_2.attestation.digest()));
+            assert_eq!(inner.forks.forks_by_size.len(), 1);
+            assert_eq!(inner.forks.forks_by_height.get(&0).unwrap().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_evict_grow(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1])]
+        attestation_1: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_2])]
+        attestation_2: AttestationVote,
+        #[from(quorum_validate)]
+        #[with(1)]
+        _quorum_validate: ValidateQuorum,
+        #[from(config)]
+        #[with(_quorum_validate.clone(), 2)]
+        config: Config,
+    ) {
+        let (sx, rx) = attestation_pool(config);
+
+        assert!(sx
+            .send(attestation_0.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+        assert!(sx
+            .send(attestation_1.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+        assert!(sx
+            .send(attestation_2.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+
+        let mut pool = rx.common.pool.lock();
+        let inner = pool.expect_open();
+
+        assert_eq!(inner.forks.forks_by_size.len(), 1);
+        assert_eq!(inner.forks.max_size.get(), 2);
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_evict_fail(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1])]
+        attestation_1: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_2], 0, 1)]
+        attestation_2: AttestationVote,
+        #[from(quorum_validate)]
+        #[with(1)]
+        _quorum_validate: ValidateQuorum,
+        #[from(config)]
+        #[with(_quorum_validate.clone(), 2)]
+        config: Config,
+    ) {
+        let (sx, rx) = attestation_pool(config);
+
+        assert!(sx
+            .send(attestation_0.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+        assert!(sx
+            .send(attestation_1.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+
+        assert_matches::assert_matches!(
+            sx.send(attestation_2.attestation.clone()).unwrap(),
+            Err(Error::NoSpaceLeft(address, epoch, height)) => {
+                assert_eq!(&attestation_2.attestation.attestor, &address);
+                assert_eq!(attestation_2.attestation.epoch, epoch);
+                assert_eq!(attestation_2.attestation.header_number(), height);
+            }
+        );
+
+        let mut pool = rx.common.pool.lock();
+        let inner = pool.expect_open();
+
+        assert_eq!(inner.forks.forks_by_size.len(), 1);
+        assert_eq!(inner.forks.forks_by_digest.len(), 1);
+        assert_eq!(inner.forks.forks_by_height.get(&0).unwrap().len(), 1);
+        assert_eq!(inner.forks.votes.get(&0).unwrap().len(), 2);
+        assert_eq!(inner.forks.votes_count, 2);
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
     async fn attestation_pool_close_sender(
         _logs: (),
         #[with([ATTESTOR_VALID_1])] attestation: AttestationVote,
@@ -2059,7 +2314,7 @@ mod test {
     ) {
         let (sx, rx) = attestation_pool(config);
         rx.close();
-        assert_matches::assert_matches!(sx.send(attestation.votes[0].clone()), None);
+        assert_matches::assert_matches!(sx.send(attestation.attestation.clone()), None);
     }
 
     #[tokio::test]
@@ -2073,7 +2328,7 @@ mod test {
         use futures::stream::StreamExt as _;
 
         let (sx, mut rx) = attestation_pool(config);
-        assert!(sx.send(attestation.votes[0].clone()).unwrap().is_ok());
+        assert!(sx.send(attestation.attestation.clone()).unwrap().is_ok());
 
         sx.close();
         assert!(rx.next().await.is_none());
@@ -2105,9 +2360,9 @@ mod test {
         attestation_2: AttestationVote,
         permissioned: AttestorValidatePermissioned,
     ) {
-        assert!(permissioned.validate(&attestation_0.votes[0]).is_ok());
+        assert!(permissioned.validate(&attestation_0.attestation).is_ok());
         assert_matches::assert_matches!(
-            permissioned.validate(&attestation_2.votes[0]),
+            permissioned.validate(&attestation_2.attestation),
             Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0))
         );
     }
@@ -2123,8 +2378,8 @@ mod test {
         attestation_2: AttestationVote,
         permissionless: AttestorValidatePermissionless,
     ) {
-        assert!(permissionless.validate(&attestation_0.votes[0]).is_ok());
-        assert!(permissionless.validate(&attestation_2.votes[0]).is_ok());
+        assert!(permissionless.validate(&attestation_0.attestation).is_ok());
+        assert!(permissionless.validate(&attestation_2.attestation).is_ok());
     }
 
     #[rstest::rstest]
@@ -2139,11 +2394,11 @@ mod test {
         deny: AttestorValidateDeny,
     ) {
         assert_matches::assert_matches!(
-            deny.validate(&attestation_0.votes[0]),
+            deny.validate(&attestation_0.attestation),
             Err(Error::Unauthorized(ATTESTOR_VALID_0, 0, 0))
         );
         assert_matches::assert_matches!(
-            deny.validate(&attestation_2.votes[0]),
+            deny.validate(&attestation_2.attestation),
             Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0))
         );
     }

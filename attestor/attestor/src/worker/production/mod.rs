@@ -374,7 +374,6 @@ impl WorkerAttestationProduction {
         self.attestation_local = Some(attestation_latest_eth);
         self.rebroadcast
             .note_attestation_production(attestation_latest_eth)
-            .await
             .expect("Infallible");
 
         Ok(())
@@ -388,6 +387,7 @@ impl WorkerAttestationProduction {
     ) -> Result<(), Error> {
         use crate::events::EventAttestationFinalization as _;
         use crate::events::EventAttestationIntervalChange as _;
+        use crate::events::EventAttestationIntervalChangeAsync as _;
         use crate::events::EventAttestorsElected as _;
 
         for event in res
@@ -422,7 +422,6 @@ impl WorkerAttestationProduction {
                         // latest finalized on-chain attestation.
                         self.eth
                             .note_attestation_finalization(attestation_latest_cc3)
-                            .await
                             .expect("Infallible");
 
                         // 2. Chain Listener - Rebroadcast
@@ -433,7 +432,6 @@ impl WorkerAttestationProduction {
                         // event, but that is handled as a non-failure case by the validation worker).
                         self.rebroadcast
                             .note_attestation_finalization(attestation_latest_cc3)
-                            .await
                             .expect("Infallible");
 
                         // 3. Update the attestation pool
@@ -447,7 +445,6 @@ impl WorkerAttestationProduction {
                         // not want to update the target height and this a no-op).
                         self.sender_validation
                             .note_attestation_finalization(attestation_latest_cc3)
-                            .await
                             .expect("Infallible");
 
                         // 4. Notify the validation worker
@@ -505,7 +502,7 @@ impl WorkerAttestationProduction {
                     //
                     // Catchup to the new target height and update the attestation interval.
                     self.eth
-                        .note_attestation_interval_change(interval, attestation_latest_cc3)
+                        .note_attestation_interval_change_async(interval, attestation_latest_cc3)
                         .await
                         .map_err(Error::EthError)?;
 
@@ -514,7 +511,6 @@ impl WorkerAttestationProduction {
                     // Rebroadcast attestations at the new interval.
                     self.rebroadcast
                         .note_attestation_interval_change(interval, attestation_latest_cc3)
-                        .await
                         .expect("Infallible");
 
                     // 3. Attestation pool
@@ -523,7 +519,6 @@ impl WorkerAttestationProduction {
                     // interval.
                     self.sender_validation
                         .note_attestation_interval_change(interval, attestation_latest_cc3)
-                        .await
                         .expect("Infallible");
 
                     // 4. Production
@@ -589,7 +584,6 @@ impl WorkerAttestationProduction {
                     // Update the set of legal attestors in the attestation pool.
                     self.sender_validation
                         .note_attestors_elected(attestors)
-                        .await
                         .expect("Infallible");
                 }
 

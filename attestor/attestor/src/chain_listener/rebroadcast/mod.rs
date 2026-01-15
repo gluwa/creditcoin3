@@ -98,14 +98,14 @@ impl Rebroadcast {
 
 // ----------------------------------------- [ Events ] ---------------------------------------- //
 
-impl crate::events::EventAttestationFinalization for Rebroadcast {
+impl crate::events::EventAttestationFinalizationAsync for Rebroadcast {
     type Error = std::convert::Infallible;
 
     /// A new attestation has reached finality on the execution chain.
     ///
     /// If we are re-broadcasting attestations, we need to make sure we do not re-broadcast this
     /// attestation.
-    async fn note_attestation_finalization(
+    async fn note_attestation_finalization_async(
         &mut self,
         attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
@@ -120,15 +120,16 @@ impl crate::events::EventAttestationFinalization for Rebroadcast {
         Ok(())
     }
 }
+impl crate::events::EventAttestationFinalization for Rebroadcast {}
 
-impl crate::events::EventAttestationProduction for Rebroadcast {
+impl crate::events::EventAttestationProductionAsync for Rebroadcast {
     type Error = std::convert::Infallible;
 
     /// A new attestation has been produced by the [production worker]. Marks it as ready to be
     /// rebroadcasted.
     ///
     /// [production worker]: crate::worker::production
-    async fn note_attestation_production(
+    async fn note_attestation_production_async(
         &mut self,
         attestation_latest_eth: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
@@ -139,11 +140,12 @@ impl crate::events::EventAttestationProduction for Rebroadcast {
         Ok(())
     }
 }
+impl crate::events::EventAttestationProduction for Rebroadcast {}
 
-impl crate::events::EventAttestationIntervalChange for Rebroadcast {
+impl crate::events::EventAttestationIntervalChangeAsync for Rebroadcast {
     type Error = std::convert::Infallible;
 
-    async fn note_attestation_interval_change(
+    async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
         attestation_latest_cc3: Option<common::types::Height>,
@@ -164,3 +166,4 @@ impl crate::events::EventAttestationIntervalChange for Rebroadcast {
         Ok(())
     }
 }
+impl crate::events::EventAttestationIntervalChange for Rebroadcast {}

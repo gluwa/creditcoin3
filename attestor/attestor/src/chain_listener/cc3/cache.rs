@@ -112,10 +112,10 @@ impl AttestationBlockCache {
     }
 }
 
-impl crate::events::EventAttestationFinalization for AttestationBlockCache {
+impl crate::events::EventAttestationFinalizationAsync for AttestationBlockCache {
     type Error = std::convert::Infallible;
 
-    async fn note_attestation_finalization(
+    async fn note_attestation_finalization_async(
         &mut self,
         _latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
@@ -123,3 +123,4 @@ impl crate::events::EventAttestationFinalization for AttestationBlockCache {
         Ok(())
     }
 }
+impl crate::events::EventAttestationFinalization for AttestationBlockCache {}

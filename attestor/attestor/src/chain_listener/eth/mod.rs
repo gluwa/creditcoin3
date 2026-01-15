@@ -204,13 +204,13 @@ impl Ethereum {
 
 // ----------------------------------------- [ Events ] ---------------------------------------- //
 
-impl crate::events::EventAttestationFinalization for Ethereum {
+impl crate::events::EventAttestationFinalizationAsync for Ethereum {
     type Error = std::convert::Infallible;
 
     /// A new attestation has reached finality on the execution chain.
     ///
     /// If we are catching up, we need to make sure we do not re-generate this attestation.
-    async fn note_attestation_finalization(
+    async fn note_attestation_finalization_async(
         &mut self,
         attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
@@ -224,8 +224,9 @@ impl crate::events::EventAttestationFinalization for Ethereum {
         Ok(())
     }
 }
+impl crate::events::EventAttestationFinalization for Ethereum {}
 
-impl crate::events::EventAttestationIntervalChange for Ethereum {
+impl crate::events::EventAttestationIntervalChangeAsync for Ethereum {
     type Error = Error;
 
     /// A new attestation interval has been set on-chain.
@@ -233,7 +234,7 @@ impl crate::events::EventAttestationIntervalChange for Ethereum {
     /// We need to make sure the next source chain block we attest to is a multiple of the new
     /// attestation interval. If we are catching up on past attestations, we also need to make sure
     /// we skip any attestations before that point.
-    async fn note_attestation_interval_change(
+    async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
         attestation_latest_cc3: Option<common::types::Height>,
