@@ -410,7 +410,6 @@ impl AttestationPoolInner {
         if attestation.header_number() < self.validate_quorum.target_height {
             return Err(Error::InvalidHeight(
                 attestation.attestor.clone(),
-                attestation.epoch,
                 height,
                 self.validate_quorum.target_height,
             ));
@@ -566,7 +565,6 @@ impl AttestationPoolForks {
         &mut self,
         attestation: common::types::Attestation,
     ) -> Result<Vec<common::types::Attestation>, Error> {
-        let epoch = attestation.epoch;
         let height = attestation.header_number();
         let digest = attestation.digest();
         let prev_digest = attestation.prev_digest();
@@ -579,13 +577,13 @@ impl AttestationPoolForks {
             .get(&height)
             .is_some_and(|invalid| invalid.contains(&digest))
         {
-            return Err(Error::InvalidDigest(attestor_id, epoch, height, digest));
+            return Err(Error::InvalidDigest(attestor_id, height, digest));
         }
 
         tracing::debug!("Make sure there is enough space for insertion");
 
         let Ok(removed) = self.try_evict_if_necessary(digest) else {
-            return Err(Error::NoSpaceLeft(attestor_id, epoch, height));
+            return Err(Error::NoSpaceLeft(attestor_id, height));
         };
 
         tracing::debug!("Checking for equivocations");
@@ -599,7 +597,7 @@ impl AttestationPoolForks {
             std::collections::hash_map::Entry::Occupied(entry) => {
                 let past_vote = entry.get();
                 if past_vote != &digest {
-                    return Err(Error::Equivocation(attestor_id, epoch, height));
+                    return Err(Error::Equivocation(attestor_id, height));
                 }
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
@@ -1540,7 +1538,6 @@ impl ValidateAttestor for AttestorValidatePermissioned {
         if !self.attestor_set.contains(&attestation.attestor) {
             return Err(Error::Unauthorized(
                 attestation.attestor.clone(),
-                attestation.epoch,
                 attestation.header_number(),
             ));
         }
@@ -1575,7 +1572,6 @@ impl ValidateAttestor for AttestorValidateDeny {
     fn validate(&self, attestation: &common::types::Attestation) -> Result<(), Error> {
         Err(Error::Unauthorized(
             attestation.attestor.clone(),
-            attestation.epoch,
             attestation.header_number(),
         ))
     }
@@ -1634,7 +1630,6 @@ pub mod fixtures {
         #[default([ATTESTOR_VALID_0])] attestors: impl IntoIterator<
             Item = attestor_primitives::AttestorId,
         >,
-        #[default(0)] epoch: common::types::Epoch,
         #[default(0)] header_number: common::types::Height,
         #[default(DIGEST_0)] prev_digest: attestor_primitives::Digest,
     ) -> AttestationVote {
@@ -1653,7 +1648,7 @@ pub mod fixtures {
                     .sign(b"0xdeadbeef"),
             ),
             continuity_proof: Default::default(),
-            epoch,
+            epoch: 0,
         };
 
         iter.fold(
@@ -1676,7 +1671,7 @@ pub mod fixtures {
                             .sign(b"0xdeadbeef"),
                     ),
                     continuity_proof: Default::default(),
-                    epoch,
+                    epoch: 0,
                 });
                 attestation.signers.insert(attestor);
                 attestation
@@ -1702,11 +1697,9 @@ pub mod fixtures {
     pub fn quorum(
         #[default([ATTESTOR_VALID_0])] _attestors: impl IntoIterator<Item = attestor_primitives::AttestorId>
             + Clone,
-        #[default(0)] _epoch: common::types::Epoch,
         #[default(0)] _header_number: common::types::Height,
         #[default(DIGEST_0)] _prev_digest: attestor_primitives::Digest,
-        #[with(_attestors.clone(), _epoch, _header_number, _prev_digest)]
-        attestation: AttestationVote,
+        #[with(_attestors.clone(), _header_number, _prev_digest)] attestation: AttestationVote,
     ) -> Quorum {
         Quorum(attestation.votes)
     }
@@ -1778,11 +1771,9 @@ pub mod fixtures {
     pub fn permit(
         #[default([ATTESTOR_VALID_0])] _attestors: impl IntoIterator<Item = attestor_primitives::AttestorId>
             + Clone,
-        #[default(0)] _epoch: common::types::Epoch,
         #[default(0)] _header_number: common::types::Height,
         #[default(DIGEST_0)] _prev_digest: attestor_primitives::Digest,
-        #[with(_attestors.clone(), _epoch, _header_number, _prev_digest)]
-        attestation: AttestationVote,
+        #[with(_attestors.clone(), _header_number, _prev_digest)] attestation: AttestationVote,
     ) -> AttestationPermit {
         AttestationPermit((
             attestation.attestation.header_number(),
@@ -1839,16 +1830,16 @@ mod test {
     async fn attestation_pool_sanity_mark_valid(
         _logs: (),
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 0, 0, DIGEST_0)]
+        #[with([ATTESTOR_VALID_0], 0, DIGEST_0)]
         attestation_0: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 0, 0, DIGEST_0)]
+        #[with([ATTESTOR_VALID_1], 0, DIGEST_0)]
         attestation_1: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_2], 0, 0, DIGEST_1)]
+        #[with([ATTESTOR_VALID_2], 0, DIGEST_1)]
         attestation_2: AttestationVote,
         #[from(quorum)]
-        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 0, 0, DIGEST_0)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 0, DIGEST_0)]
         quorum_expected: Quorum,
         config: Config,
     ) {
@@ -1882,7 +1873,7 @@ mod test {
     async fn attestation_pool_sanity_pending(
         _logs: (),
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 0, 1, DIGEST_1)]
+        #[with([ATTESTOR_VALID_0], 1, DIGEST_1)]
         attestation_pending: AttestationVote,
         config: Config,
     ) {
@@ -2018,7 +2009,7 @@ mod test {
 
         assert_matches::assert_matches!(
             sx.send(attestation.attestation.clone()),
-            Some(Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0)))
+            Some(Err(Error::Unauthorized(ATTESTOR_INVALID, 0)))
         );
     }
 
@@ -2068,7 +2059,7 @@ mod test {
         #[with([ATTESTOR_VALID_0])]
         attestation_0: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 0, 1, DIGEST_1)]
+        #[with([ATTESTOR_VALID_1], 1, DIGEST_1)]
         attestation_1: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_VALID_2])]
@@ -2117,7 +2108,7 @@ mod test {
         #[with([ATTESTOR_VALID_1])]
         attestation_1: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_2], 0, 1)]
+        #[with([ATTESTOR_VALID_2], 1)]
         attestation_2: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_VALID_3])]
@@ -2242,7 +2233,7 @@ mod test {
         #[with([ATTESTOR_VALID_1])]
         attestation_1: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_2], 0, 1)]
+        #[with([ATTESTOR_VALID_2], 1)]
         attestation_2: AttestationVote,
         #[from(quorum_validate)]
         #[with(1)]
@@ -2266,9 +2257,8 @@ mod test {
 
         assert_matches::assert_matches!(
             sx.send(attestation_2.attestation.clone()).unwrap(),
-            Err(Error::NoSpaceLeft(address, epoch, height)) => {
+            Err(Error::NoSpaceLeft(address, height)) => {
                 assert_eq!(&attestation_2.attestation.attestor, &address);
-                assert_eq!(attestation_2.attestation.epoch, epoch);
                 assert_eq!(attestation_2.attestation.header_number(), height);
             }
         );
@@ -2342,7 +2332,7 @@ mod test {
         assert!(permissioned.validate(&attestation_0.attestation).is_ok());
         assert_matches::assert_matches!(
             permissioned.validate(&attestation_2.attestation),
-            Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0))
+            Err(Error::Unauthorized(ATTESTOR_INVALID, 0))
         );
     }
 
@@ -2374,11 +2364,11 @@ mod test {
     ) {
         assert_matches::assert_matches!(
             deny.validate(&attestation_0.attestation),
-            Err(Error::Unauthorized(ATTESTOR_VALID_0, 0, 0))
+            Err(Error::Unauthorized(ATTESTOR_VALID_0, 0))
         );
         assert_matches::assert_matches!(
             deny.validate(&attestation_2.attestation),
-            Err(Error::Unauthorized(ATTESTOR_INVALID, 0, 0))
+            Err(Error::Unauthorized(ATTESTOR_INVALID, 0))
         );
     }
 }
