@@ -204,3 +204,9 @@ jobs:
           git status
           git branch
           git diff --diff-filter=U | colordiff
+
+          echo "INFO: short list of commits that may be causing this conflict"
+          git log --merge | grep "^commit "
+
+          echo "INFO: long list of commits that may be causing this conflict"
+          git log --merge
