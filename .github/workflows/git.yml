@@ -147,6 +147,7 @@ jobs:
 
       - name: DEBUG
         if: always()
+        continue-on-error: true
         run: |
           cat .git/rebase-merge/git-rebase-todo.backup || echo
           git status
@@ -196,6 +197,7 @@ jobs:
 
       - name: DEBUG
         if: always()
+        continue-on-error: true
         run: |
           echo "INFO: Number of conflicts found"
           grep "<<< HEAD" ./* -R | wc -l
