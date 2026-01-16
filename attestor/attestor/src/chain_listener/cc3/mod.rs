@@ -250,6 +250,11 @@ impl CC3 {
     ) -> Option<
         Result<attestor_primitives::attestation_fragment::AttestationFragmentSerializable, Error>,
     > {
+        use futures::FutureExt as _;
+        use rayon::iter::IndexedParallelIterator as _;
+        use rayon::iter::IntoParallelIterator as _;
+        use rayon::iter::ParallelIterator as _;
+
         // ------------------------------------* Range checks *------------------------------------
 
         // TODO: move this special case out of this function
@@ -290,28 +295,67 @@ impl CC3 {
 
         // ----------------------------------* Continuity proof *----------------------------------
 
-        let blocks = match self
-            .cache
-            .fetch_blocks(&mut self.eth, from_digest, block_start, block_stop)
-            .await
-        {
+        let fragment_size = (block_stop - block_start + 1) as usize;
+
+        // STEP 1] SOURCE BLOCKS
+        //
+        // Tries to fetch each source chain block CONCURRENTLY, but NOT IN PARALLEL
+        let encoding = ccnext_abi_encoding::common::EncodingVersion::V1;
+        let blocks = (block_start..=block_stop).map(|height| {
+            self.eth
+                .get_block(height, encoding)
+                .map(|opt| opt.transpose().map_err(Error::EthClient))
+        });
+        let blocks = match futures::future::try_join_all(blocks).await {
             Ok(blocks) => blocks,
             Err(err) => return Some(Err(err)),
         };
 
-        Some(Ok(
-            attestor_primitives::attestation_fragment::AttestationFragmentSerializable { blocks },
-        ))
-    }
+        // STEP 2] MERKLE ROOT
+        //
+        // Computes each block's MMR root CONCURRENTLY and IN PARALLEL
+        let mut blocks_with_roots = Vec::with_capacity(fragment_size);
+        blocks
+            .into_par_iter()
+            .map(|opt| opt.map(|block| (eth::simple_merkle_tree(&block).root(), block)))
+            .collect_into_vec(&mut blocks_with_roots);
 
-    // TODO: remove this
-    pub fn get_chain_key(&self) -> attestor_primitives::ChainKey {
-        self.chain_key
-    }
+        // STEP 3] FRAGMENT AGGREGATION
+        //
+        // Aggregate each block into a single fragment
+        let mut fragment_blocks =
+            Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(fragment_size);
+        for opt in blocks_with_roots {
+            let Some((root, block)) = opt else {
+                // NOTE: INTERRUPT
+                //
+                // User-initiated shutdown. See the implementation of `self.eth.get_block` to
+                // understand why this is here.
+                return None;
+            };
 
-    // TODO: remove this
-    pub async fn get_current_epoch(&self) -> Result<u64, Error> {
-        self.cc3.get_current_epoch().await.map_err(Error::Cc3Client)
+            let block = if let Some(head) = fragment_blocks.last() {
+                attestor_primitives::block::Block::new_from_prev_digest(
+                    block.number(),
+                    root,
+                    head.digest,
+                )
+            } else {
+                attestor_primitives::block::Block::new_from_prev_digest(
+                    block.number(),
+                    root,
+                    from_digest,
+                )
+            };
+
+            fragment_blocks.push(attestor_primitives::block::BlockSerializable::from(block));
+        }
+
+        let fragment = attestor_primitives::attestation_fragment::AttestationFragmentSerializable {
+            blocks: fragment_blocks,
+        };
+
+        Some(Ok(fragment))
     }
 
     pub fn api(&self) -> subxt::OnlineClient<subxt::SubstrateConfig> {

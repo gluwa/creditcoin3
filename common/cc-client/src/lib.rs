@@ -1,6 +1,5 @@
 use std::{str::FromStr, time::Duration};
 
-use anyhow::Result;
 use sc_service::GenericChainSpec;
 use serde::Serialize;
 use sp_core::{
@@ -81,6 +80,8 @@ pub enum Error {
     FailedToGetChainName,
     #[error("Failed to get STARK metadata: {0}")]
     FailedToGetStarkMetadata(String),
+    #[error("Attestor not found in storage, register the attestor first and retry later")]
+    NotRegistered,
 }
 
 #[derive(Clone)]
@@ -106,7 +107,7 @@ impl Client {
     /// Create a new instance of cc3 client
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
-    pub async fn new(url: impl Into<String> + Clone, key: &str) -> Result<Self> {
+    pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
         let secret_uri = SecretUri::from_str(key)?;
         let signing_keypair = Keypair::from_uri(&secret_uri)?;
 
@@ -138,7 +139,7 @@ impl Client {
     /// This is useful for read-only operations where signing is not needed.
     /// Uses a dummy keypair internally (which won't be used for read operations).
     /// - `url`: rpc url of a creditcoin node
-    pub async fn new_read_only(url: impl Into<String> + Clone) -> Result<Self> {
+    pub async fn new_read_only(url: impl Into<String> + Clone) -> anyhow::Result<Self> {
         // Use a dummy key for read-only operations - it won't be used for signing
         const DUMMY_KEY: &str = "//Alice";
         Self::new(url, DUMMY_KEY).await
@@ -194,7 +195,10 @@ impl Client {
         Ok(spec.id().to_string())
     }
 
-    pub async fn get_supported_chain(&self, chain_key: ChainKey) -> Result<Option<SupportedChain>> {
+    pub async fn get_supported_chain(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<SupportedChain>, Error> {
         let address = cc3::storage()
             .supported_chains()
             .supported_chains(chain_key);
@@ -211,7 +215,7 @@ impl Client {
         Ok(result.map(Into::into))
     }
 
-    pub async fn get_supported_chains(&self) -> Result<Vec<SupportedChain>> {
+    pub async fn get_supported_chains(&self) -> Result<Vec<SupportedChain>, Error> {
         let mut supported_chains: Vec<SupportedChain> = Vec::new();
         let address = cc3::storage().supported_chains().supported_chains_iter();
 
@@ -317,7 +321,7 @@ impl Client {
     }
 
     /// Check the clients membership in the attestor pallet
-    pub async fn check_attestors_membership(&self, chain_key: u64) -> Result<bool> {
+    pub async fn check_attestors_membership(&self, chain_key: u64) -> Result<bool, Error> {
         let storage_query = cc3::storage().attestation().active_attestors(chain_key);
 
         let result = self
@@ -337,7 +341,7 @@ impl Client {
 
     /// Check if the attestor is registered (has a public key)
     /// note: this function early exits if the attestor is not registered
-    pub async fn check_attestor_key_is_registered(&self, chain_key: u64) -> Result<bool> {
+    pub async fn check_attestor_key_is_registered(&self, chain_key: u64) -> Result<bool, Error> {
         let storage_query = cc3::storage()
             .attestation()
             .attestors(chain_key, AccountId32(self.signing_keypair.public_key().0));
@@ -353,9 +357,7 @@ impl Client {
 
         match result {
             Some(attestor) => Ok(attestor.bls_public_key.is_some()),
-            None => Err(anyhow::anyhow!(
-                "Attestor not found in storage, register the attestor first and retry later"
-            )),
+            None => Err(Error::NotRegistered),
         }
     }
 
@@ -398,7 +400,7 @@ impl Client {
         chain_key: u64,
         attestor_id: AccountId32,
         account_nonce: Option<u64>,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         let tx = cc3::tx()
             .attestation()
             .register_attestor(chain_key, attestor_id);
@@ -433,7 +435,7 @@ impl Client {
         chain_key: u64,
         attestor_id: AccountId32,
         account_nonce: Option<u64>,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         let tx = cc3::tx().attestation().chill(chain_key, attestor_id);
 
         let params = if let Some(account_nonce) = account_nonce {
@@ -466,7 +468,7 @@ impl Client {
         chain_key: u64,
         attestor_id: AccountId32,
         account_nonce: Option<u64>,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         let tx = cc3::tx()
             .attestation()
             .unregister_attestor(chain_key, attestor_id);
@@ -501,7 +503,7 @@ impl Client {
         chain_key: ChainKey,
         bls_public_key: BlsPublicKey,
         proof_of_possession: BlsSignature,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         let tx = cc3::tx()
             .attestation()
             .attest(chain_key, bls_public_key, proof_of_possession);
@@ -584,7 +586,10 @@ impl Client {
         AttestorId::from_public(self.signing_keypair.public_key().0)
     }
 
-    pub async fn chain_attestation_interval(&self, chain_key: ChainKey) -> Result<Option<u64>> {
+    pub async fn chain_attestation_interval(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<u64>, Error> {
         let storage_query = cc3::storage()
             .attestation()
             .chain_attestation_interval(chain_key);
@@ -687,7 +692,7 @@ impl Client {
         &self,
         chain_key: ChainKey,
         block_number: u64,
-    ) -> Result<Option<AttestationCheckpoint>> {
+    ) -> Result<Option<AttestationCheckpoint>, Error> {
         let storage_query = cc3::storage()
             .attestation()
             .checkpoints(chain_key, block_number);
@@ -709,7 +714,7 @@ impl Client {
     pub async fn get_attestations_for_chain(
         &self,
         chain_key: ChainKey,
-    ) -> Result<Vec<SignedAttestation<Digest, AccountId32>>> {
+    ) -> Result<Vec<SignedAttestation<Digest, AccountId32>>, Error> {
         let mut attestations: Vec<SignedAttestation<Digest, AccountId32>> = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
@@ -746,7 +751,7 @@ impl Client {
     pub async fn get_checkpoints_for_chain(
         &self,
         chain_key: ChainKey,
-    ) -> Result<Vec<AttestationCheckpoint>> {
+    ) -> Result<Vec<AttestationCheckpoint>, Error> {
         let mut checkpoints = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
@@ -833,7 +838,7 @@ impl Client {
         target: AccountId32,
         amount: u128,
         account_nonce: Option<u64>,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         let tx = cc3::tx()
             .balances()
             .transfer_allow_death(subxt::utils::MultiAddress::Id(target), amount);
@@ -868,7 +873,7 @@ impl Client {
         target: AccountId32,
         amount: u128,
         account_nonce: Option<u64>,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         let tx = cc3::tx().sudo().sudo(cc3::Call::Balances(
             cc3::balances::Call::force_set_balance {
                 who: subxt::utils::MultiAddress::Id(target),
@@ -901,7 +906,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn get_account_nonce(&self) -> Result<u64> {
+    pub async fn get_account_nonce(&self) -> Result<u64, Error> {
         let nonce = self
             .api()
             .await?

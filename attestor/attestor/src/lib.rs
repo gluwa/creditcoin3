@@ -97,9 +97,14 @@ impl Attestor {
         let cc3_key = self.config.cc3.cc3_key.to_string();
         let cc3_client = cc_client::Client::new(&self.config.cc3.cc3_url.to_string(), &cc3_key)
             .await
-            .map_err(Error::CC3Error)?;
+            .map_err(Error::Init)?;
 
         // ---------------------------------* Chain configuration *--------------------------------
+
+        let epoch = cc3_client
+            .get_current_epoch()
+            .await
+            .map_err(Error::CC3Error)?;
 
         let attestation_interval = match self.config.attestation.attestation_interval {
             Some(attestation_interval) => attestation_interval,
@@ -198,7 +203,7 @@ impl Attestor {
             .build();
         let cc3_production = chain_listener::cc3::CC3::new(config)
             .await
-            .map_err(Error::CC3Error)?;
+            .map_err(Error::Init)?;
 
         let config = self
             .config
@@ -211,7 +216,7 @@ impl Attestor {
             .build();
         let cc3_validation = chain_listener::cc3::CC3::new(config)
             .await
-            .map_err(Error::CC3Error)?;
+            .map_err(Error::Init)?;
 
         let config = self
             .config
@@ -221,7 +226,7 @@ impl Attestor {
             .build();
         let eth = chain_listener::eth::Ethereum::new(config)
             .await
-            .map_err(Error::EthError)?;
+            .map_err(Error::Init)?;
 
         // ---------------------------------------* Metrics *--------------------------------------
 
@@ -244,11 +249,6 @@ impl Attestor {
             tokio::sync::broadcast::channel(common::constants::CAPACITY_CHANNEL);
 
         // attestation production / p2p sync -> attestation validation
-        let epoch = cc3_production
-            .get_current_epoch()
-            .await
-            .map_err(|err| Error::InitError(Box::new(err)))?;
-
         let config = self
             .config
             .pool
@@ -294,6 +294,7 @@ impl Attestor {
             .with_attestation_interval(attestation_interval)
             .with_epoch(epoch)
             .with_start_height(start_height)
+            .with_chain_key(self.config.chain_key)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let attestation_production = worker::production::WorkerAttestationProduction::new(config)

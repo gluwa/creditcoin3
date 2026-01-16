@@ -152,6 +152,7 @@ pub struct Config {
     attestation_interval: std::num::NonZero<common::types::Height>,
     epoch: common::types::Epoch,
     start_height: common::types::Height,
+    chain_key: attestor_primitives::ChainKey,
 
     metrics: common::types::Metrics,
     account_id: cc_client::AccountId32,
@@ -175,6 +176,7 @@ pub(crate) struct WorkerAttestationProduction {
     attestation_interval: std::num::NonZero<common::types::Height>,
     epoch: common::types::Epoch,
     start_height: common::types::Height,
+    chain_key: attestor_primitives::ChainKey,
 
     // METRICS
     metrics: common::types::Metrics,
@@ -204,6 +206,7 @@ impl WorkerAttestationProduction {
             attestation_interval: config.attestation_interval,
             epoch: config.epoch,
             start_height: config.start_height,
+            chain_key: config.chain_key,
 
             metrics: config.metrics,
 
@@ -273,7 +276,7 @@ impl WorkerAttestationProduction {
         let prev_digest = continuity_fragment.head().map(|head| head.digest);
 
         let attestation = attestor_primitives::AttestationData::<attestor_primitives::Digest>::new(
-            self.cc3.get_chain_key(),
+            self.chain_key,
             block.number(),
             sp_core::H256(*block.hash()),
             eth::simple_merkle_tree(&block).root(),
@@ -375,7 +378,7 @@ impl WorkerAttestationProduction {
             match event.map_err(Error::CC3Error)? {
                 // CASE 1] NEW ATTESTATION
                 cc_client::attestation::CcEvent::BlockAttested(attestation) => {
-                    if attestation.chain_key() == self.cc3.get_chain_key() {
+                    if attestation.chain_key() == self.chain_key {
                         let digest = attestation.digest();
                         let height = attestation.header_number();
                         let attestation_latest_cc3 = (digest, height);
