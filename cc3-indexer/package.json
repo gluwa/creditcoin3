@@ -52,7 +52,7 @@
     },
     "dependencies": {
         "package-json-type": "^1.0.3",
-        "pino": "^10.1.0",
+        "pino": "^10.2.0",
         "typechain": "^8.3.2"
     }
 }
