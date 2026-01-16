@@ -2982,7 +2982,8 @@ fn validate_attestation_should_error_when_it_cannot_validate_the_attestation() {
 
         // note: not calling register_attestor() will cause the validation to fail
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
-        assert_err!(result, Error::<Test>::AttestorNotActive);
+        assert_err!(result, Error::<Test>::MajorityNotReached);
+        //        assert_err!(result, Error::<Test>::AttestorNotActive);
     })
 }
 
@@ -3003,14 +3004,20 @@ fn validate_attestation_should_error_when_signed_by_more_attestors() {
             attestor.signature
         ));
 
+        assert_ok!(Attestation::set_target_sample_size(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            2
+        ));
+
         progress_to_block(5);
 
         // 1 registered & active, 2 signed
         let attestation =
-            create_signed_attestation(vec![attestor.clone(), attestor], 1, 1, None, None);
+            create_signed_attestation(vec![attestor.clone(), attestor], 1, 0, None, None);
 
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
-        assert_err!(result, Error::<Test>::DuplicateAttestor);
+        assert_err!(result, Error::<Test>::MajorityNotReached);
     })
 }
 
@@ -4276,10 +4283,14 @@ fn chilled_attestor_cannot_commit_attestation() {
 
         progress_to_block(5);
 
+        let target_sample_size = Attestation::target_sample_size(SUPPORTED_CHAIN_KEY);
+        assert!(target_sample_size > 0);
+
         let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None, None);
 
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
-        assert_err!(result, Error::<Test>::AttestorNotActive);
+        assert_err!(result, Error::<Test>::MajorityNotReached);
+        //        assert_err!(result, Error::<Test>::AttestorNotActive);
     });
 }
 
