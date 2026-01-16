@@ -246,7 +246,6 @@ impl CC3 {
     pub async fn create_continuity_proof(
         &mut self,
         height: common::types::Height,
-        latest_attestation_eth: Option<(attestor_primitives::Digest, common::types::Height)>,
         latest_attestation_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
     ) -> Option<
         Result<attestor_primitives::attestation_fragment::AttestationFragmentSerializable, Error>,
@@ -259,18 +258,9 @@ impl CC3 {
             return Some(Ok(Default::default()));
         }
 
-        let (from_digest, block_start) = match (latest_attestation_cc3, latest_attestation_eth) {
-            (Some((digest, height)), None) | (None, Some((digest, height))) => {
-                (digest, height.saturating_add(1))
-            }
-            (Some((digest_cc3, height_cc3)), Some((digest_eth, height_eth))) => {
-                if height_eth > height_cc3 {
-                    (digest_eth, height_eth.saturating_add(1))
-                } else {
-                    (digest_cc3, height_cc3.saturating_add(1))
-                }
-            }
-            (None, None) => (attestor_primitives::Digest::zero(), self.start_height),
+        let (from_digest, block_start) = match latest_attestation_cc3 {
+            Some((digest, height)) => (digest, height.saturating_add(1)),
+            None => (attestor_primitives::Digest::zero(), self.start_height),
         };
 
         let block_stop = if height == block_start {

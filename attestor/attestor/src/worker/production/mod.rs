@@ -170,7 +170,7 @@ pub(crate) struct WorkerAttestationProduction {
     sender_attestation_latest: tokio::sync::watch::Sender<Option<common::types::Height>>,
 
     // CHAIN DATA
-    attestation_local: Option<(attestor_primitives::Digest, common::types::Height)>,
+    attestation_local: Option<common::types::Height>,
     attestation_latest_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
     attestation_interval: std::num::NonZero<common::types::Height>,
     epoch: common::types::Epoch,
@@ -259,7 +259,7 @@ impl WorkerAttestationProduction {
 
         let continuity_fragment = match self
             .cc3
-            .create_continuity_proof(height, self.attestation_local, self.attestation_latest_cc3)
+            .create_continuity_proof(height, self.attestation_latest_cc3)
             .await
         {
             Some(Ok(continuity_fragment)) => continuity_fragment,
@@ -286,8 +286,7 @@ impl WorkerAttestationProduction {
             .await;
 
         let elapsed = now.elapsed();
-        self.metrics
-            .update_attestation_delay_production(elapsed.as_secs_f64());
+        self.metrics.update_attestation_delay_production(elapsed);
 
         let digest = attestation_signed.digest();
         let digest_prev = attestation_signed.prev_digest();
@@ -351,9 +350,7 @@ impl WorkerAttestationProduction {
         }
 
         // STEP 6] UPDATE SYNC STATUS
-
-        let attestation_latest_eth = (digest, height);
-        self.attestation_local = Some(attestation_latest_eth);
+        self.attestation_local = Some(height);
 
         Ok(())
     }
@@ -381,10 +378,6 @@ impl WorkerAttestationProduction {
                     if attestation.chain_key() == self.cc3.get_chain_key() {
                         let digest = attestation.digest();
                         let height = attestation.header_number();
-                        let attestation_local = self
-                            .attestation_local
-                            .map(|(_digest, height)| height)
-                            .unwrap_or(self.start_height);
                         let attestation_latest_cc3 = (digest, height);
 
                         tracing::info!(
@@ -438,9 +431,11 @@ impl WorkerAttestationProduction {
                         self.attestations.retain(|h, _att| *h > height);
 
                         // 5. Metrics
+                        //
+                        // Update attestation production metrics
                         self.metrics.set_attestation_finalized(height);
                         self.metrics.update_attestation_lag_cc3(
-                            attestation_local,
+                            self.attestation_local.unwrap_or(self.start_height),
                             height,
                             self.attestation_interval,
                         );
@@ -486,7 +481,6 @@ impl WorkerAttestationProduction {
                     // 3. Production
                     //
                     // Clear local state
-                    self.attestation_local = None;
                     self.attestations.clear();
                     self.attestation_interval = interval;
 

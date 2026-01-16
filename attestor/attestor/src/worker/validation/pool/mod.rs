@@ -376,8 +376,8 @@ impl AttestationPool {
             validate_quorum,
             validate_attestor,
 
+            attestation_delay: AttestationPoolDelays::new(metrics.clone()),
             metrics,
-            attestation_delay: AttestationPoolDelays::new(),
 
             wakers: std::collections::VecDeque::new(),
         })
@@ -441,8 +441,7 @@ impl AttestationPoolInner {
 
                 // Only update metrics the first time quorum is reached at that height
                 if let Some(elapsed) = self.attestation_delay.pop(height) {
-                    self.metrics
-                        .update_attestation_delay_quorum(elapsed.as_secs_f64());
+                    self.metrics.update_attestation_delay_quorum(elapsed);
                 }
 
                 (quorum, permit)
@@ -945,12 +944,14 @@ impl crate::events::EventAttestationIntervalChange for AttestationPoolQuorums {}
 
 struct AttestationPoolDelays {
     time: std::collections::BTreeMap<common::types::Height, std::time::Instant>,
+    metrics: common::types::Metrics,
 }
 
 impl AttestationPoolDelays {
-    fn new() -> Self {
+    fn new(metrics: common::types::Metrics) -> Self {
         Self {
             time: Default::default(),
+            metrics,
         }
     }
 
@@ -974,7 +975,15 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolDelays 
     ) -> Result<(), Self::Error> {
         tracing::debug!("Updating quorum delays");
         let (_digest, height) = latest_attestation_cc3;
-        self.time = self.time.split_off(&(height.saturating_add(1)));
+
+        let mut removed = self.time.split_off(&(height.saturating_add(1)));
+        std::mem::swap(&mut removed, &mut self.time);
+
+        for (_, then) in removed {
+            self.metrics
+                .update_attestation_delay_finalization(then.elapsed());
+        }
+
         Ok(())
     }
 }
@@ -1821,7 +1830,7 @@ mod test {
         let actual = rx.next().await;
         let expected = Some((quorum, permit, None));
 
-        assert_eq!(actual, expected,);
+        assert_eq!(actual, expected);
     }
 
     #[tokio::test]

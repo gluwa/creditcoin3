@@ -413,28 +413,28 @@ impl Metrics {
             .set(lag_cc3);
     }
 
-    pub fn update_attestation_delay_production(&self, delay: f64) {
+    pub fn update_attestation_delay_production(&self, delay: std::time::Duration) {
         self.metrics_delay
             .get_or_create(&labels::LabelAttestationLifecycle {
                 lifecycle: labels::AttestationLifecycle::Production,
             })
-            .observe(delay);
+            .observe(delay.as_secs_f64());
     }
 
-    pub fn update_attestation_delay_quorum(&self, delay: f64) {
+    pub fn update_attestation_delay_quorum(&self, delay: std::time::Duration) {
         self.metrics_delay
             .get_or_create(&labels::LabelAttestationLifecycle {
                 lifecycle: labels::AttestationLifecycle::Quorum,
             })
-            .observe(delay);
+            .observe(delay.as_secs_f64());
     }
 
-    pub fn update_attestation_delay_finalization(&self, delay: f64) {
+    pub fn update_attestation_delay_finalization(&self, delay: std::time::Duration) {
         self.metrics_delay
             .get_or_create(&labels::LabelAttestationLifecycle {
                 lifecycle: labels::AttestationLifecycle::Finalization,
             })
-            .observe(delay);
+            .observe(delay.as_secs_f64());
     }
 
     pub fn increase_peer_count(&self) {
