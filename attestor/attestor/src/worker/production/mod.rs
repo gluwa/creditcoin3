@@ -144,7 +144,6 @@ pub struct Config {
     eth: crate::chain_listener::eth::Ethereum,
     cc3: crate::chain_listener::cc3::CC3,
 
-    rebroadcast: crate::chain_listener::rebroadcast::Rebroadcast,
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
     sender_validation: crate::worker::validation::pool::AttestationPoolSender,
     sender_attestation_latest: tokio::sync::watch::Sender<Option<common::types::Height>>,
@@ -156,7 +155,6 @@ pub struct Config {
 
     metrics: common::types::Metrics,
     account_id: cc_client::AccountId32,
-    can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -165,7 +163,6 @@ pub(crate) struct WorkerAttestationProduction {
     // CHAIN LISTENERS
     eth: crate::chain_listener::eth::Ethereum,
     cc3: crate::chain_listener::cc3::CC3,
-    rebroadcast: crate::chain_listener::rebroadcast::Rebroadcast,
 
     // MESSAGE CHANNELS
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
@@ -186,9 +183,6 @@ pub(crate) struct WorkerAttestationProduction {
     account_id: cc_client::AccountId32,
     can_attest: bool,
 
-    // P2P DATA
-    can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
-
     // ATTESTATION CACHE
     attestations: std::collections::HashMap<common::types::Height, common::types::Attestation>,
 }
@@ -200,7 +194,6 @@ impl WorkerAttestationProduction {
         Ok(Self {
             eth: config.eth,
             cc3: config.cc3,
-            rebroadcast: config.rebroadcast,
 
             sender_p2p: config.sender_p2p,
             sender_validation: config.sender_validation,
@@ -217,8 +210,6 @@ impl WorkerAttestationProduction {
             account_id: config.account_id,
             can_attest,
 
-            can_broadcast: config.can_broadcast,
-
             attestations: std::collections::HashMap::new(),
         })
     }
@@ -233,10 +224,6 @@ impl super::Worker for WorkerAttestationProduction {
         mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
     ) -> common::types::Result<()> {
         loop {
-            let can_broadcast = self
-                .can_broadcast
-                .load(std::sync::atomic::Ordering::Acquire);
-
             tokio::select! {
                 biased;
 
@@ -245,9 +232,6 @@ impl super::Worker for WorkerAttestationProduction {
                 }
                 Some(event) = self.cc3.next() => {
                     self.handle_event_cc3(event).await?;
-                }
-                Some(event) = self.rebroadcast.next(), if self.can_attest && can_broadcast => {
-                    self.handle_event_rebroadcast(event).await?;
                 }
                 Some(event) = self.eth.next(), if self.can_attest => {
                     self.handle_event_eth(event).await?;
@@ -266,8 +250,6 @@ impl WorkerAttestationProduction {
         &mut self,
         event: Result<crate::common::types::Height, crate::chain_listener::eth::Error>,
     ) -> Result<(), Error> {
-        use crate::events::EventAttestationProduction as _;
-
         // STEP 1] GENERATE CONTINUITY PROOF
 
         let height = event.map_err(Error::EthError)?;
@@ -372,9 +354,6 @@ impl WorkerAttestationProduction {
 
         let attestation_latest_eth = (digest, height);
         self.attestation_local = Some(attestation_latest_eth);
-        self.rebroadcast
-            .note_attestation_production(attestation_latest_eth)
-            .expect("Infallible");
 
         Ok(())
     }
@@ -424,17 +403,7 @@ impl WorkerAttestationProduction {
                             .note_attestation_finalization(attestation_latest_cc3)
                             .expect("Infallible");
 
-                        // 2. Chain Listener - Rebroadcast
-                        //
-                        // Makes it so we do not re-generate attestations which have already been
-                        // finalized on-chain (it is still possible for a race condition to occur where
-                        // we would re-submit a past attestation before noticing the `BlockAttested`
-                        // event, but that is handled as a non-failure case by the validation worker).
-                        self.rebroadcast
-                            .note_attestation_finalization(attestation_latest_cc3)
-                            .expect("Infallible");
-
-                        // 3. Update the attestation pool
+                        // 2. Update the attestation pool
                         //
                         // As an edge case, it is possible that we have already generated past
                         // attestations which have not yet been consumed by the validation thread. This
@@ -447,7 +416,7 @@ impl WorkerAttestationProduction {
                             .note_attestation_finalization(attestation_latest_cc3)
                             .expect("Infallible");
 
-                        // 4. Notify the validation worker
+                        // 3. Notify the validation worker
                         //
                         // This lets the validation worker know it can start submitting attestations at
                         // a greater height, if it has any.
@@ -463,12 +432,12 @@ impl WorkerAttestationProduction {
                         // can happen during shutdown. This is not a failure case!
                         let _ = self.sender_attestation_latest.send(Some(height));
 
-                        // 5. Production
+                        // 4. Production
                         //
                         // Clear local state
                         self.attestations.retain(|h, _att| *h > height);
 
-                        // 6. Metrics
+                        // 5. Metrics
                         self.metrics.set_attestation_finalized(height);
                         self.metrics.update_attestation_lag_cc3(
                             attestation_local,
@@ -506,14 +475,7 @@ impl WorkerAttestationProduction {
                         .await
                         .map_err(Error::EthError)?;
 
-                    // 2. Chain listener - Rebroadcast
-                    //
-                    // Rebroadcast attestations at the new interval.
-                    self.rebroadcast
-                        .note_attestation_interval_change(interval, attestation_latest_cc3)
-                        .expect("Infallible");
-
-                    // 3. Attestation pool
+                    // 2. Attestation pool
                     //
                     // Update quorum validation to expect the new target height and attestation
                     // interval.
@@ -521,14 +483,14 @@ impl WorkerAttestationProduction {
                         .note_attestation_interval_change(interval, attestation_latest_cc3)
                         .expect("Infallible");
 
-                    // 4. Production
+                    // 3. Production
                     //
                     // Clear local state
                     self.attestation_local = None;
                     self.attestations.clear();
                     self.attestation_interval = interval;
 
-                    // 5. Metrics
+                    // 4. Metrics
                     let attestation_latest_cc3 =
                         attestation_latest_cc3.unwrap_or(self.start_height);
                     self.metrics.update_attestation_lag_eth(
@@ -628,28 +590,6 @@ impl WorkerAttestationProduction {
                     tracing::info!(new_interval, "🔢 New checkpoint interval");
                 }
             }
-        }
-
-        Ok(())
-    }
-
-    // ---------------------------------------* Rebroadcast *--------------------------------------
-
-    async fn handle_event_rebroadcast(&mut self, height: u64) -> Result<(), Error> {
-        // NOTE: The rebroadcast listener is not aware of each attestation in local storage and
-        // instead sends us a contiguous range of block heights to rebroadcast. Quite frankly this
-        // makes the rebroadcasting logic easier, but it does mean we might not have all the
-        // requested attestations available to send.
-        if let Some(attestation) = self.attestations.get(&height) {
-            // WARNING: ERROR HANDLING
-            //
-            // From the tokio docs:
-            //
-            // > A send operation can only fail if there are no active receivers, implying that the
-            // > message could never be received.
-            //
-            // This can happen during shutdown and does not represent a failing case!
-            _ = self.sender_p2p.send(attestation.clone());
         }
 
         Ok(())

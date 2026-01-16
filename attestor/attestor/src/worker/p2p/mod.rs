@@ -115,8 +115,6 @@ pub struct Config {
     #[specify_later]
     sender_validation: crate::worker::validation::pool::AttestationPoolSender,
     #[specify_later]
-    can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    #[specify_later]
     chain_key: attestor_primitives::ChainKey,
     #[specify_later]
     metrics: common::types::Metrics,
@@ -127,7 +125,7 @@ pub struct Config {
 pub(crate) struct WorkerP2P {
     // P2P DATA
     swarm: libp2p::Swarm<behavior::P2PBehavior>,
-    can_broadcast: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    can_broadcast: bool,
     topic: libp2p::gossipsub::IdentTopic,
     listen_addr: libp2p::Multiaddr,
 
@@ -189,7 +187,7 @@ impl WorkerP2P {
 
         Ok(Self {
             swarm,
-            can_broadcast: config.can_broadcast,
+            can_broadcast: false,
             topic,
             listen_addr,
 
@@ -216,17 +214,13 @@ impl super::Worker for WorkerP2P {
         self.swarm.listen_on(self.listen_addr.clone())?;
 
         loop {
-            let can_broadcast = self
-                .can_broadcast
-                .load(std::sync::atomic::Ordering::Acquire);
-
             tokio::select! {
                 biased;
 
                 _ = &mut shutdown => {
                     break self.handle_event_shutdown().await;
                 }
-                attestation = self.receiver_p2p.recv(), if can_broadcast => {
+                attestation = self.receiver_p2p.recv(), if self.can_broadcast => {
                     self.handle_event_attestation(attestation).await?;
                 }
                 event = self.swarm.select_next_some() => {
@@ -479,15 +473,13 @@ impl WorkerP2P {
                 libp2p::gossipsub::Event::Subscribed { .. },
             )) => {
                 let topic_attestation = self.topic.hash();
-                self.can_broadcast.store(
-                    self.swarm
-                        .behaviour()
-                        .gossipsub
-                        .mesh_peers(&topic_attestation)
-                        .next()
-                        .is_some(),
-                    std::sync::atomic::Ordering::Release,
-                );
+                self.can_broadcast = self
+                    .swarm
+                    .behaviour()
+                    .gossipsub
+                    .mesh_peers(&topic_attestation)
+                    .next()
+                    .is_some();
             }
 
             // Remove gossipsub subscription (happens when an existing peer leaves)
@@ -495,15 +487,13 @@ impl WorkerP2P {
                 libp2p::gossipsub::Event::Unsubscribed { .. },
             )) => {
                 let topic_attestation = self.topic.hash();
-                self.can_broadcast.store(
-                    self.swarm
-                        .behaviour()
-                        .gossipsub
-                        .mesh_peers(&topic_attestation)
-                        .next()
-                        .is_some(),
-                    std::sync::atomic::Ordering::Release,
-                );
+                self.can_broadcast = self
+                    .swarm
+                    .behaviour()
+                    .gossipsub
+                    .mesh_peers(&topic_attestation)
+                    .next()
+                    .is_some();
             }
 
             // Discovered new local address
@@ -536,15 +526,13 @@ impl WorkerP2P {
                 tracing::info!(%peer_id, "⛓️‍💥 Connection closed");
 
                 let topic_attestation = self.topic.hash();
-                self.can_broadcast.store(
-                    self.swarm
-                        .behaviour()
-                        .gossipsub
-                        .mesh_peers(&topic_attestation)
-                        .next()
-                        .is_some(),
-                    std::sync::atomic::Ordering::Release,
-                );
+                self.can_broadcast = self
+                    .swarm
+                    .behaviour()
+                    .gossipsub
+                    .mesh_peers(&topic_attestation)
+                    .next()
+                    .is_some();
             }
 
             // Failed to initialize a new connection with a remote peer
@@ -618,10 +606,6 @@ impl WorkerP2P {
     }
 
     async fn handle_event_shutdown(&mut self) -> common::types::Result<()> {
-        // Remember to cleanup the broadcast state here so that the production worker knows it
-        // should not produce any new attestations!
-        self.can_broadcast
-            .store(false, std::sync::atomic::Ordering::Release);
         Ok(())
     }
 }

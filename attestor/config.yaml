@@ -65,12 +65,6 @@ pool:
   capacity: 100
 
 attestation:
-  # Interval at which attestations are re-submitted to the gossip network
-  #   Only attestations which have not been synced to the execution chain are
-  #   rebroadcasted this way.
-  #
-  rebroadcast: 45
-
   # Optional: Initial height from which new attestations are produced
   #   If no starting height is specified, attestations will be generated from
   #   that source chain's configured genesis block number instead.

@@ -1346,7 +1346,7 @@ impl AttestationVote {
     fn new(attestation: common::types::Attestation) -> Self {
         Self {
             votes: vec![attestation.clone()],
-            signers: hash_set![attestation.attestor.clone()],
+            signers: std::collections::HashSet::from([attestation.attestor.clone()]),
             attestation,
         }
     }
@@ -1659,7 +1659,7 @@ pub mod fixtures {
         iter.fold(
             AttestationVote {
                 votes: vec![attestation.clone()],
-                signers: hash_set![attestation.attestor.clone()],
+                signers: std::collections::HashSet::from([attestation.attestor.clone()]),
                 attestation,
             },
             |mut attestation, attestor| {

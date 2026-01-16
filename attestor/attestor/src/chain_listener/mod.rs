@@ -7,7 +7,6 @@
 
 pub mod cc3;
 pub mod eth;
-pub mod rebroadcast;
 
 use crate::prelude::*;
 

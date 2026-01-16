@@ -181,10 +181,9 @@ impl Ethereum {
             .map_err(Error::RpcError)?
             .ok_or(Error::FetchBlockReceipts(height))?;
 
-        ensure!(
-            block.transactions.len() == receipts.len(),
-            Error::FetchBlockReceiptsMismatch(height)
-        );
+        if block.transactions.len() != receipts.len() {
+            return Err(Error::FetchBlockReceiptsMismatch(height));
+        }
 
         eth::OrderedBlock::try_create(
             self.chain_id,

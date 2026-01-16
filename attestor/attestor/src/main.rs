@@ -21,7 +21,6 @@ struct Config {
     pool_capacity: std::num::NonZeroUsize,
     start_height: Option<common::types::Height>,
     attestation_interval: Option<std::num::NonZero<common::types::Height>>,
-    attestatation_rebroadcast: std::num::NonZeroU64,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -86,7 +85,6 @@ struct ConfigFilePool {
 struct ConfigAttestation {
     start_height: Option<common::types::Height>,
     interval: Option<std::num::NonZero<common::types::Height>>,
-    rebroadcast: Option<std::num::NonZeroU64>,
 }
 
 impl Config {
@@ -286,18 +284,6 @@ impl Config {
                     .value_parser(clap::value_parser!(std::num::NonZero<common::types::Height>)),
             )
             .arg(
-                clap::arg!(--"attestation-rebroadcast" <INTERVAL>)
-                    .help("Interval at which attestations are re-submitted to the gossip network")
-                    .long_help(
-                        "Interval at which attestations are re-submitted to the gossip network. \
-                        Only attestations which have not been synced to the execution chain \
-                        are rebroadcasted this way"
-                    )
-                    .env("ATTESTOR_ATTESTATION_REBROADCAST")
-                    .required(config_file.attestation.rebroadcast.is_none())
-                    .value_parser(clap::value_parser!(std::num::NonZeroU64)),
-            )
-            .arg(
                 clap::arg!(--logs <FOLDER> )
                     .help("Path to the logs folder")
                     .long_help(
@@ -410,16 +396,6 @@ impl Config {
             .cloned()
             .or(config_file.attestation.interval);
 
-        let attestatation_rebroadcast = match matches
-            .get_one::<std::num::NonZero<common::types::Height>>("attestation-rebroadcast")
-        {
-            Some(attestation_rebroadcast) => *attestation_rebroadcast,
-            None => config_file
-                .attestation
-                .rebroadcast
-                .expect("Attestation rebroadcast is set either in config or by clap"),
-        };
-
         Ok(Config {
             name,
             logs,
@@ -434,7 +410,6 @@ impl Config {
             pool_capacity,
             start_height,
             attestation_interval,
-            attestatation_rebroadcast,
         })
     }
 }
@@ -512,7 +487,6 @@ async fn main() -> anyhow::Result<()> {
         .with_attestation(
             attestor::attestation::ConfigBuilder::new()
                 .with_attestation_interval(args.attestation_interval)
-                .with_rebroadcast_interval(args.attestatation_rebroadcast)
                 .with_start_height(args.start_height)
                 .build(),
         )

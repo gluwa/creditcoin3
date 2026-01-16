@@ -15,11 +15,6 @@ pub mod prelude {
     pub use crate::common;
     pub(crate) use crate::util;
 
-    pub(crate) use crate::btree_map;
-    pub(crate) use crate::ensure;
-    pub(crate) use crate::hash_map;
-    pub(crate) use crate::hash_set;
-
     pub const WORKER_COUNT: usize = 3;
 }
 
@@ -228,13 +223,6 @@ impl Attestor {
             .await
             .map_err(Error::EthError)?;
 
-        let config = chain_listener::rebroadcast::ConfigBuilder::new()
-            .with_rebroadcast_interval(self.config.attestation.rebroadcast_interval)
-            .with_attestation_interval(attestation_interval)
-            .with_start_height(start_height)
-            .build();
-        let rebroadcast = chain_listener::rebroadcast::Rebroadcast::new(config).await;
-
         // ---------------------------------------* Metrics *--------------------------------------
 
         let config = worker::api::metrics::ConfigBuilder::new()
@@ -250,11 +238,6 @@ impl Attestor {
         let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
 
         // ----------------------------------* Message passing *-------------------------------- //
-
-        // P2P Subscriber changes
-        let can_broadcast_production =
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let can_broadcast_p2p = std::sync::Arc::clone(&can_broadcast_production);
 
         // attestation production -> p2p sync
         let (p2p_sender, p2p_receiver) =
@@ -304,11 +287,9 @@ impl Attestor {
             .with_eth(eth)
             .with_cc3(cc3_production)
             .with_account_id(account_id)
-            .with_rebroadcast(rebroadcast)
             .with_sender_p2p(p2p_sender)
             .with_sender_validation(validation_sender.clone())
             .with_sender_attestation_latest(attestation_latest_sender)
-            .with_can_broadcast(can_broadcast_production)
             .with_attestation_start_cc3(attestation_start_cc3)
             .with_attestation_interval(attestation_interval)
             .with_epoch(epoch)
@@ -348,7 +329,6 @@ impl Attestor {
             .with_keypair(keypair_p2p)
             .with_receiver_p2p(p2p_receiver)
             .with_sender_validation(validation_sender)
-            .with_can_broadcast(can_broadcast_p2p)
             .with_chain_key(self.config.chain_key)
             .with_metrics(metrics)
             .build();
