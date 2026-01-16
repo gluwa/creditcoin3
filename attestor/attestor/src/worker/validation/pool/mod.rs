@@ -416,23 +416,6 @@ impl AttestationPoolInner {
             ));
         }
 
-        tracing::debug!("Checking for known invalids");
-
-        let digest = attestation.digest();
-        if self
-            .forks
-            .forks_invalid
-            .get(&height)
-            .is_some_and(|invalid| invalid.contains(&digest))
-        {
-            return Err(Error::InvalidDigest(
-                attestation.attestor.clone(),
-                attestation.epoch,
-                height,
-                digest,
-            ));
-        }
-
         tracing::debug!("Adding attestation to pool");
 
         let removed = self.forks.push(attestation)?;
@@ -450,8 +433,8 @@ impl AttestationPoolInner {
     }
 
     fn peek(&mut self) -> Option<(Quorum, AttestationPermit)> {
-        match self.forks.peek() {
-            Some(fork) if self.validate_quorum.validate(&fork) => {
+        self.forks.peek().and_then(|fork| {
+            self.validate_quorum.validate(&fork).then(|| {
                 let quorum = Quorum(fork.votes.clone());
                 let height = fork.attestation.header_number();
                 let key = (height, fork.attestation.digest());
@@ -463,10 +446,9 @@ impl AttestationPoolInner {
                         .update_attestation_delay_quorum(elapsed.as_secs_f64());
                 }
 
-                Some((quorum, permit))
-            }
-            _ => None,
-        }
+                (quorum, permit)
+            })
+        })
     }
 
     fn mark_valid(&mut self, permit: AttestationPermit) {
@@ -530,7 +512,7 @@ impl AttestationPoolInner {
 struct AttestationPoolForks {
     forks_by_size: std::collections::BTreeMap<
         usize,
-        std::collections::HashMap<attestor_primitives::Digest, AttestationVote>,
+        std::collections::BTreeMap<attestor_primitives::Digest, AttestationVote>,
     >,
     forks_by_digest: std::collections::HashMap<attestor_primitives::Digest, usize>,
     forks_by_height: std::collections::BTreeMap<
@@ -590,18 +572,21 @@ impl AttestationPoolForks {
         let prev_digest = attestation.prev_digest();
         let attestor_id = attestation.attestor.clone();
 
-        assert!(
-            self.forks_invalid
-                .get(&height)
-                .is_none_or(|invalid| !invalid.contains(&digest)),
-            "Trying to insert known invalid attestation"
-        );
+        tracing::debug!("Checking for known invalids");
+
+        if self
+            .forks_invalid
+            .get(&height)
+            .is_some_and(|invalid| invalid.contains(&digest))
+        {
+            return Err(Error::InvalidDigest(attestor_id, epoch, height, digest));
+        }
 
         tracing::debug!("Make sure there is enough space for insertion");
 
-        let removed = self
-            .try_evict_if_necessary(digest)
-            .map_err(|_| Error::NoSpaceLeft(attestor_id.clone(), epoch, height))?;
+        let Ok(removed) = self.try_evict_if_necessary(digest) else {
+            return Err(Error::NoSpaceLeft(attestor_id, epoch, height));
+        };
 
         tracing::debug!("Checking for equivocations");
 
@@ -619,6 +604,7 @@ impl AttestationPoolForks {
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
                 entry.insert(digest);
+                self.votes_count += 1;
             }
         }
 
@@ -672,20 +658,8 @@ impl AttestationPoolForks {
         *size += 1;
         let size_new = *size;
 
-        if let std::collections::btree_map::Entry::Occupied(mut entry) =
-            self.forks_by_size.entry(size_prev)
-        {
-            tracing::debug!("Removing previous mapping");
-
-            let forks = entry.get_mut();
-            let removed = forks
-                .remove(&digest)
-                .expect("Missing mapping in forks_by_size");
-            vote.update(removed);
-
-            if forks.is_empty() {
-                entry.remove();
-            }
+        if let Some(vote_prev) = self.remove_by_size(size_prev, digest) {
+            vote.update(vote_prev);
         }
 
         if self
@@ -704,7 +678,6 @@ impl AttestationPoolForks {
             .entry(height)
             .or_default()
             .insert(digest);
-        self.votes_count += 1;
 
         Ok(removed)
     }
@@ -730,34 +703,29 @@ impl AttestationPoolForks {
             return Ok(removed);
         }
 
-        // If that fails, we remove the fork with the least votes
+        // If that fails, we remove the next fork with the least votes
         if self.forks_by_size.len() > 1 {
-            let fork = self.forks_by_size.pop_first().expect("checked above").1;
-            let mut removed = Vec::with_capacity(fork.len());
+            let mut entry = self.forks_by_size.first_entry().expect("Checked above");
 
-            for (digest, vote) in fork {
-                self.forks_by_digest
-                    .remove(&digest)
-                    .expect("Missing mapping in forks_by_digest");
+            let fork = entry.get_mut();
+            let (digest, vote) = fork.pop_first().expect("Missing digest in forks_by_size");
+            let height = vote.attestation.header_number();
 
-                let height = vote.attestation.header_number();
-                let digests = self
-                    .forks_by_height
-                    .get_mut(&height)
-                    .expect("Missing mapping in forks_by_height");
+            self.forks_by_digest
+                .remove(&digest)
+                .expect("Missing mapping in forks_by_digest");
+            self.forks_by_height
+                .get_mut(&height)
+                .expect("Missing mapping in forks_by_height")
+                .remove(&digest)
+                .then_some(())
+                .expect("Missing digest in forks_by_height");
 
-                assert!(digests.remove(&digest), "Missing digest in forks_by_height");
-
-                if digests.is_empty() {
-                    self.forks_by_height.remove(&height);
-                }
-
-                assert!(self.votes_count >= vote.votes.len(), "Invalid votes_count");
-                self.votes_count -= vote.votes.len();
-                removed.extend(vote.votes);
+            if fork.is_empty() {
+                entry.remove();
             }
 
-            return Ok(removed);
+            return Ok(vote.votes);
         }
 
         // If we only have a single fork, we do not remove it. Instead, we allow for the insertion
@@ -787,39 +755,50 @@ impl AttestationPoolForks {
             .remove(&digest)
             .expect("Missing mapping in forks_by_digest");
 
-        if let std::collections::btree_map::Entry::Occupied(mut entry) =
+        let removed = self
+            .remove_by_size(size, digest)
+            .expect("Missing mapping in forks_by_size");
+
+        assert!(
+            self.votes_count >= removed.votes.len(),
+            "Invalid votes_count"
+        );
+
+        self.votes_count -= removed.votes.len();
+
+        self.forks_best = self
+            .forks_by_size
+            .last_key_value()
+            .and_then(|(_size, best)| best.values().next().cloned());
+    }
+
+    fn remove_by_size(
+        &mut self,
+        size: usize,
+        digest: attestor_primitives::Digest,
+    ) -> Option<AttestationVote> {
+        let std::collections::btree_map::Entry::Occupied(mut entry) =
             self.forks_by_size.entry(size)
-        {
-            let votes = entry.get_mut();
-            let removed = votes
-                .remove(&digest)
-                .expect("Missing mapping in forks_by_size");
+        else {
+            return None;
+        };
 
-            assert_eq!(
-                removed.attestation.digest(),
-                digest,
-                "Invalid digest mapping in forks_by_size"
-            );
-            assert!(
-                self.votes_count >= removed.votes.len(),
-                "Invalid votes_count"
-            );
+        let votes = entry.get_mut();
+        let removed = votes
+            .remove(&digest)
+            .expect("Missing mapping in forks_by_size");
 
-            self.votes_count -= removed.votes.len();
+        assert_eq!(
+            removed.attestation.digest(),
+            digest,
+            "Invalid digest mapping in forks_by_size"
+        );
 
-            if votes.is_empty() {
-                entry.remove();
-            }
-        } else {
-            panic!("Missing mapping in forks_by_size");
+        if votes.is_empty() {
+            entry.remove();
         }
 
-        self.forks_best = self.forks_by_size.last_key_value().map(|(_size, best)| {
-            best.values()
-                .next()
-                .expect("Missing mapping in forks_by_size")
-                .clone()
-        });
+        Some(removed)
     }
 }
 
