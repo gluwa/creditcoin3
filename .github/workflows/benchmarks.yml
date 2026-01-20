@@ -218,7 +218,15 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: process.env.TARGET_PR,
-              body: `Created from PR #${process.env.SOURCE_PR}`
+              body: `## Info
+              * Created from #${process.env.SOURCE_PR}
+
+              ## TODO
+              1. Review this PR like you would any other
+              2. Wait for CI jobs to complete
+              3. If there are no unexpected failures then either
+                - **Merge** *AFTER* #${process.env.SOURCE_PR} *IS* merged or
+                - **Close** *IF* #${process.env.SOURCE_PR} is *NOT* merged`
             });
 
   remove-github-runner:
