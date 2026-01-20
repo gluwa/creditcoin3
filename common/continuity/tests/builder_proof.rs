@@ -6,12 +6,13 @@ use continuity::{
 #[tokio::test]
 async fn builder_builds_trimmed_continuity_chain_for_single_query() -> Result<()> {
     let chain_key = 2;
-    let config = ContinuityConfig {
-        chain_key,
-        cc3_rpc_url: "http://localhost:1234".to_string(),
-        cc3_key: "//Alice".to_string(),
-        eth_rpc_url: "http://localhost:5678".to_string(),
-    };
+    let config = ContinuityConfig::builder()
+        .cc3_rpc_url("http://localhost:1234")
+        .eth_rpc_url("http://localhost:5678")
+        .chain_key(chain_key)
+        .attestation_interval(10)
+        .checkpoint_interval(10)
+        .build();
 
     let (cc, eth) = make_mock_providers(chain_key);
     let builder = ContinuityBuilder::new_with_providers(config, cc, eth);

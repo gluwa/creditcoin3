@@ -1,10 +1,16 @@
-use super::ContinuityBuilder;
-use crate::errors::ContinuityError;
-use crate::proof::ContinuityProof;
-use crate::{attestation::AttestationInfo, builder::EndsInAttestation};
+//! Continuity proof building logic
+//!
+//! This module orchestrates continuity proof building by delegating to specialized modules:
+//! - `bounds/`: Finding attestation/checkpoint bounds (indexer or CC3 chain)
+//! - `indexer/`: Indexer-specific proof building logic
+//! - `cc3/`: CC3 chain-specific proof building logic
+//! - `common/`: Shared utilities
 
-use anyhow::{anyhow, Context, Result};
-use attestor_primitives::block::Block;
+use super::ContinuityBuilder;
+use crate::builder::EndsInAttestation;
+use crate::errors::ContinuityError;
+use crate::proof::BuiltContinuityProof;
+use indexer_client::AttestationWithProof;
 use sp_core::H256;
 use tracing::{debug, info};
 
@@ -12,72 +18,13 @@ use tracing::{debug, info};
 pub type ContinuityResult<T> = Result<T, ContinuityError>;
 
 impl ContinuityBuilder {
-    /// Build continuity blocks and trim to required range
-    async fn build_and_trim_continuity(
-        &self,
-        lower: AttestationInfo,
-        upper: AttestationInfo,
-        min_query: u64,
-    ) -> Result<Vec<Block>> {
-        // Continuity chain starts at queryHeight (query block at index 0)
-        let required_start = min_query;
-
-        // Determine end height (next consensus point - REQUIRED)
-        // The proof MUST end at an attestation or checkpoint for verification to succeed
-        let end_height = upper.block_number;
-
-        // Determine the starting digest for build_continuity_blocks
-        // build_continuity_blocks expects the digest of the block BEFORE build_start
-        // With query block at index 0, the lower bound is always strictly before required_start
-        // (bounds finding looks for attestation at or before min_query - 1)
-        let (build_start, start_digest) = (lower.block_number + 1, lower.digest);
-
-        info!(
-            build_start,
-            end_height,
-            required_start,
-            "Building continuity chain (will trim to start at required_start)"
-        );
-
-        // Create continuity fragment
-        let all_blocks: Vec<Block> = self
-            .eth_provider
-            .build_continuity_blocks(start_digest, build_start, end_height)
-            .await
-            .context("Failed to build continuity blocks")?;
-
-        // Trim to start at required_start (the continuity chain starts at queryHeight)
-        let start_index = all_blocks
-            .iter()
-            .position(|b| b.block_number == required_start)
-            .ok_or_else(|| {
-                anyhow!(
-                    "Block {} not found in continuity chain (range: {}-{})",
-                    required_start,
-                    all_blocks.first().map(|b| b.block_number).unwrap_or(0),
-                    all_blocks.last().map(|b| b.block_number).unwrap_or(0)
-                )
-            })?;
-
-        let trimmed = all_blocks[start_index..].to_vec();
-
-        debug!(
-            original_count = all_blocks.len(),
-            trimmed_count = trimmed.len(),
-            start_block = required_start,
-            "Trimmed continuity chain"
-        );
-
-        Ok(trimmed)
-    }
-
     /// Core logic for building continuity proof for given heights
     pub async fn build_for_heights(
         &self,
         query_heights: &[u64],
-        lower_attestation: AttestationInfo,
-        upper_attestation: AttestationInfo,
-    ) -> ContinuityResult<ContinuityProof> {
+        lower_attestation: AttestationWithProof,
+        upper_attestation: AttestationWithProof,
+    ) -> ContinuityResult<BuiltContinuityProof> {
         // Find the query range
         let min_query = *query_heights
             .iter()
@@ -99,20 +46,118 @@ impl ContinuityBuilder {
             )));
         }
 
-        // Build and trim continuity blocks
-        let blocks = self
-            .build_and_trim_continuity(lower_attestation, upper_attestation, min_query)
-            .await
-            .map_err(|e| ContinuityError::Rpc(e.to_string()))?;
+        // Try to get blocks from indexer first (if available)
+        let (blocks, lower_endpoint_digest) = if let Some(ref indexer) = self.indexer_provider {
+            // If upper attestation is predicted (not yet attested), query lower attestation instead
+            // Predicted attestations have zero digest and no continuity_proof_data
+            let is_predicted = upper_attestation.digest == H256::zero()
+                && upper_attestation.continuity_proof_data.is_none();
 
-        Ok(ContinuityProof::from_blocks(blocks))
+            let query_block = if is_predicted {
+                info!(
+                    upper_attestation = upper_attestation.block_number,
+                    lower_attestation = lower_attestation.block_number,
+                    min_query,
+                    "Upper attestation is predicted - querying lower attestation continuity blocks from indexer"
+                );
+                lower_attestation.block_number
+            } else {
+                info!(
+                    upper_attestation = upper_attestation.block_number,
+                    min_query, "Fetching continuity blocks from indexer"
+                );
+                upper_attestation.block_number
+            };
+
+            match indexer
+                .get_continuity_blocks(self.config.chain_key, query_block)
+                .await
+            {
+                Ok(Some(attestation_with_proof)) => {
+                    let indexer_blocks = attestation_with_proof.extract_blocks().map_err(|e| {
+                        ContinuityError::Rpc(format!("Failed to extract blocks: {e}"))
+                    })?;
+
+                    if let Some(indexer_blocks) = indexer_blocks {
+                        debug!(
+                            indexer_blocks_count = indexer_blocks.len(),
+                            first = indexer_blocks.first().map(|b| b.block_number).unwrap_or(0),
+                            last = indexer_blocks.last().map(|b| b.block_number).unwrap_or(0),
+                            "Found continuity blocks in indexer"
+                        );
+
+                        // If upper is predicted and indexer blocks don't extend to predicted upper bound,
+                        // we need to build from source chain to extend
+                        let needs_extension = is_predicted
+                            && indexer_blocks
+                                .last()
+                                .map(|b| b.block_number < upper_attestation.block_number)
+                                .unwrap_or(true);
+
+                        if needs_extension {
+                            info!(
+                                indexer_last = indexer_blocks.last().map(|b| b.block_number),
+                                predicted_upper = upper_attestation.block_number,
+                                "Indexer blocks don't extend to predicted upper bound - building from source chain"
+                            );
+                            self.build_from_source_chain(
+                                lower_attestation,
+                                upper_attestation,
+                                min_query,
+                            )
+                            .await?
+                        } else {
+                            // Process indexer blocks: combine, trim, append attestation
+                            self.process_indexer_blocks(
+                                indexer_blocks,
+                                min_query,
+                                &lower_attestation,
+                                &upper_attestation,
+                            )
+                            .await?
+                        }
+                    } else {
+                        info!("Indexer blocks not available - building from source chain");
+                        self.build_from_source_chain(
+                            lower_attestation,
+                            upper_attestation,
+                            min_query,
+                        )
+                        .await?
+                    }
+                }
+                Ok(None) | Err(_) => {
+                    info!("Indexer blocks not available - building from source chain");
+                    self.build_from_source_chain(lower_attestation, upper_attestation, min_query)
+                        .await?
+                }
+            }
+        } else {
+            // No indexer available, build from chain
+            info!("No indexer configured - building from source chain");
+            self.build_from_source_chain(lower_attestation, upper_attestation, min_query)
+                .await?
+        };
+
+        // Create BuiltContinuityProof with the lower endpoint digest if available
+        let proof = if let Some(lower_digest) = lower_endpoint_digest {
+            BuiltContinuityProof::from_blocks_with_lower_digest(blocks, lower_digest)
+        } else {
+            BuiltContinuityProof::from_blocks(blocks)
+        };
+
+        Ok(proof)
     }
 
     pub async fn get_endpoints(
         &self,
         query_heights: &[u64],
         current_block: Option<u64>,
-    ) -> ContinuityResult<(AttestationInfo, AttestationInfo, EndsInAttestation)> {
+    ) -> ContinuityResult<(
+        AttestationWithProof,
+        AttestationWithProof,
+        EndsInAttestation,
+    )> {
         // Find the query range
         let min_query = *query_heights
             .iter()
@@ -123,54 +168,41 @@ impl ContinuityBuilder {
             .max()
             .ok_or(ContinuityError::EmptyQuery)?;
 
-        let predicted = self.predict_next_attestation(max_query).await?;
+        // Try to use indexer for attestation lookups if available
+        use crate::builder::bounds::{BoundsFinder, Cc3BoundsFinder, IndexerBoundsFinder};
 
-        // Validate that the predicted block exists on the source chain if current_block is provided
-        // This allows us to fail fast before doing more expensive work
+        let (lower, upper, ends_in_attestation) = if let Some(ref indexer) = self.indexer_provider {
+            let finder = IndexerBoundsFinder::new(self, indexer.as_ref());
+            finder
+                .find_bounds(min_query, max_query, current_block)
+                .await?
+        } else {
+            let finder = Cc3BoundsFinder::new(self);
+            finder
+                .find_bounds(min_query, max_query, current_block)
+                .await?
+        };
+
+        Ok((lower, upper, ends_in_attestation))
+    }
+
+    /// Validate that a predicted upper bound block exists on the source chain.
+    pub(crate) fn validate_predicted_upper_bound(
+        &self,
+        predicted_block: u64,
+        query_block: u64,
+        current_block: Option<u64>,
+    ) -> ContinuityResult<()> {
         if let Some(current_block) = current_block {
-            if predicted.block_number > current_block {
+            if predicted_block > current_block {
                 return Err(ContinuityError::UpperBoundNotOnSourceChain {
-                    query_block: max_query,
-                    upper_block: predicted.block_number,
+                    query_block,
+                    upper_block: predicted_block,
                     current_block,
                 });
             }
         }
-
-        // Fetch attestations (always needed)
-        let attestations = self
-            .fetch_attestations()
-            .await
-            .map_err(|e| ContinuityError::Rpc(e.to_string()))?;
-        if attestations.is_empty() {
-            return Err(ContinuityError::NoAttestations(self.config.chain_key));
-        }
-
-        // Find attestation bounds (handles queries at attestation/checkpoint heights)
-        // Checkpoints are fetched lazily only when needed
-        let (lower, upper, ends_in_attestation) = self
-            .find_attestation_bounds(min_query, max_query, &attestations)
-            .await
-            .map_err(|e| ContinuityError::Rpc(e.to_string()))?;
-
-        // If no upper bound exists (block not yet attested), predict the next attestation
-        // using the attestation interval. This enables "eager" proof generation where
-        // proofs can be created before the attestation exists.
-        let (upper, ends_in_attestation) = match upper {
-            Some(u) => (u, ends_in_attestation),
-            None => {
-                info!(
-                    max_query,
-                    predicted_upper = predicted.block_number,
-                    current_block = current_block.unwrap_or(0),
-                    "No attestation found after query block - using predicted upper bound"
-                );
-                // Predicted upper bounds don't end in an attestation yet
-                (predicted, EndsInAttestation::False)
-            }
-        };
-
-        Ok((lower, upper, ends_in_attestation))
+        Ok(())
     }
 
     /// Predict the next attestation block number based on the attestation interval.
@@ -178,7 +210,10 @@ impl ContinuityBuilder {
     ///
     /// The formula aligns to the attestation interval boundary:
     /// `next_attestation = ((block / interval) + 1) * interval`
-    async fn predict_next_attestation(&self, block: u64) -> ContinuityResult<AttestationInfo> {
+    pub(crate) async fn predict_next_attestation(
+        &self,
+        block: u64,
+    ) -> ContinuityResult<AttestationWithProof> {
         let interval = self
             .cc_provider
             .get_attestation_interval(self.config.chain_key)
@@ -199,12 +234,15 @@ impl ContinuityBuilder {
             "Predicted next attestation block"
         );
 
-        // Return a predicted AttestationInfo with a zero digest (will be computed from source chain blocks)
+        // Return a predicted AttestationWithProof with a zero digest (will be computed from source chain blocks)
         // The digest field is not used for the upper bound in build_and_trim_continuity
-        Ok(AttestationInfo {
+        Ok(AttestationWithProof {
             block_number: next_attestation_block,
+            root: H256::default(),
             digest: H256::default(),
             prev_digest: None,
+            continuity_proof: None,
+            continuity_proof_data: None,
         })
     }
 }

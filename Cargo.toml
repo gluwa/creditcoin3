@@ -286,6 +286,7 @@ bls-signatures = { git = "https://github.com/gluwa/bls-signatures", tag = "v0.15
 cc-client = { path = "common/cc-client" }
 continuity = { path = "common/continuity", default-features = false }
 eth = { path = "common/eth", default-features = false }
+indexer-client = { path = "common/indexer-client" }
 libp2p = { version = "0.56", default-features = false }
 merkle = { path = "common/merkle", default-features = false }
 prometheus-client = { version = "0.24.0" }

@@ -1,13 +1,6 @@
 # Proof Generation API Server
 
-Rust-based API server component that provides on-demand continuity and merkle proof generation for Creditcoin Oracle queries. The server acts as a caching and proactive proof generation service, reducing latency for query verification operations.
-
-## Launching the Database
-
-```sh
-docker compose -f ./proof-gen-api-server/docker-compose.yaml down
-docker compose -f ./proof-gen-api-server/docker-compose.yaml up -d
-```
+Rust-based API server component that provides on-demand continuity and merkle proof generation for Creditcoin Oracle queries. The server uses the indexer for fast proof generation and can fall back to building proofs from source chain data.
 
 ## Building the Proof Gen Server
 
@@ -29,17 +22,16 @@ cargo run -p proof-gen-api-server -- [FLAGS]
 
 ### Example: Local Development
 
-Assumes you have a local Creditcoin3 node running on port 9944 and Anvil on port 8545. Set the database environment variables and pass the local RPC URLs:
+Assumes you have a local Creditcoin3 node running on port 9944 and Anvil on port 8545. Pass the local RPC URLs:
 
 ```bash
-POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_PASSWORD=password POSTGRES_DB=proofs_db \
 cargo run -p proof-gen-api-server -- \
   --cc3-key "//Alice" \
   --cc3-rpc-url ws://localhost:9944 \
   --eth-rpc-url http://localhost:8545
 ```
 
-Alternatively, if you have a `.env` file configured in `proof-gen-api-server/.env` with the database settings, you can run from within that directory:
+If you have a `.env` file configured in `proof-gen-api-server/.env`, you can run from within that directory:
 
 ```bash
 cd proof-gen-api-server
@@ -50,8 +42,6 @@ cargo run -p proof-gen-api-server -- \
 ```
 
 ### Example: Devnet (real RPC endpoints)
-
-Override RPC URLs while using the same `.env` for database configuration:
 
 ```bash
 cargo run -p proof-gen-api-server -- \
@@ -74,7 +64,7 @@ Endpoints:
 
 ### Integration Testing
 
-Integration tests include database layer tests and E2E tests that exercise all proof endpoints with Anvil and ephemeral Postgres. Prerequisites: Docker (and [Foundry](https://book.getfoundry.sh/getting-started/installation) for E2E tests with `anvil`, `cast`). Run with:
+Integration tests exercise proof endpoints with Anvil. Run with:
 
 ```bash
 cargo test -p proof-gen-api-server --features integration-tests
@@ -85,38 +75,28 @@ cargo test -p proof-gen-api-server --features integration-tests
 In addition to the unit tests within the proof-gen-api-server crate, you can test the server's functionality in non-mocked conditions with the following steps.
 
 1. Follow the steps in `.github/CONTRIBUTING.md` up through step 4.
-2. Follow `Launching the Database` in this readme
-3. Follow `Building the Proof Gen Server` in this readme
-4. Follow `Example: Local Development` in this readme to launch the proof gen server
-5. Follow the steps from `### submit-proof.js` in `scripts/README.md`
+2. Follow `Building the Proof Gen Server` in this readme
+3. Follow `Example: Local Development` in this readme to launch the proof gen server
+4. Follow the steps from `### submit-proof.js` in `scripts/README.md`
 
-## Caching
+## Indexer Integration
 
-The server caches generated continuity proofs in Postgres to avoid recomputation on subsequent requests.
-
-- Storage: the `continuity_proofs` table persists continuity proofs (JSONB).
-- Writes: inserts are performed asynchronously (fire-and-forget) with upsert semantics, so concurrent requests race safely.
-- Reads: endpoints first attempt to deserialize cached JSON; if successful, responses include `"cached": true`. If cache is missing or deserialization fails, proofs are rebuilt and `"cached": false` is returned.
+The server uses the indexer for fast proof generation by fetching pre-computed continuity proofs. If the indexer is unavailable or doesn't have the required data, the server falls back to building proofs from source chain data.
 
 ### Environment Configuration (.env)
 
-Instead of exporting all variables manually, you can create a `.env` file (not committed) based on the provided `.env.example` in this directory:
-
-```bash
-cp proof-gen-api-server/.env.example proof-gen-api-server/.env
-```
-
-Adjust the values (especially `CC3_KEY`, any real RPC URLs, and Postgres credentials). The server loads environment variables via `dotenvy`, so running `cargo run -p proof-gen-api-server` inside `proof-gen-api-server/` will automatically pick them up.
+You can optionally create a `.env` file in the `proof-gen-api-server/` directory to set environment variables. The server loads environment variables via `dotenvy`.
 
 Guidelines:
 
 - Keep stable defaults (ports, local RPC endpoints) in `.env`.
-- Override frequently changed or sensitive values (mnemonics, feature flags) via CLI arguments or temporary exports when needed.
-- Never commit your personal `.env`; only `.env.example` lives in version control.
+- Override frequently changed or sensitive values (mnemonics, indexer URLs) via CLI arguments or temporary exports when needed.
+- Never commit your `.env` file to version control.
 
 Production notes:
 
-- Provide secure Postgres credentials and a non-development mnemonic.
+- Provide a non-development mnemonic for production deployments.
+- Configure the indexer URL for optimal performance.
 
 Error Response Shape:
 

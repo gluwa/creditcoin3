@@ -1,0 +1,41 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "indexer-client"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lints.clippy]
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+enum_variant_names = "allow"
+from_over_into = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+no_effect_underscore_binding = "allow"
+redundant_slicing = "allow"
+struct_field_names = "allow"
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+# Workspace dependencies
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sp-core = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# Creditcoin dependencies
+attestor-primitives = { workspace = true }
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

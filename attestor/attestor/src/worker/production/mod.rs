@@ -597,6 +597,15 @@ impl WorkerAttestationProduction {
                         );
                     }
                 }
+
+                // CASE 10] NEW CHECKPOINT INTERVAL
+                cc_client::attestation::CcEvent::CheckpointIntervalChanged(
+                    interval,
+                    _sample_size,
+                ) => {
+                    // do nothing for now
+                    tracing::info!(interval, "🔢 New checkpoint interval");
+                }
             }
         }
 

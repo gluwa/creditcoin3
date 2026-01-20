@@ -30,22 +30,8 @@ struct_field_names = "allow"
 release = false
 
 [dependencies]
-bigdecimal = { version = "0.4", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive", "deprecated", "env"] }
-diesel = { version = "2.3", features = [
-    "postgres",
-    "serde_json",
-    "chrono",
-    "numeric",
-] }
-diesel-async = { version = "0.7", features = [
-    "postgres",
-    "deadpool",
-    "async-connection-wrapper",
-    "tokio",
-] }
-diesel_migrations = "2.1"
 dotenvy = "0.15"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -53,6 +39,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ## Workspace dependencies
 alloy = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true, default-features = false, features = ["derive"] }
 serde_json = { workspace = true, default-features = false }
@@ -68,8 +55,8 @@ cc-client = { workspace = true }
 continuity = { workspace = true, features = ["block_cache"] }
 eth = { workspace = true, features = ["block_cache"] }
 hex = { workspace = true }
+indexer-client = { workspace = true }
 merkle = { workspace = true }
-reqwest = { workspace = true, features = ["json"] }
 
 [features]
 default = []
@@ -77,9 +64,5 @@ integration-tests = []
 
 [dev-dependencies]
 alloy-node-bindings = "0.11" # kept at 0.11 due to compatibility with alloy
-testcontainers = { version = "0.17", default-features = false }
-testcontainers-modules = { version = "0.5", default-features = false, features = [
-    "postgres",
-] }
-tokio-postgres = "0.7"
+reqwest = { workspace = true }
 wiremock = "0.6"

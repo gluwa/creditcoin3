@@ -59,8 +59,6 @@ pub enum ServiceError {
     TxIndexOutOfBounds { tx_index: u64, len: usize },
     #[error("rpc unavailable: {message}")]
     RpcUnavailable { message: String },
-    #[error("database error: {message}")]
-    DbError { message: String },
     #[error("merkle proof generation failed: {message}")]
     MerkleError { message: String },
     #[error("invalid parameter: {message}")]
@@ -93,7 +91,6 @@ impl ServiceError {
         matches!(
             self,
             ServiceError::RpcUnavailable { .. }
-                | ServiceError::DbError { .. }
                 | ServiceError::BlockNotReady { .. }
                 | ServiceError::BlockNotOnSourceChain { .. }
         )
@@ -104,7 +101,6 @@ impl ServiceError {
             ServiceError::QueryOutOfRange { .. } => "QueryOutOfRange",
             ServiceError::TxIndexOutOfBounds { .. } => "TxIndexOutOfBounds",
             ServiceError::RpcUnavailable { .. } => "RpcUnavailable",
-            ServiceError::DbError { .. } => "DatabaseError",
             ServiceError::MerkleError { .. } => "MerkleError",
             ServiceError::InvalidParameter { .. } => "InvalidParameter",
             ServiceError::Internal { .. } => "Internal",
@@ -128,9 +124,7 @@ impl ServiceError {
             Self::TxHashNotFound { .. }
             | Self::BlockNotReady { .. }
             | Self::BlockNotOnSourceChain { .. } => StatusCode::NOT_FOUND,
-            Self::DbError { .. } | Self::MerkleError { .. } | Self::Internal { .. } => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            Self::MerkleError { .. } | Self::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 

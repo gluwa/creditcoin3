@@ -1,6 +1,5 @@
-use attestor_primitives::AttestationCheckpoint;
-
 use super::*;
+use continuity::BuiltContinuityProof as ContinuityContinuityProof;
 
 impl ContinuityService {
     /// Internal helper that always builds a fresh continuity proof directly
@@ -25,8 +24,14 @@ impl ContinuityService {
         &self,
         header_number: u64,
         current_block: u64,
-    ) -> Result<(ContinuityProof, EndsInAttestation), ServiceError> {
-        // TODO: Fetch these AttestationInfo from the postgres DB rather than getting them inefficiently
+    ) -> Result<
+        (
+            ContinuityContinuityProof,
+            EndsInAttestation,
+            continuity::AttestationWithProof,
+        ),
+        ServiceError,
+    > {
         // Pass current_block to get_endpoints so it can validate predicted blocks immediately and fail fast
         let (lower_attestation, upper_attestation, ends_in_attestation) = self
             .builder
@@ -36,86 +41,11 @@ impl ContinuityService {
 
         let proof = self
             .builder
-            .build_for_single_query(header_number, lower_attestation, upper_attestation)
+            .build_for_single_query(header_number, lower_attestation.clone(), upper_attestation)
             .await
             .map_err(ServiceError::from)?;
 
-        Ok((
-            ContinuityProof::from_blocks(proof.blocks),
-            ends_in_attestation,
-        ))
-    }
-
-    pub(crate) async fn fetch_continuity_by_height(
-        &self,
-        chain_key: u64,
-        header_number: u64,
-    ) -> ServiceResult<Option<ContinuityProofItem>> {
-        let maybe_continuity = self
-            .db
-            .get_continuity_proof_for_block(chain_key, header_number)
-            .await.map_err(|e| {
-                tracing::error!(chain_key, header_number, error=%e, "Failed to fetch continuity proof by header_number and tx_index");
-                ServiceError::DbError { message: e.to_string() }
-            })?;
-        let continuity_converted = maybe_continuity
-            .map(ContinuityProofItem::try_from)
-            .transpose().map_err(|e| {
-                tracing::error!(chain_key, header_number, error=%e, "Failed to convert fetched continuity proof");
-                ServiceError::DbError { message: e.to_string() }
-            })?;
-
-        Ok(continuity_converted)
-    }
-
-    pub(crate) async fn generate_and_cache_response(
-        &self,
-        chain_key: u64,
-        header_number: u64,
-        tx_index: Option<u64>,
-        current_block: u64,
-    ) -> ServiceResult<ContinuityResponse> {
-        // Generate continuity
-        let (continuity_proof, ends_in_attestation) =
-            self.build_continuity(header_number, current_block).await?;
-        tracing::info!(
-            chain_key,
-            header_number,
-            blocks = continuity_proof.roots.len(),
-            "Continuity proof built successfully"
-        );
-
-        let continuity_item = ContinuityProofItem {
-            chain_key,
-            header_number,
-            continuity_proof: continuity_proof.clone(),
-            ends_in_attestation: ends_in_attestation.into(),
-        };
-
-        // Insert into DB asynchronously in background
-        self.db.insert_continuity_proof(continuity_item.clone());
-
-        match tx_index {
-            Some(idx) => {
-                let merkle = self
-                    .generate_merkle_proof(chain_key, header_number, idx)
-                    .await?;
-                let mut response = build_response_from_proofs(merkle, continuity_item)?;
-                response.cached = false;
-                Ok(response)
-            }
-            None => Ok(ContinuityResponse {
-                chain_key,
-                header_number,
-                tx_index: None,
-                tx_hash: None,
-                tx_bytes: None,
-                continuity_proof,
-                merkle_proof: None,
-                cached: false,
-                generated_at: Utc::now(),
-            }),
-        }
+        Ok((proof, ends_in_attestation, lower_attestation))
     }
 
     pub(crate) async fn get_height_and_index_for_tx_hash(
@@ -137,6 +67,7 @@ impl ContinuityService {
         tx_index: u64,
     ) -> ServiceResult<MerkleProofItem> {
         // Fetch tx bytes & validate index.
+        // Note: This uses Redis block caching if configured (via eth_client.get_block() -> block_cache.rs)
         let tx_bytes = self
             .builder
             .get_block_tx_bytes(header_number)
@@ -169,6 +100,7 @@ impl ContinuityService {
 
         // Get the actual transaction hash from the block (not computed from ABI-encoded bytes)
         // Ethereum transaction hashes are computed from RLP-encoded transactions, not ABI-encoded bytes
+        // Note: This also uses Redis block caching if configured
         let tx_hash_opt = if tx_bytes.is_empty() {
             None
         } else {
@@ -196,53 +128,6 @@ impl ContinuityService {
             merkle_root,
         })
     }
-
-    //
-    pub(crate) async fn check_continuity_is_current(
-        &self,
-        continuity: &ContinuityProofItem,
-    ) -> ServiceResult<bool> {
-        // First check whether the continuity proof ends in a checkpoint. If so, it must still be verifyable
-        if !continuity.ends_in_attestation {
-            return Ok(true);
-        };
-
-        let last_checkpoint: Option<AttestationCheckpoint> = self
-            .cc3_client
-            .get_last_checkpoint(continuity.chain_key)
-            .await
-            .map_err(|e| ServiceError::RpcUnavailable {
-                message: e.to_string(),
-            })?;
-        if let Some(last_checkpoint) = last_checkpoint {
-            if continuity.continuity_proof.roots.is_empty() {
-                return Ok(true);
-            };
-            // Continuity proof ordered so that roots[i] is at (queryHeight - 1) + i for single query
-            // EX: query_height = 4, continuity proof with roots 3-10
-            // continuity.header_number + continuity.continuity_proof.roots.len() - 2
-            // = 4 + 8 - 2
-            // = 10
-            let continuity_max_height = (continuity.header_number
-                + continuity.continuity_proof.roots.len() as u64)
-                .checked_sub(2)
-                .ok_or(ServiceError::Internal {
-                    message: "Negative continuity_max_height. This shouldn't happen!".to_string(),
-                })?;
-
-            // If the highest block of the continuity proof is higher than the last checkpoint,
-            // then the attestation it refers to must still be present on-chain. So the continuity
-            // proof is verifyable.
-            if last_checkpoint.block_number < continuity_max_height {
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        } else {
-            // No checkpoints. Continuity based on attestations will still be verifyable.
-            Ok(true)
-        }
-    }
 }
 
 pub(crate) fn parse_tx_hash(tx_hash: &str) -> Result<H256, ServiceError> {
@@ -257,26 +142,4 @@ pub(crate) fn parse_tx_hash(tx_hash: &str) -> Result<H256, ServiceError> {
         });
     }
     Ok(H256::from_slice(&bytes))
-}
-
-pub(crate) fn build_response_from_proofs(
-    merkle: MerkleProofItem,
-    continuity: ContinuityProofItem,
-) -> ServiceResult<ContinuityResponse> {
-    let tx_hash = merkle.tx_hash;
-    // We enforce here that if any tx specific field is in the DB entry, then all of them must be.
-    // There is one exception. Block level proofs may use TX index 0 with other fields empty.
-    let tx_index_some_non_zero = if let Some(index) = merkle.tx_index {
-        index != 0
-    } else {
-        false
-    };
-    if (tx_hash.is_some() || tx_index_some_non_zero || merkle.tx_bytes.is_some())
-        && !(tx_hash.is_some() && merkle.tx_index.is_some() && merkle.tx_bytes.is_some())
-    {
-        // If not all fields are present, we error out
-        return Err(ServiceError::DbError { message: format!("Only some of tx-specific fields are present tx_hash: {tx_hash:?}, tx_index: {:?}, tx_bytes: {:?}", merkle.tx_index, merkle.tx_bytes) });
-    }
-
-    Ok(ContinuityResponse::from((merkle, continuity)))
 }

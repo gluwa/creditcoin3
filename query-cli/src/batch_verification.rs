@@ -94,7 +94,6 @@ impl BatchVerifier {
     pub async fn generate_shared_continuity(
         &self,
         cc3_rpc_url: &str,
-        cc3_key: &str,
         eth_rpc_url: &str,
         chain_key: u64,
     ) -> Result<Vec<Block>> {
@@ -108,7 +107,6 @@ impl BatchVerifier {
         // Use the refactored continuity module to generate shared continuity
         let continuity_blocks = continuity::builder::fetch_continuity_proof_batch(
             cc3_rpc_url,
-            cc3_key,
             eth_rpc_url,
             chain_key,
             &query_heights,
@@ -143,7 +141,6 @@ impl BatchVerifier {
         let shared_continuity = self
             .generate_shared_continuity(
                 &verification_config.cc3_rpc_url,
-                &verification_config.cc3_evm_private_key,
                 &verification_config.eth_rpc_url,
                 chain_key,
             )

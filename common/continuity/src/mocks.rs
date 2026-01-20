@@ -1,3 +1,26 @@
+//! Mock RPC providers for testing.
+//!
+//! This module provides mock implementations of [`CcRpcProvider`] and [`EthRpcProvider`]
+//! that return deterministic test data without requiring real RPC endpoints.
+//!
+//! # Usage
+//!
+//! ```rust
+//! use continuity::mocks::make_mock_providers;
+//!
+//! let chain_key = 2;
+//! let (cc_provider, eth_provider) = make_mock_providers(chain_key);
+//! // Use with ContinuityBuilder::new_with_providers
+//! ```
+//!
+//! # Mock Data
+//!
+//! The mock providers return:
+//! - **Attestations:** Every 10 blocks (10, 20, 30, ...)
+//! - **Checkpoints:** Every 100 blocks (0, 100, 200, ...)
+//! - **Attestation interval:** 10 blocks
+//! - **Checkpoint interval:** 10 attestations
+
 use crate::rpc::{CcRpcProvider, EthRpcProvider};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -7,11 +30,48 @@ use cc_client::AccountId32;
 use sp_core::H256;
 use std::sync::Arc;
 
-/// Mock Creditcoin RPC provider returning deterministic fake attestations & checkpoints.
+/// Mock Creditcoin3 RPC provider for testing.
+///
+/// Returns deterministic fake attestations and checkpoints without requiring
+/// a real CC3 node connection.
+///
+/// # Attestation Schedule
+///
+/// - Attestations occur every 10 blocks: 10, 20, 30, ...
+/// - Checkpoints occur every 100 blocks: 0, 100, 200, ...
+/// - Genesis block: 0 (configurable)
+///
+/// # Examples
+///
+/// ```rust
+/// use continuity::mocks::MockCcRpcProvider;
+///
+/// let provider = MockCcRpcProvider::new(1);
+/// // Use with ContinuityBuilder::new_with_providers
+/// ```
 pub struct MockCcRpcProvider {
+    /// The chain key this mock provider is configured for
     pub chain_key: u64,
     /// Genesis block number for attestation chain (default 0)
     pub genesis_block: u64,
+}
+
+impl MockCcRpcProvider {
+    /// Create a new mock CC3 provider for the given chain.
+    pub fn new(chain_key: u64) -> Self {
+        Self {
+            chain_key,
+            genesis_block: 0,
+        }
+    }
+
+    /// Create a mock provider with a custom genesis block.
+    pub fn with_genesis(chain_key: u64, genesis_block: u64) -> Self {
+        Self {
+            chain_key,
+            genesis_block,
+        }
+    }
 }
 
 #[async_trait]
@@ -119,9 +179,33 @@ impl CcRpcProvider for MockCcRpcProvider {
         // Mock returns 10 blocks per attestation (matching mock attestations at 10, 20, 30)
         Ok(Some(10))
     }
+
+    async fn get_checkpoint_interval(&self, _chain_key: u64) -> Result<Option<u64>> {
+        // Mock returns 10 attestations per checkpoint (matching comment at line 44)
+        Ok(Some(10))
+    }
 }
 
-/// Mock ETH provider building continuity blocks with simple incremental digests.
+/// Mock source chain (ETH/EVM) RPC provider for testing.
+///
+/// Returns deterministic fake blocks without requiring a real blockchain connection.
+///
+/// # Behavior
+///
+/// - Builds continuity blocks with simple deterministic digests
+/// - Transaction count: `(block_number % 3) + 1` transactions per block
+/// - Last block: Always returns 1000
+/// - Chain ID: 31337 (Anvil default)
+///
+/// # Examples
+///
+/// ```rust
+/// use continuity::mocks::MockEthRpcProvider;
+/// use std::sync::Arc;
+///
+/// let provider = Arc::new(MockEthRpcProvider);
+/// // Use with ContinuityBuilder::new_with_providers
+/// ```
 pub struct MockEthRpcProvider;
 
 #[async_trait]
@@ -198,12 +282,69 @@ impl EthRpcProvider for MockEthRpcProvider {
     }
 }
 
+/// Create a pair of mock RPC providers for testing.
+///
+/// This is a convenience function that creates both mock providers configured
+/// for the given chain. Use this in tests to avoid dealing with real RPC endpoints.
+///
+/// # Arguments
+///
+/// * `chain_key` - The chain identifier for the mock CC3 provider
+///
+/// # Returns
+///
+/// A tuple of `(cc_provider, eth_provider)` ready to be used with
+/// [`ContinuityBuilder::new_with_providers`](crate::ContinuityBuilder::new_with_providers).
+///
+/// # Mock Behavior
+///
+/// **CC3 Provider:**
+/// - Returns attestations at blocks 10, 20, 30
+/// - Returns checkpoints at blocks 0, 100, 200
+/// - Genesis block: 0
+/// - Attestation interval: 10 blocks
+/// - Checkpoint interval: 10 attestations
+///
+/// **ETH Provider:**
+/// - Builds continuity blocks with deterministic digests
+/// - Last block: 1000
+/// - Chain ID: 31337
+///
+/// # Examples
+///
+/// ```rust
+/// use continuity::{ContinuityBuilder, ContinuityConfig, mocks::make_mock_providers};
+/// use std::sync::Arc;
+///
+/// #[tokio::test]
+/// async fn test_with_mocks() -> anyhow::Result<()> {
+///     let chain_key = 2;
+///     let config = ContinuityConfig::builder()
+///         .cc3_rpc_url("http://mock")
+///         .eth_rpc_url("http://mock")
+///         .chain_key(chain_key)
+///         .attestation_interval(10)
+///         .checkpoint_interval(10)
+///         .build();
+///
+///     let (cc_provider, eth_provider) = make_mock_providers(chain_key);
+///     let builder = ContinuityBuilder::new_with_providers(
+///         config,
+///         cc_provider,
+///         eth_provider,
+///     );
+///
+///     // Use builder in tests
+///     let (lower, upper, _) = builder.get_endpoints(&[15], None).await?;
+///     assert_eq!(lower.block_number, 10);
+///     assert_eq!(upper.block_number, 20);
+///
+///     Ok(())
+/// }
+/// ```
 pub fn make_mock_providers(chain_key: u64) -> (Arc<MockCcRpcProvider>, Arc<MockEthRpcProvider>) {
     (
-        Arc::new(MockCcRpcProvider {
-            chain_key,
-            genesis_block: 0,
-        }),
+        Arc::new(MockCcRpcProvider::new(chain_key)),
         Arc::new(MockEthRpcProvider),
     )
 }

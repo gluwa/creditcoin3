@@ -2,7 +2,7 @@ use clap::Parser;
 use std::env;
 use tracing::{debug, info};
 
-use proof_gen_api_server::{config::Config, db::DbManager, Server};
+use proof_gen_api_server::{config::Config, Server};
 
 #[derive(Parser, Debug)]
 #[command(name = "proof-gen-api-server")]
@@ -49,13 +49,6 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
-        default_value = "postgres://postgres:password@localhost:5433/proofs_db",
-        help = "The connection string used to access the server's postgres DB"
-    )]
-    postgres_uri: String,
-
-    #[arg(
-        long,
         required = false,
         help = "Redis connection URL for block caching layer"
     )]
@@ -76,9 +69,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse args
     let args = ProofGenApiServer::parse();
-
-    // Get db connection details from env variables.
-    let manager = DbManager::new(args.postgres_uri)?;
 
     // enable tracing debug logs if verbose flag is set
     let env_filter = if args.verbose {
@@ -110,14 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         indexer_url: args.indexer_url,
     };
 
-    if args.reset_db {
-        info!("Resetting database...");
-        manager.reset_database().await?;
-        info!("Database reset successful");
-        return Ok(());
-    }
-
-    let server = Server::new(config, manager).await?;
+    let server = Server::new(config).await?;
     // Run blocks until graceful shutdown signal.
     server.run().await?;
     info!("🛑 Server exited");

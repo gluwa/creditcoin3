@@ -1,4 +1,4 @@
-//! Shared test utilities for integration tests using alloy and testcontainers.
+//! Shared test utilities for integration tests using alloy.
 
 #[allow(dead_code)]
 mod anvil_integration {
@@ -15,9 +15,6 @@ mod anvil_integration {
     use proof_gen_api_server::{build_app, ContinuityService};
     use serde_json::Value;
     use std::sync::Arc;
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers::ContainerAsync;
-    use testcontainers_modules::postgres::Postgres;
 
     /// Sends a test transaction to Anvil and returns the transaction hash.
     pub async fn send_test_tx_via_alloy(port: u16, anvil: &AnvilInstance) -> Result<String> {
@@ -167,103 +164,23 @@ mod anvil_integration {
         ))
     }
 
-    /// Starts a PostgreSQL test container.
-    pub async fn setup_test_postgres() -> ContainerAsync<Postgres> {
-        Postgres::default()
-            .start()
-            .await
-            .expect("Failed to start PostgreSQL test container")
-    }
+    /// Starts test app with mock providers.
+    pub async fn start_test_app(chain_key: u64) -> Router {
+        let cfg = ContinuityConfig::builder()
+            .cc3_rpc_url("ws://mock")
+            .eth_rpc_url("ws://mock")
+            .chain_key(chain_key)
+            .attestation_interval(10)
+            .checkpoint_interval(10)
+            .build();
 
-    /// Get DbManager config from the running Postgres container.
-    /// Retries port retrieval and connection to handle testcontainers timing issues.
-    pub async fn test_db_manager_postgres_uri(container: &ContainerAsync<Postgres>) -> String {
-        // Retry up to 10 times with 50ms delay to handle container port exposure timing
-        const PORT_MAX_ATTEMPTS: usize = 10;
-        const PORT_RETRY_DELAY_MS: u64 = 50;
-
-        let port = {
-            let mut port_result = None;
-            for attempt in 1..=PORT_MAX_ATTEMPTS {
-                match container.get_host_port_ipv4(5432).await {
-                    Ok(p) => {
-                        port_result = Some(p);
-                        break;
-                    }
-                    Err(_e) if attempt < PORT_MAX_ATTEMPTS => {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(PORT_RETRY_DELAY_MS))
-                            .await;
-                    }
-                    Err(e) => {
-                        panic!(
-                            "Failed to get postgres port after {} attempts ({}ms total): {}",
-                            PORT_MAX_ATTEMPTS,
-                            PORT_MAX_ATTEMPTS as u64 * PORT_RETRY_DELAY_MS,
-                            e
-                        );
-                    }
-                }
-            }
-            port_result.expect("Port should be set")
-        };
-
-        let uri = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
-
-        // Wait for PostgreSQL to be ready to accept connections
-        // The port can be exposed before PostgreSQL finishes initialization
-        const READY_MAX_ATTEMPTS: usize = 30;
-        const READY_RETRY_DELAY_MS: u64 = 100;
-
-        for attempt in 1..=READY_MAX_ATTEMPTS {
-            match tokio_postgres::connect(&uri, tokio_postgres::NoTls).await {
-                Ok((client, connection)) => {
-                    // Spawn connection task and immediately drop it - we just wanted to test connectivity
-                    tokio::spawn(async move {
-                        let _ = connection.await;
-                    });
-                    drop(client);
-                    return uri;
-                }
-                Err(_) if attempt < READY_MAX_ATTEMPTS => {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(READY_RETRY_DELAY_MS))
-                        .await;
-                }
-                Err(e) => {
-                    panic!(
-                        "PostgreSQL not ready after {} attempts ({}ms total): {}",
-                        READY_MAX_ATTEMPTS,
-                        READY_MAX_ATTEMPTS as u64 * READY_RETRY_DELAY_MS,
-                        e
-                    );
-                }
-            }
-        }
-        unreachable!()
-    }
-
-    /// Starts test app with PostgreSQL and mock providers.
-    pub async fn start_app_with_postgres(chain_key: u64) -> Router {
-        let container = setup_test_postgres().await;
-
-        let cfg = ContinuityConfig {
-            cc3_rpc_url: "ws://mock".into(),
-            cc3_key: "//Alice".into(),
-            eth_rpc_url: "ws://mock".into(),
-            chain_key,
-        };
         let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
         let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider.clone(), eth_provider);
-        let db = proof_gen_api_server::db::DbManager::new(
-            test_db_manager_postgres_uri(&container).await,
-        )
-        .expect("db manager init");
-        db.run_migrations().await.expect("migrations");
         let service = Arc::new(
-            ContinuityService::new(cc_provider, Arc::new(builder), Arc::new(db))
+            ContinuityService::new(cc_provider, Arc::new(builder))
                 .await
                 .expect("service init"),
         );
-        std::mem::forget(container);
         build_app(service, chain_key)
     }
 
@@ -287,6 +204,5 @@ mod anvil_integration {
 
 #[allow(unused_imports)]
 pub use anvil_integration::{
-    assert_h256_str, get_tx_info_via_rpc, send_test_tx_via_alloy, setup_test_postgres,
-    start_app_with_postgres, test_db_manager_postgres_uri,
+    assert_h256_str, get_tx_info_via_rpc, send_test_tx_via_alloy, start_test_app,
 };

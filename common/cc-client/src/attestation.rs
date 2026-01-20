@@ -12,7 +12,7 @@ use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest};
 use crate::cc3::{
     attestation::events::{
         AttestationIntervalChanged, AttestorActivated, AttestorChilled, AttestorsElected,
-        BlockAttested, CheckpointReached, TargetSampleSizeChanged,
+        BlockAttested, CheckpointIntervalChanged, CheckpointReached, TargetSampleSizeChanged,
     },
     randomness::events::StoreRandomnessForEpoch,
     staking::events::Kicked,
@@ -50,6 +50,7 @@ pub enum CcEvent {
     RandomnessChanged((u64, Randomness)),
     CheckpointReached(AttestationCheckpoint),
     AttestationIntervalChanged(u64),
+    CheckpointIntervalChanged(u64, u32),
     TargetSampleSizeChanged(u32),
     AttestorsElected(Vec<AccountId32>),
     AttestorActivated(AccountId32),
@@ -224,6 +225,23 @@ impl Client {
                         }
 
                         Some(Ok(CcEvent::AttestationIntervalChanged(new_interval)))
+                    }
+                    (CheckpointIntervalChanged::PALLET, CheckpointIntervalChanged::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<CheckpointIntervalChanged>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        let CheckpointIntervalChanged(chain_key, new_interval) = event;
+
+                        if chain_key != filter {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::CheckpointIntervalChanged(
+                            chain_key,
+                            new_interval,
+                        )))
                     }
                     (AttestorsElected::PALLET, AttestorsElected::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestorsElected>() else {
