@@ -229,6 +229,15 @@ jobs:
                 - **Close** *IF* #${process.env.SOURCE_PR} is *NOT* merged`
             });
 
+            await github.rest.pulls.requestReviewers({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: process.env.TARGET_PR,
+              reviewers: ['atodorov', 'beqaabu', 'BradleyOlson64', 'didac-gluwa', 'DylanVerstraete', 'Trantorian1'],
+              // WARNING: doesn't work although docs show this as the correct format
+              // team_reviewers: ['protocol', 'protocol-manager'],
+            });
+
   remove-github-runner:
     runs-on: ubuntu-24.04
     needs:
