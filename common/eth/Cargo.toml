@@ -32,9 +32,9 @@ url = { workspace = true }
 # Local dependencies
 attestor-primitives = { workspace = true }
 merkle = { workspace = true }
-prometheus = { package = "prometheus", version = "0.14", optional = true }
+prometheus-client = { workspace = true, optional = true }
 utils = { workspace = true }
 
 [features]
-block_cache = ["redis", "serde", "serde_json", "snap", "prometheus"]
+block_cache = ["redis", "serde", "serde_json", "snap", "prometheus-client"]
 default = []

@@ -1,5 +1,7 @@
+use std::time::Instant;
+
 use super::*;
-use continuity::BuiltContinuityProof as ContinuityContinuityProof;
+use attestor_primitives::block::ContinuityProof;
 
 impl ContinuityService {
     /// Internal helper that always builds a fresh continuity proof directly
@@ -24,7 +26,7 @@ impl ContinuityService {
         &self,
         header_number: u64,
         current_block: u64,
-    ) -> Result<(ContinuityContinuityProof, continuity::AttestationWithProof), ServiceError> {
+    ) -> Result<(ContinuityProof, continuity::AttestationWithProof), ServiceError> {
         // Pass current_block to get_endpoints so it can validate predicted blocks immediately and fail fast
         let (lower_attestation, upper_attestation) = self
             .builder
@@ -38,7 +40,10 @@ impl ContinuityService {
             .await
             .map_err(ServiceError::from)?;
 
-        Ok((proof, lower_attestation))
+        Ok((
+            ContinuityProof::from_blocks(proof.blocks),
+            lower_attestation,
+        ))
     }
 
     pub(crate) async fn get_height_and_index_for_tx_hash(
@@ -59,6 +64,8 @@ impl ContinuityService {
         header_number: u64,
         tx_index: u64,
     ) -> ServiceResult<MerkleProofItem> {
+        let merkle_start = Instant::now();
+
         // Fetch tx bytes & validate index.
         // Note: This uses Redis block caching if configured (via eth_client.get_block() -> block_cache.rs)
         let tx_bytes = self
@@ -104,6 +111,11 @@ impl ContinuityService {
                     message: format!("Failed to get tx hash: {e}"),
                 })?
         };
+
+        // Record merkle proof generation duration
+        if let Some(ref m) = self.metrics {
+            m.observe_merkle_generation(merkle_start.elapsed().as_secs_f64());
+        }
 
         // Build Proof items for DB Insert
         let tx_bytes_for_cache = if tx_bytes.is_empty() {

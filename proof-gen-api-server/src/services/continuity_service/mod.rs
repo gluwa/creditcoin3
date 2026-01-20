@@ -9,9 +9,10 @@ use std::sync::{
 };
 use std::time::Instant;
 
+use crate::prom::{Metrics, ProofType};
 use crate::services::continuity_service::helpers::*;
-use attestor_primitives::block::ContinuityProof as AttestorContinuityProof;
-use continuity::{CcRpcProvider, ContinuityBuilder};
+use attestor_primitives::block::ContinuityProof;
+use continuity::ContinuityBuilder;
 use merkle::proof::TransactionMerkleProof;
 
 pub mod helpers;
@@ -41,7 +42,7 @@ pub struct ContinuityResponse {
     pub tx_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx_bytes: Option<String>, // Hex-encoded transaction bytes (payload only)
-    pub continuity_proof: AttestorContinuityProof,
+    pub continuity_proof: ContinuityProof,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merkle_proof: Option<TransactionMerkleProof>,
     pub cached: bool,
@@ -53,7 +54,6 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 
 pub struct ContinuityService {
     builder: Arc<ContinuityBuilder>,
-    cc3_client: Arc<dyn CcRpcProvider>,
     start_time: Instant,
     cache_hits: AtomicU64,
     cache_misses: AtomicU64,
@@ -61,6 +61,8 @@ pub struct ContinuityService {
     /// Blocks before this number cannot be attested to.
     /// Fetched once at service startup and cached for the lifetime of the service.
     attestation_genesis_block: u64,
+    /// Optional prometheus metrics for instrumentation.
+    metrics: Option<Metrics>,
 }
 
 impl ContinuityService {
@@ -69,8 +71,8 @@ impl ContinuityService {
     /// # Errors
     /// Returns an error if the attestation genesis block cannot be fetched from RPC.
     pub async fn new(
-        cc3_client: Arc<dyn CcRpcProvider>,
         builder: Arc<ContinuityBuilder>,
+        metrics: Option<Metrics>,
     ) -> anyhow::Result<Self> {
         // Fetch genesis block at startup - fail fast if RPC is unavailable
         let attestation_genesis_block = builder
@@ -83,13 +85,18 @@ impl ContinuityService {
             "ContinuityService initialized with attestation genesis block"
         );
 
+        // Initialize proofs_stored metric to 0 (no database)
+        if let Some(ref m) = metrics {
+            m.set_proofs_stored(0);
+        }
+
         Ok(Self {
-            cc3_client,
             builder,
             start_time: Instant::now(),
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
             attestation_genesis_block,
+            metrics,
         })
     }
 
@@ -152,6 +159,10 @@ impl ContinuityService {
         let hits = self.cache_hits.load(Ordering::Relaxed) as i64;
         let misses = self.cache_misses.load(Ordering::Relaxed) as i64;
         let total = hits + misses;
+        // Update proofs_stored metric (always 0 since we don't have a database)
+        if let Some(ref m) = self.metrics {
+            m.set_proofs_stored(0);
+        }
         Ok((hits, misses, total))
     }
 
@@ -159,8 +170,6 @@ impl ContinuityService {
     pub async fn check_cc3_connectivity(&self) -> anyhow::Result<()> {
         // Try to get the chain name as a basic connectivity check
         let _chain_name = self.builder.get_chain_name().await?;
-        // Note: cc3_client is kept for potential future use (e.g., checkpoint checks)
-        let _ = &self.cc3_client;
         Ok(())
     }
 
@@ -186,46 +195,69 @@ impl ContinuityService {
     ) -> ServiceResult<ContinuityResponse> {
         let current_block = self.validate_block(header_number).await?;
 
+        // Record block range metric
+        if let Some(ref m) = self.metrics {
+            m.observe_block_range(header_number);
+        }
+
+        // Determine proof type for metrics
+        let proof_type = if tx_index.is_some() {
+            ProofType::ContinuityWithMerkle
+        } else {
+            ProofType::ContinuityOnly
+        };
+
         // ContinuityBuilder will automatically use indexer if available
         // Track cache hits/misses based on whether indexer was used
+        let start = Instant::now();
         let (continuity_proof, was_cached) = match self
             .build_continuity(header_number, current_block)
             .await
         {
-            Ok((proof, lower_attestation)) => {
-                // ContinuityBuilder handles indexer internally, so we can't easily detect
+            Ok((proof, _lower_attestation)) => {
+                let duration = start.elapsed();
+                // TODO: ContinuityBuilder handles indexer internally, so we can't easily detect
                 // if indexer was used. For now, we'll always mark as not cached since we're
                 // building fresh proofs (even if they use indexer data internally).
                 let cached = false;
                 if cached {
                     self.cache_hits.fetch_add(1, Ordering::Relaxed);
+                    if let Some(ref m) = self.metrics {
+                        m.inc_cache_hit();
+                    }
                 } else {
                     self.cache_misses.fetch_add(1, Ordering::Relaxed);
+                    if let Some(ref m) = self.metrics {
+                        m.inc_cache_miss();
+                    }
                 }
 
-                // Convert BuiltContinuityProof to attestor_primitives::ContinuityProof
-                // Uses smart conversion that handles trimmed proofs and attestation context
-                let attestor_proof = proof
-                        .to_attestor_proof_with_attestation_context(lower_attestation.digest)
-                        .ok_or_else(|| ServiceError::Internal {
-                            message: format!(
-                                "Failed to convert continuity proof to attestor proof format. Proof has {} blocks, lower_attestation digest: {:?}",
-                                proof.blocks.len(),
-                                lower_attestation.digest
-                            ),
-                        })?;
+                // Record metrics
+                if let Some(ref m) = self.metrics {
+                    m.observe_proof_generation(proof_type.clone(), duration.as_secs_f64(), true);
+                    m.observe_proof_blocks(proof.roots.len() as u64);
+                    // Record timestamp of successful proof generation
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs_f64())
+                        .unwrap_or(0.0);
+                    m.set_last_proof_generation_timestamp(now);
+                }
 
                 tracing::info!(
-                    proof_block_count = proof.blocks.len(),
-                    lower_endpoint_digest = ?attestor_proof.lower_endpoint_digest,
-                    first_block_number = proof.blocks.first().map(|b| b.block_number),
-                    last_block_number = proof.blocks.last().map(|b| b.block_number),
-                    last_block_digest = ?proof.blocks.last().map(|b| b.digest),
-                    "Converting continuity proof for API response"
+                    proof_block_count = proof.roots.len(),
+                    lower_endpoint_digest = ?proof.lower_endpoint_digest,
+                    "Generated continuity proof for API response"
                 );
-                (attestor_proof, cached)
+                (proof, cached)
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                let duration = start.elapsed();
+                if let Some(ref m) = self.metrics {
+                    m.observe_proof_generation(proof_type, duration.as_secs_f64(), false);
+                }
+                return Err(e);
+            }
         };
 
         match tx_index {

@@ -1,9 +1,12 @@
-use crate::{metrics::BlockCacheMetrics, Client, Error, OrderedBlock};
-
-use std::{
-    io::{Error as IoError, Read, Result as IoResult, Write},
-    sync::Arc,
+use crate::{
+    metrics::{BlockCacheMetrics, RedisOp},
+    Client, Error, OrderedBlock,
 };
+
+use std::io::{Error as IoError, Read, Result as IoResult, Write};
+use std::time::Instant;
+
+use tracing::{debug, error, trace};
 
 use alloy::eips::{BlockId, BlockNumberOrTag};
 use ccnext_abi_encoding::common::EncodingVersion;
@@ -26,13 +29,15 @@ const REDIS_RESPONSE_TIMEOUT_SECS: u64 = 30;
 
 pub struct BlockCacheConfig {
     pub redis_url: String,
-    pub metrics_registry: Option<Arc<prometheus::Registry>>,
+    /// Mutable reference to the registry for registering block cache metrics.
+    /// The caller owns the registry and can encode it later.
+    pub metrics: BlockCacheMetrics,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct Cache {
     redis_conn: MultiplexedConnection,
-    metrics: Option<BlockCacheMetrics>,
+    metrics: BlockCacheMetrics,
 }
 
 fn compress(buff: &[u8]) -> IoResult<Vec<u8>> {
@@ -62,21 +67,24 @@ async fn get_cached_block(
     mut conn: MultiplexedConnection,
     chain_id: u64,
     block_number: u64,
+    metrics: &BlockCacheMetrics,
 ) -> Option<OrderedBlock> {
     let key = format!("block:{chain_id}:{block_number}");
 
-    match conn.get::<_, Option<Vec<u8>>>(&key).await {
+    let start = Instant::now();
+    let result = conn.get::<_, Option<Vec<u8>>>(&key).await;
+    metrics.observe_redis_operation(RedisOp::Get, start.elapsed().as_secs_f64());
+
+    match result {
         Ok(Some(bytes)) => {
             // If compression is enabled, inflate the cache block before attempting to
             // deserialize it
             let bytes = match inflate(&bytes) {
                 Ok(d) => d,
                 Err(err) => {
-                    tracing::error!(
+                    error!(
                         "Failed to inflate cached block for chain_id: {}, block_number: {}: {}",
-                        chain_id,
-                        block_number,
-                        err
+                        chain_id, block_number, err
                     );
                     return None;
                 }
@@ -85,39 +93,35 @@ async fn get_cached_block(
             // Try to deserialize the block
             match from_slice::<OrderedBlock>(&bytes) {
                 Ok(block) => {
-                    tracing::debug!(
+                    debug!(
                         "Cache hit for chain_id: {}, block_number: {}",
-                        chain_id,
-                        block_number
+                        chain_id, block_number
                     );
 
                     Some(block)
                 }
                 Err(_) => {
-                    tracing::error!(
+                    error!(
                         "Failed to decode cached block for chain_id: {}, block_number: {}",
-                        chain_id,
-                        block_number
+                        chain_id, block_number
                     );
                     None
                 }
             }
         }
         Ok(None) => {
-            tracing::debug!(
+            debug!(
                 "Cache miss for chain_id: {}, block_number: {}",
-                chain_id,
-                block_number
+                chain_id, block_number
             );
 
             None
         }
         Err(err) => {
-            tracing::error!(
+            metrics.inc_redis_error();
+            error!(
                 "Redis error when fetching cached block for chain_id: {}, block_number: {}: {}",
-                chain_id,
-                block_number,
-                err
+                chain_id, block_number, err
             );
             None
         }
@@ -131,6 +135,7 @@ async fn cache_block(
     chain_id: u64,
     block_number: u64,
     block: &OrderedBlock,
+    metrics: &BlockCacheMetrics,
 ) {
     let key = format!("block:{chain_id}:{block_number}");
 
@@ -140,26 +145,29 @@ async fn cache_block(
             let bytes = match compress(&bytes) {
                 Ok(c) => c,
                 Err(err) => {
-                    tracing::error!(
+                    error!(
                         "Failed to compress block for caching with key {}: {}",
-                        key,
-                        err
+                        key, err
                     );
                     return;
                 }
             };
 
-            if let Err(err) = conn.set_ex::<_, _, ()>(&key, bytes, ONE_HOUR_TTL).await {
-                tracing::error!("Redis error when caching block with key {}: {}", key, err);
+            let start = Instant::now();
+            let result = conn.set_ex::<_, _, ()>(&key, bytes, ONE_HOUR_TTL).await;
+            metrics.observe_redis_operation(RedisOp::Set, start.elapsed().as_secs_f64());
+
+            if let Err(err) = result {
+                metrics.inc_redis_error();
+                error!("Redis error when caching block with key {}: {}", key, err);
             } else {
-                tracing::trace!("Cached block with key {}", key);
+                trace!("Cached block with key {}", key);
             }
         }
         Err(err) => {
-            tracing::error!(
+            error!(
                 "Failed to encode block for caching with key {}: {}",
-                key,
-                err
+                key, err
             );
         }
     }
@@ -185,16 +193,9 @@ impl Client {
             .get_multiplexed_async_connection_with_config(&connection_config)
             .await?;
 
-        // Register prometheus metrics if registry is provided
-        let metrics = if let Some(ref registry) = config.metrics_registry {
-            BlockCacheMetrics::register(registry).ok()
-        } else {
-            None
-        };
-
         let cache = Cache {
             redis_conn,
-            metrics,
+            metrics: config.metrics,
         };
 
         Ok(Self {
@@ -211,7 +212,7 @@ impl Client {
         number: u64,
         encoding: EncodingVersion,
     ) -> Option<Result<OrderedBlock, Error>> {
-        tracing::trace!(
+        trace!(
             "Getting block {}",
             BlockId::Number(BlockNumberOrTag::Number(number))
         );
@@ -221,25 +222,20 @@ impl Client {
             ref metrics,
         }) = self.cache
         else {
-            tracing::trace!("Block cache not configured, fetching block directly");
+            trace!("Block cache not configured, fetching block directly");
             return self.try_fetch_block(number, encoding).await;
         };
 
         // Clonning the connection is the same as cloning a handle to the connection pool
         let conn = redis_conn.clone();
 
-        match get_cached_block(conn.clone(), self.chain_id, number).await {
+        match get_cached_block(conn.clone(), self.chain_id, number, metrics).await {
             Some(block) => {
-                if let Some(ref metrics) = metrics {
-                    metrics.observe_cache_hit();
-                }
-
+                metrics.observe_cache_hit();
                 Some(Ok(block))
             }
             None => {
-                if let Some(ref metrics) = metrics {
-                    metrics.observe_cache_miss();
-                }
+                metrics.observe_cache_miss();
 
                 let lock_key = format!("lock:block:{}:{}", self.chain_id, number);
 
@@ -255,53 +251,41 @@ impl Client {
                     .await
                 {
                     Err(err) => {
-                        tracing::error!("Redis error during locking {}: {}, falling back to fetching block directly", &lock_key, err);
+                        error!("Redis error during locking {}: {}, falling back to fetching block directly", &lock_key, err);
 
                         self.try_fetch_block(number, encoding).await
                     }
                     Ok(true) => {
-                        tracing::trace!("Acquired lock for {}", &lock_key);
+                        trace!("Acquired lock for {}", &lock_key);
 
                         // We acquired the lock, fetch and cache the block
                         let maybe_block = self.try_fetch_block(number, encoding).await;
 
                         if let Some(Ok(block)) = maybe_block {
-                            cache_block(conn.clone(), self.chain_id, number, &block).await;
+                            cache_block(conn.clone(), self.chain_id, number, &block, metrics).await;
 
                             // Release the lock by deleting the key
                             if let Err(err) = conn.clone().del::<_, ()>(&lock_key).await {
-                                tracing::error!(
-                                    "Redis error when unlocking {}: {}",
-                                    &lock_key,
-                                    err
-                                );
+                                error!("Redis error when unlocking {}: {}", &lock_key, err);
                             }
 
                             // Update the total cached blocks count
-                            if let Some(ref metrics) = metrics {
-                                if let Ok(cache_blocks) =
-                                    get_total_cached_blocks(conn.clone()).await
-                                {
-                                    metrics.set_total_cached_blocks(cache_blocks as i64);
-                                }
+                            if let Ok(cache_blocks) = get_total_cached_blocks(conn.clone()).await {
+                                metrics.set_total_cached_blocks(cache_blocks as i64);
                             }
 
                             Some(Ok(block))
                         } else {
                             // Release the lock by deleting the key
                             if let Err(err) = conn.clone().del::<_, ()>(&lock_key).await {
-                                tracing::error!(
-                                    "Redis error when unlocking {}: {}",
-                                    &lock_key,
-                                    err
-                                );
+                                error!("Redis error when unlocking {}: {}", &lock_key, err);
                             }
 
                             maybe_block
                         }
                     }
                     Ok(false) => {
-                        tracing::trace!(
+                        trace!(
                             "Did not acquire lock for {}, another process is fetching the block",
                             &lock_key
                         );
@@ -311,7 +295,7 @@ impl Client {
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
                         if let Some(block) =
-                            get_cached_block(conn.clone(), self.chain_id, number).await
+                            get_cached_block(conn.clone(), self.chain_id, number, metrics).await
                         {
                             Some(Ok(block))
                         } else {

@@ -5,6 +5,7 @@ use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
 use tracing::{error, info};
 
+use crate::prom::{Metrics, ProofGenMetrics};
 use cc_client::Client as CcClient;
 use config::Config;
 use continuity::ContinuityBuilder;
@@ -14,6 +15,7 @@ use networking::run_http_server;
 pub mod config;
 pub mod events;
 pub mod networking;
+pub mod prom;
 pub mod services;
 
 // Re-exports for integration tests and external callers
@@ -33,11 +35,24 @@ pub struct Server {
     // Last checkpoint block number per chain (updated via events)
     // Used to quickly determine if a query needs checkpoint data
     last_checkpoint_blocks: events::LastCheckpointBlockMap,
+    // Prometheus metrics, if enabled
+    // Store as Arc<ProofGenMetrics> to access block_cache_metrics(), convert to Metrics trait object when needed
+    prom_metrics: Option<Arc<ProofGenMetrics>>,
 }
 
 impl Server {
     /// Create a new server based on `Config`.
     pub async fn new(config: Config) -> Result<Self> {
+        // Create metrics first (if enabled) so we can share the registry with block cache
+        let prom_metrics: Option<Arc<ProofGenMetrics>> = if config.enable_prometheus_metrics {
+            let prom_host = &config.prometheus_host;
+            let prom_port = config.prometheus_port;
+            info!("📈 Prometheus metrics enabled on http://{prom_host}:{prom_port}/metrics");
+            Some(Arc::new(ProofGenMetrics::new(config.chain_key)))
+        } else {
+            None
+        };
+
         // Initialize CC3 client (read-only, no keypair needed)
         let cc3_client = Arc::<CcClient>::new(CcClient::new_read_only(&config.cc3_rpc_url).await?);
 
@@ -52,9 +67,17 @@ impl Server {
         // Use cached client if Redis is configured, otherwise regular client
         let eth_client = if let Some(ref redis_url) = config.redis_url {
             info!("Using Redis block caching at {}", redis_url);
+            // Get block cache metrics from our metrics (if enabled) or create standalone
+            let block_cache_metrics = if let Some(ref m) = prom_metrics {
+                m.block_cache_metrics()
+            } else {
+                // Create standalone metrics (won't be exported, but needed for the interface)
+                let mut dummy_registry = prometheus_client::registry::Registry::default();
+                eth::metrics::BlockCacheMetrics::new(&mut dummy_registry)
+            };
             let cache_config = eth::block_cache::BlockCacheConfig {
                 redis_url: redis_url.clone(),
-                metrics_registry: None,
+                metrics: block_cache_metrics,
             };
             Arc::new(EthClient::new_with_cache(&config.eth_rpc_url, None, cache_config).await?)
         } else {
@@ -165,14 +188,20 @@ impl Server {
             builder,
             checkpoint_intervals,
             last_checkpoint_blocks,
+            prom_metrics,
         })
     }
 
     pub async fn run(&self) -> Result<()> {
+        // Convert prom_metrics to Option<Metrics> for service
+        // ContinuityService expects Option<Metrics> where Metrics = Arc<ProofGenMetrics>
+        use crate::prom::Metrics;
+        let metrics: Option<Metrics> = self.prom_metrics.clone();
+
         let service = Arc::new(
             services::continuity_service::ContinuityService::new(
-                self.cc3_client.clone(),
                 self.builder.clone(),
+                metrics.clone(),
             )
             .await?,
         );
@@ -192,6 +221,19 @@ impl Server {
         tokio::pin!(server);
 
         info!("Server listening on {bind_addr}");
+
+        // Start metrics server if configured
+        if let Some(ref prom_metrics) = self.prom_metrics {
+            let metrics_clone = Arc::clone(prom_metrics);
+            let metrics_host = self.config.prometheus_host.clone();
+            let metrics_port = self.config.prometheus_port;
+            tokio::spawn(async move {
+                if let Err(e) = run_metrics_server(metrics_clone, &metrics_host, metrics_port).await
+                {
+                    error!("Metrics server failed: {e}");
+                }
+            });
+        }
 
         // Start CC3 event subscription with the configured chain key
         // Events are processed directly in the subscription loop and checkpoint interval changes are monitored
@@ -278,4 +320,47 @@ pub async fn shutdown_signal() {
     }
 
     info!("Shutdown signal received");
+}
+
+/// Run the Prometheus metrics HTTP server.
+async fn run_metrics_server(metrics: Arc<ProofGenMetrics>, host: &str, port: u16) -> Result<()> {
+    use axum::{routing::get, Router};
+
+    struct MetricsState {
+        metrics: Arc<ProofGenMetrics>,
+    }
+
+    async fn handle_metrics(
+        axum::extract::State(state): axum::extract::State<Arc<MetricsState>>,
+    ) -> impl axum::response::IntoResponse {
+        // Update hardware metrics before encoding
+        state.metrics.update_hardware().await;
+
+        axum::response::Response::builder()
+            .status(axum::http::StatusCode::OK)
+            .header(
+                axum::http::header::CONTENT_TYPE,
+                "application/openmetrics-text; version=1.0.0; charset=utf-8",
+            )
+            .body(axum::body::Body::from(state.metrics.encode()))
+            .unwrap()
+    }
+
+    let state = Arc::new(MetricsState { metrics });
+    let router = Router::new()
+        .route("/metrics", get(handle_metrics))
+        .with_state(state);
+
+    let addr = format!("{host}:{port}");
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("Failed to bind metrics server to {addr}"))?;
+
+    info!("📈 Metrics server listening on http://{addr}/metrics");
+
+    axum::serve(listener, router)
+        .await
+        .context("Metrics server failed")?;
+
+    Ok(())
 }

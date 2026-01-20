@@ -177,7 +177,7 @@ mod anvil_integration {
         let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
         let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider.clone(), eth_provider);
         let service = Arc::new(
-            ContinuityService::new(cc_provider, Arc::new(builder))
+            ContinuityService::new(Arc::new(builder), None)
                 .await
                 .expect("service init"),
         );

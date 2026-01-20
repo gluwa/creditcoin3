@@ -56,6 +56,9 @@ eth = { workspace = true, features = ["block_cache"] }
 hex = { workspace = true }
 indexer-client = { workspace = true }
 merkle = { workspace = true }
+prometheus-client = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+sysinfo = { workspace = true }
 
 [features]
 default = []

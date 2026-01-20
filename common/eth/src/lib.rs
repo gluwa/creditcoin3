@@ -82,9 +82,6 @@ pub enum Error {
     #[cfg(feature = "block_cache")]
     #[error("Redis error {0}")]
     RedisError(#[from] redis::RedisError),
-    #[cfg(feature = "block_cache")]
-    #[error("Failed to register prometheus metrics")]
-    FailedToRegisterMetrics,
 }
 
 #[derive(Debug, Clone)]
