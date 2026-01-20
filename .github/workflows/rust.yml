@@ -155,6 +155,12 @@ jobs:
           components: clippy, rust-src
       - uses: Swatinem/rust-cache@v2
 
+      - name: Print clippy's version
+        uses: gluwa/cargo@dev
+        with:
+          command: clippy
+          args: --version
+
       - name: Run Clippy
         uses: gluwa/cargo@dev
         with:
