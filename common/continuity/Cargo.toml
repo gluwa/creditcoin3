@@ -1,12 +1,12 @@
 [package]
-name = "continuity"
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
-publish = false
-description = "Continuity proof generation library for Creditcoin3"
-keywords = ["creditcoin", "oracle", "proof", "attestation"]
 categories = ["cryptography"]
+description = "Continuity proof generation library for Creditcoin3"
+edition = "2021"
+keywords = ["creditcoin", "oracle", "proof", "attestation"]
+license = "MIT"
+name = "continuity"
+publish = false
+version = "0.1.0"
 
 [dependencies]
 anyhow = { workspace = true }

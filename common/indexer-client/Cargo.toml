@@ -36,5 +36,5 @@ tracing = { workspace = true }
 attestor-primitives = { workspace = true }
 
 [dev-dependencies]
-wiremock = "0.6"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+wiremock = "0.6"

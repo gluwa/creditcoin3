@@ -30,7 +30,7 @@ impl<'a> BoundsFinder for Cc3BoundsFinder<'a> {
         &self,
         min_query: u64,
         max_query: u64,
-        _current_block: Option<u64>,
+        current_block: Option<u64>,
     ) -> Result<
         (
             AttestationWithProof,
@@ -77,7 +77,7 @@ impl<'a> BoundsFinder for Cc3BoundsFinder<'a> {
                 self.builder.validate_predicted_upper_bound(
                     predicted.block_number,
                     max_query,
-                    None,
+                    current_block,
                 )?;
 
                 info!(
