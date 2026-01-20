@@ -2670,7 +2670,6 @@ dependencies = [
  "eth",
  "indexer-client",
  "serde",
- "serde_json",
  "sp-core",
  "thiserror 1.0.69",
  "tokio",
@@ -6574,7 +6573,6 @@ name = "indexer-client"
 version = "3.87.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "attestor-primitives",
  "reqwest 0.12.15",
  "serde",
@@ -10934,7 +10932,6 @@ dependencies = [
  "alloy",
  "alloy-node-bindings",
  "anyhow",
- "async-trait",
  "attestor-primitives",
  "axum",
  "cc-client",

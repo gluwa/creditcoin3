@@ -25,7 +25,6 @@ release = false
 [dependencies]
 # Workspace dependencies
 anyhow = { workspace = true }
-async-trait = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
