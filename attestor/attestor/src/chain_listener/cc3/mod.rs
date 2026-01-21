@@ -157,11 +157,19 @@ impl CC3 {
         height: common::types::Height,
     ) -> Result<Option<vrf::ProofOfInclusion>, Error> {
         // TODO: we can avoid this call once the attestor has been listening to CC3 long enough
-        let (randomness, epoch_index) = self
-            .cc3
-            .fetch_babe_randomness_two_epoch_ego()
-            .await
-            .map_err(Error::Cc3Client)?;
+        let (randomness, epoch_index) = match self.cc3.fetch_babe_randomness_two_epoch_ego().await {
+            Ok(babe) => babe,
+            Err(cc_client::Error::FailedToGetBabeVrf(epoch)) => {
+                tracing::warn!(
+                    epoch,
+                    height,
+                    "Babe VRF randomness not available for epoch {epoch} (2 epochs ago). \
+                        This may happen after a chain restart or if randomness storage has gaps. Retrying later...",
+                );
+                return Ok(None);
+            }
+            Err(err) => return Err(Error::Cc3Client(err)),
+        };
 
         match self
             .cc3
