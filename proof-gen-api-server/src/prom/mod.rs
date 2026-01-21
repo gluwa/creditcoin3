@@ -6,6 +6,7 @@
 use std::sync::atomic::{AtomicI64, AtomicU64};
 use std::sync::Arc;
 use std::thread::available_parallelism;
+use std::time::Instant;
 
 use eth::metrics::BlockCacheMetrics;
 use prometheus_client::metrics::counter::Counter;
@@ -59,6 +60,9 @@ pub struct ProofGenMetrics {
 
     // Block cache metrics (for Redis block cache)
     pub block_cache_metrics: BlockCacheMetrics,
+
+    // Start time for uptime calculation
+    start_time: Instant,
 }
 
 impl ProofGenMetrics {
@@ -217,6 +221,7 @@ impl ProofGenMetrics {
             hardware,
             thread_count,
             block_cache_metrics,
+            start_time: Instant::now(),
         }
     }
 
@@ -281,6 +286,10 @@ impl ProofGenMetrics {
                 self.thread_count.set(thread_count);
             }
         }
+
+        // Update uptime (always, regardless of sysinfo success)
+        self.uptime_seconds
+            .set(self.start_time.elapsed().as_secs_f64());
     }
 
     // === Request Metrics ===
