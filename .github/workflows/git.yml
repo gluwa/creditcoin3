@@ -54,6 +54,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
   check-changelog:
+    if: github.base_ref == 'testnet' || github.base_ref == 'main'
     needs: setup
     uses: ./.github/workflows/generate-changelog.yml
     with:
