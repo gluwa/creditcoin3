@@ -128,29 +128,63 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
     `\n🎯 ${attestedBlocks.length} block(s) provable up to block ${provableUpTo} (latest attested: ${attestedBlock})`,
   );
 
-  // Process each attested block
+  const batchTxInfos: TxInfo[] = [];
+  const singleTxInfos: TxInfo[] = [];
+
+  // Select transactions per block
   for (const block of attestedBlocks) {
-    await processAttestedBlock(block);
+    metrics.blocksProcessed++;
+
+    if (block.txHashes.length === 0) {
+      continue;
+    }
+
+    const useBatch = Math.random() < config.batchProbability && block.txHashes.length > 1;
+    const txInfos = selectTxInfosForBlock(block, useBatch);
+
+    if (useBatch) {
+      batchTxInfos.push(...txInfos);
+    } else {
+      singleTxInfos.push(...txInfos);
+    }
+  }
+
+  // Batch submissions (can include multiple blocks sharing continuity)
+  if (batchTxInfos.length > 0) {
+    try {
+      const result = await submitBatchProofs(config, batchTxInfos);
+      metrics.batchSubmissions += result.batches;
+      metrics.proofsSubmitted += result.successful;
+      metrics.proofErrors += result.failed;
+    } catch (error) {
+      metrics.proofErrors++;
+      lastError = error instanceof Error ? error.message : String(error);
+      console.error('❌ Error processing batch submissions:', lastError);
+    }
+  }
+
+  // Single submissions (one per block)
+  for (const txInfo of singleTxInfos) {
+    metrics.singleSubmissions++;
+    const result = await submitSingleProof(config, txInfo);
+    if (result.success) {
+      metrics.proofsSubmitted++;
+    } else {
+      metrics.proofErrors++;
+      lastError = result.error ?? 'Unknown error';
+    }
+
+    // Small delay between single submissions
+    if (!isShuttingDown) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
   }
 }
 
 /**
- * Process an attested block by submitting proofs
+ * Select transactions for a block based on submission mode
  */
-async function processAttestedBlock(block: PendingBlock): Promise<void> {
-  if (isShuttingDown) return;
-
-  metrics.blocksProcessed++;
-
-  // Skip if no transactions
-  if (block.txHashes.length === 0) {
-    return;
-  }
-
-  // Decide between batch and single mode
-  const useBatch = Math.random() < config.batchProbability && block.txHashes.length > 1;
-
-  // Select transactions
+function selectTxInfosForBlock(block: PendingBlock, useBatch: boolean): TxInfo[] {
   let selectedTxs: Array<{ txHash: string; txIndex: number }>;
   if (useBatch) {
     const maxBatchTxs = Math.min(config.batchSize, 10, block.txHashes.length);
@@ -160,7 +194,7 @@ async function processAttestedBlock(block: PendingBlock): Promise<void> {
     selectedTxs = selectRandomTransactions(block.txHashes, 1);
   }
 
-  const txInfos: TxInfo[] = selectedTxs.map((tx) => ({
+  const txInfos = selectedTxs.map((tx) => ({
     txHash: tx.txHash,
     txIndex: tx.txIndex,
     blockNumber: block.blockNumber,
@@ -170,36 +204,7 @@ async function processAttestedBlock(block: PendingBlock): Promise<void> {
     `📋 Block ${block.blockNumber}: selected ${txInfos.length} of ${block.txHashes.length} transactions (${useBatch ? 'batch' : 'single'})`,
   );
 
-  try {
-    if (useBatch) {
-      // Batch submission
-      const result = await submitBatchProofs(config, txInfos);
-      metrics.batchSubmissions += result.batches;
-      metrics.proofsSubmitted += result.successful;
-      metrics.proofErrors += result.failed;
-    } else {
-      // Single submissions
-      for (const txInfo of txInfos) {
-        metrics.singleSubmissions++;
-        const result = await submitSingleProof(config, txInfo);
-        if (result.success) {
-          metrics.proofsSubmitted++;
-        } else {
-          metrics.proofErrors++;
-          lastError = result.error ?? 'Unknown error';
-        }
-
-        // Small delay between single submissions
-        if (!isShuttingDown) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-      }
-    }
-  } catch (error) {
-    metrics.proofErrors++;
-    lastError = error instanceof Error ? error.message : String(error);
-    console.error(`❌ Error processing block ${block.blockNumber}:`, lastError);
-  }
+  return txInfos;
 }
 
 /**
