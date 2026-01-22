@@ -403,13 +403,29 @@ async function submitToPrecompile(
 
     // Estimate gas and add 35% buffer
     console.log('⏳ Estimating gas...');
-    const estimatedGas = await provider.estimateGas({
-        to: precompileAddr,
-        data,
-        from: signerAddress,
-    });
-    const gasLimit = (estimatedGas * BigInt(GAS_BUFFER_MULTIPLIER)) / BigInt(100);
-    console.log(`   Estimated gas: ${estimatedGas.toString()}, Gas limit with buffer: ${gasLimit.toString()}`);
+    let gasLimit;
+    try {
+        const estimatedGas = await provider.estimateGas({
+            to: precompileAddr,
+            data,
+            from: signerAddress,
+        });
+        gasLimit = (estimatedGas * BigInt(GAS_BUFFER_MULTIPLIER)) / BigInt(100);
+        console.log(`   Estimated gas: ${estimatedGas.toString()}, Gas limit with buffer: ${gasLimit.toString()}`);
+    } catch (gasEstimateError) {
+        // Gas estimation can fail even when the call would succeed
+        // This is a known issue with precompiles - pallet-evm doesn't always
+        // properly propagate revert reasons during estimation mode
+        // Calculate a reasonable estimate based on continuity proof size (matching Rust logic)
+        const continuityBlocks = continuityProof.roots?.length || continuityProof.blocks?.length || 1;
+        // Base: 21000 (tx) + ~5000 per continuity block + ~10000 for merkle + overhead
+        const calculatedGas = 21000 + continuityBlocks * 5000 + 20000;
+        console.warn(`   Gas estimation failed: ${gasEstimateError.toString()}`);
+        console.log(
+            `   Using calculated gas limit based on proof size: ${calculatedGas} (${continuityBlocks} continuity blocks)`,
+        );
+        gasLimit = BigInt(calculatedGas);
+    }
 
     // Send transaction
     console.log('📤 Sending transaction...');

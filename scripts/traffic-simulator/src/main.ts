@@ -26,14 +26,9 @@ import { submitSingleProof } from './submitter/singleSubmitter.ts';
 import { submitBatchProofs } from './submitter/batchSubmitter.ts';
 import { startHealthServer } from './server.ts';
 import { setVerbose } from './logger.ts';
-import type {
-  BlockInfo,
-  HealthStatus,
-  Metrics,
-  PendingBlock,
-  SimulatorConfig,
-  TxInfo,
-} from './types.ts';
+import { SINGLE_SUBMISSION_DELAY_MS } from './constants.ts';
+import { sleep } from './utils/reconnect.ts';
+import type { BlockInfo, HealthStatus, Metrics, SimulatorConfig, TxInfo } from './types.ts';
 
 // Global state
 let config: SimulatorConfig;
@@ -97,13 +92,7 @@ function handleNewBlock(block: BlockInfo): void {
     return;
   }
 
-  const pendingBlock: PendingBlock = {
-    blockNumber: block.blockNumber,
-    txHashes: block.txHashes,
-    timestamp: block.timestamp,
-  };
-
-  pendingQueue.add(pendingBlock);
+  pendingQueue.add(block);
   metrics.blocksQueued++;
 
   console.log(
@@ -187,7 +176,7 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
 
     // Small delay between single submissions
     if (!isShuttingDown) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await sleep(SINGLE_SUBMISSION_DELAY_MS);
     }
   }
 }
@@ -195,7 +184,7 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
 /**
  * Select transactions for a block based on submission mode
  */
-function selectTxInfosForBlock(block: PendingBlock, useBatch: boolean): TxInfo[] {
+function selectTxInfosForBlock(block: BlockInfo, useBatch: boolean): TxInfo[] {
   let selectedTxs: Array<{ txHash: string; txIndex: number }>;
   if (useBatch) {
     // Batch mode: one tx per block (batching happens across blocks)
@@ -290,6 +279,7 @@ async function shutdown(): Promise<void> {
   console.log(`   Uptime: ${Math.floor((Date.now() - startTime) / 1000)}s`);
 
   console.log('\n✅ Shutdown complete');
+  Deno.exit(0);
 }
 
 /**

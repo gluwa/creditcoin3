@@ -18,7 +18,7 @@ const DEFAULTS = {
   proofApiUrl: 'http://localhost:3100',
   maxQueueSize: 100,
   batchSize: 10,
-  batchProbability: 0.3,
+  batchProbability: 0.5,
   singleEveryBlocks: 1,
   logVerbose: false,
   healthPort: 8080,

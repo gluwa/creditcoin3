@@ -5,13 +5,13 @@
  * but are waiting for attestation on Creditcoin3.
  */
 
-import type { PendingBlock } from '../types.ts';
+import type { BlockInfo } from '../types.ts';
 
 /**
  * Queue for managing pending blocks waiting for attestation
  */
 export class PendingBlockQueue {
-  private blocks: Map<number, PendingBlock> = new Map();
+  private blocks: Map<number, BlockInfo> = new Map();
   private maxSize: number;
   private highestAttestedBlock = 0;
 
@@ -22,7 +22,7 @@ export class PendingBlockQueue {
   /**
    * Add a block to the pending queue
    */
-  add(block: PendingBlock): void {
+  add(block: BlockInfo): void {
     // Skip blocks that have already been attested
     if (block.blockNumber <= this.highestAttestedBlock) {
       return;
@@ -47,8 +47,8 @@ export class PendingBlockQueue {
    * Get blocks that have been attested (block number <= attestedUpTo)
    * and remove them from the queue
    */
-  getAttestedBlocks(attestedUpTo: number): PendingBlock[] {
-    const attested: PendingBlock[] = [];
+  getAttestedBlocks(attestedUpTo: number): BlockInfo[] {
+    const attested: BlockInfo[] = [];
 
     // Update highest attested block
     if (attestedUpTo > this.highestAttestedBlock) {

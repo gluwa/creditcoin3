@@ -5,110 +5,92 @@
 import { ethers, JsonRpcProvider } from 'ethers';
 import type { FormattedProof, ProofResponse, TxInfo } from '../types.ts';
 import { debug } from '../logger.ts';
-
-// Block prover precompile address
-const PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
-const DEFAULT_PROOF_API_TIMEOUT_MS = 30_000;
-const DEFAULT_RPC_TIMEOUT_MS = 30_000;
-const DEFAULT_RECEIPT_TIMEOUT_MS = 120_000;
-const DEFAULT_MIN_PRIORITY_FEE_GWEI = 1n;
-
-type SignerEntry = {
-  signer: ethers.NonceManager;
-  provider: JsonRpcProvider;
+import {
+  BATCH_PROOF_GAS_LIMIT,
+  BATCH_VERIFY_SIG,
+  MIN_PRIORITY_FEE_GWEI,
+  PRECOMPILE_ADDRESS,
+  PROOF_API_BASE_DELAY_MS,
+  PROOF_API_MAX_RETRIES,
+  PROOF_API_TIMEOUT_MS,
+  RECEIPT_TIMEOUT_MS,
+  RPC_TIMEOUT_MS,
+  SINGLE_PROOF_GAS_LIMIT,
+  SINGLE_VERIFY_SIG,
+} from '../constants.ts';
+import { sleep } from '../utils/reconnect.ts';
+import PRECOMPILE_ABI from '../../../../precompiles/metadata/abi/block_prover.json' with {
+  type: 'json',
 };
 
+// ============================================================================
+// Signer Management
+// ============================================================================
+
+type SignerEntry = { signer: ethers.NonceManager; provider: JsonRpcProvider };
 const signerCache = new Map<string, SignerEntry>();
 let submissionQueue: Promise<void> = Promise.resolve();
 
-function getSignerKey(cc3HttpUrl: string, privateKey: string): string {
-  return `${cc3HttpUrl}:${privateKey}`;
-}
-
 function getSigner(cc3HttpUrl: string, privateKey: string): SignerEntry {
-  const key = getSignerKey(cc3HttpUrl, privateKey);
-  const existing = signerCache.get(key);
-  if (existing) {
-    return existing;
+  const key = `${cc3HttpUrl}:${privateKey}`;
+  let entry = signerCache.get(key);
+  if (!entry) {
+    const provider = new ethers.JsonRpcProvider(cc3HttpUrl);
+    const wallet = new ethers.Wallet(privateKey, provider);
+    entry = { signer: new ethers.NonceManager(wallet), provider };
+    signerCache.set(key, entry);
   }
-
-  const provider = new ethers.JsonRpcProvider(cc3HttpUrl);
-  const wallet = new ethers.Wallet(privateKey, provider);
-  const signer = new ethers.NonceManager(wallet);
-  const entry = { signer, provider };
-  signerCache.set(key, entry);
   return entry;
 }
 
 function resetSigner(cc3HttpUrl: string, privateKey: string): SignerEntry {
-  const key = getSignerKey(cc3HttpUrl, privateKey);
-  signerCache.delete(key);
+  signerCache.delete(`${cc3HttpUrl}:${privateKey}`);
   return getSigner(cc3HttpUrl, privateKey);
 }
 
+// ============================================================================
+// Error Detection
+// ============================================================================
+
 function isNonceError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-  const err = error as {
-    code?: string;
-    message?: string;
-    shortMessage?: string;
-    info?: { error?: { message?: string } };
-  };
-  const code = err.code ?? '';
-  const message = `${err.message ?? ''} ${err.shortMessage ?? ''} ${err.info?.error?.message ?? ''}`
-    .toLowerCase();
-  return (
-    code === 'NONCE_EXPIRED' ||
-    message.includes('nonce too low') ||
-    message.includes('nonce has already been used')
-  );
+  const msg = getErrorMessage(error).toLowerCase();
+  return msg.includes('nonce too low') || msg.includes('nonce has already been used');
 }
 
 function isReplacementUnderpricedError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-  const err = error as { code?: string; message?: string; shortMessage?: string };
-  const code = err.code ?? '';
-  const message = `${err.message ?? ''} ${err.shortMessage ?? ''}`.toLowerCase();
-  return code === 'REPLACEMENT_UNDERPRICED' ||
-    message.includes('replacement transaction underpriced');
+  const msg = getErrorMessage(error).toLowerCase();
+  return msg.includes('replacement transaction underpriced');
 }
 
 export function isContinuityMismatchError(error: unknown): boolean {
-  if (!error) {
-    return false;
-  }
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes('Continuity proof does not match attestation or checkpoint');
+  return getErrorMessage(error).includes('Continuity proof does not match');
 }
 
-async function withNonceRetry<T>(
-  cc3HttpUrl: string,
-  privateKey: string,
-  label: string,
-  fn: (entry: SignerEntry) => Promise<T>,
-): Promise<T> {
-  try {
-    return await fn(getSigner(cc3HttpUrl, privateKey));
-  } catch (error) {
-    if (isNonceError(error)) {
-      console.warn(`⚠️  ${label}: nonce out of sync, refreshing signer and retrying...`);
-      return await fn(resetSigner(cc3HttpUrl, privateKey));
-    }
-    throw error;
+function getErrorMessage(error: unknown): string {
+  if (!error) return '';
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object') {
+    const e = error as Record<string, unknown>;
+    return `${e.message ?? ''} ${e.shortMessage ?? ''}`;
   }
+  return String(error);
+}
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+  );
+  return Promise.race([promise, timeout]);
 }
 
 async function withSubmissionLock<T>(fn: () => Promise<T>): Promise<T> {
   const previous = submissionQueue;
   let release: () => void;
-  submissionQueue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-
+  submissionQueue = new Promise((r) => (release = r));
   await previous;
   try {
     return await fn();
@@ -117,92 +99,39 @@ async function withSubmissionLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const startTime = Date.now();
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
+// ============================================================================
+// Fee Management
+// ============================================================================
 
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
-    debug('Timing', { label, durationMs: Date.now() - startTime });
-  }
-}
+async function getFeeOverrides(provider: JsonRpcProvider): Promise<ethers.TransactionRequest> {
+  const feeData = await withTimeout(provider.getFeeData(), RPC_TIMEOUT_MS, 'Fee data');
+  const minPriority = MIN_PRIORITY_FEE_GWEI * 1_000_000_000n;
 
-async function getFeeOverrides(
-  provider: JsonRpcProvider,
-): Promise<{ maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint; gasPrice?: bigint }> {
-  const feeData = await withTimeout(
-    provider.getFeeData(),
-    DEFAULT_RPC_TIMEOUT_MS,
-    'Fee data',
-  );
-
-  const minPriority = DEFAULT_MIN_PRIORITY_FEE_GWEI * 1_000_000_000n;
-
-  if (feeData.maxFeePerGas !== null || feeData.maxPriorityFeePerGas !== null) {
-    let priority = feeData.maxPriorityFeePerGas ?? 0n;
-    if (priority < minPriority) {
-      priority = minPriority;
-    }
-
-    let maxFee = feeData.maxFeePerGas ?? 0n;
-    try {
-      const latest = await withTimeout(
-        provider.getBlock('latest'),
-        DEFAULT_RPC_TIMEOUT_MS,
-        'Base fee',
-      );
-      const baseFee = latest?.baseFeePerGas ?? 0n;
-      const recommended = baseFee > 0n ? baseFee * 2n + priority : 0n;
-      if (maxFee < recommended) {
-        maxFee = recommended;
-      }
-    } catch {
-      // Ignore base fee lookup errors and use fee data
-    }
-
-    if (maxFee < priority) {
-      maxFee = priority + 1n;
-    }
-
-    return { maxFeePerGas: maxFee, maxPriorityFeePerGas: priority };
-  }
-
-  let gasPrice = feeData.gasPrice ?? 0n;
-  if (gasPrice === 0n) {
-    gasPrice = minPriority;
-  }
-  return { gasPrice };
-}
-
-function bumpFeeOverrides(
-  overrides: { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint; gasPrice?: bigint },
-  bumpPercent = 20n,
-): { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint; gasPrice?: bigint } {
-  const bump = 100n + bumpPercent;
-  if (overrides.maxFeePerGas !== undefined || overrides.maxPriorityFeePerGas !== undefined) {
-    const maxFee = overrides.maxFeePerGas ?? 0n;
-    const priority = overrides.maxPriorityFeePerGas ?? 0n;
+  if (feeData.maxFeePerGas !== null) {
+    const priority = feeData.maxPriorityFeePerGas ?? minPriority;
     return {
-      maxFeePerGas: (maxFee * bump) / 100n + 1n,
-      maxPriorityFeePerGas: (priority * bump) / 100n + 1n,
+      maxFeePerGas: feeData.maxFeePerGas,
+      maxPriorityFeePerGas: priority < minPriority ? minPriority : priority,
     };
   }
-  if (overrides.gasPrice !== undefined) {
-    return { gasPrice: (overrides.gasPrice * bump) / 100n + 1n };
-  }
-  return overrides;
+
+  return { gasPrice: feeData.gasPrice ?? minPriority };
 }
 
-async function sendTransactionWithRetry(
+function bumpFees(overrides: ethers.TransactionRequest): ethers.TransactionRequest {
+  const bump = (v: bigint | null | undefined) => (v ? (v * 120n) / 100n + 1n : undefined);
+  return {
+    maxFeePerGas: bump(overrides.maxFeePerGas as bigint),
+    maxPriorityFeePerGas: bump(overrides.maxPriorityFeePerGas as bigint),
+    gasPrice: bump(overrides.gasPrice as bigint),
+  };
+}
+
+// ============================================================================
+// Transaction Submission
+// ============================================================================
+
+async function sendTransaction(
   signer: ethers.NonceManager,
   provider: JsonRpcProvider,
   request: ethers.TransactionRequest,
@@ -211,33 +140,16 @@ async function sendTransactionWithRetry(
   try {
     return await signer.sendTransaction(request);
   } catch (error) {
-    if (!isReplacementUnderpricedError(error)) {
-      throw error;
-    }
+    if (!isReplacementUnderpricedError(error)) throw error;
 
-    const signerAddress = await signer.getAddress();
-    const pendingNonce = await withTimeout(
-      provider.getTransactionCount(signerAddress, 'pending'),
-      DEFAULT_RPC_TIMEOUT_MS,
-      `${label} pending nonce`,
+    const address = await signer.getAddress();
+    const nonce = await withTimeout(
+      provider.getTransactionCount(address, 'pending'),
+      RPC_TIMEOUT_MS,
+      `${label} nonce`,
     );
-    const baseOverrides = {
-      maxFeePerGas: request.maxFeePerGas as bigint | undefined,
-      maxPriorityFeePerGas: request.maxPriorityFeePerGas as bigint | undefined,
-      gasPrice: request.gasPrice as bigint | undefined,
-    };
-    const bumpedOverrides = bumpFeeOverrides(baseOverrides);
-    debug('Retrying underpriced tx', {
-      label,
-      pendingNonce,
-      ...bumpedOverrides,
-    });
-
-    return await signer.sendTransaction({
-      ...request,
-      nonce: pendingNonce,
-      ...bumpedOverrides,
-    });
+    debug('Retrying underpriced tx', { label, nonce });
+    return await signer.sendTransaction({ ...request, nonce, ...bumpFees(request) });
   }
 }
 
@@ -247,397 +159,115 @@ async function waitForReceipt(
   label: string,
 ): Promise<ethers.TransactionReceipt> {
   try {
-    const receipt = await withTimeout(tx.wait(), DEFAULT_RECEIPT_TIMEOUT_MS, label);
-    if (!receipt) {
-      throw new Error(`${label} returned empty receipt (tx: ${tx.hash})`);
-    }
+    const receipt = await withTimeout(tx.wait(), RECEIPT_TIMEOUT_MS, label);
+    if (!receipt) throw new Error(`${label} returned empty receipt`);
     return receipt;
   } catch (error) {
-    const err = error as {
-      code?: string;
-      cancelled?: boolean;
-      reason?: string;
-      receipt?: ethers.TransactionReceipt;
-      replacement?: ethers.TransactionResponse;
-    };
-    if (err.code === 'TRANSACTION_REPLACED') {
-      if (err.receipt) {
-        debug('Transaction replaced with mined receipt', {
-          label,
-          txHash: tx.hash,
-          replacementHash: err.receipt.hash,
-          reason: err.reason,
-          cancelled: err.cancelled,
-        });
-        return err.receipt;
-      }
-      if (err.replacement) {
-        debug('Transaction replaced, waiting for replacement', {
-          label,
-          txHash: tx.hash,
-          replacementHash: err.replacement.hash,
-          reason: err.reason,
-          cancelled: err.cancelled,
-        });
-        const replacementReceipt = await withTimeout(
-          err.replacement.wait(),
-          DEFAULT_RECEIPT_TIMEOUT_MS,
-          `${label} replacement confirmation`,
-        );
-        if (replacementReceipt) {
-          return replacementReceipt;
-        }
-      }
-      throw new Error(
-        `${label} replaced (cancelled=${err.cancelled ?? false}, reason=${
-          err.reason ?? 'unknown'
-        })`,
-      );
+    // Handle replaced transactions
+    const err = error as { code?: string; receipt?: ethers.TransactionReceipt };
+    if (err.code === 'TRANSACTION_REPLACED' && err.receipt) {
+      debug('Transaction replaced', { label, original: tx.hash, replacement: err.receipt.hash });
+      return err.receipt;
     }
-    debug('Receipt wait timed out', { label, txHash: tx.hash });
-    try {
-      const receipt = await withTimeout(
-        provider.getTransactionReceipt(tx.hash),
-        DEFAULT_RPC_TIMEOUT_MS,
-        `${label} receipt lookup`,
-      );
-      if (receipt) {
-        return receipt;
-      }
-    } catch (lookupError) {
-      debug('Receipt lookup failed', {
-        label,
-        txHash: tx.hash,
-        error: lookupError instanceof Error ? lookupError.message : String(lookupError),
-      });
-    }
-    throw new Error(`${label} timed out after ${DEFAULT_RECEIPT_TIMEOUT_MS}ms (tx: ${tx.hash})`);
-  }
-}
 
-// Block prover ABI (simplified for verifyAndEmit single + batch)
-// Matches:
-// - verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))
-// - verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))
-const PRECOMPILE_ABI = [
-  {
-    type: 'function',
-    name: 'verifyAndEmit',
-    inputs: [
-      { name: 'chainKey', type: 'uint64' },
-      { name: 'height', type: 'uint64' },
-      { name: 'transaction', type: 'bytes' },
-      {
-        name: 'merkleProof',
-        type: 'tuple',
-        components: [
-          { name: 'root', type: 'bytes32' },
-          {
-            name: 'siblings',
-            type: 'tuple[]',
-            components: [
-              { name: 'hash', type: 'bytes32' },
-              { name: 'isLeft', type: 'bool' },
-            ],
-          },
-        ],
-      },
-      {
-        name: 'continuityProof',
-        type: 'tuple',
-        components: [
-          { name: 'lowerEndpointDigest', type: 'bytes32' },
-          { name: 'roots', type: 'bytes32[]' },
-        ],
-      },
-    ],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    name: 'verifyAndEmit',
-    inputs: [
-      { name: 'chainKey', type: 'uint64' },
-      { name: 'heights', type: 'uint64[]' },
-      { name: 'transactions', type: 'bytes[]' },
-      {
-        name: 'merkleProofs',
-        type: 'tuple[]',
-        components: [
-          { name: 'root', type: 'bytes32' },
-          {
-            name: 'siblings',
-            type: 'tuple[]',
-            components: [
-              { name: 'hash', type: 'bytes32' },
-              { name: 'isLeft', type: 'bool' },
-            ],
-          },
-        ],
-      },
-      {
-        name: 'continuityProof',
-        type: 'tuple',
-        components: [
-          { name: 'lowerEndpointDigest', type: 'bytes32' },
-          { name: 'roots', type: 'bytes32[]' },
-        ],
-      },
-    ],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'event',
-    name: 'TransactionVerified',
-    inputs: [
-      { name: 'chainKey', type: 'uint64', indexed: true },
-      { name: 'height', type: 'uint64', indexed: true },
-      { name: 'transactionIndex', type: 'uint64', indexed: false },
-    ],
-  },
-  {
-    type: 'error',
-    name: 'ContinuityVerificationFailed',
-    inputs: [],
-  },
-  {
-    type: 'error',
-    name: 'MerkleVerificationFailed',
-    inputs: [],
-  },
-];
+    // Try direct lookup as fallback
+    const receipt = await provider.getTransactionReceipt(tx.hash).catch(() => null);
+    if (receipt) return receipt;
 
-interface ProofApiErrorBody {
-  code?: string;
-  message?: string;
-  retriable?: boolean;
-}
-
-class ProofApiError extends Error {
-  readonly status: number;
-  readonly code?: string;
-  readonly retriable?: boolean;
-
-  constructor(message: string, status: number, code?: string, retriable?: boolean) {
-    super(message);
-    this.name = 'ProofApiError';
-    this.status = status;
-    this.code = code;
-    this.retriable = retriable;
-  }
-}
-
-async function fetchProofOnce(
-  url: string,
-  timeoutMs: number = DEFAULT_PROOF_API_TIMEOUT_MS,
-): Promise<ProofResponse> {
-  debug('Proof API request', { url, timeoutMs });
-  const controller = new AbortController();
-  const timeoutId: ReturnType<typeof setTimeout> = setTimeout(() => controller.abort(), timeoutMs);
-
-  let response: Response;
-  try {
-    response = await fetch(url, { signal: controller.signal });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error(`Proof API request timed out after ${timeoutMs}ms`);
-    }
     throw error;
-  } finally {
-    clearTimeout(timeoutId);
   }
-
-  if (response.ok) {
-    return (await response.json()) as ProofResponse;
-  }
-
-  const errorText = await response.text();
-  let errorJson: ProofApiErrorBody | null = null;
-  try {
-    errorJson = JSON.parse(errorText) as ProofApiErrorBody;
-  } catch {
-    // Ignore JSON parse errors
-  }
-
-  const message = errorJson?.message ?? errorText ?? response.statusText;
-  debug('Proof API error response', {
-    url,
-    status: response.status,
-    statusText: response.statusText,
-    code: errorJson?.code,
-    retriable: errorJson?.retriable,
-  });
-  throw new ProofApiError(message, response.status, errorJson?.code, errorJson?.retriable);
 }
 
-async function fetchProofWithRetry(
-  url: string,
-  label: string,
-  maxRetries = 5,
-  initialDelay = 2000,
-): Promise<ProofResponse> {
-  let lastError: Error | null = null;
+// ============================================================================
+// Precompile Submission (Unified)
+// ============================================================================
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+interface PrecompileParams {
+  cc3HttpUrl: string;
+  privateKey: string;
+  chainKey: number;
+  data: string;
+  gasLimit: bigint;
+  label: string;
+}
+
+async function submitToPrecompileInternal(
+  params: PrecompileParams,
+): Promise<{ txHash: string; gasUsed: bigint }> {
+  const { cc3HttpUrl, privateKey, data, gasLimit, label } = params;
+
+  const execute = async (entry: SignerEntry) => {
+    const { signer, provider } = entry;
+
+    // Simulate first
+    const from = await signer.getAddress();
     try {
-      return await fetchProofOnce(url);
+      await withTimeout(
+        provider.call({ to: PRECOMPILE_ADDRESS, data, from }),
+        RPC_TIMEOUT_MS,
+        `${label} simulation`,
+      );
     } catch (error) {
-      debug('Proof API attempt failed', {
-        label,
-        attempt: attempt + 1,
-        maxRetries,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      const isNetworkError = error instanceof Error &&
-        (error.message.includes('fetch') ||
-          error.message.includes('network') ||
-          error.message.includes('timed out'));
-      const isRetriableApiError = error instanceof ProofApiError &&
-        (error.retriable === true || error.status === 500 || error.status === 503);
-
-      if (attempt < maxRetries - 1 && (isNetworkError || isRetriableApiError)) {
-        const delayMs = initialDelay * Math.pow(2, attempt);
-        const jitter = Math.floor(Math.random() * 250);
-        console.log(
-          `⚠️  Proof API not ready (${label}, attempt ${attempt + 1}/${maxRetries}), waiting ${
-            delayMs + jitter
-          }ms...`,
-        );
-        await delay(delayMs + jitter);
-        lastError = error instanceof Error ? error : new Error(String(error));
-        continue;
+      const iface = new ethers.Interface(PRECOMPILE_ABI);
+      const revertData = (error as { data?: string }).data;
+      if (revertData) {
+        const parsed = iface.parseError(revertData);
+        throw new Error(`${label} will revert: ${parsed?.name ?? 'Unknown'}`);
       }
+      throw new Error(`${label} simulation failed: ${getErrorMessage(error)}`);
+    }
 
+    // Send transaction
+    const feeOverrides = await getFeeOverrides(provider);
+    debug(`${label} fees`, { ...feeOverrides });
+
+    const tx = await sendTransaction(
+      signer,
+      provider,
+      { to: PRECOMPILE_ADDRESS, data, gasLimit, ...feeOverrides },
+      label,
+    );
+    debug(`${label} sent`, { txHash: tx.hash, nonce: tx.nonce });
+
+    return { tx, provider };
+  };
+
+  // Execute with submission lock and nonce retry
+  const { tx, provider } = await withSubmissionLock(async () => {
+    try {
+      return await execute(getSigner(cc3HttpUrl, privateKey));
+    } catch (error) {
+      if (isNonceError(error)) {
+        console.warn(`⚠️  ${label}: nonce out of sync, retrying...`);
+        return await execute(resetSigner(cc3HttpUrl, privateKey));
+      }
       throw error;
     }
-  }
-
-  if (lastError) {
-    throw lastError;
-  }
-
-  throw new Error(`Failed to fetch proof after ${maxRetries} attempts`);
-}
-
-/**
- * Fetch proof from the proof generation API using transaction hash
- *
- * Uses the endpoint: GET /api/v1/proof-by-tx/{chain_key}/{tx_hash}
- */
-export function fetchProofByTxHash(
-  apiUrl: string,
-  chainKey: number,
-  txHash: string,
-  maxRetries = 5,
-  initialDelay = 2000,
-): Promise<ProofResponse> {
-  const url = `${apiUrl}/api/v1/proof-by-tx/${chainKey}/${txHash}`;
-  return fetchProofWithRetry(url, 'proof-by-tx', maxRetries, initialDelay);
-}
-
-/**
- * Fetch proof from the proof generation API using block + tx index
- *
- * Uses the endpoint: GET /api/v1/proof/{chain_key}/{header_number}/{tx_index}
- */
-export function fetchProofByTxIndex(
-  apiUrl: string,
-  chainKey: number,
-  headerNumber: number,
-  txIndex: number,
-  maxRetries = 5,
-  initialDelay = 2000,
-): Promise<ProofResponse> {
-  const url = `${apiUrl}/api/v1/proof/${chainKey}/${headerNumber}/${txIndex}`;
-  return fetchProofWithRetry(url, 'proof-by-index', maxRetries, initialDelay);
-}
-
-/**
- * Fetch proof using index when available, fall back to tx hash on index mismatch
- */
-export async function fetchProofForTx(
-  apiUrl: string,
-  chainKey: number,
-  txInfo: TxInfo,
-  maxRetries = 5,
-  initialDelay = 2000,
-): Promise<ProofResponse> {
-  debug('Fetching proof for tx', {
-    chainKey,
-    blockNumber: txInfo.blockNumber,
-    txIndex: txInfo.txIndex,
-    txHash: txInfo.txHash,
   });
-  try {
-    return await fetchProofByTxIndex(
-      apiUrl,
-      chainKey,
-      txInfo.blockNumber,
-      txInfo.txIndex,
-      maxRetries,
-      initialDelay,
-    );
-  } catch (error) {
-    if (
-      error instanceof ProofApiError &&
-      ['TxIndexOutOfBounds', 'InvalidParameter'].includes(error.code ?? '')
-    ) {
-      console.warn(
-        `⚠️  Proof-by-index failed (${error.code}), falling back to proof-by-tx for ${
-          txInfo.txHash.slice(0, 10)
-        }...`,
-      );
-      return await fetchProofByTxHash(apiUrl, chainKey, txInfo.txHash, maxRetries, initialDelay);
-    }
-    throw error;
-  }
+
+  const receipt = await waitForReceipt(provider, tx, `${label} confirmation`);
+  if (receipt.status !== 1) throw new Error(`${label} reverted`);
+
+  debug(`${label} confirmed`, { txHash: receipt.hash, gasUsed: receipt.gasUsed });
+  return { txHash: receipt.hash, gasUsed: receipt.gasUsed };
 }
 
-/**
- * Convert API proof format to precompile format
- *
- * The API returns camelCase field names directly, so this is mostly a passthrough
- * with validation.
- */
-export function convertProofFormat(apiProof: ProofResponse): FormattedProof {
-  if (!apiProof.merkleProof) {
-    throw new MerkleProofMissingError('Merkle proof is missing from API response');
-  }
+// ============================================================================
+// Proof Encoding
+// ============================================================================
 
-  if (!apiProof.continuityProof) {
-    throw new Error('Continuity proof is missing from API response');
-  }
-
-  return {
-    continuityProof: {
-      lowerEndpointDigest: apiProof.continuityProof.lowerEndpointDigest,
-      roots: apiProof.continuityProof.roots,
-    },
-    merkleProof: {
-      root: apiProof.merkleProof.root,
-      siblings: apiProof.merkleProof.siblings.map((s) => ({
-        hash: s.hash,
-        isLeft: s.isLeft,
-      })),
-    },
-  };
+function encodeMerkleProof(proof: FormattedProof['merkleProof']) {
+  return [proof.root, proof.siblings.map((s) => [s.hash, s.isLeft])];
 }
 
-/**
- * Custom error for missing merkle proof (retriable)
- */
-export class MerkleProofMissingError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'MerkleProofMissingError';
-  }
+function encodeContinuityProof(proof: FormattedProof['continuityProof']) {
+  return [proof.lowerEndpointDigest, proof.roots];
 }
 
-/**
- * Submit proof to the block prover precompile
- */
+// ============================================================================
+// Public Submission Functions
+// ============================================================================
+
 export async function submitToPrecompile(
   cc3HttpUrl: string,
   privateKey: string,
@@ -646,116 +276,32 @@ export async function submitToPrecompile(
   txBytes: Uint8Array,
   proof: FormattedProof,
 ): Promise<{ success: boolean; txHash: string; gasUsed: bigint }> {
-  const { tx, provider } = await withSubmissionLock(() =>
-    withNonceRetry(cc3HttpUrl, privateKey, 'Single submit', async ({ signer, provider }) => {
-      debug('Submitting proof', {
-        chainKey,
-        blockHeight,
-        txBytesLength: txBytes.length,
-        merkleSiblings: proof.merkleProof.siblings.length,
-        continuityRoots: proof.continuityProof.roots.length,
-        cc3HttpUrl,
-      });
-      // Create contract instance
-      const precompile = new ethers.Contract(PRECOMPILE_ADDRESS, PRECOMPILE_ABI, signer);
-      const iface = precompile.interface;
+  const iface = new ethers.Interface(PRECOMPILE_ABI);
+  const func = iface.getFunction(SINGLE_VERIFY_SIG);
+  if (!func) throw new Error('Single verifyAndEmit not found in ABI');
 
-      // Prepare proof tuples
-      const merkleProofTuple = [
-        proof.merkleProof.root,
-        proof.merkleProof.siblings.map((s) => [s.hash, s.isLeft]),
-      ];
+  const data = iface.encodeFunctionData(func, [
+    BigInt(chainKey),
+    BigInt(blockHeight),
+    ethers.hexlify(txBytes),
+    encodeMerkleProof(proof.merkleProof),
+    encodeContinuityProof(proof.continuityProof),
+  ]);
 
-      const continuityProofTuple = [
-        proof.continuityProof.lowerEndpointDigest,
-        proof.continuityProof.roots,
-      ];
+  debug('Submitting single proof', { chainKey, blockHeight, txBytesLen: txBytes.length });
 
-      // Encode transaction data
-      const txBytesHex = ethers.hexlify(txBytes);
-
-      // Get function fragment
-      // Matches: verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))
-      const funcFragment = iface.getFunction(
-        'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
-      );
-
-      if (!funcFragment) {
-        throw new Error('verifyAndEmit function not found in ABI');
-      }
-
-      const params = [
-        BigInt(chainKey),
-        BigInt(blockHeight),
-        txBytesHex,
-        merkleProofTuple,
-        continuityProofTuple,
-      ];
-      const data = iface.encodeFunctionData(funcFragment, params);
-
-      // Simulate call first
-      const signerAddress = await signer.getAddress();
-      try {
-        await withTimeout(
-          provider.call({ to: PRECOMPILE_ADDRESS, data, from: signerAddress }),
-          DEFAULT_RPC_TIMEOUT_MS,
-          'Precompile simulation',
-        );
-      } catch (simError) {
-        const error = simError as Error & { data?: string; error?: { data?: string } };
-        const revertData = error.data || error.error?.data;
-        if (revertData) {
-          try {
-            const parsed = iface.parseError(revertData);
-            throw new Error(`Transaction will revert: ${parsed?.name ?? 'Unknown error'}`);
-          } catch {
-            // Fall through
-          }
-        }
-        throw new Error(`Transaction simulation failed: ${error.message}`);
-      }
-
-      // Send transaction
-      const feeOverrides = await getFeeOverrides(provider);
-      debug('Single fee overrides', feeOverrides);
-
-      const tx = await sendTransactionWithRetry(
-        signer,
-        provider,
-        {
-          to: PRECOMPILE_ADDRESS,
-          data,
-          gasLimit: 5_000_000n,
-          ...feeOverrides,
-        },
-        'Single submit',
-      );
-      debug('Single tx sent', { txHash: tx.hash, nonce: tx.nonce });
-      return { tx, provider };
-    })
-  );
-
-  const receipt = await waitForReceipt(provider, tx, 'Transaction confirmation');
-
-  if (!receipt || receipt.status !== 1) {
-    throw new Error('Transaction reverted');
-  }
-  debug('Single tx confirmed', {
-    txHash: receipt.hash,
-    status: receipt.status,
-    gasUsed: receipt.gasUsed,
+  const result = await submitToPrecompileInternal({
+    cc3HttpUrl,
+    privateKey,
+    chainKey,
+    data,
+    gasLimit: SINGLE_PROOF_GAS_LIMIT,
+    label: 'Single submit',
   });
 
-  return {
-    success: true,
-    txHash: receipt.hash,
-    gasUsed: receipt.gasUsed,
-  };
+  return { success: true, ...result };
 }
 
-/**
- * Submit batch proofs to the block prover precompile
- */
 export async function submitBatchToPrecompile(
   cc3HttpUrl: string,
   privateKey: string,
@@ -765,152 +311,191 @@ export async function submitBatchToPrecompile(
   merkleProofs: FormattedProof['merkleProof'][],
   continuityProof: FormattedProof['continuityProof'],
 ): Promise<{ success: boolean; txHash: string; gasUsed: bigint }> {
-  const { tx, provider } = await withSubmissionLock(() =>
-    withNonceRetry(cc3HttpUrl, privateKey, 'Batch submit', async ({ signer, provider }) => {
-      debug('Submitting batch', {
-        chainKey,
-        batchSize: heights.length,
-        continuityRoots: continuityProof.roots.length,
-        cc3HttpUrl,
-      });
-      const precompile = new ethers.Contract(PRECOMPILE_ADDRESS, PRECOMPILE_ABI, signer);
-      const iface = precompile.interface;
+  const iface = new ethers.Interface(PRECOMPILE_ABI);
+  const func = iface.getFunction(BATCH_VERIFY_SIG);
+  if (!func) throw new Error('Batch verifyAndEmit not found in ABI');
 
-      const merkleProofTuples = merkleProofs.map((proof) => [
-        proof.root,
-        proof.siblings.map((s) => [s.hash, s.isLeft]),
-      ]);
-      const continuityProofTuple = [
-        continuityProof.lowerEndpointDigest,
-        continuityProof.roots,
-      ];
-      const txBytesHexes = txBytesList.map((txBytes) => ethers.hexlify(txBytes));
-      const heightsU64 = heights.map((height) => BigInt(height));
+  const data = iface.encodeFunctionData(func, [
+    BigInt(chainKey),
+    heights.map(BigInt),
+    txBytesList.map((b) => ethers.hexlify(b)),
+    merkleProofs.map(encodeMerkleProof),
+    encodeContinuityProof(continuityProof),
+  ]);
 
-      const funcFragment = iface.getFunction(
-        'verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))',
-      );
+  debug('Submitting batch', { chainKey, batchSize: heights.length });
 
-      if (!funcFragment) {
-        throw new Error('verifyAndEmit batch function not found in ABI');
-      }
-
-      const params = [
-        BigInt(chainKey),
-        heightsU64,
-        txBytesHexes,
-        merkleProofTuples,
-        continuityProofTuple,
-      ];
-      const data = iface.encodeFunctionData(funcFragment, params);
-
-      // Simulate call first
-      const signerAddress = await signer.getAddress();
-      try {
-        await withTimeout(
-          provider.call({ to: PRECOMPILE_ADDRESS, data, from: signerAddress }),
-          DEFAULT_RPC_TIMEOUT_MS,
-          'Batch precompile simulation',
-        );
-      } catch (simError) {
-        const error = simError as Error & { data?: string; error?: { data?: string } };
-        const revertData = error.data || error.error?.data;
-        if (revertData) {
-          try {
-            const parsed = iface.parseError(revertData);
-            throw new Error(`Batch transaction will revert: ${parsed?.name ?? 'Unknown error'}`);
-          } catch {
-            // Fall through
-          }
-        }
-        throw new Error(`Batch transaction simulation failed: ${error.message}`);
-      }
-
-      const feeOverrides = await getFeeOverrides(provider);
-      debug('Batch fee overrides', feeOverrides);
-
-      const tx = await sendTransactionWithRetry(
-        signer,
-        provider,
-        {
-          to: PRECOMPILE_ADDRESS,
-          data,
-          gasLimit: 10_000_000n,
-          ...feeOverrides,
-        },
-        'Batch submit',
-      );
-      debug('Batch tx sent', { txHash: tx.hash, nonce: tx.nonce });
-      return { tx, provider };
-    })
-  );
-
-  const receipt = await waitForReceipt(provider, tx, 'Batch transaction confirmation');
-
-  if (!receipt || receipt.status !== 1) {
-    throw new Error('Batch transaction reverted');
-  }
-  debug('Batch tx confirmed', {
-    txHash: receipt.hash,
-    status: receipt.status,
-    gasUsed: receipt.gasUsed,
+  const result = await submitToPrecompileInternal({
+    cc3HttpUrl,
+    privateKey,
+    chainKey,
+    data,
+    gasLimit: BATCH_PROOF_GAS_LIMIT,
+    label: 'Batch submit',
   });
 
+  return { success: true, ...result };
+}
+
+// ============================================================================
+// Proof API Client
+// ============================================================================
+
+class ProofApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly retriable?: boolean,
+  ) {
+    super(message);
+    this.name = 'ProofApiError';
+  }
+}
+
+async function fetchProof(url: string): Promise<ProofResponse> {
+  debug('Proof API request', { url });
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PROOF_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      return (await response.json()) as ProofResponse;
+    }
+
+    const text = await response.text();
+    let parsed: { code?: string; message?: string; retriable?: boolean } = {};
+    try {
+      parsed = JSON.parse(text);
+    } catch { /* ignore */ }
+
+    throw new ProofApiError(
+      parsed.message ?? text ?? response.statusText,
+      response.status,
+      parsed.code,
+      parsed.retriable,
+    );
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`Proof API timed out after ${PROOF_API_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  }
+}
+
+async function fetchProofWithRetry(
+  url: string,
+  label: string,
+  maxRetries = PROOF_API_MAX_RETRIES,
+): Promise<ProofResponse> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fetchProof(url);
+    } catch (error) {
+      const isRetriable = (error instanceof Error && error.message.includes('timed out')) ||
+        (error instanceof ProofApiError && (error.retriable || error.status >= 500));
+
+      if (attempt < maxRetries - 1 && isRetriable) {
+        const delayMs = PROOF_API_BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 250;
+        console.log(`⚠️  Proof API retry (${label}, ${attempt + 1}/${maxRetries})...`);
+        await sleep(delayMs);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(`Failed to fetch proof after ${maxRetries} attempts`);
+}
+
+export async function fetchProofForTx(
+  apiUrl: string,
+  chainKey: number,
+  txInfo: TxInfo,
+  maxRetries = PROOF_API_MAX_RETRIES,
+): Promise<ProofResponse> {
+  debug('Fetching proof', { chainKey, block: txInfo.blockNumber, txIndex: txInfo.txIndex });
+
+  const indexUrl = `${apiUrl}/api/v1/proof/${chainKey}/${txInfo.blockNumber}/${txInfo.txIndex}`;
+
+  try {
+    return await fetchProofWithRetry(indexUrl, 'proof-by-index', maxRetries);
+  } catch (error) {
+    // Fall back to tx hash lookup on index errors
+    if (
+      error instanceof ProofApiError &&
+      ['TxIndexOutOfBounds', 'InvalidParameter'].includes(error.code ?? '')
+    ) {
+      console.warn(`⚠️  Falling back to proof-by-tx for ${txInfo.txHash.slice(0, 10)}...`);
+      const hashUrl = `${apiUrl}/api/v1/proof-by-tx/${chainKey}/${txInfo.txHash}`;
+      return await fetchProofWithRetry(hashUrl, 'proof-by-tx', maxRetries);
+    }
+    throw error;
+  }
+}
+
+// ============================================================================
+// Proof Conversion
+// ============================================================================
+
+export class MerkleProofMissingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MerkleProofMissingError';
+  }
+}
+
+export function convertProofFormat(apiProof: ProofResponse): FormattedProof {
+  if (!apiProof.merkleProof) {
+    throw new MerkleProofMissingError('Merkle proof missing from API response');
+  }
+  if (!apiProof.continuityProof) {
+    throw new Error('Continuity proof missing from API response');
+  }
+
   return {
-    success: true,
-    txHash: receipt.hash,
-    gasUsed: receipt.gasUsed,
+    continuityProof: apiProof.continuityProof,
+    merkleProof: {
+      root: apiProof.merkleProof.root,
+      siblings: apiProof.merkleProof.siblings.map((s) => ({ hash: s.hash, isLeft: s.isLeft })),
+    },
   };
 }
 
-/**
- * Delay helper
- */
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+// ============================================================================
+// High-Level API
+// ============================================================================
 
-/**
- * Fetch and submit a proof for a transaction.
- * Proof retrieval uses the index-based endpoint by default (falls back to tx hash).
- */
 export async function fetchAndSubmitProof(
   proofApiUrl: string,
   cc3HttpUrl: string,
   privateKey: string,
   chainKey: number,
   txInfo: TxInfo,
-  maxRetries = 5,
-  retryDelayMs = 2000,
 ): Promise<{ success: boolean; txHash: string; gasUsed: bigint }> {
-  const apiProof = await fetchProofForTx(
-    proofApiUrl,
-    chainKey,
-    txInfo,
-    maxRetries,
-    retryDelayMs,
-  );
+  const apiProof = await fetchProofForTx(proofApiUrl, chainKey, txInfo);
   const proof = convertProofFormat(apiProof);
 
   if (apiProof.headerNumber !== txInfo.blockNumber) {
     console.warn(
-      `⚠️  Proof header mismatch: expected ${txInfo.blockNumber}, got ${apiProof.headerNumber}`,
+      `⚠️  Header mismatch: expected ${txInfo.blockNumber}, got ${apiProof.headerNumber}`,
     );
   }
 
-  // Transaction bytes come from the proof API
   if (!apiProof.txBytes) {
     throw new Error('Transaction bytes not found in API response');
   }
-  const txBytes = ethers.getBytes(apiProof.txBytes);
 
-  // Submit to precompile
-  return await submitToPrecompile(
+  return submitToPrecompile(
     cc3HttpUrl,
     privateKey,
     chainKey,
     apiProof.headerNumber,
-    txBytes,
+    ethers.getBytes(apiProof.txBytes),
     proof,
   );
 }

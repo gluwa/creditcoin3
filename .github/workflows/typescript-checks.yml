@@ -60,3 +60,30 @@ jobs:
               npm clean-install
           fi
           yarn ${{ matrix.command }}
+
+  deno-checks:
+    name: ${{ matrix.command }} / ${{ matrix.directory }}
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        directory: [scripts/traffic-simulator]
+        command: [lint, check, fmt-check]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run deno ${{ matrix.command }}
+        working-directory: ${{ matrix.directory }}
+        run: |
+          if [ "${{ matrix.command }}" = "check" ]; then
+            deno check src/main.ts
+          elif [ "${{ matrix.command }}" = "fmt-check" ]; then
+            deno fmt --check
+          else
+            deno ${{ matrix.command }}
+          fi

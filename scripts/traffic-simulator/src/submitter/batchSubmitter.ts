@@ -7,13 +7,10 @@
 
 import { ethers } from 'ethers';
 import type { SimulatorConfig, TxInfo } from '../types.ts';
-import {
-  convertProofFormat,
-  fetchProofForTx,
-  isContinuityMismatchError,
-  submitBatchToPrecompile,
-} from './proofUtils.ts';
+import { convertProofFormat, fetchProofForTx, submitBatchToPrecompile } from './proofUtils.ts';
 import { submitProofsIndividually } from './singleSubmitter.ts';
+import { withContinuityRetry } from '../utils/retry.ts';
+import { randomInt } from '../utils/random.ts';
 
 /**
  * Submit proofs in batch mode
@@ -85,7 +82,7 @@ export async function submitBatchProofs(
     }
     const startHeight = base.headerNumber;
     const lastHeight = startHeight + continuityProof.roots.length - 1;
-    const targetBatchSize = randomInt(1, maxBatchSize);
+    const targetBatchSize = randomInt(2, maxBatchSize);
     const batchInputs = [base];
 
     let nextIndex = index + 1;
@@ -103,64 +100,52 @@ export async function submitBatchProofs(
       nextIndex++;
     }
 
-    const label = batchInputs.length === 1
-      ? `block ${batchInputs[0].headerNumber}`
-      : `blocks ${batchInputs[0].headerNumber}-${batchInputs[batchInputs.length - 1].headerNumber}`;
+    // If only 1 proof, submit as single instead of batch
+    if (batchInputs.length === 1) {
+      const result = await submitProofsIndividually(config, [batchInputs[0].txInfo]);
+      successful += result.successful;
+      failed += result.failed;
+      index = nextIndex;
+      continue;
+    }
+
+    const label = `blocks ${batchInputs[0].headerNumber}-${
+      batchInputs[batchInputs.length - 1].headerNumber
+    }`;
     const batchTxHashes = batchInputs
       .map((input) => `${input.txInfo.txHash.slice(0, 10)}...`)
       .join(', ');
-    const maxContinuityRetries = 2;
-    const continuityRetryDelayMs = 15_000;
 
-    let batchSucceeded = false;
-    for (let attempt = 0; attempt <= maxContinuityRetries; attempt++) {
-      try {
-        const heights = batchInputs.map((input) => input.headerNumber);
-        const txBytesList = batchInputs.map((input) => input.txBytes);
-        const merkleProofs = batchInputs.map((input) => input.proof.merkleProof);
+    try {
+      const heights = batchInputs.map((input) => input.headerNumber);
+      const txBytesList = batchInputs.map((input) => input.txBytes);
+      const merkleProofs = batchInputs.map((input) => input.proof.merkleProof);
 
-        batches++;
-        console.log(`    📦 Batch txs: ${batchTxHashes}`);
-        const batchResult = await submitBatchToPrecompile(
-          config.cc3HttpUrl,
-          config.cc3PrivateKey,
-          config.chainKey,
-          heights,
-          txBytesList,
-          merkleProofs,
-          continuityProof,
-        );
+      batches++;
+      console.log(`    📦 Batch txs: ${batchTxHashes}`);
+      const batchResult = await withContinuityRetry(
+        () =>
+          submitBatchToPrecompile(
+            config.cc3HttpUrl,
+            config.cc3PrivateKey,
+            config.chainKey,
+            heights,
+            txBytesList,
+            merkleProofs,
+            continuityProof,
+          ),
+        label,
+      );
 
-        console.log(
-          `    ✅ Batch submitted (${label}): ${batchInputs.length} proofs (tx: ${
-            batchResult.txHash.slice(0, 10)
-          }..., gas: ${batchResult.gasUsed})`,
-        );
-        successful += batchInputs.length;
-        batchSucceeded = true;
-        break;
-      } catch (error) {
-        if (isContinuityMismatchError(error) && attempt < maxContinuityRetries) {
-          console.warn(
-            `⚠️  Continuity mismatch in ${label}, retrying in ${continuityRetryDelayMs / 1000}s...`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, continuityRetryDelayMs));
-          continue;
-        }
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`    ❌ Batch failed (${label}): ${errorMsg}`);
-        const fallback = await submitProofsIndividually(
-          config,
-          batchInputs.map((input) => input.txInfo),
-        );
-        successful += fallback.successful;
-        failed += fallback.failed;
-        batchSucceeded = true;
-        break;
-      }
-    }
-
-    if (!batchSucceeded) {
+      console.log(
+        `    ✅ Batch submitted (${label}): ${batchInputs.length} proofs (tx: ${
+          batchResult.txHash.slice(0, 10)
+        }..., gas: ${batchResult.gasUsed})`,
+      );
+      successful += batchInputs.length;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`    ❌ Batch failed (${label}): ${errorMsg}`);
       const fallback = await submitProofsIndividually(
         config,
         batchInputs.map((input) => input.txInfo),
@@ -175,11 +160,4 @@ export async function submitBatchProofs(
   console.log(`📦 Batch complete: ${successful} successful, ${failed} failed`);
 
   return { successful, failed, batches };
-}
-
-function randomInt(min: number, max: number): number {
-  if (max <= min) {
-    return min;
-  }
-  return Math.floor(Math.random() * (max - min + 1)) + min;
 }

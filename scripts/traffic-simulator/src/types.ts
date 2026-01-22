@@ -3,26 +3,14 @@
  */
 
 /**
- * Information about a pending block waiting for attestation
+ * Information about a block from the source chain
  */
-export interface PendingBlock {
+export interface BlockInfo {
   /** Block number on the source chain */
   blockNumber: number;
   /** Transaction hashes in this block */
   txHashes: string[];
-  /** Timestamp when the block was added to the queue */
-  timestamp: number;
-}
-
-/**
- * Information about a block received from the source chain
- */
-export interface BlockInfo {
-  /** Block number */
-  blockNumber: number;
-  /** Transaction hashes in this block */
-  txHashes: string[];
-  /** Timestamp when received */
+  /** Timestamp when received/queued */
   timestamp: number;
 }
 

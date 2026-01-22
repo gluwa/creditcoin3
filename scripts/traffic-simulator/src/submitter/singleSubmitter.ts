@@ -5,7 +5,9 @@
  */
 
 import type { SimulatorConfig, TxInfo } from '../types.ts';
-import { fetchAndSubmitProof, isContinuityMismatchError } from './proofUtils.ts';
+import { fetchAndSubmitProof } from './proofUtils.ts';
+import { withContinuityRetry } from '../utils/retry.ts';
+import { sleep } from '../utils/reconnect.ts';
 
 /**
  * Submit a single proof for a transaction
@@ -14,45 +16,32 @@ export async function submitSingleProof(
   config: SimulatorConfig,
   txInfo: TxInfo,
 ): Promise<{ success: boolean; error?: string }> {
-  const maxContinuityRetries = 2;
-  const continuityRetryDelayMs = 15_000;
+  const label = txInfo.txHash.slice(0, 10);
 
-  for (let attempt = 0; attempt <= maxContinuityRetries; attempt++) {
-    try {
-      console.log(
-        `📤 Submitting single proof for tx ${
-          txInfo.txHash.slice(0, 10)
-        }... (block ${txInfo.blockNumber}, index ${txInfo.txIndex})`,
-      );
+  try {
+    console.log(
+      `📤 Submitting single proof for tx ${label}... (block ${txInfo.blockNumber}, index ${txInfo.txIndex})`,
+    );
 
-      const result = await fetchAndSubmitProof(
-        config.proofApiUrl,
-        config.cc3HttpUrl,
-        config.cc3PrivateKey,
-        config.chainKey,
-        txInfo,
-      );
+    const result = await withContinuityRetry(
+      () =>
+        fetchAndSubmitProof(
+          config.proofApiUrl,
+          config.cc3HttpUrl,
+          config.cc3PrivateKey,
+          config.chainKey,
+          txInfo,
+        ),
+      label,
+    );
 
-      console.log(`✅ Proof submitted: ${result.txHash.slice(0, 10)}... (gas: ${result.gasUsed})`);
-
-      return { success: true };
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      if (isContinuityMismatchError(error) && attempt < maxContinuityRetries) {
-        console.warn(
-          `⚠️  Continuity mismatch for ${txInfo.txHash.slice(0, 10)}..., retrying in ${
-            continuityRetryDelayMs / 1000
-          }s...`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, continuityRetryDelayMs));
-        continue;
-      }
-      console.error(`❌ Failed to submit proof for ${txInfo.txHash.slice(0, 10)}...: ${errorMsg}`);
-      return { success: false, error: errorMsg };
-    }
+    console.log(`✅ Proof submitted: ${result.txHash.slice(0, 10)}... (gas: ${result.gasUsed})`);
+    return { success: true };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Failed to submit proof for ${label}...: ${errorMsg}`);
+    return { success: false, error: errorMsg };
   }
-
-  return { success: false, error: 'Unknown error' };
 }
 
 /**
@@ -67,9 +56,7 @@ export async function submitProofsIndividually(
   let failed = 0;
 
   for (let i = 0; i < txInfos.length; i++) {
-    const txInfo = txInfos[i];
-
-    const result = await submitSingleProof(config, txInfo);
+    const result = await submitSingleProof(config, txInfos[i]);
 
     if (result.success) {
       successful++;
@@ -79,7 +66,7 @@ export async function submitProofsIndividually(
 
     // Add delay between submissions (except for the last one)
     if (i < txInfos.length - 1 && delayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await sleep(delayMs);
     }
   }
 

@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: proof-traffic-simulator
+    restart: unless-stopped
+    ports:
+      - "${HEALTH_PORT:-8080}:8080"
+    environment:
+      - SOURCE_RPC_URL=${SOURCE_RPC_URL}
+      - CC3_WS_URL=${CC3_WS_URL:-}
+      - CC3_HTTP_URL=${CC3_HTTP_URL:-}
+      - CC3_PRIVATE_KEY=${CC3_PRIVATE_KEY}
+      - PROOF_API_URL=${PROOF_API_URL:-}
+      - CHAIN_KEY=${CHAIN_KEY:-1}
+      - BATCH_SIZE=${BATCH_SIZE:-10}
+      - BATCH_PROBABILITY=${BATCH_PROBABILITY:-0.3}
+      - SINGLE_EVERY_BLOCKS=${SINGLE_EVERY_BLOCKS:-1}
+      - LOG_VERBOSE=${LOG_VERBOSE:-false}
+      - HEALTH_PORT=8080
+    healthcheck:
+      test: ["CMD", "deno", "eval", "--allow-net", "const r = await fetch('http://localhost:8080/health'); Deno.exit(r.ok ? 0 : 1);"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
