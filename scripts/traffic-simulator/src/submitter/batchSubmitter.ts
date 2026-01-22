@@ -102,6 +102,9 @@ export async function submitBatchProofs(
       batchInputs.length === 1
         ? `block ${batchInputs[0].headerNumber}`
         : `blocks ${batchInputs[0].headerNumber}-${batchInputs[batchInputs.length - 1].headerNumber}`;
+    const batchTxHashes = batchInputs
+      .map((input) => `${input.txInfo.txHash.slice(0, 10)}...`)
+      .join(', ');
     const maxContinuityRetries = 2;
     const continuityRetryDelayMs = 15_000;
 
@@ -113,6 +116,7 @@ export async function submitBatchProofs(
         const merkleProofs = batchInputs.map((input) => input.proof.merkleProof);
 
         batches++;
+        console.log(`    📦 Batch txs: ${batchTxHashes}`);
         const batchResult = await submitBatchToPrecompile(
           config.cc3HttpUrl,
           config.cc3PrivateKey,
@@ -124,7 +128,7 @@ export async function submitBatchProofs(
         );
 
         console.log(
-          `    ✅ Batch submitted (${label}): ${batchInputs.length} proofs (gas: ${batchResult.gasUsed})`,
+          `    ✅ Batch submitted (${label}): ${batchInputs.length} proofs (tx: ${batchResult.txHash.slice(0, 10)}..., gas: ${batchResult.gasUsed})`,
         );
         successful += batchInputs.length;
         batchSucceeded = true;
