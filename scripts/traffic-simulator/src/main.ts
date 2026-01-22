@@ -140,7 +140,8 @@ async function processAttestedBlock(block: PendingBlock): Promise<void> {
   }
 
   // Select random transactions
-  const txCount = Math.min(config.txPerBlock, block.txHashes.length);
+  const maxTxPerBlock = Math.min(config.txPerBlock, 10, block.txHashes.length);
+  const txCount = randomInt(1, maxTxPerBlock);
   const selectedTxs = selectRandomTransactions(block.txHashes, txCount);
 
   const txInfos: TxInfo[] = selectedTxs.map((tx) => ({
@@ -209,6 +210,13 @@ function selectRandomTransactions(
   }
 
   return selected;
+}
+
+function randomInt(min: number, max: number): number {
+  if (max <= min) {
+    return min;
+  }
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 /**

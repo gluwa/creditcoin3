@@ -44,8 +44,8 @@ deno task start -- \
 | `--query-mode` | Query complexity mode | `transfer` |
 | `--chain-key` | Source chain key (Sepolia: 1) | `1` |
 | `--max-queue-size` | Max blocks to track in queue | `100` |
-| `--tx-per-block` | Transactions per block | `2` |
-| `--batch-size` | Batch submission size (max 10) | `3` |
+| `--tx-per-block` | Max txs per block (random 1..N) | `10` |
+| `--batch-size` | Max batch size (random 1..N, max 10) | `10` |
 | `--batch-probability` | Probability of batch mode | `0.3` |
 | `--health-port` | Health check port | `8080` |
 | `--verbose` | Enable verbose debug logging | `false` |
@@ -62,8 +62,8 @@ deno task start -- \
 | `CC3_PRIVATE_KEY` | Private key for signing | - |
 | `PROOF_API_URL` | Proof generation API | `http://localhost:3100` |
 | `CHAIN_KEY` | Source chain key (1=Sepolia on testnet) | `1` |
-| `TX_PER_BLOCK` | Transactions per block | `2` |
-| `BATCH_SIZE` | Batch submission size (max 10) | `3` |
+| `TX_PER_BLOCK` | Max txs per block (random 1..N) | `10` |
+| `BATCH_SIZE` | Max batch size (random 1..N, max 10) | `10` |
 | `BATCH_PROBABILITY` | Probability of batch mode | `0.3` |
 | `QUERY_MODE` | Query complexity mode | `transfer` |
 | `ENABLE_QUERY_BUILDER` | Build/log query layouts | `true` |

@@ -42,9 +42,10 @@ export async function submitBatchProofs(
   for (const [blockNumber, blockTxs] of byBlock) {
     console.log(`  📦 Block ${blockNumber}: ${blockTxs.length} transactions`);
 
-    for (let start = 0; start < blockTxs.length; start += maxBatchSize) {
-      const batch = blockTxs.slice(start, start + maxBatchSize);
-      const label = `block ${blockNumber}, batch ${Math.floor(start / maxBatchSize) + 1}`;
+    const blockBatchSize = randomInt(1, maxBatchSize);
+    for (let start = 0; start < blockTxs.length; start += blockBatchSize) {
+      const batch = blockTxs.slice(start, start + blockBatchSize);
+      const label = `block ${blockNumber}, batch ${Math.floor(start / blockBatchSize) + 1}`;
       const maxContinuityRetries = 2;
       const continuityRetryDelayMs = 15_000;
 
@@ -102,7 +103,7 @@ export async function submitBatchProofs(
           const merkleProofs = proofInputs.map((input) => input.proof.merkleProof);
 
           batches++;
-          const batchResult = await submitBatchToPrecompile(
+        const batchResult = await submitBatchToPrecompile(
             config.cc3HttpUrl,
             config.cc3PrivateKey,
             config.chainKey,
@@ -147,4 +148,11 @@ export async function submitBatchProofs(
   console.log(`📦 Batch complete: ${successful} successful, ${failed} failed`);
 
   return { successful, failed, batches };
+}
+
+function randomInt(min: number, max: number): number {
+  if (max <= min) {
+    return min;
+  }
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
