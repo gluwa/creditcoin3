@@ -9,15 +9,15 @@
 //! - POC compliance: Chains must start at queryHeight-1 and end at next attestation
 
 mod bounds;
-mod build;
 mod cc3;
 mod cc3_data;
 mod common;
 mod indexer;
+mod proof_builder;
 
 pub use bounds::{BoundsFinder, Cc3BoundsFinder, IndexerBoundsFinder};
-pub use build::ContinuityResult;
 pub use cc3_data::*;
+pub use proof_builder::ContinuityResult;
 
 use crate::{
     config::ContinuityConfig,

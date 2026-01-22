@@ -42,10 +42,6 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
             min_query, max_query, "Using indexer for attestation endpoint lookup"
         );
 
-        // CRITICAL: Check if query is between checkpoints first
-        // If so, use checkpoint boundaries instead of attestation boundaries
-        let required_before = min_query.saturating_sub(1);
-
         // OPTIMIZATION: First check the last checkpoint - if query is after it, skip checkpoint checks
         let last_checkpoint = self
             .indexer
@@ -115,7 +111,10 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
         }
 
         // Otherwise, use attestation boundaries (original logic)
-        let lower_attestation_with_proof = self
+        // CRITICAL: Check if query is between checkpoints first
+        // If so, use checkpoint boundaries instead of attestation boundaries
+        let required_before = min_query.saturating_sub(1);
+        let lower = self
             .indexer
             .find_attestation_before_or_at(self.builder.config.chain_key, required_before)
             .await
@@ -125,7 +124,6 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
                     "No attestation found before block {required_before} (query height: {min_query})"
                 ))
             })?;
-        let lower = lower_attestation_with_proof;
 
         // Find upper bound (attestation after max_query)
         let upper_opt = self
@@ -134,15 +132,14 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
             .await
             .map_err(|e| ContinuityError::Rpc(format!("Indexer error: {e}")))?;
 
-        let (upper, ends_in_attestation) = match upper_opt {
-            Some(u_attestation_with_proof) => {
-                let u = u_attestation_with_proof;
+        match upper_opt {
+            Some(u) => {
                 info!(
                     lower_bound = lower.block_number,
                     upper_bound = u.block_number,
                     "Found attestation bounds via indexer"
                 );
-                (u, EndsInAttestation::True)
+                Ok((lower, u, EndsInAttestation::True))
             }
             None => {
                 // No upper attestation found - predict next one
@@ -158,10 +155,8 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
                     predicted_upper = predicted.block_number,
                     "Using predicted upper bound (no attestation found after query)"
                 );
-                (predicted, EndsInAttestation::False)
+                Ok((lower, predicted, EndsInAttestation::False))
             }
-        };
-
-        Ok((lower, upper, ends_in_attestation))
+        }
     }
 }

@@ -5,9 +5,8 @@
 //! when no indexer is available.
 
 use super::super::ContinuityBuilder;
-use crate::builder::build::ContinuityResult;
+use crate::builder::proof_builder::ContinuityResult;
 use crate::errors::ContinuityError;
-use anyhow::{anyhow, Context, Result};
 use attestor_primitives::block::Block;
 use indexer_client::AttestationWithProof;
 use sp_core::H256;
@@ -42,7 +41,7 @@ impl ContinuityBuilder {
         lower: AttestationWithProof,
         upper: AttestationWithProof,
         min_query: u64,
-    ) -> Result<Vec<Block>> {
+    ) -> ContinuityResult<Vec<Block>> {
         // Continuity chain starts at queryHeight (query block at index 0)
         let required_start = min_query;
 
@@ -55,6 +54,10 @@ impl ContinuityBuilder {
         // With query block at index 0, the lower bound is always strictly before required_start
         // (bounds finding looks for attestation at or before min_query - 1)
         let (build_start, start_digest) = (lower.block_number + 1, lower.digest);
+        assert!(
+            build_start <= end_height,
+            "build_start ({build_start}) must be <= end_height ({end_height})"
+        );
 
         info!(
             build_start,
@@ -68,19 +71,19 @@ impl ContinuityBuilder {
             .eth_provider
             .build_continuity_blocks(start_digest, build_start, end_height)
             .await
-            .context("Failed to build continuity blocks")?;
+            .map_err(|e| ContinuityError::Rpc(format!("Failed to build continuity blocks: {e}")))?;
 
         // Trim to start at required_start (the continuity chain starts at queryHeight)
         let start_index = all_blocks
             .iter()
             .position(|b| b.block_number == required_start)
             .ok_or_else(|| {
-                anyhow!(
+                ContinuityError::Rpc(format!(
                     "Block {} not found in continuity chain (range: {}-{})",
                     required_start,
                     all_blocks.first().map(|b| b.block_number).unwrap_or(0),
                     all_blocks.last().map(|b| b.block_number).unwrap_or(0)
-                )
+                ))
             })?;
 
         let trimmed = all_blocks[start_index..].to_vec();
@@ -88,11 +91,10 @@ impl ContinuityBuilder {
         // Validate that trimmed blocks end at the upper attestation block
         if let Some(last_block) = trimmed.last() {
             if last_block.block_number != end_height {
-                anyhow::bail!(
+                return Err(ContinuityError::Rpc(format!(
                     "Trimmed blocks don't end at upper attestation block: expected {}, got {}",
-                    end_height,
-                    last_block.block_number
-                );
+                    end_height, last_block.block_number
+                )));
             }
         }
 

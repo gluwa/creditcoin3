@@ -1,7 +1,7 @@
 //! Functions for chaining attestations from indexer data
 
 use super::super::ContinuityBuilder;
-use crate::builder::build::ContinuityResult;
+use crate::builder::proof_builder::ContinuityResult;
 use crate::errors::ContinuityError;
 use attestor_primitives::block::Block;
 use indexer_client::AttestationWithProof;
@@ -52,7 +52,11 @@ impl ContinuityBuilder {
         );
 
         // Process all attestations: extract continuity blocks and add attestation blocks
-        let all_blocks = self.process_attestations_chain(attestations).await?;
+        let mut all_blocks = Vec::new();
+        for attestation in attestations {
+            self.process_single_attestation(&mut all_blocks, &attestation)
+                .await?;
+        }
 
         if all_blocks.is_empty() {
             warn!("No blocks built from attestations in checkpoint range");
@@ -102,16 +106,8 @@ impl ContinuityBuilder {
         const MAX_ITERATIONS: usize = 100;
         let mut iteration = 0;
 
-        loop {
+        while iteration <= MAX_ITERATIONS {
             iteration += 1;
-            if iteration > MAX_ITERATIONS {
-                warn!(
-                    iterations = iteration,
-                    current = current.block_number,
-                    "Hit maximum iterations - possible infinite loop"
-                );
-                return Ok(None);
-            }
 
             // Process current attestation: extract blocks and add attestation block
             self.process_single_attestation(&mut all_blocks, &current)
@@ -141,7 +137,7 @@ impl ContinuityBuilder {
                         current = next;
                     }
                 }
-                Ok(None) | Err(_) => {
+                Ok(None) => {
                     // Try upper_attestation as fallback
                     if current.block_number < upper_attestation.block_number {
                         current = self
@@ -155,8 +151,23 @@ impl ContinuityBuilder {
                         break;
                     }
                 }
+                Err(e) => {
+                    // Bubble up error instead of silently breaking
+                    return Err(ContinuityError::Rpc(format!(
+                        "Failed to find next attestation: {e}"
+                    )));
+                }
                 _ => break, // Not advancing
             }
+        }
+
+        if iteration > MAX_ITERATIONS {
+            warn!(
+                iterations = iteration,
+                current = current.block_number,
+                "Hit maximum iterations - possible infinite loop"
+            );
+            return Ok(None);
         }
 
         if all_blocks.is_empty() {
@@ -222,21 +233,6 @@ impl ContinuityBuilder {
             );
             Ok(indexer_blocks)
         }
-    }
-
-    // Helper: Process multiple attestations and build a chain of blocks
-    async fn process_attestations_chain(
-        &self,
-        attestations: Vec<AttestationWithProof>,
-    ) -> ContinuityResult<Vec<Block>> {
-        let mut all_blocks = Vec::new();
-
-        for attestation in attestations {
-            self.process_single_attestation(&mut all_blocks, &attestation)
-                .await?;
-        }
-
-        Ok(all_blocks)
     }
 
     // Helper: Process a single attestation (extract continuity blocks + add attestation block)

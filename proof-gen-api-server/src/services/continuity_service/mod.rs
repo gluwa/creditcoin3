@@ -191,9 +191,10 @@ impl ContinuityService {
         let (continuity_proof, was_cached) =
             match self.build_continuity(header_number, current_block).await {
                 Ok((proof, _ends_in_attestation, lower_attestation)) => {
-                    // Note: ContinuityBuilder handles indexer internally, so we can't easily detect
+                    // TODO: ContinuityBuilder handles indexer internally, so we can't easily detect
                     // if indexer was used. For now, we'll always mark as not cached since we're
                     // building fresh proofs (even if they use indexer data internally).
+                    // Track this in JIRA: [TODO: Add JIRA ticket number]
                     let cached = false;
                     if cached {
                         self.cache_hits.fetch_add(1, Ordering::Relaxed);

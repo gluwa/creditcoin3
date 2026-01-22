@@ -9,6 +9,11 @@ use crate::queries::*;
 use crate::types::{AttestationWithProof, *};
 use crate::utils::{parse_attestation_node, parse_attestation_node_full, parse_checkpoint_node};
 
+/// Timeout for HTTP requests (30 seconds)
+const REQUEST_TIMEOUT_SECS: u64 = 30;
+/// Connection timeout for HTTP requests (10 seconds)
+const CONNECT_TIMEOUT_SECS: u64 = 10;
+
 /// Client for querying the CC3 attestations indexer GraphQL API.
 pub struct IndexerClient {
     client: Client,
@@ -25,8 +30,8 @@ impl IndexerClient {
         }
 
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
+            .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECS))
             .build()
             .map_err(|e| IndexerError::ClientBuild(e.to_string()))?;
 
@@ -108,52 +113,10 @@ impl IndexerClient {
         chain_key: u64,
         block_number: u64,
     ) -> Result<Option<AttestationWithProof>, IndexerError> {
-        // Don't pass header_number to parse_attestation_node - we want to use the actual
-        // headerNumber from the GraphQL response (which should be > block_number)
-        let variables = serde_json::json!({
-            "chainKey": chain_key.to_string(),
-            "headerNumber": block_number.to_string()
-        });
-
-        let graphql_query = serde_json::json!({
-            "query": ATTESTATION_AFTER_QUERY,
-            "variables": variables
-        });
-
-        let response = self
-            .client
-            .post(&self.endpoint)
-            .json(&graphql_query)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let body = response.text().await.unwrap_or_else(|_| String::new());
-            return Err(IndexerError::GraphQLRequestFailed { status, body });
-        }
-
-        let result: GraphQLResponse = response.json().await?;
-
-        if let Some(errors) = result.errors {
-            if !errors.is_empty() {
-                let error_msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-                return Err(IndexerError::GraphQLErrors(error_msgs.join(", ")));
-            }
-        }
-
-        let Some(data) = result.data else {
-            return Ok(None);
-        };
-
-        let nodes = data.attestations.nodes;
-        if nodes.is_empty() {
-            return Ok(None);
-        }
-
-        let attestation = &nodes[0];
-        // Pass None for header_number so parse_attestation_node uses the value from the node
-        Ok(Some(parse_attestation_node(attestation, None)?))
+        // Use the generic query helper with ATTESTATION_AFTER_QUERY
+        // The query returns attestations with headerNumber > block_number
+        self.get_attestation_with_query(ATTESTATION_AFTER_QUERY, chain_key, Some(block_number))
+            .await
     }
 
     /// Get the last (most recent) attestation for a chain.
@@ -220,6 +183,20 @@ impl IndexerClient {
         }
 
         let attestation = &nodes[0];
+        // For ATTESTATION_AFTER_QUERY, verify that headerNumber > block_number
+        if query == ATTESTATION_AFTER_QUERY {
+            if let Some(block_number) = header_number {
+                // parse_attestation_node will use the actual headerNumber from the node when header_number is None
+                let parsed = parse_attestation_node(attestation, None)?;
+                assert!(
+                    parsed.block_number > block_number,
+                    "Attestation headerNumber ({}) should be > block_number ({})",
+                    parsed.block_number,
+                    block_number
+                );
+                return Ok(Some(parsed));
+            }
+        }
         Ok(Some(parse_attestation_node(attestation, header_number)?))
     }
 
@@ -262,11 +239,12 @@ impl IndexerClient {
             return Ok(Vec::new());
         };
 
-        let mut attestations = Vec::new();
-
-        for node in data.attestations.nodes {
-            attestations.push(parse_attestation_node_full(&node)?);
-        }
+        let attestations = data
+            .attestations
+            .nodes
+            .iter()
+            .map(parse_attestation_node_full)
+            .collect::<Result<Vec<_>, _>>()?;
 
         debug!(
             fetched_attestations = attestations.len(),
@@ -298,10 +276,12 @@ impl IndexerClient {
             return Ok(Vec::new());
         };
 
-        let mut checkpoints = Vec::new();
-        for node in data.checkpoints.nodes {
-            checkpoints.push(parse_checkpoint_node(&node)?);
-        }
+        let mut checkpoints = data
+            .checkpoints
+            .nodes
+            .iter()
+            .map(parse_checkpoint_node)
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Checkpoints are already sorted DESC by the query, but ensure it's correct
         checkpoints.sort_by_key(|c| std::cmp::Reverse(c.block_number));
@@ -375,17 +355,19 @@ impl IndexerClient {
             return Ok(Vec::new());
         };
 
-        let mut checkpoints = Vec::new();
-
-        // Process checkpoints before (already sorted DESC)
-        for node in data.checkpoints_before.nodes {
-            checkpoints.push(parse_checkpoint_node(&node)?);
-        }
-
-        // Process checkpoints after (already sorted ASC)
-        for node in data.checkpoints_after.nodes {
-            checkpoints.push(parse_checkpoint_node(&node)?);
-        }
+        let mut checkpoints: Vec<_> = data
+            .checkpoints_before
+            .nodes
+            .iter()
+            .map(parse_checkpoint_node)
+            .collect::<Result<Vec<_>, _>>()?;
+        checkpoints.extend(
+            data.checkpoints_after
+                .nodes
+                .iter()
+                .map(parse_checkpoint_node)
+                .collect::<Result<Vec<_>, _>>()?,
+        );
 
         // Sort by block number descending (newest first)
         checkpoints.sort_by_key(|c| std::cmp::Reverse(c.block_number));

@@ -1,7 +1,7 @@
 //! Functions for processing indexer blocks (combining, trimming, extracting digests)
 
 use super::super::ContinuityBuilder;
-use crate::builder::build::ContinuityResult;
+use crate::builder::proof_builder::ContinuityResult;
 use crate::errors::ContinuityError;
 use attestor_primitives::block::Block;
 use attestor_primitives::AttestationCheckpoint;

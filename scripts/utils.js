@@ -16,7 +16,7 @@ const DEFAULT_CC3_HTTP_URL = 'http://localhost:9944';
 const DEFAULT_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const DEFAULT_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 const DEFAULT_API_URL = 'http://localhost:3100';
-const GAS_BUFFER_MULTIPLIER = 100; // 100% + 35% buffer
+const GAS_BUFFER_MULTIPLIER = 135; // 100% + 35% buffer
 
 // Chain ID to Chain Key mapping (based on chain_spec.rs)
 const CHAIN_ID_TO_KEY = {

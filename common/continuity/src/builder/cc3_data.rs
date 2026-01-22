@@ -101,17 +101,8 @@ impl ContinuityBuilder {
                 let mut filtered: Vec<AttestationCheckpoint> = all_checkpoints
                     .into_iter()
                     .filter(|c| {
-                        if let Some(max) = max_needed {
-                            if c.block_number >= max {
-                                return false;
-                            }
-                        }
-                        if let Some(min) = min_needed {
-                            if c.block_number <= min {
-                                return false;
-                            }
-                        }
-                        true
+                        max_needed.is_none_or(|max| c.block_number < max)
+                            && min_needed.is_none_or(|min| c.block_number > min)
                     })
                     .collect();
 
@@ -147,17 +138,8 @@ impl ContinuityBuilder {
         let mut filtered: Vec<AttestationCheckpoint> = all_checkpoints
             .into_iter()
             .filter(|c| {
-                if let Some(max) = max_needed {
-                    if c.block_number >= max {
-                        return false;
-                    }
-                }
-                if let Some(min) = min_needed {
-                    if c.block_number <= min {
-                        return false;
-                    }
-                }
-                true
+                max_needed.is_none_or(|max| c.block_number < max)
+                    && min_needed.is_none_or(|min| c.block_number > min)
             })
             .collect();
 
