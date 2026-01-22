@@ -59,6 +59,7 @@ updates:
       - "/common/utils"
       - "/common/vrf"
       - "/common/prometheus"
+      - "/common/indexer-client"
       - "/node"
       - "/node/cli-opt"
       - "/pallets/attestation-poc"
