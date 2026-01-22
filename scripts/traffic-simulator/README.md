@@ -225,6 +225,13 @@ These offsets define which bytes of the RLP-encoded transaction/receipt are bein
 └─────────────────────────────────────────┘
 ```
 
+## Attestation Lag
+
+The simulator only submits proofs for blocks **strictly less** than the latest
+attested block. The newest attested block becomes provable after the next
+attestation event arrives. This avoids `Continuity proof does not match
+attestation or checkpoint` errors caused by proving the current attested block.
+
 ## Metrics
 
 Prometheus metrics available at `/metrics`:

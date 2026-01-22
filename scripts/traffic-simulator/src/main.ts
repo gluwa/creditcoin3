@@ -109,15 +109,23 @@ function handleNewBlock(block: BlockInfo): void {
 async function handleAttestation(attestedBlock: number): Promise<void> {
   if (isShuttingDown) return;
 
-  // Get all blocks that are now attested
-  const attestedBlocks = pendingQueue.getAttestedBlocks(attestedBlock);
+  // The latest attested block cannot be proven until the next attestation arrives.
+  const provableUpTo = Math.max(attestedBlock - 1, 0);
+
+  // Get all blocks that are now provable
+  const attestedBlocks = pendingQueue.getAttestedBlocks(provableUpTo);
 
   if (attestedBlocks.length === 0) {
+    if (provableUpTo > 0) {
+      console.log(
+        `ℹ️  Attested ${attestedBlock}, nothing provable yet (waiting for next attestation)`,
+      );
+    }
     return;
   }
 
   console.log(
-    `\n🎯 ${attestedBlocks.length} block(s) attested up to block ${attestedBlock}`,
+    `\n🎯 ${attestedBlocks.length} block(s) provable up to block ${provableUpTo} (latest attested: ${attestedBlock})`,
   );
 
   // Process each attested block
