@@ -60,6 +60,8 @@ export interface SimulatorConfig {
   batchSize: number;
   /** Probability of using batch mode (0.0 - 1.0) */
   batchProbability: number;
+  /** Submit a single proof once every N blocks */
+  singleEveryBlocks: number;
   /** Query complexity mode */
   queryMode: QueryMode;
   /** Whether to build/log query layouts */

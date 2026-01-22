@@ -36,6 +36,7 @@ let pendingQueue: PendingBlockQueue;
 let healthServer: { shutdown: () => void };
 let isShuttingDown = false;
 const startTime = Date.now();
+let lastSingleSubmissionBlock: number | null = null;
 
 // Metrics
 const metrics = {
@@ -145,7 +146,10 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
     if (useBatch) {
       batchTxInfos.push(...txInfos);
     } else {
-      singleTxInfos.push(...txInfos);
+      if (txInfos.length > 0) {
+        singleTxInfos.push(...txInfos);
+        lastSingleSubmissionBlock = block.blockNumber;
+      }
     }
   }
 
@@ -191,6 +195,12 @@ function selectTxInfosForBlock(block: PendingBlock, useBatch: boolean): TxInfo[]
     const txCount = randomInt(1, maxBatchTxs);
     selectedTxs = selectRandomTransactions(block.txHashes, txCount);
   } else {
+    if (!shouldSubmitSingleForBlock(block.blockNumber)) {
+      console.log(
+        `⏭️  Skipping single submission for block ${block.blockNumber} (interval ${config.singleEveryBlocks})`,
+      );
+      return [];
+    }
     selectedTxs = selectRandomTransactions(block.txHashes, 1);
   }
 
@@ -205,6 +215,16 @@ function selectTxInfosForBlock(block: PendingBlock, useBatch: boolean): TxInfo[]
   );
 
   return txInfos;
+}
+
+function shouldSubmitSingleForBlock(blockNumber: number): boolean {
+  if (config.singleEveryBlocks <= 1) {
+    return true;
+  }
+  if (lastSingleSubmissionBlock === null) {
+    return true;
+  }
+  return blockNumber - lastSingleSubmissionBlock >= config.singleEveryBlocks;
 }
 
 /**

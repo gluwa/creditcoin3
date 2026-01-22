@@ -19,6 +19,7 @@ const DEFAULTS = {
   maxQueueSize: 100,
   batchSize: 10,
   batchProbability: 0.3,
+  singleEveryBlocks: 1,
   queryMode: 'transfer' as QueryMode,
   enableQueryBuilder: true,
   logVerbose: false,
@@ -46,6 +47,7 @@ function parseCliArgs(): ParsedArgs {
       'max-queue-size',
       'batch-size',
       'batch-probability',
+      'single-every',
       'health-port',
     ],
     boolean: [
@@ -131,6 +133,10 @@ OPTIONS:
       --batch-probability <P>  Probability of batch mode (0.0-1.0)
                               Env: BATCH_PROBABILITY
                               Default: 0.3
+
+      --single-every <N>    Submit a single proof once every N blocks
+                            Env: SINGLE_EVERY_BLOCKS
+                            Default: 1
   
       --health-port <PORT>  Health check server port
                             Env: HEALTH_PORT
@@ -153,6 +159,7 @@ ENVIRONMENT VARIABLES:
   MAX_QUEUE_SIZE         Max blocks to track (default: 100)
   BATCH_SIZE             Max txs per batch (random 1..N, default: 10)
   BATCH_PROBABILITY      Probability of batch mode, 0.0-1.0 (default: 0.3)
+  SINGLE_EVERY_BLOCKS    Submit a single proof once every N blocks (default: 1)
   ENABLE_QUERY_BUILDER   Build/log query layouts (default: true)
   LOG_VERBOSE            Enable verbose debug logging (default: false)
   HEALTH_PORT            Health check server port (default: 8080)
@@ -317,6 +324,12 @@ export function loadConfig(): SimulatorConfig {
       'BATCH_PROBABILITY',
       DEFAULTS.batchProbability,
     ),
+    singleEveryBlocks: getNumber(
+      args,
+      'single-every',
+      'SINGLE_EVERY_BLOCKS',
+      DEFAULTS.singleEveryBlocks,
+    ),
     queryMode: queryModeStr as QueryMode,
     enableQueryBuilder,
     logVerbose,
@@ -361,6 +374,10 @@ function validateConfig(config: SimulatorConfig): void {
     throw new Error('Batch size must be at most 10 (precompile limit)');
   }
 
+  if (!Number.isInteger(config.singleEveryBlocks) || config.singleEveryBlocks < 1) {
+    throw new Error('Single submission interval must be an integer >= 1');
+  }
+
   if (config.healthPort < 1 || config.healthPort > 65535) {
     throw new Error('Health port must be between 1 and 65535');
   }
@@ -389,6 +406,7 @@ export function logConfig(config: SimulatorConfig): void {
   console.log(`    Max queue size: ${masked.maxQueueSize}`);
   console.log(`    Max batch size: ${masked.batchSize}`);
   console.log(`    Batch probability: ${masked.batchProbability}`);
+  console.log(`    Single every blocks: ${masked.singleEveryBlocks}`);
   console.log(`    Query mode: ${masked.queryMode}`);
   console.log(`    Query builder: ${masked.enableQueryBuilder ? 'enabled' : 'disabled'}`);
   console.log(`    Verbose logging: ${masked.logVerbose ? 'enabled' : 'disabled'}`);

@@ -46,6 +46,7 @@ deno task start -- \
 | `--max-queue-size` | Max blocks to track in queue | `100` |
 | `--batch-size` | Max batch size (random 1..N, max 10) | `10` |
 | `--batch-probability` | Probability of batch mode | `0.3` |
+| `--single-every` | Submit a single proof once every N blocks | `1` |
 | `--health-port` | Health check port | `8080` |
 | `--verbose` | Enable verbose debug logging | `false` |
 | `--enable-query-builder` | Enable query builder logging | `true` |
@@ -63,14 +64,15 @@ deno task start -- \
 | `CHAIN_KEY` | Source chain key (1=Sepolia on testnet) | `1` |
 | `BATCH_SIZE` | Max batch size (random 1..N, max 10) | `10` |
 | `BATCH_PROBABILITY` | Probability of batch mode | `0.3` |
+| `SINGLE_EVERY_BLOCKS` | Submit a single proof once every N blocks | `1` |
 | `QUERY_MODE` | Query complexity mode | `transfer` |
 | `ENABLE_QUERY_BUILDER` | Build/log query layouts | `true` |
 | `LOG_VERBOSE` | Enable verbose debug logging | `false` |
 | `HEALTH_PORT` | Health check port | `8080` |
 
-Single submissions always pick one random transaction per block. Batch submissions
-pick a random number of transactions between 1 and `BATCH_SIZE` and may include
-transactions from multiple blocks when they share a continuity proof.
+Single submissions pick one random transaction once every `SINGLE_EVERY_BLOCKS`.
+Batch submissions pick a random number of transactions between 1 and `BATCH_SIZE`
+and may include transactions from multiple blocks when they share a continuity proof.
 
 ### Query Modes
 
