@@ -56,8 +56,6 @@ export interface SimulatorConfig {
   // Simulation parameters
   /** Maximum blocks to track in queue */
   maxQueueSize: number;
-  /** Number of random transactions to submit per attested block */
-  txPerBlock: number;
   /** Number of transactions per batch submission */
   batchSize: number;
   /** Probability of using batch mode (0.0 - 1.0) */

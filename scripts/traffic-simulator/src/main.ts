@@ -147,10 +147,18 @@ async function processAttestedBlock(block: PendingBlock): Promise<void> {
     return;
   }
 
-  // Select random transactions
-  const maxTxPerBlock = Math.min(config.txPerBlock, 10, block.txHashes.length);
-  const txCount = randomInt(1, maxTxPerBlock);
-  const selectedTxs = selectRandomTransactions(block.txHashes, txCount);
+  // Decide between batch and single mode
+  const useBatch = Math.random() < config.batchProbability && block.txHashes.length > 1;
+
+  // Select transactions
+  let selectedTxs: Array<{ txHash: string; txIndex: number }>;
+  if (useBatch) {
+    const maxBatchTxs = Math.min(config.batchSize, 10, block.txHashes.length);
+    const txCount = randomInt(1, maxBatchTxs);
+    selectedTxs = selectRandomTransactions(block.txHashes, txCount);
+  } else {
+    selectedTxs = selectRandomTransactions(block.txHashes, 1);
+  }
 
   const txInfos: TxInfo[] = selectedTxs.map((tx) => ({
     txHash: tx.txHash,
@@ -159,11 +167,8 @@ async function processAttestedBlock(block: PendingBlock): Promise<void> {
   }));
 
   console.log(
-    `📋 Block ${block.blockNumber}: selected ${txInfos.length} of ${block.txHashes.length} transactions`,
+    `📋 Block ${block.blockNumber}: selected ${txInfos.length} of ${block.txHashes.length} transactions (${useBatch ? 'batch' : 'single'})`,
   );
-
-  // Decide between batch and single mode
-  const useBatch = Math.random() < config.batchProbability && txInfos.length > 1;
 
   try {
     if (useBatch) {

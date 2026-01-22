@@ -17,7 +17,6 @@ const DEFAULTS = {
   cc3HttpUrl: 'http://localhost:9944',
   proofApiUrl: 'http://localhost:3100',
   maxQueueSize: 100,
-  txPerBlock: 10,
   batchSize: 10,
   batchProbability: 0.3,
   queryMode: 'transfer' as QueryMode,
@@ -45,7 +44,6 @@ function parseCliArgs(): ParsedArgs {
       'query-mode',
       'chain-key',
       'max-queue-size',
-      'tx-per-block',
       'batch-size',
       'batch-probability',
       'health-port',
@@ -126,10 +124,6 @@ OPTIONS:
                             Env: MAX_QUEUE_SIZE
                             Default: 100
   
-      --tx-per-block <N>    Max transactions per block (random 1..N)
-                            Env: TX_PER_BLOCK
-                            Default: 10
-  
       --batch-size <N>      Max transactions per batch (random 1..N, max: 10)
                             Env: BATCH_SIZE
                             Default: 10
@@ -157,7 +151,6 @@ OPTIONS:
 ENVIRONMENT VARIABLES:
   CHAIN_KEY              Source chain key (default: 1 for Sepolia)
   MAX_QUEUE_SIZE         Max blocks to track (default: 100)
-  TX_PER_BLOCK           Max txs per block (random 1..N, default: 10)
   BATCH_SIZE             Max txs per batch (random 1..N, default: 10)
   BATCH_PROBABILITY      Probability of batch mode, 0.0-1.0 (default: 0.3)
   ENABLE_QUERY_BUILDER   Build/log query layouts (default: true)
@@ -317,7 +310,6 @@ export function loadConfig(): SimulatorConfig {
 
     // Simulation parameters
     maxQueueSize: getNumber(args, 'max-queue-size', 'MAX_QUEUE_SIZE', DEFAULTS.maxQueueSize),
-    txPerBlock: getNumber(args, 'tx-per-block', 'TX_PER_BLOCK', DEFAULTS.txPerBlock),
     batchSize: getNumber(args, 'batch-size', 'BATCH_SIZE', DEFAULTS.batchSize),
     batchProbability: getNumber(
       args,
@@ -362,13 +354,6 @@ function validateConfig(config: SimulatorConfig): void {
     throw new Error('Batch probability must be between 0.0 and 1.0');
   }
 
-  if (config.txPerBlock < 1) {
-    throw new Error('Transactions per block must be at least 1');
-  }
-  if (config.txPerBlock > 10) {
-    throw new Error('Transactions per block must be at most 10');
-  }
-
   if (config.batchSize < 1) {
     throw new Error('Batch size must be at least 1');
   }
@@ -402,7 +387,6 @@ export function logConfig(config: SimulatorConfig): void {
   console.log(`    URL: ${masked.proofApiUrl}`);
   console.log('  Simulation:');
   console.log(`    Max queue size: ${masked.maxQueueSize}`);
-  console.log(`    Max txs per block: ${masked.txPerBlock}`);
   console.log(`    Max batch size: ${masked.batchSize}`);
   console.log(`    Batch probability: ${masked.batchProbability}`);
   console.log(`    Query mode: ${masked.queryMode}`);
