@@ -2,9 +2,7 @@ let verboseEnabled = false;
 
 function safeStringify(value: unknown): string {
   try {
-    return JSON.stringify(value, (_key, val) =>
-      typeof val === 'bigint' ? val.toString() : val,
-    );
+    return JSON.stringify(value, (_key, val) => typeof val === 'bigint' ? val.toString() : val);
   } catch {
     return String(value);
   }

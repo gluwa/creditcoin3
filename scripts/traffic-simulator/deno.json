@@ -14,7 +14,6 @@
     "@polkadot/api": "npm:@polkadot/api@^14.0.0",
     "@polkadot/util-crypto": "npm:@polkadot/util-crypto@^13.0.0",
     "ethers": "npm:ethers@^6.13.0",
-    "@gluwa/cc-next-query-builder": "npm:@gluwa/cc-next-query-builder@^0.5.1",
     "@std/cli": "jsr:@std/cli@^1.0.0"
   },
   "compilerOptions": {

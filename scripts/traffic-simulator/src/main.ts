@@ -26,7 +26,14 @@ import { submitSingleProof } from './submitter/singleSubmitter.ts';
 import { submitBatchProofs } from './submitter/batchSubmitter.ts';
 import { startHealthServer } from './server.ts';
 import { setVerbose } from './logger.ts';
-import type { BlockInfo, HealthStatus, Metrics, PendingBlock, SimulatorConfig, TxInfo } from './types.ts';
+import type {
+  BlockInfo,
+  HealthStatus,
+  Metrics,
+  PendingBlock,
+  SimulatorConfig,
+  TxInfo,
+} from './types.ts';
 
 // Global state
 let config: SimulatorConfig;
@@ -210,7 +217,9 @@ function selectTxInfosForBlock(block: PendingBlock, useBatch: boolean): TxInfo[]
   }));
 
   console.log(
-    `📋 Block ${block.blockNumber}: selected ${txInfos.length} of ${block.txHashes.length} transactions (${useBatch ? 'batch' : 'single'})`,
+    `📋 Block ${block.blockNumber}: selected ${txInfos.length} of ${block.txHashes.length} transactions (${
+      useBatch ? 'batch' : 'single'
+    })`,
   );
 
   return txInfos;
@@ -247,13 +256,6 @@ function selectRandomTransactions(
   }
 
   return selected;
-}
-
-function randomInt(min: number, max: number): number {
-  if (max <= min) {
-    return min;
-  }
-  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 /**

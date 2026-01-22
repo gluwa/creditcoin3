@@ -1,13 +1,9 @@
 /**
  * Proof utilities for fetching and submitting proofs
- *
- * Based on patterns from scripts/utils.js
- * Integrates with cc-next-query-builder for structured queries
  */
 
 import { ethers, JsonRpcProvider } from 'ethers';
-import type { FormattedProof, ProofResponse, QueryMode, TxInfo } from '../types.ts';
-import { buildQuery, describeQueryMode, formatLayout } from '../query/queryFactory.ts';
+import type { FormattedProof, ProofResponse, TxInfo } from '../types.ts';
 import { debug } from '../logger.ts';
 
 // Block prover precompile address
@@ -61,7 +57,8 @@ function isNonceError(error: unknown): boolean {
     info?: { error?: { message?: string } };
   };
   const code = err.code ?? '';
-  const message = `${err.message ?? ''} ${err.shortMessage ?? ''} ${err.info?.error?.message ?? ''}`.toLowerCase();
+  const message = `${err.message ?? ''} ${err.shortMessage ?? ''} ${err.info?.error?.message ?? ''}`
+    .toLowerCase();
   return (
     code === 'NONCE_EXPIRED' ||
     message.includes('nonce too low') ||
@@ -76,7 +73,8 @@ function isReplacementUnderpricedError(error: unknown): boolean {
   const err = error as { code?: string; message?: string; shortMessage?: string };
   const code = err.code ?? '';
   const message = `${err.message ?? ''} ${err.shortMessage ?? ''}`.toLowerCase();
-  return code === 'REPLACEMENT_UNDERPRICED' || message.includes('replacement transaction underpriced');
+  return code === 'REPLACEMENT_UNDERPRICED' ||
+    message.includes('replacement transaction underpriced');
 }
 
 export function isContinuityMismatchError(error: unknown): boolean {
@@ -291,7 +289,9 @@ async function waitForReceipt(
         }
       }
       throw new Error(
-        `${label} replaced (cancelled=${err.cancelled ?? false}, reason=${err.reason ?? 'unknown'})`,
+        `${label} replaced (cancelled=${err.cancelled ?? false}, reason=${
+          err.reason ?? 'unknown'
+        })`,
       );
     }
     debug('Receipt wait timed out', { label, txHash: tx.hash });
@@ -490,20 +490,20 @@ async function fetchProofWithRetry(
         maxRetries,
         error: error instanceof Error ? error.message : String(error),
       });
-      const isNetworkError =
-        error instanceof Error &&
+      const isNetworkError = error instanceof Error &&
         (error.message.includes('fetch') ||
           error.message.includes('network') ||
           error.message.includes('timed out'));
-      const isRetriableApiError =
-        error instanceof ProofApiError &&
+      const isRetriableApiError = error instanceof ProofApiError &&
         (error.retriable === true || error.status === 500 || error.status === 503);
 
       if (attempt < maxRetries - 1 && (isNetworkError || isRetriableApiError)) {
         const delayMs = initialDelay * Math.pow(2, attempt);
         const jitter = Math.floor(Math.random() * 250);
         console.log(
-          `⚠️  Proof API not ready (${label}, attempt ${attempt + 1}/${maxRetries}), waiting ${delayMs + jitter}ms...`,
+          `⚠️  Proof API not ready (${label}, attempt ${attempt + 1}/${maxRetries}), waiting ${
+            delayMs + jitter
+          }ms...`,
         );
         await delay(delayMs + jitter);
         lastError = error instanceof Error ? error : new Error(String(error));
@@ -580,9 +580,14 @@ export async function fetchProofForTx(
       initialDelay,
     );
   } catch (error) {
-    if (error instanceof ProofApiError && ['TxIndexOutOfBounds', 'InvalidParameter'].includes(error.code ?? '')) {
+    if (
+      error instanceof ProofApiError &&
+      ['TxIndexOutOfBounds', 'InvalidParameter'].includes(error.code ?? '')
+    ) {
       console.warn(
-        `⚠️  Proof-by-index failed (${error.code}), falling back to proof-by-tx for ${txInfo.txHash.slice(0, 10)}...`,
+        `⚠️  Proof-by-index failed (${error.code}), falling back to proof-by-tx for ${
+          txInfo.txHash.slice(0, 10)
+        }...`,
       );
       return await fetchProofByTxHash(apiUrl, chainKey, txInfo.txHash, maxRetries, initialDelay);
     }
@@ -592,7 +597,7 @@ export async function fetchProofForTx(
 
 /**
  * Convert API proof format to precompile format
- * 
+ *
  * The API returns camelCase field names directly, so this is mostly a passthrough
  * with validation.
  */
@@ -679,7 +684,13 @@ export async function submitToPrecompile(
         throw new Error('verifyAndEmit function not found in ABI');
       }
 
-      const params = [BigInt(chainKey), BigInt(blockHeight), txBytesHex, merkleProofTuple, continuityProofTuple];
+      const params = [
+        BigInt(chainKey),
+        BigInt(blockHeight),
+        txBytesHex,
+        merkleProofTuple,
+        continuityProofTuple,
+      ];
       const data = iface.encodeFunctionData(funcFragment, params);
 
       // Simulate call first
@@ -712,10 +723,10 @@ export async function submitToPrecompile(
         signer,
         provider,
         {
-        to: PRECOMPILE_ADDRESS,
-        data,
-        gasLimit: 5_000_000n,
-        ...feeOverrides,
+          to: PRECOMPILE_ADDRESS,
+          data,
+          gasLimit: 5_000_000n,
+          ...feeOverrides,
         },
         'Single submit',
       );
@@ -784,7 +795,13 @@ export async function submitBatchToPrecompile(
         throw new Error('verifyAndEmit batch function not found in ABI');
       }
 
-      const params = [BigInt(chainKey), heightsU64, txBytesHexes, merkleProofTuples, continuityProofTuple];
+      const params = [
+        BigInt(chainKey),
+        heightsU64,
+        txBytesHexes,
+        merkleProofTuples,
+        continuityProofTuple,
+      ];
       const data = iface.encodeFunctionData(funcFragment, params);
 
       // Simulate call first
@@ -816,10 +833,10 @@ export async function submitBatchToPrecompile(
         signer,
         provider,
         {
-        to: PRECOMPILE_ADDRESS,
-        data,
-        gasLimit: 10_000_000n,
-        ...feeOverrides,
+          to: PRECOMPILE_ADDRESS,
+          data,
+          gasLimit: 10_000_000n,
+          ...feeOverrides,
         },
         'Batch submit',
       );
@@ -847,28 +864,6 @@ export async function submitBatchToPrecompile(
 }
 
 /**
- * Convert WebSocket URL to HTTP URL for JSON-RPC calls
- * Handles Infura's different path structure (wss://.../ws/v3/KEY -> https://.../v3/KEY)
- */
-function wsToHttpUrl(wsUrl: string): string {
-  let httpUrl = wsUrl
-    // Convert protocol
-    .replace(/^wss:\/\//, 'https://')
-    .replace(/^ws:\/\//, 'http://');
-  
-  // Handle Infura's /ws/ path segment
-  // wss://sepolia.infura.io/ws/v3/KEY -> https://sepolia.infura.io/v3/KEY
-  if (httpUrl.includes('.infura.io/ws/')) {
-    httpUrl = httpUrl.replace('/ws/', '/');
-  }
-  
-  // Handle Alchemy's wss subdomain pattern (already works with https)
-  // wss://eth-sepolia.g.alchemy.com/v2/KEY -> https://eth-sepolia.g.alchemy.com/v2/KEY
-  
-  return httpUrl;
-}
-
-/**
  * Delay helper
  */
 function delay(ms: number): Promise<void> {
@@ -876,73 +871,46 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Fetch and submit a proof using optional query builder logging.
- *
- * When enabled, the query builder constructs a layout for logging/debugging.
+ * Fetch and submit a proof for a transaction.
  * Proof retrieval uses the index-based endpoint by default (falls back to tx hash).
  */
-export async function fetchAndSubmitProofWithQueryBuilder(
-  sourceRpcUrl: string,
+export async function fetchAndSubmitProof(
   proofApiUrl: string,
   cc3HttpUrl: string,
   privateKey: string,
   chainKey: number,
   txInfo: TxInfo,
-  queryMode: QueryMode,
-  enableQueryBuilder = true,
   maxRetries = 5,
   retryDelayMs = 2000,
-): Promise<{ success: boolean; txHash: string; gasUsed: bigint; queryMode: string }> {
-  let sourceProvider: JsonRpcProvider | null = null;
+): Promise<{ success: boolean; txHash: string; gasUsed: bigint }> {
+  const apiProof = await fetchProofForTx(
+    proofApiUrl,
+    chainKey,
+    txInfo,
+    maxRetries,
+    retryDelayMs,
+  );
+  const proof = convertProofFormat(apiProof);
 
-  try {
-    if (enableQueryBuilder) {
-      const httpUrl = wsToHttpUrl(sourceRpcUrl);
-      sourceProvider = new JsonRpcProvider(httpUrl);
-
-      console.log(`   📋 Building query with mode: ${describeQueryMode(queryMode)}`);
-      const queryResult = await buildQuery(sourceProvider, txInfo.txHash, queryMode);
-      console.log(`   ✅ Query built for block ${queryResult.blockNumber}, tx index ${queryResult.txIndex}`);
-      console.log(`   📐 Layout segments: ${formatLayout(queryResult.layout)}`);
-    }
-
-    const apiProof = await fetchProofForTx(
-      proofApiUrl,
-      chainKey,
-      txInfo,
-      maxRetries,
-      retryDelayMs,
+  if (apiProof.headerNumber !== txInfo.blockNumber) {
+    console.warn(
+      `⚠️  Proof header mismatch: expected ${txInfo.blockNumber}, got ${apiProof.headerNumber}`,
     );
-    const proof = convertProofFormat(apiProof);
-
-    if (apiProof.headerNumber !== txInfo.blockNumber) {
-      console.warn(
-        `⚠️  Proof header mismatch: expected ${txInfo.blockNumber}, got ${apiProof.headerNumber}`,
-      );
-    }
-
-    // Transaction bytes come from the proof API
-    if (!apiProof.txBytes) {
-      throw new Error('Transaction bytes not found in API response');
-    }
-    const txBytes = ethers.getBytes(apiProof.txBytes);
-
-    // Submit to precompile
-    const result = await submitToPrecompile(
-      cc3HttpUrl,
-      privateKey,
-      chainKey,
-      apiProof.headerNumber,
-      txBytes,
-      proof,
-    );
-
-    return {
-      ...result,
-      queryMode: queryMode,
-    };
-  } finally {
-    // Clean up provider to prevent background retries
-    sourceProvider?.destroy();
   }
+
+  // Transaction bytes come from the proof API
+  if (!apiProof.txBytes) {
+    throw new Error('Transaction bytes not found in API response');
+  }
+  const txBytes = ethers.getBytes(apiProof.txBytes);
+
+  // Submit to precompile
+  return await submitToPrecompile(
+    cc3HttpUrl,
+    privateKey,
+    chainKey,
+    apiProof.headerNumber,
+    txBytes,
+    proof,
+  );
 }

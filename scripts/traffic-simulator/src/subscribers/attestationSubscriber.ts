@@ -68,9 +68,9 @@ export class AttestationSubscriber {
         }
       });
 
-      this.api = await ApiPromise.create({ 
+      this.api = await ApiPromise.create({
         provider: this.provider,
-        noInitWarn: true,  // Suppress "RPC methods not decorated" warnings
+        noInitWarn: true, // Suppress "RPC methods not decorated" warnings
       });
       await this.api.isReady;
 

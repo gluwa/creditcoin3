@@ -74,30 +74,6 @@ export class PendingBlockQueue {
   }
 
   /**
-   * Remove a specific block from the queue
-   */
-  remove(blockNumber: number): boolean {
-    return this.blocks.delete(blockNumber);
-  }
-
-  /**
-   * Prune blocks older than the given age (in milliseconds)
-   */
-  prune(maxAgeMs: number): number {
-    const now = Date.now();
-    let pruned = 0;
-
-    for (const [blockNumber, block] of this.blocks) {
-      if (now - block.timestamp > maxAgeMs) {
-        this.blocks.delete(blockNumber);
-        pruned++;
-      }
-    }
-
-    return pruned;
-  }
-
-  /**
    * Get the current queue size
    */
   get size(): number {
@@ -120,61 +96,5 @@ export class PendingBlockQueue {
     }
 
     return oldest === Number.MAX_SAFE_INTEGER ? null : oldest;
-  }
-
-  /**
-   * Get the newest block number in the queue
-   */
-  getNewestBlockNumber(): number | null {
-    if (this.blocks.size === 0) {
-      return null;
-    }
-
-    let newest = 0;
-    for (const blockNumber of this.blocks.keys()) {
-      if (blockNumber > newest) {
-        newest = blockNumber;
-      }
-    }
-
-    return newest === 0 ? null : newest;
-  }
-
-  /**
-   * Check if a block is in the queue
-   */
-  has(blockNumber: number): boolean {
-    return this.blocks.has(blockNumber);
-  }
-
-  /**
-   * Get a specific block from the queue
-   */
-  get(blockNumber: number): PendingBlock | undefined {
-    return this.blocks.get(blockNumber);
-  }
-
-  /**
-   * Clear all blocks from the queue
-   */
-  clear(): void {
-    this.blocks.clear();
-  }
-
-  /**
-   * Get queue statistics
-   */
-  getStats(): {
-    size: number;
-    oldest: number | null;
-    newest: number | null;
-    highestAttested: number;
-  } {
-    return {
-      size: this.blocks.size,
-      oldest: this.getOldestBlockNumber(),
-      newest: this.getNewestBlockNumber(),
-      highestAttested: this.highestAttestedBlock,
-    };
   }
 }

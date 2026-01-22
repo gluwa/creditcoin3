@@ -5,7 +5,8 @@ A Deno-based TypeScript tool that simulates proof query traffic for Creditcoin3-
 1. **Streaming blocks** from source chain (Sepolia) via WebSocket
 2. **Queueing blocks** until they are attested on Creditcoin3
 3. **Submitting proofs** for random transactions once blocks are attested
-   - Uses `/api/v1/proof/{chain_key}/{header_number}/{tx_index}` by default (falls back to `/proof-by-tx`)
+   - Uses `/api/v1/proof/{chain_key}/{header_number}/{tx_index}` by default (falls back to
+     `/proof-by-tx`)
 
 ## Requirements
 
@@ -34,54 +35,40 @@ deno task start -- \
 
 ### CLI Arguments
 
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `--source-rpc` | Source chain WebSocket RPC URL | Required |
-| `--cc3-ws` | Creditcoin3 WebSocket URL | `ws://localhost:9944` |
-| `--cc3-http` | Creditcoin3 HTTP URL | Derived from WS |
-| `--private-key` | Private key for signing | Required |
-| `--api-url` | Proof generation API URL | `http://localhost:3100` |
-| `--query-mode` | Query complexity mode | `transfer` |
-| `--chain-key` | Source chain key (Sepolia: 1) | `1` |
-| `--max-queue-size` | Max blocks to track in queue | `100` |
-| `--batch-size` | Max batch size (random 1..N, max 10) | `10` |
-| `--batch-probability` | Probability of batch mode | `0.3` |
-| `--single-every` | Submit a single proof once every N blocks | `1` |
-| `--health-port` | Health check port | `8080` |
-| `--verbose` | Enable verbose debug logging | `false` |
-| `--enable-query-builder` | Enable query builder logging | `true` |
-| `--disable-query-builder` | Disable query builder logging | `false` |
+| Argument              | Description                               | Default                 |
+| --------------------- | ----------------------------------------- | ----------------------- |
+| `--source-rpc`        | Source chain WebSocket RPC URL            | Required                |
+| `--cc3-ws`            | Creditcoin3 WebSocket URL                 | `ws://localhost:9944`   |
+| `--cc3-http`          | Creditcoin3 HTTP URL                      | Derived from WS         |
+| `--private-key`       | Private key for signing                   | Required                |
+| `--api-url`           | Proof generation API URL                  | `http://localhost:3100` |
+| `--chain-key`         | Source chain key (Sepolia: 1)             | `1`                     |
+| `--max-queue-size`    | Max blocks to track in queue              | `100`                   |
+| `--batch-size`        | Max batch size (random 1..N, max 10)      | `10`                    |
+| `--batch-probability` | Probability of batch mode                 | `0.3`                   |
+| `--single-every`      | Submit a single proof once every N blocks | `1`                     |
+| `--health-port`       | Health check port                         | `8080`                  |
+| `--verbose`           | Enable verbose debug logging              | `false`                 |
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SOURCE_RPC_URL` | Source chain WebSocket RPC | - |
-| `CC3_WS_URL` | Creditcoin3 WebSocket URL | `ws://localhost:9944` |
-| `CC3_HTTP_URL` | Creditcoin3 HTTP URL | Derived from WS |
-| `CC3_PRIVATE_KEY` | Private key for signing | - |
-| `PROOF_API_URL` | Proof generation API | `http://localhost:3100` |
-| `CHAIN_KEY` | Source chain key (1=Sepolia on testnet) | `1` |
-| `BATCH_SIZE` | Max batch size (random 1..N, max 10) | `10` |
-| `BATCH_PROBABILITY` | Probability of batch mode | `0.3` |
-| `SINGLE_EVERY_BLOCKS` | Submit a single proof once every N blocks | `1` |
-| `QUERY_MODE` | Query complexity mode | `transfer` |
-| `ENABLE_QUERY_BUILDER` | Build/log query layouts | `true` |
-| `LOG_VERBOSE` | Enable verbose debug logging | `false` |
-| `HEALTH_PORT` | Health check port | `8080` |
+| Variable              | Description                               | Default                 |
+| --------------------- | ----------------------------------------- | ----------------------- |
+| `SOURCE_RPC_URL`      | Source chain WebSocket RPC                | -                       |
+| `CC3_WS_URL`          | Creditcoin3 WebSocket URL                 | `ws://localhost:9944`   |
+| `CC3_HTTP_URL`        | Creditcoin3 HTTP URL                      | Derived from WS         |
+| `CC3_PRIVATE_KEY`     | Private key for signing                   | -                       |
+| `PROOF_API_URL`       | Proof generation API                      | `http://localhost:3100` |
+| `CHAIN_KEY`           | Source chain key (1=Sepolia on testnet)   | `1`                     |
+| `BATCH_SIZE`          | Max batch size (random 1..N, max 10)      | `10`                    |
+| `BATCH_PROBABILITY`   | Probability of batch mode                 | `0.3`                   |
+| `SINGLE_EVERY_BLOCKS` | Submit a single proof once every N blocks | `1`                     |
+| `LOG_VERBOSE`         | Enable verbose debug logging              | `false`                 |
+| `HEALTH_PORT`         | Health check port                         | `8080`                  |
 
-Single submissions pick one random transaction once every `SINGLE_EVERY_BLOCKS`.
-Batch submissions pick one random transaction per block and group 1..`BATCH_SIZE`
-blocks into a batch when they share a continuity proof.
-
-### Query Modes
-
-| Mode | Fields Included | Use Case |
-|------|----------------|----------|
-| `minimal` | RxStatus only | Basic proof verification |
-| `transfer` | From, To, Value, Status | Native token transfers |
-| `full` | All transaction fields | Complete transaction data |
-| `erc20` | Transfer event data | ERC20 token transfers |
+Single submissions pick one random transaction once every `SINGLE_EVERY_BLOCKS`. Batch submissions
+pick one random transaction per block and group 1..`BATCH_SIZE` blocks into a batch when they share
+a continuity proof.
 
 ## Health Endpoints
 
@@ -153,37 +140,6 @@ deno task compile
 ./simulator --source-rpc wss://... --private-key 0x...
 ```
 
-## cc-next-query-builder Integration
-
-This simulator uses the [`@gluwa/cc-next-query-builder`](https://github.com/gluwa/cc-next-query-builder) SDK to build structured queries for proof verification. You can disable query layout logging with `ENABLE_QUERY_BUILDER=false` or `--disable-query-builder`.
-
-### What the SDK Does
-
-The query builder helps compose **layout segments** that define which parts of a transaction/receipt should be included in the proof query:
-
-- **Static fields**: Transaction fields like `TxFrom`, `TxTo`, `TxValue`, receipt fields like `RxStatus`
-- **Function arguments**: Decode and include specific calldata fields
-- **Event data**: Include ERC20 Transfer events or other logged events
-
-### Query Modes
-
-| Mode | SDK Fields Used | Description |
-|------|-----------------|-------------|
-| `minimal` | `RxStatus` | Only verifies transaction success |
-| `transfer` | `TxFrom`, `TxTo`, `TxValue`, `RxStatus` | Native ETH transfers |
-| `full` | All static fields | Complete transaction verification |
-| `erc20` | Transfer event + `RxStatus` | ERC20 token transfers with events |
-
-### Layout Segments
-
-When submitting proofs, the simulator logs the computed layout segments:
-
-```
-📐 Layout segments: [0:32], [64:96], [128:160]
-```
-
-These offsets define which bytes of the RLP-encoded transaction/receipt are being verified.
-
 ## Architecture
 
 ```
@@ -205,12 +161,6 @@ These offsets define which bytes of the RLP-encoded transaction/receipt are bein
                      │
                      ▼ (on attestation)
 ┌─────────────────────────────────────────┐
-│          Query Factory                  │
-│   (cc-next-query-builder SDK)           │
-└────────────────────┬────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────┐
 │          Proof Submitter                │
 │   ┌─────────────┐  ┌─────────────┐      │
 │   │   Single    │  │    Batch    │      │
@@ -231,23 +181,23 @@ These offsets define which bytes of the RLP-encoded transaction/receipt are bein
 
 ## Attestation Lag
 
-The simulator only submits proofs for blocks **strictly less** than the latest
-attested block. The newest attested block becomes provable after the next
-attestation event arrives. This avoids `Continuity proof does not match
-attestation or checkpoint` errors caused by proving the current attested block.
+The simulator only submits proofs for blocks **strictly less** than the latest attested block. The
+newest attested block becomes provable after the next attestation event arrives. This avoids
+`Continuity proof does not match attestation or checkpoint` errors caused by proving the current
+attested block.
 
 ## Metrics
 
 Prometheus metrics available at `/metrics`:
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `simulator_blocks_queued_total` | Counter | Total blocks added to queue |
-| `simulator_blocks_processed_total` | Counter | Total blocks processed |
-| `simulator_proofs_submitted_total` | Counter | Total proofs submitted |
-| `simulator_single_submissions_total` | Counter | Single proof submissions |
-| `simulator_batch_submissions_total` | Counter | Batch proof submissions |
-| `simulator_proof_errors_total` | Counter | Proof submission errors |
-| `simulator_queue_size` | Gauge | Current queue size |
-| `simulator_sepolia_connected` | Gauge | Sepolia connection status |
-| `simulator_cc3_connected` | Gauge | CC3 connection status |
+| Metric                               | Type    | Description                 |
+| ------------------------------------ | ------- | --------------------------- |
+| `simulator_blocks_queued_total`      | Counter | Total blocks added to queue |
+| `simulator_blocks_processed_total`   | Counter | Total blocks processed      |
+| `simulator_proofs_submitted_total`   | Counter | Total proofs submitted      |
+| `simulator_single_submissions_total` | Counter | Single proof submissions    |
+| `simulator_batch_submissions_total`  | Counter | Batch proof submissions     |
+| `simulator_proof_errors_total`       | Counter | Proof submission errors     |
+| `simulator_queue_size`               | Gauge   | Current queue size          |
+| `simulator_sepolia_connected`        | Gauge   | Sepolia connection status   |
+| `simulator_cc3_connected`            | Gauge   | CC3 connection status       |

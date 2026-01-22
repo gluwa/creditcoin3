@@ -1,16 +1,14 @@
 /**
  * Single proof submitter
  *
- * Handles submission of individual proofs to the precompile
- * using cc-next-query-builder for structured query building.
+ * Handles submission of individual proofs to the precompile.
  */
 
 import type { SimulatorConfig, TxInfo } from '../types.ts';
-import { fetchAndSubmitProofWithQueryBuilder, isContinuityMismatchError } from './proofUtils.ts';
-import { describeQueryMode } from '../query/queryFactory.ts';
+import { fetchAndSubmitProof, isContinuityMismatchError } from './proofUtils.ts';
 
 /**
- * Submit a single proof for a transaction using the query builder
+ * Submit a single proof for a transaction
  */
 export async function submitSingleProof(
   config: SimulatorConfig,
@@ -22,31 +20,29 @@ export async function submitSingleProof(
   for (let attempt = 0; attempt <= maxContinuityRetries; attempt++) {
     try {
       console.log(
-        `📤 Submitting single proof for tx ${txInfo.txHash.slice(0, 10)}... (block ${txInfo.blockNumber}, index ${txInfo.txIndex})`,
+        `📤 Submitting single proof for tx ${
+          txInfo.txHash.slice(0, 10)
+        }... (block ${txInfo.blockNumber}, index ${txInfo.txIndex})`,
       );
-      console.log(`   Mode: ${describeQueryMode(config.queryMode)}`);
 
-      const result = await fetchAndSubmitProofWithQueryBuilder(
-        config.sourceRpcUrl,
+      const result = await fetchAndSubmitProof(
         config.proofApiUrl,
         config.cc3HttpUrl,
         config.cc3PrivateKey,
         config.chainKey,
         txInfo,
-        config.queryMode,
-        config.enableQueryBuilder,
       );
 
-      console.log(
-        `✅ Proof submitted: ${result.txHash.slice(0, 10)}... (gas: ${result.gasUsed}, mode: ${result.queryMode})`,
-      );
+      console.log(`✅ Proof submitted: ${result.txHash.slice(0, 10)}... (gas: ${result.gasUsed})`);
 
       return { success: true };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       if (isContinuityMismatchError(error) && attempt < maxContinuityRetries) {
         console.warn(
-          `⚠️  Continuity mismatch for ${txInfo.txHash.slice(0, 10)}..., retrying in ${continuityRetryDelayMs / 1000}s...`,
+          `⚠️  Continuity mismatch for ${txInfo.txHash.slice(0, 10)}..., retrying in ${
+            continuityRetryDelayMs / 1000
+          }s...`,
         );
         await new Promise((resolve) => setTimeout(resolve, continuityRetryDelayMs));
         continue;

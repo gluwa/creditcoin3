@@ -6,7 +6,7 @@
  */
 
 import { parseArgs } from '@std/cli/parse-args';
-import type { QueryMode, SimulatorConfig } from './types.ts';
+import type { SimulatorConfig } from './types.ts';
 
 /**
  * Default configuration values
@@ -20,8 +20,6 @@ const DEFAULTS = {
   batchSize: 10,
   batchProbability: 0.3,
   singleEveryBlocks: 1,
-  queryMode: 'transfer' as QueryMode,
-  enableQueryBuilder: true,
   logVerbose: false,
   healthPort: 8080,
 };
@@ -42,7 +40,6 @@ function parseCliArgs(): ParsedArgs {
       'cc3-http',
       'private-key',
       'api-url',
-      'query-mode',
       'chain-key',
       'max-queue-size',
       'batch-size',
@@ -51,8 +48,6 @@ function parseCliArgs(): ParsedArgs {
       'health-port',
     ],
     boolean: [
-      'enable-query-builder',
-      'disable-query-builder',
       'verbose',
     ],
     default: {},
@@ -112,12 +107,7 @@ OPTIONS:
   -a, --api-url <URL>       Proof generation API URL
                             Env: PROOF_API_URL
                             Default: http://localhost:3100
-  
-      --query-mode <MODE>   Query complexity mode
-                            Options: minimal, transfer, full, erc20
-                            Env: QUERY_MODE
-                            Default: transfer
-  
+
       --chain-key <NUM>     Source chain key (Sepolia: 1)
                             Env: CHAIN_KEY
                             Default: 1
@@ -141,16 +131,8 @@ OPTIONS:
       --health-port <PORT>  Health check server port
                             Env: HEALTH_PORT
                             Default: 8080
-  
-      --enable-query-builder   Enable query builder logging
-                               Env: ENABLE_QUERY_BUILDER
-                               Default: true
-  
-      --disable-query-builder  Disable query builder logging
-                               Env: ENABLE_QUERY_BUILDER
-                               Default: true
-  
-  -v, --verbose               Enable verbose debug logging
+
+  -v, --verbose             Enable verbose debug logging
                                Env: LOG_VERBOSE
                                Default: false
 
@@ -160,7 +142,6 @@ ENVIRONMENT VARIABLES:
   BATCH_SIZE             Max txs per batch (random 1..N, default: 10)
   BATCH_PROBABILITY      Probability of batch mode, 0.0-1.0 (default: 0.3)
   SINGLE_EVERY_BLOCKS    Submit a single proof once every N blocks (default: 1)
-  ENABLE_QUERY_BUILDER   Build/log query layouts (default: true)
   LOG_VERBOSE            Enable verbose debug logging (default: false)
   HEALTH_PORT            Health check server port (default: 8080)
 
@@ -258,31 +239,6 @@ export function loadConfig(): SimulatorConfig {
     cc3HttpUrl = cc3WsUrl.replace(/^ws/, 'http');
   }
 
-  // Get query mode and validate
-  const queryModeStr = getString(args, 'query-mode', 'QUERY_MODE', DEFAULTS.queryMode);
-  const validModes: QueryMode[] = ['minimal', 'transfer', 'full', 'erc20'];
-  if (!validModes.includes(queryModeStr as QueryMode)) {
-    throw new Error(`Invalid query mode: ${queryModeStr}. Must be one of: ${validModes.join(', ')}`);
-  }
-
-  // Query builder flag (default true)
-  const disableQueryBuilder = args['disable-query-builder'] === true;
-  const enableQueryBuilderFlag = args['enable-query-builder'] === true;
-  let enableQueryBuilder = DEFAULTS.enableQueryBuilder;
-  if (disableQueryBuilder) {
-    enableQueryBuilder = false;
-  } else if (enableQueryBuilderFlag) {
-    enableQueryBuilder = true;
-  } else {
-    const envValue = Deno.env.get('ENABLE_QUERY_BUILDER');
-    if (envValue !== undefined) {
-      const parsed = parseBoolean(envValue);
-      if (parsed !== undefined) {
-        enableQueryBuilder = parsed;
-      }
-    }
-  }
-
   // Verbose logging flag
   let logVerbose = DEFAULTS.logVerbose;
   if (args.verbose === true) {
@@ -330,8 +286,6 @@ export function loadConfig(): SimulatorConfig {
       'SINGLE_EVERY_BLOCKS',
       DEFAULTS.singleEveryBlocks,
     ),
-    queryMode: queryModeStr as QueryMode,
-    enableQueryBuilder,
     logVerbose,
 
     // Server
@@ -407,8 +361,6 @@ export function logConfig(config: SimulatorConfig): void {
   console.log(`    Max batch size: ${masked.batchSize}`);
   console.log(`    Batch probability: ${masked.batchProbability}`);
   console.log(`    Single every blocks: ${masked.singleEveryBlocks}`);
-  console.log(`    Query mode: ${masked.queryMode}`);
-  console.log(`    Query builder: ${masked.enableQueryBuilder ? 'enabled' : 'disabled'}`);
   console.log(`    Verbose logging: ${masked.logVerbose ? 'enabled' : 'disabled'}`);
   console.log('  Server:');
   console.log(`    Health port: ${masked.healthPort}`);

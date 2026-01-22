@@ -7,8 +7,12 @@
 
 import { ethers } from 'ethers';
 import type { SimulatorConfig, TxInfo } from '../types.ts';
-import { convertProofFormat, fetchProofForTx, submitBatchToPrecompile, isContinuityMismatchError } from './proofUtils.ts';
-import { describeQueryMode } from '../query/queryFactory.ts';
+import {
+  convertProofFormat,
+  fetchProofForTx,
+  isContinuityMismatchError,
+  submitBatchToPrecompile,
+} from './proofUtils.ts';
 import { submitProofsIndividually } from './singleSubmitter.ts';
 
 /**
@@ -23,7 +27,6 @@ export async function submitBatchProofs(
 ): Promise<{ successful: number; failed: number; batches: number }> {
   const uniqueBlocks = new Set(txInfos.map((tx) => tx.blockNumber)).size;
   console.log(`📦 Batch submitting ${txInfos.length} proofs across ${uniqueBlocks} blocks...`);
-  console.log(`   Query mode: ${describeQueryMode(config.queryMode)}`);
 
   let successful = 0;
   let failed = 0;
@@ -45,7 +48,9 @@ export async function submitBatchProofs(
       const headerNumber = apiProof.headerNumber ?? txInfo.blockNumber;
       if (headerNumber !== txInfo.blockNumber) {
         console.warn(
-          `⚠️  Proof header mismatch for ${txInfo.txHash.slice(0, 10)}...: expected ${txInfo.blockNumber}, got ${headerNumber}`,
+          `⚠️  Proof header mismatch for ${
+            txInfo.txHash.slice(0, 10)
+          }...: expected ${txInfo.blockNumber}, got ${headerNumber}`,
         );
       }
       return {
@@ -98,10 +103,9 @@ export async function submitBatchProofs(
       nextIndex++;
     }
 
-    const label =
-      batchInputs.length === 1
-        ? `block ${batchInputs[0].headerNumber}`
-        : `blocks ${batchInputs[0].headerNumber}-${batchInputs[batchInputs.length - 1].headerNumber}`;
+    const label = batchInputs.length === 1
+      ? `block ${batchInputs[0].headerNumber}`
+      : `blocks ${batchInputs[0].headerNumber}-${batchInputs[batchInputs.length - 1].headerNumber}`;
     const batchTxHashes = batchInputs
       .map((input) => `${input.txInfo.txHash.slice(0, 10)}...`)
       .join(', ');
@@ -128,7 +132,9 @@ export async function submitBatchProofs(
         );
 
         console.log(
-          `    ✅ Batch submitted (${label}): ${batchInputs.length} proofs (tx: ${batchResult.txHash.slice(0, 10)}..., gas: ${batchResult.gasUsed})`,
+          `    ✅ Batch submitted (${label}): ${batchInputs.length} proofs (tx: ${
+            batchResult.txHash.slice(0, 10)
+          }..., gas: ${batchResult.gasUsed})`,
         );
         successful += batchInputs.length;
         batchSucceeded = true;

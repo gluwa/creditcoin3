@@ -27,11 +27,6 @@ export interface BlockInfo {
 }
 
 /**
- * Query mode determines which fields to include in the proof query
- */
-export type QueryMode = 'minimal' | 'transfer' | 'full' | 'erc20';
-
-/**
  * Simulator configuration
  */
 export interface SimulatorConfig {
@@ -62,10 +57,6 @@ export interface SimulatorConfig {
   batchProbability: number;
   /** Submit a single proof once every N blocks */
   singleEveryBlocks: number;
-  /** Query complexity mode */
-  queryMode: QueryMode;
-  /** Whether to build/log query layouts */
-  enableQueryBuilder: boolean;
   /** Enable verbose debug logging */
   logVerbose: boolean;
 
@@ -100,7 +91,7 @@ export interface HealthStatus {
 
 /**
  * Proof response from the proof generation API (camelCase format)
- * 
+ *
  * Example response from: https://proof-gen-api.usc-testnet2.creditcoin.network/api/v1/proof-by-tx/...
  */
 export interface ProofResponse {
