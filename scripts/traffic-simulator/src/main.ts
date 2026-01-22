@@ -1,0 +1,309 @@
+/**
+ * Proof Traffic Simulator
+ *
+ * A Deno-based tool that simulates proof query traffic by:
+ * 1. Streaming blocks from source chain (Sepolia)
+ * 2. Queueing blocks until they are attested on Creditcoin3
+ * 3. Submitting proofs for random transactions once blocks are attested
+ */
+
+// Suppress Deno Node.js compatibility warnings
+const originalWarn = console.warn;
+console.warn = (...args: unknown[]) => {
+  const msg = args[0];
+  if (typeof msg === 'string') {
+    // Filter out Deno's Node.js compatibility warnings
+    if (msg.includes('Not implemented: ClientRequest')) return;
+  }
+  originalWarn.apply(console, args);
+};
+
+import { loadConfig, logConfig } from './config.ts';
+import { BlockSubscriber } from './subscribers/blockSubscriber.ts';
+import { AttestationSubscriber } from './subscribers/attestationSubscriber.ts';
+import { PendingBlockQueue } from './queue/pendingQueue.ts';
+import { submitSingleProof } from './submitter/singleSubmitter.ts';
+import { submitBatchProofs } from './submitter/batchSubmitter.ts';
+import { startHealthServer } from './server.ts';
+import { setVerbose } from './logger.ts';
+import type { BlockInfo, HealthStatus, Metrics, PendingBlock, SimulatorConfig, TxInfo } from './types.ts';
+
+// Global state
+let config: SimulatorConfig;
+let blockSubscriber: BlockSubscriber;
+let attestationSubscriber: AttestationSubscriber;
+let pendingQueue: PendingBlockQueue;
+let healthServer: { shutdown: () => void };
+let isShuttingDown = false;
+const startTime = Date.now();
+
+// Metrics
+const metrics = {
+  blocksQueued: 0,
+  blocksProcessed: 0,
+  proofsSubmitted: 0,
+  singleSubmissions: 0,
+  batchSubmissions: 0,
+  proofErrors: 0,
+};
+
+let lastError: string | null = null;
+
+/**
+ * Get current health status
+ */
+function getHealthStatus(): HealthStatus {
+  return {
+    sepoliaConnected: blockSubscriber?.isConnected ?? false,
+    cc3Connected: attestationSubscriber?.isConnected ?? false,
+    queueSize: pendingQueue?.size ?? 0,
+    blocksProcessed: metrics.blocksProcessed,
+    proofsSubmitted: metrics.proofsSubmitted,
+    singleSubmissions: metrics.singleSubmissions,
+    batchSubmissions: metrics.batchSubmissions,
+    lastError,
+    uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
+  };
+}
+
+/**
+ * Get current metrics
+ */
+function getMetrics(): Metrics {
+  return {
+    ...metrics,
+    queueSize: pendingQueue?.size ?? 0,
+    sepoliaConnected: blockSubscriber?.isConnected ? 1 : 0,
+    cc3Connected: attestationSubscriber?.isConnected ? 1 : 0,
+  };
+}
+
+/**
+ * Handle new block from source chain
+ */
+function handleNewBlock(block: BlockInfo): void {
+  if (isShuttingDown) return;
+
+  // Skip blocks with no transactions
+  if (block.txHashes.length === 0) {
+    return;
+  }
+
+  const pendingBlock: PendingBlock = {
+    blockNumber: block.blockNumber,
+    txHashes: block.txHashes,
+    timestamp: block.timestamp,
+  };
+
+  pendingQueue.add(pendingBlock);
+  metrics.blocksQueued++;
+
+  console.log(
+    `📦 Block ${block.blockNumber} queued (${block.txHashes.length} txs, queue: ${pendingQueue.size})`,
+  );
+}
+
+/**
+ * Handle attestation event
+ */
+async function handleAttestation(attestedBlock: number): Promise<void> {
+  if (isShuttingDown) return;
+
+  // Get all blocks that are now attested
+  const attestedBlocks = pendingQueue.getAttestedBlocks(attestedBlock);
+
+  if (attestedBlocks.length === 0) {
+    return;
+  }
+
+  console.log(
+    `\n🎯 ${attestedBlocks.length} block(s) attested up to block ${attestedBlock}`,
+  );
+
+  // Process each attested block
+  for (const block of attestedBlocks) {
+    await processAttestedBlock(block);
+  }
+}
+
+/**
+ * Process an attested block by submitting proofs
+ */
+async function processAttestedBlock(block: PendingBlock): Promise<void> {
+  if (isShuttingDown) return;
+
+  metrics.blocksProcessed++;
+
+  // Skip if no transactions
+  if (block.txHashes.length === 0) {
+    return;
+  }
+
+  // Select random transactions
+  const txCount = Math.min(config.txPerBlock, block.txHashes.length);
+  const selectedTxs = selectRandomTransactions(block.txHashes, txCount);
+
+  const txInfos: TxInfo[] = selectedTxs.map((tx) => ({
+    txHash: tx.txHash,
+    txIndex: tx.txIndex,
+    blockNumber: block.blockNumber,
+  }));
+
+  console.log(
+    `📋 Block ${block.blockNumber}: selected ${txInfos.length} of ${block.txHashes.length} transactions`,
+  );
+
+  // Decide between batch and single mode
+  const useBatch = Math.random() < config.batchProbability && txInfos.length > 1;
+
+  try {
+    if (useBatch) {
+      // Batch submission
+      const result = await submitBatchProofs(config, txInfos);
+      metrics.batchSubmissions += result.batches;
+      metrics.proofsSubmitted += result.successful;
+      metrics.proofErrors += result.failed;
+    } else {
+      // Single submissions
+      for (const txInfo of txInfos) {
+        metrics.singleSubmissions++;
+        const result = await submitSingleProof(config, txInfo);
+        if (result.success) {
+          metrics.proofsSubmitted++;
+        } else {
+          metrics.proofErrors++;
+          lastError = result.error ?? 'Unknown error';
+        }
+
+        // Small delay between single submissions
+        if (!isShuttingDown) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+    }
+  } catch (error) {
+    metrics.proofErrors++;
+    lastError = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Error processing block ${block.blockNumber}:`, lastError);
+  }
+}
+
+/**
+ * Select random transactions from a list
+ */
+function selectRandomTransactions(
+  txHashes: string[],
+  count: number,
+): Array<{ txHash: string; txIndex: number }> {
+  if (count >= txHashes.length) {
+    return txHashes.map((txHash, txIndex) => ({ txHash, txIndex }));
+  }
+
+  const selected: Array<{ txHash: string; txIndex: number }> = [];
+  const availableIndices = txHashes.map((_, index) => index);
+
+  while (selected.length < count && availableIndices.length > 0) {
+    const index = Math.floor(Math.random() * availableIndices.length);
+    const txIndex = availableIndices.splice(index, 1)[0];
+    selected.push({ txHash: txHashes[txIndex], txIndex });
+  }
+
+  return selected;
+}
+
+/**
+ * Graceful shutdown handler
+ */
+async function shutdown(): Promise<void> {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  console.log('\n⏳ Shutting down gracefully...');
+
+  // Stop health server
+  try {
+    healthServer?.shutdown();
+  } catch {
+    // Ignore
+  }
+
+  // Stop subscribers
+  await Promise.allSettled([
+    blockSubscriber?.stop(),
+    attestationSubscriber?.stop(),
+  ]);
+
+  console.log('\n📊 Final statistics:');
+  console.log(`   Blocks queued: ${metrics.blocksQueued}`);
+  console.log(`   Blocks processed: ${metrics.blocksProcessed}`);
+  console.log(`   Proofs submitted: ${metrics.proofsSubmitted}`);
+  console.log(`   Single submissions: ${metrics.singleSubmissions}`);
+  console.log(`   Batch submissions: ${metrics.batchSubmissions}`);
+  console.log(`   Errors: ${metrics.proofErrors}`);
+  console.log(`   Uptime: ${Math.floor((Date.now() - startTime) / 1000)}s`);
+
+  console.log('\n✅ Shutdown complete');
+}
+
+/**
+ * Main entry point
+ */
+async function main(): Promise<void> {
+  console.log('🚀 Proof Traffic Simulator');
+  console.log('==========================\n');
+
+  try {
+    // Load configuration
+    config = loadConfig();
+    logConfig(config);
+    setVerbose(config.logVerbose);
+
+    // Initialize components
+    pendingQueue = new PendingBlockQueue(config.maxQueueSize);
+
+    // Start health server
+    healthServer = startHealthServer(
+      config.healthPort,
+      getHealthStatus,
+      getMetrics,
+    );
+
+    // Create subscribers
+    blockSubscriber = new BlockSubscriber(config.sourceRpcUrl, handleNewBlock);
+    attestationSubscriber = new AttestationSubscriber(
+      config.cc3WsUrl,
+      config.chainKey,
+      handleAttestation,
+    );
+
+    // Set up signal handlers
+    Deno.addSignalListener('SIGINT', () => {
+      console.log('\nReceived SIGINT');
+      shutdown();
+    });
+
+    Deno.addSignalListener('SIGTERM', () => {
+      console.log('\nReceived SIGTERM');
+      shutdown();
+    });
+
+    // Start subscribers
+    console.log('\n🔄 Starting subscribers...\n');
+    await Promise.all([
+      blockSubscriber.start(),
+      attestationSubscriber.start(),
+    ]);
+
+    console.log('\n✅ Simulator running. Press Ctrl+C to stop.\n');
+
+    // Keep process running
+    await new Promise(() => {});
+  } catch (error) {
+    console.error('❌ Fatal error:', error);
+    await shutdown();
+    Deno.exit(1);
+  }
+}
+
+// Run
+main();

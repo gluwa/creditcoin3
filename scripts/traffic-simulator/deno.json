@@ -1,0 +1,35 @@
+{
+  "name": "@gluwa/proof-traffic-simulator",
+  "version": "0.1.0",
+  "tasks": {
+    "dev": "deno run --allow-net --allow-env --allow-read --watch src/main.ts",
+    "start": "deno run --allow-net --allow-env --allow-read src/main.ts",
+    "compile": "deno compile --allow-net --allow-env --allow-read -o simulator src/main.ts",
+    "test": "deno test --allow-net --allow-env --allow-read",
+    "lint": "deno lint",
+    "fmt": "deno fmt",
+    "check": "deno check src/main.ts"
+  },
+  "imports": {
+    "@polkadot/api": "npm:@polkadot/api@^14.0.0",
+    "@polkadot/util-crypto": "npm:@polkadot/util-crypto@^13.0.0",
+    "ethers": "npm:ethers@^6.13.0",
+    "@gluwa/cc-next-query-builder": "npm:@gluwa/cc-next-query-builder@^0.5.1",
+    "@std/cli": "jsr:@std/cli@^1.0.0"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.window", "ES2022"]
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 100,
+    "indentWidth": 2,
+    "singleQuote": true
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}
