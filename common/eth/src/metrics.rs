@@ -3,6 +3,7 @@
 //! Follows the same pattern as the attestor metrics implementation.
 
 use std::sync::atomic::AtomicU64;
+use std::time::Duration;
 
 use prometheus_client::encoding::{EncodeLabelSet, EncodeLabelValue};
 use prometheus_client::metrics::counter::Counter;
@@ -17,7 +18,7 @@ pub struct BlockCacheMetrics {
     pub cache_operations: Family<LabelCacheResult, Counter<u64, AtomicU64>>,
     pub total_cached_blocks: Gauge<i64, std::sync::atomic::AtomicI64>,
     pub redis_operation_duration: Family<LabelRedisOp, Histogram>,
-    pub redis_errors: Counter<u64, AtomicU64>,
+    pub redis_errors: Family<LabelRedisOp, Counter<u64, AtomicU64>>,
 }
 
 impl BlockCacheMetrics {
@@ -46,10 +47,10 @@ impl BlockCacheMetrics {
             redis_operation_duration.clone(),
         );
 
-        let redis_errors = Counter::default();
+        let redis_errors = Family::default();
         registry.register(
             "eth_block_cache_redis_errors",
-            "Total Redis operation errors",
+            "Redis operation errors by operation type",
             redis_errors.clone(),
         );
 
@@ -81,14 +82,16 @@ impl BlockCacheMetrics {
         self.total_cached_blocks.set(value);
     }
 
-    pub fn observe_redis_operation(&self, op: RedisOp, duration_secs: f64) {
+    pub fn observe_redis_operation(&self, op: RedisOp, duration: Duration) {
         self.redis_operation_duration
             .get_or_create(&LabelRedisOp { operation: op })
-            .observe(duration_secs);
+            .observe(duration.as_secs_f64());
     }
 
-    pub fn inc_redis_error(&self) {
-        self.redis_errors.inc();
+    pub fn inc_redis_error(&self, op: RedisOp) {
+        self.redis_errors
+            .get_or_create(&LabelRedisOp { operation: op })
+            .inc();
     }
 }
 
@@ -110,6 +113,8 @@ pub struct LabelCacheResult {
 pub enum RedisOp {
     Get,
     Set,
+    Delete,
+    Lock,
 }
 
 /// Label set for Redis operations.

@@ -4,6 +4,8 @@ use continuity::ContinuityError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::prom::{ErrorType, GetErrorType};
+
 /// HTTP error response structure returned by the API.
 /// This struct is used for both serialization (API responses) and deserialization (tests).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -192,6 +194,26 @@ impl From<serde_json::Error> for ServiceError {
     fn from(e: serde_json::Error) -> Self {
         ServiceError::Internal {
             message: e.to_string(),
+        }
+    }
+}
+
+impl GetErrorType for ServiceError {
+    fn error_type(&self) -> ErrorType {
+        match self {
+            ServiceError::AttestationsMissing { .. } => ErrorType::AttestationsMissing,
+            ServiceError::QueryOutOfRange { .. } => ErrorType::QueryOutOfRange,
+            ServiceError::TxIndexOutOfBounds { .. } => ErrorType::TxIndexOutOfBounds,
+            ServiceError::RpcUnavailable { .. } => ErrorType::RpcUnavailable,
+            ServiceError::DbError { .. } => ErrorType::DatabaseError,
+            ServiceError::MerkleError { .. } => ErrorType::MerkleError,
+            ServiceError::InvalidParameter { .. } => ErrorType::InvalidParameter,
+            ServiceError::Internal { .. } => ErrorType::Internal,
+            ServiceError::TxHashLookupUnavailable { .. } => ErrorType::TxHashLookupUnavailable,
+            ServiceError::TxHashNotFound { .. } => ErrorType::TxHashNotFound,
+            ServiceError::BlockNotReady { .. } => ErrorType::BlockNotReady,
+            ServiceError::BlockBeforeGenesis { .. } => ErrorType::BlockBeforeGenesis,
+            ServiceError::BlockNotOnSourceChain { .. } => ErrorType::BlockNotOnSourceChain,
         }
     }
 }
