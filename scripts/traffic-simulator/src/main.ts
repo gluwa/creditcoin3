@@ -140,7 +140,7 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
       continue;
     }
 
-    const useBatch = Math.random() < config.batchProbability && block.txHashes.length > 1;
+    const useBatch = Math.random() < config.batchProbability;
     const txInfos = selectTxInfosForBlock(block, useBatch);
 
     if (useBatch) {
@@ -191,9 +191,8 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
 function selectTxInfosForBlock(block: PendingBlock, useBatch: boolean): TxInfo[] {
   let selectedTxs: Array<{ txHash: string; txIndex: number }>;
   if (useBatch) {
-    const maxBatchTxs = Math.min(config.batchSize, 10, block.txHashes.length);
-    const txCount = randomInt(1, maxBatchTxs);
-    selectedTxs = selectRandomTransactions(block.txHashes, txCount);
+    // Batch mode: one tx per block (batching happens across blocks)
+    selectedTxs = selectRandomTransactions(block.txHashes, 1);
   } else {
     if (!shouldSubmitSingleForBlock(block.blockNumber)) {
       console.log(

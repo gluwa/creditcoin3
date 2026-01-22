@@ -71,8 +71,8 @@ deno task start -- \
 | `HEALTH_PORT` | Health check port | `8080` |
 
 Single submissions pick one random transaction once every `SINGLE_EVERY_BLOCKS`.
-Batch submissions pick a random number of transactions between 1 and `BATCH_SIZE`
-and may include transactions from multiple blocks when they share a continuity proof.
+Batch submissions pick one random transaction per block and group 1..`BATCH_SIZE`
+blocks into a batch when they share a continuity proof.
 
 ### Query Modes
 
