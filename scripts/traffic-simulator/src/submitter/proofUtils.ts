@@ -15,6 +15,7 @@ const PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 const DEFAULT_PROOF_API_TIMEOUT_MS = 30_000;
 const DEFAULT_RPC_TIMEOUT_MS = 30_000;
 const DEFAULT_RECEIPT_TIMEOUT_MS = 120_000;
+const DEFAULT_MIN_PRIORITY_FEE_GWEI = 1n;
 
 type SignerEntry = {
   signer: ethers.NonceManager;
@@ -66,6 +67,16 @@ function isNonceError(error: unknown): boolean {
     message.includes('nonce too low') ||
     message.includes('nonce has already been used')
   );
+}
+
+function isReplacementUnderpricedError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const err = error as { code?: string; message?: string; shortMessage?: string };
+  const code = err.code ?? '';
+  const message = `${err.message ?? ''} ${err.shortMessage ?? ''}`.toLowerCase();
+  return code === 'REPLACEMENT_UNDERPRICED' || message.includes('replacement transaction underpriced');
 }
 
 export function isContinuityMismatchError(error: unknown): boolean {
@@ -124,6 +135,183 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
       clearTimeout(timeoutId);
     }
     debug('Timing', { label, durationMs: Date.now() - startTime });
+  }
+}
+
+async function getFeeOverrides(
+  provider: JsonRpcProvider,
+): Promise<{ maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint; gasPrice?: bigint }> {
+  const feeData = await withTimeout(
+    provider.getFeeData(),
+    DEFAULT_RPC_TIMEOUT_MS,
+    'Fee data',
+  );
+
+  const minPriority = DEFAULT_MIN_PRIORITY_FEE_GWEI * 1_000_000_000n;
+
+  if (feeData.maxFeePerGas !== null || feeData.maxPriorityFeePerGas !== null) {
+    let priority = feeData.maxPriorityFeePerGas ?? 0n;
+    if (priority < minPriority) {
+      priority = minPriority;
+    }
+
+    let maxFee = feeData.maxFeePerGas ?? 0n;
+    try {
+      const latest = await withTimeout(
+        provider.getBlock('latest'),
+        DEFAULT_RPC_TIMEOUT_MS,
+        'Base fee',
+      );
+      const baseFee = latest?.baseFeePerGas ?? 0n;
+      const recommended = baseFee > 0n ? baseFee * 2n + priority : 0n;
+      if (maxFee < recommended) {
+        maxFee = recommended;
+      }
+    } catch {
+      // Ignore base fee lookup errors and use fee data
+    }
+
+    if (maxFee < priority) {
+      maxFee = priority + 1n;
+    }
+
+    return { maxFeePerGas: maxFee, maxPriorityFeePerGas: priority };
+  }
+
+  let gasPrice = feeData.gasPrice ?? 0n;
+  if (gasPrice === 0n) {
+    gasPrice = minPriority;
+  }
+  return { gasPrice };
+}
+
+function bumpFeeOverrides(
+  overrides: { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint; gasPrice?: bigint },
+  bumpPercent = 20n,
+): { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint; gasPrice?: bigint } {
+  const bump = 100n + bumpPercent;
+  if (overrides.maxFeePerGas !== undefined || overrides.maxPriorityFeePerGas !== undefined) {
+    const maxFee = overrides.maxFeePerGas ?? 0n;
+    const priority = overrides.maxPriorityFeePerGas ?? 0n;
+    return {
+      maxFeePerGas: (maxFee * bump) / 100n + 1n,
+      maxPriorityFeePerGas: (priority * bump) / 100n + 1n,
+    };
+  }
+  if (overrides.gasPrice !== undefined) {
+    return { gasPrice: (overrides.gasPrice * bump) / 100n + 1n };
+  }
+  return overrides;
+}
+
+async function sendTransactionWithRetry(
+  signer: ethers.NonceManager,
+  provider: JsonRpcProvider,
+  request: ethers.TransactionRequest,
+  label: string,
+): Promise<ethers.TransactionResponse> {
+  try {
+    return await signer.sendTransaction(request);
+  } catch (error) {
+    if (!isReplacementUnderpricedError(error)) {
+      throw error;
+    }
+
+    const signerAddress = await signer.getAddress();
+    const pendingNonce = await withTimeout(
+      provider.getTransactionCount(signerAddress, 'pending'),
+      DEFAULT_RPC_TIMEOUT_MS,
+      `${label} pending nonce`,
+    );
+    const baseOverrides = {
+      maxFeePerGas: request.maxFeePerGas as bigint | undefined,
+      maxPriorityFeePerGas: request.maxPriorityFeePerGas as bigint | undefined,
+      gasPrice: request.gasPrice as bigint | undefined,
+    };
+    const bumpedOverrides = bumpFeeOverrides(baseOverrides);
+    debug('Retrying underpriced tx', {
+      label,
+      pendingNonce,
+      ...bumpedOverrides,
+    });
+
+    return await signer.sendTransaction({
+      ...request,
+      nonce: pendingNonce,
+      ...bumpedOverrides,
+    });
+  }
+}
+
+async function waitForReceipt(
+  provider: JsonRpcProvider,
+  tx: ethers.TransactionResponse,
+  label: string,
+): Promise<ethers.TransactionReceipt> {
+  try {
+    const receipt = await withTimeout(tx.wait(), DEFAULT_RECEIPT_TIMEOUT_MS, label);
+    if (!receipt) {
+      throw new Error(`${label} returned empty receipt (tx: ${tx.hash})`);
+    }
+    return receipt;
+  } catch (error) {
+    const err = error as {
+      code?: string;
+      cancelled?: boolean;
+      reason?: string;
+      receipt?: ethers.TransactionReceipt;
+      replacement?: ethers.TransactionResponse;
+    };
+    if (err.code === 'TRANSACTION_REPLACED') {
+      if (err.receipt) {
+        debug('Transaction replaced with mined receipt', {
+          label,
+          txHash: tx.hash,
+          replacementHash: err.receipt.hash,
+          reason: err.reason,
+          cancelled: err.cancelled,
+        });
+        return err.receipt;
+      }
+      if (err.replacement) {
+        debug('Transaction replaced, waiting for replacement', {
+          label,
+          txHash: tx.hash,
+          replacementHash: err.replacement.hash,
+          reason: err.reason,
+          cancelled: err.cancelled,
+        });
+        const replacementReceipt = await withTimeout(
+          err.replacement.wait(),
+          DEFAULT_RECEIPT_TIMEOUT_MS,
+          `${label} replacement confirmation`,
+        );
+        if (replacementReceipt) {
+          return replacementReceipt;
+        }
+      }
+      throw new Error(
+        `${label} replaced (cancelled=${err.cancelled ?? false}, reason=${err.reason ?? 'unknown'})`,
+      );
+    }
+    debug('Receipt wait timed out', { label, txHash: tx.hash });
+    try {
+      const receipt = await withTimeout(
+        provider.getTransactionReceipt(tx.hash),
+        DEFAULT_RPC_TIMEOUT_MS,
+        `${label} receipt lookup`,
+      );
+      if (receipt) {
+        return receipt;
+      }
+    } catch (lookupError) {
+      debug('Receipt lookup failed', {
+        label,
+        txHash: tx.hash,
+        error: lookupError instanceof Error ? lookupError.message : String(lookupError),
+      });
+    }
+    throw new Error(`${label} timed out after ${DEFAULT_RECEIPT_TIMEOUT_MS}ms (tx: ${tx.hash})`);
   }
 }
 
@@ -453,7 +641,7 @@ export async function submitToPrecompile(
   txBytes: Uint8Array,
   proof: FormattedProof,
 ): Promise<{ success: boolean; txHash: string; gasUsed: bigint }> {
-  return await withSubmissionLock(() =>
+  const { tx, provider } = await withSubmissionLock(() =>
     withNonceRetry(cc3HttpUrl, privateKey, 'Single submit', async ({ signer, provider }) => {
       debug('Submitting proof', {
         chainKey,
@@ -517,35 +705,41 @@ export async function submitToPrecompile(
       }
 
       // Send transaction
-      const tx = await signer.sendTransaction({
+      const feeOverrides = await getFeeOverrides(provider);
+      debug('Single fee overrides', feeOverrides);
+
+      const tx = await sendTransactionWithRetry(
+        signer,
+        provider,
+        {
         to: PRECOMPILE_ADDRESS,
         data,
         gasLimit: 5_000_000n,
-      });
-      debug('Single tx sent', { txHash: tx.hash, nonce: tx.nonce });
-
-      const receipt = await withTimeout(
-        tx.wait(),
-        DEFAULT_RECEIPT_TIMEOUT_MS,
-        'Transaction confirmation',
+        ...feeOverrides,
+        },
+        'Single submit',
       );
-
-      if (!receipt || receipt.status !== 1) {
-        throw new Error('Transaction reverted');
-      }
-      debug('Single tx confirmed', {
-        txHash: receipt.hash,
-        status: receipt.status,
-        gasUsed: receipt.gasUsed,
-      });
-
-      return {
-        success: true,
-        txHash: receipt.hash,
-        gasUsed: receipt.gasUsed,
-      };
+      debug('Single tx sent', { txHash: tx.hash, nonce: tx.nonce });
+      return { tx, provider };
     })
   );
+
+  const receipt = await waitForReceipt(provider, tx, 'Transaction confirmation');
+
+  if (!receipt || receipt.status !== 1) {
+    throw new Error('Transaction reverted');
+  }
+  debug('Single tx confirmed', {
+    txHash: receipt.hash,
+    status: receipt.status,
+    gasUsed: receipt.gasUsed,
+  });
+
+  return {
+    success: true,
+    txHash: receipt.hash,
+    gasUsed: receipt.gasUsed,
+  };
 }
 
 /**
@@ -560,7 +754,7 @@ export async function submitBatchToPrecompile(
   merkleProofs: FormattedProof['merkleProof'][],
   continuityProof: FormattedProof['continuityProof'],
 ): Promise<{ success: boolean; txHash: string; gasUsed: bigint }> {
-  return await withSubmissionLock(() =>
+  const { tx, provider } = await withSubmissionLock(() =>
     withNonceRetry(cc3HttpUrl, privateKey, 'Batch submit', async ({ signer, provider }) => {
       debug('Submitting batch', {
         chainKey,
@@ -615,35 +809,41 @@ export async function submitBatchToPrecompile(
         throw new Error(`Batch transaction simulation failed: ${error.message}`);
       }
 
-      const tx = await signer.sendTransaction({
+      const feeOverrides = await getFeeOverrides(provider);
+      debug('Batch fee overrides', feeOverrides);
+
+      const tx = await sendTransactionWithRetry(
+        signer,
+        provider,
+        {
         to: PRECOMPILE_ADDRESS,
         data,
         gasLimit: 10_000_000n,
-      });
-      debug('Batch tx sent', { txHash: tx.hash, nonce: tx.nonce });
-
-      const receipt = await withTimeout(
-        tx.wait(),
-        DEFAULT_RECEIPT_TIMEOUT_MS,
-        'Batch transaction confirmation',
+        ...feeOverrides,
+        },
+        'Batch submit',
       );
-
-      if (!receipt || receipt.status !== 1) {
-        throw new Error('Batch transaction reverted');
-      }
-      debug('Batch tx confirmed', {
-        txHash: receipt.hash,
-        status: receipt.status,
-        gasUsed: receipt.gasUsed,
-      });
-
-      return {
-        success: true,
-        txHash: receipt.hash,
-        gasUsed: receipt.gasUsed,
-      };
+      debug('Batch tx sent', { txHash: tx.hash, nonce: tx.nonce });
+      return { tx, provider };
     })
   );
+
+  const receipt = await waitForReceipt(provider, tx, 'Batch transaction confirmation');
+
+  if (!receipt || receipt.status !== 1) {
+    throw new Error('Batch transaction reverted');
+  }
+  debug('Batch tx confirmed', {
+    txHash: receipt.hash,
+    status: receipt.status,
+    gasUsed: receipt.gasUsed,
+  });
+
+  return {
+    success: true,
+    txHash: receipt.hash,
+    gasUsed: receipt.gasUsed,
+  };
 }
 
 /**
