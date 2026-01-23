@@ -6,9 +6,6 @@
 export const MAX_RECONNECT_ATTEMPTS = 10;
 export const BASE_RECONNECT_DELAY_MS = 5_000;
 
-// Block validation
-export const MAX_VALID_BLOCK_NUMBER = 10_000_000_000;
-
 // Continuity mismatch retry settings
 export const MAX_CONTINUITY_RETRIES = 2;
 export const CONTINUITY_RETRY_DELAY_MS = 15_000;

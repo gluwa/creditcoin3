@@ -5,7 +5,6 @@
  */
 
 import { ApiPromise, WsProvider } from "@polkadot/api";
-import { MAX_VALID_BLOCK_NUMBER } from "../constants.ts";
 import { BaseSubscriber } from "./baseSubscriber.ts";
 
 export type AttestationCallback = (blockNumber: number) => void | Promise<void>;
@@ -108,12 +107,6 @@ export class AttestationSubscriber extends BaseSubscriber {
       const blockNumber = checkpoint.block_number ?? checkpoint.blockNumber;
 
       if (eventChainKey === this.chainKey && blockNumber !== undefined) {
-        if (blockNumber > MAX_VALID_BLOCK_NUMBER) {
-          console.warn(
-            `Ignoring invalid checkpoint block number: ${blockNumber}`,
-          );
-          return;
-        }
         console.log(
           `📢 CheckpointReached: block ${blockNumber} on chain ${eventChainKey}`,
         );
