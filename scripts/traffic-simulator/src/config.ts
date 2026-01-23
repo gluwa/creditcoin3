@@ -96,6 +96,9 @@ USAGE:
 OPTIONS:
   -s, --source-rpc <URL>    Source chain WebSocket RPC URL (required)
                             Env: SOURCE_RPC_URL
+                            Note: URLs with query params should be quoted:
+                            --source-rpc 'wss://...?key=value'
+                            (backslashes before ? and = are auto-removed)
   
   -w, --cc3-ws <URL>        Creditcoin3 WebSocket URL
                             Env: CC3_WS_URL
@@ -158,6 +161,14 @@ EXAMPLES:
 }
 
 /**
+ * Normalize URL by removing literal backslashes before query parameter characters
+ * Fixes cases where users escape ? and = in shell commands
+ */
+function normalizeUrl(url: string): string {
+  return url.replace(/\\\?/g, "?").replace(/\\=/g, "=");
+}
+
+/**
  * Get string value from CLI args or environment
  */
 function getString(
@@ -168,16 +179,16 @@ function getString(
 ): string {
   const argValue = args[argName];
   if (typeof argValue === "string" && argValue.length > 0) {
-    return argValue;
+    return normalizeUrl(argValue);
   }
 
   const envValue = Deno.env.get(envName);
   if (envValue && envValue.length > 0) {
-    return envValue;
+    return normalizeUrl(envValue);
   }
 
   if (defaultValue !== undefined) {
-    return defaultValue;
+    return normalizeUrl(defaultValue);
   }
 
   throw new Error(
