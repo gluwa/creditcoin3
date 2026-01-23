@@ -152,10 +152,20 @@ pub struct Config {
     attestation_interval: std::num::NonZero<common::types::Height>,
     epoch: common::types::Epoch,
     start_height: common::types::Height,
+    empty_chain: bool,
     chain_key: attestor_primitives::ChainKey,
 
     metrics: common::types::Metrics,
     account_id: cc_client::AccountId32,
+}
+
+// ----------------------------------------- [ Helper ] ---------------------------------------- //
+
+struct AttestationInfo {
+    digest: attestor_primitives::Digest,
+    digest_prev: Option<attestor_primitives::Digest>,
+    attestor_id: attestor_primitives::AttestorId,
+    height: common::types::Height,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -191,9 +201,11 @@ pub(crate) struct WorkerAttestationProduction {
 
 impl WorkerAttestationProduction {
     pub(crate) async fn new(config: Config) -> common::types::Result<Self> {
+        use anyhow::Context as _;
+
         let can_attest = config.cc3.can_attest().await?;
 
-        Ok(Self {
+        let mut production = Self {
             eth: config.eth,
             cc3: config.cc3,
 
@@ -214,7 +226,40 @@ impl WorkerAttestationProduction {
             can_attest,
 
             attestations: std::collections::HashMap::new(),
-        })
+        };
+
+        if config.empty_chain {
+            while !production.can_attest {
+                let Some(event) = production.cc3.next().await else {
+                    break;
+                };
+                production.handle_event_cc3(event).await?;
+            }
+
+            tracing::info!(
+                height = config.start_height,
+                "👶 Generating genesis attestation"
+            );
+
+            let (attestation, info) = production
+                .generate_attestation(config.start_height, Default::default())
+                .await
+                .context("Failed to generate genesis attestation")?;
+
+            production.store_attestation(attestation, &info);
+
+            while production
+                .attestation_latest_cc3
+                .is_none_or(|(_digest, height)| height < config.start_height)
+            {
+                let Some(event) = production.cc3.next().await else {
+                    break;
+                };
+                production.handle_event_cc3(event).await?;
+            }
+        }
+
+        Ok(production)
     }
 }
 
@@ -251,108 +296,21 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_eth(
         &mut self,
-        event: Result<crate::common::types::Height, crate::chain_listener::eth::Error>,
+        event: Result<common::types::Height, crate::chain_listener::eth::Error>,
     ) -> Result<(), Error> {
-        // STEP 1] GENERATE CONTINUITY PROOF
-
         let height = event.map_err(Error::EthError)?;
         let now = std::time::Instant::now();
 
-        tracing::debug!(height, "Generating attestation");
-
-        let continuity_fragment = match self
-            .cc3
-            .create_continuity_proof(height, self.attestation_latest_cc3)
-            .await
-        {
-            Some(Ok(continuity_fragment)) => continuity_fragment,
-            Some(Err(err)) => return Err(Error::CC3Error(err)),
-            None => return Ok(()),
+        let Some(continuity_fragment) = self.generate_continuity(height).await? else {
+            return Ok(());
         };
 
-        // STEP 2] GENERATE ATTESTATION
+        let (attestation, info) = self
+            .generate_attestation(height, continuity_fragment)
+            .await?;
 
-        let block = self.eth.block_get(height).await.map_err(Error::EthError)?;
-        let prev_digest = continuity_fragment.head().map(|head| head.digest);
-
-        let attestation = attestor_primitives::AttestationData::<attestor_primitives::Digest>::new(
-            self.chain_key,
-            block.number(),
-            sp_core::H256(*block.hash()),
-            eth::simple_merkle_tree(&block).root(),
-            prev_digest,
-        );
-
-        let attestation_signed = self
-            .cc3
-            .sign_attestation(attestation, continuity_fragment, self.epoch)
-            .await;
-
-        let elapsed = now.elapsed();
-        self.metrics.update_attestation_delay_production(elapsed);
-
-        let digest = attestation_signed.digest();
-        let digest_prev = attestation_signed.prev_digest();
-        let attestor_id = &attestation_signed.attestor;
-        tracing::info!(
-            %digest,
-            ?digest_prev,
-            height,
-            %attestor_id,
-            "📡 Generated attestation"
-        );
-
-        // STEP 3] UPDATE METRICS
-
-        let attestation_latest_cc3 = self
-            .attestation_latest_cc3
-            .map(|(_digest, height)| height)
-            .unwrap_or(self.start_height);
-
-        self.metrics.set_attestation_local(height);
-
-        self.metrics.update_attestation_lag_eth(
-            height,
-            self.eth.block_latest(),
-            self.attestation_interval,
-        );
-        self.metrics.update_attestation_lag_cc3(
-            height,
-            attestation_latest_cc3,
-            self.attestation_interval,
-        );
-
-        // STEP 4] BROADCAST ATTESTATION
-
-        // From the tokio docs:
-        //
-        // > A send operation can only fail if there are no active receivers, implying that the
-        // > message could never be received.
-        //
-        // This can happen during shutdown and does not represent a failing case!
-        _ = self.sender_p2p.send(attestation_signed.clone());
-
-        tracing::info!(
-            %digest,
-            height,
-            %attestor_id,
-            "🗳️ Sending local attestation over for validation"
-        );
-
-        // STEP 5] STORE ATTESTATION
-
-        assert!(
-            self.attestations
-                .insert(height, attestation_signed.clone())
-                .is_none(),
-            "Invariant violated: regenerating existing attestation"
-        );
-
-        if let Err(err) = self.sender_validation.send(attestation_signed).transpose() {
-            err.log_error(digest);
-        }
-
-        // STEP 6] UPDATE SYNC STATUS
+        self.update_metrics(now.elapsed(), &info);
+        self.store_attestation(attestation, &info);
         self.attestation_local = Some(height);
 
         Ok(())
@@ -596,5 +554,128 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_shutdown(&mut self) -> common::types::Result<()> {
         Ok(())
+    }
+}
+
+impl WorkerAttestationProduction {
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn generate_continuity(
+        &mut self,
+        height: common::types::Height,
+    ) -> Result<
+        Option<attestor_primitives::attestation_fragment::AttestationFragmentSerializable>,
+        Error,
+    > {
+        tracing::debug!("Generating continuity proof");
+
+        self.cc3
+            .create_continuity_proof(height, self.attestation_latest_cc3)
+            .await
+            .transpose()
+            .map_err(Error::CC3Error)
+    }
+
+    #[tracing::instrument(skip(self, continuity_fragment), level = "debug")]
+    async fn generate_attestation(
+        &mut self,
+        height: common::types::Height,
+        continuity_fragment: attestor_primitives::attestation_fragment::AttestationFragmentSerializable,
+    ) -> Result<(common::types::Attestation, AttestationInfo), Error> {
+        tracing::debug!("Generating attestation");
+
+        let block = self.eth.block_get(height).await.map_err(Error::EthError)?;
+        let prev_digest = continuity_fragment.head().map(|head| head.digest);
+
+        let attestation_data =
+            attestor_primitives::AttestationData::<attestor_primitives::Digest>::new(
+                self.chain_key,
+                block.number(),
+                sp_core::H256(*block.hash()),
+                eth::simple_merkle_tree(&block).root(),
+                prev_digest,
+            );
+
+        let attestation = self
+            .cc3
+            .sign_attestation(attestation_data, continuity_fragment, self.epoch)
+            .await;
+
+        let info = AttestationInfo {
+            digest: attestation.digest(),
+            digest_prev: attestation.prev_digest(),
+            attestor_id: attestation.attestor.clone(),
+            height,
+        };
+
+        tracing::info!(
+            digest = %info.digest,
+            digest_prev = ?info.digest_prev,
+            height = info.height,
+            attestor_id = %info.attestor_id,
+            "📡 Generated attestation"
+        );
+
+        Ok((attestation, info))
+    }
+
+    fn update_metrics(&mut self, elapsed: std::time::Duration, info: &AttestationInfo) {
+        let attestation_latest_cc3 = self
+            .attestation_latest_cc3
+            .map(|(_digest, height)| height)
+            .unwrap_or(self.start_height);
+
+        self.metrics.update_attestation_delay_production(elapsed);
+
+        self.metrics.set_attestation_local(info.height);
+
+        self.metrics.update_attestation_lag_eth(
+            info.height,
+            self.eth.block_latest(),
+            self.attestation_interval,
+        );
+        self.metrics.update_attestation_lag_cc3(
+            info.height,
+            attestation_latest_cc3,
+            self.attestation_interval,
+        );
+    }
+
+    #[tracing::instrument(
+        skip_all,
+        fields(height = info.height, digest = %info.digest),
+        level = "debug"
+    )]
+    fn store_attestation(
+        &mut self,
+        attestation: common::types::Attestation,
+        info: &AttestationInfo,
+    ) {
+        tracing::debug!("Storing attestation");
+
+        // From the tokio docs:
+        //
+        // > A send operation can only fail if there are no active receivers, implying that the
+        // > message could never be received.
+        //
+        // This can happen during shutdown and does not represent a failing case!
+        _ = self.sender_p2p.send(attestation.clone());
+
+        tracing::info!(
+            digest = %info.digest,
+            height = info.height,
+            attestor_id = %info.attestor_id,
+            "🗳️ Sending local attestation over for validation"
+        );
+
+        assert!(
+            self.attestations
+                .insert(info.height, attestation.clone())
+                .is_none(),
+            "Invariant violated: regenerating existing attestation"
+        );
+
+        if let Err(err) = self.sender_validation.send(attestation).transpose() {
+            err.log_error(info.digest);
+        }
     }
 }

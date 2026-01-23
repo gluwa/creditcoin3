@@ -199,7 +199,6 @@ impl Attestor {
             .with_chain_key(self.config.chain_key)
             .with_cc3_client(cc3_client.clone())
             .with_start_height(start_height)
-            .with_empty_chain(empty_chain)
             .build();
         let cc3_production = chain_listener::cc3::CC3::new(config)
             .await
@@ -212,7 +211,6 @@ impl Attestor {
             .with_chain_key(self.config.chain_key)
             .with_cc3_client(cc3_client)
             .with_start_height(start_height)
-            .with_empty_chain(empty_chain)
             .build();
         let cc3_validation = chain_listener::cc3::CC3::new(config)
             .await
@@ -279,32 +277,9 @@ impl Attestor {
 
         let handle_api = monitor.spawn(api);
 
-        // -------------------------------* Attestation Production *-------------------------------
-
-        tracing::info!("⏳ [2/4] Starting attestation production worker");
-
-        let config = worker::production::ConfigBuilder::new()
-            .with_eth(eth)
-            .with_cc3(cc3_production)
-            .with_account_id(account_id)
-            .with_sender_p2p(p2p_sender)
-            .with_sender_validation(validation_sender.clone())
-            .with_sender_attestation_latest(attestation_latest_sender)
-            .with_attestation_start_cc3(attestation_start_cc3)
-            .with_attestation_interval(attestation_interval)
-            .with_epoch(epoch)
-            .with_start_height(start_height)
-            .with_chain_key(self.config.chain_key)
-            .with_metrics(std::sync::Arc::clone(&metrics))
-            .build();
-        let attestation_production = worker::production::WorkerAttestationProduction::new(config)
-            .await
-            .map_err(Error::WorkerError)?;
-        let handle_production = monitor.spawn(attestation_production);
-
         // -------------------------------* Attestation Validation *-------------------------------
 
-        tracing::info!("⏳ [3/4] Starting attestation validation worker");
+        tracing::info!("⏳ [2/4] Starting attestation validation worker");
 
         let api = cc3_validation.api();
         let config = worker::validation::ConfigBuilder::new()
@@ -322,19 +297,43 @@ impl Attestor {
 
         // --------------------------------------* P2P Sync *--------------------------------------
 
-        tracing::info!("⏳ [4/4] Starting P2P worker");
+        tracing::info!("⏳ [3/4] Starting P2P worker");
 
         let config = self
             .config
             .p2p
             .with_keypair(keypair_p2p)
             .with_receiver_p2p(p2p_receiver)
-            .with_sender_validation(validation_sender)
+            .with_sender_validation(validation_sender.clone())
             .with_chain_key(self.config.chain_key)
-            .with_metrics(metrics)
+            .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::WorkerError)?;
         let handle_p2p = monitor.spawn(p2p);
+
+        // -------------------------------* Attestation Production *-------------------------------
+
+        tracing::info!("⏳ [4/4] Starting attestation production worker");
+
+        let config = worker::production::ConfigBuilder::new()
+            .with_eth(eth)
+            .with_cc3(cc3_production)
+            .with_account_id(account_id)
+            .with_sender_p2p(p2p_sender)
+            .with_sender_validation(validation_sender)
+            .with_sender_attestation_latest(attestation_latest_sender)
+            .with_attestation_start_cc3(attestation_start_cc3)
+            .with_attestation_interval(attestation_interval)
+            .with_epoch(epoch)
+            .with_start_height(start_height)
+            .with_empty_chain(empty_chain)
+            .with_chain_key(self.config.chain_key)
+            .with_metrics(metrics)
+            .build();
+        let attestation_production = worker::production::WorkerAttestationProduction::new(config)
+            .await
+            .map_err(Error::WorkerError)?;
+        let handle_production = monitor.spawn(attestation_production);
 
         tracing::info!("✅ All services online!");
 

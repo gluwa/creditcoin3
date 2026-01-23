@@ -220,7 +220,6 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
 
     let quorum = ValidateQuorum::new(
         config.quorum,
-        config.start_height,
         config.attestation_interval,
         config.start_height,
     );
@@ -402,19 +401,6 @@ impl AttestationPoolInner {
         tracing::debug!("Validating sender");
         self.validate_attestor.validate(&attestation)?;
 
-        tracing::debug!(
-            target_height = self.validate_quorum.target_height,
-            "Validating height"
-        );
-
-        if attestation.header_number() < self.validate_quorum.target_height {
-            return Err(Error::InvalidHeight(
-                attestation.attestor.clone(),
-                height,
-                self.validate_quorum.target_height,
-            ));
-        }
-
         tracing::debug!("Adding attestation to pool");
 
         let removed = self.forks.push(attestation)?;
@@ -462,10 +448,6 @@ impl AttestationPoolInner {
             self.forks.remove_by_digest(digest);
         }
 
-        self.validate_quorum.target_height = util::next_multiple_of(
-            self.validate_quorum.attestation_interval,
-            self.validate_quorum.target_height,
-        );
         self.digest_local = Some(cc_client::H256::from(digest.0));
     }
 
@@ -566,8 +548,11 @@ impl AttestationPoolForks {
     ) -> Result<Vec<common::types::Attestation>, Error> {
         let height = attestation.header_number();
         let digest = attestation.digest();
-        let prev_digest = attestation.prev_digest();
         let attestor_id = attestation.attestor.clone();
+        let prev_digest_tail = attestation
+            .continuity_proof
+            .tail()
+            .map(|tail| tail.prev_digest);
 
         tracing::debug!("Checking for known invalids");
 
@@ -607,11 +592,11 @@ impl AttestationPoolForks {
 
         tracing::debug!(
             prev_digest_pool = ?self.prev_digest,
-            prev_digest_att = ?prev_digest,
+            prev_digest_att = ?prev_digest_tail,
             "Validating prev_digest"
         );
 
-        match (prev_digest, self.prev_digest) {
+        match (prev_digest_tail, self.prev_digest) {
             // CASE 1] PREV_DIGEST MATCHES
             (Some(prev_digest_att), Some(prev_digest_pool))
                 if prev_digest_att == prev_digest_pool => {}
@@ -628,7 +613,7 @@ impl AttestationPoolForks {
             _ => {
                 tracing::warn!(
                     prev_digest_pool = ?self.prev_digest,
-                    prev_digest_att = ?prev_digest,
+                    prev_digest_att = ?prev_digest_tail,
                     "Received pending attestation"
                 );
 
@@ -636,7 +621,7 @@ impl AttestationPoolForks {
                 //
                 // It is possible to receive an empty prev_digest even after the chain has
                 // finalized attestations due to network delay.
-                if let Some(prev_digest) = prev_digest {
+                if let Some(prev_digest) = prev_digest_tail {
                     self.pending
                         .entry(prev_digest)
                         .or_default()
@@ -659,11 +644,10 @@ impl AttestationPoolForks {
             vote.update(vote_prev);
         }
 
-        if self
-            .forks_best
-            .as_ref()
-            .is_none_or(|best| best.votes.len() < size_new)
-        {
+        if self.forks_best.as_ref().is_none_or(|best| {
+            best.attestation.header_number() <= vote.attestation.header_number()
+                && best.votes.len() < size_new
+        }) {
             self.forks_best = Some(vote.clone());
         }
 
@@ -1078,12 +1062,6 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolSender 
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             let (_digest, _height) = attestation_latest_cc3;
 
-            // Updating validation
-            inner
-                .validate_quorum
-                .note_attestation_finalization(attestation_latest_cc3)
-                .expect("Infallible");
-
             // Updating the inner pool
             inner
                 .forks
@@ -1156,7 +1134,23 @@ impl crate::events::EventAttestationIntervalChange for AttestationPoolSender {}
 impl crate::events::EventAttestorsElectedAsync for AttestationPoolSender {
     type Error = std::convert::Infallible;
 
-    #[tracing::instrument(skip_all, fields(?attestors), level = "debug")]
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            attestors = attestors
+                .iter()
+                .map(ToString::to_string)
+                .reduce(|mut a, b| {
+                    a.reserve(b.len() + 1);
+                    a.push_str(&b);
+                    a.push_str(", ");
+                    a
+                })
+                .unwrap_or_default()
+                .trim_end_matches(", ")
+        )
+        level = "debug"
+    )]
     async fn note_attestors_elected_async(
         &mut self,
         attestors: Vec<cc_client::AccountId32>,
@@ -1431,7 +1425,6 @@ pub struct AttestationPermit(AttestationKey);
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ValidateQuorum {
     target_quorum: std::num::NonZeroUsize,
-    target_height: common::types::Height,
     attestation_interval: std::num::NonZero<common::types::Height>,
     start_height: common::types::Height,
 }
@@ -1439,19 +1432,17 @@ struct ValidateQuorum {
 impl ValidateQuorum {
     pub const fn new(
         target_quorum: std::num::NonZeroUsize,
-        target_height: common::types::Height,
         attestation_interval: std::num::NonZero<common::types::Height>,
         start_height: common::types::Height,
     ) -> Self {
         Self {
             target_quorum,
-            target_height,
             attestation_interval,
             start_height,
         }
     }
 
-    #[tracing::instrument(skip_all, fields(target_height = %self.target_height, target_quorum = %self.target_quorum))]
+    #[tracing::instrument(skip_all, fields(target_quorum = %self.target_quorum))]
     fn validate(&self, attestation: &AttestationVote) -> bool {
         tracing::debug!(
             height = attestation.attestation.header_number(),
@@ -1459,32 +1450,9 @@ impl ValidateQuorum {
             "Validating attestation"
         );
 
-        attestation.attestation.header_number() == self.target_height
-            && attestation.signers.len() >= self.target_quorum.into()
+        attestation.signers.len() >= self.target_quorum.into()
     }
 }
-
-impl crate::events::EventAttestationFinalizationAsync for ValidateQuorum {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_finalization_async(
-        &mut self,
-        latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
-    ) -> Result<(), Self::Error> {
-        tracing::debug!("Updating quorum validation");
-
-        let (_digest, height) = latest_attestation_cc3;
-        let height_new = util::next_multiple_of(self.attestation_interval, height);
-
-        if self.target_height < height_new {
-            self.target_height = height_new;
-        }
-
-        Ok(())
-    }
-}
-
-impl crate::events::EventAttestationFinalization for ValidateQuorum {}
 
 impl crate::events::EventAttestationIntervalChangeAsync for ValidateQuorum {
     type Error = std::convert::Infallible;
@@ -1495,16 +1463,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for ValidateQuorum {
         attestation_latest_cc3: Option<common::types::Height>,
     ) -> Result<(), Self::Error> {
         tracing::debug!("Updating quorum validation");
-
-        let target_height_new = if let Some(attestation_latest_cc3) = attestation_latest_cc3 {
-            util::next_multiple_of(interval_new, attestation_latest_cc3)
-        } else {
-            self.start_height
-        };
-
         self.attestation_interval = interval_new;
-        self.target_height = target_height_new;
-
         Ok(())
     }
 }
@@ -1717,7 +1676,6 @@ pub mod fixtures {
     pub fn quorum_validate(#[default(2)] vote_count: usize) -> ValidateQuorum {
         ValidateQuorum {
             target_quorum: vote_count.try_into().unwrap(),
-            target_height: 0,
             start_height: common::types::Height::MIN,
             attestation_interval: std::num::NonZero::<common::types::Height>::MIN,
         }

@@ -19,20 +19,21 @@ impl AttestationBlockCache {
     ) -> Result<Vec<attestor_primitives::block::BlockSerializable>, Error> {
         assert!(block_start <= block_stop);
 
-        let fragment_size = (block_stop - block_start + 1) as usize;
+        let fragment_size = (block_stop - block_start).saturating_add(1) as usize;
         let mut fragment_blocks =
             Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(fragment_size);
 
         let blocks = &mut self.0;
         if !blocks.is_empty() {
-            assert_eq!(
-                blocks[0].prev_digest, from_digest,
-                "Invalid cached prev_digest"
+            tracing::info!(
+                start = blocks[0].block_number,
+                stop = blocks[blocks.len() - 1].block_number,
+                "🎯 Continuity cache hit"
             );
         }
 
-        let copy = 0..fragment_size.min(blocks.len());
-        fragment_blocks.extend_from_slice(&blocks[copy]);
+        let segment = 0..fragment_size.min(blocks.len());
+        fragment_blocks.extend_from_slice(&blocks[segment]);
 
         let missing_start = block_start + blocks.len() as common::types::Height;
         let missing_stop = block_stop;
@@ -46,8 +47,8 @@ impl AttestationBlockCache {
             )
             .await?;
 
-            let copy = missing_start as usize..fragment_blocks.len();
-            blocks.extend_from_slice(&fragment_blocks[copy]);
+            let segment = blocks.len()..fragment_blocks.len();
+            blocks.extend_from_slice(&fragment_blocks[segment]);
         }
 
         Ok(fragment_blocks)
@@ -74,7 +75,7 @@ impl AttestationBlockCache {
         });
         let blocks = futures::future::try_join_all(blocks).await?;
 
-        let fragment_size = (block_stop - block_start + 1) as usize;
+        let fragment_size = (block_stop - block_start).saturating_add(1) as usize;
         let mut blocks_with_roots = Vec::with_capacity(fragment_size);
         blocks
             .into_par_iter()

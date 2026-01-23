@@ -36,10 +36,6 @@ pub struct Config {
     /// [attestation config]: crate::attestation
     #[specify_later]
     pub start_height: common::types::Height,
-    /// True if the execution chain does not contain any attestations yet. This is useful when
-    /// generating the genesis attestation.
-    #[specify_later]
-    pub empty_chain: bool,
 }
 
 // ------------------------------------- [ Chain Listener ] ------------------------------------ //
@@ -68,10 +64,6 @@ pub(crate) struct CC3 {
     // CHAIN DATA
     chain_key: attestor_primitives::ChainKey,
     start_height: common::types::Height,
-
-    // FIXME: bools in structs are a sign of late decision: remove this and hoist the edge case of
-    // committing to an empty chain to startup.
-    empty_chain: bool,
 }
 
 impl CC3 {
@@ -151,7 +143,6 @@ impl CC3 {
 
             chain_key: config.chain_key,
             start_height: config.start_height,
-            empty_chain: config.empty_chain,
         })
     }
 
@@ -257,12 +248,6 @@ impl CC3 {
 
         // ------------------------------------* Range checks *------------------------------------
 
-        // TODO: move this special case out of this function
-        if height == self.start_height && self.empty_chain {
-            tracing::debug!("Creating default continuity proof for header number 0");
-            return Some(Ok(Default::default()));
-        }
-
         let (from_digest, block_start) = match latest_attestation_cc3 {
             Some((digest, height)) => (digest, height.saturating_add(1)),
             None => (attestor_primitives::Digest::zero(), self.start_height),
@@ -295,61 +280,13 @@ impl CC3 {
 
         // ----------------------------------* Continuity proof *----------------------------------
 
-        let fragment_size = (block_stop - block_start + 1) as usize;
-
-        // STEP 1] SOURCE BLOCKS
-        //
-        // Tries to fetch each source chain block CONCURRENTLY, but NOT IN PARALLEL
-        let encoding = ccnext_abi_encoding::common::EncodingVersion::V1;
-        let blocks = (block_start..=block_stop).map(|height| {
-            self.eth
-                .get_block(height, encoding)
-                .map(|opt| opt.transpose().map_err(Error::EthClient))
-        });
-        let blocks = match futures::future::try_join_all(blocks).await {
-            Ok(blocks) => blocks,
-            Err(err) => return Some(Err(err)),
+        let Ok(fragment_blocks) = self
+            .cache
+            .fetch_blocks(&mut self.eth, from_digest, block_start, block_stop)
+            .await
+        else {
+            return None;
         };
-
-        // STEP 2] MERKLE ROOT
-        //
-        // Computes each block's MMR root CONCURRENTLY and IN PARALLEL
-        let mut blocks_with_roots = Vec::with_capacity(fragment_size);
-        blocks
-            .into_par_iter()
-            .map(|opt| opt.map(|block| (eth::simple_merkle_tree(&block).root(), block)))
-            .collect_into_vec(&mut blocks_with_roots);
-
-        // STEP 3] FRAGMENT AGGREGATION
-        //
-        // Aggregate each block into a single fragment
-        let mut fragment_blocks =
-            Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(fragment_size);
-        for opt in blocks_with_roots {
-            let Some((root, block)) = opt else {
-                // NOTE: INTERRUPT
-                //
-                // User-initiated shutdown. See the implementation of `self.eth.get_block` to
-                // understand why this is here.
-                return None;
-            };
-
-            let block = if let Some(head) = fragment_blocks.last() {
-                attestor_primitives::block::Block::new_from_prev_digest(
-                    block.number(),
-                    root,
-                    head.digest,
-                )
-            } else {
-                attestor_primitives::block::Block::new_from_prev_digest(
-                    block.number(),
-                    root,
-                    from_digest,
-                )
-            };
-
-            fragment_blocks.push(attestor_primitives::block::BlockSerializable::from(block));
-        }
 
         let fragment = attestor_primitives::attestation_fragment::AttestationFragmentSerializable {
             blocks: fragment_blocks,
@@ -365,7 +302,8 @@ impl CC3 {
     /// Determines if an attestor is currently able to attest to the source chain.
     ///
     /// Attestor eligibility is preconditioned on an attestor having been registered and activated
-    /// in the runtime. Once that is the case, an attestor will have to wait until the next epoch
+    /// in the runtime. Once that is the case, an attestor w
+    /// ill have to wait until the next epoch
     /// rotation for a new set of authorities to be elected: if it is part of this new set, it will
     /// be able to start attesting.
     pub async fn can_attest(&self) -> Result<bool, Error> {
