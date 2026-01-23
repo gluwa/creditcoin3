@@ -39,7 +39,7 @@ pub mod mocks;
 pub mod proof;
 pub mod rpc;
 
-pub use builder::{ContinuityBuilder, ContinuityResult, EndsInAttestation};
+pub use builder::{ContinuityBuilder, ContinuityResult};
 pub use config::{ConfigBuilder, ContinuityConfig};
 pub use errors::ContinuityError;
 pub use indexer_client::AttestationWithProof;

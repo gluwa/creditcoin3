@@ -33,47 +33,6 @@ use sp_core::H256;
 use std::sync::Arc;
 use tracing::info;
 
-/// Indicates whether a continuity proof ends at an actual attestation or a predicted block.
-///
-/// This is used to track whether the upper endpoint is:
-/// - `True` - An actual attestation that exists on the CC3 chain
-/// - `False` - A predicted attestation block (for "eager" proof generation)
-///
-/// # Examples
-///
-/// ```rust
-/// use continuity::EndsInAttestation;
-///
-/// let ends_in_attestation = EndsInAttestation::True;
-/// let is_attested: bool = ends_in_attestation.into();
-/// assert!(is_attested);
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EndsInAttestation {
-    /// The upper endpoint is an actual attestation on the CC3 chain
-    True,
-    /// The upper endpoint is a predicted attestation block
-    False,
-}
-
-impl From<EndsInAttestation> for bool {
-    fn from(e: EndsInAttestation) -> bool {
-        matches!(e, EndsInAttestation::True)
-    }
-}
-
-impl EndsInAttestation {
-    /// Check if the proof ends at an actual attestation.
-    pub fn is_attested(&self) -> bool {
-        matches!(self, EndsInAttestation::True)
-    }
-
-    /// Check if the proof ends at a predicted block.
-    pub fn is_predicted(&self) -> bool {
-        matches!(self, EndsInAttestation::False)
-    }
-}
-
 /// Builder for generating continuity proofs.
 ///
 /// The `ContinuityBuilder` is the main entry point for generating continuity proofs
@@ -147,7 +106,7 @@ impl EndsInAttestation {
 ///
 /// // Build a single proof covering multiple blocks
 /// let queries = vec![100, 105, 110];
-/// let (lower, upper, _) = builder.get_endpoints(&queries, None).await?;
+/// let (lower, upper) = builder.get_endpoints(&queries, None).await?;
 /// let proof = builder.build_for_batch_queries(&queries, lower, upper).await?;
 ///
 /// println!("Proof covers blocks {} to {}",
@@ -470,7 +429,7 @@ impl ContinuityBuilder {
     /// # let builder = ContinuityBuilder::new(config).await?;
     ///
     /// let query_height = 100;
-    /// let (lower, upper, _) = builder.get_endpoints(&[query_height], None).await?;
+    /// let (lower, upper) = builder.get_endpoints(&[query_height], None).await?;
     /// let proof = builder.build_for_single_query(query_height, lower, upper).await?;
     ///
     /// assert!(!proof.blocks.is_empty());

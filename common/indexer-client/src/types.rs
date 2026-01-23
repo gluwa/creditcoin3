@@ -2,26 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
-/// GraphQL query request structure
-#[derive(Serialize)]
-pub struct GraphQLQuery<'a> {
-    pub query: &'a str,
-    pub variables: QueryVariables,
-}
-
-/// Query variables for attestation queries
+/// Query variables for attestation queries (used in tests)
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryVariables {
     pub chain_key: String,
     pub header_number: String,
-}
-
-/// GraphQL response wrapper
-#[derive(Deserialize)]
-pub struct GraphQLResponse {
-    pub data: Option<ResponseData>,
-    pub errors: Option<Vec<GraphQLError>>,
 }
 
 /// GraphQL error structure
@@ -167,26 +153,6 @@ pub struct AttestationsConnectionFull {
 #[derive(Deserialize)]
 pub struct AttestationsRangeResponseData {
     pub attestations: AttestationsConnectionFull,
-}
-
-/// Attestation metadata node (minimal fields for metadata-only queries)
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AttestationMetadataNode {
-    pub header_number: String,
-    pub root: String,
-}
-
-/// Attestation metadata connection
-#[derive(Deserialize)]
-pub struct AttestationMetadataConnection {
-    pub nodes: Vec<AttestationMetadataNode>,
-}
-
-/// Response data for metadata queries
-#[derive(Deserialize)]
-pub struct AttestationMetadataResponseData {
-    pub attestations: AttestationMetadataConnection,
 }
 
 /// Checkpoints in range response data
