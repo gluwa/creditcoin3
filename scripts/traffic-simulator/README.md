@@ -1,12 +1,13 @@
 # Proof Traffic Simulator
 
-A Deno-based TypeScript tool that simulates proof query traffic for Creditcoin3-next by:
+A Deno-based TypeScript tool that simulates proof query traffic for
+Creditcoin3-next by:
 
 1. **Streaming blocks** from source chain (Sepolia) via WebSocket
 2. **Queueing blocks** until they are attested on Creditcoin3
 3. **Submitting proofs** for random transactions once blocks are attested
-   - Uses `/api/v1/proof/{chain_key}/{header_number}/{tx_index}` by default (falls back to
-     `/proof-by-tx`)
+   - Uses `/api/v1/proof/{chain_key}/{header_number}/{tx_index}` by default
+     (falls back to `/proof-by-tx`)
 
 ## Requirements
 
@@ -66,9 +67,9 @@ deno task start -- \
 | `LOG_VERBOSE`         | Enable verbose debug logging              | `false`                 |
 | `HEALTH_PORT`         | Health check port                         | `8080`                  |
 
-Single submissions pick one random transaction once every `SINGLE_EVERY_BLOCKS`. Batch submissions
-pick one random transaction per block and group 1..`BATCH_SIZE` blocks into a batch when they share
-a continuity proof.
+Single submissions pick one random transaction once every `SINGLE_EVERY_BLOCKS`.
+Batch submissions pick one random transaction per block and group
+1..`BATCH_SIZE` blocks into a batch when they share a continuity proof.
 
 ## Health Endpoints
 
@@ -181,10 +182,11 @@ deno task compile
 
 ## Attestation Lag
 
-The simulator only submits proofs for blocks **strictly less** than the latest attested block. The
-newest attested block becomes provable after the next attestation event arrives. This avoids
-`Continuity proof does not match attestation or checkpoint` errors caused by proving the current
-attested block.
+The simulator only submits proofs for blocks **strictly less** than the latest
+attested block. The newest attested block becomes provable after the next
+attestation event arrives. This avoids
+`Continuity proof does not match attestation or checkpoint` errors caused by
+proving the current attested block.
 
 ## Metrics
 

@@ -14,17 +14,11 @@
     "@polkadot/api": "npm:@polkadot/api@^14.0.0",
     "@polkadot/util-crypto": "npm:@polkadot/util-crypto@^13.0.0",
     "ethers": "npm:ethers@^6.13.0",
-    "@std/cli": "jsr:@std/cli@^1.0.0"
+    "@std/cli/": "jsr:@std/cli@^1.0.0/"
   },
   "compilerOptions": {
     "strict": true,
     "lib": ["deno.window", "ES2022"]
-  },
-  "fmt": {
-    "useTabs": false,
-    "lineWidth": 100,
-    "indentWidth": 2,
-    "singleQuote": true
   },
   "lint": {
     "rules": {

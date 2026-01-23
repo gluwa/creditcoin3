@@ -5,12 +5,16 @@
  * using the native batch precompile with shared continuity proofs.
  */
 
-import { ethers } from 'ethers';
-import type { SimulatorConfig, TxInfo } from '../types.ts';
-import { convertProofFormat, fetchProofForTx, submitBatchToPrecompile } from './proofUtils.ts';
-import { submitProofsIndividually } from './singleSubmitter.ts';
-import { withContinuityRetry } from '../utils/retry.ts';
-import { randomInt } from '../utils/random.ts';
+import { ethers } from "ethers";
+import type { SimulatorConfig, TxInfo } from "../types.ts";
+import {
+  convertProofFormat,
+  fetchProofForTx,
+  submitBatchToPrecompile,
+} from "./proofUtils.ts";
+import { submitProofsIndividually } from "./singleSubmitter.ts";
+import { withContinuityRetry } from "../utils/retry.ts";
+import { randomInt } from "../utils/random.ts";
 
 /**
  * Submit proofs in batch mode
@@ -23,7 +27,9 @@ export async function submitBatchProofs(
   txInfos: TxInfo[],
 ): Promise<{ successful: number; failed: number; batches: number }> {
   const uniqueBlocks = new Set(txInfos.map((tx) => tx.blockNumber)).size;
-  console.log(`📦 Batch submitting ${txInfos.length} proofs across ${uniqueBlocks} blocks...`);
+  console.log(
+    `📦 Batch submitting ${txInfos.length} proofs across ${uniqueBlocks} blocks...`,
+  );
 
   let successful = 0;
   let failed = 0;
@@ -39,7 +45,7 @@ export async function submitBatchProofs(
       );
       const proof = convertProofFormat(apiProof);
       if (!apiProof.txBytes) {
-        throw new Error('Transaction bytes not found in API response');
+        throw new Error("Transaction bytes not found in API response");
       }
       const txBytes = ethers.getBytes(apiProof.txBytes);
       const headerNumber = apiProof.headerNumber ?? txInfo.blockNumber;
@@ -86,7 +92,9 @@ export async function submitBatchProofs(
     const batchInputs = [base];
 
     let nextIndex = index + 1;
-    while (nextIndex < proofInputs.length && batchInputs.length < targetBatchSize) {
+    while (
+      nextIndex < proofInputs.length && batchInputs.length < targetBatchSize
+    ) {
       const candidate = proofInputs[nextIndex];
       if (candidate.headerNumber > lastHeight) {
         break;
@@ -102,7 +110,9 @@ export async function submitBatchProofs(
 
     // If only 1 proof, submit as single instead of batch
     if (batchInputs.length === 1) {
-      const result = await submitProofsIndividually(config, [batchInputs[0].txInfo]);
+      const result = await submitProofsIndividually(config, [
+        batchInputs[0].txInfo,
+      ]);
       successful += result.successful;
       failed += result.failed;
       index = nextIndex;
@@ -114,7 +124,7 @@ export async function submitBatchProofs(
     }`;
     const batchTxHashes = batchInputs
       .map((input) => `${input.txInfo.txHash.slice(0, 10)}...`)
-      .join(', ');
+      .join(", ");
 
     try {
       const heights = batchInputs.map((input) => input.headerNumber);

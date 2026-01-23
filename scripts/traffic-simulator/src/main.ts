@@ -11,24 +11,30 @@
 const originalWarn = console.warn;
 console.warn = (...args: unknown[]) => {
   const msg = args[0];
-  if (typeof msg === 'string') {
+  if (typeof msg === "string") {
     // Filter out Deno's Node.js compatibility warnings
-    if (msg.includes('Not implemented: ClientRequest')) return;
+    if (msg.includes("Not implemented: ClientRequest")) return;
   }
   originalWarn.apply(console, args);
 };
 
-import { loadConfig, logConfig } from './config.ts';
-import { BlockSubscriber } from './subscribers/blockSubscriber.ts';
-import { AttestationSubscriber } from './subscribers/attestationSubscriber.ts';
-import { PendingBlockQueue } from './queue/pendingQueue.ts';
-import { submitSingleProof } from './submitter/singleSubmitter.ts';
-import { submitBatchProofs } from './submitter/batchSubmitter.ts';
-import { startHealthServer } from './server.ts';
-import { setVerbose } from './logger.ts';
-import { SINGLE_SUBMISSION_DELAY_MS } from './constants.ts';
-import { sleep } from './utils/reconnect.ts';
-import type { BlockInfo, HealthStatus, Metrics, SimulatorConfig, TxInfo } from './types.ts';
+import { loadConfig, logConfig } from "./config.ts";
+import { BlockSubscriber } from "./subscribers/blockSubscriber.ts";
+import { AttestationSubscriber } from "./subscribers/attestationSubscriber.ts";
+import { PendingBlockQueue } from "./queue/pendingQueue.ts";
+import { submitSingleProof } from "./submitter/singleSubmitter.ts";
+import { submitBatchProofs } from "./submitter/batchSubmitter.ts";
+import { startHealthServer } from "./server.ts";
+import { setVerbose } from "./logger.ts";
+import { SINGLE_SUBMISSION_DELAY_MS } from "./constants.ts";
+import { sleep } from "./utils/reconnect.ts";
+import type {
+  BlockInfo,
+  HealthStatus,
+  Metrics,
+  SimulatorConfig,
+  TxInfo,
+} from "./types.ts";
 
 // Global state
 let config: SimulatorConfig;
@@ -159,7 +165,7 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
     } catch (error) {
       metrics.proofErrors++;
       lastError = error instanceof Error ? error.message : String(error);
-      console.error('❌ Error processing batch submissions:', lastError);
+      console.error("❌ Error processing batch submissions:", lastError);
     }
   }
 
@@ -171,7 +177,7 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
       metrics.proofsSubmitted++;
     } else {
       metrics.proofErrors++;
-      lastError = result.error ?? 'Unknown error';
+      lastError = result.error ?? "Unknown error";
     }
 
     // Small delay between single submissions
@@ -207,7 +213,7 @@ function selectTxInfosForBlock(block: BlockInfo, useBatch: boolean): TxInfo[] {
 
   console.log(
     `📋 Block ${block.blockNumber}: selected ${txInfos.length} of ${block.txHashes.length} transactions (${
-      useBatch ? 'batch' : 'single'
+      useBatch ? "batch" : "single"
     })`,
   );
 
@@ -254,7 +260,7 @@ async function shutdown(): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
-  console.log('\n⏳ Shutting down gracefully...');
+  console.log("\n⏳ Shutting down gracefully...");
 
   // Stop health server
   try {
@@ -269,7 +275,7 @@ async function shutdown(): Promise<void> {
     attestationSubscriber?.stop(),
   ]);
 
-  console.log('\n📊 Final statistics:');
+  console.log("\n📊 Final statistics:");
   console.log(`   Blocks queued: ${metrics.blocksQueued}`);
   console.log(`   Blocks processed: ${metrics.blocksProcessed}`);
   console.log(`   Proofs submitted: ${metrics.proofsSubmitted}`);
@@ -278,7 +284,7 @@ async function shutdown(): Promise<void> {
   console.log(`   Errors: ${metrics.proofErrors}`);
   console.log(`   Uptime: ${Math.floor((Date.now() - startTime) / 1000)}s`);
 
-  console.log('\n✅ Shutdown complete');
+  console.log("\n✅ Shutdown complete");
   Deno.exit(0);
 }
 
@@ -286,8 +292,8 @@ async function shutdown(): Promise<void> {
  * Main entry point
  */
 async function main(): Promise<void> {
-  console.log('🚀 Proof Traffic Simulator');
-  console.log('==========================\n');
+  console.log("🚀 Proof Traffic Simulator");
+  console.log("==========================\n");
 
   try {
     // Load configuration
@@ -314,29 +320,29 @@ async function main(): Promise<void> {
     );
 
     // Set up signal handlers
-    Deno.addSignalListener('SIGINT', () => {
-      console.log('\nReceived SIGINT');
+    Deno.addSignalListener("SIGINT", () => {
+      console.log("\nReceived SIGINT");
       shutdown();
     });
 
-    Deno.addSignalListener('SIGTERM', () => {
-      console.log('\nReceived SIGTERM');
+    Deno.addSignalListener("SIGTERM", () => {
+      console.log("\nReceived SIGTERM");
       shutdown();
     });
 
     // Start subscribers
-    console.log('\n🔄 Starting subscribers...\n');
+    console.log("\n🔄 Starting subscribers...\n");
     await Promise.all([
       blockSubscriber.start(),
       attestationSubscriber.start(),
     ]);
 
-    console.log('\n✅ Simulator running. Press Ctrl+C to stop.\n');
+    console.log("\n✅ Simulator running. Press Ctrl+C to stop.\n");
 
     // Keep process running
     await new Promise(() => {});
   } catch (error) {
-    console.error('❌ Fatal error:', error);
+    console.error("❌ Fatal error:", error);
     await shutdown();
     Deno.exit(1);
   }

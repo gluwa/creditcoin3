@@ -4,14 +4,14 @@
  * Subscribes to new blocks via WebSocket and notifies when blocks are received.
  */
 
-import { WebSocketProvider } from 'ethers';
-import type { BlockInfo } from '../types.ts';
-import { BaseSubscriber } from './baseSubscriber.ts';
+import { WebSocketProvider } from "ethers";
+import type { BlockInfo } from "../types.ts";
+import { BaseSubscriber } from "./baseSubscriber.ts";
 
 export type BlockCallback = (block: BlockInfo) => void | Promise<void>;
 
 export class BlockSubscriber extends BaseSubscriber {
-  protected readonly name = 'source chain';
+  protected readonly name = "source chain";
   private provider: WebSocketProvider | null = null;
   private onBlock: BlockCallback;
   private rpcUrl: string;
@@ -32,7 +32,7 @@ export class BlockSubscriber extends BaseSubscriber {
       console.log(`✅ Connected to source chain (chainId: ${network.chainId})`);
       this.resetReconnectAttempts();
 
-      this.provider.on('block', async (blockNumber: number) => {
+      this.provider.on("block", async (blockNumber: number) => {
         try {
           await this.handleBlock(blockNumber);
         } catch (error) {
@@ -40,12 +40,12 @@ export class BlockSubscriber extends BaseSubscriber {
         }
       });
 
-      this.provider.on('error', async (error: Error) => {
-        console.error('Source chain provider error:', error);
+      this.provider.on("error", async (error: Error) => {
+        console.error("Source chain provider error:", error);
         if (this.isRunning) await this.reconnect();
       });
     } catch (error) {
-      console.error('Failed to connect to source chain:', error);
+      console.error("Failed to connect to source chain:", error);
       if (this.isRunning) await this.reconnect();
     }
   }
@@ -67,9 +67,9 @@ export class BlockSubscriber extends BaseSubscriber {
         }
       } else if (Array.isArray(block.transactions)) {
         for (const tx of block.transactions) {
-          if (typeof tx === 'string') {
+          if (typeof tx === "string") {
             txHashes.push(tx);
-          } else if (tx && typeof tx === 'object' && 'hash' in tx) {
+          } else if (tx && typeof tx === "object" && "hash" in tx) {
             const hash = (tx as { hash?: string }).hash;
             if (hash) txHashes.push(hash);
           }

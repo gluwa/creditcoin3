@@ -2,13 +2,13 @@
  * Base subscriber class with common reconnection logic
  */
 
-import { MAX_RECONNECT_ATTEMPTS } from '../constants.ts';
+import { MAX_RECONNECT_ATTEMPTS } from "../constants.ts";
 import {
   getReconnectDelay,
   logReconnectAttempt,
   logReconnectFailed,
   sleep,
-} from '../utils/reconnect.ts';
+} from "../utils/reconnect.ts";
 
 export abstract class BaseSubscriber {
   protected isRunning = false;

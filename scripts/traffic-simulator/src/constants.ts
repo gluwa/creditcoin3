@@ -33,10 +33,10 @@ export const BATCH_PROOF_GAS_LIMIT = 10_000_000n;
 export const MIN_PRIORITY_FEE_GWEI = 1n;
 
 // Precompile address
-export const PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
+export const PRECOMPILE_ADDRESS = "0x0000000000000000000000000000000000000FD2";
 
 // Function signatures
 export const SINGLE_VERIFY_SIG =
-  'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))';
+  "verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))";
 export const BATCH_VERIFY_SIG =
-  'verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))';
+  "verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))";

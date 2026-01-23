@@ -4,14 +4,14 @@
  * Subscribes to BlockAttested and CheckpointReached events via WebSocket.
  */
 
-import { ApiPromise, WsProvider } from '@polkadot/api';
-import { MAX_VALID_BLOCK_NUMBER } from '../constants.ts';
-import { BaseSubscriber } from './baseSubscriber.ts';
+import { ApiPromise, WsProvider } from "@polkadot/api";
+import { MAX_VALID_BLOCK_NUMBER } from "../constants.ts";
+import { BaseSubscriber } from "./baseSubscriber.ts";
 
 export type AttestationCallback = (blockNumber: number) => void | Promise<void>;
 
 export class AttestationSubscriber extends BaseSubscriber {
-  protected readonly name = 'CC3';
+  protected readonly name = "CC3";
   private api: ApiPromise | null = null;
   private provider: WsProvider | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -19,7 +19,11 @@ export class AttestationSubscriber extends BaseSubscriber {
   private chainKey: number;
   private onAttested: AttestationCallback;
 
-  constructor(wsUrl: string, chainKey: number, onAttested: AttestationCallback) {
+  constructor(
+    wsUrl: string,
+    chainKey: number,
+    onAttested: AttestationCallback,
+  ) {
     super();
     this.wsUrl = wsUrl;
     this.chainKey = chainKey;
@@ -32,13 +36,13 @@ export class AttestationSubscriber extends BaseSubscriber {
 
       this.provider = new WsProvider(this.wsUrl);
 
-      this.provider.on('error', async () => {
-        console.error('CC3 WebSocket error');
+      this.provider.on("error", async () => {
+        console.error("CC3 WebSocket error");
         if (this.isRunning) await this.reconnect();
       });
 
-      this.provider.on('disconnected', async () => {
-        console.warn('CC3 WebSocket disconnected');
+      this.provider.on("disconnected", async () => {
+        console.warn("CC3 WebSocket disconnected");
         if (this.isRunning) await this.reconnect();
       });
 
@@ -57,7 +61,7 @@ export class AttestationSubscriber extends BaseSubscriber {
         this.handleEvents(events);
       })) as unknown as () => void;
     } catch (error) {
-      console.error('Failed to connect to Creditcoin3:', error);
+      console.error("Failed to connect to Creditcoin3:", error);
       if (this.isRunning) await this.reconnect();
     }
   }
@@ -68,10 +72,10 @@ export class AttestationSubscriber extends BaseSubscriber {
     }>;
 
     for (const { event } of eventRecords) {
-      if (event.section === 'attestation') {
-        if (event.method === 'BlockAttested') {
+      if (event.section === "attestation") {
+        if (event.method === "BlockAttested") {
           this.handleBlockAttested(event.data);
-        } else if (event.method === 'CheckpointReached') {
+        } else if (event.method === "CheckpointReached") {
           this.handleCheckpointReached(event.data);
         }
       }
@@ -84,40 +88,52 @@ export class AttestationSubscriber extends BaseSubscriber {
       const headerNumber = this.toNumber(data[1]);
 
       if (eventChainKey === this.chainKey) {
-        console.log(`📢 BlockAttested: block ${headerNumber} on chain ${eventChainKey}`);
+        console.log(
+          `📢 BlockAttested: block ${headerNumber} on chain ${eventChainKey}`,
+        );
         this.onAttested(headerNumber);
       }
     } catch (error) {
-      console.error('Error parsing BlockAttested event:', error);
+      console.error("Error parsing BlockAttested event:", error);
     }
   }
 
   private handleCheckpointReached(data: unknown[]): void {
     try {
       const eventChainKey = this.toNumber(data[0]);
-      const checkpoint = data[1] as { block_number?: number; blockNumber?: number };
+      const checkpoint = data[1] as {
+        block_number?: number;
+        blockNumber?: number;
+      };
       const blockNumber = checkpoint.block_number ?? checkpoint.blockNumber;
 
       if (eventChainKey === this.chainKey && blockNumber !== undefined) {
         if (blockNumber > MAX_VALID_BLOCK_NUMBER) {
-          console.warn(`Ignoring invalid checkpoint block number: ${blockNumber}`);
+          console.warn(
+            `Ignoring invalid checkpoint block number: ${blockNumber}`,
+          );
           return;
         }
-        console.log(`📢 CheckpointReached: block ${blockNumber} on chain ${eventChainKey}`);
+        console.log(
+          `📢 CheckpointReached: block ${blockNumber} on chain ${eventChainKey}`,
+        );
         this.onAttested(blockNumber);
       }
     } catch (error) {
-      console.error('Error parsing CheckpointReached event:', error);
+      console.error("Error parsing CheckpointReached event:", error);
     }
   }
 
   private toNumber(value: unknown): number {
-    if (typeof value === 'number') return value;
-    if (typeof value === 'bigint') return Number(value);
-    if (typeof value === 'object' && value !== null) {
-      const codec = value as { toNumber?: () => number; toBigInt?: () => bigint };
-      if (typeof codec.toNumber === 'function') return codec.toNumber();
-      if (typeof codec.toBigInt === 'function') return Number(codec.toBigInt());
+    if (typeof value === "number") return value;
+    if (typeof value === "bigint") return Number(value);
+    if (typeof value === "object" && value !== null) {
+      const codec = value as {
+        toNumber?: () => number;
+        toBigInt?: () => bigint;
+      };
+      if (typeof codec.toNumber === "function") return codec.toNumber();
+      if (typeof codec.toBigInt === "function") return Number(codec.toBigInt());
     }
     return Number(value);
   }

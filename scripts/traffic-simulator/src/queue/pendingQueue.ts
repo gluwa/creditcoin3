@@ -5,7 +5,7 @@
  * but are waiting for attestation on Creditcoin3.
  */
 
-import type { BlockInfo } from '../types.ts';
+import type { BlockInfo } from "../types.ts";
 
 /**
  * Queue for managing pending blocks waiting for attestation

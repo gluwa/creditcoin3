@@ -4,10 +4,10 @@
  * Handles submission of individual proofs to the precompile.
  */
 
-import type { SimulatorConfig, TxInfo } from '../types.ts';
-import { fetchAndSubmitProof } from './proofUtils.ts';
-import { withContinuityRetry } from '../utils/retry.ts';
-import { sleep } from '../utils/reconnect.ts';
+import type { SimulatorConfig, TxInfo } from "../types.ts";
+import { fetchAndSubmitProof } from "./proofUtils.ts";
+import { withContinuityRetry } from "../utils/retry.ts";
+import { sleep } from "../utils/reconnect.ts";
 
 /**
  * Submit a single proof for a transaction
@@ -35,7 +35,11 @@ export async function submitSingleProof(
       label,
     );
 
-    console.log(`✅ Proof submitted: ${result.txHash.slice(0, 10)}... (gas: ${result.gasUsed})`);
+    console.log(
+      `✅ Proof submitted: ${
+        result.txHash.slice(0, 10)
+      }... (gas: ${result.gasUsed})`,
+    );
     return { success: true };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
