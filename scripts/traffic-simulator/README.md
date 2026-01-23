@@ -27,9 +27,9 @@ deno task dev -- \
 # Production run
 deno task start -- \
   --source-rpc wss://sepolia.infura.io/ws/v3/YOUR_KEY \
-  --cc3-ws wss://rpc.ccnext.creditcoin.network \
+  --cc3-ws wss://rpc.usc-testnet2.creditcoin.network \
   --private-key 0x... \
-  --api-url http://proof-gen-api:3100
+  --api-url https://proof-gen-api.usc-testnet2.creditcoin.network
 ```
 
 ## Configuration
@@ -46,7 +46,7 @@ deno task start -- \
 | `--chain-key`         | Source chain key (Sepolia: 1)             | `1`                     |
 | `--max-queue-size`    | Max blocks to track in queue              | `100`                   |
 | `--batch-size`        | Max batch size (random 1..N, max 10)      | `10`                    |
-| `--batch-probability` | Probability of batch mode                 | `0.3`                   |
+| `--batch-probability` | Probability of batch mode                 | `0.5`                   |
 | `--single-every`      | Submit a single proof once every N blocks | `1`                     |
 | `--health-port`       | Health check port                         | `8080`                  |
 | `--verbose`           | Enable verbose debug logging              | `false`                 |
@@ -62,7 +62,7 @@ deno task start -- \
 | `PROOF_API_URL`       | Proof generation API                      | `http://localhost:3100` |
 | `CHAIN_KEY`           | Source chain key (1=Sepolia on testnet)   | `1`                     |
 | `BATCH_SIZE`          | Max batch size (random 1..N, max 10)      | `10`                    |
-| `BATCH_PROBABILITY`   | Probability of batch mode                 | `0.3`                   |
+| `BATCH_PROBABILITY`   | Probability of batch mode                 | `0.5`                   |
 | `SINGLE_EVERY_BLOCKS` | Submit a single proof once every N blocks | `1`                     |
 | `LOG_VERBOSE`         | Enable verbose debug logging              | `false`                 |
 | `HEALTH_PORT`         | Health check port                         | `8080`                  |
@@ -93,9 +93,9 @@ docker build -t gluwa/proof-traffic-simulator:latest .
 ```bash
 docker run -d \
   -e SOURCE_RPC_URL=wss://sepolia.infura.io/ws/v3/YOUR_KEY \
-  -e CC3_WS_URL=wss://rpc.ccnext.creditcoin.network \
+  -e CC3_WS_URL=wss://rpc.usc-testnet2.creditcoin.network\
   -e CC3_PRIVATE_KEY=0x... \
-  -e PROOF_API_URL=http://proof-gen-api:3100 \
+  -e PROOF_API_URL=https://proof-gen-api.usc-testnet2.creditcoin.network \
   -p 8080:8080 \
   gluwa/proof-traffic-simulator:latest
 ```
