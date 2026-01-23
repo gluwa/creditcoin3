@@ -18,6 +18,9 @@ pub enum IndexerError {
     #[error("Invalid hex string for {field}: {error}")]
     InvalidHex { field: String, error: String },
 
+    #[error("Failed to parse {field} as integer: {error}")]
+    ParseInt { field: String, error: String },
+
     #[error("Missing required field: {0}")]
     MissingField(String),
 

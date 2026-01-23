@@ -190,6 +190,10 @@ pub struct AttestationMetadataResponseData {
 }
 
 /// Checkpoints in range response data
+///
+/// Note: This structure separates checkpoints before and after the query because
+/// the GraphQL query uses different ordering for each (DESC for before, ASC for after).
+/// The checkpoints are immediately combined into a single vector when used.
 #[derive(Deserialize)]
 pub struct CheckpointsInRangeData {
     #[serde(rename = "checkpointsBefore")]

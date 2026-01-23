@@ -7,7 +7,6 @@
 //! - `common/`: Shared utilities
 
 use super::ContinuityBuilder;
-use crate::builder::EndsInAttestation;
 use crate::errors::ContinuityError;
 use crate::proof::BuiltContinuityProof;
 use indexer_client::AttestationWithProof;
@@ -153,11 +152,7 @@ impl ContinuityBuilder {
         &self,
         query_heights: &[u64],
         current_block: Option<u64>,
-    ) -> ContinuityResult<(
-        AttestationWithProof,
-        AttestationWithProof,
-        EndsInAttestation,
-    )> {
+    ) -> ContinuityResult<(AttestationWithProof, AttestationWithProof)> {
         // Find the query range
         let min_query = *query_heights
             .iter()
@@ -171,7 +166,7 @@ impl ContinuityBuilder {
         // Try to use indexer for attestation lookups if available
         use crate::builder::bounds::{BoundsFinder, Cc3BoundsFinder, IndexerBoundsFinder};
 
-        let (lower, upper, ends_in_attestation) = if let Some(ref indexer) = self.indexer_provider {
+        let (lower, upper) = if let Some(ref indexer) = self.indexer_provider {
             let finder = IndexerBoundsFinder::new(self, indexer.as_ref());
             finder
                 .find_bounds(min_query, max_query, current_block)
@@ -183,7 +178,7 @@ impl ContinuityBuilder {
                 .await?
         };
 
-        Ok((lower, upper, ends_in_attestation))
+        Ok((lower, upper))
     }
 
     /// Validate that a predicted upper bound block exists on the source chain.

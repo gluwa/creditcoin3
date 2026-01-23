@@ -68,8 +68,10 @@ impl ContinuityBuilder {
 
             // OPTIMIZATION: If we have a query height (min_needed), fetch checkpoints around it
             // instead of fetching all checkpoints
+            // Use checkpoint_block_interval * 10 to handle cases where historical
+            // checkpoint intervals were much larger than the current interval.
             if let Some(query_height) = min_needed {
-                let max_range = self.config.checkpoint_block_interval() * 2;
+                let max_range = self.config.checkpoint_block_interval() * 10;
                 if let Ok(checkpoints) = indexer
                     .get_checkpoints_around_height(self.config.chain_key, query_height, max_range)
                     .await
@@ -173,7 +175,7 @@ pub async fn fetch_continuity_proof(
         .await?;
 
     let builder = ContinuityBuilder::new(config).await?;
-    let (lower_attestation, upper_attestation, _) = builder.get_endpoints(&[height], None).await?;
+    let (lower_attestation, upper_attestation) = builder.get_endpoints(&[height], None).await?;
     let proof = builder
         .build_for_single_query(height, lower_attestation, upper_attestation)
         .await?;
@@ -202,8 +204,7 @@ pub async fn fetch_continuity_proof_batch(
 
     let builder = ContinuityBuilder::new(config).await?;
 
-    let (lower_attestation, upper_attestation, _) =
-        builder.get_endpoints(query_heights, None).await?;
+    let (lower_attestation, upper_attestation) = builder.get_endpoints(query_heights, None).await?;
     let proof = builder
         .build_for_batch_queries(query_heights, lower_attestation, upper_attestation)
         .await?;

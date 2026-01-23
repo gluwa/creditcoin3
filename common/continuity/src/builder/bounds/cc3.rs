@@ -4,7 +4,7 @@
 //! This is slower than using the indexer but works when no indexer is available.
 
 use super::BoundsFinder;
-use crate::builder::{ContinuityBuilder, EndsInAttestation};
+use crate::builder::ContinuityBuilder;
 use crate::errors::ContinuityError;
 use async_trait::async_trait;
 use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
@@ -31,14 +31,7 @@ impl<'a> BoundsFinder for Cc3BoundsFinder<'a> {
         min_query: u64,
         max_query: u64,
         current_block: Option<u64>,
-    ) -> Result<
-        (
-            AttestationWithProof,
-            AttestationWithProof,
-            EndsInAttestation,
-        ),
-        ContinuityError,
-    > {
+    ) -> Result<(AttestationWithProof, AttestationWithProof), ContinuityError> {
         info!(
             chain_key = self.builder.config.chain_key,
             "Fetching attestations from CC3 chain (no indexer)"
@@ -64,14 +57,14 @@ impl<'a> BoundsFinder for Cc3BoundsFinder<'a> {
 
         // Find attestation bounds (handles queries at attestation/checkpoint heights)
         // Checkpoints are fetched lazily only when needed
-        let (lower, upper, ends_in_attestation) = self
+        let (lower, upper) = self
             .find_attestation_bounds(min_query, max_query, &attestations)
             .await
             .map_err(|e| ContinuityError::Rpc(e.to_string()))?;
 
         // If no upper bound exists (block not yet attested), predict the next attestation
-        let (upper, ends_in_attestation) = match upper {
-            Some(u) => (u, ends_in_attestation),
+        let upper = match upper {
+            Some(u) => u,
             None => {
                 let predicted = self.builder.predict_next_attestation(max_query).await?;
                 self.builder.validate_predicted_upper_bound(
@@ -85,11 +78,11 @@ impl<'a> BoundsFinder for Cc3BoundsFinder<'a> {
                     predicted_upper = predicted.block_number,
                     "No attestation found after query block - using predicted upper bound"
                 );
-                (predicted, EndsInAttestation::False)
+                predicted
             }
         };
 
-        Ok((lower, upper, ends_in_attestation))
+        Ok((lower, upper))
     }
 }
 
@@ -103,14 +96,7 @@ impl<'a> Cc3BoundsFinder<'a> {
         min_query: u64,
         max_query: u64,
         attestations: &[SignedAttestation<H256, AccountId32>],
-    ) -> Result<
-        (
-            AttestationWithProof,
-            Option<AttestationWithProof>,
-            EndsInAttestation,
-        ),
-        ContinuityError,
-    > {
+    ) -> Result<(AttestationWithProof, Option<AttestationWithProof>), ContinuityError> {
         let required_before = min_query.saturating_sub(1);
 
         // IMPORTANT: Always fetch checkpoints FIRST before attestations to avoid race condition.
@@ -129,8 +115,7 @@ impl<'a> Cc3BoundsFinder<'a> {
             .await?;
 
         // Find upper bound
-        let (upper_info, ends_in_attestation) =
-            self.find_upper_bound(max_query, attestations, checkpoints.as_deref())?;
+        let upper_info = self.find_upper_bound(max_query, attestations, checkpoints.as_deref())?;
 
         debug!(
             lower_bound = lower_info.block_number,
@@ -141,7 +126,7 @@ impl<'a> Cc3BoundsFinder<'a> {
             "Attestation bounds determined"
         );
 
-        Ok((lower_info, upper_info, ends_in_attestation))
+        Ok((lower_info, upper_info))
     }
 
     async fn find_lower_bound(
@@ -197,14 +182,13 @@ impl<'a> Cc3BoundsFinder<'a> {
         }
     }
 
-    /// Additionally returns a bool indicating whether the upper bound is an attestation `ends_in_attestation`
     /// IMPORTANT: Check checkpoints FIRST before attestations to avoid race condition.
     fn find_upper_bound(
         &self,
         max_query: u64,
         attestations: &[SignedAttestation<H256, AccountId32>],
         checkpoints: Option<&[AttestationCheckpoint]>,
-    ) -> Result<(Option<AttestationWithProof>, EndsInAttestation), ContinuityError> {
+    ) -> Result<Option<AttestationWithProof>, ContinuityError> {
         // Find checkpoint upper bound first (checkpoints are permanent, won't be evicted)
         let checkpoint_upper = checkpoints.and_then(|cps| {
             cps.iter()
@@ -225,14 +209,14 @@ impl<'a> Cc3BoundsFinder<'a> {
         Ok(match (checkpoint_upper, attestation_upper) {
             (Some(c), Some(a)) => {
                 if c.block_number <= a.block_number {
-                    (Some(c), EndsInAttestation::False)
+                    Some(c)
                 } else {
-                    (Some(a), EndsInAttestation::True)
+                    Some(a)
                 }
             }
-            (Some(c), None) => (Some(c), EndsInAttestation::False),
-            (None, Some(a)) => (Some(a), EndsInAttestation::True),
-            (None, None) => (None, EndsInAttestation::False),
+            (Some(c), None) => Some(c),
+            (None, Some(a)) => Some(a),
+            (None, None) => None,
         })
     }
 }

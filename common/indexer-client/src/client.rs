@@ -135,7 +135,9 @@ impl IndexerClient {
         chain_key: u64,
         header_number: Option<u64>,
     ) -> Result<Option<AttestationWithProof>, IndexerError> {
-        let variables = if let Some(header_number) = header_number {
+        // Create variables dynamically based on whether headerNumber is needed
+        // Some queries (like LAST_ATTESTATION_QUERY) don't require headerNumber
+        let variables: serde_json::Value = if let Some(header_number) = header_number {
             serde_json::json!({
                 "chainKey": chain_key.to_string(),
                 "headerNumber": header_number.to_string()
@@ -146,32 +148,11 @@ impl IndexerClient {
             })
         };
 
-        let graphql_query = serde_json::json!({
-            "query": query,
-            "variables": variables
-        });
+        let graphql_query = GraphQLQueryWrapper { query, variables };
 
-        let response = self
-            .client
-            .post(&self.endpoint)
-            .json(&graphql_query)
-            .send()
+        let result = self
+            .execute_graphql_query::<serde_json::Value, ResponseData>(graphql_query)
             .await?;
-
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let body = response.text().await.unwrap_or_else(|_| String::new());
-            return Err(IndexerError::GraphQLRequestFailed { status, body });
-        }
-
-        let result: GraphQLResponse = response.json().await?;
-
-        if let Some(errors) = result.errors {
-            if !errors.is_empty() {
-                let error_msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-                return Err(IndexerError::GraphQLErrors(error_msgs.join(", ")));
-            }
-        }
 
         let Some(data) = result.data else {
             return Ok(None);
@@ -217,23 +198,9 @@ impl IndexerClient {
             },
         };
 
-        let response = self.client.post(&self.endpoint).json(&query).send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let body = response.text().await.unwrap_or_else(|_| String::new());
-            return Err(IndexerError::GraphQLRequestFailed { status, body });
-        }
-
-        let range_result: GraphQLResponseWrapper<AttestationsRangeResponseData> =
-            response.json().await?;
-
-        if let Some(errors) = range_result.errors {
-            if !errors.is_empty() {
-                let error_msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-                return Err(IndexerError::GraphQLErrors(error_msgs.join(", ")));
-            }
-        }
+        let range_result = self
+            .execute_graphql_query::<RangeQueryVariables, AttestationsRangeResponseData>(query)
+            .await?;
 
         let Some(data) = range_result.data else {
             return Ok(Vec::new());

@@ -11,30 +11,7 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust,no_run
-//! use continuity::{ContinuityBuilder, ContinuityConfig};
-//! # async fn example() -> anyhow::Result<()> {
-//!
-//! // Create configuration (automatically fetches checkpoint_interval from CC3 chain)
-//! let config = ContinuityConfig::builder()
-//!     .cc3_rpc_url("wss://rpc.creditcoin.network")
-//!     .eth_rpc_url("https://eth-rpc.example.com")
-//!     .chain_key(1)
-//!     .fetch_checkpoint_interval()
-//!     .await?;
-//!
-//! // Build the continuity builder
-//! let builder = ContinuityBuilder::new(config).await?;
-//!
-//! // Get attestation endpoints and build proof
-//! let query_height = 100;
-//! let (lower, upper, _) = builder.get_endpoints(&[query_height], None).await?;
-//! let proof = builder.build_for_single_query(query_height, lower, upper).await?;
-//!
-//! println!("Generated proof with {} blocks", proof.blocks.len());
-//! # Ok(())
-//! # }
-//! ```
+//! See [`ContinuityBuilder`] for usage examples.
 //!
 //! ## Data Sources
 //!

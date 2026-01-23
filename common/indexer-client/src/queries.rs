@@ -162,6 +162,11 @@ query GetLastCheckpoint($chainKey: BigFloat!) {
 
 /// Query to get checkpoints in a range around a query height
 /// Fetches checkpoints before and after the query to find boundaries
+///
+/// Note: The `checkpointsBefore` filter uses `lessThanOrEqualTo: $minBlock` which could
+/// theoretically match all checkpoints back to genesis. However, `first: 10` combined with
+/// `orderBy: BLOCK_NUMBER_DESC` ensures we only get the 10 most recent checkpoints before
+/// `$minBlock`, which is sufficient for finding the closest checkpoint boundary.
 pub const CHECKPOINTS_IN_RANGE_QUERY: &str = r#"
 query GetCheckpointsInRange($chainKey: BigFloat!, $minBlock: BigFloat!, $maxBlock: BigFloat!) {
     checkpointsBefore: checkpoints(

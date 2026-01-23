@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use crate::services::continuity_service::helpers::*;
 use attestor_primitives::block::ContinuityProof as AttestorContinuityProof;
-use continuity::{builder::EndsInAttestation, CcRpcProvider, ContinuityBuilder};
+use continuity::{CcRpcProvider, ContinuityBuilder};
 use merkle::proof::TransactionMerkleProof;
 
 pub mod helpers;
@@ -190,7 +190,7 @@ impl ContinuityService {
         // Track cache hits/misses based on whether indexer was used
         let (continuity_proof, was_cached) =
             match self.build_continuity(header_number, current_block).await {
-                Ok((proof, _ends_in_attestation, lower_attestation)) => {
+                Ok((proof, lower_attestation)) => {
                     // TODO: ContinuityBuilder handles indexer internally, so we can't easily detect
                     // if indexer was used. For now, we'll always mark as not cached since we're
                     // building fresh proofs (even if they use indexer data internally).

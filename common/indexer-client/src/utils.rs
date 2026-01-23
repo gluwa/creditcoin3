@@ -34,7 +34,10 @@ pub fn parse_attestation_node(
             .as_ref()
             .ok_or_else(|| IndexerError::MissingField("header_number".to_string()))?
             .parse::<u64>()
-            .map_err(|_| IndexerError::MissingField("header_number".to_string()))?
+            .map_err(|e| IndexerError::ParseInt {
+                field: "header_number".to_string(),
+                error: e.to_string(),
+            })?
     };
 
     // Parse metadata
@@ -111,7 +114,10 @@ pub fn parse_attestation_node_full(
     let header_number = node
         .header_number
         .parse::<u64>()
-        .map_err(|_| IndexerError::MissingField("header_number".to_string()))?;
+        .map_err(|e| IndexerError::ParseInt {
+            field: "header_number".to_string(),
+            error: e.to_string(),
+        })?;
 
     // Convert AttestationNodeFull to AttestationNode format for unified parsing
     let node_as_attestation = AttestationNode {
@@ -132,7 +138,7 @@ pub fn parse_checkpoint_node(
     let block_number = node
         .block_number
         .parse::<u64>()
-        .map_err(|e| IndexerError::InvalidHex {
+        .map_err(|e| IndexerError::ParseInt {
             field: "block_number".to_string(),
             error: e.to_string(),
         })?;

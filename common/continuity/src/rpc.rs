@@ -26,18 +26,9 @@ use utils::block_item_traits::BlockItem;
 /// The production implementation delegates to `cc_client::Client`, which uses the
 /// Substrate RPC client to query the CC3 chain.
 ///
-/// # Examples
+/// # Implementation
 ///
-/// ```rust,no_run
-/// # async fn example() -> anyhow::Result<()> {
-/// use continuity::CcRpcProvider;
-/// use cc_client::Client;
-///
-/// let client = Client::new_read_only("wss://rpc.creditcoin.network").await?;
-/// let attestations = client.get_attestations_for_chain(1).await?;
-/// # Ok(())
-/// # }
-/// ```
+/// Implemented by `cc_client::Client`. See the trait methods for usage.
 #[async_trait]
 pub trait CcRpcProvider: Send + Sync {
     /// Fetch all attestations for a chain.
@@ -339,19 +330,6 @@ impl EthRpcProvider for eth::Client {
 /// This allows multiple builders or services to share the same CC3 client,
 /// avoiding duplicate connections.
 ///
-/// # Examples
-///
-/// ```rust,no_run
-/// # async fn example() -> anyhow::Result<()> {
-/// use continuity::SharedCcProvider;
-/// use cc_client::Client;
-/// use std::sync::Arc;
-///
-/// let cc_client = Client::new_read_only("wss://rpc.creditcoin.network").await?;
-/// let shared: SharedCcProvider = Arc::new(cc_client);
-/// # Ok(())
-/// # }
-/// ```
 pub type SharedCcProvider = Arc<dyn CcRpcProvider>;
 
 /// Type alias for a shared (Arc-wrapped) source chain RPC provider.
@@ -359,17 +337,4 @@ pub type SharedCcProvider = Arc<dyn CcRpcProvider>;
 /// This allows multiple builders or services to share the same ETH client,
 /// which is especially useful when block caching is enabled.
 ///
-/// # Examples
-///
-/// ```rust,no_run
-/// # async fn example() -> anyhow::Result<()> {
-/// use continuity::SharedEthProvider;
-/// use eth::Client;
-/// use std::sync::Arc;
-///
-/// let eth_client = Client::new("https://eth-mainnet.infura.io/v3/KEY", None).await?;
-/// let shared: SharedEthProvider = Arc::new(eth_client);
-/// # Ok(())
-/// # }
-/// ```
 pub type SharedEthProvider = Arc<dyn EthRpcProvider>;

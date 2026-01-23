@@ -13,7 +13,6 @@ mod indexer;
 pub use cc3::Cc3BoundsFinder;
 pub use indexer::IndexerBoundsFinder;
 
-use crate::builder::EndsInAttestation;
 use crate::errors::ContinuityError;
 use async_trait::async_trait;
 use indexer_client::AttestationWithProof;
@@ -29,18 +28,10 @@ pub trait BoundsFinder {
     /// Returns:
     /// - Lower bound: Attestation/checkpoint at or before `min_query - 1`
     /// - Upper bound: Attestation/checkpoint after `max_query`
-    /// - `EndsInAttestation`: Whether the upper bound is an actual attestation
     async fn find_bounds(
         &self,
         min_query: u64,
         max_query: u64,
         current_block: Option<u64>,
-    ) -> Result<
-        (
-            AttestationWithProof,
-            AttestationWithProof,
-            EndsInAttestation,
-        ),
-        ContinuityError,
-    >;
+    ) -> Result<(AttestationWithProof, AttestationWithProof), ContinuityError>;
 }

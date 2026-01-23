@@ -4,7 +4,7 @@
 //! This is faster than querying the CC3 chain directly.
 
 use super::BoundsFinder;
-use crate::builder::{ContinuityBuilder, EndsInAttestation};
+use crate::builder::ContinuityBuilder;
 use crate::errors::ContinuityError;
 use async_trait::async_trait;
 use indexer_client::{AttestationWithProof, IndexerClient};
@@ -29,14 +29,7 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
         min_query: u64,
         max_query: u64,
         current_block: Option<u64>,
-    ) -> Result<
-        (
-            AttestationWithProof,
-            AttestationWithProof,
-            EndsInAttestation,
-        ),
-        ContinuityError,
-    > {
+    ) -> Result<(AttestationWithProof, AttestationWithProof), ContinuityError> {
         info!(
             chain_key = self.builder.config.chain_key,
             min_query, max_query, "Using indexer for attestation endpoint lookup"
@@ -60,8 +53,10 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
                 Vec::new()
             } else {
                 // Query is before or at last checkpoint - fetch checkpoints around query height
-                // Use checkpoint_block_interval * 2 as the range to ensure we get boundaries
-                let max_range = self.builder.config.checkpoint_block_interval() * 2;
+                // Use checkpoint_block_interval * 10 as the range to ensure we get boundaries
+                // even if historical checkpoint intervals were much larger than the current interval.
+                // The GraphQL query limits results to 10 checkpoints per direction, so this is safe.
+                let max_range = self.builder.config.checkpoint_block_interval() * 10;
                 self.indexer
                     .get_checkpoints_around_height(
                         self.builder.config.chain_key,
@@ -106,7 +101,6 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
             return Ok((
                 AttestationWithProof::from_checkpoint(&cp_before),
                 AttestationWithProof::from_checkpoint(&cp_after),
-                EndsInAttestation::False,
             ));
         }
 
@@ -139,7 +133,7 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
                     upper_bound = u.block_number,
                     "Found attestation bounds via indexer"
                 );
-                Ok((lower, u, EndsInAttestation::True))
+                Ok((lower, u))
             }
             None => {
                 // No upper attestation found - predict next one
@@ -155,7 +149,7 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
                     predicted_upper = predicted.block_number,
                     "Using predicted upper bound (no attestation found after query)"
                 );
-                Ok((lower, predicted, EndsInAttestation::False))
+                Ok((lower, predicted))
             }
         }
     }

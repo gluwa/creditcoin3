@@ -150,7 +150,9 @@ impl ContinuityBuilder {
         min_query: u64,
     ) -> ContinuityResult<Option<Vec<AttestationCheckpoint>>> {
         if let Some(ref indexer) = self.indexer_provider {
-            let max_range = self.config.checkpoint_block_interval() * 2;
+            // Use checkpoint_block_interval * 10 to handle cases where historical
+            // checkpoint intervals were much larger than the current interval.
+            let max_range = self.config.checkpoint_block_interval() * 10;
             Ok(Some(
                 indexer
                     .get_checkpoints_around_height(self.config.chain_key, min_query, max_range)
