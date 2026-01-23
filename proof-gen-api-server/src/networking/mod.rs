@@ -40,7 +40,12 @@ pub fn build_app(service: Arc<ContinuityService>, chain_key: u64, metrics: Metri
             get(continuity::get_proofs_by_tx_hash),
         )
         .layer(Extension(service))
-        .layer(Extension(metrics))
+        // Request metrics middleware - tracks count, duration, and sizes
+        // Note: Extension(metrics) must be AFTER (outer) the middleware so it's available
+        .layer(axum::middleware::from_fn(
+            middleware::request_metrics_middleware,
+        ))
+        .layer(Extension(metrics.clone()))
         .layer(axum::middleware::from_fn_with_state(
             chain_key,
             move |request: axum::extract::Request, next: axum::middleware::Next| {

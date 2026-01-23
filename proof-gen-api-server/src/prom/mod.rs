@@ -28,18 +28,30 @@ pub trait GetErrorType {
 /// Trait defining the metrics interface.
 /// Implemented by both `ProofGenMetrics` (real metrics) and `NoopMetrics` (no-op for testing).
 pub trait MetricsTrait: Send + Sync + Debug {
+    // Request metrics
+    fn inc_request(&self, endpoint: Endpoint, status: Status);
+    fn observe_request_duration(&self, endpoint: Endpoint, duration: Duration);
+    fn observe_request_size(&self, endpoint: Endpoint, bytes: u64);
+    fn observe_response_size(&self, endpoint: Endpoint, bytes: u64);
+
+    // Cache metrics
     fn inc_cache_hit(&self);
     fn inc_cache_miss(&self);
     fn inc_cache_invalidation(&self);
+
+    // Error metrics
     fn inc_error(&self, error_type: ErrorType);
+
+    // Proof generation metrics
     fn observe_proof_generation(&self, proof_type: ProofType, duration: Duration, success: bool);
     fn observe_proof_blocks(&self, count: u64);
-    fn observe_request_size(&self, endpoint: Endpoint, bytes: u64);
-    fn observe_response_size(&self, endpoint: Endpoint, bytes: u64);
     fn observe_merkle_generation(&self, duration: Duration);
     fn set_proofs_stored(&self, count: i64);
     fn set_last_proof_generation_timestamp(&self, timestamp_secs: f64);
     fn observe_proof_age(&self, age: Duration);
+
+    // Business metrics
+    fn observe_block_range(&self, block: u64);
 }
 
 /// Metrics type alias for use throughout the codebase.
@@ -57,10 +69,21 @@ impl NoopMetrics {
 }
 
 impl MetricsTrait for NoopMetrics {
+    // Request metrics
+    fn inc_request(&self, _endpoint: Endpoint, _status: Status) {}
+    fn observe_request_duration(&self, _endpoint: Endpoint, _duration: Duration) {}
+    fn observe_request_size(&self, _endpoint: Endpoint, _bytes: u64) {}
+    fn observe_response_size(&self, _endpoint: Endpoint, _bytes: u64) {}
+
+    // Cache metrics
     fn inc_cache_hit(&self) {}
     fn inc_cache_miss(&self) {}
     fn inc_cache_invalidation(&self) {}
+
+    // Error metrics
     fn inc_error(&self, _error_type: ErrorType) {}
+
+    // Proof generation metrics
     fn observe_proof_generation(
         &self,
         _proof_type: ProofType,
@@ -69,12 +92,13 @@ impl MetricsTrait for NoopMetrics {
     ) {
     }
     fn observe_proof_blocks(&self, _count: u64) {}
-    fn observe_request_size(&self, _endpoint: Endpoint, _bytes: u64) {}
-    fn observe_response_size(&self, _endpoint: Endpoint, _bytes: u64) {}
     fn observe_merkle_generation(&self, _duration: Duration) {}
     fn set_proofs_stored(&self, _count: i64) {}
     fn set_last_proof_generation_timestamp(&self, _timestamp_secs: f64) {}
     fn observe_proof_age(&self, _age: Duration) {}
+
+    // Business metrics
+    fn observe_block_range(&self, _block: u64) {}
 }
 
 /// Comprehensive metrics for the proof-gen-api-server.
@@ -331,23 +355,41 @@ impl ProofGenMetrics {
         }
         // Note: start_time_seconds is set once at init, no periodic update needed
     }
+}
 
-    // === Request Metrics ===
-
-    pub fn inc_request(&self, endpoint: Endpoint, status: Status) {
+impl MetricsTrait for ProofGenMetrics {
+    // Request metrics
+    fn inc_request(&self, endpoint: Endpoint, status: Status) {
         self.requests
             .get_or_create(&LabelRequest { endpoint, status })
             .inc();
     }
 
-    pub fn observe_request_duration(&self, endpoint: Endpoint, duration: Duration) {
+    fn observe_request_duration(&self, endpoint: Endpoint, duration: Duration) {
         self.request_duration
             .get_or_create(&LabelEndpoint { endpoint })
             .observe(duration.as_secs_f64());
     }
-}
 
-impl MetricsTrait for ProofGenMetrics {
+    fn observe_request_size(&self, endpoint: Endpoint, bytes: u64) {
+        self.transfer_size_bytes
+            .get_or_create(&LabelTransfer {
+                endpoint,
+                direction: Direction::Request,
+            })
+            .observe(bytes as f64);
+    }
+
+    fn observe_response_size(&self, endpoint: Endpoint, bytes: u64) {
+        self.transfer_size_bytes
+            .get_or_create(&LabelTransfer {
+                endpoint,
+                direction: Direction::Response,
+            })
+            .observe(bytes as f64);
+    }
+
+    // Cache metrics
     fn inc_cache_hit(&self) {
         self.cache
             .get_or_create(&LabelCacheResult {
@@ -372,10 +414,12 @@ impl MetricsTrait for ProofGenMetrics {
             .inc();
     }
 
+    // Error metrics
     fn inc_error(&self, error_type: ErrorType) {
         self.errors.get_or_create(&LabelError { error_type }).inc();
     }
 
+    // Proof generation metrics
     fn observe_proof_generation(&self, proof_type: ProofType, duration: Duration, success: bool) {
         self.proof_generation_duration
             .get_or_create(&LabelProofType {
@@ -396,24 +440,6 @@ impl MetricsTrait for ProofGenMetrics {
         self.proof_blocks.observe(count as f64);
     }
 
-    fn observe_request_size(&self, endpoint: Endpoint, bytes: u64) {
-        self.transfer_size_bytes
-            .get_or_create(&LabelTransfer {
-                endpoint,
-                direction: Direction::Request,
-            })
-            .observe(bytes as f64);
-    }
-
-    fn observe_response_size(&self, endpoint: Endpoint, bytes: u64) {
-        self.transfer_size_bytes
-            .get_or_create(&LabelTransfer {
-                endpoint,
-                direction: Direction::Response,
-            })
-            .observe(bytes as f64);
-    }
-
     fn observe_merkle_generation(&self, duration: Duration) {
         self.merkle_generation_duration
             .observe(duration.as_secs_f64());
@@ -429,6 +455,11 @@ impl MetricsTrait for ProofGenMetrics {
 
     fn observe_proof_age(&self, age: Duration) {
         self.proof_age_seconds.observe(age.as_secs_f64());
+    }
+
+    // Business metrics
+    fn observe_block_range(&self, block: u64) {
+        self.block_range.observe(block as f64);
     }
 }
 
