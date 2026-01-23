@@ -12,7 +12,6 @@ mod anvil_integration {
     use anyhow::Result;
     use axum::Router;
     use continuity::{ContinuityBuilder, ContinuityConfig};
-    use proof_gen_api_server::prom::NoopMetrics;
     use proof_gen_api_server::{build_app, ContinuityService};
     use serde_json::Value;
     use std::sync::Arc;

@@ -207,7 +207,7 @@ impl Server {
         );
 
         // Build axum application
-        let app = build_app(service, self.config.chain_key);
+        let app = build_app(service, self.config.chain_key, self.metrics.clone());
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
 
         // Parse bind address properly to support both IPv4 and IPv6

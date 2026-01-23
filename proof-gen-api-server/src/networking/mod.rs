@@ -9,13 +9,14 @@ use tower_http::{
 };
 use tracing::Level;
 
+use crate::prom::Metrics;
 use crate::services::continuity_service::ContinuityService;
 use routes::{continuity, health};
 
 pub mod middleware;
 pub mod routes;
 
-pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
+pub fn build_app(service: Arc<ContinuityService>, chain_key: u64, metrics: Metrics) -> Router {
     // Configure CORS to allow browser-based applications to access the API
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -39,6 +40,7 @@ pub fn build_app(service: Arc<ContinuityService>, chain_key: u64) -> Router {
             get(continuity::get_proofs_by_tx_hash),
         )
         .layer(Extension(service))
+        .layer(Extension(metrics))
         .layer(axum::middleware::from_fn_with_state(
             chain_key,
             move |request: axum::extract::Request, next: axum::middleware::Next| {
