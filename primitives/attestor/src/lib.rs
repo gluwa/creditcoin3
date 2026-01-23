@@ -98,7 +98,7 @@ impl BlsPublicKeyWrapper {
     }
 }
 
-#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Encode, Decode, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "std", derive(Hash))]
 pub struct AttestorId(AccountId32);
 
