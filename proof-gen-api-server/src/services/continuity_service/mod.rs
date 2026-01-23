@@ -188,38 +188,46 @@ impl ContinuityService {
 
         // ContinuityBuilder will automatically use indexer if available
         // Track cache hits/misses based on whether indexer was used
-        let (continuity_proof, was_cached) =
-            match self.build_continuity(header_number, current_block).await {
-                Ok((proof, lower_attestation)) => {
-                    // TODO: ContinuityBuilder handles indexer internally, so we can't easily detect
-                    // if indexer was used. For now, we'll always mark as not cached since we're
-                    // building fresh proofs (even if they use indexer data internally).
-                    // Track this in JIRA: [TODO: Add JIRA ticket number]
-                    let cached = false;
-                    if cached {
-                        self.cache_hits.fetch_add(1, Ordering::Relaxed);
-                    } else {
-                        self.cache_misses.fetch_add(1, Ordering::Relaxed);
-                    }
-
-                    // Convert BuiltContinuityProof to attestor_primitives::ContinuityProof
-                    // Uses smart conversion that handles trimmed proofs and attestation context
-                    let attestor_proof = proof
-                        .to_attestor_proof_with_attestation_context(lower_attestation.digest)
-                        .unwrap_or_default();
-
-                    tracing::info!(
-                        proof_block_count = proof.blocks.len(),
-                        lower_endpoint_digest = ?attestor_proof.lower_endpoint_digest,
-                        first_block_number = proof.blocks.first().map(|b| b.block_number),
-                        last_block_number = proof.blocks.last().map(|b| b.block_number),
-                        last_block_digest = ?proof.blocks.last().map(|b| b.digest),
-                        "Converting continuity proof for API response"
-                    );
-                    (attestor_proof, cached)
+        let (continuity_proof, was_cached) = match self
+            .build_continuity(header_number, current_block)
+            .await
+        {
+            Ok((proof, lower_attestation)) => {
+                // TODO: ContinuityBuilder handles indexer internally, so we can't easily detect
+                // if indexer was used. For now, we'll always mark as not cached since we're
+                // building fresh proofs (even if they use indexer data internally).
+                // Track this in JIRA: [TODO: Add JIRA ticket number]
+                let cached = false;
+                if cached {
+                    self.cache_hits.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    self.cache_misses.fetch_add(1, Ordering::Relaxed);
                 }
-                Err(e) => return Err(e),
-            };
+
+                // Convert BuiltContinuityProof to attestor_primitives::ContinuityProof
+                // Uses smart conversion that handles trimmed proofs and attestation context
+                let attestor_proof = proof
+                        .to_attestor_proof_with_attestation_context(lower_attestation.digest)
+                        .ok_or_else(|| ServiceError::Internal {
+                            message: format!(
+                                "Failed to convert continuity proof to attestor proof format. Proof has {} blocks, lower_attestation digest: {:?}",
+                                proof.blocks.len(),
+                                lower_attestation.digest
+                            ),
+                        })?;
+
+                tracing::info!(
+                    proof_block_count = proof.blocks.len(),
+                    lower_endpoint_digest = ?attestor_proof.lower_endpoint_digest,
+                    first_block_number = proof.blocks.first().map(|b| b.block_number),
+                    last_block_number = proof.blocks.last().map(|b| b.block_number),
+                    last_block_digest = ?proof.blocks.last().map(|b| b.digest),
+                    "Converting continuity proof for API response"
+                );
+                (attestor_proof, cached)
+            }
+            Err(e) => return Err(e),
+        };
 
         match tx_index {
             Some(idx) => {

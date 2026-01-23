@@ -12,7 +12,7 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "proof-gen-api-server"
-path = "bin/proof-gen-server.rs"
+path = "bin/server.rs"
 
 [lints.clippy]
 cast_possible_wrap = "allow"
