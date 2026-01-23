@@ -169,12 +169,15 @@ impl IndexerClient {
             if let Some(block_number) = header_number {
                 // parse_attestation_node will use the actual headerNumber from the node when header_number is None
                 let parsed = parse_attestation_node(attestation, None)?;
-                assert!(
-                    parsed.block_number > block_number,
-                    "Attestation headerNumber ({}) should be > block_number ({})",
-                    parsed.block_number,
-                    block_number
-                );
+                if parsed.block_number <= block_number {
+                    return Err(IndexerError::InvalidIndexerData {
+                        message: format!(
+                            "Attestation headerNumber ({}) should be > block_number ({}), but indexer returned invalid data",
+                            parsed.block_number,
+                            block_number
+                        ),
+                    });
+                }
                 return Ok(Some(parsed));
             }
         }

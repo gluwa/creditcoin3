@@ -35,4 +35,7 @@ pub enum IndexerError {
 
     #[error("Failed to build HTTP client: {0}")]
     ClientBuild(String),
+
+    #[error("Invalid indexer data: {message}")]
+    InvalidIndexerData { message: String },
 }
