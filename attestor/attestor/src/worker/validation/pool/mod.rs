@@ -1890,38 +1890,6 @@ mod test {
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
-    async fn attestation_pool_sanity_basic(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationVote,
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_1])]
-        attestation_1: AttestationVote,
-        #[from(quorum)]
-        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
-        quorum: Quorum,
-        #[from(permit)]
-        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
-        permit: AttestationPermit,
-        config: Config,
-    ) {
-        use futures::stream::StreamExt as _;
-
-        let (sx, mut rx) = attestation_pool(config);
-
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
-
-        let actual = rx.next().await;
-        let expected = Some((quorum, permit, None));
-
-        assert_eq!(actual, expected);
-    }
-
-    #[tokio::test]
-    #[rstest::rstest]
-    #[timeout(TIMEOUT)]
     async fn attestation_pool_sanity_mark_valid(
         _logs: (),
         #[from(attestation)]
@@ -1964,45 +1932,6 @@ mod test {
             inner.digest_local,
             Some(cc_client::H256(attestation_1.attestation.digest().0))
         );
-    }
-
-    #[tokio::test]
-    #[rstest::rstest]
-    #[timeout(TIMEOUT)]
-    async fn attestation_pool_sanity_pending(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 1, DIGEST_1)]
-        attestation_pending: AttestationVote,
-        config: Config,
-    ) {
-        use crate::events::EventAttestationFinalization as _;
-
-        let (mut sx, rx) = attestation_pool(config);
-
-        assert!(sx
-            .send(attestation_pending.attestation.clone())
-            .unwrap()
-            .is_ok());
-
-        {
-            let mut pool = rx.common.pool.lock();
-            let inner = pool.expect_open();
-            let pending = inner.forks.pending.get(&PrevDigestTail(DIGEST_1)).unwrap();
-
-            assert_eq!(inner.forks.pending_count, 1);
-            assert_eq!(&pending[0], &attestation_pending.attestation);
-        }
-
-        sx.note_attestation_finalization((DIGEST_1, 0)).unwrap();
-
-        {
-            let mut pool = rx.common.pool.lock();
-            let inner = pool.expect_open();
-            let vote = AttestationVote::new(attestation_pending.attestation.clone());
-
-            assert_eq!(inner.forks.forks_best.clone().unwrap(), vote);
-        }
     }
 
     #[tokio::test]
@@ -2096,6 +2025,45 @@ mod test {
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
+    async fn attestation_pool_sanity_pending(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 1, DIGEST_1)]
+        attestation_pending: AttestationVote,
+        config: Config,
+    ) {
+        use crate::events::EventAttestationFinalization as _;
+
+        let (mut sx, rx) = attestation_pool(config);
+
+        assert!(sx
+            .send(attestation_pending.attestation.clone())
+            .unwrap()
+            .is_ok());
+
+        {
+            let mut pool = rx.common.pool.lock();
+            let inner = pool.expect_open();
+            let pending = inner.forks.pending.get(&PrevDigestTail(DIGEST_1)).unwrap();
+
+            assert_eq!(inner.forks.pending_count, 1);
+            assert_eq!(&pending[0], &attestation_pending.attestation);
+        }
+
+        sx.note_attestation_finalization((DIGEST_1, 0)).unwrap();
+
+        {
+            let mut pool = rx.common.pool.lock();
+            let inner = pool.expect_open();
+            let vote = AttestationVote::new(attestation_pending.attestation.clone());
+
+            assert_eq!(inner.forks.forks_best.clone().unwrap(), vote);
+        }
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
     async fn attestation_pool_sanity_err_invalid_attestor(
         #[with([ATTESTOR_INVALID])] attestation: AttestationVote,
         config: Config,
@@ -2143,6 +2111,88 @@ mod test {
         tokio_test::assert_pending!(fut.poll());
         sx.close();
         tokio_test::assert_ready_eq!(fut.poll(), None);
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_quorum_basic(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1])]
+        attestation_1: AttestationVote,
+        #[from(quorum)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
+        quorum: Quorum,
+        #[from(permit)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
+        permit: AttestationPermit,
+        config: Config,
+    ) {
+        use futures::stream::StreamExt as _;
+
+        let (sx, mut rx) = attestation_pool(config);
+
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+
+        let actual = rx.next().await;
+        let expected = Some((quorum, permit, None));
+
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_quorum_highest(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1])]
+        attestation_1: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_2])]
+        attestation_2: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 100)]
+        attestation_3: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1], 100)]
+        attestation_4: AttestationVote,
+        #[from(quorum)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 100)]
+        quorum: Quorum,
+        #[from(permit)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 100)]
+        permit: AttestationPermit,
+        config: Config,
+    ) {
+        use futures::stream::StreamExt as _;
+
+        let (sx, mut rx) = attestation_pool(config);
+
+        // Source chain height 0
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+
+        // Source chain height 100
+        assert!(sx.send(attestation_3.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_4.attestation.clone()).unwrap().is_ok());
+
+        // NOTE: even though quorum 1 has LESS votes, it still passes the quorum threshold of 2.
+        // The attestation pool always favors the HIGHEST quorum so as to improve catchup speed.
+
+        let actual = rx.next().await;
+        let expected = Some((quorum, permit, None));
+
+        assert_eq!(actual, expected);
     }
 
     #[tokio::test]
