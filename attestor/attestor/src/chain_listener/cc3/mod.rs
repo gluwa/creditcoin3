@@ -241,11 +241,6 @@ impl CC3 {
     ) -> Option<
         Result<attestor_primitives::attestation_fragment::AttestationFragmentSerializable, Error>,
     > {
-        use futures::FutureExt as _;
-        use rayon::iter::IndexedParallelIterator as _;
-        use rayon::iter::IntoParallelIterator as _;
-        use rayon::iter::ParallelIterator as _;
-
         // ------------------------------------* Range checks *------------------------------------
 
         let (from_digest, block_start) = match latest_attestation_cc3 {

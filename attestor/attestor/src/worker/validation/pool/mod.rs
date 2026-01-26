@@ -437,7 +437,7 @@ impl AttestationPoolInner {
         self.digest_local = Some(cc_client::H256::from(digest.0));
     }
 
-    fn mark_invalid(&mut self, AttestationPermit((height, digest)): AttestationPermit) {
+    fn mark_invalid(&mut self, AttestationPermit((_height, digest)): AttestationPermit) {
         self.forks.pop(digest);
     }
 
@@ -1590,7 +1590,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for ValidateQuorum {
     async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: Option<common::types::Height>,
+        _attestation_latest_cc3: Option<common::types::Height>,
     ) -> Result<(), Self::Error> {
         tracing::debug!("Updating quorum validation");
         self.attestation_interval = interval_new;
@@ -1741,7 +1741,7 @@ pub mod fixtures {
                         prev_digest: Some(prev_digest),
                         ..Default::default()
                     },
-                    attestor: attestor,
+                    attestor,
                     signature: Default::default(),
                     signature_bls: attestor_primitives::bls::WrapEncode(
                         bls_signatures::PrivateKey::new(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -2148,6 +2148,7 @@ mod test {
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
+    #[allow(clippy::too_many_arguments)]
     async fn attestation_pool_quorum_highest(
         _logs: (),
         #[from(attestation)]
