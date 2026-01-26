@@ -12,14 +12,17 @@ WORKDIR /app
 
 # Copy dependency files first for optimal layer caching
 # These change less frequently than source code
-COPY --chown=deno:deno deno.json ./
-COPY --chown=deno:deno deno.lock* ./
+COPY --chown=deno:deno scripts/traffic-simulator/deno.json ./
+COPY --chown=deno:deno scripts/traffic-simulator/deno.lock* ./
 
 # Cache dependencies (fail on error to catch dependency issues early)
 RUN deno cache --reload deno.json
 
 # Copy application source code
-COPY --chown=deno:deno src/ ./src/
+COPY --chown=deno:deno scripts/traffic-simulator/src/ ./src/
+
+# Copy ABI file that the symlink points to (symlinks don't work across Docker context boundaries)
+COPY --chown=deno:deno precompiles/metadata/abi/block_prover.json ./src/abi/block_prover.json
 
 RUN deno cache src/main.ts
 

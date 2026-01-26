@@ -84,8 +84,10 @@ The simulator exposes health check endpoints on port 8080:
 
 ### Build
 
+Currently can only be built from the root of the repository:
+
 ```bash
-docker build -t gluwa/proof-traffic-simulator:latest .
+docker build -f scripts/traffic-simulator/Dockerfile -t gluwa/proof-traffic-simulator .
 ```
 
 ### Run

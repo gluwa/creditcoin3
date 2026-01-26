@@ -74,10 +74,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Extract Deno version from Dockerfile
+        id: deno_version
+        working-directory: ${{ matrix.directory }}
+        run: |
+          # Extract version from "FROM denoland/deno:X.Y.Z" line
+          VERSION=$(grep "^FROM denoland/deno:" Dockerfile | sed 's/.*denoland\/deno://' | tr -d '[:space:]')
+          if [ -z "$VERSION" ]; then
+            echo "Error: Could not extract Deno version from Dockerfile"
+            exit 1
+          fi
+          echo "version=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "Extracted Deno version: v${VERSION}"
+
       - name: Install Deno
         uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          deno-version: ${{ steps.deno_version.outputs.version }}
 
       - name: Run deno task ${{ matrix.command }}
         working-directory: ${{ matrix.directory }}

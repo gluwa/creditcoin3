@@ -20,6 +20,7 @@ updates:
       - "/cc3-indexer"
       - "/cc3-indexer/postgres"
       - "/proof-gen-api-server"
+      - "/scripts/traffic-simulator"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
