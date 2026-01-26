@@ -15,3 +15,5 @@ e0d2b9cca696d82e85dae9f9a6b4805ae54ddd93:chainspecs/testnetSpec.json:generic-api
 b63df652a827251d7731161b0473da1381458e73:ccnextTestnetSpec.json:generic-api-key:270
 c66285b87c7714e0e461e658751ed406bc1ccac9:ccnextTestnetSpec.json:generic-api-key:270
 7eec5943af758060c1ddbbecf665722d57762477:chainspecs/devnetSpec.json:generic-api-key:292
+eae6d5e849c6f43f910fd7f67bb0120e84031efd:scripts/traffic-simulator/src/config.ts:generic-api-key:272
+78d2fdad809bb06ca5033ab21df1a50f96cfda3c:scripts/traffic-simulator/src/config.ts:generic-api-key:313
