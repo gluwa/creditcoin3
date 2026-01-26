@@ -433,6 +433,7 @@ impl AttestationPoolInner {
 
     fn mark_valid(&mut self, AttestationPermit((height, digest)): AttestationPermit) {
         self.forks.split_off(height);
+        self.forks.forks_best = self.forks.find_best();
         self.digest_local = Some(cc_client::H256::from(digest.0));
     }
 
@@ -491,7 +492,10 @@ struct AttestationPoolForks {
 
     quorums_by_height: std::collections::BTreeSet<KeyHeight>,
 
-    pending: std::collections::BTreeMap<PrevDigestTail, Vec<common::types::Attestation>>,
+    pending: std::collections::BTreeMap<
+        PrevDigestTail,
+        std::collections::VecDeque<common::types::Attestation>,
+    >,
     pending_count: usize,
 
     votes_invalid: std::collections::BTreeSet<KeyDigest>,
@@ -543,26 +547,6 @@ impl AttestationPoolForks {
             return Err(Error::InvalidDigest(attestor, height, digest));
         }
 
-        tracing::debug!("Checking for equivocations");
-
-        let key_vote = KeyVote {
-            height,
-            attestor: attestor.clone(),
-        };
-        match self.votes_valid.entry(key_vote) {
-            std::collections::btree_map::Entry::Vacant(entry) => {
-                entry.insert(digest);
-            }
-            std::collections::btree_map::Entry::Occupied(entry) => {
-                let digest_vote = entry.get();
-                if &digest == digest_vote {
-                    return Ok(Vec::new());
-                } else {
-                    return Err(Error::Equivocation(attestor, height));
-                }
-            }
-        }
-
         tracing::debug!("Making sure there is enough space for insertion");
 
         let Ok(removed) = self.try_evict_if_necessary(digest) else {
@@ -576,7 +560,41 @@ impl AttestationPoolForks {
             .tail()
             .map(|tail| tail.prev_digest);
 
-        if prev_digest_tail != self.last_finalized_digest {
+        let key_vote = KeyVote {
+            height,
+            attestor: attestor.clone(),
+        };
+
+        if prev_digest_tail == self.last_finalized_digest {
+            tracing::debug!("Checking for equivocations");
+
+            match self.votes_valid.entry(key_vote) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(digest);
+                }
+                std::collections::btree_map::Entry::Occupied(entry) => {
+                    let digest_vote = entry.get();
+                    if &digest == digest_vote {
+                        return Ok(Vec::new());
+                    } else {
+                        return Err(Error::Equivocation(attestor, height));
+                    }
+                }
+            }
+        } else {
+            tracing::debug!("Checking for equivocations");
+
+            if let std::collections::btree_map::Entry::Occupied(entry) =
+                self.votes_valid.entry(key_vote)
+            {
+                let digest_vote = entry.get();
+                if &digest == digest_vote {
+                    return Ok(Vec::new());
+                } else {
+                    return Err(Error::Equivocation(attestor, height));
+                }
+            }
+
             tracing::warn!(
                 last_finalized_digest = ?self.last_finalized_digest,
                  prev_digest_tail = ?prev_digest_tail,
@@ -591,7 +609,7 @@ impl AttestationPoolForks {
                 self.pending
                     .entry(PrevDigestTail(digest))
                     .or_default()
-                    .push(attestation);
+                    .push_front(attestation);
                 self.pending_count += 1;
             }
 
@@ -662,6 +680,17 @@ impl AttestationPoolForks {
             );
         }
 
+        if self.forks_best.as_ref().is_none_or(|best| {
+            if self.validate_quorum.validate(best) {
+                self.validate_quorum.validate(&vote_new)
+                    && vote_new.attestation.header_number() > best.attestation.header_number()
+            } else {
+                vote_new.signers.len() > best.signers.len()
+            }
+        }) {
+            self.forks_best = Some(vote_new.clone());
+        }
+
         assert!(
             self.forks_by_digest.insert(digest, vote_new).is_none(),
             "Duplicate mapping in forks_by_digest"
@@ -705,8 +734,8 @@ impl AttestationPoolForks {
             "Missing mapping in forks_by_size"
         );
         assert!(
-            !self.quorums_by_height.contains(&key_height),
-            "Dulpicate mapping in quorums_by_height"
+            self.quorums_by_height.remove(&key_height),
+            "Missing mapping in quorums_by_height"
         );
         assert!(
             self.votes_invalid.insert(key_digest),
@@ -733,11 +762,6 @@ impl AttestationPoolForks {
             size: 0,
             digest: digest_min,
         };
-        let key_size = KeySize {
-            size: 0,
-            height: split,
-            digest: digest_min,
-        };
         let key_digest = KeyDigest {
             height: split,
             digest: digest_min,
@@ -750,14 +774,29 @@ impl AttestationPoolForks {
         let after_by_height = self.forks_by_height.split_off(&key_height);
         let removed_by_height = std::mem::replace(&mut self.forks_by_height, after_by_height);
 
-        for KeyHeight { digest, .. } in removed_by_height {
+        for KeyHeight {
+            digest,
+            height,
+            size,
+        } in removed_by_height
+        {
+            let key_size = KeySize {
+                size,
+                height,
+                digest,
+            };
+
+            tracing::error!(%digest, "REMOVING DIGEST");
+
+            assert!(
+                self.forks_by_size.remove(&key_size),
+                "Missing mapping in forks_by_size"
+            );
+
             self.forks_by_digest
                 .remove(&digest)
                 .expect("Missing mapping in forks_by_digest");
         }
-
-        let after_by_size = self.forks_by_size.split_off(&key_size);
-        let _removed_by_size = std::mem::replace(&mut self.forks_by_size, after_by_size);
 
         let after_quorums = self.quorums_by_height.split_off(&key_height);
         let _removed_quorums = std::mem::replace(&mut self.quorums_by_height, after_quorums);
@@ -774,12 +813,7 @@ impl AttestationPoolForks {
             "Invalid forks_by_digest length"
         );
         assert_eq!(
-            self.votes_valid.len(),
             self.forks_by_height.len(),
-            "Invalid forks_by_height length"
-        );
-        assert_eq!(
-            self.votes_valid.len(),
             self.forks_by_size.len(),
             "Invalid forks_by_size length"
         );
@@ -787,8 +821,6 @@ impl AttestationPoolForks {
             self.votes_valid.len() >= self.quorums_by_height.len(),
             "Invalid quorums_by_height length"
         );
-
-        self.forks_best = self.find_best();
     }
 
     fn find_best(&self) -> Option<AttestationVote> {
@@ -825,7 +857,7 @@ impl AttestationPoolForks {
             assert!(self.pending_count > 0, "Invalid pending_count");
             assert!(!pending.is_empty(), "Invalid mapping in pending");
 
-            let vote = pending.pop().expect("Checked above");
+            let vote = pending.pop_back().expect("Checked above");
             self.pending_count -= 1;
 
             if pending.is_empty() {
@@ -911,6 +943,7 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolForks {
         tracing::debug!("Updating forks");
 
         self.split_off(height);
+        self.last_finalized_digest = Some(digest);
 
         if let Some(pending) = self.pending.remove(&PrevDigestTail(digest)) {
             self.pending_count -= pending.len();
@@ -920,7 +953,7 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolForks {
             }
         }
 
-        self.last_finalized_digest = Some(digest);
+        self.forks_best = self.find_best();
 
         Ok(())
     }
@@ -1700,46 +1733,44 @@ pub mod fixtures {
     ) -> AttestationVote {
         let mut iter = attestors.into_iter();
 
-        let attestation = common::types::Attestation {
-            attestation_data: attestor_primitives::AttestationData {
-                header_number,
-                prev_digest: Some(prev_digest),
-                ..Default::default()
-            },
-            attestor: iter.next().unwrap(),
-            signature: Default::default(),
-            signature_bls: attestor_primitives::bls::WrapEncode(
-                bls_signatures::PrivateKey::new(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-                    .sign(b"0xdeadbeef"),
-            ),
-            continuity_proof: Default::default(),
-            epoch: 0,
-        };
-
-        iter.fold(
-            AttestationVote {
-                votes: vec![attestation.clone()],
-                signers: std::collections::HashSet::from([attestation.attestor.clone()]),
-                attestation,
-            },
-            |mut attestation, attestor| {
-                attestation.votes.push(common::types::Attestation {
+        let attestation =
+            move |attestor: attestor_primitives::AttestorId| -> common::types::Attestation {
+                common::types::Attestation {
                     attestation_data: attestor_primitives::AttestationData {
                         header_number,
                         prev_digest: Some(prev_digest),
                         ..Default::default()
                     },
-                    attestor: attestor.clone(),
+                    attestor: attestor,
                     signature: Default::default(),
                     signature_bls: attestor_primitives::bls::WrapEncode(
                         bls_signatures::PrivateKey::new(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
                             .sign(b"0xdeadbeef"),
                     ),
-                    continuity_proof: Default::default(),
+                    continuity_proof:
+                        attestor_primitives::attestation_fragment::AttestationFragmentSerializable {
+                            blocks: vec![attestor_primitives::block::BlockSerializable {
+                                block_number: header_number,
+                                root: attestor_primitives::Digest::default(),
+                                prev_digest,
+                                digest: attestor_primitives::Digest::default(),
+                            }],
+                        },
                     epoch: 0,
-                });
-                attestation.signers.insert(attestor);
-                attestation
+                }
+            };
+
+        let attestor = iter.next().unwrap();
+        iter.fold(
+            AttestationVote {
+                votes: vec![attestation(attestor.clone())],
+                signers: std::collections::HashSet::from([attestor.clone()]),
+                attestation: attestation(attestor),
+            },
+            |mut vote, attestor| {
+                vote.votes.push(attestation(attestor.clone()));
+                vote.signers.insert(attestor);
+                vote
             },
         )
     }
@@ -1924,7 +1955,11 @@ mod test {
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
 
-        assert!(!inner.forks.forks_by_height.contains_key(&0));
+        assert!(!inner.forks.forks_by_height.contains(&KeyHeight {
+            height: 0,
+            size: 2,
+            digest: DIGEST_0
+        }));
         assert_eq!(
             inner.digest_local,
             Some(cc_client::H256(attestation_1.attestation.digest().0))
@@ -1941,7 +1976,7 @@ mod test {
         attestation_pending: AttestationVote,
         config: Config,
     ) {
-        use crate::events::EventAttestationFinalizationAsync as _;
+        use crate::events::EventAttestationFinalization as _;
 
         let (mut sx, rx) = attestation_pool(config);
 
@@ -1953,15 +1988,13 @@ mod test {
         {
             let mut pool = rx.common.pool.lock();
             let inner = pool.expect_open();
-            let pending = inner.forks.pending.get(&DIGEST_1).unwrap();
+            let pending = inner.forks.pending.get(&PrevDigestTail(DIGEST_1)).unwrap();
 
             assert_eq!(inner.forks.pending_count, 1);
             assert_eq!(&pending[0], &attestation_pending.attestation);
         }
 
-        sx.note_attestation_finalization_async((DIGEST_1, 0))
-            .await
-            .unwrap();
+        sx.note_attestation_finalization((DIGEST_1, 0)).unwrap();
 
         {
             let mut pool = rx.common.pool.lock();
@@ -2003,12 +2036,10 @@ mod test {
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
 
-        assert!(inner
-            .forks
-            .forks_invalid
-            .get(&0)
-            .unwrap()
-            .contains(&attestation_0.attestation.digest()));
+        assert!(inner.forks.votes_invalid.contains(&KeyDigest {
+            height: attestation_0.attestation.header_number(),
+            digest: attestation_0.attestation.digest()
+        }));
     }
 
     #[tokio::test]
@@ -2158,6 +2189,18 @@ mod test {
 
         assert!(inner.forks.pending.is_empty());
         assert_eq!(inner.forks.pending_count, 0);
+        assert_eq!(inner.forks.forks_by_height.len(), 1);
+        assert_eq!(inner.forks.forks_by_size.len(), 1);
+        assert!(inner.forks.forks_by_height.contains(&KeyHeight {
+            height: 0,
+            size: 2,
+            digest: attestation_0.attestation.digest()
+        }));
+        assert!(inner.forks.forks_by_size.contains(&KeySize {
+            size: 2,
+            height: 0,
+            digest: attestation_0.attestation.digest()
+        }));
     }
 
     #[tokio::test]
@@ -2207,18 +2250,6 @@ mod test {
             let inner = pool.expect_open();
 
             assert_eq!(inner.forks.forks_by_size.len(), 2);
-            assert_eq!(inner.forks.forks_by_size.get(&1).unwrap().len(), 1);
-            assert_eq!(
-                &inner
-                    .forks
-                    .forks_by_size
-                    .get(&1)
-                    .unwrap()
-                    .get(&attestation_2.attestation.digest())
-                    .unwrap()
-                    .attestation,
-                &attestation_2.attestation.clone()
-            );
         }
 
         assert_eq!(
@@ -2234,8 +2265,22 @@ mod test {
                 .forks
                 .forks_by_digest
                 .contains_key(&attestation_2.attestation.digest()));
+            assert!(inner
+                .forks
+                .forks_by_digest
+                .contains_key(&attestation_3.attestation.digest()));
+            assert_eq!(inner.forks.forks_by_height.len(), 1);
             assert_eq!(inner.forks.forks_by_size.len(), 1);
-            assert_eq!(inner.forks.forks_by_height.get(&0).unwrap().len(), 1);
+            assert!(inner.forks.forks_by_height.contains(&KeyHeight {
+                height: 0,
+                size: 3,
+                digest: attestation_0.attestation.digest()
+            }));
+            assert!(inner.forks.forks_by_size.contains(&KeySize {
+                size: 3,
+                height: 0,
+                digest: attestation_0.attestation.digest()
+            }));
         }
     }
 
@@ -2281,8 +2326,18 @@ mod test {
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
 
+        assert_eq!(inner.forks.forks_by_height.len(), 1);
         assert_eq!(inner.forks.forks_by_size.len(), 1);
-        assert_eq!(inner.forks.max_size.get(), 2);
+        assert!(inner.forks.forks_by_height.contains(&KeyHeight {
+            height: 0,
+            size: 3,
+            digest: attestation_0.attestation.digest()
+        }));
+        assert!(inner.forks.forks_by_size.contains(&KeySize {
+            size: 3,
+            height: 0,
+            digest: attestation_0.attestation.digest()
+        }));
     }
 
     #[tokio::test]
@@ -2332,9 +2387,17 @@ mod test {
 
         assert_eq!(inner.forks.forks_by_size.len(), 1);
         assert_eq!(inner.forks.forks_by_digest.len(), 1);
-        assert_eq!(inner.forks.forks_by_height.get(&0).unwrap().len(), 1);
-        assert_eq!(inner.forks.votes_valid.get(&0).unwrap().len(), 2);
-        assert_eq!(inner.forks.votes_count, 2);
+        assert_eq!(inner.forks.votes_valid.len(), 2);
+        assert!(inner.forks.forks_by_height.contains(&KeyHeight {
+            height: 0,
+            size: 2,
+            digest: attestation_0.attestation.digest()
+        }));
+        assert!(inner.forks.forks_by_size.contains(&KeySize {
+            size: 2,
+            height: 0,
+            digest: attestation_0.attestation.digest()
+        }));
     }
 
     #[tokio::test]
