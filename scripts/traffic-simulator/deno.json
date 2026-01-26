@@ -8,12 +8,13 @@
     "test": "deno test --allow-net --allow-env --allow-read",
     "lint": "deno lint",
     "fmt": "deno fmt",
+    "fmt-check": "deno fmt --check",
     "check": "deno check src/main.ts"
   },
   "imports": {
-    "@polkadot/api": "npm:@polkadot/api@^14.0.0",
-    "@polkadot/util-crypto": "npm:@polkadot/util-crypto@^13.0.0",
-    "ethers": "npm:ethers@^6.13.0",
+    "@polkadot/api": "npm:@polkadot/api@16.5.2",
+    "@polkadot/util-crypto": "npm:@polkadot/util-crypto@^13.5.8",
+    "ethers": "npm:ethers@^6.16.0",
     "@std/cli/": "jsr:@std/cli@^1.0.0/"
   },
   "compilerOptions": {

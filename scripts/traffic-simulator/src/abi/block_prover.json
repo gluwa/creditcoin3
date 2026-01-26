@@ -1,0 +1,327 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint64",
+        "name": "chainKey",
+        "type": "uint64"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint64",
+        "name": "height",
+        "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "transactionIndex",
+        "type": "uint64"
+      }
+    ],
+    "name": "TransactionVerified",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chainKey",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64[]",
+        "name": "heights",
+        "type": "uint64[]"
+      },
+      {
+        "internalType": "bytes[]",
+        "name": "encodedTransactions",
+        "type": "bytes[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "hash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bool",
+                "name": "isLeft",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
+            "name": "siblings",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.MerkleProof[]",
+        "name": "merkleProofs",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "lowerEndpointDigest",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32[]",
+            "name": "roots",
+            "type": "bytes32[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.ContinuityProof",
+        "name": "sharedContinuityProof",
+        "type": "tuple"
+      }
+    ],
+    "name": "verify",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chainKey",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "height",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bytes",
+        "name": "encodedTransaction",
+        "type": "bytes"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "hash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bool",
+                "name": "isLeft",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
+            "name": "siblings",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.MerkleProof",
+        "name": "merkleProof",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "lowerEndpointDigest",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32[]",
+            "name": "roots",
+            "type": "bytes32[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.ContinuityProof",
+        "name": "continuityProof",
+        "type": "tuple"
+      }
+    ],
+    "name": "verify",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chainKey",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "height",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bytes",
+        "name": "encodedTransaction",
+        "type": "bytes"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "hash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bool",
+                "name": "isLeft",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
+            "name": "siblings",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.MerkleProof",
+        "name": "merkleProof",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "lowerEndpointDigest",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32[]",
+            "name": "roots",
+            "type": "bytes32[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.ContinuityProof",
+        "name": "continuityProof",
+        "type": "tuple"
+      }
+    ],
+    "name": "verifyAndEmit",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chainKey",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64[]",
+        "name": "heights",
+        "type": "uint64[]"
+      },
+      {
+        "internalType": "bytes[]",
+        "name": "encodedTransactions",
+        "type": "bytes[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "hash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bool",
+                "name": "isLeft",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
+            "name": "siblings",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.MerkleProof[]",
+        "name": "merkleProofs",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "lowerEndpointDigest",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32[]",
+            "name": "roots",
+            "type": "bytes32[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.ContinuityProof",
+        "name": "sharedContinuityProof",
+        "type": "tuple"
+      }
+    ],
+    "name": "verifyAndEmit",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

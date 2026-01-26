@@ -1,34 +1,35 @@
-# Proof Traffic Simulator Dockerfile
-# Uses Deno runtime for native TypeScript support
+FROM denoland/deno:2.6.6
 
-FROM denoland/deno:2.1.4
+ENV DENO_DIR=/deno-dir
 
-# Set working directory
+# Create directories and set ownership before switching to non-root user
+RUN mkdir -p /deno-dir /app && chown -R deno:deno /deno-dir /app
+
+# Drop privileges ASAP for security
+USER deno
+
 WORKDIR /app
 
-# Copy Deno configuration and lock file first for better caching
-COPY deno.json ./
-COPY deno.lock* ./
+# Copy dependency files first for optimal layer caching
+# These change less frequently than source code
+COPY --chown=deno:deno deno.json ./
+COPY --chown=deno:deno deno.lock* ./
 
-# Cache dependencies by running a dummy import
-# This layer will be cached unless deno.json changes
-RUN deno cache --reload deno.json || true
+# Cache dependencies (fail on error to catch dependency issues early)
+RUN deno cache --reload deno.json
 
-# Copy source code
-COPY src/ ./src/
+# Copy application source code
+COPY --chown=deno:deno src/ ./src/
 
-# Cache the main application
 RUN deno cache src/main.ts
-
-# Create non-root user (deno image already has this)
-USER deno
 
 # Expose health check port
 EXPOSE 8080
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
   CMD deno eval --allow-net "const r = await fetch('http://localhost:8080/health'); Deno.exit(r.ok ? 0 : 1);"
 
-# Run the simulator with required permissions
-CMD ["run", "--allow-net", "--allow-env", "--allow-read", "src/main.ts"]
+# Use ENTRYPOINT to allow CLI arguments to be passed when running the container
+# Usage: docker run <image> --source-rpc <url> --private-key <key> ...
+ENTRYPOINT ["deno", "run", "--allow-net", "--allow-env", "--allow-read", "src/main.ts"]
+CMD []

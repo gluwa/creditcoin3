@@ -12,6 +12,8 @@ name: typescript-checks
       - '**package.json'
       - '**package-lock.json'
       - '**yarn.lock'
+      - '**deno.json'
+      - '**deno.lock'
       - '.github/workflows/typescript-checks.yml'
   workflow_dispatch:
 
@@ -77,13 +79,6 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Run deno ${{ matrix.command }}
+      - name: Run deno task ${{ matrix.command }}
         working-directory: ${{ matrix.directory }}
-        run: |
-          if [ "${{ matrix.command }}" = "check" ]; then
-            deno check src/main.ts
-          elif [ "${{ matrix.command }}" = "fmt-check" ]; then
-            deno fmt --check
-          else
-            deno ${{ matrix.command }}
-          fi
+        run: deno task ${{ matrix.command }}

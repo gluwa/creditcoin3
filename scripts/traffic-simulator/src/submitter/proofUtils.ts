@@ -19,7 +19,7 @@ import {
   SINGLE_VERIFY_SIG,
 } from "../constants.ts";
 import { sleep } from "../utils/reconnect.ts";
-import PRECOMPILE_ABI from "../../../../precompiles/metadata/abi/block_prover.json" with {
+import PRECOMPILE_ABI from "../abi/block_prover.json" with {
   type: "json",
 };
 
