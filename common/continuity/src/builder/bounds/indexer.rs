@@ -84,10 +84,11 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
             .max_by_key(|c| c.block_number)
             .cloned();
 
-        // Find checkpoint at or after query (smallest checkpoint >= min_query)
+        // Find checkpoint at or after query (smallest checkpoint >= max_query)
+        // CRITICAL: Use max_query (not min_query) to ensure bounds cover entire query range
         let checkpoint_after = checkpoints
             .iter()
-            .filter(|c| c.block_number >= min_query)
+            .filter(|c| c.block_number >= max_query)
             .min_by_key(|c| c.block_number)
             .cloned();
 

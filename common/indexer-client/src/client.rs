@@ -11,8 +11,8 @@ use crate::utils::{parse_attestation_node, parse_attestation_node_full, parse_ch
 
 /// Timeout for HTTP requests (30 seconds)
 const REQUEST_TIMEOUT_SECS: u64 = 30;
-/// Connection timeout for HTTP requests (12 seconds)
-const CONNECT_TIMEOUT_SECS: u64 = 12;
+/// Connection timeout for HTTP requests (10 seconds)
+const CONNECT_TIMEOUT_SECS: u64 = 10;
 
 /// Client for querying the CC3 attestations indexer GraphQL API.
 pub struct IndexerClient {
