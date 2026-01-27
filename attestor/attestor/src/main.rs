@@ -108,7 +108,7 @@ impl Config {
         let parallelism = match std::thread::available_parallelism()
             .expect("Failed to retrieve available parallelism")
             .get()
-            .checked_sub(attestor::prelude::WORKER_COUNT + 1)
+            .checked_sub(common::constants::WORKER_COUNT + 1)
         {
             Some(parallelism) => parallelism,
             None => {

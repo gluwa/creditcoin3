@@ -199,7 +199,6 @@ impl CancellationMonitor {
         worker: W,
     ) -> std::thread::JoinHandle<common::types::Result<()>> {
         let handle = std::sync::Arc::clone(&self.notify);
-        let shutdown = std::sync::Arc::clone(&self.notify);
 
         std::thread::spawn(move || {
             // TODO: properly handle this error
@@ -220,7 +219,6 @@ impl CancellationMonitor {
                 // To avoid this, we pin the `Notified` future to a stable address in memory and
                 // keep re-using it across `select`s.
                 let res = worker.task(Box::pin(handle.notified())).await;
-                shutdown.notify_waiters();
                 res
             })
         })

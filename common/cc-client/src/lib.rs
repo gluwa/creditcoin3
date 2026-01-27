@@ -609,7 +609,7 @@ impl Client {
     pub async fn chain_checkpoint_interval(
         &self,
         chain_key: ChainKey,
-    ) -> Result<Option<u32>, Error> {
+    ) -> Result<Option<u64>, Error> {
         let storage_query = cc3::storage()
             .attestation()
             .attestation_checkpoint_interval(chain_key);
@@ -621,7 +621,8 @@ impl Client {
             .at_latest()
             .await?
             .fetch(&storage_query)
-            .await?;
+            .await?
+            .map(Into::into);
 
         Ok(result)
     }

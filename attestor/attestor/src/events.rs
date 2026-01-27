@@ -1,5 +1,23 @@
 use crate::prelude::*;
 
+pub trait EventAttestationProductionAsync {
+    type Error;
+
+    async fn note_attestation_production_async(
+        &mut self,
+        attestation_latest_eth: (attestor_primitives::Digest, common::types::Height),
+    ) -> Result<(), Self::Error>;
+}
+
+pub trait EventAttestationProduction: EventAttestationProductionAsync {
+    fn note_attestation_production(
+        &mut self,
+        attestation_latest_eth: (attestor_primitives::Digest, common::types::Height),
+    ) -> Result<(), Self::Error> {
+        poll_sync_future(self.note_attestation_production_async(attestation_latest_eth))
+    }
+}
+
 pub trait EventAttestationFinalizationAsync {
     type Error;
 
@@ -36,6 +54,28 @@ pub trait EventAttestationIntervalChange: EventAttestationIntervalChangeAsync {
     ) -> Result<(), Self::Error> {
         poll_sync_future(
             self.note_attestation_interval_change_async(interval_new, attestation_latest_cc3),
+        )
+    }
+}
+
+pub trait EventCheckpointIntervalChangeAsync {
+    type Error;
+
+    async fn note_checkpoint_interval_change_async(
+        &mut self,
+        interval_new: std::num::NonZero<common::types::Height>,
+        attestation_latest_cc3: Option<common::types::Height>,
+    ) -> Result<(), Self::Error>;
+}
+
+pub trait EventCheckpointIntervalChange: EventCheckpointIntervalChangeAsync {
+    fn note_checkpoint_interval_change(
+        &mut self,
+        interval_new: std::num::NonZero<common::types::Height>,
+        attestation_latest_cc3: Option<common::types::Height>,
+    ) -> Result<(), Self::Error> {
+        poll_sync_future(
+            self.note_checkpoint_interval_change_async(interval_new, attestation_latest_cc3),
         )
     }
 }

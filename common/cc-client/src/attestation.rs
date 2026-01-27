@@ -50,8 +50,8 @@ pub enum CcEvent {
     RandomnessChanged((u64, Randomness)),
     CheckpointReached(AttestationCheckpoint),
     AttestationIntervalChanged(u64),
-    CheckpointIntervalChanged(u64, u32),
     TargetSampleSizeChanged(u32),
+    CheckpointIntervalChanged(u64),
     AttestorsElected(Vec<AccountId32>),
     AttestorActivated(AccountId32),
     AttestorChilled(AccountId32),
@@ -218,13 +218,13 @@ impl Client {
                             return None;
                         };
 
-                        let AttestationIntervalChanged(chain_key, new_interval) = event;
+                        let AttestationIntervalChanged(chain_key, interval_new) = event;
 
                         if chain_key != filter {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::AttestationIntervalChanged(new_interval)))
+                        Some(Ok(CcEvent::AttestationIntervalChanged(interval_new)))
                     }
                     (CheckpointIntervalChanged::PALLET, CheckpointIntervalChanged::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<CheckpointIntervalChanged>() else {
@@ -232,16 +232,13 @@ impl Client {
                             return None;
                         };
 
-                        let CheckpointIntervalChanged(chain_key, new_interval) = event;
+                        let CheckpointIntervalChanged(chain_key, interval_new) = event;
 
                         if chain_key != filter {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::CheckpointIntervalChanged(
-                            chain_key,
-                            new_interval,
-                        )))
+                        Some(Ok(CcEvent::CheckpointIntervalChanged(interval_new as u64)))
                     }
                     (AttestorsElected::PALLET, AttestorsElected::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestorsElected>() else {
@@ -267,15 +264,26 @@ impl Client {
                             return None;
                         };
 
-                        Some(Ok(CcEvent::AttestorActivated(event.1)))
+                        let AttestorActivated(chain_key, account_id, _bls_public_key) = event;
+
+                        if chain_key != filter {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::AttestorActivated(account_id)))
                     }
                     (Kicked::PALLET, Kicked::EVENT) => {
-                        let Ok(Some(event)) = event.as_event::<AttestorChilled>() else {
+                        let Ok(Some(event)) = event.as_event::<Kicked>() else {
                             tracing::error!("Invalid event mapping");
                             return None;
                         };
 
-                        Some(Ok(CcEvent::AttestorKicked(event.1)))
+                        let Kicked {
+                            nominator: _,
+                            stash,
+                        } = event;
+
+                        Some(Ok(CcEvent::AttestorKicked(stash)))
                     }
                     (AttestorChilled::PALLET, AttestorChilled::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestorChilled>() else {
@@ -283,7 +291,13 @@ impl Client {
                             return None;
                         };
 
-                        Some(Ok(CcEvent::AttestorChilled(event.1)))
+                        let AttestorChilled(chain_key, account_id) = event;
+
+                        if chain_key != filter {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::AttestorChilled(account_id)))
                     }
                     (_module, _event) => None,
                 }

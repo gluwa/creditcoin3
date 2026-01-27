@@ -2,12 +2,30 @@ use crate::prelude::*;
 
 use super::error::*;
 
-pub struct AttestationBlockCache(Vec<attestor_primitives::block::BlockSerializable>);
+pub struct AttestationBlockCache {
+    blocks: Vec<attestor_primitives::block::BlockSerializable>,
+    max_size: usize,
+
+    attestation_local: Option<(attestor_primitives::Digest, common::types::Height)>,
+    attestation_interval: std::num::NonZero<common::types::Height>,
+    checkpoint_interval: std::num::NonZero<common::types::Height>,
+}
 
 impl AttestationBlockCache {
-    pub fn new() -> Self {
-        // TODO: initialize this to the max continuity proof size
-        Self(Vec::new())
+    pub fn new(
+        attestation_interval: std::num::NonZero<common::types::Height>,
+        checkpoint_interval: std::num::NonZero<common::types::Height>,
+    ) -> Self {
+        // let max_size = attestation_interval.get() as usize * checkpoint_interval.get() as usize;
+        let max_size = 10;
+        Self {
+            blocks: Vec::with_capacity(max_size),
+            max_size,
+
+            attestation_local: None,
+            attestation_interval,
+            checkpoint_interval,
+        }
     }
 
     pub async fn fetch_blocks(
@@ -17,23 +35,47 @@ impl AttestationBlockCache {
         block_start: common::types::Height,
         block_stop: common::types::Height,
     ) -> Result<Vec<attestor_primitives::block::BlockSerializable>, Error> {
-        assert!(block_start <= block_stop);
+        let fragment_size = block_stop.saturating_sub(block_start).saturating_add(1) as usize;
+        let (fragment_size, from_digest, block_start) = {
+            if fragment_size > self.max_size {
+                let (from_digest, from_block) = self
+                    .attestation_local
+                    .expect("Genesis attestation is guaranteed to have finalized by this point");
 
-        let fragment_size = (block_stop - block_start).saturating_add(1) as usize;
+                let block_start = from_block.saturating_add(1);
+                let fragment_size =
+                    block_stop.saturating_sub(block_start).saturating_add(1) as usize;
+
+                (fragment_size, from_digest, block_start)
+            } else {
+                (fragment_size, from_digest, block_start)
+            }
+        };
+
+        assert!(block_start <= block_stop, "{block_start} <= {block_stop}");
+
         let mut fragment_blocks =
             Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(fragment_size);
 
-        let blocks = &mut self.0;
+        let blocks = &mut self.blocks;
         if !blocks.is_empty() {
-            tracing::info!(
-                start = blocks[0].block_number,
-                stop = blocks[blocks.len() - 1].block_number,
-                "🎯 Continuity cache hit"
-            );
-        }
+            let block_first = blocks[0].block_number;
+            assert!(block_first <= block_start, "{block_first} <= {block_start}");
 
-        let segment = 0..fragment_size.min(blocks.len());
-        fragment_blocks.extend_from_slice(&blocks[segment]);
+            let delta = blocks.len().min((block_start - block_first) as usize);
+            blocks.drain(..delta);
+
+            let segment = 0..fragment_size.min(blocks.len());
+            if !segment.is_empty() {
+                tracing::info!(
+                    start = segment.start,
+                    stop = segment.end,
+                    "🎯 Continuity cache hit"
+                );
+            }
+
+            fragment_blocks.extend_from_slice(&blocks[segment]);
+        }
 
         let missing_start = block_start + blocks.len() as common::types::Height;
         let missing_stop = block_stop;
@@ -50,6 +92,10 @@ impl AttestationBlockCache {
             let segment = blocks.len()..fragment_blocks.len();
             blocks.extend_from_slice(&fragment_blocks[segment]);
         }
+
+        let len = blocks.len();
+        let max_size = self.max_size;
+        assert!(len < max_size, "{len} < {max_size}");
 
         Ok(fragment_blocks)
     }
@@ -113,15 +159,66 @@ impl AttestationBlockCache {
     }
 }
 
+impl crate::events::EventAttestationProductionAsync for AttestationBlockCache {
+    type Error = std::convert::Infallible;
+
+    async fn note_attestation_production_async(
+        &mut self,
+        attestation_latest_eth: (attestor_primitives::Digest, common::types::Height),
+    ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating continuity cache");
+        self.attestation_local = Some(attestation_latest_eth);
+        Ok(())
+    }
+}
+impl crate::events::EventAttestationProduction for AttestationBlockCache {}
+
 impl crate::events::EventAttestationFinalizationAsync for AttestationBlockCache {
     type Error = std::convert::Infallible;
 
     async fn note_attestation_finalization_async(
         &mut self,
-        _latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
+        _attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
     ) -> Result<(), Self::Error> {
-        self.0.clear();
+        tracing::debug!("Updating continuity cache");
+        self.blocks.clear();
         Ok(())
     }
 }
 impl crate::events::EventAttestationFinalization for AttestationBlockCache {}
+
+impl crate::events::EventAttestationIntervalChangeAsync for AttestationBlockCache {
+    type Error = std::convert::Infallible;
+
+    async fn note_attestation_interval_change_async(
+        &mut self,
+        interval_new: std::num::NonZero<common::types::Height>,
+        _attestation_latest_cc3: Option<common::types::Height>,
+    ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating continuity cache");
+
+        self.attestation_interval = interval_new;
+        self.max_size = interval_new.get() as usize * self.checkpoint_interval.get() as usize;
+
+        Ok(())
+    }
+}
+impl crate::events::EventAttestationIntervalChange for AttestationBlockCache {}
+
+impl crate::events::EventCheckpointIntervalChangeAsync for AttestationBlockCache {
+    type Error = std::convert::Infallible;
+
+    async fn note_checkpoint_interval_change_async(
+        &mut self,
+        interval_new: std::num::NonZero<common::types::Height>,
+        _attestation_latest_cc3: Option<common::types::Height>,
+    ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating continuity cache");
+
+        self.checkpoint_interval = interval_new;
+        self.max_size = self.attestation_interval.get() as usize * interval_new.get() as usize;
+
+        Ok(())
+    }
+}
+impl crate::events::EventCheckpointIntervalChange for AttestationBlockCache {}

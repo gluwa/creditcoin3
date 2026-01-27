@@ -150,6 +150,7 @@ pub struct Config {
 
     attestation_start_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
     attestation_interval: std::num::NonZero<common::types::Height>,
+
     epoch: common::types::Epoch,
     start_height: common::types::Height,
     empty_chain: bool,
@@ -180,10 +181,12 @@ pub(crate) struct WorkerAttestationProduction {
     sender_validation: crate::worker::validation::pool::AttestationPoolSender,
     sender_attestation_latest: tokio::sync::watch::Sender<Option<common::types::Height>>,
 
-    // CHAIN DATA
+    // ATTESTATION DATA
     attestation_local: Option<common::types::Height>,
     attestation_latest_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
     attestation_interval: std::num::NonZero<common::types::Height>,
+
+    // CHAIN DATA
     epoch: common::types::Epoch,
     start_height: common::types::Height,
     chain_key: attestor_primitives::ChainKey,
@@ -216,6 +219,7 @@ impl WorkerAttestationProduction {
             attestation_local: None,
             attestation_latest_cc3: config.attestation_start_cc3,
             attestation_interval: config.attestation_interval,
+
             epoch: config.epoch,
             start_height: config.start_height,
             chain_key: config.chain_key,
@@ -326,6 +330,7 @@ impl WorkerAttestationProduction {
         use crate::events::EventAttestationIntervalChange as _;
         use crate::events::EventAttestationIntervalChangeAsync as _;
         use crate::events::EventAttestorsElected as _;
+        use crate::events::EventCheckpointIntervalChange as _;
 
         for event in res
             .map_err(Error::CC3Error)?
@@ -336,71 +341,73 @@ impl WorkerAttestationProduction {
             match event.map_err(Error::CC3Error)? {
                 // CASE 1] NEW ATTESTATION
                 cc_client::attestation::CcEvent::BlockAttested(attestation) => {
-                    if attestation.chain_key() == self.chain_key {
-                        let digest = attestation.digest();
-                        let height = attestation.header_number();
-                        let attestation_latest_cc3 = (digest, height);
+                    let digest = attestation.digest();
+                    let height = attestation.header_number();
+                    let attestation_latest_cc3 = (digest, height);
 
-                        tracing::info!(
-                            height,
-                            %digest,
-                            "💾 New execution chain attestation"
-                        );
+                    tracing::info!(
+                        height,
+                        %digest,
+                        "💾 New execution chain attestation"
+                    );
 
-                        self.attestation_latest_cc3 = Some(attestation_latest_cc3);
+                    self.attestation_latest_cc3 = Some(attestation_latest_cc3);
 
-                        // 1. Chain Listener - Eth
-                        //
-                        // This is ensure that we keep producing new attestation starting from the
-                        // latest finalized on-chain attestation.
-                        self.eth
-                            .note_attestation_finalization(attestation_latest_cc3)
-                            .expect("Infallible");
+                    // 1. Chain Listener - Eth
+                    //
+                    // This is ensure that we keep producing new attestation starting from the
+                    // latest finalized on-chain attestation.
+                    self.eth
+                        .note_attestation_finalization(attestation_latest_cc3)
+                        .expect("Infallible");
 
-                        // 2. Update the attestation pool
-                        //
-                        // As an edge case, it is possible that we have already generated past
-                        // attestations which have not yet been consumed by the validation thread. This
-                        // can happen if the production thread is generating attestations faster than
-                        // the validation thread can check new quorums. We remove those attestations
-                        // here and also update the target block height (if necessary, it is also
-                        // possible that we are in advance of the execution chain in which case we do
-                        // not want to update the target height and this a no-op).
-                        self.sender_validation
-                            .note_attestation_finalization(attestation_latest_cc3)
-                            .expect("Infallible");
+                    self.cc3
+                        .note_attestation_finalization(attestation_latest_cc3)
+                        .expect("Infallible");
 
-                        // 3. Notify the validation worker
-                        //
-                        // This lets the validation worker know it can start submitting attestations at
-                        // a greater height, if it has any.
-                        //
-                        // WARNING: ERROR HANDLING
-                        //
-                        // From the tokio docs:
-                        //
-                        // > This method fails if the channel is closed, which is the case when every
-                        // > receiver has been dropped.
-                        //
-                        // This only errors if the receiving end of this channel has been dropped, which
-                        // can happen during shutdown. This is not a failure case!
-                        let _ = self.sender_attestation_latest.send(Some(height));
+                    // 2. Update the attestation pool
+                    //
+                    // As an edge case, it is possible that we have already generated past
+                    // attestations which have not yet been consumed by the validation thread. This
+                    // can happen if the production thread is generating attestations faster than
+                    // the validation thread can check new quorums. We remove those attestations
+                    // here and also update the target block height (if necessary, it is also
+                    // possible that we are in advance of the execution chain in which case we do
+                    // not want to update the target height and this a no-op).
+                    self.sender_validation
+                        .note_attestation_finalization(attestation_latest_cc3)
+                        .expect("Infallible");
 
-                        // 4. Production
-                        //
-                        // Clear local state
-                        self.attestations.retain(|h, _att| *h > height);
+                    // 3. Notify the validation worker
+                    //
+                    // This lets the validation worker know it can start submitting attestations at
+                    // a greater height, if it has any.
+                    //
+                    // WARNING: ERROR HANDLING
+                    //
+                    // From the tokio docs:
+                    //
+                    // > This method fails if the channel is closed, which is the case when every
+                    // > receiver has been dropped.
+                    //
+                    // This only errors if the receiving end of this channel has been dropped, which
+                    // can happen during shutdown. This is not a failure case!
+                    let _ = self.sender_attestation_latest.send(Some(height));
 
-                        // 5. Metrics
-                        //
-                        // Update attestation production metrics
-                        self.metrics.set_attestation_finalized(height);
-                        self.metrics.update_attestation_lag_cc3(
-                            self.attestation_local.unwrap_or(self.start_height),
-                            height,
-                            self.attestation_interval,
-                        );
-                    }
+                    // 4. Production
+                    //
+                    // Clear local state
+                    self.attestations.retain(|h, _att| *h > height);
+
+                    // 5. Metrics
+                    //
+                    // Update attestation production metrics
+                    self.metrics.set_attestation_finalized(height);
+                    self.metrics.update_attestation_lag_cc3(
+                        self.attestation_local.unwrap_or(self.start_height),
+                        height,
+                        self.attestation_interval,
+                    );
                 }
 
                 // CASE 2] NEW TARGET SAMPLE SIZE
@@ -415,8 +422,10 @@ impl WorkerAttestationProduction {
                 cc_client::attestation::CcEvent::AttestationIntervalChanged(interval) => {
                     tracing::info!(interval, "🔢 New source chain attestation interval");
 
-                    let interval = std::num::NonZero::<common::types::Height>::new(interval)
-                        .unwrap_or(std::num::NonZero::<common::types::Height>::MIN);
+                    let Some(interval) = std::num::NonZero::<common::types::Height>::new(interval)
+                    else {
+                        return Ok(());
+                    };
 
                     let attestation_latest_cc3 = self
                         .attestation_latest_cc3
@@ -430,6 +439,10 @@ impl WorkerAttestationProduction {
                         .note_attestation_interval_change_async(interval, attestation_latest_cc3)
                         .await
                         .map_err(Error::EthError)?;
+
+                    self.cc3
+                        .note_attestation_interval_change(interval, attestation_latest_cc3)
+                        .expect("Infallible");
 
                     // 2. Attestation pool
                     //
@@ -460,7 +473,25 @@ impl WorkerAttestationProduction {
                     );
                 }
 
-                // CASE 4] NEW ATTESTATION CHECKPOINT
+                cc_client::attestation::CcEvent::CheckpointIntervalChanged(interval) => {
+                    tracing::info!(interval, "🔢 New source chain checkpoint interval");
+
+                    let Some(interval) = std::num::NonZero::<common::types::Height>::new(interval)
+                    else {
+                        return Ok(());
+                    };
+
+                    let attestation_latest_cc3 = self
+                        .attestation_latest_cc3
+                        .as_ref()
+                        .map(|(_digest, height)| *height);
+
+                    self.cc3
+                        .note_checkpoint_interval_change(interval, attestation_latest_cc3)
+                        .expect("Infallible");
+                }
+
+                // CASE 3] NEW ATTESTATION CHECKPOINT
                 cc_client::attestation::CcEvent::CheckpointReached(checkpoint) => {
                     tracing::info!(
                         height = checkpoint.block_number,
@@ -475,7 +506,7 @@ impl WorkerAttestationProduction {
                     self.epoch = epoch;
                 }
 
-                // CASE 6] ATTESTOR ELECTION
+                // CASE 5] ATTESTOR ELECTION
                 cc_client::attestation::CcEvent::AttestorsElected(attestors) => {
                     tracing::info!("⏰ New attestors elected");
 
@@ -535,15 +566,6 @@ impl WorkerAttestationProduction {
                         );
                     }
                 }
-
-                // CASE 10] NEW CHECKPOINT INTERVAL
-                cc_client::attestation::CcEvent::CheckpointIntervalChanged(
-                    _chain_key,
-                    new_interval,
-                ) => {
-                    // do nothing for now
-                    tracing::info!(new_interval, "🔢 New checkpoint interval");
-                }
             }
         }
 
@@ -581,6 +603,8 @@ impl WorkerAttestationProduction {
         height: common::types::Height,
         continuity_fragment: attestor_primitives::attestation_fragment::AttestationFragmentSerializable,
     ) -> Result<(common::types::Attestation, AttestationInfo), Error> {
+        use crate::events::EventAttestationProduction as _;
+
         tracing::debug!("Generating attestation");
 
         let block = self.eth.block_get(height).await.map_err(Error::EthError)?;
@@ -606,6 +630,10 @@ impl WorkerAttestationProduction {
             attestor_id: attestation.attestor.clone(),
             height,
         };
+
+        self.cc3
+            .note_attestation_production((info.digest, info.height))
+            .expect("Infallible");
 
         tracing::info!(
             digest = %info.digest,

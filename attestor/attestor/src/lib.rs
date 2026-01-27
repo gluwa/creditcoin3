@@ -14,8 +14,6 @@ pub use error::Error;
 pub mod prelude {
     pub use crate::common;
     pub(crate) use crate::util;
-
-    pub const WORKER_COUNT: usize = 3;
 }
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
@@ -112,8 +110,19 @@ impl Attestor {
                 .chain_attestation_interval(self.config.chain_key)
                 .await
                 .map_err(Error::CC3Error)?
-                .map(std::num::NonZeroU64::new)
+                .map(std::num::NonZero::<common::types::Height>::new)
                 .ok_or(Error::MissingAttestationInterval(self.config.chain_key))?
+                .unwrap(),
+        };
+
+        let checkpoint_interval = match self.config.attestation.checkpoint_interval {
+            Some(checkpoint_interval) => checkpoint_interval,
+            None => cc3_client
+                .chain_checkpoint_interval(self.config.chain_key)
+                .await
+                .map_err(Error::CC3Error)?
+                .map(std::num::NonZero::<common::types::Height>::new)
+                .ok_or(Error::MissingCheckpointInterval(self.config.chain_key))?
                 .unwrap(),
         };
 
@@ -198,7 +207,8 @@ impl Attestor {
             .clone()
             .with_chain_key(self.config.chain_key)
             .with_cc3_client(cc3_client.clone())
-            .with_start_height(start_height)
+            .with_attestation_interval(attestation_interval)
+            .with_checkpoint_interval(checkpoint_interval)
             .build();
         let cc3_production = chain_listener::cc3::CC3::new(config)
             .await
@@ -210,7 +220,8 @@ impl Attestor {
             .clone()
             .with_chain_key(self.config.chain_key)
             .with_cc3_client(cc3_client)
-            .with_start_height(start_height)
+            .with_attestation_interval(attestation_interval)
+            .with_checkpoint_interval(checkpoint_interval)
             .build();
         let cc3_validation = chain_listener::cc3::CC3::new(config)
             .await
@@ -275,7 +286,7 @@ impl Attestor {
             .build();
         let api = worker::api::WorkerApi::new(config);
 
-        let handle_api = monitor.spawn(api);
+        let mut handle_api = Some(monitor.spawn(api));
 
         // -------------------------------* Attestation Validation *-------------------------------
 
@@ -293,7 +304,7 @@ impl Attestor {
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let attestation_validation = worker::validation::WorkerAttestationValidation::new(config);
-        let handle_validation = monitor.spawn(attestation_validation);
+        let mut handle_validation = Some(monitor.spawn(attestation_validation));
 
         // --------------------------------------* P2P Sync *--------------------------------------
 
@@ -309,7 +320,7 @@ impl Attestor {
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::WorkerError)?;
-        let handle_p2p = monitor.spawn(p2p);
+        let mut handle_p2p = Some(monitor.spawn(p2p));
 
         // -------------------------------* Attestation Production *-------------------------------
 
@@ -333,7 +344,7 @@ impl Attestor {
         let attestation_production = worker::production::WorkerAttestationProduction::new(config)
             .await
             .map_err(Error::WorkerError)?;
-        let handle_production = monitor.spawn(attestation_production);
+        let mut handle_production = Some(monitor.spawn(attestation_production));
 
         tracing::info!("✅ All services online!");
 
@@ -347,35 +358,48 @@ impl Attestor {
             _ = monitor.cancelled() => {}
         }
 
+        // FIXME: have this reference the number of worker under the monitor
         let mut res = Ok(());
+        let mut shutdown = 0;
+        while shutdown < common::constants::WORKER_COUNT {
+            if let Some(handle) = handle_api.take_if(|handle| handle.is_finished()) {
+                shutdown += 1;
+                match handle.join() {
+                    Ok(res_metrics) => res = res.and(res_metrics.map_err(Error::WorkerError)),
+                    Err(payload) => std::panic::resume_unwind(payload),
+                }
+                tracing::info!("⏳ [{shutdown}/4] Shutting down API worker");
+            }
 
-        match handle_api.join() {
-            Ok(res_metrics) => res = res.and(res_metrics.map_err(Error::WorkerError)),
-            Err(payload) => std::panic::resume_unwind(payload),
+            if let Some(handle) = handle_production.take_if(|handle| handle.is_finished()) {
+                shutdown += 1;
+                match handle.join() {
+                    Ok(res_production) => res = res.and(res_production.map_err(Error::WorkerError)),
+                    Err(payload) => std::panic::resume_unwind(payload),
+                };
+                tracing::info!("⏳ [{shutdown}/4] Shutting down attestation production worker");
+            }
+
+            if let Some(handle) = handle_validation.take_if(|handle| handle.is_finished()) {
+                shutdown += 1;
+                match handle.join() {
+                    Ok(res_validation) => res = res.and(res_validation.map_err(Error::WorkerError)),
+                    Err(payload) => std::panic::resume_unwind(payload),
+                };
+                tracing::info!("⏳ [{shutdown}/4] Shutting down attestation validation worker");
+            }
+
+            if let Some(handle) = handle_p2p.take_if(|handle| handle.is_finished()) {
+                shutdown += 1;
+                match handle.join() {
+                    Ok(res_p2p) => res = res.and(res_p2p.map_err(Error::WorkerError)),
+                    Err(payload) => std::panic::resume_unwind(payload),
+                };
+                tracing::info!("⏳ [{shutdown}/4] Shutting down p2p worker");
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(200));
         }
-
-        tracing::info!("⏳ [1/4] Shutting down API worker");
-
-        match handle_production.join() {
-            Ok(res_production) => res = res.and(res_production.map_err(Error::WorkerError)),
-            Err(payload) => std::panic::resume_unwind(payload),
-        };
-
-        tracing::info!("⏳ [2/4] Shutting down attestation production worker");
-
-        match handle_validation.join() {
-            Ok(res_validation) => res = res.and(res_validation.map_err(Error::WorkerError)),
-            Err(payload) => std::panic::resume_unwind(payload),
-        };
-
-        tracing::info!("⏳ [3/4] Shutting down attestation validation worker");
-
-        match handle_p2p.join() {
-            Ok(res_p2p) => res = res.and(res_p2p.map_err(Error::WorkerError)),
-            Err(payload) => std::panic::resume_unwind(payload),
-        };
-
-        tracing::info!("⏳ [4/4] Shutting down p2p worker");
 
         res
     }

@@ -6,6 +6,7 @@ pub enum Error {
     CC3Error(cc_client::Error),
     InitError(Box<dyn std::error::Error + Sync + Send>),
     MissingAttestationInterval(attestor_primitives::ChainKey),
+    MissingCheckpointInterval(attestor_primitives::ChainKey),
     MissingTargetSampleSize(attestor_primitives::ChainKey),
 }
 
@@ -20,6 +21,10 @@ impl std::fmt::Display for Error {
             Error::MissingAttestationInterval(chain_key) => write!(
                 f,
                 "Failed to retrieve attestation interval for chain {chain_key}"
+            ),
+            Error::MissingCheckpointInterval(chain_key) => write!(
+                f,
+                "Failed to retrieve checkpoint interval for chain {chain_key}"
             ),
             Error::MissingTargetSampleSize(chain_key) => write!(
                 f,

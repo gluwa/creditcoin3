@@ -221,6 +221,8 @@ impl WorkerAttestationValidation {
                 tracing::info!(
                     %digest,
                     height = attestation.attestation.header_number,
+                    start = ?attestation.continuity_proof.blocks.first().map(|block| block.block_number),
+                    stop = attestation.attestation.header_number,
                     "🛫 Submitting attestation"
                 );
 
@@ -471,6 +473,8 @@ impl WorkerAttestationValidation {
             tracing::info!(
                 %digest,
                 height,
+                start = ?attestation.continuity_proof.blocks.first().map(|block| block.block_number),
+                stop = attestation.attestation.header_number,
                 "🛫 Submitting pre-validated attestation"
             );
 

@@ -44,3 +44,5 @@ pub const METRICS_HEADER: &str = "application/openmetrics-text; version=1.0.0; c
 
 /// Max number of attestations which can be rebroadcasted ahead of chain finality.
 pub const MAX_REBROADCAST: common::types::Height = 10;
+
+pub const WORKER_COUNT: usize = 4;
