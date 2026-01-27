@@ -13,6 +13,8 @@ use crate::utils::{parse_attestation_node, parse_attestation_node_full, parse_ch
 const REQUEST_TIMEOUT_SECS: u64 = 30;
 /// Connection timeout for HTTP requests (10 seconds)
 const CONNECT_TIMEOUT_SECS: u64 = 10;
+/// Maximum allowed block range for attestation queries (100,000 blocks)
+const MAX_BLOCK_RANGE: u64 = 100_000;
 
 /// Client for querying the CC3 attestations indexer GraphQL API.
 pub struct IndexerClient {
@@ -192,6 +194,16 @@ impl IndexerClient {
         min_block: u64,
         max_block: u64,
     ) -> Result<Vec<AttestationWithProof>, IndexerError> {
+        // Validate that the range is not too large
+        let range = max_block.saturating_sub(min_block);
+        if range > MAX_BLOCK_RANGE {
+            return Err(IndexerError::InvalidIndexerData {
+                message: format!(
+                    "Block range too large: {range} blocks (max allowed: {MAX_BLOCK_RANGE}). Requested range: {min_block} to {max_block}"
+                ),
+            });
+        }
+
         let query = GraphQLQueryWrapper {
             query: ATTESTATIONS_IN_RANGE_QUERY,
             variables: RangeQueryVariables {

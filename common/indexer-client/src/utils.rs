@@ -74,7 +74,8 @@ pub fn parse_attestation_node(
     let continuity_proof_data = node
         .continuity_proof
         .as_ref()
-        .map(|proof_data| serde_json::to_value(proof_data).unwrap());
+        .map(serde_json::to_value)
+        .transpose()?;
 
     // Build continuity_proof lazily from stored data if available
     let continuity_proof = if let Some(ref proof_data_json) = continuity_proof_data {

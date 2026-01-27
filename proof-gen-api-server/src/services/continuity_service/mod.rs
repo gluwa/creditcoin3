@@ -193,10 +193,9 @@ impl ContinuityService {
             .await
         {
             Ok((proof, lower_attestation)) => {
-                // TODO: ContinuityBuilder handles indexer internally, so we can't easily detect
+                // ContinuityBuilder handles indexer internally, so we can't easily detect
                 // if indexer was used. For now, we'll always mark as not cached since we're
                 // building fresh proofs (even if they use indexer data internally).
-                // Track this in JIRA: [TODO: Add JIRA ticket number]
                 let cached = false;
                 if cached {
                     self.cache_hits.fetch_add(1, Ordering::Relaxed);
