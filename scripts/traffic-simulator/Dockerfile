@@ -21,7 +21,7 @@ RUN deno cache --reload deno.json
 # Copy application source code
 COPY --chown=deno:deno scripts/traffic-simulator/src/ ./src/
 
-# Copy ABI file that the symlink points to (symlinks don't work across Docker context boundaries)
+# Copy ABI file that the symlink points to (need to have the symlink target inside the container)
 COPY --chown=deno:deno precompiles/metadata/abi/block_prover.json ./src/abi/block_prover.json
 
 RUN deno cache src/main.ts
