@@ -37,6 +37,8 @@ pub trait MetricsTrait: Send + Sync + Debug {
     // Cache metrics
     fn inc_cache_hit(&self);
     fn inc_cache_miss(&self);
+    /// Increment cache invalidation counter.
+    /// Note: Not currently called as we don't have a database cache that gets invalidated.
     fn inc_cache_invalidation(&self);
 
     // Error metrics
@@ -48,6 +50,9 @@ pub trait MetricsTrait: Send + Sync + Debug {
     fn observe_merkle_generation(&self, duration: Duration);
     fn set_proofs_stored(&self, count: i64);
     fn set_last_proof_generation_timestamp(&self, timestamp_secs: f64);
+    /// Observe the age of a proof when served from cache.
+    /// Note: Not currently called as proofs are always generated fresh (no database cache).
+    /// Should be called when serving cached proofs: `observe_proof_age(proof_age_duration)`.
     fn observe_proof_age(&self, age: Duration);
 
     // Business metrics
