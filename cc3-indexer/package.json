@@ -51,8 +51,8 @@
         "ipfs-unixfs": "6.0.6"
     },
     "dependencies": {
-        "package-json-type": "^1.0.3",
-        "pino": "^10.2.0",
+        "package-json-type": "^1.1.2",
+        "pino": "^10.3.0",
         "typechain": "^8.3.2"
     }
 }
