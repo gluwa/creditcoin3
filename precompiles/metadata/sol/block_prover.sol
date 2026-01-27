@@ -260,6 +260,34 @@ interface INativeQueryVerifier {
         MerkleProof[] calldata merkleProofs,
         ContinuityProof calldata sharedContinuityProof
     ) external view returns (bool);
+
+    /// @notice Calculate transaction index from Merkle proof siblings (view function)
+    /// @dev Reconstructs the transaction index by working from leaf to root.
+    ///      The `isLeft` flags in siblings indicate the path taken through the tree.
+    ///      Siblings are stored from leaf level to root level.
+    ///      - If sibling is left (`isLeft = true`), current node was right, so bit = 1
+    ///      - If sibling is right (`isLeft = false`), current node was left, so bit = 0
+    /// @param merkleProof Merkle proof containing root and siblings with position information
+    /// @return The transaction index (leaf position in the Merkle tree) as uint64
+    ///
+    /// Example Usage:
+    /// ```solidity
+    /// INativeQueryVerifier verifier = INativeQueryVerifier(0x0000000000000000000000000000000000000FD2);
+    ///
+    /// // Create merkle proof with position information
+    /// INativeQueryVerifier.MerkleProofEntry[] memory siblings = new INativeQueryVerifier.MerkleProofEntry[](2);
+    /// siblings[0] = INativeQueryVerifier.MerkleProofEntry(siblingHash1, false); // sibling on right
+    /// siblings[1] = INativeQueryVerifier.MerkleProofEntry(siblingHash2, true);  // sibling on left
+    ///
+    /// INativeQueryVerifier.MerkleProof memory proof = INativeQueryVerifier.MerkleProof({
+    ///     root: merkleRoot,
+    ///     siblings: siblings
+    /// });
+    ///
+    /// // Calculate transaction index (returns 1 for path [right, left])
+    /// uint64 txIndex = verifier.calculateTxIndex(proof);
+    /// ```
+    function calculateTxIndex(MerkleProof calldata merkleProof) external view returns (uint64);
 }
 
 /// @title NativeQueryVerifierLib

@@ -86,7 +86,7 @@ where
     /// - If sibling is right (`is_left = false`), current node was left, so bit = 0
     ///
     /// Returns the transaction index (leaf position in the Merkle tree).
-    pub(crate) fn calculate_tx_index(merkle_proof: &TransactionMerkleProof) -> u64 {
+    pub(crate) fn calculate_tx_index_impl(merkle_proof: &TransactionMerkleProof) -> u64 {
         if merkle_proof.siblings.is_empty() {
             // Single transaction case
             return 0;
@@ -209,7 +209,7 @@ where
 
         // Emit TransactionVerified event on success
         if emit_events {
-            let tx_index = Self::calculate_tx_index(&merkle_proof);
+            let tx_index = Self::calculate_tx_index_impl(&merkle_proof);
             // chain_key and height are indexed (topics), transactionIndex is in data
             let event_data = ethabi::encode(&[Token::Uint(tx_index.into())]);
 
@@ -381,7 +381,7 @@ where
 
             // Emit TransactionVerified event for each successful transaction
             if emit_events {
-                let tx_index = Self::calculate_tx_index(&merkle_proof);
+                let tx_index = Self::calculate_tx_index_impl(&merkle_proof);
                 // chain_key and height are indexed (topics), transactionIndex is in data
                 let event_data = ethabi::encode(&[Token::Uint(tx_index.into())]);
 
@@ -417,7 +417,7 @@ mod tests {
         let root = H256::from([1u8; 32]);
         let proof = create_merkle_proof(root, vec![]);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             0
         );
     }
@@ -433,7 +433,7 @@ mod tests {
         }];
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             1
         );
     }
@@ -449,7 +449,7 @@ mod tests {
         }];
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             0
         );
     }
@@ -471,7 +471,7 @@ mod tests {
         ];
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             3
         );
     }
@@ -493,7 +493,7 @@ mod tests {
         ];
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             0
         );
     }
@@ -515,7 +515,7 @@ mod tests {
         ];
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             1
         );
     }
@@ -537,7 +537,7 @@ mod tests {
         ];
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             2
         );
     }
@@ -563,7 +563,7 @@ mod tests {
         ];
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             7
         );
     }
@@ -589,7 +589,7 @@ mod tests {
         ];
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             5
         );
     }
@@ -619,7 +619,7 @@ mod tests {
         ];
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             3
         );
     }
@@ -638,7 +638,7 @@ mod tests {
         }
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             1023
         );
     }
@@ -657,7 +657,7 @@ mod tests {
         }
         let proof = create_merkle_proof(root, siblings);
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             u64::MAX >> 1
         ); // 2^62 - 1
     }
@@ -682,7 +682,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             0
         );
 
@@ -701,7 +701,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             1
         );
 
@@ -720,7 +720,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             2
         );
 
@@ -743,7 +743,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             4
         );
     }
@@ -780,7 +780,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             21
         );
 
@@ -811,7 +811,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             10
         );
     }
@@ -830,7 +830,7 @@ mod tests {
             }],
         );
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             1
         );
 
@@ -849,7 +849,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             2
         );
 
@@ -872,7 +872,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index(&proof),
+            BlockProverPrecompile::<crate::mock::Runtime>::calculate_tx_index_impl(&proof),
             4
         );
     }

@@ -470,3 +470,143 @@ fn test_verify_batch_queries_view_continuity_doesnt_cover_range() {
             });
     });
 }
+
+#[test]
+fn test_calculate_tx_index_view_empty_siblings() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Single transaction case - should return 0
+        let merkle_proof = TransactionMerkleProof {
+            root: H256::from([1u8; 32]),
+            siblings: vec![],
+        };
+
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::calculate_tx_index { merkle_proof },
+            )
+            .expect_no_logs()
+            .execute_returns(0u64);
+    });
+}
+
+#[test]
+fn test_calculate_tx_index_view_single_sibling_left() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Sibling is left, so we were right -> bit 0 = 1
+        // Expected index: 1 (binary: 1)
+        use merkle::MerkleProofEntry;
+        let merkle_proof = TransactionMerkleProof {
+            root: H256::from([1u8; 32]),
+            siblings: vec![MerkleProofEntry {
+                hash: H256::from([2u8; 32]),
+                is_left: true,
+            }],
+        };
+
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::calculate_tx_index { merkle_proof },
+            )
+            .expect_no_logs()
+            .execute_returns(1u64);
+    });
+}
+
+#[test]
+fn test_calculate_tx_index_view_single_sibling_right() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Sibling is right, so we were left -> bit 0 = 0
+        // Expected index: 0 (binary: 0)
+        use merkle::MerkleProofEntry;
+        let merkle_proof = TransactionMerkleProof {
+            root: H256::from([1u8; 32]),
+            siblings: vec![MerkleProofEntry {
+                hash: H256::from([2u8; 32]),
+                is_left: false,
+            }],
+        };
+
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::calculate_tx_index { merkle_proof },
+            )
+            .expect_no_logs()
+            .execute_returns(0u64);
+    });
+}
+
+#[test]
+fn test_calculate_tx_index_view_multiple_siblings() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Test with multiple siblings: left, right, left
+        // Expected index: 1 | 0 | 4 = 5 (binary: 101)
+        use merkle::MerkleProofEntry;
+        let merkle_proof = TransactionMerkleProof {
+            root: H256::from([1u8; 32]),
+            siblings: vec![
+                MerkleProofEntry {
+                    hash: H256::from([2u8; 32]),
+                    is_left: true, // bit 0 = 1
+                },
+                MerkleProofEntry {
+                    hash: H256::from([3u8; 32]),
+                    is_left: false, // bit 1 = 0
+                },
+                MerkleProofEntry {
+                    hash: H256::from([4u8; 32]),
+                    is_left: true, // bit 2 = 1
+                },
+            ],
+        };
+
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::calculate_tx_index { merkle_proof },
+            )
+            .expect_no_logs()
+            .execute_returns(5u64); // 1 + 0 + 4 = 5
+    });
+}
+
+#[test]
+fn test_calculate_tx_index_view_all_left_siblings() {
+    ExtBuilder::default().build().execute_with(|| {
+        // All siblings left -> we were right at all levels
+        // Expected index: 1 | 2 | 4 = 7 (binary: 111)
+        use merkle::MerkleProofEntry;
+        let merkle_proof = TransactionMerkleProof {
+            root: H256::from([1u8; 32]),
+            siblings: vec![
+                MerkleProofEntry {
+                    hash: H256::from([2u8; 32]),
+                    is_left: true, // bit 0 = 1
+                },
+                MerkleProofEntry {
+                    hash: H256::from([3u8; 32]),
+                    is_left: true, // bit 1 = 1
+                },
+                MerkleProofEntry {
+                    hash: H256::from([4u8; 32]),
+                    is_left: true, // bit 2 = 1
+                },
+            ],
+        };
+
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::calculate_tx_index { merkle_proof },
+            )
+            .expect_no_logs()
+            .execute_returns(7u64); // 1 + 2 + 4 = 7
+    });
+}

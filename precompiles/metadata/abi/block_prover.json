@@ -323,5 +323,48 @@
     ],
     "stateMutability": "nonpayable",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "root",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "hash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bool",
+                "name": "isLeft",
+                "type": "bool"
+              }
+            ],
+            "internalType": "struct INativeQueryVerifier.MerkleProofEntry[]",
+            "name": "siblings",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct INativeQueryVerifier.MerkleProof",
+        "name": "merkleProof",
+        "type": "tuple"
+      }
+    ],
+    "name": "calculateTxIndex",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]

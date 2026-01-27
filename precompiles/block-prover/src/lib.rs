@@ -280,6 +280,32 @@ where
         )
     }
 
+    /// Calculate transaction index from Merkle proof siblings (view function)
+    ///
+    /// Reconstructs the transaction index by working from leaf to root.
+    /// The `is_left` flags in siblings indicate the path taken through the tree.
+    /// Siblings are stored from leaf level to root level.
+    /// - If sibling is left (`is_left = true`), current node was right, so bit = 1
+    /// - If sibling is right (`is_left = false`), current node was left, so bit = 0
+    ///
+    /// # Parameters
+    /// - `merkle_proof`: Merkle proof containing root and siblings with position information
+    ///
+    /// # Returns
+    /// The transaction index (leaf position in the Merkle tree) as uint64
+    ///
+    /// # Example
+    /// For a Merkle proof with siblings indicating path [right, left], the transaction index
+    /// would be calculated as: bit 0 = 1 (right), bit 1 = 0 (left) = index 1
+    #[precompile::public("calculateTxIndex((bytes32,(bytes32,bool)[]))")]
+    #[precompile::view]
+    fn calculate_tx_index(
+        _handle: &mut impl PrecompileHandle,
+        merkle_proof: TransactionMerkleProof,
+    ) -> EvmResult<u64> {
+        Ok(Self::calculate_tx_index_impl(&merkle_proof))
+    }
+
     /// Generic handler for verification failures
     ///
     /// Returns a revert with a descriptive error message.
