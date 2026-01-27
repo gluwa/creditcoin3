@@ -1,7 +1,10 @@
 // Gas security tests for native-query-verifier precompile
 // Ensures gas costs prevent DoS attacks and align with Ethereum standards
 use crate::mock::ExtBuilder;
-use crate::verify::{CONTINUITY_BLOCK_HASH_COST, GAS_STORAGE_LOOKUP};
+use crate::verify::{
+    CALCULATE_TX_INDEX_BASE_COST, CALCULATE_TX_INDEX_ITERATION_COST, CONTINUITY_BLOCK_HASH_COST,
+    GAS_STORAGE_LOOKUP,
+};
 // ============================================================================
 // GAS SECURITY AND DOS PREVENTION TESTS
 // ============================================================================
@@ -235,5 +238,102 @@ fn test_gas_incentivizes_efficient_queries() {
         println!("Inefficient query: {inefficient_gas} gas");
         println!("Efficient query: {efficient_gas} gas");
         println!("Savings from optimization: {savings} gas");
+    });
+}
+
+#[test]
+fn test_calculate_tx_index_gas_base_cost() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Test base cost: 10 gas units
+        assert_eq!(
+            CALCULATE_TX_INDEX_BASE_COST, 10,
+            "Base cost should be 10 gas units"
+        );
+
+        // Test with empty siblings (only base cost)
+        let empty_path_gas = CALCULATE_TX_INDEX_BASE_COST;
+        assert_eq!(empty_path_gas, 10, "Empty path should cost 10 gas");
+    });
+}
+
+#[test]
+fn test_calculate_tx_index_gas_iteration_cost() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Test per iteration cost: 18 gas units
+        assert_eq!(
+            CALCULATE_TX_INDEX_ITERATION_COST, 18,
+            "Per iteration cost should be 18 gas units"
+        );
+
+        // Test gas calculation formula: 10 + 18 * merkle_path.length
+        let test_cases = vec![
+            (0, 10),   // Empty path: base cost only
+            (1, 28),   // 1 sibling: 10 + 18*1 = 28
+            (2, 46),   // 2 siblings: 10 + 18*2 = 46
+            (5, 100),  // 5 siblings: 10 + 18*5 = 100
+            (10, 190), // 10 siblings: 10 + 18*10 = 190
+            (20, 370), // 20 siblings: 10 + 18*20 = 370
+        ];
+
+        for (path_length, expected_gas) in test_cases {
+            let calculated_gas =
+                CALCULATE_TX_INDEX_BASE_COST + (CALCULATE_TX_INDEX_ITERATION_COST * path_length);
+            assert_eq!(
+                calculated_gas, expected_gas,
+                "Gas for path length {path_length} should be {expected_gas}"
+            );
+        }
+    });
+}
+
+#[test]
+fn test_calculate_tx_index_gas_scales_with_path_length() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Verify gas scales linearly with merkle path length
+        let short_path_gas = CALCULATE_TX_INDEX_BASE_COST + (CALCULATE_TX_INDEX_ITERATION_COST * 5); // 5 siblings
+        let long_path_gas = CALCULATE_TX_INDEX_BASE_COST + (CALCULATE_TX_INDEX_ITERATION_COST * 20); // 20 siblings
+
+        assert!(
+            long_path_gas > short_path_gas,
+            "Longer paths should cost more gas"
+        );
+
+        // Verify the difference matches expected scaling
+        let expected_diff = CALCULATE_TX_INDEX_ITERATION_COST * (20 - 5);
+        let actual_diff = long_path_gas - short_path_gas;
+        assert_eq!(
+            actual_diff, expected_diff,
+            "Gas difference should match iteration cost * path length difference"
+        );
+        assert_eq!(actual_diff, 270, "Should be 18 * 15 = 270");
+    });
+}
+
+#[test]
+fn test_calculate_tx_index_gas_reasonable_for_deep_trees() {
+    ExtBuilder::default().build().execute_with(|| {
+        // Test with deep merkle trees (many siblings)
+        let test_cases = vec![
+            (10, 190), // 10 levels: 10 + 18*10 = 190
+            (20, 370), // 20 levels: 10 + 18*20 = 370
+            (30, 550), // 30 levels: 10 + 18*30 = 550
+            (40, 730), // 40 levels: 10 + 18*40 = 730
+            (50, 910), // 50 levels: 10 + 18*50 = 910
+        ];
+
+        for (levels, expected_gas) in test_cases {
+            let gas_cost =
+                CALCULATE_TX_INDEX_BASE_COST + (CALCULATE_TX_INDEX_ITERATION_COST * levels);
+            assert_eq!(
+                gas_cost, expected_gas,
+                "Gas for {levels} levels should be {expected_gas}"
+            );
+
+            // Even deep trees should be affordable
+            assert!(
+                gas_cost < 10_000,
+                "Deep trees should still be affordable (< 10k gas)"
+            );
+        }
     });
 }

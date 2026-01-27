@@ -9,7 +9,7 @@
 //! The precompile is accessible at address 0x0FD2 (4050 in decimal)
 
 use core::marker::PhantomData;
-use fp_evm::{ExitRevert, PrecompileFailure, PrecompileHandle};
+use fp_evm::{ExitError, ExitRevert, PrecompileFailure, PrecompileHandle};
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
@@ -300,9 +300,23 @@ where
     #[precompile::public("calculateTxIndex((bytes32,(bytes32,bool)[]))")]
     #[precompile::view]
     fn calculate_tx_index(
-        _handle: &mut impl PrecompileHandle,
+        handle: &mut impl PrecompileHandle,
         merkle_proof: TransactionMerkleProof,
     ) -> EvmResult<u64> {
+        // Charge gas: base cost (10) + per iteration cost (18) * merkle path length
+        let merkle_path_len = merkle_proof.siblings.len();
+        let iteration_gas = crate::verify::CALCULATE_TX_INDEX_ITERATION_COST
+            .checked_mul(merkle_path_len as u64)
+            .ok_or(PrecompileFailure::Error {
+                exit_status: ExitError::OutOfGas,
+            })?;
+        let total_gas = crate::verify::CALCULATE_TX_INDEX_BASE_COST
+            .checked_add(iteration_gas)
+            .ok_or(PrecompileFailure::Error {
+                exit_status: ExitError::OutOfGas,
+            })?;
+        handle.record_cost(total_gas)?;
+
         Ok(Self::calculate_tx_index_impl(&merkle_proof))
     }
 

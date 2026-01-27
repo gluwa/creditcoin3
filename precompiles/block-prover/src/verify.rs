@@ -32,6 +32,12 @@ pub const CONTINUITY_BLOCK_HASH_COST: u64 = 48; // Keccak-256 hash cost: 30 base
 // Gas cost for a storage lookup (matches cold SLOAD)
 pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
 
+// Gas cost constants for calculateTxIndex
+// Base cost: 10 gas units
+pub const CALCULATE_TX_INDEX_BASE_COST: u64 = 10;
+// Per iteration cost: 18 gas units per merkle path length
+pub const CALCULATE_TX_INDEX_ITERATION_COST: u64 = 18;
+
 impl<Runtime> BlockProverPrecompile<Runtime>
 where
     Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation_poc::Config,
