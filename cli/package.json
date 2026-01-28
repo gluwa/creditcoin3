@@ -33,7 +33,7 @@
         "test:cc3-indexer": "jest --config src/test/cc3-indexer-tests.config.ts --silent --verbose --runInBand --forceExit src/test/cc3-indexer-tests"
     },
     "devDependencies": {
-        "@gluwa/cc-next-query-builder": "0.5.0",
+        "@gluwa/cc-next-query-builder": "0.6.1",
         "@polkadot/typegen": "16.5.2",
         "@types/graphqurl": "^1.0.3",
         "@types/jest": "29.5.14",
