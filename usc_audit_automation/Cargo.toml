@@ -29,7 +29,7 @@ subxt-signer = "0.40"
 # Common deps
 
 # Creditcoin deps
-attestor-primitives = { workspace = true }
+attestor-primitives = { workspace = true, features = ["std"] }
 
 # Workspace deps
 ccnext-abi-encoding = { workspace = true }
@@ -41,7 +41,6 @@ reqwest = { workspace = true }
 scale-info = { workspace = true, default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sp-core = { workspace = true }
 tokio = { workspace = true, features = [
     "macros",
     "rt-multi-thread",
@@ -49,6 +48,12 @@ tokio = { workspace = true, features = [
     "signal",
 ] }
 tracing = { workspace = true }
+
+sp-api = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+xcm = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 hex-literal = { workspace = true }
