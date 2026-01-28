@@ -1,0 +1,88 @@
+---
+# Alternative version with persistent storage for snapshot across pod restarts
+# Use this if you want metrics history to persist even if the CronJob pod restarts
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: traffic-simulator-reporter-snapshot
+  namespace: default  # Change to your namespace
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi  # Small storage for snapshot file
+  storageClassName: standard  # Adjust to your cluster's storage class
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traffic-simulator-reporter-config
+  namespace: default  # Change to your namespace
+data:
+  SIMULATOR_URL: "http://traffic-simulator:8080"  # Adjust service name/namespace as needed
+  SNAPSHOT_PATH: "/data/metrics-snapshot.json"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: traffic-simulator-reporter-secrets
+  namespace: default  # Change to your namespace
+type: Opaque
+stringData:
+  # Slack webhook URL (get from Slack: https://api.slack.com/messaging/webhooks)
+  SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  # Optional: Slack user/group ID to mention in alerts (e.g., "U123456" or "S123456")
+  # SLACK_ALERT_GROUP: "S123456"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: traffic-simulator-reporter
+  namespace: default  # Change to your namespace
+spec:
+  # Run every hour at minute 0
+  schedule: "0 * * * *"
+  # Keep last 3 successful jobs and 1 failed job
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  # Prevent concurrent executions
+  concurrencyPolicy: Forbid
+  # Start deadline: job must start within 5 minutes of scheduled time
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      # Job timeout: 5 minutes
+      activeDeadlineSeconds: 300
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: traffic-simulator-reporter
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: reporter
+              image: gluwa/proof-traffic-simulator:latest  # Use same image as simulator
+              imagePullPolicy: IfNotPresent
+              command:
+                - deno
+                - run
+                - --allow-net
+                - --allow-env
+                - --allow-read
+                - --allow-write
+                - src/reportSender.ts
+              envFrom:
+                - configMapRef:
+                    name: traffic-simulator-reporter-config
+                - secretRef:
+                    name: traffic-simulator-reporter-secrets
+              volumeMounts:
+                - name: snapshot-storage
+                  mountPath: /data
+          volumes:
+            - name: snapshot-storage
+              persistentVolumeClaim:
+                claimName: traffic-simulator-reporter-snapshot

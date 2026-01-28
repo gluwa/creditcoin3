@@ -22,6 +22,8 @@ const DEFAULTS = {
   singleEveryBlocks: 1,
   logVerbose: false,
   healthPort: 8080,
+  slackWebhookUrl: undefined,
+  slackAlertGroup: undefined,
 };
 
 /**
@@ -142,6 +144,13 @@ OPTIONS:
                                Env: LOG_VERBOSE
                                Default: false
 
+      --slack-webhook <URL> Slack webhook URL for hourly reports (optional)
+                            Env: SLACK_WEBHOOK_URL
+
+      --slack-alert-group <ID> Slack user/group ID for alerts (optional)
+                                Env: SLACK_ALERT_GROUP
+                                Format: "U123456" (user) or "S123456" (group)
+
 ENVIRONMENT VARIABLES:
   CHAIN_KEY              Source chain key (default: 1 for Sepolia)
   MAX_QUEUE_SIZE         Max blocks to track (default: 100)
@@ -150,6 +159,8 @@ ENVIRONMENT VARIABLES:
   SINGLE_EVERY_BLOCKS    Submit a single proof once every N blocks (default: 1)
   LOG_VERBOSE            Enable verbose debug logging (default: false)
   HEALTH_PORT            Health check server port (default: 8080)
+  SLACK_WEBHOOK_URL      Slack webhook URL for hourly reports (optional)
+  SLACK_ALERT_GROUP      Slack user/group ID for alerts (optional)
 
 EXAMPLES:
   # Development with local services
@@ -319,6 +330,20 @@ export function loadConfig(): SimulatorConfig {
       "HEALTH_PORT",
       DEFAULTS.healthPort,
     ),
+
+    // Slack notifications (optional)
+    slackWebhookUrl: getString(
+      args,
+      "slack-webhook",
+      "SLACK_WEBHOOK_URL",
+      "",
+    ) || undefined,
+    slackAlertGroup: getString(
+      args,
+      "slack-alert-group",
+      "SLACK_ALERT_GROUP",
+      "",
+    ) || undefined,
   };
 
   // Validate configuration
@@ -408,5 +433,12 @@ export function logConfig(config: SimulatorConfig): void {
   );
   console.log("  Server:");
   console.log(`    Health port: ${masked.healthPort}`);
+  if (masked.slackWebhookUrl) {
+    console.log("  Slack:");
+    console.log(`    Webhook: ${masked.slackWebhookUrl.slice(0, 30)}...`);
+    if (masked.slackAlertGroup) {
+      console.log(`    Alert group: ${masked.slackAlertGroup}`);
+    }
+  }
   console.log("");
 }

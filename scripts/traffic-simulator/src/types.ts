@@ -51,6 +51,12 @@ export interface SimulatorConfig {
   // Server
   /** Port for health check server */
   healthPort: number;
+
+  // Slack notifications (optional)
+  /** Slack webhook URL for hourly reports (optional) */
+  slackWebhookUrl?: string;
+  /** Slack user/group ID to mention in alerts (optional, e.g., "U123456" or "S123456") */
+  slackAlertGroup?: string;
 }
 
 /**
@@ -71,6 +77,8 @@ export interface HealthStatus {
   singleSubmissions: number;
   /** Total batch submissions */
   batchSubmissions: number;
+  /** Total proof submission errors */
+  proofErrors: number;
   /** Last error message if any */
   lastError: string | null;
   /** Uptime in seconds */

@@ -28,6 +28,12 @@ import { startHealthServer } from "./server.ts";
 import { setVerbose } from "./logger.ts";
 import { SINGLE_SUBMISSION_DELAY_MS } from "./constants.ts";
 import { sleep } from "./utils/reconnect.ts";
+import {
+  sendHourlyReport,
+  type SlackConfig,
+  type MetricsSnapshot,
+  type HourlyReport,
+} from "./slack.ts";
 import type {
   BlockInfo,
   HealthStatus,
@@ -58,6 +64,10 @@ const metrics = {
 
 let lastError: string | null = null;
 
+// Slack reporting state
+let lastReportTime: number | null = null;
+let lastReportMetrics: MetricsSnapshot | null = null;
+
 /**
  * Get current health status
  */
@@ -70,6 +80,7 @@ function getHealthStatus(): HealthStatus {
     proofsSubmitted: metrics.proofsSubmitted,
     singleSubmissions: metrics.singleSubmissions,
     batchSubmissions: metrics.batchSubmissions,
+    proofErrors: metrics.proofErrors,
     lastError,
     uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
   };
@@ -85,6 +96,116 @@ function getMetrics(): Metrics {
     sepoliaConnected: blockSubscriber?.isConnected ? 1 : 0,
     cc3Connected: attestationSubscriber?.isConnected ? 1 : 0,
   };
+}
+
+/**
+ * Get current metrics snapshot for Slack reporting
+ */
+function getMetricsSnapshot(): MetricsSnapshot {
+  return {
+    proofsSubmitted: metrics.proofsSubmitted,
+    proofErrors: metrics.proofErrors,
+    blocksProcessed: metrics.blocksProcessed,
+    singleSubmissions: metrics.singleSubmissions,
+    batchSubmissions: metrics.batchSubmissions,
+    queueSize: pendingQueue?.size ?? 0,
+    sepoliaConnected: blockSubscriber?.isConnected ?? false,
+    cc3Connected: attestationSubscriber?.isConnected ?? false,
+    uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
+    lastError,
+  };
+}
+
+/**
+ * Send hourly Slack report if configured
+ */
+async function sendHourlySlackReport(): Promise<void> {
+  if (!config.slackWebhookUrl) {
+    return;
+  }
+
+  const now = Date.now();
+  const currentMetrics = getMetricsSnapshot();
+
+  // Initialize on first run
+  if (lastReportTime === null || lastReportMetrics === null) {
+    lastReportTime = now;
+    lastReportMetrics = currentMetrics;
+    console.log("📊 Slack reporting initialized (first report will be sent in 1 hour)");
+    return;
+  }
+
+  // Check if an hour has passed
+  const hoursSinceLastReport = (now - lastReportTime) / 3600000;
+  if (hoursSinceLastReport < 1.0) {
+    return;
+  }
+
+  try {
+    const slackConfig: SlackConfig = {
+      webhookUrl: config.slackWebhookUrl,
+      alertGroup: config.slackAlertGroup,
+      username: "traffic-simulator",
+    };
+
+    const report: HourlyReport = {
+      periodStart: lastReportTime,
+      periodEnd: now,
+      startMetrics: lastReportMetrics,
+      endMetrics: currentMetrics,
+      delta: {
+        proofsSubmitted: Math.max(
+          0,
+          currentMetrics.proofsSubmitted - lastReportMetrics.proofsSubmitted,
+        ),
+        proofErrors: Math.max(
+          0,
+          currentMetrics.proofErrors - lastReportMetrics.proofErrors,
+        ),
+        blocksProcessed: Math.max(
+          0,
+          currentMetrics.blocksProcessed - lastReportMetrics.blocksProcessed,
+        ),
+        singleSubmissions: Math.max(
+          0,
+          currentMetrics.singleSubmissions - lastReportMetrics.singleSubmissions,
+        ),
+        batchSubmissions: Math.max(
+          0,
+          currentMetrics.batchSubmissions - lastReportMetrics.batchSubmissions,
+        ),
+      },
+    };
+
+    await sendHourlyReport(report, slackConfig);
+    console.log("✅ Hourly Slack report sent");
+
+    // Update state for next report
+    lastReportTime = now;
+    lastReportMetrics = currentMetrics;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Failed to send Slack report: ${errorMsg}`);
+    lastError = `Slack report failed: ${errorMsg}`;
+  }
+}
+
+/**
+ * Start hourly Slack reporting loop
+ */
+function startSlackReporting(): void {
+  if (!config.slackWebhookUrl) {
+    return;
+  }
+
+  // Check every 5 minutes if it's time to send a report
+  setInterval(async () => {
+    if (!isShuttingDown) {
+      await sendHourlySlackReport();
+    }
+  }, 5 * 60 * 1000); // 5 minutes
+
+  console.log("📊 Slack hourly reporting enabled");
 }
 
 /**
@@ -336,6 +457,9 @@ async function main(): Promise<void> {
       blockSubscriber.start(),
       attestationSubscriber.start(),
     ]);
+
+    // Start Slack reporting if configured
+    startSlackReporting();
 
     console.log("\n✅ Simulator running. Press Ctrl+C to stop.\n");
 
