@@ -317,7 +317,7 @@ where
             })?;
         handle.record_cost(total_gas)?;
 
-        Ok(Self::calculate_tx_index_impl(&merkle_proof))
+        Self::calculate_tx_index_impl(&merkle_proof)
     }
 
     /// Generic handler for verification failures
