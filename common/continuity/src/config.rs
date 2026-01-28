@@ -89,6 +89,30 @@ impl ContinuityConfig {
     pub fn checkpoint_block_interval(&self) -> u64 {
         self.checkpoint_interval * self.attestation_interval
     }
+
+    /// Get the maximum range for checkpoint queries around a height.
+    ///
+    /// Uses `checkpoint_block_interval() * 10` to ensure we get boundaries
+    /// even if historical checkpoint intervals were much larger than the current interval.
+    /// The GraphQL query limits results to 10 checkpoints per direction, so this is safe.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use continuity::ContinuityConfig;
+    /// let config = ContinuityConfig::builder()
+    ///     .cc3_rpc_url("ws://mock")
+    ///     .eth_rpc_url("http://mock")
+    ///     .chain_key(1)
+    ///     .attestation_interval(10)
+    ///     .checkpoint_interval(10)
+    ///     .build();
+    ///
+    /// assert_eq!(config.checkpoint_query_max_range(), 1000);
+    /// ```
+    pub fn checkpoint_query_max_range(&self) -> u64 {
+        self.checkpoint_block_interval() * 10
+    }
 }
 
 impl ContinuityConfig {
@@ -343,11 +367,5 @@ impl ConfigBuilder {
             .attestation_interval(attestation_interval)
             .checkpoint_interval(checkpoint_interval)
             .build())
-    }
-
-    /// Alias for backwards compatibility.
-    #[deprecated(since = "0.1.0", note = "Use `fetch_intervals()` instead")]
-    pub async fn fetch_checkpoint_interval(self) -> anyhow::Result<ContinuityConfig> {
-        self.fetch_intervals().await
     }
 }

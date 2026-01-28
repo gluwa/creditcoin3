@@ -68,10 +68,8 @@ impl ContinuityBuilder {
 
             // OPTIMIZATION: If we have a query height (min_needed), fetch checkpoints around it
             // instead of fetching all checkpoints
-            // Use checkpoint_block_interval * 10 to handle cases where historical
-            // checkpoint intervals were much larger than the current interval.
             if let Some(query_height) = min_needed {
-                let max_range = self.config.checkpoint_block_interval() * 10;
+                let max_range = self.config.checkpoint_query_max_range();
                 if let Ok(checkpoints) = indexer
                     .get_checkpoints_around_height(self.config.chain_key, query_height, max_range)
                     .await

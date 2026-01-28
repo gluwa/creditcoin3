@@ -92,23 +92,3 @@ pub enum ContinuityError {
         current_block: u64,
     },
 }
-
-impl ContinuityError {
-    /// Check if this error is retriable.
-    ///
-    /// Returns `true` if the client should wait and retry the operation,
-    /// `false` if retrying won't help.
-    pub fn is_retriable(&self) -> bool {
-        matches!(
-            self,
-            ContinuityError::BlockNotReady { .. }
-                | ContinuityError::UpperBoundNotOnSourceChain { .. }
-                | ContinuityError::Rpc(_)
-        )
-    }
-
-    /// Get a user-friendly error message.
-    pub fn user_message(&self) -> String {
-        self.to_string()
-    }
-}

@@ -53,10 +53,7 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
                 Vec::new()
             } else {
                 // Query is before or at last checkpoint - fetch checkpoints around query height
-                // Use checkpoint_block_interval * 10 as the range to ensure we get boundaries
-                // even if historical checkpoint intervals were much larger than the current interval.
-                // The GraphQL query limits results to 10 checkpoints per direction, so this is safe.
-                let max_range = self.builder.config.checkpoint_block_interval() * 10;
+                let max_range = self.builder.config.checkpoint_query_max_range();
                 self.indexer
                     .get_checkpoints_around_height(
                         self.builder.config.chain_key,

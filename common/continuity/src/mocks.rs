@@ -64,14 +64,6 @@ impl MockCcRpcProvider {
             genesis_block: 0,
         }
     }
-
-    /// Create a mock provider with a custom genesis block.
-    pub fn with_genesis(chain_key: u64, genesis_block: u64) -> Self {
-        Self {
-            chain_key,
-            genesis_block,
-        }
-    }
 }
 
 #[async_trait]

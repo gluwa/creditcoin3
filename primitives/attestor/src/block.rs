@@ -12,9 +12,6 @@ use alloc::string::String;
 #[cfg(feature = "std")]
 use std::string::String;
 
-#[cfg(not(feature = "std"))]
-use sp_runtime::format;
-
 // Removed Felt import - using H256 instead
 
 pub trait MaybeCreatedFromEmpty {
