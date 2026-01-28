@@ -22,6 +22,9 @@ polkadot.*
 .cargo-remote.toml
 .cargo/
 
+# Nix artifacts
+result*
+
 # Zombienet bin
 attestor/zombie/zombienet-linux-x64
 attestor/zombie/zombienet-macos*
