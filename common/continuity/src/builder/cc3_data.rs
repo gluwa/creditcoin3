@@ -74,16 +74,12 @@ impl ContinuityBuilder {
                     .get_checkpoints_around_height(self.config.chain_key, query_height, max_range)
                     .await
                 {
-                    // Filter checkpoints based on block number range if max_needed is specified
+                    // Filter checkpoints based on block number range
                     let filtered: Vec<AttestationCheckpoint> = checkpoints
                         .into_iter()
                         .filter(|c| {
-                            if let Some(max) = max_needed {
-                                if c.block_number >= max {
-                                    return false;
-                                }
-                            }
-                            true
+                            max_needed.is_none_or(|max| c.block_number < max)
+                                && min_needed.is_none_or(|min| c.block_number > min)
                         })
                         .collect();
 

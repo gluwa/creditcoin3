@@ -15,7 +15,6 @@ mod common;
 mod indexer;
 mod proof_builder;
 
-pub use bounds::{BoundsFinder, Cc3BoundsFinder, IndexerBoundsFinder};
 pub use cc3_data::*;
 pub use proof_builder::ContinuityResult;
 

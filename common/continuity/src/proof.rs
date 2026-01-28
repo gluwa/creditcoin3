@@ -49,7 +49,7 @@ use sp_core::H256;
 /// ];
 ///
 /// let proof = BuiltContinuityProof::from_blocks(blocks);
-/// assert_eq!(proof.len(), 2);
+/// assert_eq!(proof.blocks.len(), 2);
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 pub struct BuiltContinuityProof {
@@ -94,16 +94,6 @@ impl BuiltContinuityProof {
             blocks,
             lower_endpoint_digest: Some(lower_endpoint_digest),
         }
-    }
-
-    /// Get the number of blocks in this proof.
-    pub fn len(&self) -> usize {
-        self.blocks.len()
-    }
-
-    /// Check if the proof contains no blocks.
-    pub fn is_empty(&self) -> bool {
-        self.blocks.is_empty()
     }
 
     /// Convert to the on-chain optimized ContinuityProof format.
