@@ -75,7 +75,6 @@
         pkg-config
         protobuf
         clang
-        pkgsMusl.stdenv.cc
       ];
 
       sccacheEnv = {
@@ -87,7 +86,6 @@
       buildEnv = {
         LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
         ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib";
-        OPENSSL_NO_VENDOR = "1";
         OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
         OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include";
       };
@@ -95,7 +93,7 @@
       commonArgs = {
         inherit src;
         strictDeps = true;
-        inherit nativeBuildInputs;
+        nativeBuildInputs = nativeBuildInputs ++ [pkgsMusl.stdenv.cc];
 
         buildInputs = [];
 
@@ -297,7 +295,7 @@
       # ====================================================================== #
 
       devShells.default = pkgs.mkShell {
-        nativeBuildInputs = nativeBuildInputs ++ [rust pkgs.sccache];
+        nativeBuildInputs = nativeBuildInputs ++ [rust pkgs.sccache pkgs.gcc];
         buildInputs = with pkgs; [
           openssl
           rocksdb
