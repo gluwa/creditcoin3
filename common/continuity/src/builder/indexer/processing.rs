@@ -59,9 +59,8 @@ impl ContinuityBuilder {
         let is_predicted = upper_attestation.digest == sp_core::H256::zero()
             && upper_attestation.continuity_proof_data.is_none();
 
-        let final_blocks = if checkpoint_info.needs_checkpoint_proof {
-            trimmed
-        } else if is_predicted {
+        let final_blocks = if checkpoint_info.needs_checkpoint_proof || is_predicted {
+            // For checkpoint proofs or predicted attestations, use trimmed blocks as-is
             // Upper attestation is predicted - cannot append from indexer
             // The blocks should already extend to or beyond the predicted upper bound
             // If not, we'll need to build from source chain (handled in build.rs fallback)

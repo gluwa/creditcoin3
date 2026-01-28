@@ -54,19 +54,19 @@ use tracing::info;
 /// # async fn example() -> anyhow::Result<()> {
 /// use continuity::{ContinuityBuilder, ContinuityConfig};
 ///
-/// let config = ContinuityConfig::new(
-///     "wss://rpc.creditcoin.network",
-///     "//Alice",
-///     "https://eth-rpc.example.com",
-///     1,
-///     10,
-/// );
+/// let config = ContinuityConfig::builder()
+///     .cc3_rpc_url("wss://rpc.creditcoin.network")
+///     .eth_rpc_url("https://eth-rpc.example.com")
+///     .chain_key(1)
+///     .attestation_interval(10)
+///     .checkpoint_interval(10)
+///     .build();
 ///
 /// let builder = ContinuityBuilder::new(config).await?;
 ///
 /// // Build proof for a single block
 /// let query = 100;
-/// let (lower, upper, _) = builder.get_endpoints(&[query], None).await?;
+/// let (lower, upper) = builder.get_endpoints(&[query], None).await?;
 /// let proof = builder.build_for_single_query(query, lower, upper).await?;
 /// # Ok(())
 /// # }
@@ -77,12 +77,12 @@ use tracing::info;
 /// ```rust,no_run
 /// # async fn example() -> anyhow::Result<()> {
 /// use continuity::ContinuityBuilder;
+/// use continuity::mocks::make_mock_providers;
 /// use indexer_client::IndexerClient;
 /// use std::sync::Arc;
 /// # use continuity::ContinuityConfig;
 /// # let config = ContinuityConfig::builder().cc3_rpc_url("").eth_rpc_url("").chain_key(1).attestation_interval(10).checkpoint_interval(10).build();
-/// # let cc_client = Arc::new(todo!());
-/// # let eth_client = Arc::new(todo!());
+/// # let (cc_client, eth_client) = make_mock_providers(1);
 ///
 /// let indexer = Arc::new(IndexerClient::new("https://indexer.example.com".to_string())?);
 ///
@@ -315,12 +315,12 @@ impl ContinuityBuilder {
     /// ```rust,no_run
     /// # async fn example() -> anyhow::Result<()> {
     /// use continuity::ContinuityBuilder;
+    /// use continuity::mocks::make_mock_providers;
     /// use indexer_client::IndexerClient;
     /// use std::sync::Arc;
     /// # use continuity::ContinuityConfig;
     /// # let config = ContinuityConfig::builder().cc3_rpc_url("").eth_rpc_url("").chain_key(1).attestation_interval(10).checkpoint_interval(10).build();
-    /// # let cc_client = Arc::new(todo!());
-    /// # let eth_client = Arc::new(todo!());
+    /// # let (cc_client, eth_client) = make_mock_providers(1);
     ///
     /// let indexer = Arc::new(IndexerClient::new(
     ///     "https://indexer.example.com/graphql".to_string()
@@ -486,7 +486,7 @@ impl ContinuityBuilder {
     /// # let builder = ContinuityBuilder::new(config).await?;
     ///
     /// let queries = vec![100, 105, 110];
-    /// let (lower, upper, _) = builder.get_endpoints(&queries, None).await?;
+    /// let (lower, upper) = builder.get_endpoints(&queries, None).await?;
     /// let proof = builder.build_for_batch_queries(&queries, lower, upper).await?;
     ///
     /// // Single proof covers all three blocks

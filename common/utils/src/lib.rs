@@ -20,6 +20,7 @@
 //! use utils::BlockItem;
 //!
 //! // Implement BlockItem for your types
+//! #[derive(Debug)]
 //! struct MyBlockItem {
 //!     data: Vec<u8>,
 //! }

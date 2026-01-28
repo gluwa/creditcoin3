@@ -129,6 +129,7 @@ impl ContinuityConfig {
     ///     .cc3_rpc_url("wss://rpc.creditcoin.network")
     ///     .eth_rpc_url("https://eth-mainnet.infura.io/v3/KEY")
     ///     .chain_key(1)
+    ///     .attestation_interval(10)
     ///     .checkpoint_interval(10)
     ///     .build();
     /// ```

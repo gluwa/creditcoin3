@@ -106,28 +106,6 @@ impl BuiltContinuityProof {
         self.blocks.is_empty()
     }
 
-    /// Get the block number range covered by this proof.
-    ///
-    /// Returns `None` if the proof is empty.
-    pub fn block_range(&self) -> Option<(u64, u64)> {
-        if self.blocks.is_empty() {
-            return None;
-        }
-        let first = self.blocks.first()?.block_number;
-        let last = self.blocks.last()?.block_number;
-        Some((first, last))
-    }
-
-    /// Get the first block in the proof.
-    pub fn first_block(&self) -> Option<&Block> {
-        self.blocks.first()
-    }
-
-    /// Get the last block in the proof.
-    pub fn last_block(&self) -> Option<&Block> {
-        self.blocks.last()
-    }
-
     /// Convert to the on-chain optimized ContinuityProof format.
     ///
     /// This extracts only the roots (digests are computed on-chain) and resolves
@@ -157,26 +135,6 @@ impl BuiltContinuityProof {
             lower_endpoint_digest,
             roots,
         })
-    }
-
-    /// Convert to the on-chain optimized ContinuityProof format with explicit lower digest.
-    ///
-    /// Similar to `to_attestor_proof`, but allows overriding the lower_endpoint_digest
-    /// when the proof has been trimmed and the stored digest doesn't match.
-    ///
-    /// # Arguments
-    ///
-    /// * `lower_digest` - The digest of the lower attestation block
-    pub fn to_attestor_proof_with_lower_digest(
-        &self,
-        lower_digest: H256,
-    ) -> AttestorContinuityProof {
-        let roots: Vec<H256> = self.blocks.iter().map(|b| b.root).collect();
-
-        AttestorContinuityProof {
-            lower_endpoint_digest: lower_digest,
-            roots,
-        }
     }
 
     /// Convert to the on-chain optimized ContinuityProof format with smart lower digest resolution.
