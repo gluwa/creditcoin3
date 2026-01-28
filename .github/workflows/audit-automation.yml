@@ -34,7 +34,8 @@ jobs:
 
     strategy:
       matrix:
-        network: [Devnet, Testnet]
+        # TODO: Add testnet-v1 back after releasing V1 runtime support
+        config: [devnet-v2, testnet-v2]
 
     steps:
       - uses: actions/checkout@v6
@@ -58,7 +59,7 @@ jobs:
 
           ls -l
 
-      - name: Run USC Audit Automation for ${{ matrix.network }}
+      - name: Run USC Audit Automation for ${{ matrix.config }}
         shell: bash
         env:
           USC_SLACK_WEBHOOK_URL: ${{ secrets.USC_SLACK_WEBHOOK_URL }}
@@ -67,6 +68,5 @@ jobs:
           USC_INFURA_API_KEY: ${{ secrets.USC_INFURA_API_KEY }}
           USC_ALCHEMY_API_KEY: ${{ secrets.USC_ALCHEMY_API_KEY }}
         run: |
-          NETWORK_LOWER=$(echo "${{ matrix.network }}" | tr '[:upper:]' '[:lower:]')
-          CONFIG_FILE="usc_audit_automation/config-${NETWORK_LOWER}.toml"
+          CONFIG_FILE="usc_audit_automation/config-${{ matrix.config }}.toml"
           ./target/release/usc_audit_automation --config-file "$CONFIG_FILE"
