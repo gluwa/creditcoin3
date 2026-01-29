@@ -21,6 +21,7 @@ import {
   TRANSIENT_RETRY_BASE_DELAY_MS,
 } from "../constants.ts";
 import { sleep } from "../utils/reconnect.ts";
+import { withTimeout } from "../utils/retry.ts";
 import PRECOMPILE_ABI from "../abi/block_prover.json" with {
   type: "json",
 };
@@ -102,17 +103,6 @@ function getErrorMessage(error: unknown): string {
 // ============================================================================
 // Utilities
 // ============================================================================
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
-  );
-  return Promise.race([promise, timeout]);
-}
 
 async function withSubmissionLock<T>(fn: () => Promise<T>): Promise<T> {
   const previous = submissionQueue;
@@ -246,17 +236,19 @@ async function submitToPrecompileInternal(
   /**
    * Simulate the transaction with retry for transient network errors.
    * This is safe to retry because no nonce is used during simulation.
+   * Returns the entry (which may be refreshed) along with the fee overrides.
    */
   const simulateWithRetry = async (
-    entry: SignerEntry,
-  ): Promise<{ from: string; feeOverrides: ethers.TransactionRequest }> => {
-    const { signer, provider } = entry;
+    initialEntry: SignerEntry,
+  ): Promise<
+    { entry: SignerEntry; feeOverrides: ethers.TransactionRequest }
+  > => {
+    let entry = initialEntry;
 
-    for (
-      let attempt = 0;
-      attempt <= MAX_TRANSIENT_RETRIES;
-      attempt++
-    ) {
+    for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
+      // Destructure inside the loop to use fresh references after reset
+      const { signer, provider } = entry;
+
       try {
         const from = await signer.getAddress();
 
@@ -271,7 +263,7 @@ async function submitToPrecompileInternal(
         const feeOverrides = await getFeeOverrides(provider);
         debug(`${label} fees`, { ...feeOverrides });
 
-        return { from, feeOverrides };
+        return { entry, feeOverrides };
       } catch (error) {
         // Check for revert errors (not retriable)
         const iface = new ethers.Interface(PRECOMPILE_ABI);
@@ -292,10 +284,8 @@ async function submitToPrecompileInternal(
               attempt + 1
             }/${MAX_TRANSIENT_RETRIES})...`,
           );
-          // Reset the provider to get a fresh connection
-          resetSigner(cc3HttpUrl, privateKey);
-          // Update entry reference for next iteration
-          entry = getSigner(cc3HttpUrl, privateKey);
+          // Reset the provider and update entry for next iteration
+          entry = resetSigner(cc3HttpUrl, privateKey);
           await sleep(delayMs);
           continue;
         }
@@ -316,11 +306,11 @@ async function submitToPrecompileInternal(
    * Execute the full submission (simulate + send).
    * Transient retries only happen during simulation, not after tx is sent.
    */
-  const execute = async (entry: SignerEntry) => {
-    const { signer, provider } = entry;
-
+  const execute = async (initialEntry: SignerEntry) => {
     // Simulation phase with transient retry (safe - no nonce used)
-    const { feeOverrides } = await simulateWithRetry(entry);
+    // Use the returned entry in case it was refreshed during retry
+    const { entry, feeOverrides } = await simulateWithRetry(initialEntry);
+    const { signer, provider } = entry;
 
     // Send transaction phase (no transient retry - nonce is used)
     // If this fails, we rely on nonce error handling, not blind retry
@@ -498,29 +488,16 @@ async function fetchProof(url: string): Promise<ProofResponse> {
   }
 }
 
-function getBlockAndTxIndex(proofUrl: string) {
-  const u = new URL(proofUrl);
-  const parts = u.pathname.split("/").filter(Boolean);
-
-  const len = parts.length;
-  const txIndexStr = parts[len - 1];
-  const blockNumberStr = parts[len - 2];
-
-  const blockNumber = Number(blockNumberStr);
-  const txIndex = Number(txIndexStr);
-
-  if (!Number.isInteger(blockNumber) || !Number.isInteger(txIndex)) {
-    throw new Error(
-      `Could not parse blockNumber/txIndex from URL: ${proofUrl}`,
-    );
-  }
-
-  return { blockNumber, txIndex };
+interface FetchProofContext {
+  blockNumber: number;
+  /** Transaction index (for proof-by-index) or hash (for proof-by-tx) */
+  txIdentifier: number | string;
 }
 
 async function fetchProofWithRetry(
   url: string,
   label: string,
+  context: FetchProofContext,
   maxRetries = PROOF_API_MAX_RETRIES,
 ): Promise<ProofResponse> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -536,12 +513,14 @@ async function fetchProofWithRetry(
         const delayMs = PROOF_API_BASE_DELAY_MS * Math.pow(2, attempt) +
           Math.random() * 250;
 
-        const { blockNumber, txIndex } = getBlockAndTxIndex(url);
+        const txDisplay = typeof context.txIdentifier === "number"
+          ? `txIndex=${context.txIdentifier}`
+          : `txHash=${String(context.txIdentifier).slice(0, 10)}...`;
 
         console.log(
           `⚠️  Proof API retry (${label}, ${
             attempt + 1
-          }/${maxRetries})... block number=${blockNumber}, tx Index=${txIndex}`,
+          }/${maxRetries})... blockNumber=${context.blockNumber}, ${txDisplay}`,
         );
         await sleep(delayMs);
         continue;
@@ -566,9 +545,18 @@ export async function fetchProofForTx(
 
   const indexUrl =
     `${apiUrl}/api/v1/proof/${chainKey}/${txInfo.blockNumber}/${txInfo.txIndex}`;
+  const context: FetchProofContext = {
+    blockNumber: txInfo.blockNumber,
+    txIdentifier: txInfo.txIndex,
+  };
 
   try {
-    return await fetchProofWithRetry(indexUrl, "proof-by-index", maxRetries);
+    return await fetchProofWithRetry(
+      indexUrl,
+      "proof-by-index",
+      context,
+      maxRetries,
+    );
   } catch (error) {
     // Fall back to tx hash lookup on index errors
     if (
@@ -580,7 +568,16 @@ export async function fetchProofForTx(
       );
       const hashUrl =
         `${apiUrl}/api/v1/proof-by-tx/${chainKey}/${txInfo.txHash}`;
-      return await fetchProofWithRetry(hashUrl, "proof-by-tx", maxRetries);
+      const hashContext: FetchProofContext = {
+        blockNumber: txInfo.blockNumber,
+        txIdentifier: txInfo.txHash,
+      };
+      return await fetchProofWithRetry(
+        hashUrl,
+        "proof-by-tx",
+        hashContext,
+        maxRetries,
+      );
     }
     throw error;
   }

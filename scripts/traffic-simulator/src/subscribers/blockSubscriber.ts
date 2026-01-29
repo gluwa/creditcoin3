@@ -7,6 +7,7 @@
 import { WebSocketProvider } from "ethers";
 import type { BlockInfo } from "../types.ts";
 import { BaseSubscriber } from "./baseSubscriber.ts";
+import { withTimeout } from "../utils/retry.ts";
 
 export type BlockCallback = (block: BlockInfo) => void | Promise<void>;
 
@@ -126,22 +127,11 @@ export class BlockSubscriber extends BaseSubscriber {
   ): Promise<Awaited<ReturnType<WebSocketProvider["getBlock"]>>> {
     if (!this.provider) return Promise.resolve(null);
 
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(
-        () =>
-          reject(
-            new Error(
-              `getBlock(${blockNumber}) timed out after ${GET_BLOCK_TIMEOUT_MS}ms`,
-            ),
-          ),
-        GET_BLOCK_TIMEOUT_MS,
-      );
-    });
-
-    return Promise.race([
+    return withTimeout(
       this.provider.getBlock(blockNumber, true),
-      timeoutPromise,
-    ]);
+      GET_BLOCK_TIMEOUT_MS,
+      `getBlock(${blockNumber})`,
+    );
   }
 
   protected async cleanup(): Promise<void> {
