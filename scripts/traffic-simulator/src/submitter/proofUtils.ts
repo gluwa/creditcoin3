@@ -8,6 +8,7 @@ import { debug } from "../logger.ts";
 import {
   BATCH_PROOF_GAS_LIMIT,
   BATCH_VERIFY_SIG,
+  MAX_TRANSIENT_RETRIES,
   MIN_PRIORITY_FEE_GWEI,
   PRECOMPILE_ADDRESS,
   PROOF_API_BASE_DELAY_MS,
@@ -17,6 +18,7 @@ import {
   RPC_TIMEOUT_MS,
   SINGLE_PROOF_GAS_LIMIT,
   SINGLE_VERIFY_SIG,
+  TRANSIENT_RETRY_BASE_DELAY_MS,
 } from "../constants.ts";
 import { sleep } from "../utils/reconnect.ts";
 import PRECOMPILE_ABI from "../abi/block_prover.json" with {
@@ -65,6 +67,26 @@ function isReplacementUnderpricedError(error: unknown): boolean {
 
 export function isContinuityMismatchError(error: unknown): boolean {
   return getErrorMessage(error).includes("Continuity proof does not match");
+}
+
+/**
+ * Detect transient network errors that should trigger a retry with provider reset
+ */
+function isTransientNetworkError(error: unknown): boolean {
+  const msg = getErrorMessage(error).toLowerCase();
+  return (
+    msg.includes("socket hang up") ||
+    msg.includes("econnreset") ||
+    msg.includes("econnrefused") ||
+    msg.includes("etimedout") ||
+    msg.includes("enotfound") ||
+    msg.includes("network error") ||
+    msg.includes("fetch failed") ||
+    msg.includes("connection reset") ||
+    msg.includes("connection refused") ||
+    msg.includes("socket disconnected") ||
+    msg.includes("request to") && msg.includes("failed")
+  );
 }
 
 function getErrorMessage(error: unknown): string {
@@ -221,31 +243,87 @@ async function submitToPrecompileInternal(
 ): Promise<{ txHash: string; gasUsed: bigint }> {
   const { cc3HttpUrl, privateKey, data, gasLimit, label } = params;
 
+  /**
+   * Simulate the transaction with retry for transient network errors.
+   * This is safe to retry because no nonce is used during simulation.
+   */
+  const simulateWithRetry = async (
+    entry: SignerEntry,
+  ): Promise<{ from: string; feeOverrides: ethers.TransactionRequest }> => {
+    const { signer, provider } = entry;
+
+    for (
+      let attempt = 0;
+      attempt <= MAX_TRANSIENT_RETRIES;
+      attempt++
+    ) {
+      try {
+        const from = await signer.getAddress();
+
+        // Simulate the transaction
+        await withTimeout(
+          provider.call({ to: PRECOMPILE_ADDRESS, data, from }),
+          RPC_TIMEOUT_MS,
+          `${label} simulation`,
+        );
+
+        // Get fee data
+        const feeOverrides = await getFeeOverrides(provider);
+        debug(`${label} fees`, { ...feeOverrides });
+
+        return { from, feeOverrides };
+      } catch (error) {
+        // Check for revert errors (not retriable)
+        const iface = new ethers.Interface(PRECOMPILE_ABI);
+        const revertData = (error as { data?: string }).data;
+        if (revertData) {
+          const parsed = iface.parseError(revertData);
+          throw new Error(`${label} will revert: ${parsed?.name ?? "Unknown"}`);
+        }
+
+        // Check if it's a transient network error that should be retried
+        if (isTransientNetworkError(error) && attempt < MAX_TRANSIENT_RETRIES) {
+          const delayMs = TRANSIENT_RETRY_BASE_DELAY_MS * Math.pow(2, attempt) +
+            Math.random() * 500;
+          console.warn(
+            `⚠️  ${label}: transient network error during simulation (${
+              getErrorMessage(error)
+            }), retrying in ${Math.round(delayMs / 1000)}s (${
+              attempt + 1
+            }/${MAX_TRANSIENT_RETRIES})...`,
+          );
+          // Reset the provider to get a fresh connection
+          resetSigner(cc3HttpUrl, privateKey);
+          // Update entry reference for next iteration
+          entry = getSigner(cc3HttpUrl, privateKey);
+          await sleep(delayMs);
+          continue;
+        }
+
+        throw new Error(
+          `${label} simulation failed: ${getErrorMessage(error)}`,
+        );
+      }
+    }
+
+    // Should never reach here
+    throw new Error(
+      `${label} simulation failed after ${MAX_TRANSIENT_RETRIES} retries`,
+    );
+  };
+
+  /**
+   * Execute the full submission (simulate + send).
+   * Transient retries only happen during simulation, not after tx is sent.
+   */
   const execute = async (entry: SignerEntry) => {
     const { signer, provider } = entry;
 
-    // Simulate first
-    const from = await signer.getAddress();
-    try {
-      await withTimeout(
-        provider.call({ to: PRECOMPILE_ADDRESS, data, from }),
-        RPC_TIMEOUT_MS,
-        `${label} simulation`,
-      );
-    } catch (error) {
-      const iface = new ethers.Interface(PRECOMPILE_ABI);
-      const revertData = (error as { data?: string }).data;
-      if (revertData) {
-        const parsed = iface.parseError(revertData);
-        throw new Error(`${label} will revert: ${parsed?.name ?? "Unknown"}`);
-      }
-      throw new Error(`${label} simulation failed: ${getErrorMessage(error)}`);
-    }
+    // Simulation phase with transient retry (safe - no nonce used)
+    const { feeOverrides } = await simulateWithRetry(entry);
 
-    // Send transaction
-    const feeOverrides = await getFeeOverrides(provider);
-    debug(`${label} fees`, { ...feeOverrides });
-
+    // Send transaction phase (no transient retry - nonce is used)
+    // If this fails, we rely on nonce error handling, not blind retry
     const tx = await sendTransaction(
       signer,
       provider,
@@ -420,6 +498,24 @@ async function fetchProof(url: string): Promise<ProofResponse> {
   }
 }
 
+function getBlockAndTxIndex(proofUrl) {
+  const u = new URL(proofUrl);
+  const parts = u.pathname.split("/").filter(Boolean);
+
+  const len = parts.length;
+  const txIndexStr = parts[len - 1];
+  const blockNumberStr = parts[len - 2];
+
+  const blockNumber = Number(blockNumberStr);
+  const txIndex = Number(txIndexStr);
+
+  if (!Number.isInteger(blockNumber) || !Number.isInteger(txIndex)) {
+    throw new Error(`Could not parse blockNumber/txIndex from URL: ${proofUrl}`);
+  }
+
+  return { blockNumber, txIndex };
+}
+
 async function fetchProofWithRetry(
   url: string,
   label: string,
@@ -437,8 +533,11 @@ async function fetchProofWithRetry(
       if (attempt < maxRetries - 1 && isRetriable) {
         const delayMs = PROOF_API_BASE_DELAY_MS * Math.pow(2, attempt) +
           Math.random() * 250;
+
+        const { blockNumber, txIndex } = getBlockAndTxIndex(url);
+
         console.log(
-          `⚠️  Proof API retry (${label}, ${attempt + 1}/${maxRetries})...`,
+          `⚠️  Proof API retry (${label}, ${attempt + 1}/${maxRetries})... block number=${blockNumber}, tx Index=${txIndex}`
         );
         await sleep(delayMs);
         continue;

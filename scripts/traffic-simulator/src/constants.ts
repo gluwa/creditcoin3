@@ -22,6 +22,10 @@ export const PROOF_API_BASE_DELAY_MS = 2_000;
 export const RPC_TIMEOUT_MS = 30_000;
 export const RECEIPT_TIMEOUT_MS = 120_000;
 
+// Transient network error retry settings (for socket hang up, ECONNRESET, etc.)
+export const MAX_TRANSIENT_RETRIES = 3;
+export const TRANSIENT_RETRY_BASE_DELAY_MS = 2_000;
+
 // Gas limits
 export const SINGLE_PROOF_GAS_LIMIT = 5_000_000n;
 export const BATCH_PROOF_GAS_LIMIT = 10_000_000n;
