@@ -498,7 +498,7 @@ async function fetchProof(url: string): Promise<ProofResponse> {
   }
 }
 
-function getBlockAndTxIndex(proofUrl) {
+function getBlockAndTxIndex(proofUrl: string) {
   const u = new URL(proofUrl);
   const parts = u.pathname.split("/").filter(Boolean);
 
@@ -510,7 +510,9 @@ function getBlockAndTxIndex(proofUrl) {
   const txIndex = Number(txIndexStr);
 
   if (!Number.isInteger(blockNumber) || !Number.isInteger(txIndex)) {
-    throw new Error(`Could not parse blockNumber/txIndex from URL: ${proofUrl}`);
+    throw new Error(
+      `Could not parse blockNumber/txIndex from URL: ${proofUrl}`,
+    );
   }
 
   return { blockNumber, txIndex };
@@ -537,7 +539,9 @@ async function fetchProofWithRetry(
         const { blockNumber, txIndex } = getBlockAndTxIndex(url);
 
         console.log(
-          `⚠️  Proof API retry (${label}, ${attempt + 1}/${maxRetries})... block number=${blockNumber}, tx Index=${txIndex}`
+          `⚠️  Proof API retry (${label}, ${
+            attempt + 1
+          }/${maxRetries})... block number=${blockNumber}, tx Index=${txIndex}`,
         );
         await sleep(delayMs);
         continue;
