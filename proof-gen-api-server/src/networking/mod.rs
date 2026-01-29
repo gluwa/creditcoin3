@@ -48,14 +48,11 @@ pub fn build_app(service: Arc<ContinuityService>, chain_key: u64, metrics: Metri
         .layer(Extension(metrics.clone()))
         .layer(axum::middleware::from_fn_with_state(
             chain_key,
-            move |request: axum::extract::Request, next: axum::middleware::Next| {
-                let chain_key = chain_key;
-                async move {
-                    crate::networking::middleware::chain_key_validator_middleware(
-                        request, next, chain_key,
-                    )
-                    .await
-                }
+            move |request: axum::extract::Request, next: axum::middleware::Next| async move {
+                crate::networking::middleware::chain_key_validator_middleware(
+                    request, next, chain_key,
+                )
+                .await
             },
         ))
         // CORS must be outside the middleware so error responses also get CORS headers
