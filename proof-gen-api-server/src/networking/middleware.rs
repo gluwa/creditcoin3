@@ -58,57 +58,97 @@ pub async fn request_metrics_middleware(
         // Record response size
         // We need to consume and recreate the body to get the size
         let (parts, body) = response.into_parts();
-        let bytes = match body.collect().await {
-            Ok(collected) => collected.to_bytes(),
-            Err(_) => {
-                // If we can't collect the body, return empty response
-                return Response::from_parts(parts, Body::empty());
+        match body.collect().await {
+            Ok(collected) => {
+                let bytes = collected.to_bytes();
+                let response_size = bytes.len() as u64;
+                metrics.observe_response_size(ep, response_size);
+                // Rebuild the response with the collected body
+                Response::from_parts(parts, Body::from(bytes))
             }
-        };
-        let response_size = bytes.len() as u64;
-        metrics.observe_response_size(ep, response_size);
-
-        // Rebuild the response with the collected body
-        Response::from_parts(parts, Body::from(bytes))
+            Err(e) => {
+                // If we can't collect the body, log the error and return response with original status
+                // Note: Once response.into_parts() is called, the original body is consumed and cannot
+                // be recovered. We preserve the status code and headers, but must return an empty body.
+                // This scenario is extremely rare for in-memory JSON responses, but if it occurs,
+                // the error is logged for debugging.
+                tracing::error!(
+                    status = %parts.status,
+                    "Failed to collect response body for metrics - returning empty body: {e}"
+                );
+                // Return empty body but preserve the original status code and headers
+                Response::from_parts(parts, Body::empty())
+            }
+        }
     } else {
         response
     }
+}
+
+/// Parses API path segments.
+/// Returns (api_version, endpoint_type, chain_key) if the path matches known patterns.
+/// - api_version: "v1" or None
+/// - endpoint_type: "proof", "proof-by-tx", "health", or None
+/// - chain_key: parsed chain_key or None
+fn parse_api_path(path: &str) -> (Option<&str>, Option<&str>, Option<u64>) {
+    if path == "/api/v1/health" || path.starts_with("/health/") {
+        return (Some("v1"), Some("health"), None);
+    }
+
+    if !path.starts_with("/api/v1/") {
+        return (None, None, None);
+    }
+
+    let parts: Vec<&str> = path.split('/').collect();
+    // parts[0] = ""
+    // parts[1] = "api"
+    // parts[2] = "v1"
+    // parts[3] = "proof" or "proof-by-tx"
+    // parts[4] = chain_key
+    // parts[5+] = additional path segments
+
+    if parts.len() < 4 {
+        return (None, None, None);
+    }
+
+    let endpoint_type = parts[3];
+    let chain_key = if parts.len() >= 5 {
+        parts[4].parse().ok()
+    } else {
+        None
+    };
+
+    (Some("v1"), Some(endpoint_type), chain_key)
 }
 
 /// Extracts the Endpoint enum variant from a URI path.
 /// Returns None for paths that don't match known API endpoints.
 fn extract_endpoint_from_path(uri: &Uri) -> Option<Endpoint> {
     let path = uri.path();
+    let (_api_version, endpoint_type, _chain_key) = parse_api_path(path);
 
-    if path == "/api/v1/health" || path.starts_with("/health/") {
-        return Some(Endpoint::Health);
-    }
-
-    // Patterns:
-    // /api/v1/proof/{chain_key}/{header_number} -> Proof
-    // /api/v1/proof/{chain_key}/{header_number}/{tx_index} -> ProofWithTx
-    // /api/v1/proof-by-tx/{chain_key}/{tx_hash} -> ProofByTxHash
-    if path.starts_with("/api/v1/proof-by-tx/") {
-        return Some(Endpoint::ProofByTxHash);
-    }
-
-    if path.starts_with("/api/v1/proof/") {
-        let parts: Vec<&str> = path.split('/').collect();
-        // parts[0] = ""
-        // parts[1] = "api"
-        // parts[2] = "v1"
-        // parts[3] = "proof"
-        // parts[4] = chain_key
-        // parts[5] = header_number
-        // parts[6] = tx_index (optional)
-        if parts.len() == 6 {
-            return Some(Endpoint::Proof);
-        } else if parts.len() == 7 {
-            return Some(Endpoint::ProofWithTx);
+    match endpoint_type {
+        Some("health") => Some(Endpoint::Health),
+        Some("proof-by-tx") => Some(Endpoint::ProofByTxHash),
+        Some("proof") => {
+            let parts: Vec<&str> = path.split('/').collect();
+            // parts[0] = ""
+            // parts[1] = "api"
+            // parts[2] = "v1"
+            // parts[3] = "proof"
+            // parts[4] = chain_key
+            // parts[5] = header_number
+            // parts[6] = tx_index (optional)
+            if parts.len() == 6 {
+                Some(Endpoint::Proof)
+            } else if parts.len() == 7 {
+                Some(Endpoint::ProofWithTx)
+            } else {
+                None
+            }
         }
+        _ => None,
     }
-
-    None
 }
 
 /// Middleware that validates chain_key from the request path against the configured chain_key.
@@ -153,24 +193,14 @@ pub async fn chain_key_validator_middleware(
 /// Returns None if the path doesn't match expected patterns or chain_key can't be parsed.
 fn extract_chain_key_from_path(uri: &Uri) -> Option<u64> {
     let path = uri.path();
+    let (_api_version, endpoint_type, chain_key) = parse_api_path(path);
 
-    // Patterns:
-    // /api/v1/proof/{chain_key}/{header_number}
-    // /api/v1/proof/{chain_key}/{header_number}/{tx_index}
-    // /api/v1/proof-by-tx/{chain_key}/{tx_hash}
-    if path.starts_with("/api/v1/proof") {
-        let parts: Vec<&str> = path.split('/').collect();
-        // parts[0] = ""
-        // parts[1] = "api"
-        // parts[2] = "v1"
-        // parts[3] = "proof" or "proof-by-tx"
-        // parts[4] = chain_key
-        if parts.len() >= 5 {
-            return parts[4].parse().ok();
-        }
+    // Only extract chain_key for proof endpoints
+    if matches!(endpoint_type, Some("proof") | Some("proof-by-tx")) {
+        chain_key
+    } else {
+        None
     }
-
-    None
 }
 
 #[cfg(test)]

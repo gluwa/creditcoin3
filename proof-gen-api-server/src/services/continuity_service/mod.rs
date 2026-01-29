@@ -85,10 +85,9 @@ impl ContinuityService {
             "ContinuityService initialized with attestation genesis block"
         );
 
-        // Initialize proofs_stored metric to 0 (no database)
-        if let Some(ref m) = metrics {
-            m.set_proofs_stored(0);
-        }
+        // Note: proofs_stored metric is not initialized here since we don't have a database.
+        // The metric will remain at its default value (0) and is only updated in get_proofs_counts()
+        // for consistency with the API response, even though it's always 0.
 
         Ok(Self {
             builder,
@@ -156,13 +155,11 @@ impl ContinuityService {
 
     pub async fn get_proofs_counts(&self) -> anyhow::Result<(i64, i64, i64)> {
         // No database to count from - return cache statistics instead
-        let hits = self.cache_hits.load(Ordering::Relaxed) as i64;
-        let misses = self.cache_misses.load(Ordering::Relaxed) as i64;
+        let hits = self.cache_hits() as i64;
+        let misses = self.cache_misses() as i64;
         let total = hits + misses;
-        // Update proofs_stored metric (always 0 since we don't have a database)
-        if let Some(ref m) = self.metrics {
-            m.set_proofs_stored(0);
-        }
+        // Note: proofs_stored metric is not updated here since we don't have a database.
+        // The metric remains at 0, which accurately reflects that no proofs are stored.
         Ok((hits, misses, total))
     }
 
@@ -214,20 +211,13 @@ impl ContinuityService {
             match self.build_continuity(header_number, current_block).await {
                 Ok((proof, _lower_attestation)) => {
                     let duration = start.elapsed();
+                    // Always record cache miss since proofs are generated fresh
                     // TODO: ContinuityBuilder handles indexer internally, so we can't easily detect
                     // if indexer was used. For now, we'll always mark as not cached since we're
                     // building fresh proofs (even if they use indexer data internally).
-                    let cached = false;
-                    if cached {
-                        self.cache_hits.fetch_add(1, Ordering::Relaxed);
-                        if let Some(ref m) = self.metrics {
-                            m.inc_cache_hit();
-                        }
-                    } else {
-                        self.cache_misses.fetch_add(1, Ordering::Relaxed);
-                        if let Some(ref m) = self.metrics {
-                            m.inc_cache_miss();
-                        }
+                    self.cache_misses.fetch_add(1, Ordering::Relaxed);
+                    if let Some(ref m) = self.metrics {
+                        m.inc_cache_miss();
                     }
 
                     // Record metrics
@@ -247,7 +237,7 @@ impl ContinuityService {
                         lower_endpoint_digest = ?proof.lower_endpoint_digest,
                         "Generated continuity proof for API response"
                     );
-                    (proof, cached)
+                    (proof, false) // Always false since we generate fresh proofs
                 }
                 Err(e) => {
                     let duration = start.elapsed();

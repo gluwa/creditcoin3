@@ -531,7 +531,6 @@ mod labels {
         BlockBeforeGenesis,
         BlockNotOnSourceChain,
         RpcUnavailable,
-        DatabaseError,
         MerkleError,
         InvalidParameter,
         TxHashNotFound,
