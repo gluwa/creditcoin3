@@ -1,5 +1,4 @@
 use std::time::Instant;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use super::*;
 use attestor_primitives::block::ContinuityProof;
@@ -115,7 +114,7 @@ impl ContinuityService {
 
         // Record merkle proof generation duration
         if let Some(ref m) = self.metrics {
-            m.observe_merkle_generation(merkle_start.elapsed().as_secs_f64());
+            m.observe_merkle_generation(merkle_start.elapsed());
         }
 
         // Build Proof items for DB Insert

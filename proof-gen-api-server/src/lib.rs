@@ -5,7 +5,7 @@ use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
 use tracing::{error, info};
 
-use crate::prom::{Metrics, ProofGenMetrics};
+use crate::prom::ProofGenMetrics;
 use cc_client::Client as CcClient;
 use config::Config;
 use continuity::ContinuityBuilder;
@@ -194,9 +194,9 @@ impl Server {
 
     pub async fn run(&self) -> Result<()> {
         // Convert prom_metrics to Option<Metrics> for service
-        // ContinuityService expects Option<Metrics> where Metrics = Arc<ProofGenMetrics>
-        use crate::prom::Metrics;
-        let metrics: Option<Metrics> = self.prom_metrics.clone();
+        // ContinuityService expects Option<Metrics> where Metrics = Arc<dyn MetricsTrait>
+        use crate::prom::{Metrics, NoopMetrics};
+        let metrics: Option<Metrics> = self.prom_metrics.clone().map(|m| m as Metrics);
 
         let service = Arc::new(
             services::continuity_service::ContinuityService::new(
@@ -206,8 +206,9 @@ impl Server {
             .await?,
         );
 
-        // Build axum application
-        let app = build_app(service, self.config.chain_key, self.metrics.clone());
+        // Build axum application - needs Metrics trait object
+        let metrics_for_app: Metrics = metrics.unwrap_or_else(|| NoopMetrics::new());
+        let app = build_app(service, self.config.chain_key, metrics_for_app);
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
 
         // Parse bind address properly to support both IPv4 and IPv6

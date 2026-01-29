@@ -12,7 +12,7 @@ mod anvil_integration {
     use anyhow::Result;
     use axum::Router;
     use continuity::{ContinuityBuilder, ContinuityConfig};
-    use proof_gen_api_server::{build_app, ContinuityService};
+    use proof_gen_api_server::{build_app, prom::NoopMetrics, ContinuityService};
     use serde_json::Value;
     use std::sync::Arc;
 
@@ -181,7 +181,7 @@ mod anvil_integration {
                 .await
                 .expect("service init"),
         );
-        build_app(service, chain_key)
+        build_app(service, chain_key, NoopMetrics::new())
     }
 
     /// Assert a string is a strict 0x-prefixed, lowercase H256 hex.

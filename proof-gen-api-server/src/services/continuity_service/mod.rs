@@ -210,55 +210,53 @@ impl ContinuityService {
         // ContinuityBuilder will automatically use indexer if available
         // Track cache hits/misses based on whether indexer was used
         let start = Instant::now();
-        let (continuity_proof, was_cached) = match self
-            .build_continuity(header_number, current_block)
-            .await
-        {
-            Ok((proof, _lower_attestation)) => {
-                let duration = start.elapsed();
-                // TODO: ContinuityBuilder handles indexer internally, so we can't easily detect
-                // if indexer was used. For now, we'll always mark as not cached since we're
-                // building fresh proofs (even if they use indexer data internally).
-                let cached = false;
-                if cached {
-                    self.cache_hits.fetch_add(1, Ordering::Relaxed);
-                    if let Some(ref m) = self.metrics {
-                        m.inc_cache_hit();
+        let (continuity_proof, was_cached) =
+            match self.build_continuity(header_number, current_block).await {
+                Ok((proof, _lower_attestation)) => {
+                    let duration = start.elapsed();
+                    // TODO: ContinuityBuilder handles indexer internally, so we can't easily detect
+                    // if indexer was used. For now, we'll always mark as not cached since we're
+                    // building fresh proofs (even if they use indexer data internally).
+                    let cached = false;
+                    if cached {
+                        self.cache_hits.fetch_add(1, Ordering::Relaxed);
+                        if let Some(ref m) = self.metrics {
+                            m.inc_cache_hit();
+                        }
+                    } else {
+                        self.cache_misses.fetch_add(1, Ordering::Relaxed);
+                        if let Some(ref m) = self.metrics {
+                            m.inc_cache_miss();
+                        }
                     }
-                } else {
-                    self.cache_misses.fetch_add(1, Ordering::Relaxed);
+
+                    // Record metrics
                     if let Some(ref m) = self.metrics {
-                        m.inc_cache_miss();
+                        m.observe_proof_generation(proof_type.clone(), duration, true);
+                        m.observe_proof_blocks(proof.roots.len() as u64);
+                        // Record timestamp of successful proof generation
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs_f64())
+                            .unwrap_or(0.0);
+                        m.set_last_proof_generation_timestamp(now);
                     }
-                }
 
-                // Record metrics
-                if let Some(ref m) = self.metrics {
-                    m.observe_proof_generation(proof_type.clone(), duration.as_secs_f64(), true);
-                    m.observe_proof_blocks(proof.roots.len() as u64);
-                    // Record timestamp of successful proof generation
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs_f64())
-                        .unwrap_or(0.0);
-                    m.set_last_proof_generation_timestamp(now);
+                    tracing::info!(
+                        proof_block_count = proof.roots.len(),
+                        lower_endpoint_digest = ?proof.lower_endpoint_digest,
+                        "Generated continuity proof for API response"
+                    );
+                    (proof, cached)
                 }
-
-                tracing::info!(
-                    proof_block_count = proof.roots.len(),
-                    lower_endpoint_digest = ?proof.lower_endpoint_digest,
-                    "Generated continuity proof for API response"
-                );
-                (proof, cached)
-            }
-            Err(e) => {
-                let duration = start.elapsed();
-                if let Some(ref m) = self.metrics {
-                    m.observe_proof_generation(proof_type, duration.as_secs_f64(), false);
+                Err(e) => {
+                    let duration = start.elapsed();
+                    if let Some(ref m) = self.metrics {
+                        m.observe_proof_generation(proof_type, duration, false);
+                    }
+                    return Err(e);
                 }
-                return Err(e);
-            }
-        };
+            };
 
         match tx_index {
             Some(idx) => {

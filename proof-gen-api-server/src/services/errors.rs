@@ -205,7 +205,6 @@ impl GetErrorType for ServiceError {
             ServiceError::QueryOutOfRange { .. } => ErrorType::QueryOutOfRange,
             ServiceError::TxIndexOutOfBounds { .. } => ErrorType::TxIndexOutOfBounds,
             ServiceError::RpcUnavailable { .. } => ErrorType::RpcUnavailable,
-            ServiceError::DbError { .. } => ErrorType::DatabaseError,
             ServiceError::MerkleError { .. } => ErrorType::MerkleError,
             ServiceError::InvalidParameter { .. } => ErrorType::InvalidParameter,
             ServiceError::Internal { .. } => ErrorType::Internal,
