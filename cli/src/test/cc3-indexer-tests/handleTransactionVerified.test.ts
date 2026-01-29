@@ -1,5 +1,6 @@
 import * as proof from '@gluwa/cc-next-query-builder/dist/proof-generator';
-import { EncodingVersion } from '@gluwa/cc-next-query-builder/dist/encodings';
+import { chainInfo } from '@gluwa/cc-next-query-builder/dist/';
+import { EncodingVersion } from '@gluwa/cc-next-query-builder/dist/encoding';
 import { WebSocketProvider, ethers } from 'ethers';
 import { newApi, ApiPromise } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
@@ -41,7 +42,7 @@ describe('handleTransactionVerified()', () => {
         expect(sourceTxn).toBeDefined();
         expect(sourceTxn!.blockNumber).toBeDefined();
 
-        const chainInfoProvider = new proof.chainInfo.PrecompileChainInfoProvider(provider);
+        const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
         await chainInfoProvider.waitUntilHeightAttested(chain_Anvil1_Key, sourceTxn!.blockNumber!);
         // we're now sure that there are enough attestations on the execution chain
 
