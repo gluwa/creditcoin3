@@ -329,15 +329,11 @@ pub async fn shutdown_signal() {
 async fn run_metrics_server(metrics: Arc<ProofGenMetrics>, host: &str, port: u16) -> Result<()> {
     use axum::{routing::get, Router};
 
-    struct MetricsState {
-        metrics: Arc<ProofGenMetrics>,
-    }
-
     async fn handle_metrics(
-        axum::extract::State(state): axum::extract::State<Arc<MetricsState>>,
+        axum::extract::State(metrics): axum::extract::State<Arc<ProofGenMetrics>>,
     ) -> impl axum::response::IntoResponse {
         // Update hardware metrics before encoding
-        state.metrics.update_hardware().await;
+        metrics.update_hardware().await;
 
         axum::response::Response::builder()
             .status(axum::http::StatusCode::OK)
@@ -345,14 +341,13 @@ async fn run_metrics_server(metrics: Arc<ProofGenMetrics>, host: &str, port: u16
                 axum::http::header::CONTENT_TYPE,
                 "application/openmetrics-text; version=1.0.0; charset=utf-8",
             )
-            .body(axum::body::Body::from(state.metrics.encode()))
+            .body(axum::body::Body::from(metrics.encode()))
             .unwrap()
     }
 
-    let state = Arc::new(MetricsState { metrics });
     let router = Router::new()
         .route("/metrics", get(handle_metrics))
-        .with_state(state);
+        .with_state(metrics);
 
     let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr)
