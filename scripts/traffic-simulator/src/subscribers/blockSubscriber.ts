@@ -10,11 +10,20 @@ import { BaseSubscriber } from "./baseSubscriber.ts";
 
 export type BlockCallback = (block: BlockInfo) => void | Promise<void>;
 
+// Timeout for getBlock RPC call (30 seconds)
+const GET_BLOCK_TIMEOUT_MS = 30_000;
+
+// If no blocks received for this duration, assume connection is stale and reconnect
+// Sepolia produces a block every ~12 seconds, so 90 seconds should be safe
+const BLOCK_WATCHDOG_TIMEOUT_MS = 90_000;
+
 export class BlockSubscriber extends BaseSubscriber {
   protected readonly name = "source chain";
   private provider: WebSocketProvider | null = null;
   private onBlock: BlockCallback;
   private rpcUrl: string;
+  private lastBlockTime: number = 0;
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(rpcUrl: string, onBlock: BlockCallback) {
     super();
@@ -31,8 +40,10 @@ export class BlockSubscriber extends BaseSubscriber {
       const network = await this.provider.getNetwork();
       console.log(`✅ Connected to source chain (chainId: ${network.chainId})`);
       this.resetReconnectAttempts();
+      this.lastBlockTime = Date.now();
 
       this.provider.on("block", async (blockNumber: number) => {
+        this.lastBlockTime = Date.now();
         try {
           await this.handleBlock(blockNumber);
         } catch (error) {
@@ -44,9 +55,37 @@ export class BlockSubscriber extends BaseSubscriber {
         console.error("Source chain provider error:", error);
         if (this.isRunning) await this.reconnect();
       });
+
+      // Start watchdog timer to detect stale connections
+      // This handles cases where the WebSocket silently disconnects without firing "error"
+      this.startWatchdog();
     } catch (error) {
       console.error("Failed to connect to source chain:", error);
       if (this.isRunning) await this.reconnect();
+    }
+  }
+
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    this.watchdogTimer = setInterval(async () => {
+      if (!this.isRunning) return;
+
+      const timeSinceLastBlock = Date.now() - this.lastBlockTime;
+      if (timeSinceLastBlock > BLOCK_WATCHDOG_TIMEOUT_MS) {
+        console.warn(
+          `⚠️  No blocks received for ${
+            Math.round(timeSinceLastBlock / 1000)
+          }s, reconnecting...`,
+        );
+        await this.reconnect();
+      }
+    }, 30_000); // Check every 30 seconds
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
     }
   }
 
@@ -54,7 +93,7 @@ export class BlockSubscriber extends BaseSubscriber {
     if (!this.provider) return;
 
     try {
-      const block = await this.provider.getBlock(blockNumber, true);
+      const block = await this.getBlockWithTimeout(blockNumber);
       if (!block) {
         console.warn(`Block ${blockNumber} not found`);
         return;
@@ -82,7 +121,31 @@ export class BlockSubscriber extends BaseSubscriber {
     }
   }
 
+  private getBlockWithTimeout(
+    blockNumber: number,
+  ): Promise<Awaited<ReturnType<WebSocketProvider["getBlock"]>>> {
+    if (!this.provider) return Promise.resolve(null);
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `getBlock(${blockNumber}) timed out after ${GET_BLOCK_TIMEOUT_MS}ms`,
+            ),
+          ),
+        GET_BLOCK_TIMEOUT_MS,
+      );
+    });
+
+    return Promise.race([
+      this.provider.getBlock(blockNumber, true),
+      timeoutPromise,
+    ]);
+  }
+
   protected async cleanup(): Promise<void> {
+    this.stopWatchdog();
     if (this.provider) {
       try {
         this.provider.removeAllListeners();
