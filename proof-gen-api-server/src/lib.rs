@@ -5,7 +5,7 @@ use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
 use tracing::{error, info};
 
-use crate::prom::ProofGenMetrics;
+use crate::prom::{Metrics, NoopMetrics, ProofGenMetrics};
 use cc_client::Client as CcClient;
 use config::Config;
 use continuity::ContinuityBuilder;
@@ -193,10 +193,13 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<()> {
-        // Convert prom_metrics to Option<Metrics> for service
-        // ContinuityService expects Option<Metrics> where Metrics = Arc<dyn MetricsTrait>
-        use crate::prom::{Metrics, NoopMetrics};
-        let metrics: Option<Metrics> = self.prom_metrics.clone().map(|m| m as Metrics);
+        // Convert prom_metrics to Metrics trait object, using NoopMetrics as fallback
+        // ContinuityService now uses Metrics (non-optional) with NoopMetrics fallback
+        let metrics: Metrics = self
+            .prom_metrics
+            .clone()
+            .map(|m| m as Metrics)
+            .unwrap_or_else(|| NoopMetrics::new());
 
         let service = Arc::new(
             services::continuity_service::ContinuityService::new(
@@ -206,9 +209,8 @@ impl Server {
             .await?,
         );
 
-        // Build axum application - needs Metrics trait object
-        let metrics_for_app: Metrics = metrics.unwrap_or_else(|| NoopMetrics::new());
-        let app = build_app(service, self.config.chain_key, metrics_for_app);
+        // Build axum application - uses the same Metrics instance
+        let app = build_app(service, self.config.chain_key, metrics);
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
 
         // Parse bind address properly to support both IPv4 and IPv6

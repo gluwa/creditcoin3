@@ -61,8 +61,8 @@ pub struct ContinuityService {
     /// Blocks before this number cannot be attested to.
     /// Fetched once at service startup and cached for the lifetime of the service.
     attestation_genesis_block: u64,
-    /// Optional prometheus metrics for instrumentation.
-    metrics: Option<Metrics>,
+    /// Prometheus metrics for instrumentation (uses NoopMetrics when disabled).
+    metrics: Metrics,
 }
 
 impl ContinuityService {
@@ -70,10 +70,7 @@ impl ContinuityService {
     ///
     /// # Errors
     /// Returns an error if the attestation genesis block cannot be fetched from RPC.
-    pub async fn new(
-        builder: Arc<ContinuityBuilder>,
-        metrics: Option<Metrics>,
-    ) -> anyhow::Result<Self> {
+    pub async fn new(builder: Arc<ContinuityBuilder>, metrics: Metrics) -> anyhow::Result<Self> {
         // Fetch genesis block at startup - fail fast if RPC is unavailable
         let attestation_genesis_block = builder
             .get_attestation_genesis_block()
@@ -178,9 +175,7 @@ impl ContinuityService {
         let current_block = self.validate_block(header_number).await?;
 
         // Record block range metric
-        if let Some(ref m) = self.metrics {
-            m.observe_block_range(header_number);
-        }
+        self.metrics.observe_block_range(header_number);
 
         // ContinuityBuilder will automatically use indexer if available
         let (continuity_proof, was_cached) =
@@ -190,15 +185,13 @@ impl ContinuityService {
                     self.total_proof_requests.fetch_add(1, Ordering::Relaxed);
 
                     // Record metrics
-                    if let Some(ref m) = self.metrics {
-                        m.observe_proof_blocks(proof.roots.len() as u64);
-                        // Record timestamp of successful proof generation
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs_f64())
-                            .unwrap_or(0.0);
-                        m.set_last_proof_generation_timestamp(now);
-                    }
+                    self.metrics.observe_proof_blocks(proof.roots.len() as u64);
+                    // Record timestamp of successful proof generation
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs_f64())
+                        .unwrap_or(0.0);
+                    self.metrics.set_last_proof_generation_timestamp(now);
 
                     tracing::info!(
                         proof_block_count = proof.roots.len(),

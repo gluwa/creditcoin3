@@ -124,9 +124,8 @@ impl ContinuityService {
         };
 
         // Record merkle proof generation duration
-        if let Some(ref m) = self.metrics {
-            m.observe_merkle_generation(merkle_start.elapsed());
-        }
+        self.metrics
+            .observe_merkle_generation(merkle_start.elapsed());
 
         // Build Proof items for DB Insert
         let tx_bytes_for_cache = if tx_bytes.is_empty() {

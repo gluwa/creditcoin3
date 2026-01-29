@@ -16,7 +16,8 @@ use prometheus_client::metrics::histogram::{exponential_buckets, Histogram};
 use prometheus_client::metrics::info::Info;
 use prometheus_client::registry::Registry;
 
-pub use labels::*;
+// Only export the types that are actually used externally
+pub use labels::{Endpoint, ErrorType, Status};
 
 /// Trait for types that can provide their error classification.
 /// Implementing this trait allows errors to self-categorize for metrics,
@@ -85,13 +86,13 @@ pub struct ProofGenMetrics {
     registry: Registry,
 
     // Request metrics
-    pub requests: Family<LabelRequest, Counter<u64, AtomicU64>>,
-    pub request_duration: Family<LabelEndpoint, Histogram>,
+    pub requests: Family<labels::LabelRequest, Counter<u64, AtomicU64>>,
+    pub request_duration: Family<labels::LabelEndpoint, Histogram>,
     /// Transfer size in bytes (request/response differentiated by direction label)
-    pub transfer_size_bytes: Family<LabelTransfer, Histogram>,
+    pub transfer_size_bytes: Family<labels::LabelTransfer, Histogram>,
 
     // Error metrics
-    pub errors: Family<LabelError, Counter<u64, AtomicU64>>,
+    pub errors: Family<labels::LabelError, Counter<u64, AtomicU64>>,
 
     // Proof generation metrics
     pub proof_blocks: Histogram,
@@ -122,7 +123,7 @@ impl ProofGenMetrics {
         let requests = Family::default();
         registry.register("proof_gen_requests", "Total API requests", requests.clone());
 
-        let request_duration = Family::<LabelEndpoint, _>::new_with_constructor(|| {
+        let request_duration = Family::<labels::LabelEndpoint, _>::new_with_constructor(|| {
             Histogram::new(exponential_buckets(0.001, 2.0, 15)) // 1ms to ~30s
         });
         registry.register(
@@ -131,7 +132,7 @@ impl ProofGenMetrics {
             request_duration.clone(),
         );
 
-        let transfer_size_bytes = Family::<LabelTransfer, _>::new_with_constructor(|| {
+        let transfer_size_bytes = Family::<labels::LabelTransfer, _>::new_with_constructor(|| {
             Histogram::new(exponential_buckets(64.0, 2.0, 20)) // 64B to ~64MB
         });
         registry.register(
@@ -293,37 +294,39 @@ impl MetricsTrait for ProofGenMetrics {
     // Request metrics
     fn inc_request(&self, endpoint: Endpoint, status: Status) {
         self.requests
-            .get_or_create(&LabelRequest { endpoint, status })
+            .get_or_create(&labels::LabelRequest { endpoint, status })
             .inc();
     }
 
     fn observe_request_duration(&self, endpoint: Endpoint, duration: Duration) {
         self.request_duration
-            .get_or_create(&LabelEndpoint { endpoint })
+            .get_or_create(&labels::LabelEndpoint { endpoint })
             .observe(duration.as_secs_f64());
     }
 
     fn observe_request_size(&self, endpoint: Endpoint, bytes: u64) {
         self.transfer_size_bytes
-            .get_or_create(&LabelTransfer {
+            .get_or_create(&labels::LabelTransfer {
                 endpoint,
-                direction: Direction::Request,
+                direction: labels::Direction::Request,
             })
             .observe(bytes as f64);
     }
 
     fn observe_response_size(&self, endpoint: Endpoint, bytes: u64) {
         self.transfer_size_bytes
-            .get_or_create(&LabelTransfer {
+            .get_or_create(&labels::LabelTransfer {
                 endpoint,
-                direction: Direction::Response,
+                direction: labels::Direction::Response,
             })
             .observe(bytes as f64);
     }
 
     // Error metrics
     fn inc_error(&self, error_type: ErrorType) {
-        self.errors.get_or_create(&LabelError { error_type }).inc();
+        self.errors
+            .get_or_create(&labels::LabelError { error_type })
+            .inc();
     }
 
     // Proof generation metrics
