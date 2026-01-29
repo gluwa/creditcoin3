@@ -86,17 +86,17 @@ pub async fn request_metrics_middleware(
 }
 
 /// Parses API path segments.
-/// Returns (api_version, endpoint_type, chain_key) if the path matches known patterns.
-/// - api_version: "v1" or None
+/// Returns (endpoint_type, chain_key, parts_count) if the path matches known patterns.
 /// - endpoint_type: "proof", "proof-by-tx", "health", or None
 /// - chain_key: parsed chain_key or None
-fn parse_api_path(path: &str) -> (Option<&str>, Option<&str>, Option<u64>) {
+/// - parts_count: number of path segments (for determining proof vs proof-with-tx)
+fn parse_api_path(path: &str) -> (Option<&str>, Option<u64>, usize) {
     if path == "/api/v1/health" || path.starts_with("/health/") {
-        return (Some("v1"), Some("health"), None);
+        return (Some("health"), None, 0);
     }
 
     if !path.starts_with("/api/v1/") {
-        return (None, None, None);
+        return (None, None, 0);
     }
 
     let parts: Vec<&str> = path.split('/').collect();
@@ -108,7 +108,7 @@ fn parse_api_path(path: &str) -> (Option<&str>, Option<&str>, Option<u64>) {
     // parts[5+] = additional path segments
 
     if parts.len() < 4 {
-        return (None, None, None);
+        return (None, None, parts.len());
     }
 
     let endpoint_type = parts[3];
@@ -118,30 +118,24 @@ fn parse_api_path(path: &str) -> (Option<&str>, Option<&str>, Option<u64>) {
         None
     };
 
-    (Some("v1"), Some(endpoint_type), chain_key)
+    (Some(endpoint_type), chain_key, parts.len())
 }
 
 /// Extracts the Endpoint enum variant from a URI path.
 /// Returns None for paths that don't match known API endpoints.
 fn extract_endpoint_from_path(uri: &Uri) -> Option<Endpoint> {
     let path = uri.path();
-    let (_api_version, endpoint_type, _chain_key) = parse_api_path(path);
+    let (endpoint_type, _chain_key, parts_count) = parse_api_path(path);
 
     match endpoint_type {
         Some("health") => Some(Endpoint::Health),
         Some("proof-by-tx") => Some(Endpoint::ProofByTxHash),
         Some("proof") => {
-            let parts: Vec<&str> = path.split('/').collect();
-            // parts[0] = ""
-            // parts[1] = "api"
-            // parts[2] = "v1"
-            // parts[3] = "proof"
-            // parts[4] = chain_key
-            // parts[5] = header_number
-            // parts[6] = tx_index (optional)
-            if parts.len() == 6 {
+            // parts_count includes: "", "api", "v1", "proof", "chain_key", "header_number", ["tx_index"]
+            // So: 6 parts = proof only, 7 parts = proof with tx
+            if parts_count == 6 {
                 Some(Endpoint::Proof)
-            } else if parts.len() == 7 {
+            } else if parts_count == 7 {
                 Some(Endpoint::ProofWithTx)
             } else {
                 None
@@ -193,7 +187,7 @@ pub async fn chain_key_validator_middleware(
 /// Returns None if the path doesn't match expected patterns or chain_key can't be parsed.
 fn extract_chain_key_from_path(uri: &Uri) -> Option<u64> {
     let path = uri.path();
-    let (_api_version, endpoint_type, chain_key) = parse_api_path(path);
+    let (endpoint_type, chain_key, _parts_count) = parse_api_path(path);
 
     // Only extract chain_key for proof endpoints
     if matches!(endpoint_type, Some("proof") | Some("proof-by-tx")) {

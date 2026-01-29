@@ -40,10 +40,21 @@ impl ContinuityService {
             .await
             .map_err(ServiceError::from)?;
 
-        Ok((
-            ContinuityProof::from_blocks(proof.blocks),
-            lower_attestation,
-        ))
+        // Convert BuiltContinuityProof to ContinuityProof, preserving lower_endpoint_digest
+        // Use to_attestor_proof_with_attestation_context to respect explicit lower_endpoint_digest
+        // when proofs are trimmed (from_blocks_with_lower_digest), falling back to lower_attestation.digest
+        // This is critical: trimmed proofs may have lower_endpoint_digest that differs from blocks[0].prev_digest
+        let continuity_proof = proof
+            .to_attestor_proof_with_attestation_context(lower_attestation.digest)
+            .ok_or_else(|| ServiceError::Internal {
+                message: format!(
+                    "Failed to convert continuity proof to attestor proof format. Proof has {} blocks, lower_attestation digest: {:?}",
+                    proof.blocks.len(),
+                    lower_attestation.digest
+                ),
+            })?;
+
+        Ok((continuity_proof, lower_attestation))
     }
 
     pub(crate) async fn get_height_and_index_for_tx_hash(
