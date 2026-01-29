@@ -197,15 +197,11 @@ impl ContinuityService {
             m.observe_block_range(header_number);
         }
 
-        // Determine proof type for metrics
-        let proof_type = if tx_index.is_some() {
-            ProofType::ContinuityWithMerkle
-        } else {
-            ProofType::ContinuityOnly
-        };
-
         // ContinuityBuilder will automatically use indexer if available
         // Track cache hits/misses based on whether indexer was used
+        // Note: We use ProofType::ContinuityOnly for continuity proof generation metrics
+        // because the duration only measures continuity proof generation time, not merkle.
+        // Merkle proof generation (if requested) happens separately and is tracked by its own metric.
         let start = Instant::now();
         let (continuity_proof, was_cached) =
             match self.build_continuity(header_number, current_block).await {
@@ -216,13 +212,13 @@ impl ContinuityService {
                     // if indexer was used. For now, we'll always mark as not cached since we're
                     // building fresh proofs (even if they use indexer data internally).
                     self.cache_misses.fetch_add(1, Ordering::Relaxed);
+
+                    // Record metrics - combine consecutive checks for efficiency
                     if let Some(ref m) = self.metrics {
                         m.inc_cache_miss();
-                    }
-
-                    // Record metrics
-                    if let Some(ref m) = self.metrics {
-                        m.observe_proof_generation(proof_type.clone(), duration, true);
+                        // Use ContinuityOnly since duration only measures continuity proof generation
+                        // Merkle proof generation (if requested) is tracked separately
+                        m.observe_proof_generation(ProofType::ContinuityOnly, duration, true);
                         m.observe_proof_blocks(proof.roots.len() as u64);
                         // Record timestamp of successful proof generation
                         let now = std::time::SystemTime::now()
@@ -242,7 +238,8 @@ impl ContinuityService {
                 Err(e) => {
                     let duration = start.elapsed();
                     if let Some(ref m) = self.metrics {
-                        m.observe_proof_generation(proof_type, duration, false);
+                        // Use ContinuityOnly since duration only measures continuity proof generation
+                        m.observe_proof_generation(ProofType::ContinuityOnly, duration, false);
                     }
                     return Err(e);
                 }

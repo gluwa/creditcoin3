@@ -154,15 +154,12 @@ pub async fn chain_key_validator_middleware(
 ) -> Response {
     let uri = request.uri().clone();
 
-    // Skip validation for health check endpoint
-    if uri.path() == "/api/v1/health" {
-        return next.run(request).await;
-    }
-
     // Extract chain_key from path
     // Paths are: /api/v1/proof/{chain_key}/{header_number}
     //            /api/v1/proof/{chain_key}/{header_number}/{tx_index}
     //            /api/v1/proof-by-tx/{chain_key}/{tx_hash}
+    // Note: extract_chain_key_from_path returns None for health endpoints, so validation
+    // automatically skips them without needing an explicit check.
     if let Some(request_chain_key) = extract_chain_key_from_path(&uri) {
         if request_chain_key != configured_chain_key {
             return (
