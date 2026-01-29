@@ -9,7 +9,7 @@ use std::sync::{
 };
 use std::time::Instant;
 
-use crate::prom::{Metrics, ProofType};
+use crate::prom::Metrics;
 use crate::services::continuity_service::helpers::*;
 use attestor_primitives::block::ContinuityProof;
 use continuity::ContinuityBuilder;
@@ -55,8 +55,8 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 pub struct ContinuityService {
     builder: Arc<ContinuityBuilder>,
     start_time: Instant,
-    cache_hits: AtomicU64,
-    cache_misses: AtomicU64,
+    /// Total number of proof requests processed (for health endpoint statistics)
+    total_proof_requests: AtomicU64,
     /// The genesis block number for the attestation chain.
     /// Blocks before this number cannot be attested to.
     /// Fetched once at service startup and cached for the lifetime of the service.
@@ -85,15 +85,10 @@ impl ContinuityService {
             "ContinuityService initialized with attestation genesis block"
         );
 
-        // Note: proofs_stored metric is not initialized here since we don't have a database.
-        // The metric will remain at its default value (0) and is only updated in get_proofs_counts()
-        // for consistency with the API response, even though it's always 0.
-
         Ok(Self {
             builder,
             start_time: Instant::now(),
-            cache_hits: AtomicU64::new(0),
-            cache_misses: AtomicU64::new(0),
+            total_proof_requests: AtomicU64::new(0),
             attestation_genesis_block,
             metrics,
         })
@@ -145,22 +140,12 @@ impl ContinuityService {
         self.start_time.elapsed().as_secs()
     }
 
-    pub fn cache_hits(&self) -> u64 {
-        self.cache_hits.load(Ordering::Relaxed)
-    }
-
-    pub fn cache_misses(&self) -> u64 {
-        self.cache_misses.load(Ordering::Relaxed)
-    }
-
-    pub async fn get_proofs_counts(&self) -> anyhow::Result<(i64, i64, i64)> {
-        // No database to count from - return cache statistics instead
-        let hits = self.cache_hits() as i64;
-        let misses = self.cache_misses() as i64;
-        let total = hits + misses;
-        // Note: proofs_stored metric is not updated here since we don't have a database.
-        // The metric remains at 0, which accurately reflects that no proofs are stored.
-        Ok((hits, misses, total))
+    /// Get total number of proof requests processed.
+    /// Returns (total_requests) for use in health endpoint.
+    pub async fn get_proofs_counts(&self) -> anyhow::Result<i64> {
+        // Return total proof requests processed since service start
+        let total = self.total_proof_requests.load(Ordering::Relaxed) as i64;
+        Ok(total)
     }
 
     /// Health check for CC3 RPC connectivity
@@ -198,27 +183,14 @@ impl ContinuityService {
         }
 
         // ContinuityBuilder will automatically use indexer if available
-        // Track cache hits/misses based on whether indexer was used
-        // Note: We use ProofType::ContinuityOnly for continuity proof generation metrics
-        // because the duration only measures continuity proof generation time, not merkle.
-        // Merkle proof generation (if requested) happens separately and is tracked by its own metric.
-        let start = Instant::now();
         let (continuity_proof, was_cached) =
             match self.build_continuity(header_number, current_block).await {
                 Ok((proof, _lower_attestation)) => {
-                    let duration = start.elapsed();
-                    // Always record cache miss since proofs are generated fresh
-                    // TODO: ContinuityBuilder handles indexer internally, so we can't easily detect
-                    // if indexer was used. For now, we'll always mark as not cached since we're
-                    // building fresh proofs (even if they use indexer data internally).
-                    self.cache_misses.fetch_add(1, Ordering::Relaxed);
+                    // Increment total proof requests counter
+                    self.total_proof_requests.fetch_add(1, Ordering::Relaxed);
 
-                    // Record metrics - combine consecutive checks for efficiency
+                    // Record metrics
                     if let Some(ref m) = self.metrics {
-                        m.inc_cache_miss();
-                        // Use ContinuityOnly since duration only measures continuity proof generation
-                        // Merkle proof generation (if requested) is tracked separately
-                        m.observe_proof_generation(ProofType::ContinuityOnly, duration, true);
                         m.observe_proof_blocks(proof.roots.len() as u64);
                         // Record timestamp of successful proof generation
                         let now = std::time::SystemTime::now()
@@ -236,11 +208,6 @@ impl ContinuityService {
                     (proof, false) // Always false since we generate fresh proofs
                 }
                 Err(e) => {
-                    let duration = start.elapsed();
-                    if let Some(ref m) = self.metrics {
-                        // Use ContinuityOnly since duration only measures continuity proof generation
-                        m.observe_proof_generation(ProofType::ContinuityOnly, duration, false);
-                    }
                     return Err(e);
                 }
             };

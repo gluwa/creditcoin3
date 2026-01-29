@@ -12,7 +12,7 @@ const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 /// Main health check endpoint - validates upstream services
 pub async fn health_check(Extension(service): Extension<Arc<ContinuityService>>) -> Json<Value> {
     // Check RPC connectivity in parallel with timeout
-    let (cache_stats, cc3_connected, eth_connected) = tokio::join!(
+    let (total_requests, cc3_connected, eth_connected) = tokio::join!(
         async { timeout(HEALTH_CHECK_TIMEOUT, service.get_proofs_counts()).await },
         async {
             timeout(HEALTH_CHECK_TIMEOUT, service.check_cc3_connectivity())
@@ -26,9 +26,9 @@ pub async fn health_check(Extension(service): Extension<Arc<ContinuityService>>)
         }
     );
 
-    let (cache_hits, cache_misses, total) = match cache_stats {
-        Ok(Ok((hits, misses, total))) => (hits, misses, total),
-        Ok(Err(_)) | Err(_) => (0, 0, 0),
+    let total_requests = match total_requests {
+        Ok(Ok(count)) => count,
+        Ok(Err(_)) | Err(_) => 0,
     };
 
     let overall_healthy = cc3_connected && eth_connected;
@@ -42,9 +42,7 @@ pub async fn health_check(Extension(service): Extension<Arc<ContinuityService>>)
         "status": status,
         "cc3_rpc_connected": cc3_connected,
         "eth_rpc_connected": eth_connected,
-        "cache_hits": cache_hits,
-        "cache_misses": cache_misses,
-        "total_requests": total,
+        "total_proof_requests": total_requests,
         "uptime_seconds": service.uptime_seconds()
     });
 

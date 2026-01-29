@@ -34,26 +34,13 @@ pub trait MetricsTrait: Send + Sync + Debug {
     fn observe_request_size(&self, endpoint: Endpoint, bytes: u64);
     fn observe_response_size(&self, endpoint: Endpoint, bytes: u64);
 
-    // Cache metrics
-    fn inc_cache_hit(&self);
-    fn inc_cache_miss(&self);
-    /// Increment cache invalidation counter.
-    /// Note: Not currently called as we don't have a database cache that gets invalidated.
-    fn inc_cache_invalidation(&self);
-
     // Error metrics
     fn inc_error(&self, error_type: ErrorType);
 
     // Proof generation metrics
-    fn observe_proof_generation(&self, proof_type: ProofType, duration: Duration, success: bool);
     fn observe_proof_blocks(&self, count: u64);
     fn observe_merkle_generation(&self, duration: Duration);
-    fn set_proofs_stored(&self, count: i64);
     fn set_last_proof_generation_timestamp(&self, timestamp_secs: f64);
-    /// Observe the age of a proof when served from cache.
-    /// Note: Not currently called as proofs are always generated fresh (no database cache).
-    /// Should be called when serving cached proofs: `observe_proof_age(proof_age_duration)`.
-    fn observe_proof_age(&self, age: Duration);
 
     // Business metrics
     fn observe_block_range(&self, block: u64);
@@ -80,27 +67,13 @@ impl MetricsTrait for NoopMetrics {
     fn observe_request_size(&self, _endpoint: Endpoint, _bytes: u64) {}
     fn observe_response_size(&self, _endpoint: Endpoint, _bytes: u64) {}
 
-    // Cache metrics
-    fn inc_cache_hit(&self) {}
-    fn inc_cache_miss(&self) {}
-    fn inc_cache_invalidation(&self) {}
-
     // Error metrics
     fn inc_error(&self, _error_type: ErrorType) {}
 
     // Proof generation metrics
-    fn observe_proof_generation(
-        &self,
-        _proof_type: ProofType,
-        _duration: Duration,
-        _success: bool,
-    ) {
-    }
     fn observe_proof_blocks(&self, _count: u64) {}
     fn observe_merkle_generation(&self, _duration: Duration) {}
-    fn set_proofs_stored(&self, _count: i64) {}
     fn set_last_proof_generation_timestamp(&self, _timestamp_secs: f64) {}
-    fn observe_proof_age(&self, _age: Duration) {}
 
     // Business metrics
     fn observe_block_range(&self, _block: u64) {}
@@ -120,17 +93,10 @@ pub struct ProofGenMetrics {
     // Error metrics
     pub errors: Family<LabelError, Counter<u64, AtomicU64>>,
 
-    // Cache metrics (for continuity proof cache)
-    pub cache: Family<LabelCacheResult, Counter<u64, AtomicU64>>,
-
     // Proof generation metrics
-    pub proof_generation_duration: Family<LabelProofType, Histogram>,
-    pub proof_generation: Family<LabelProofResult, Counter<u64, AtomicU64>>,
     pub proof_blocks: Histogram,
     pub merkle_generation_duration: Histogram,
-    pub proofs_stored: Gauge<i64, AtomicI64>,
     pub last_proof_generation_timestamp: Gauge<f64, AtomicU64>,
-    pub proof_age_seconds: Histogram,
 
     // Business metrics
     pub block_range: Histogram,
@@ -178,27 +144,7 @@ impl ProofGenMetrics {
         let errors = Family::default();
         registry.register("proof_gen_errors", "Errors by type", errors.clone());
 
-        // Cache metrics
-        let cache = Family::default();
-        registry.register("proof_gen_cache", "Cache operations", cache.clone());
-
         // Proof generation metrics
-        let proof_generation_duration = Family::<LabelProofType, _>::new_with_constructor(|| {
-            Histogram::new(exponential_buckets(0.1, 2.0, 10)) // 100ms to ~100s
-        });
-        registry.register(
-            "proof_gen_generation_duration_seconds",
-            "Time to generate proofs",
-            proof_generation_duration.clone(),
-        );
-
-        let proof_generation = Family::default();
-        registry.register(
-            "proof_gen_generation",
-            "Proof generation attempts",
-            proof_generation.clone(),
-        );
-
         let proof_blocks = Histogram::new(exponential_buckets(1.0, 2.0, 15)); // 1 to ~32K blocks
         registry.register(
             "proof_gen_proof_blocks",
@@ -213,25 +159,11 @@ impl ProofGenMetrics {
             merkle_generation_duration.clone(),
         );
 
-        let proofs_stored = Gauge::default();
-        registry.register(
-            "proof_gen_proofs_stored",
-            "Total number of proofs stored in the database",
-            proofs_stored.clone(),
-        );
-
         let last_proof_generation_timestamp = Gauge::default();
         registry.register(
             "proof_gen_last_proof_generation_timestamp_seconds",
             "Unix timestamp of the last successful proof generation",
             last_proof_generation_timestamp.clone(),
-        );
-
-        let proof_age_seconds = Histogram::new(exponential_buckets(0.1, 2.0, 20)); // 100ms to ~27 hours
-        registry.register(
-            "proof_gen_proof_age_seconds",
-            "Age of proofs when served from cache",
-            proof_age_seconds.clone(),
         );
 
         // Business metrics
@@ -293,14 +225,9 @@ impl ProofGenMetrics {
             request_duration,
             transfer_size_bytes,
             errors,
-            cache,
-            proof_generation_duration,
-            proof_generation,
             proof_blocks,
             merkle_generation_duration,
-            proofs_stored,
             last_proof_generation_timestamp,
-            proof_age_seconds,
             block_range,
             start_time_seconds,
             cpu_usage_percent,
@@ -394,53 +321,12 @@ impl MetricsTrait for ProofGenMetrics {
             .observe(bytes as f64);
     }
 
-    // Cache metrics
-    fn inc_cache_hit(&self) {
-        self.cache
-            .get_or_create(&LabelCacheResult {
-                result: CacheResult::Hit,
-            })
-            .inc();
-    }
-
-    fn inc_cache_miss(&self) {
-        self.cache
-            .get_or_create(&LabelCacheResult {
-                result: CacheResult::Miss,
-            })
-            .inc();
-    }
-
-    fn inc_cache_invalidation(&self) {
-        self.cache
-            .get_or_create(&LabelCacheResult {
-                result: CacheResult::Invalidation,
-            })
-            .inc();
-    }
-
     // Error metrics
     fn inc_error(&self, error_type: ErrorType) {
         self.errors.get_or_create(&LabelError { error_type }).inc();
     }
 
     // Proof generation metrics
-    fn observe_proof_generation(&self, proof_type: ProofType, duration: Duration, success: bool) {
-        self.proof_generation_duration
-            .get_or_create(&LabelProofType {
-                proof_type: proof_type.clone(),
-            })
-            .observe(duration.as_secs_f64());
-        let result = if success {
-            OpResult::Success
-        } else {
-            OpResult::Failure
-        };
-        self.proof_generation
-            .get_or_create(&LabelProofResult { proof_type, result })
-            .inc();
-    }
-
     fn observe_proof_blocks(&self, count: u64) {
         self.proof_blocks.observe(count as f64);
     }
@@ -450,16 +336,8 @@ impl MetricsTrait for ProofGenMetrics {
             .observe(duration.as_secs_f64());
     }
 
-    fn set_proofs_stored(&self, count: i64) {
-        self.proofs_stored.set(count);
-    }
-
     fn set_last_proof_generation_timestamp(&self, timestamp_secs: f64) {
         self.last_proof_generation_timestamp.set(timestamp_secs);
-    }
-
-    fn observe_proof_age(&self, age: Duration) {
-        self.proof_age_seconds.observe(age.as_secs_f64());
     }
 
     // Business metrics
@@ -544,43 +422,5 @@ mod labels {
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
     pub struct LabelError {
         pub error_type: ErrorType,
-    }
-
-    // Cache result labels
-    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
-    pub enum CacheResult {
-        Hit,
-        Miss,
-        Invalidation,
-    }
-
-    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-    pub struct LabelCacheResult {
-        pub result: CacheResult,
-    }
-
-    // Proof type labels
-    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
-    pub enum ProofType {
-        ContinuityOnly,
-        ContinuityWithMerkle,
-    }
-
-    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-    pub struct LabelProofType {
-        pub proof_type: ProofType,
-    }
-
-    // Operation result labels
-    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
-    pub enum OpResult {
-        Success,
-        Failure,
-    }
-
-    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-    pub struct LabelProofResult {
-        pub proof_type: ProofType,
-        pub result: OpResult,
     }
 }
