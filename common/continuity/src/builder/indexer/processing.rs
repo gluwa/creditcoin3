@@ -102,6 +102,7 @@ impl ContinuityBuilder {
         let checkpoints_cache = self.fetch_checkpoints_cache(min_query).await?;
 
         // Check if bounds are checkpoints by verifying their block numbers are checkpoint heights
+        // We rely solely on checkpoint cache lookup - if root or digest is default hash, that indicates a bug
         let upper_is_checkpoint = self
             .check_if_at_checkpoint_height_cached(
                 upper_attestation.block_number,
@@ -115,25 +116,10 @@ impl ContinuityBuilder {
             )
             .await?;
 
-        // Additional check: if root is zero and prev_digest is None, it was likely created from_checkpoint
-        // This helps detect checkpoint bounds even if checkpoint cache lookup fails
-        // Checkpoints created via AttestationWithProof::from_checkpoint have:
-        // - root = H256::default() (zero)
-        // - prev_digest = None
-        let upper_is_checkpoint_from_structure = upper_attestation.root == sp_core::H256::default()
-            && upper_attestation.prev_digest.is_none();
-        let lower_is_checkpoint_from_structure = lower_attestation.root == sp_core::H256::default()
-            && lower_attestation.prev_digest.is_none();
-
-        let upper_looks_like_checkpoint =
-            upper_is_checkpoint.is_some() || upper_is_checkpoint_from_structure;
-        let lower_looks_like_checkpoint =
-            lower_is_checkpoint.is_some() || lower_is_checkpoint_from_structure;
-
         // Bounds are checkpoints if both lower and upper are checkpoints
         // This happens when query is between checkpoints and bounds finder returns checkpoint boundaries
-        // We check both checkpoint height lookup and zero root (as fallback) to detect checkpoint bounds
-        let bounds_are_checkpoints = lower_looks_like_checkpoint && upper_looks_like_checkpoint;
+        // We rely solely on checkpoint height lookup - default hash values indicate bugs, not checkpoints
+        let bounds_are_checkpoints = lower_is_checkpoint.is_some() && upper_is_checkpoint.is_some();
 
         // Need checkpoint proof when bounds are checkpoints (query is between checkpoints OR at checkpoint)
         // When query is at checkpoint height, bounds finder returns previous checkpoint and query checkpoint
