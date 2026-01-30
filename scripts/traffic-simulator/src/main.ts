@@ -29,10 +29,10 @@ import { setVerbose } from "./logger.ts";
 import { SINGLE_SUBMISSION_DELAY_MS } from "./constants.ts";
 import { sleep } from "./utils/reconnect.ts";
 import {
+  type HourlyReport,
+  type MetricsSnapshot,
   sendHourlyReport,
   type SlackConfig,
-  type MetricsSnapshot,
-  type HourlyReport,
 } from "./slack.ts";
 import type {
   BlockInfo,
@@ -131,7 +131,9 @@ async function sendHourlySlackReport(): Promise<void> {
   if (lastReportTime === null || lastReportMetrics === null) {
     lastReportTime = now;
     lastReportMetrics = currentMetrics;
-    console.log("📊 Slack reporting initialized (first report will be sent in 1 hour)");
+    console.log(
+      "📊 Slack reporting initialized (first report will be sent in 1 hour)",
+    );
     return;
   }
 
@@ -168,7 +170,8 @@ async function sendHourlySlackReport(): Promise<void> {
         ),
         singleSubmissions: Math.max(
           0,
-          currentMetrics.singleSubmissions - lastReportMetrics.singleSubmissions,
+          currentMetrics.singleSubmissions -
+            lastReportMetrics.singleSubmissions,
         ),
         batchSubmissions: Math.max(
           0,

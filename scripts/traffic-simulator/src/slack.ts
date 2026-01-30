@@ -93,6 +93,27 @@ function formatUptime(seconds: number): string {
 }
 
 /**
+ * Format period label based on duration in hours
+ */
+function formatPeriodLabel(hours: number): string {
+  if (hours < 1.5) {
+    return "Hourly";
+  } else if (hours < 3) {
+    return "2-Hour";
+  } else if (hours < 5) {
+    return "4-Hour";
+  } else if (hours < 9) {
+    return "6-Hour";
+  } else if (hours < 18) {
+    return "12-Hour";
+  } else if (hours < 36) {
+    return "Daily";
+  } else {
+    return `${Math.round(hours)}-Hour`;
+  }
+}
+
+/**
  * Create Slack payload for hourly report
  */
 export function createHourlyReportPayload(
@@ -103,19 +124,17 @@ export function createHourlyReportPayload(
   const periodDuration = periodEnd - periodStart;
   const periodHours = periodDuration / 3600000;
 
-  const successRate =
-    delta.proofsSubmitted + delta.proofErrors > 0
-      ? (
-          (delta.proofsSubmitted /
-            (delta.proofsSubmitted + delta.proofErrors)) *
-          100
-        ).toFixed(1)
-      : "N/A";
+  const successRate = delta.proofsSubmitted + delta.proofErrors > 0
+    ? (
+      (delta.proofsSubmitted /
+        (delta.proofsSubmitted + delta.proofErrors)) *
+      100
+    ).toFixed(1)
+    : "N/A";
 
-  const proofsPerHour =
-    periodHours > 0
-      ? (delta.proofsSubmitted / periodHours).toFixed(1)
-      : "0";
+  const proofsPerHour = periodHours > 0
+    ? (delta.proofsSubmitted / periodHours).toFixed(1)
+    : "0";
 
   const periodStartStr = new Date(periodStart).toISOString();
   const periodEndStr = new Date(periodEnd).toISOString();
@@ -126,16 +145,23 @@ export function createHourlyReportPayload(
 
   const errorEmoji = delta.proofErrors > 0 ? "❌" : "✅";
 
-  let text = `📊 *Traffic Simulator Hourly Report*\n\n`;
+  const periodLabel = formatPeriodLabel(periodHours);
+  let text = `📊 *Traffic Simulator ${periodLabel} Report*\n\n`;
   text += `*Period:* ${periodStartStr} → ${periodEndStr}\n`;
   text += `*Duration:* ${periodHours.toFixed(2)} hours\n\n`;
 
   text += `*Connection Status:* ${statusEmoji}\n`;
-  text += `  • Sepolia: ${endMetrics.sepoliaConnected ? "✅ Connected" : "❌ Disconnected"}\n`;
-  text += `  • CC3: ${endMetrics.cc3Connected ? "✅ Connected" : "❌ Disconnected"}\n\n`;
+  text += `  • Sepolia: ${
+    endMetrics.sepoliaConnected ? "✅ Connected" : "❌ Disconnected"
+  }\n`;
+  text += `  • CC3: ${
+    endMetrics.cc3Connected ? "✅ Connected" : "❌ Disconnected"
+  }\n\n`;
 
   text += `*Proof Submissions:*\n`;
-  text += `  • Successful: ${formatNumber(delta.proofsSubmitted)} (${proofsPerHour}/hr)\n`;
+  text += `  • Successful: ${
+    formatNumber(delta.proofsSubmitted)
+  } (${proofsPerHour}/hr)\n`;
   text += `  • Failed: ${errorEmoji} ${formatNumber(delta.proofErrors)}\n`;
   text += `  • Success Rate: ${successRate}%\n\n`;
 
@@ -169,7 +195,9 @@ export function createHourlyReportPayload(
 
   return {
     username: config.username || "traffic-simulator",
-    icon_emoji: delta.proofErrors > 0 ? ":rotating_light:" : ":chart_with_upwards_trend:",
+    icon_emoji: delta.proofErrors > 0
+      ? ":rotating_light:"
+      : ":chart_with_upwards_trend:",
     text,
   };
 }

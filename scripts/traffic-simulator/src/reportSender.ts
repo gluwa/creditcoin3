@@ -1,9 +1,16 @@
 /**
  * Report sender script for Kubernetes CronJob
  *
- * Queries the traffic simulator's /status endpoint and sends hourly reports to Slack.
+ * Queries the traffic simulator's /status endpoint and sends periodic reports to Slack.
  * This script is designed to be run as a Kubernetes CronJob that queries metrics
  * and calculates deltas from the previous run.
+ *
+ * Configuration (environment variables):
+ *   SIMULATOR_URL      - URL of the traffic simulator (default: http://traffic-simulator:8080)
+ *   SLACK_WEBHOOK_URL  - Slack webhook URL (required)
+ *   SLACK_ALERT_GROUP  - Slack user/group ID for alerts (optional)
+ *   SNAPSHOT_PATH      - Path to store metrics snapshot (default: /tmp/metrics-snapshot.json)
+ *   REPORT_INTERVAL_HOURS - Expected interval between reports in hours (default: 1)
  */
 
 import {
@@ -12,6 +19,14 @@ import {
   sendHourlyReport,
   type SlackConfig,
 } from "./slack.ts";
+
+/**
+ * Snapshot with timestamp for accurate period tracking
+ */
+interface TimestampedSnapshot {
+  timestamp: number;
+  metrics: MetricsSnapshot;
+}
 
 /**
  * Fetch current metrics from simulator
@@ -49,23 +64,42 @@ async function fetchMetrics(
  */
 async function loadPreviousSnapshot(
   snapshotPath: string,
-): Promise<MetricsSnapshot | null> {
+): Promise<TimestampedSnapshot | null> {
   try {
     const content = await Deno.readTextFile(snapshotPath);
-    return JSON.parse(content) as MetricsSnapshot;
+    const data = JSON.parse(content);
+
+    // Check if it's the new timestamped format
+    if (data.timestamp && data.metrics) {
+      return data as TimestampedSnapshot;
+    }
+
+    // Legacy format: assume it's a raw MetricsSnapshot
+    // Use file modification time as fallback timestamp
+    const fileInfo = await Deno.stat(snapshotPath);
+    const timestamp = fileInfo.mtime?.getTime() ?? Date.now();
+    return {
+      timestamp,
+      metrics: data as MetricsSnapshot,
+    };
   } catch {
     return null;
   }
 }
 
 /**
- * Save current metrics snapshot to file
+ * Save current metrics snapshot to file with timestamp
  */
 async function saveSnapshot(
   snapshotPath: string,
   metrics: MetricsSnapshot,
+  timestamp: number,
 ): Promise<void> {
-  await Deno.writeTextFile(snapshotPath, JSON.stringify(metrics, null, 2));
+  const snapshot: TimestampedSnapshot = {
+    timestamp,
+    metrics,
+  };
+  await Deno.writeTextFile(snapshotPath, JSON.stringify(snapshot, null, 2));
 }
 
 /**
@@ -83,9 +117,18 @@ function calculateReport(
     startMetrics,
     endMetrics,
     delta: {
-      proofsSubmitted: Math.max(0, endMetrics.proofsSubmitted - startMetrics.proofsSubmitted),
-      proofErrors: Math.max(0, endMetrics.proofErrors - startMetrics.proofErrors),
-      blocksProcessed: Math.max(0, endMetrics.blocksProcessed - startMetrics.blocksProcessed),
+      proofsSubmitted: Math.max(
+        0,
+        endMetrics.proofsSubmitted - startMetrics.proofsSubmitted,
+      ),
+      proofErrors: Math.max(
+        0,
+        endMetrics.proofErrors - startMetrics.proofErrors,
+      ),
+      blocksProcessed: Math.max(
+        0,
+        endMetrics.blocksProcessed - startMetrics.blocksProcessed,
+      ),
       singleSubmissions: Math.max(
         0,
         endMetrics.singleSubmissions - startMetrics.singleSubmissions,
@@ -106,10 +149,22 @@ async function main(): Promise<void> {
     "http://traffic-simulator:8080";
   const slackWebhookUrl = Deno.env.get("SLACK_WEBHOOK_URL");
   const slackAlertGroup = Deno.env.get("SLACK_ALERT_GROUP");
-  const snapshotPath = Deno.env.get("SNAPSHOT_PATH") || "/tmp/metrics-snapshot.json";
+  const snapshotPath = Deno.env.get("SNAPSHOT_PATH") ||
+    "/tmp/metrics-snapshot.json";
+  const reportIntervalHours = parseFloat(
+    Deno.env.get("REPORT_INTERVAL_HOURS") || "1",
+  );
 
   if (!slackWebhookUrl) {
     console.error("❌ SLACK_WEBHOOK_URL environment variable is required");
+    Deno.exit(1);
+  }
+
+  if (isNaN(reportIntervalHours) || reportIntervalHours <= 0) {
+    console.error(
+      "❌ REPORT_INTERVAL_HOURS must be a positive number (got: " +
+        Deno.env.get("REPORT_INTERVAL_HOURS") + ")",
+    );
     Deno.exit(1);
   }
 
@@ -125,19 +180,32 @@ async function main(): Promise<void> {
     console.log("✅ Metrics fetched successfully");
 
     const now = Date.now();
-    const previousMetrics = await loadPreviousSnapshot(snapshotPath);
+    const previousSnapshot = await loadPreviousSnapshot(snapshotPath);
 
-    if (previousMetrics) {
-      console.log("📈 Calculating hourly report...");
-      const report = calculateReport(previousMetrics, currentMetrics, now - 3600000, now);
+    if (previousSnapshot) {
+      const periodStart = previousSnapshot.timestamp;
+      const actualHours = (now - periodStart) / 3600000;
+      console.log(
+        `📈 Calculating report for ${actualHours.toFixed(2)} hour period ` +
+          `(configured interval: ${reportIntervalHours}h)...`,
+      );
+      const report = calculateReport(
+        previousSnapshot.metrics,
+        currentMetrics,
+        periodStart,
+        now,
+      );
       await sendHourlyReport(report, slackConfig);
-      console.log("✅ Hourly report sent to Slack");
+      console.log("✅ Report sent to Slack");
     } else {
-      console.log("ℹ️  No previous snapshot found, skipping report (will start next hour)");
+      console.log(
+        `ℹ️  No previous snapshot found, skipping report ` +
+          `(will start after ${reportIntervalHours}h)`,
+      );
     }
 
     // Save current snapshot for next run
-    await saveSnapshot(snapshotPath, currentMetrics);
+    await saveSnapshot(snapshotPath, currentMetrics, now);
     console.log(`💾 Snapshot saved to ${snapshotPath}`);
   } catch (error) {
     console.error("❌ Error:", error);

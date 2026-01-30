@@ -120,27 +120,11 @@ kubectl apply -f k8s/deployment.yaml
 
 ## Slack Notifications
 
-The traffic simulator supports hourly Slack reports with metrics on successful/failed proofs. There are two ways to enable Slack notifications:
-
-### Option 1: Built-in Reporting (Recommended for Single Instance)
-
-Enable Slack reporting directly in the simulator by providing Slack configuration:
-
-```bash
-# Via CLI arguments
-deno task start -- \
-  --source-rpc wss://... \
-  --private-key 0x... \
-  --slack-webhook https://hooks.slack.com/services/YOUR/WEBHOOK/URL \
-  --slack-alert-group S123456
-
-# Via environment variables
-export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
-export SLACK_ALERT_GROUP=S123456
-deno task start -- --source-rpc wss://... --private-key 0x...
-```
+The traffic simulator supports hourly Slack reports with metrics on
+successful/failed proofs. There are two ways to enable Slack notifications:
 
 The simulator will automatically send hourly reports every hour with:
+
 - Successful/failed proof counts
 - Submission breakdown (single vs batch)
 - Blocks processed
@@ -148,9 +132,11 @@ The simulator will automatically send hourly reports every hour with:
 - Success rate
 - Any errors encountered
 
-### Option 2: Kubernetes CronJob (Recommended for Production)
+### Kubernetes CronJob
 
-For production deployments, use a separate Kubernetes CronJob that queries the simulator's metrics endpoint. This approach:
+For production deployments, use a separate Kubernetes CronJob that queries the
+simulator's metrics endpoint. This approach:
+
 - Separates concerns (simulator vs monitoring)
 - Allows independent scaling
 - Works better with multiple simulator instances
@@ -173,10 +159,10 @@ For production deployments, use a separate Kubernetes CronJob that queries the s
    ```bash
    # Edit the manifest with your values
    # Update SLACK_WEBHOOK_URL and optionally SLACK_ALERT_GROUP in k8s/cronjob-reporter.yaml
-   
+
    # Deploy (non-persistent version - snapshot resets on pod restart)
    kubectl apply -f k8s/cronjob-reporter.yaml
-   
+
    # OR deploy persistent version (snapshot persists across pod restarts)
    kubectl apply -f k8s/cronjob-reporter-persistent.yaml
    ```
@@ -186,21 +172,22 @@ For production deployments, use a separate Kubernetes CronJob that queries the s
    ```bash
    # Check CronJob status
    kubectl get cronjob traffic-simulator-reporter
-   
+
    # View recent jobs
    kubectl get jobs -l app=traffic-simulator-reporter
-   
+
    # Check logs of latest job
    kubectl logs -l app=traffic-simulator-reporter --tail=50
    ```
 
 #### CronJob Configuration
 
-The CronJob runs every hour at minute 0 (e.g., 1:00, 2:00, 3:00). To change the schedule, edit the `schedule` field in the manifest:
+The CronJob runs every hour at minute 0 (e.g., 1:00, 2:00, 3:00). To change the
+schedule, edit the `schedule` field in the manifest:
 
 ```yaml
 spec:
-  schedule: "0 * * * *"  # Every hour
+  schedule: "0 * * * *" # Every hour
   # schedule: "0 */2 * * *"  # Every 2 hours
   # schedule: "0 9-17 * * *"  # Every hour during business hours
 ```
@@ -208,6 +195,7 @@ spec:
 #### Report Format
 
 Hourly reports include:
+
 - **Period**: Start and end timestamps
 - **Connection Status**: Sepolia and CC3 connection health
 - **Proof Submissions**: Successful/failed counts and success rate
@@ -216,13 +204,15 @@ Hourly reports include:
 - **Totals**: Cumulative metrics since simulator start
 - **Errors**: Last error message if any
 
-Reports automatically mention the configured alert group if there are proof errors.
+Reports automatically mention the configured alert group if there are proof
+errors.
 
 #### Troubleshooting
 
 - **No reports received**: Check CronJob logs and ensure webhook URL is correct
 - **Missing metrics**: Ensure simulator service is accessible from CronJob pod
-- **Snapshot resets**: Use persistent version if you need metrics history across pod restarts
+- **Snapshot resets**: Use persistent version if you need metrics history across
+  pod restarts
 
 ## Development
 
