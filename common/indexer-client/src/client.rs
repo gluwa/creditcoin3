@@ -210,6 +210,7 @@ impl IndexerClient {
                 chain_key: chain_key.to_string(),
                 min_block: min_block.to_string(),
                 max_block: max_block.to_string(),
+                query_height: None, // Not used for attestations queries
             },
         };
 
@@ -328,6 +329,7 @@ impl IndexerClient {
                         chain_key: chain_key.to_string(),
                         min_block: min_block.to_string(),
                         max_block: max_block.to_string(),
+                        query_height: Some(query_height.to_string()),
                     },
                 },
             )

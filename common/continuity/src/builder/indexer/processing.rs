@@ -101,6 +101,7 @@ impl ContinuityBuilder {
 
         let checkpoints_cache = self.fetch_checkpoints_cache(min_query).await?;
 
+        // Check if bounds are checkpoints by verifying their block numbers are checkpoint heights
         let upper_is_checkpoint = self
             .check_if_at_checkpoint_height_cached(
                 upper_attestation.block_number,
@@ -113,33 +114,42 @@ impl ContinuityBuilder {
                 checkpoints_cache.as_deref(),
             )
             .await?;
-        let query_at_checkpoint = self
-            .check_if_at_checkpoint_height_cached(min_query, checkpoints_cache.as_deref())
-            .await?;
 
-        let next_checkpoint_after = if upper_is_checkpoint.is_some() {
-            Some(upper_attestation.block_number)
-        } else if let Some(checkpoints) = checkpoints_cache.as_deref() {
-            checkpoints
-                .iter()
-                .filter(|c| c.block_number > min_query)
-                .min_by_key(|c| c.block_number)
-                .map(|c| c.block_number)
-        } else {
-            None
-        };
+        // Additional check: if root is zero and prev_digest is None, it was likely created from_checkpoint
+        // This helps detect checkpoint bounds even if checkpoint cache lookup fails
+        // Checkpoints created via AttestationWithProof::from_checkpoint have:
+        // - root = H256::default() (zero)
+        // - prev_digest = None
+        let upper_is_checkpoint_from_structure = upper_attestation.root == sp_core::H256::default()
+            && upper_attestation.prev_digest.is_none();
+        let lower_is_checkpoint_from_structure = lower_attestation.root == sp_core::H256::default()
+            && lower_attestation.prev_digest.is_none();
 
-        let bounds_are_checkpoints = lower_is_checkpoint.is_some() && upper_is_checkpoint.is_some();
-        let needs_checkpoint_proof = query_at_checkpoint.is_some()
-            || next_checkpoint_after.is_some()
-            || bounds_are_checkpoints;
+        let upper_looks_like_checkpoint =
+            upper_is_checkpoint.is_some() || upper_is_checkpoint_from_structure;
+        let lower_looks_like_checkpoint =
+            lower_is_checkpoint.is_some() || lower_is_checkpoint_from_structure;
+
+        // Bounds are checkpoints if both lower and upper are checkpoints
+        // This happens when query is between checkpoints and bounds finder returns checkpoint boundaries
+        // We check both checkpoint height lookup and zero root (as fallback) to detect checkpoint bounds
+        let bounds_are_checkpoints = lower_looks_like_checkpoint && upper_looks_like_checkpoint;
+
+        // Need checkpoint proof when bounds are checkpoints (query is between checkpoints OR at checkpoint)
+        // When query is at checkpoint height, bounds finder returns previous checkpoint and query checkpoint
+        // We build the full range from previous checkpoint to query checkpoint, including all attestations
+        // When query is between checkpoints, we build from lower checkpoint to upper checkpoint
+        let needs_checkpoint_proof = bounds_are_checkpoints;
 
         Ok(CheckpointInfo {
             needs_checkpoint_proof,
             upper_checkpoint: if bounds_are_checkpoints {
+                // Bounds are checkpoints - query is between checkpoints
+                // Fetch all attestations from lower checkpoint to upper checkpoint
                 Some(upper_attestation.block_number)
             } else {
-                next_checkpoint_after
+                // Query is not between checkpoints - don't end at checkpoint
+                None
             },
         })
     }
@@ -214,7 +224,13 @@ impl ContinuityBuilder {
         min_query: u64,
         lower_attestation: &AttestationWithProof,
     ) -> ContinuityResult<Vec<Block>> {
-        if min_query != lower_attestation.block_number + 1 {
+        // Prepend lower checkpoint/attestation block if:
+        // 1. Query is at lower_attestation + 1 (normal case)
+        // 2. Query is at lower_attestation (checkpoint height query - need to include lower checkpoint for proper digest chain)
+        let should_prepend = min_query == lower_attestation.block_number + 1
+            || min_query == lower_attestation.block_number;
+
+        if !should_prepend {
             return Ok(combined_blocks);
         }
 

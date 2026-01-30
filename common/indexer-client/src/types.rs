@@ -96,6 +96,9 @@ pub struct RangeQueryVariables {
     pub min_block: String,
     #[serde(rename = "maxBlock")]
     pub max_block: String,
+    /// Query height for checkpoint queries (used to separate before/after checkpoints)
+    #[serde(rename = "queryHeight", skip_serializing_if = "Option::is_none")]
+    pub query_height: Option<String>,
 }
 
 /// Query variables for checkpoint queries
