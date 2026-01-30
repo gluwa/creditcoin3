@@ -9,7 +9,7 @@ use tower_http::{
 };
 use tracing::Level;
 
-use crate::prom::{Metrics, ProofGenMetrics};
+use crate::prom::{handle_metrics_response, Metrics, ProofGenMetrics};
 use crate::services::continuity_service::ContinuityService;
 use routes::{continuity, health};
 
@@ -31,7 +31,7 @@ pub fn build_app(
     async fn handle_metrics(
         Extension(metrics): Extension<Arc<ProofGenMetrics>>,
     ) -> impl axum::response::IntoResponse {
-        metrics.build_metrics_response().await
+        handle_metrics_response(metrics).await
     }
 
     let router = Router::new()

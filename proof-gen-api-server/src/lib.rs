@@ -5,7 +5,7 @@ use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
 use tracing::{error, info};
 
-use crate::prom::{Metrics, NoopMetrics, ProofGenMetrics};
+use crate::prom::{handle_metrics_response, Metrics, NoopMetrics, ProofGenMetrics};
 use cc_client::Client as CcClient;
 use config::Config;
 use continuity::ContinuityBuilder;
@@ -338,7 +338,7 @@ async fn run_metrics_server(metrics: Arc<ProofGenMetrics>, host: &str, port: u16
     async fn handle_metrics(
         axum::extract::State(metrics): axum::extract::State<Arc<ProofGenMetrics>>,
     ) -> impl axum::response::IntoResponse {
-        metrics.build_metrics_response().await
+        handle_metrics_response(metrics).await
     }
 
     let router = Router::new()

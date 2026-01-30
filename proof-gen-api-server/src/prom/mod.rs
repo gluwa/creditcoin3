@@ -311,6 +311,14 @@ impl ProofGenMetrics {
     }
 }
 
+/// Shared handler function for metrics endpoint.
+/// Can be used with either Extension or State extractor by passing the metrics.
+pub async fn handle_metrics_response(
+    metrics: Arc<ProofGenMetrics>,
+) -> impl axum::response::IntoResponse {
+    metrics.build_metrics_response().await
+}
+
 impl MetricsTrait for ProofGenMetrics {
     // Request metrics
     fn inc_request(&self, endpoint: Endpoint, status: Status) {
