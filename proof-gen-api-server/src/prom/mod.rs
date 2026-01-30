@@ -250,6 +250,22 @@ impl ProofGenMetrics {
         buffer
     }
 
+    /// Build metrics HTTP response with updated hardware metrics.
+    /// This is a shared helper used by both the main API server and the separate metrics server.
+    pub async fn build_metrics_response(&self) -> axum::response::Response {
+        // Update hardware metrics before encoding
+        self.update_hardware().await;
+
+        axum::response::Response::builder()
+            .status(axum::http::StatusCode::OK)
+            .header(
+                axum::http::header::CONTENT_TYPE,
+                "application/openmetrics-text; version=1.0.0; charset=utf-8",
+            )
+            .body(axum::body::Body::from(self.encode()))
+            .unwrap()
+    }
+
     /// Update hardware metrics (CPU, memory usage, and thread count).
     /// Should be called before encoding metrics for fresh values.
     pub async fn update_hardware(&self) {

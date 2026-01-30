@@ -338,17 +338,7 @@ async fn run_metrics_server(metrics: Arc<ProofGenMetrics>, host: &str, port: u16
     async fn handle_metrics(
         axum::extract::State(metrics): axum::extract::State<Arc<ProofGenMetrics>>,
     ) -> impl axum::response::IntoResponse {
-        // Update hardware metrics before encoding
-        metrics.update_hardware().await;
-
-        axum::response::Response::builder()
-            .status(axum::http::StatusCode::OK)
-            .header(
-                axum::http::header::CONTENT_TYPE,
-                "application/openmetrics-text; version=1.0.0; charset=utf-8",
-            )
-            .body(axum::body::Body::from(metrics.encode()))
-            .unwrap()
+        metrics.build_metrics_response().await
     }
 
     let router = Router::new()

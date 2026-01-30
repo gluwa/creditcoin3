@@ -180,7 +180,7 @@ impl ContinuityService {
         // ContinuityBuilder will automatically use indexer if available
         let (continuity_proof, was_cached) =
             match self.build_continuity(header_number, current_block).await {
-                Ok((proof, _lower_attestation)) => {
+                Ok(proof) => {
                     // Increment total proof requests counter
                     self.total_proof_requests.fetch_add(1, Ordering::Relaxed);
 

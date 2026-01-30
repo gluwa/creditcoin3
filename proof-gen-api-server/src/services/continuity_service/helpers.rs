@@ -26,7 +26,7 @@ impl ContinuityService {
         &self,
         header_number: u64,
         current_block: u64,
-    ) -> Result<(ContinuityProof, continuity::AttestationWithProof), ServiceError> {
+    ) -> Result<ContinuityProof, ServiceError> {
         // Pass current_block to get_endpoints so it can validate predicted blocks immediately and fail fast
         let (lower_attestation, upper_attestation) = self
             .builder
@@ -54,7 +54,7 @@ impl ContinuityService {
                 ),
             })?;
 
-        Ok((continuity_proof, lower_attestation))
+        Ok(continuity_proof)
     }
 
     pub(crate) async fn get_height_and_index_for_tx_hash(
