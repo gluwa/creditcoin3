@@ -9,21 +9,42 @@ use tower_http::{
 };
 use tracing::Level;
 
-use crate::prom::Metrics;
+use crate::prom::{Metrics, ProofGenMetrics};
 use crate::services::continuity_service::ContinuityService;
 use routes::{continuity, health};
 
 pub mod middleware;
 pub mod routes;
 
-pub fn build_app(service: Arc<ContinuityService>, chain_key: u64, metrics: Metrics) -> Router {
+pub fn build_app(
+    service: Arc<ContinuityService>,
+    chain_key: u64,
+    metrics: Metrics,
+    prom_metrics: Option<Arc<ProofGenMetrics>>,
+) -> Router {
     // Configure CORS to allow browser-based applications to access the API
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers(Any);
 
-    Router::new()
+    async fn handle_metrics(
+        Extension(metrics): Extension<Arc<ProofGenMetrics>>,
+    ) -> impl axum::response::IntoResponse {
+        // Update hardware metrics before encoding
+        metrics.update_hardware().await;
+
+        axum::response::Response::builder()
+            .status(axum::http::StatusCode::OK)
+            .header(
+                axum::http::header::CONTENT_TYPE,
+                "application/openmetrics-text; version=1.0.0; charset=utf-8",
+            )
+            .body(axum::body::Body::from(metrics.encode()))
+            .unwrap()
+    }
+
+    let router = Router::new()
         .route("/api/v1/health", get(health::health_check))
         .route("/health/live", get(health::liveness_check))
         .route("/health/ready", get(health::readiness_check))
@@ -38,8 +59,19 @@ pub fn build_app(service: Arc<ContinuityService>, chain_key: u64, metrics: Metri
         .route(
             "/api/v1/proof-by-tx/{chain_key}/{tx_hash}",
             get(continuity::get_proofs_by_tx_hash),
-        )
-        .layer(Extension(service))
+        );
+
+    // Add /metrics endpoint and Extension if Prometheus metrics are enabled
+    let router = if let Some(ref prom_metrics) = prom_metrics {
+        router
+            .route("/metrics", get(handle_metrics))
+            .layer(Extension(service))
+            .layer(Extension(prom_metrics.clone()))
+    } else {
+        router.layer(Extension(service))
+    };
+
+    router
         // Request metrics middleware - tracks count, duration, and sizes
         // Note: Extension(metrics) must be AFTER (outer) the middleware so it's available
         .layer(axum::middleware::from_fn(

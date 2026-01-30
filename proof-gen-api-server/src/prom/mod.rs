@@ -52,7 +52,7 @@ pub trait MetricsTrait: Send + Sync + Debug {
 pub type Metrics = Arc<dyn MetricsTrait>;
 
 /// No-op metrics implementation for testing or when metrics are disabled.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct NoopMetrics;
 
 impl NoopMetrics {
@@ -272,7 +272,12 @@ impl ProofGenMetrics {
                 // CPU usage as percentage (normalized by CPU count)
                 let cpu_process = process.cpu_usage() as f64;
                 let cpu_count = sys.cpus().len() as f64;
-                let cpu_percent = cpu_process / cpu_count;
+                // Avoid division by zero if CPU list is empty (can occur in containerized environments)
+                let cpu_percent = if cpu_count > 0.0 {
+                    cpu_process / cpu_count
+                } else {
+                    0.0
+                };
                 self.cpu_usage_percent.set(cpu_percent);
 
                 // Memory usage in bytes

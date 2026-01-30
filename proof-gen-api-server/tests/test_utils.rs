@@ -181,7 +181,7 @@ mod anvil_integration {
                 .await
                 .expect("service init"),
         );
-        build_app(service, chain_key, NoopMetrics::new())
+        build_app(service, chain_key, NoopMetrics::new(), None)
     }
 
     /// Assert a string is a strict 0x-prefixed, lowercase H256 hex.

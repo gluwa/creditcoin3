@@ -210,7 +210,13 @@ impl Server {
         );
 
         // Build axum application - uses the same Metrics instance
-        let app = build_app(service, self.config.chain_key, metrics);
+        // Pass prom_metrics for /metrics endpoint on main server
+        let app = build_app(
+            service,
+            self.config.chain_key,
+            metrics,
+            self.prom_metrics.clone(),
+        );
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
 
         // Parse bind address properly to support both IPv4 and IPv6
