@@ -7,6 +7,7 @@ import {
     ALICE_NODE_URL,
     CLIBuilder,
     setMinBondConfig,
+    fundFromSudo,
 } from './helpers';
 import { newApi, ApiPromise, BN, KeyringPair } from '../../lib';
 import { getBalance } from '../../lib/balance';
@@ -161,6 +162,40 @@ describe('bond', () => {
                     `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
                 );
             }
+        },
+        90_000,
+    );
+
+    // Reproduces devnet bug: bonding 1100 CTC when minValidatorBond is 999 CTC
+    // This SHOULD succeed since 1100 > 999, but fails due to BN string comparison bug
+    testIf(
+        process.env.PROXY_ENABLED === undefined ||
+            process.env.PROXY_ENABLED === 'no' ||
+            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+        'should successfully bond 1100 CTC when minValidatorBond is 999 CTC',
+        async () => {
+            // Set minValidatorBond to 999 CTC (in raw units: 999 * 10^18)
+            const minValidatorBondRaw = '999000000000000000000';
+            await setMinBondConfig(api, minValidatorBondRaw);
+
+            // Fund account with enough CTC (default is 1000, we need 1100+ for bond + fees)
+            await fundFromSudo(caller.address, parseAmount('2000'));
+
+            // Verify account starts with zero bonded
+            const zero = new BN(0);
+            const balance = await getBalance(caller.address, api);
+            expect(balance.bonded.toString()).toBe(zero.toString());
+
+            // Bond 1100 CTC - this SHOULD succeed since 1100 > 999
+            const result = CLI('bond --amount 1100');
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+
+            // Verify the bond was successful
+            await sleep(2000);
+            const newBalance = await getBalance(caller.address, api);
+            const expectedBonded = parseAmount('1100');
+            expect(newBalance.bonded.toString()).toBe(expectedBonded.toString());
         },
         90_000,
     );
