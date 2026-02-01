@@ -1,4 +1,4 @@
-FROM denoland/deno:2.6.6
+FROM denoland/deno:2.6.7
 
 ENV DENO_DIR=/deno-dir
 
