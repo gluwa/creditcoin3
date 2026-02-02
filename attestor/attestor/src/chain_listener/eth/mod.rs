@@ -211,10 +211,10 @@ impl crate::events::EventAttestationFinalizationAsync for Ethereum {
     /// If we are catching up, we need to make sure we do not re-generate this attestation.
     async fn note_attestation_finalization_async(
         &mut self,
-        attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
+        attestation_latest_cc3: common::types::AttestationInfo,
     ) -> Result<(), Self::Error> {
-        let (_digest, height) = attestation_latest_cc3;
-        let target_start_new = util::next_multiple_of(self.attestation_interval, height);
+        let target_start_new =
+            util::next_multiple_of(self.attestation_interval, attestation_latest_cc3.height);
 
         if self.catchup.start < target_start_new {
             self.catchup.start = target_start_new
@@ -236,13 +236,9 @@ impl crate::events::EventAttestationIntervalChangeAsync for Ethereum {
     async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: Option<common::types::Height>,
+        attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
-        self.catchup.start = if let Some(attestation_latest_cc3) = attestation_latest_cc3 {
-            util::next_multiple_of(interval_new, attestation_latest_cc3)
-        } else {
-            self.start_height
-        };
+        self.catchup.start = util::next_multiple_of(interval_new, attestation_latest_cc3);
 
         self.catchup.stop = loop {
             let Some(block_n) = self

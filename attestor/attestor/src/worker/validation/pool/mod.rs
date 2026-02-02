@@ -66,7 +66,6 @@
 //! #               .sign(b"0xdeadbeef"),
 //! #       ),
 //! #       continuity_proof: Default::default(),
-//! #       epoch: 0,
 //! #   }
 //! # }
 //! #
@@ -415,12 +414,12 @@ impl AttestationPoolInner {
         Ok(removed)
     }
 
-    fn peek(&mut self) -> Option<(Quorum, AttestationPermit)> {
+    fn peek(&mut self) -> Option<(Quorum, Permit)> {
         self.forks.peek().map(|fork| {
             let quorum = Quorum(fork.votes.clone());
             let height = fork.attestation.header_number();
             let key = (height, fork.attestation.digest());
-            let permit = AttestationPermit(key);
+            let permit = Permit(key);
 
             // Only update metrics the first time quorum is reached at that height
             if let Some(elapsed) = self.attestation_delay.pop(height) {
@@ -431,21 +430,17 @@ impl AttestationPoolInner {
         })
     }
 
-    fn mark_valid(&mut self, AttestationPermit((height, digest)): AttestationPermit) {
+    fn mark_valid(&mut self, Permit((height, digest)): Permit) {
         self.forks.split_off(height);
         self.forks.forks_best = self.forks.find_best();
         self.digest_local = Some(cc_client::H256::from(digest.0));
     }
 
-    fn mark_invalid(&mut self, AttestationPermit((_height, digest)): AttestationPermit) {
+    fn mark_invalid(&mut self, Permit((_height, digest)): Permit) {
         self.forks.pop(digest);
     }
 
-    fn mark_for_later(
-        &mut self,
-        permit: AttestationPermit,
-        signed: common::types::AttestationSigned,
-    ) {
+    fn mark_for_later(&mut self, permit: Permit, signed: common::types::AttestationSigned) {
         self.valid.push(signed);
         self.mark_valid(permit);
     }
@@ -1007,20 +1002,20 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolForks {
 
     async fn note_attestation_finalization_async(
         &mut self,
-        (digest, height): (attestor_primitives::Digest, common::types::Height),
+        info: common::types::AttestationInfo,
     ) -> Result<(), Self::Error> {
         tracing::debug!("Updating forks");
 
-        self.split_off(height);
-        self.last_finalized_digest = Some(digest);
+        self.split_off(info.height);
+        self.last_finalized_digest = Some(info.digest);
 
         let key_start = KeyTailPending {
-            prev_digest_tail: PrevDigestTail(digest),
-            height,
+            prev_digest_tail: PrevDigestTail(info.digest),
+            height: info.height,
             digest: attestor_primitives::Digest::zero(),
         };
         let key_stop = KeyTailPending {
-            prev_digest_tail: PrevDigestTail(digest),
+            prev_digest_tail: PrevDigestTail(info.digest),
             height: common::types::Height::MAX,
             digest: attestor_primitives::Digest::from([u8::MAX; 32]),
         };
@@ -1091,7 +1086,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolForks
     async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: Option<common::types::Height>,
+        attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
         use crate::events::EventAttestationIntervalChange as _;
 
@@ -1161,11 +1156,11 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolValid {
 
     async fn note_attestation_finalization_async(
         &mut self,
-        (_digest, height): (attestor_primitives::Digest, common::types::Height),
+        info: common::types::AttestationInfo,
     ) -> Result<(), Self::Error> {
         tracing::debug!("Updating known quorums");
 
-        let split = height.saturating_add(1);
+        let split = info.height.saturating_add(1);
         let after = self.quorums_valid.split_off(&split);
         let _removed = std::mem::replace(&mut self.quorums_valid, after);
 
@@ -1180,7 +1175,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolValid
     async fn note_attestation_interval_change_async(
         &mut self,
         _interval_new: std::num::NonZero<common::types::Height>,
-        _attestation_latest_cc3: Option<common::types::Height>,
+        _attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
         self.quorums_valid.clear();
         Ok(())
@@ -1217,12 +1212,10 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolDelays 
 
     async fn note_attestation_finalization_async(
         &mut self,
-        latest_attestation_cc3: (attestor_primitives::Digest, common::types::Height),
+        info: common::types::AttestationInfo,
     ) -> Result<(), Self::Error> {
         tracing::debug!("Updating quorum delays");
-        let (_digest, height) = latest_attestation_cc3;
-
-        let mut removed = self.time.split_off(&(height.saturating_add(1)));
+        let mut removed = self.time.split_off(&(info.height.saturating_add(1)));
         std::mem::swap(&mut removed, &mut self.time);
 
         for (_, then) in removed {
@@ -1241,7 +1234,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolDelay
     async fn note_attestation_interval_change_async(
         &mut self,
         _interval_new: std::num::NonZero<common::types::Height>,
-        _attestation_latest_cc3: Option<common::types::Height>,
+        _attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
         tracing::debug!("Updating quorum delays");
         self.time.clear();
@@ -1318,34 +1311,32 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolSender 
     /// attestation pool.
     #[tracing::instrument(
         skip_all,
-        fields(digest = ?attestation_latest_cc3.0, height = attestation_latest_cc3.1),
+        fields(digest = ?info.digest, height = info.height),
         level = "debug"
     )]
     async fn note_attestation_finalization_async(
         &mut self,
-        attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
+        info: common::types::AttestationInfo,
     ) -> Result<(), Self::Error> {
         use crate::events::EventAttestationFinalization as _;
 
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
-            let (_digest, _height) = attestation_latest_cc3;
-
             // Updating the inner pool
             inner
                 .forks
-                .note_attestation_finalization(attestation_latest_cc3)
+                .note_attestation_finalization(info)
                 .expect("Infallible");
 
             // Remove past quorums
             inner
                 .valid
-                .note_attestation_finalization(attestation_latest_cc3)
+                .note_attestation_finalization(info)
                 .expect("Infallible");
 
             // Update metrics
             inner
                 .attestation_delay
-                .note_attestation_finalization(attestation_latest_cc3)
+                .note_attestation_finalization(info)
                 .expect("Infallible");
         }
 
@@ -1369,7 +1360,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolSende
     async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: Option<common::types::Height>,
+        attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
         use crate::events::EventAttestationIntervalChange as _;
 
@@ -1474,7 +1465,7 @@ impl AttestationPoolReceiver {
     /// Marks an attestation as valid, causing it and all other attestations at the same height to
     /// be removed from the attestation pool, as well as the pool's target height to be updated.
     #[tracing::instrument(skip_all, fields(%permit))]
-    pub fn mark_valid(&self, permit: AttestationPermit) {
+    pub fn mark_valid(&self, permit: Permit) {
         match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => {
                 tracing::debug!("Removing valid attestation");
@@ -1491,7 +1482,7 @@ impl AttestationPoolReceiver {
     /// Marks an attestation as **invalid**, causing it to be removed from the attestation pool. The
     /// pool's target height _is not_ updated.
     #[tracing::instrument(skip_all, fields(%permit))]
-    pub fn mark_invalid(&self, permit: AttestationPermit) {
+    pub fn mark_invalid(&self, permit: Permit) {
         match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => {
                 tracing::debug!("Removing invalid attestation");
@@ -1514,11 +1505,7 @@ impl AttestationPoolReceiver {
     /// [validation worker]: crate::worker::validation
     /// [`take_next_validated`]: Self::take_next_validated
     #[tracing::instrument(skip_all, fields(%permit))]
-    pub fn mark_for_later(
-        &self,
-        permit: AttestationPermit,
-        signed: common::types::AttestationSigned,
-    ) {
+    pub fn mark_for_later(&self, permit: Permit, signed: common::types::AttestationSigned) {
         match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => {
                 tracing::debug!("Marking attestation for later removal");
@@ -1567,7 +1554,7 @@ impl AttestationPoolReceiver {
 }
 
 impl futures::Stream for AttestationPoolReceiver {
-    type Item = (Quorum, AttestationPermit, Option<cc_client::H256>);
+    type Item = (Quorum, Permit, Option<cc_client::H256>);
 
     /// This future is cancellation-safe, as it does not perform any mutations on the inner pool.
     #[tracing::instrument(skip_all)]
@@ -1672,7 +1659,7 @@ impl Quorum {
 /// [`mark_invalid`]: AttestationPoolReceiver::mark_invalid
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct AttestationPermit(AttestationKey);
+pub struct Permit(AttestationKey);
 
 // ------------------------------------ [ Quorum Validation ] ---------------------------------- //
 
@@ -1718,7 +1705,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for ValidateQuorum {
     async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        _attestation_latest_cc3: Option<common::types::Height>,
+        _attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
         tracing::debug!("Updating quorum validation");
         self.attestation_interval = interval_new;
@@ -1817,7 +1804,7 @@ impl std::fmt::Display for ValidateQuorum {
     }
 }
 
-impl std::fmt::Display for AttestationPermit {
+impl std::fmt::Display for Permit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{ height: {}, digest: {} }}", self.0 .0, self.0 .1)
     }
@@ -1884,7 +1871,6 @@ pub mod fixtures {
                                 digest: attestor_primitives::Digest::default(),
                             }],
                         },
-                    epoch: 0,
                 }
             };
 
@@ -1997,8 +1983,8 @@ pub mod fixtures {
         #[default(0)] _header_number: common::types::Height,
         #[default(DIGEST_0)] _prev_digest: attestor_primitives::Digest,
         #[with(_attestors.clone(), _header_number, _prev_digest)] attestation: AttestationVote,
-    ) -> AttestationPermit {
-        AttestationPermit((
+    ) -> Permit {
+        Permit((
             attestation.attestation.header_number(),
             attestation.attestation.digest(),
         ))
@@ -2186,7 +2172,11 @@ mod test {
                 }));
         }
 
-        sx.note_attestation_finalization((DIGEST_1, 0)).unwrap();
+        sx.note_attestation_finalization(common::types::AttestationInfo {
+            digest: DIGEST_1,
+            height: 0,
+        })
+        .unwrap();
 
         {
             let mut pool = rx.common.pool.lock();
@@ -2218,7 +2208,7 @@ mod test {
     async fn attestation_pool_async_wake_receiver(
         _logs: (),
         #[with([ATTESTOR_VALID_0])] attestation: AttestationVote,
-        #[with([ATTESTOR_VALID_0])] permit: AttestationPermit,
+        #[with([ATTESTOR_VALID_0])] permit: Permit,
         #[with([ATTESTOR_VALID_0])] quorum: Quorum,
         #[from(quorum_validate)]
         #[with(1)]
@@ -2265,7 +2255,7 @@ mod test {
         quorum: Quorum,
         #[from(permit)]
         #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
-        permit: AttestationPermit,
+        permit: Permit,
         config: Config,
     ) {
         use futures::stream::StreamExt as _;
@@ -2307,7 +2297,7 @@ mod test {
         quorum: Quorum,
         #[from(permit)]
         #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 100)]
-        permit: AttestationPermit,
+        permit: Permit,
         config: Config,
     ) {
         use futures::stream::StreamExt as _;

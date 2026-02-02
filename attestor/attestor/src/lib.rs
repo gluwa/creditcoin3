@@ -326,22 +326,22 @@ impl Attestor {
 
         tracing::info!("⏳ [4/4] Starting attestation production worker");
 
-        let config = worker::production::ConfigBuilder::new()
-            .with_eth(eth)
-            .with_cc3(cc3_production)
-            .with_account_id(account_id)
-            .with_sender_p2p(p2p_sender)
-            .with_sender_validation(validation_sender)
-            .with_sender_attestation_latest(attestation_latest_sender)
-            .with_attestation_start_cc3(attestation_start_cc3)
-            .with_attestation_interval(attestation_interval)
-            .with_epoch(epoch)
-            .with_start_height(start_height)
-            .with_empty_chain(empty_chain)
-            .with_chain_key(self.config.chain_key)
-            .with_metrics(metrics)
-            .build();
-        let attestation_production = worker::production::WorkerAttestationProduction::new(config)
+        // let config = worker::production::ConfigBuilder::new()
+        //     .with_eth(eth)
+        //     .with_cc3(cc3_production)
+        //     .with_account_id(account_id)
+        //     .with_sender_p2p(p2p_sender)
+        //     .with_sender_validation(validation_sender)
+        //     .with_sender_attestation_latest(attestation_latest_sender)
+        //     .with_attestation_start_cc3(attestation_start_cc3)
+        //     .with_attestation_interval(attestation_interval)
+        //     .with_epoch(epoch)
+        //     .with_start_height(start_height)
+        //     .with_empty_chain(empty_chain)
+        //     .with_chain_key(self.config.chain_key)
+        //     .with_metrics(metrics)
+        //     .build();
+        let attestation_production = worker::production::WorkerAttestationProduction::new(todo!())
             .await
             .map_err(Error::WorkerError)?;
         let mut handle_production = Some(monitor.spawn(attestation_production));

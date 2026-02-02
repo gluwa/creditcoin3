@@ -5,16 +5,16 @@ pub trait EventAttestationProductionAsync {
 
     async fn note_attestation_production_async(
         &mut self,
-        attestation_latest_eth: (attestor_primitives::Digest, common::types::Height),
+        info: common::types::AttestationInfo,
     ) -> Result<(), Self::Error>;
 }
 
 pub trait EventAttestationProduction: EventAttestationProductionAsync {
     fn note_attestation_production(
         &mut self,
-        attestation_latest_eth: (attestor_primitives::Digest, common::types::Height),
+        info: common::types::AttestationInfo,
     ) -> Result<(), Self::Error> {
-        poll_sync_future(self.note_attestation_production_async(attestation_latest_eth))
+        poll_sync_future(self.note_attestation_production_async(info))
     }
 }
 
@@ -23,16 +23,16 @@ pub trait EventAttestationFinalizationAsync {
 
     async fn note_attestation_finalization_async(
         &mut self,
-        attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
+        info: common::types::AttestationInfo,
     ) -> Result<(), Self::Error>;
 }
 
 pub trait EventAttestationFinalization: EventAttestationFinalizationAsync {
     fn note_attestation_finalization(
         &mut self,
-        attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
+        info: common::types::AttestationInfo,
     ) -> Result<(), Self::Error> {
-        poll_sync_future(self.note_attestation_finalization_async(attestation_latest_cc3))
+        poll_sync_future(self.note_attestation_finalization_async(info))
     }
 }
 
@@ -42,7 +42,7 @@ pub trait EventAttestationIntervalChangeAsync {
     async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: Option<common::types::Height>,
+        attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error>;
 }
 
@@ -50,7 +50,7 @@ pub trait EventAttestationIntervalChange: EventAttestationIntervalChangeAsync {
     fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: Option<common::types::Height>,
+        attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
         poll_sync_future(
             self.note_attestation_interval_change_async(interval_new, attestation_latest_cc3),
@@ -64,7 +64,7 @@ pub trait EventCheckpointIntervalChangeAsync {
     async fn note_checkpoint_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: Option<common::types::Height>,
+        attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error>;
 }
 
@@ -72,7 +72,7 @@ pub trait EventCheckpointIntervalChange: EventCheckpointIntervalChangeAsync {
     fn note_checkpoint_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: Option<common::types::Height>,
+        attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
         poll_sync_future(
             self.note_checkpoint_interval_change_async(interval_new, attestation_latest_cc3),

@@ -34,8 +34,6 @@ use utils::block_item_traits::BlockItem;
 
 pub use alloy::core::primitives::Address;
 
-use crate::subscription::Height;
-
 #[cfg(feature = "block_cache")]
 pub mod block_cache;
 #[cfg(feature = "block_cache")]
@@ -43,7 +41,6 @@ pub mod metrics;
 
 pub mod continuity;
 pub mod evm;
-pub mod subscription;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -69,8 +66,6 @@ pub enum Error {
     EndOfSubscription,
     #[error("Failed to get sync info")]
     FailedToGetSyncInfo,
-    #[error("Failed to send block on channel")]
-    SendError(#[from] SendError<Height>),
     #[error("No Wallet configured")]
     NoWalletConfigured,
     #[error("Hex decoding error {0}")]
@@ -410,6 +405,13 @@ impl Client {
         encoding: EncodingVersion,
     ) -> Option<Result<OrderedBlock, Error>> {
         Self::try_fetch_block(self, number, encoding).await
+    }
+
+    pub async fn subscribe(
+        &self,
+    ) -> std::result::Result<alloy::pubsub::SubscriptionStream<alloy::rpc::types::Header>, Error>
+    {
+        Ok(self.rpc_provider.subscribe_blocks().await?.into_stream())
     }
 
     async fn get_receipts(&self, number: u64) -> Result<Vec<TransactionReceipt>, Error> {

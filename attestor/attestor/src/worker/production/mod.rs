@@ -128,6 +128,7 @@
 //! [`AttestorChilled`]: cc_client::attestation::CcEvent::AttestorChilled
 
 mod error;
+mod stream;
 
 use crate::prelude::*;
 pub use error::*;
@@ -141,40 +142,33 @@ pub use error::*;
 /// [chain listeners]: crate::chain_listener
 #[derive(attestor_macro::Builder)]
 pub struct Config {
-    eth: crate::chain_listener::eth::Ethereum,
-    cc3: crate::chain_listener::cc3::CC3,
+    eth: eth::Client,
+    cc3: cc_client::Client,
 
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
     sender_validation: crate::worker::validation::pool::AttestationPoolSender,
     sender_attestation_latest: tokio::sync::watch::Sender<Option<common::types::Height>>,
 
-    attestation_start_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
-    attestation_interval: std::num::NonZero<common::types::Height>,
+    interval_attestation: std::num::NonZero<common::types::Height>,
+    interval_checkpoint: std::num::NonZero<common::types::Height>,
 
-    epoch: common::types::Epoch,
-    start_height: common::types::Height,
-    empty_chain: bool,
     chain_key: attestor_primitives::ChainKey,
+    start_height: common::types::Height,
+    start_digest: Option<attestor_primitives::Digest>,
+    empty_chain: bool,
+
+    account_id: cc_client::AccountId32,
+    bls_key: bls_signatures::PrivateKey,
 
     metrics: common::types::Metrics,
-    account_id: cc_client::AccountId32,
-}
-
-// ----------------------------------------- [ Helper ] ---------------------------------------- //
-
-struct AttestationInfo {
-    digest: attestor_primitives::Digest,
-    digest_prev: Option<attestor_primitives::Digest>,
-    attestor_id: attestor_primitives::AttestorId,
-    height: common::types::Height,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
 
 pub(crate) struct WorkerAttestationProduction {
     // CHAIN LISTENERS
-    eth: crate::chain_listener::eth::Ethereum,
-    cc3: crate::chain_listener::cc3::CC3,
+    stream_attestation: stream::attestation::StreamAttestation,
+    stream_cc3: stream::cc3::StreamCC3,
 
     // MESSAGE CHANNELS
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
@@ -182,12 +176,11 @@ pub(crate) struct WorkerAttestationProduction {
     sender_attestation_latest: tokio::sync::watch::Sender<Option<common::types::Height>>,
 
     // ATTESTATION DATA
-    attestation_local: Option<common::types::Height>,
-    attestation_latest_cc3: Option<(attestor_primitives::Digest, common::types::Height)>,
+    attestation_local: common::types::Height,
+    attestation_latest_cc3: common::types::AttestationInfo,
     attestation_interval: std::num::NonZero<common::types::Height>,
 
     // CHAIN DATA
-    epoch: common::types::Epoch,
     start_height: common::types::Height,
     chain_key: attestor_primitives::ChainKey,
 
@@ -197,73 +190,160 @@ pub(crate) struct WorkerAttestationProduction {
     // ATTESTOR DATA
     account_id: cc_client::AccountId32,
     can_attest: bool,
-
-    // ATTESTATION CACHE
-    attestations: std::collections::HashMap<common::types::Height, common::types::Attestation>,
 }
 
 impl WorkerAttestationProduction {
     pub(crate) async fn new(config: Config) -> common::types::Result<Self> {
         use anyhow::Context as _;
+        use futures::StreamExt as _;
 
-        let can_attest = config.cc3.can_attest().await?;
+        let mut stream_attestation = stream::attestation::StreamAttestation::new(
+            stream::attestation::ConfigBuilder::new()
+                .with_cc3(config.cc3.clone())
+                .with_eth(config.eth)
+                .with_bls_key(config.bls_key)
+                .with_interval_attestation(config.interval_attestation)
+                .with_interval_checkpoint(config.interval_checkpoint)
+                .with_chain_key(config.chain_key)
+                .with_start_height(config.start_height)
+                .with_start_digest(config.start_digest)
+                .build(),
+        )
+        .await
+        .context("Failed to create attestation stream")?;
 
-        let mut production = Self {
-            eth: config.eth,
-            cc3: config.cc3,
+        let mut stream_cc3 = stream::cc3::StreamCC3::new(
+            stream::cc3::ConfigBuilder::new()
+                .with_cc3(config.cc3.clone())
+                .with_chain_key(config.chain_key)
+                .build(),
+        )
+        .await
+        .context("Failed to create cc3 events stream")?;
 
-            sender_p2p: config.sender_p2p,
-            sender_validation: config.sender_validation,
-            sender_attestation_latest: config.sender_attestation_latest,
+        tracing::info!(
+            attestor = %config.account_id,
+            "⏲️ Waiting for attestor to be made eligible"
+        );
 
-            attestation_local: None,
-            attestation_latest_cc3: config.attestation_start_cc3,
-            attestation_interval: config.attestation_interval,
+        let can_attest = config
+            .cc3
+            .get_attestor_status(config.chain_key)
+            .await
+            .context("Failed to retrieve attestor status")?
+            .as_ref()
+            .is_some_and(attestor_primitives::AttestorStatus::is_active);
 
-            epoch: config.epoch,
-            start_height: config.start_height,
-            chain_key: config.chain_key,
-
-            metrics: config.metrics,
-
-            account_id: config.account_id,
-            can_attest,
-
-            attestations: std::collections::HashMap::new(),
-        };
-
-        if config.empty_chain {
-            while !production.can_attest {
-                let Some(event) = production.cc3.next().await else {
-                    break;
-                };
-                production.handle_event_cc3(event).await?;
-            }
-
-            tracing::info!(
-                height = config.start_height,
-                "👶 Generating genesis attestation"
-            );
-
-            let (attestation, info) = production
-                .generate_attestation(config.start_height, Default::default())
+        if !can_attest {
+            for block in stream_cc3
+                .next()
                 .await
-                .context("Failed to generate genesis attestation")?;
-
-            production.store_attestation(attestation, &info);
-
-            while production
-                .attestation_latest_cc3
-                .is_none_or(|(_digest, height)| height < config.start_height)
+                .context("Failed to retrieve events")?
             {
-                let Some(event) = production.cc3.next().await else {
-                    break;
-                };
-                production.handle_event_cc3(event).await?;
+                for event in block.events().await.map_err(Error::CC3)? {
+                    let event = event.map_err(Error::CC3)?;
+                    if let cc_client::attestation::CcEvent::AttestorsElected(attestors) = event {
+                        if attestors.contains(&config.account_id) {
+                            break;
+                        }
+                    }
+                }
             }
         }
 
-        Ok(production)
+        tracing::info!(
+            height = config.start_height,
+            "👶 Generating initial attestation"
+        );
+
+        let attestation = if config.empty_chain {
+            stream_attestation
+                .generate_attestation_genesis()
+                .await
+                .context("Failed to generate genesis attestation")?
+        } else {
+            let permit = stream_attestation
+                .next()
+                .await
+                .context("Unexpected end of stream")?
+                .context("Failed to generate attestation")?;
+            stream_attestation
+                .generate_attestation(permit)
+                .await
+                .context("Failed to generate attestation")?
+        };
+
+        let height = attestation.header_number();
+        let digest = attestation.digest();
+        let digest_prev = attestation.prev_digest();
+        let attestor_id = attestation.attestor.clone();
+
+        tracing::info!(
+            ?digest,
+            ?digest_prev,
+            height,
+            %attestor_id,
+            "📡 Generated intial attestation"
+        );
+
+        config
+            .sender_p2p
+            .send(attestation.clone())
+            .context("Failed to send initial attestation over to p2p worker")?;
+        config
+            .sender_validation
+            .send(attestation)
+            .transpose()
+            .context("Failed to send initial attestation over for validation")?;
+
+        tracing::info!(
+            ?digest,
+            ?digest_prev,
+            height,
+            %attestor_id,
+            "⏲️ Waiting for intial attestation to finalize"
+        );
+
+        loop {
+            let block = stream_cc3
+                .next()
+                .await
+                .context("Unexpected end of stream")?
+                .context("Failed to retrieve events")?;
+
+            for event in block.events().await.map_err(Error::CC3)? {
+                let event = event.map_err(Error::CC3)?;
+                if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
+                    if attestation.header_number >= height {
+                        let attestation_latest = common::types::AttestationInfo {
+                            digest: attestation.digest,
+                            height: attestation.header_number,
+                        };
+
+                        return Ok(Self {
+                            stream_attestation,
+                            stream_cc3,
+
+                            sender_p2p: config.sender_p2p,
+                            sender_validation: config.sender_validation,
+                            sender_attestation_latest: config.sender_attestation_latest,
+
+                            attestation_local: height,
+                            attestation_latest_cc3: attestation_latest,
+                            attestation_interval: config.interval_attestation,
+
+                            start_height: config.start_height,
+                            chain_key: config.chain_key,
+
+                            metrics: config.metrics,
+
+                            account_id: config.account_id,
+                            can_attest: true,
+                        });
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -275,6 +355,8 @@ impl super::Worker for WorkerAttestationProduction {
         mut self,
         mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
     ) -> common::types::Result<()> {
+        use futures::StreamExt as _;
+
         loop {
             tokio::select! {
                 biased;
@@ -282,11 +364,11 @@ impl super::Worker for WorkerAttestationProduction {
                 _ = &mut shutdown => {
                     break self.handle_event_shutdown().await;
                 }
-                Some(event) = self.cc3.next() => {
+                Some(event) = self.stream_cc3.next() => {
                     self.handle_event_cc3(event).await?;
                 }
-                Some(event) = self.eth.next(), if self.can_attest => {
-                    self.handle_event_eth(event).await?;
+                Some(event) = self.stream_attestation.next(), if self.can_attest => {
+                    self.handle_event_attestation(event).await?;
                 }
             }
         }
@@ -298,24 +380,71 @@ impl super::Worker for WorkerAttestationProduction {
 impl WorkerAttestationProduction {
     // ----------------------------------------* Eth events *--------------------------------------
 
-    async fn handle_event_eth(
+    async fn handle_event_attestation(
         &mut self,
-        event: Result<common::types::Height, crate::chain_listener::eth::Error>,
+        event: Result<stream::attestation::Permit, stream::attestation::Error>,
     ) -> Result<(), Error> {
-        let height = event.map_err(Error::EthError)?;
+        let permit = event.map_err(Error::Attestation)?;
         let now = std::time::Instant::now();
 
-        let Some(continuity_fragment) = self.generate_continuity(height).await? else {
-            return Ok(());
-        };
+        let attestation = self
+            .stream_attestation
+            .generate_attestation(permit)
+            .await
+            .map_err(Error::Attestation)?;
 
-        let (attestation, info) = self
-            .generate_attestation(height, continuity_fragment)
-            .await?;
+        let height = attestation.header_number();
+        let digest = attestation.digest();
+        let digest_prev = attestation.prev_digest();
+        let attestor_id = attestation.attestor.clone();
 
-        self.update_metrics(now.elapsed(), &info);
-        self.store_attestation(attestation, &info);
-        self.attestation_local = Some(height);
+        tracing::info!(
+            ?digest,
+            ?digest_prev,
+            height,
+            %attestor_id,
+            "📡 Generated attestation"
+        );
+
+        let attestation_latest = self.attestation_latest_cc3.height;
+
+        self.metrics
+            .update_attestation_delay_production(now.elapsed());
+
+        self.metrics
+            .set_attestation_local(attestation.header_number());
+
+        self.metrics.update_attestation_lag_eth(
+            attestation.header_number(),
+            self.stream_attestation.block_highest(),
+            self.attestation_interval,
+        );
+        self.metrics.update_attestation_lag_cc3(
+            attestation.header_number(),
+            attestation_latest,
+            self.attestation_interval,
+        );
+
+        tracing::info!(
+            ?digest,
+            attestation_latest,
+            %attestor_id,
+            "🗳️ Sending local attestation over for validation"
+        );
+
+        // From the tokio docs:
+        //
+        // > A send operation can only fail if there are no active receivers, implying that the
+        // > message could never be received.
+        //
+        // This can happen during shutdown and does not represent a failing case!
+        _ = self.sender_p2p.send(attestation.clone());
+
+        if let Err(err) = self.sender_validation.send(attestation).transpose() {
+            err.log_error(digest);
+        }
+
+        self.attestation_local = attestation_latest;
 
         Ok(())
     }
@@ -324,7 +453,7 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_cc3(
         &mut self,
-        res: Result<crate::chain_listener::cc3::CC3Events, crate::chain_listener::cc3::Error>,
+        res: Result<stream::cc3::CC3Events, stream::cc3::Error>,
     ) -> Result<(), Error> {
         use crate::events::EventAttestationFinalization as _;
         use crate::events::EventAttestationIntervalChange as _;
@@ -333,17 +462,17 @@ impl WorkerAttestationProduction {
         use crate::events::EventCheckpointIntervalChange as _;
 
         for event in res
-            .map_err(Error::CC3Error)?
+            .map_err(Error::CC3)?
             .events()
             .await
-            .map_err(Error::CC3Error)?
+            .map_err(Error::CC3)?
         {
-            match event.map_err(Error::CC3Error)? {
+            match event.map_err(Error::CC3)? {
                 // CASE 1] NEW ATTESTATION
                 cc_client::attestation::CcEvent::BlockAttested(attestation) => {
-                    let digest = attestation.digest();
-                    let height = attestation.header_number();
-                    let attestation_latest_cc3 = (digest, height);
+                    let digest = attestation.digest;
+                    let height = attestation.header_number;
+                    let attestation_latest_cc3 = common::types::AttestationInfo { digest, height };
 
                     tracing::info!(
                         height,
@@ -351,17 +480,13 @@ impl WorkerAttestationProduction {
                         "💾 New execution chain attestation"
                     );
 
-                    self.attestation_latest_cc3 = Some(attestation_latest_cc3);
+                    self.attestation_latest_cc3 = attestation_latest_cc3;
 
                     // 1. Chain Listener - Eth
                     //
                     // This is ensure that we keep producing new attestation starting from the
                     // latest finalized on-chain attestation.
-                    self.eth
-                        .note_attestation_finalization(attestation_latest_cc3)
-                        .expect("Infallible");
-
-                    self.cc3
+                    self.stream_attestation
                         .note_attestation_finalization(attestation_latest_cc3)
                         .expect("Infallible");
 
@@ -394,17 +519,12 @@ impl WorkerAttestationProduction {
                     // can happen during shutdown. This is not a failure case!
                     let _ = self.sender_attestation_latest.send(Some(height));
 
-                    // 4. Production
-                    //
-                    // Clear local state
-                    self.attestations.retain(|h, _att| *h > height);
-
                     // 5. Metrics
                     //
                     // Update attestation production metrics
                     self.metrics.set_attestation_finalized(height);
                     self.metrics.update_attestation_lag_cc3(
-                        self.attestation_local.unwrap_or(self.start_height),
+                        self.attestation_local,
                         height,
                         self.attestation_interval,
                     );
@@ -427,20 +547,12 @@ impl WorkerAttestationProduction {
                         return Ok(());
                     };
 
-                    let attestation_latest_cc3 = self
-                        .attestation_latest_cc3
-                        .as_ref()
-                        .map(|(_digest, height)| *height);
+                    let attestation_latest_cc3 = self.attestation_latest_cc3.height;
 
                     // 1. Chain listener - Eth
                     //
                     // Catchup to the new target height and update the attestation interval.
-                    self.eth
-                        .note_attestation_interval_change_async(interval, attestation_latest_cc3)
-                        .await
-                        .map_err(Error::EthError)?;
-
-                    self.cc3
+                    self.stream_attestation
                         .note_attestation_interval_change(interval, attestation_latest_cc3)
                         .expect("Infallible");
 
@@ -454,16 +566,13 @@ impl WorkerAttestationProduction {
 
                     // 3. Production
                     //
-                    // Clear local state
-                    self.attestations.clear();
+                    // Update local state
                     self.attestation_interval = interval;
 
                     // 4. Metrics
-                    let attestation_latest_cc3 =
-                        attestation_latest_cc3.unwrap_or(self.start_height);
                     self.metrics.update_attestation_lag_eth(
                         attestation_latest_cc3,
-                        self.eth.block_latest(),
+                        self.stream_attestation.block_highest(),
                         interval,
                     );
                     self.metrics.update_attestation_lag_cc3(
@@ -481,14 +590,9 @@ impl WorkerAttestationProduction {
                         return Ok(());
                     };
 
-                    let attestation_latest_cc3 = self
-                        .attestation_latest_cc3
-                        .as_ref()
-                        .map(|(_digest, height)| *height);
+                    let attestation_latest_cc3 = self.attestation_latest_cc3.height;
 
-                    self.cc3
-                        .note_checkpoint_interval_change(interval, attestation_latest_cc3)
-                        .expect("Infallible");
+                    todo!()
                 }
 
                 // CASE 3] NEW ATTESTATION CHECKPOINT
@@ -503,7 +607,6 @@ impl WorkerAttestationProduction {
                 // CASE 5] NEW EPOCH
                 cc_client::attestation::CcEvent::RandomnessChanged((epoch, _randomness)) => {
                     tracing::info!(epoch, "🎲 New epoch rotation");
-                    self.epoch = epoch;
                 }
 
                 // CASE 5] ATTESTOR ELECTION
@@ -576,134 +679,5 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_shutdown(&mut self) -> common::types::Result<()> {
         Ok(())
-    }
-}
-
-impl WorkerAttestationProduction {
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn generate_continuity(
-        &mut self,
-        height: common::types::Height,
-    ) -> Result<
-        Option<attestor_primitives::attestation_fragment::AttestationFragmentSerializable>,
-        Error,
-    > {
-        tracing::debug!("Generating continuity proof");
-
-        self.cc3
-            .create_continuity_proof(height, self.attestation_latest_cc3)
-            .await
-            .transpose()
-            .map_err(Error::CC3Error)
-    }
-
-    #[tracing::instrument(skip(self, continuity_fragment), level = "debug")]
-    async fn generate_attestation(
-        &mut self,
-        height: common::types::Height,
-        continuity_fragment: attestor_primitives::attestation_fragment::AttestationFragmentSerializable,
-    ) -> Result<(common::types::Attestation, AttestationInfo), Error> {
-        use crate::events::EventAttestationProduction as _;
-
-        tracing::debug!("Generating attestation");
-
-        let block = self.eth.block_get(height).await.map_err(Error::EthError)?;
-        let prev_digest = continuity_fragment.head().map(|head| head.digest);
-
-        let attestation_data =
-            attestor_primitives::AttestationData::<attestor_primitives::Digest>::new(
-                self.chain_key,
-                block.number(),
-                sp_core::H256(*block.hash()),
-                eth::simple_merkle_tree(&block).root(),
-                prev_digest,
-            );
-
-        let attestation = self
-            .cc3
-            .sign_attestation(attestation_data, continuity_fragment, self.epoch)
-            .await;
-
-        let info = AttestationInfo {
-            digest: attestation.digest(),
-            digest_prev: attestation.prev_digest(),
-            attestor_id: attestation.attestor.clone(),
-            height,
-        };
-
-        self.cc3
-            .note_attestation_production((info.digest, info.height))
-            .expect("Infallible");
-
-        tracing::info!(
-            digest = %info.digest,
-            digest_prev = ?info.digest_prev,
-            height = info.height,
-            attestor_id = %info.attestor_id,
-            "📡 Generated attestation"
-        );
-
-        Ok((attestation, info))
-    }
-
-    fn update_metrics(&mut self, elapsed: std::time::Duration, info: &AttestationInfo) {
-        let attestation_latest_cc3 = self
-            .attestation_latest_cc3
-            .map(|(_digest, height)| height)
-            .unwrap_or(self.start_height);
-
-        self.metrics.update_attestation_delay_production(elapsed);
-
-        self.metrics.set_attestation_local(info.height);
-
-        self.metrics.update_attestation_lag_eth(
-            info.height,
-            self.eth.block_latest(),
-            self.attestation_interval,
-        );
-        self.metrics.update_attestation_lag_cc3(
-            info.height,
-            attestation_latest_cc3,
-            self.attestation_interval,
-        );
-    }
-
-    #[tracing::instrument(
-        skip_all,
-        fields(height = info.height, digest = %info.digest),
-        level = "debug"
-    )]
-    fn store_attestation(
-        &mut self,
-        attestation: common::types::Attestation,
-        info: &AttestationInfo,
-    ) {
-        tracing::debug!("Storing attestation");
-
-        // From the tokio docs:
-        //
-        // > A send operation can only fail if there are no active receivers, implying that the
-        // > message could never be received.
-        //
-        // This can happen during shutdown and does not represent a failing case!
-        _ = self.sender_p2p.send(attestation.clone());
-
-        tracing::info!(
-            digest = %info.digest,
-            height = info.height,
-            attestor_id = %info.attestor_id,
-            "🗳️ Sending local attestation over for validation"
-        );
-
-        assert!(
-            self.attestations
-                .insert(info.height, attestation.clone())
-                .is_none(),
-            "Invariant violated: regenerating existing attestation"
-        );
-
-        if let Err(err) = self.sender_validation.send(attestation).transpose() {
-            err.log_error(info.digest);
-        }
     }
 }

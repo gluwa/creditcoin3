@@ -42,6 +42,12 @@ pub enum AttestorStatus {
     Waiting,
 }
 
+impl AttestorStatus {
+    pub fn is_active(&self) -> bool {
+        matches!(self, Self::Active)
+    }
+}
+
 #[derive(Encode, Decode, Default, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
 /// Genesis configuration for attestation pallet
 pub struct AttestationChainConfiguration {
@@ -177,7 +183,6 @@ pub struct Attestation<H, AccountId> {
     pub signature: sp_core::sr25519::Signature,
     pub signature_bls: <Bls as CryptoScheme>::Signature,
     pub continuity_proof: AttestationFragmentSerializable,
-    pub epoch: u64,
 }
 
 impl<H, AccountId> Attestation<H, AccountId>

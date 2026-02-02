@@ -13,9 +13,16 @@ pub type SubxtBlockStream = subxt::backend::StreamOf<std::result::Result<SubxtBl
 
 pub type Attestation =
     attestor_primitives::Attestation<attestor_primitives::Digest, attestor_primitives::AttestorId>;
+pub type AttestationData = attestor_primitives::AttestationData<attestor_primitives::Digest>;
 pub type AttestationSigned = attestor_primitives::SignedAttestation<
     attestor_primitives::Digest,
     attestor_primitives::AttestorId,
 >;
+
+#[derive(Clone, Copy, Debug)]
+pub struct AttestationInfo {
+    pub digest: attestor_primitives::Digest,
+    pub height: Height,
+}
 
 pub(crate) type Metrics = std::sync::Arc<crate::worker::api::metrics::Metrics>;

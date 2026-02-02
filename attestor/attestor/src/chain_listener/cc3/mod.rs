@@ -4,7 +4,6 @@
 //! [chain listener]: crate::chain_listener
 //! [production worker]: crate::worker::production
 
-mod cache;
 mod error;
 
 use crate::prelude::*;
@@ -52,7 +51,6 @@ pub(crate) struct CC3 {
     // FETCHERS
     cc3: cc_client::Client,
     eth: eth::Client,
-    cache: cache::AttestationBlockCache,
 
     // RUNTIME
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
@@ -133,10 +131,6 @@ impl CC3 {
         Ok(Self {
             cc3,
             eth,
-            cache: cache::AttestationBlockCache::new(
-                config.attestation_interval,
-                config.checkpoint_interval,
-            ),
 
             api,
             stream,
@@ -209,7 +203,6 @@ impl CC3 {
             signature,
             signature_bls,
             continuity_proof,
-            epoch,
         }
     }
 
@@ -272,16 +265,16 @@ impl CC3 {
 
         // ----------------------------------* Continuity proof *----------------------------------
 
-        let Ok(fragment_blocks) = self
-            .cache
-            .fetch_blocks(&mut self.eth, from_digest, block_start, block_stop)
-            .await
-        else {
-            return None;
-        };
+        // let Ok(fragment_blocks) = self
+        //     .cache
+        //     .fetch_blocks(&mut self.eth, from_digest, block_start, block_stop)
+        //     .await
+        // else {
+        //     return None;
+        // };
 
         let fragment = attestor_primitives::attestation_fragment::AttestationFragmentSerializable {
-            blocks: fragment_blocks,
+            blocks: todo!(),
         };
 
         Some(Ok(fragment))
@@ -344,95 +337,6 @@ impl CC3Events {
         Ok(iter)
     }
 }
-
-impl crate::events::EventAttestationProductionAsync for CC3 {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_production_async(
-        &mut self,
-        attestation_latest_eth: (attestor_primitives::Digest, common::types::Height),
-    ) -> Result<(), Self::Error> {
-        use crate::events::EventAttestationProduction as _;
-
-        self.cache
-            .note_attestation_production(attestation_latest_eth)
-            .expect("Infallible");
-
-        Ok(())
-    }
-}
-impl crate::events::EventAttestationProduction for CC3 {}
-
-impl crate::events::EventAttestationFinalizationAsync for CC3 {
-    type Error = std::convert::Infallible;
-
-    #[tracing::instrument(
-        skip_all,
-        fields(digest = %attestation_latest_cc3.0, height = attestation_latest_cc3.1),
-        level = "debug"
-    )]
-    async fn note_attestation_finalization_async(
-        &mut self,
-        attestation_latest_cc3: (attestor_primitives::Digest, common::types::Height),
-    ) -> Result<(), Self::Error> {
-        use crate::events::EventAttestationFinalization as _;
-
-        self.cache
-            .note_attestation_finalization(attestation_latest_cc3)
-            .expect("Infallible");
-
-        Ok(())
-    }
-}
-impl crate::events::EventAttestationFinalization for CC3 {}
-
-impl crate::events::EventAttestationIntervalChangeAsync for CC3 {
-    type Error = std::convert::Infallible;
-
-    #[tracing::instrument(
-        skip_all,
-        fields(interval = interval_new.get(), latest = ?attestation_latest_cc3),
-        level = "debug"
-    )]
-    async fn note_attestation_interval_change_async(
-        &mut self,
-        interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: Option<common::types::Height>,
-    ) -> Result<(), Self::Error> {
-        use crate::events::EventAttestationIntervalChange as _;
-
-        self.cache
-            .note_attestation_interval_change(interval_new, attestation_latest_cc3)
-            .expect("Infallible");
-
-        Ok(())
-    }
-}
-impl crate::events::EventAttestationIntervalChange for CC3 {}
-
-impl crate::events::EventCheckpointIntervalChangeAsync for CC3 {
-    type Error = std::convert::Infallible;
-
-    #[tracing::instrument(
-        skip_all,
-        fields(interval = interval_new.get(), latest = ?attestation_latest_cc3),
-        level = "debug"
-    )]
-    async fn note_checkpoint_interval_change_async(
-        &mut self,
-        interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: Option<common::types::Height>,
-    ) -> Result<(), Self::Error> {
-        use crate::events::EventCheckpointIntervalChange as _;
-
-        self.cache
-            .note_checkpoint_interval_change(interval_new, attestation_latest_cc3)
-            .expect("Infallible");
-
-        Ok(())
-    }
-}
-impl crate::events::EventCheckpointIntervalChange for CC3 {}
 
 // ----------------------------------------- [ HELPERS ] --------------------------------------- //
 

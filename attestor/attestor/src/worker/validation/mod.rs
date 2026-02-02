@@ -178,11 +178,7 @@ impl super::Worker for WorkerAttestationValidation {
 impl WorkerAttestationValidation {
     async fn handle_event_quorum(
         &mut self,
-        quorum: Option<(
-            pool::Quorum,
-            pool::AttestationPermit,
-            Option<cc_client::H256>,
-        )>,
+        quorum: Option<(pool::Quorum, pool::Permit, Option<cc_client::H256>)>,
     ) -> Result<(), Error> {
         // ---------------------------------* Handle pool closure *--------------------------------
 
