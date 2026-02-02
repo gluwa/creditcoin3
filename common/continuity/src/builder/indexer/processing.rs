@@ -117,11 +117,7 @@ impl ContinuityBuilder {
 
         Ok(CheckpointInfo {
             needs_checkpoint_proof: upper_is_checkpoint,
-            upper_checkpoint: if upper_is_checkpoint {
-                Some(upper_attestation.block_number)
-            } else {
-                None
-            },
+            upper_checkpoint: upper_is_checkpoint.then_some(upper_attestation.block_number),
         })
     }
 
