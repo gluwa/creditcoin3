@@ -3,7 +3,12 @@ import { WebSocketProvider, ethers } from 'ethers';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
-import { chain_Anvil2_Key } from '../pallets/supported-chains/consts';
+import {
+    chain_Anvil2_Key,
+    chain_Anvil2_Id,
+    chain_Anvil2_Name_Hex,
+    encoding_version_1,
+} from '../pallets/supported-chains/consts';
 import { chainInfoAddress } from './consts';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -55,16 +60,48 @@ describe('Precompile: ChainInfo', (): void => {
         expect(supportedChains).toBeDefined();
         expect(Array.isArray(supportedChains)).toBe(true);
 
+        // We check that each chain info entry has the expected tuple elements
+        for (const chainInfo of supportedChains) {
+            expect(Array.isArray(chainInfo)).toBe(true);
+            expect(chainInfo.length).toBe(4);
+
+            expect(typeof chainInfo[0]).toBe('bigint'); // Chain Key
+            expect(typeof chainInfo[1]).toBe('bigint'); // Chain Id
+            expect(typeof chainInfo[2]).toBe('string'); // Chain Name
+            expect(typeof chainInfo[3]).toBe('bigint'); // Chain Encoding
+        }
+
         // We expect 6 supported chains as per the current genesis configuration
         expect(supportedChains.length).toEqual(6);
     });
 
     test('get_chain_by_key should return correct chain info', async () => {
         // Check with supported chain key
-        const supportedChain = await contract.get_chain_by_key(supportedChainKey, { gasPrice, gasLimit });
-        expect(supportedChain).toBeDefined();
-        // We expect the chain to exist
-        expect(supportedChain.exists).toEqual(true);
+        const supportedChainResult = await contract.get_chain_by_key(supportedChainKey, { gasPrice, gasLimit });
+
+        // We should get a two element tuple
+        expect(supportedChainResult).toBeDefined();
+        expect(Array.isArray(supportedChainResult)).toBe(true);
+        expect(supportedChainResult.length).toBe(2);
+
+        // First element is the 'chain' attribute, which is a tuple of 4 elements
+        expect(typeof supportedChainResult[0]).toBe('object');
+        expect(Array.isArray(supportedChainResult[0])).toBe(true); // chain property
+        expect(typeof supportedChainResult[1]).toBe('boolean'); // exists property
+        expect(supportedChainResult[1]).toEqual(true); // exists should be true for supported chain
+
+        const chainTuple = supportedChainResult[0];
+        expect(chainTuple.length).toBe(4);
+
+        // Validate each element of the chain tuple
+        expect(typeof chainTuple[0]).toBe('bigint'); // Chain Key
+        expect(chainTuple[0]).toEqual(BigInt(supportedChainKey));
+        expect(typeof chainTuple[1]).toBe('bigint'); // Chain Id
+        expect(chainTuple[1]).toEqual(BigInt(chain_Anvil2_Id));
+        expect(typeof chainTuple[2]).toBe('string'); // Chain Name
+        expect(chainTuple[2]).toEqual(chain_Anvil2_Name_Hex); // 'Anvil2' in hex
+        expect(typeof chainTuple[3]).toBe('bigint'); // Chain Encoding
+        expect(chainTuple[3]).toEqual(BigInt(encoding_version_1));
 
         // Check with non supported chain key
         const unknownChain = await contract.get_chain_by_key(unknownChainKey, { gasPrice, gasLimit });

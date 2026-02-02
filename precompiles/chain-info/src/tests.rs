@@ -11,7 +11,7 @@ use attestor_primitives::{
     AttestationCheckpoint, AttestationData, SignedAttestation,
 };
 use pallet_attestation_poc::{Attestations, LastCheckpoint, LastDigest};
-use precompile_utils::testing::*;
+use precompile_utils::{prelude::UnboundedBytes, testing::*};
 
 use sp_core::{H160, H256};
 
@@ -46,7 +46,7 @@ fn get_supported_chains_works() {
     let expected_result = vec![ChainInfo {
         chain_key: SUPPORTED_CHAIN_KEY,
         chain_id: SUPPORTED_CHAIN_ID,
-        chain_name: SUPPORTED_CHAIN_NAME.to_vec(),
+        chain_name: UnboundedBytes::from(SUPPORTED_CHAIN_NAME),
         chain_encoding: SUPPORTED_CHAIN_ENCODING as u8,
     }];
 
@@ -68,7 +68,7 @@ fn get_chain_by_key_works() {
         chain: ChainInfo {
             chain_key: SUPPORTED_CHAIN_KEY,
             chain_id: SUPPORTED_CHAIN_ID,
-            chain_name: SUPPORTED_CHAIN_NAME.to_vec(),
+            chain_name: UnboundedBytes::from(SUPPORTED_CHAIN_NAME),
             chain_encoding: SUPPORTED_CHAIN_ENCODING as u8,
         },
         exists: true,

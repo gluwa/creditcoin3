@@ -6,7 +6,6 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use log::debug;
 use sp_core::{Encode, H256};
 use sp_std::vec::Vec;
 
@@ -39,7 +38,7 @@ const BUCKET_SEARCH_ATTEMPTS: u32 = 5; // Number of attempts to search through c
 pub struct ChainInfo {
     pub chain_key: ChainKey,
     pub chain_id: ChainId,
-    pub chain_name: Vec<u8>,
+    pub chain_name: UnboundedBytes,
     pub chain_encoding: u8,
 }
 
@@ -100,11 +99,10 @@ where
         SupportedChains::<Runtime>::iter()
             .map(|(chain_key, sc)| {
                 handle.record_db_read::<Runtime>(sc.encoded_size())?;
-
                 let chain = ChainInfo {
                     chain_key,
                     chain_id: sc.chain_id,
-                    chain_name: sc.chain_name,
+                    chain_name: UnboundedBytes::from(sc.chain_name),
                     chain_encoding: sc.chain_encoding as u8,
                 };
 
@@ -121,13 +119,10 @@ where
     ) -> EvmResult<ChainInfoResult> {
         if let Some(sc) = SupportedChains::<Runtime>::get(chain_key) {
             handle.record_db_read::<Runtime>(sc.encoded_size())?;
-
-            debug!("Chain details fetched: {sc:?}");
-
             let chain = ChainInfo {
                 chain_key,
                 chain_id: sc.chain_id,
-                chain_name: sc.chain_name,
+                chain_name: UnboundedBytes::from(sc.chain_name),
                 chain_encoding: sc.chain_encoding as u8,
             };
 
