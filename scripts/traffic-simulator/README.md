@@ -50,8 +50,6 @@ deno task start -- \
 | `--single-every`      | Submit a single proof once every N blocks | `1`                     |
 | `--health-port`       | Health check port                         | `8080`                  |
 | `--verbose`           | Enable verbose debug logging              | `false`                 |
-| `--slack-webhook`     | Slack webhook URL for hourly reports      | -                       |
-| `--slack-alert-group` | Slack user/group ID for alerts            | -                       |
 
 ### Environment Variables
 
@@ -68,8 +66,6 @@ deno task start -- \
 | `SINGLE_EVERY_BLOCKS` | Submit a single proof once every N blocks | `1`                     |
 | `LOG_VERBOSE`         | Enable verbose debug logging              | `false`                 |
 | `HEALTH_PORT`         | Health check port                         | `8080`                  |
-| `SLACK_WEBHOOK_URL`   | Slack webhook URL for hourly reports      | -                       |
-| `SLACK_ALERT_GROUP`   | Slack user/group ID for alerts            | -                       |
 
 Single submissions pick one random transaction once every `SINGLE_EVERY_BLOCKS`.
 Batch submissions pick one random transaction per block and group
@@ -120,28 +116,15 @@ kubectl apply -f k8s/deployment.yaml
 
 ## Slack Notifications
 
-The traffic simulator supports hourly Slack reports with metrics on
-successful/failed proofs. There are two ways to enable Slack notifications:
-
-The simulator will automatically send hourly reports every hour with:
-
-- Successful/failed proof counts
-- Submission breakdown (single vs batch)
-- Blocks processed
-- Connection status
-- Success rate
-- Any errors encountered
-
-### Kubernetes CronJob
-
-For production deployments, use a separate Kubernetes CronJob that queries the
-simulator's metrics endpoint. This approach:
+Slack reporting is handled by a separate Kubernetes CronJob that queries the
+simulator's `/status` endpoint and sends periodic reports. This approach:
 
 - Separates concerns (simulator vs monitoring)
-- Allows independent scaling
-- Works better with multiple simulator instances
+- Allows independent scaling and scheduling
+- Works with multiple simulator instances
+- Persists metric snapshots across pod restarts
 
-#### Setup Steps
+### Setup Steps
 
 1. **Create Slack Webhook**:
    - Go to https://api.slack.com/apps
@@ -180,7 +163,7 @@ simulator's metrics endpoint. This approach:
    kubectl logs -l app=traffic-simulator-reporter --tail=50
    ```
 
-#### CronJob Configuration
+### CronJob Configuration
 
 The CronJob runs every hour at minute 0 (e.g., 1:00, 2:00, 3:00). To change the
 schedule, edit the `schedule` field in the manifest:
@@ -192,7 +175,7 @@ spec:
   # schedule: "0 9-17 * * *"  # Every hour during business hours
 ```
 
-#### Report Format
+### Report Format
 
 Hourly reports include:
 
@@ -207,7 +190,7 @@ Hourly reports include:
 Reports automatically mention the configured alert group if there are proof
 errors.
 
-#### Troubleshooting
+### Troubleshooting
 
 - **No reports received**: Check CronJob logs and ensure webhook URL is correct
 - **Missing metrics**: Ensure simulator service is accessible from CronJob pod

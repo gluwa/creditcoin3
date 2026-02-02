@@ -51,12 +51,6 @@ export interface SimulatorConfig {
   // Server
   /** Port for health check server */
   healthPort: number;
-
-  // Slack notifications (optional)
-  /** Slack webhook URL for hourly reports (optional) */
-  slackWebhookUrl?: string;
-  /** Slack user/group ID to mention in alerts (optional, e.g., "U123456" or "S123456") */
-  slackAlertGroup?: string;
 }
 
 /**
