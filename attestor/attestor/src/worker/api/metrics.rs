@@ -100,7 +100,7 @@ pub struct Metrics {
     /// [`update_attestation_lag_eth`]: Self::update_attestation_lag_eth
     /// [`update_attestation_lag_cc3`]: Self::update_attestation_lag_cc3
     pub metrics_lag: prometheus_client::metrics::family::Family<
-        labels::LabelAttestationChain,
+        labels::LabelAttestationLag,
         prometheus_client::metrics::gauge::Gauge,
     >,
 
@@ -386,8 +386,8 @@ impl Metrics {
         let lag_eth = attestation_local.saturating_sub(attestation_latest_eth) / interval;
 
         self.metrics_lag
-            .get_or_create(&labels::LabelAttestationChain {
-                chain: labels::AttestationChain::Eth,
+            .get_or_create(&labels::LabelAttestationLag {
+                source: labels::AttestationLagSource::Eth,
             })
             .set(lag_eth);
     }
@@ -406,8 +406,8 @@ impl Metrics {
         let lag_cc3 = attestation_local.saturating_sub(attestation_latest_cc3) / interval;
 
         self.metrics_lag
-            .get_or_create(&labels::LabelAttestationChain {
-                chain: labels::AttestationChain::CC3,
+            .get_or_create(&labels::LabelAttestationLag {
+                source: labels::AttestationLagSource::CC3,
             })
             .inner()
             .set(lag_cc3);
@@ -517,14 +517,14 @@ mod labels {
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelValue)]
-    pub enum AttestationChain {
+    pub enum AttestationLagSource {
         Eth,
         CC3,
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
-    pub struct LabelAttestationChain {
-        pub chain: AttestationChain,
+    pub struct LabelAttestationLag {
+        pub source: AttestationLagSource,
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelValue)]
