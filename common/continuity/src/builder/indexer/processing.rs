@@ -26,7 +26,7 @@ impl ContinuityBuilder {
         upper_attestation: &AttestationWithProof,
     ) -> ContinuityResult<(Vec<Block>, Option<H256>)> {
         let checkpoint_info = self
-            .determine_checkpoint_info(min_query, lower_attestation, upper_attestation)
+            .determine_checkpoint_info(min_query, upper_attestation)
             .await?;
 
         let mut combined_blocks = self
@@ -84,7 +84,6 @@ impl ContinuityBuilder {
     async fn determine_checkpoint_info(
         &self,
         min_query: u64,
-        _lower_attestation: &AttestationWithProof,
         upper_attestation: &AttestationWithProof,
     ) -> ContinuityResult<CheckpointInfo> {
         let last_checkpoint_block = *self.last_checkpoint_block.read().await;
