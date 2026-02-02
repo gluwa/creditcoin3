@@ -103,6 +103,16 @@ async function saveSnapshot(
 }
 
 /**
+ * Calculate delta between two counter values, handling restart detection.
+ * If the delta is negative (counter reset due to pod restart), use the
+ * current value as the delta since it represents activity since restart.
+ */
+function calculateDelta(previous: number, current: number): number {
+  const delta = current - previous;
+  return delta < 0 ? current : delta;
+}
+
+/**
  * Calculate hourly report from two snapshots
  */
 function calculateReport(
@@ -117,25 +127,25 @@ function calculateReport(
     startMetrics,
     endMetrics,
     delta: {
-      proofsSubmitted: Math.max(
-        0,
-        endMetrics.proofsSubmitted - startMetrics.proofsSubmitted,
+      proofsSubmitted: calculateDelta(
+        startMetrics.proofsSubmitted,
+        endMetrics.proofsSubmitted,
       ),
-      proofErrors: Math.max(
-        0,
-        endMetrics.proofErrors - startMetrics.proofErrors,
+      proofErrors: calculateDelta(
+        startMetrics.proofErrors,
+        endMetrics.proofErrors,
       ),
-      blocksProcessed: Math.max(
-        0,
-        endMetrics.blocksProcessed - startMetrics.blocksProcessed,
+      blocksProcessed: calculateDelta(
+        startMetrics.blocksProcessed,
+        endMetrics.blocksProcessed,
       ),
-      singleSubmissions: Math.max(
-        0,
-        endMetrics.singleSubmissions - startMetrics.singleSubmissions,
+      singleSubmissions: calculateDelta(
+        startMetrics.singleSubmissions,
+        endMetrics.singleSubmissions,
       ),
-      batchSubmissions: Math.max(
-        0,
-        endMetrics.batchSubmissions - startMetrics.batchSubmissions,
+      batchSubmissions: calculateDelta(
+        startMetrics.batchSubmissions,
+        endMetrics.batchSubmissions,
       ),
     },
   };
