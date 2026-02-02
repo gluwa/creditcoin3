@@ -30,6 +30,10 @@ export interface MetricsSnapshot {
   sepoliaConnected: boolean;
   /** Whether connected to CC3 */
   cc3Connected: boolean;
+  /** Source chain key (e.g., 1 for Sepolia) */
+  sourceChainKey: number;
+  /** CC3 WebSocket URL */
+  cc3WsUrl: string;
   /** Uptime in seconds */
   uptimeSeconds: number;
   /** Last error message if any */
@@ -65,6 +69,34 @@ function formatSlackMention(id: string): string {
     return `<!subteam^${id}>`;
   }
   throw new Error(`Unexpected Slack ID format: ${id}`);
+}
+
+/**
+ * Get source chain name from chain key
+ */
+function getSourceChainName(chainKey: number): string {
+  const chainNames: Record<number, string> = {
+    1: "Sepolia",
+    2: "Ethereum Mainnet",
+  };
+  return chainNames[chainKey] ?? `Chain ${chainKey}`;
+}
+
+/**
+ * Get target network name from CC3 WebSocket URL
+ */
+function getTargetNetworkName(cc3WsUrl: string): string {
+  const url = cc3WsUrl.toLowerCase();
+  if (url.includes("devnet") || url.includes("dev")) {
+    return "USC Devnet";
+  } else if (url.includes("testnet") || url.includes("test")) {
+    return "USC Testnet";
+  } else if (url.includes("mainnet") || url.includes("main")) {
+    return "Creditcoin Mainnet";
+  } else if (url.includes("localhost") || url.includes("127.0.0.1")) {
+    return "Local";
+  }
+  return "Creditcoin";
 }
 
 /**
@@ -114,7 +146,7 @@ function formatPeriodLabel(hours: number): string {
 }
 
 /**
- * Create Slack payload for hourly report
+ * Create Slack payload for hourly report using Block Kit
  */
 export function createHourlyReportPayload(
   report: HourlyReport,
@@ -136,55 +168,162 @@ export function createHourlyReportPayload(
     ? (delta.proofsSubmitted / periodHours).toFixed(1)
     : "0";
 
-  const periodStartStr = new Date(periodStart).toISOString();
-  const periodEndStr = new Date(periodEnd).toISOString();
+  const periodStartStr = new Date(periodStart).toISOString().replace("T", " ")
+    .slice(0, 19);
+  const periodEndStr = new Date(periodEnd).toISOString().replace("T", " ")
+    .slice(0, 19);
 
-  const statusEmoji = endMetrics.sepoliaConnected && endMetrics.cc3Connected
-    ? "✅"
-    : "⚠️";
-
-  const errorEmoji = delta.proofErrors > 0 ? "❌" : "✅";
+  const allConnected = endMetrics.sepoliaConnected && endMetrics.cc3Connected;
+  const hasErrors = delta.proofErrors > 0;
 
   const periodLabel = formatPeriodLabel(periodHours);
-  let text = `📊 *Traffic Simulator ${periodLabel} Report*\n\n`;
-  text += `*Period:* ${periodStartStr} → ${periodEndStr}\n`;
-  text += `*Duration:* ${periodHours.toFixed(2)} hours\n\n`;
+  const sourceChain = getSourceChainName(endMetrics.sourceChainKey);
+  const targetNetwork = getTargetNetworkName(endMetrics.cc3WsUrl);
 
-  text += `*Connection Status:* ${statusEmoji}\n`;
-  text += `  • Sepolia: ${
-    endMetrics.sepoliaConnected ? "✅ Connected" : "❌ Disconnected"
-  }\n`;
-  text += `  • CC3: ${
-    endMetrics.cc3Connected ? "✅ Connected" : "❌ Disconnected"
-  }\n\n`;
+  // Header emoji based on status
+  const headerEmoji = hasErrors ? "🚨" : allConnected ? "📊" : "⚠️";
 
-  text += `*Proof Submissions:*\n`;
-  text += `  • Successful: ${
-    formatNumber(delta.proofsSubmitted)
-  } (${proofsPerHour}/hr)\n`;
-  text += `  • Failed: ${errorEmoji} ${formatNumber(delta.proofErrors)}\n`;
-  text += `  • Success Rate: ${successRate}%\n\n`;
+  // Build blocks array
+  const blocks: unknown[] = [
+    // Header
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: `${headerEmoji} Traffic Simulator ${periodLabel} Report`,
+        emoji: true,
+      },
+    },
+    // Period info
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `🕐 *${periodStartStr}* → *${periodEndStr}* UTC  •  ${
+            periodHours.toFixed(1)
+          }h`,
+        },
+      ],
+    },
+    { type: "divider" },
+    // Chains & Connection Status
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "*🔗 Chains & Connection*",
+      },
+    },
+    {
+      type: "section",
+      fields: [
+        {
+          type: "mrkdwn",
+          text: `*Source*\n${
+            endMetrics.sepoliaConnected ? "🟢" : "🔴"
+          } ${sourceChain}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Target*\n${
+            endMetrics.cc3Connected ? "🟢" : "🔴"
+          } ${targetNetwork}`,
+        },
+      ],
+    },
+    { type: "divider" },
+    // Proof Submissions
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "*📤 Proof Submissions*",
+      },
+    },
+    {
+      type: "section",
+      fields: [
+        {
+          type: "mrkdwn",
+          text: `*Successful*\n✅ ${formatNumber(delta.proofsSubmitted)}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Failed*\n${hasErrors ? "❌" : "✅"} ${
+            formatNumber(delta.proofErrors)
+          }`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Rate*\n📈 ${proofsPerHour}/hr`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Success*\n🎯 ${successRate}%`,
+        },
+      ],
+    },
+    { type: "divider" },
+    // Breakdown & Blocks
+    {
+      type: "section",
+      fields: [
+        {
+          type: "mrkdwn",
+          text: `*📋 Breakdown*\nSingle: ${
+            formatNumber(delta.singleSubmissions)
+          }\nBatch: ${formatNumber(delta.batchSubmissions)}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*📦 Blocks*\nProcessed: ${
+            formatNumber(delta.blocksProcessed)
+          }\nQueue: ${formatNumber(endMetrics.queueSize)}`,
+        },
+      ],
+    },
+    { type: "divider" },
+    // Totals
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `📊 *Totals:* ${
+            formatNumber(endMetrics.proofsSubmitted)
+          } proofs  •  ${formatNumber(endMetrics.proofErrors)} errors  •  ${
+            formatNumber(endMetrics.blocksProcessed)
+          } blocks  •  ⏱️ ${formatUptime(endMetrics.uptimeSeconds)}`,
+        },
+      ],
+    },
+  ];
 
-  text += `*Submission Breakdown:*\n`;
-  text += `  • Single: ${formatNumber(delta.singleSubmissions)}\n`;
-  text += `  • Batch: ${formatNumber(delta.batchSubmissions)}\n\n`;
-
-  text += `*Blocks:*\n`;
-  text += `  • Processed: ${formatNumber(delta.blocksProcessed)}\n`;
-  text += `  • Queue Size: ${formatNumber(endMetrics.queueSize)}\n\n`;
-
-  text += `*Totals (since start):*\n`;
-  text += `  • Proofs Submitted: ${formatNumber(endMetrics.proofsSubmitted)}\n`;
-  text += `  • Proof Errors: ${formatNumber(endMetrics.proofErrors)}\n`;
-  text += `  • Blocks Processed: ${formatNumber(endMetrics.blocksProcessed)}\n`;
-  text += `  • Uptime: ${formatUptime(endMetrics.uptimeSeconds)}\n`;
-
+  // Add error section if there's a last error
   if (endMetrics.lastError) {
-    text += `\n*Last Error:*\n\`\`\`${endMetrics.lastError}\`\`\``;
+    blocks.push(
+      { type: "divider" },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*🚨 Last Error*\n\`\`\`${endMetrics.lastError}\`\`\``,
+        },
+      },
+    );
+  }
+
+  // Build text for notifications (fallback)
+  let text = `Traffic Simulator ${periodLabel} Report: ${
+    formatNumber(delta.proofsSubmitted)
+  } proofs submitted`;
+  if (hasErrors) {
+    text += `, ${formatNumber(delta.proofErrors)} errors`;
   }
 
   // Add alert mention if there are errors and alert group is configured
-  if (delta.proofErrors > 0 && config.alertGroup) {
+  if (hasErrors && config.alertGroup) {
     try {
       const mention = formatSlackMention(config.alertGroup);
       text = `${mention} ${text}`;
@@ -195,10 +334,9 @@ export function createHourlyReportPayload(
 
   return {
     username: config.username || "traffic-simulator",
-    icon_emoji: delta.proofErrors > 0
-      ? ":rotating_light:"
-      : ":chart_with_upwards_trend:",
+    icon_emoji: hasErrors ? ":rotating_light:" : ":chart_with_upwards_trend:",
     text,
+    blocks,
   };
 }
 

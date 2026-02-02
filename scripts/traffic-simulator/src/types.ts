@@ -61,6 +61,10 @@ export interface HealthStatus {
   sepoliaConnected: boolean;
   /** Whether connected to CC3 */
   cc3Connected: boolean;
+  /** Source chain key (e.g., 1 for Sepolia) */
+  sourceChainKey: number;
+  /** CC3 WebSocket URL */
+  cc3WsUrl: string;
   /** Current queue size */
   queueSize: number;
   /** Total blocks processed */

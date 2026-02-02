@@ -65,6 +65,8 @@ function getHealthStatus(): HealthStatus {
   return {
     sepoliaConnected: blockSubscriber?.isConnected ?? false,
     cc3Connected: attestationSubscriber?.isConnected ?? false,
+    sourceChainKey: config?.chainKey ?? 1, // default to sepolia
+    cc3WsUrl: config?.cc3WsUrl ?? "",
     queueSize: pendingQueue?.size ?? 0,
     blocksProcessed: metrics.blocksProcessed,
     proofsSubmitted: metrics.proofsSubmitted,

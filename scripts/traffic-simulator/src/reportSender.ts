@@ -54,6 +54,8 @@ async function fetchMetrics(
     queueSize: data.queueSize ?? 0,
     sepoliaConnected: data.sepoliaConnected ?? false,
     cc3Connected: data.cc3Connected ?? false,
+    sourceChainKey: data.sourceChainKey ?? 0,
+    cc3WsUrl: data.cc3WsUrl ?? "",
     uptimeSeconds: data.uptimeSeconds ?? 0,
     lastError: data.lastError ?? null,
   };
@@ -205,6 +207,7 @@ async function main(): Promise<void> {
         periodStart,
         now,
       );
+
       await sendHourlyReport(report, slackConfig);
       console.log("✅ Report sent to Slack");
     } else {
