@@ -64,23 +64,9 @@ pub struct ProofGenApiServer {
     #[arg(
         long,
         default_value_t = false,
-        help = "Enable Prometheus metrics endpoint"
+        help = "Enable Prometheus metrics endpoint (served at /metrics on main API server)"
     )]
     enable_prometheus_metrics: bool,
-
-    #[arg(
-        long,
-        default_value = "0.0.0.0",
-        help = "Host for Prometheus metrics endpoint"
-    )]
-    prometheus_host: String,
-
-    #[arg(
-        long,
-        default_value_t = 9100,
-        help = "Port for Prometheus metrics endpoint"
-    )]
-    prometheus_port: u16,
 }
 
 #[tokio::main]
@@ -120,8 +106,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         redis_url: args.redis_url,
         indexer_url: args.indexer_url,
         enable_prometheus_metrics: args.enable_prometheus_metrics,
-        prometheus_host: args.prometheus_host,
-        prometheus_port: args.prometheus_port,
     };
 
     let server = Server::new(config).await?;

@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::Request,
+    extract::{MatchedPath, Request},
     http::{StatusCode, Uri},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -18,8 +18,13 @@ pub async fn request_metrics_middleware(
     request: Request,
     next: Next,
 ) -> Response {
-    let uri = request.uri().clone();
-    let endpoint = extract_endpoint_from_path(&uri);
+    // Use MatchedPath if available (more reliable), otherwise fall back to parsing URI
+    let endpoint = if let Some(matched_path) = request.extensions().get::<MatchedPath>() {
+        extract_endpoint_from_matched_path(matched_path.as_str())
+    } else {
+        // Fallback for cases where MatchedPath isn't available (e.g., nested routers)
+        extract_endpoint_from_path(request.uri())
+    };
 
     // Record request size (for GET requests, this is typically small/zero)
     let request_size = request
@@ -99,21 +104,21 @@ fn parse_api_path(path: &str) -> (Option<&str>, Option<u64>, usize) {
         return (None, None, 0);
     }
 
-    let parts: Vec<&str> = path.split('/').collect();
-    // parts[0] = ""
-    // parts[1] = "api"
-    // parts[2] = "v1"
-    // parts[3] = "proof" or "proof-by-tx"
-    // parts[4] = chain_key
-    // parts[5+] = additional path segments
+    // Split path and filter out empty strings (from leading/trailing slashes)
+    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    // parts[0] = "api"
+    // parts[1] = "v1"
+    // parts[2] = "proof" or "proof-by-tx"
+    // parts[3] = chain_key
+    // parts[4+] = additional path segments
 
-    if parts.len() < 4 {
+    if parts.len() < 3 {
         return (None, None, parts.len());
     }
 
-    let endpoint_type = parts[3];
-    let chain_key = if parts.len() >= 5 {
-        parts[4].parse().ok()
+    let endpoint_type = parts[2];
+    let chain_key = if parts.len() >= 4 {
+        parts[3].parse().ok()
     } else {
         None
     };
@@ -121,7 +126,20 @@ fn parse_api_path(path: &str) -> (Option<&str>, Option<u64>, usize) {
     (Some(endpoint_type), chain_key, parts.len())
 }
 
-/// Extracts the Endpoint enum variant from a URI path.
+/// Extracts the Endpoint enum variant from a matched route pattern.
+/// This is more reliable than parsing the actual URI since it uses the route definition.
+fn extract_endpoint_from_matched_path(matched_path: &str) -> Option<Endpoint> {
+    match matched_path {
+        "/api/v1/health" | "/health/live" | "/health/ready" => Some(Endpoint::Health),
+        "/api/v1/proof/{chain_key}/{header_number}" => Some(Endpoint::Proof),
+        "/api/v1/proof/{chain_key}/{header_number}/{tx_index}" => Some(Endpoint::ProofWithTx),
+        "/api/v1/proof-by-tx/{chain_key}/{tx_hash}" => Some(Endpoint::ProofByTxHash),
+        "/metrics" => None, // Metrics endpoint doesn't need endpoint classification
+        _ => None,
+    }
+}
+
+/// Extracts the Endpoint enum variant from a URI path (fallback when MatchedPath unavailable).
 /// Returns None for paths that don't match known API endpoints.
 fn extract_endpoint_from_path(uri: &Uri) -> Option<Endpoint> {
     let path = uri.path();
@@ -131,11 +149,11 @@ fn extract_endpoint_from_path(uri: &Uri) -> Option<Endpoint> {
         Some("health") => Some(Endpoint::Health),
         Some("proof-by-tx") => Some(Endpoint::ProofByTxHash),
         Some("proof") => {
-            // parts_count includes: "", "api", "v1", "proof", "chain_key", "header_number", ["tx_index"]
-            // So: 6 parts = proof only, 7 parts = proof with tx
-            if parts_count == 6 {
+            // parts_count includes: "api", "v1", "proof", "chain_key", "header_number", ["tx_index"]
+            // So: 5 parts = proof only, 6 parts = proof with tx
+            if parts_count == 5 {
                 Some(Endpoint::Proof)
-            } else if parts_count == 7 {
+            } else if parts_count == 6 {
                 Some(Endpoint::ProofWithTx)
             } else {
                 None
@@ -223,6 +241,27 @@ mod tests {
         assert_eq!(
             extract_chain_key_from_path(&"/invalid/path".parse().unwrap()),
             None
+        );
+    }
+
+    #[test]
+    fn test_extract_endpoint_from_path_trailing_slash() {
+        // Test that trailing slashes don't cause misclassification
+        assert_eq!(
+            extract_endpoint_from_path(&"/api/v1/proof/2/100".parse().unwrap()),
+            Some(Endpoint::Proof)
+        );
+        assert_eq!(
+            extract_endpoint_from_path(&"/api/v1/proof/2/100/".parse().unwrap()),
+            Some(Endpoint::Proof) // Should still be Proof, not ProofWithTx
+        );
+        assert_eq!(
+            extract_endpoint_from_path(&"/api/v1/proof/2/100/5".parse().unwrap()),
+            Some(Endpoint::ProofWithTx)
+        );
+        assert_eq!(
+            extract_endpoint_from_path(&"/api/v1/proof/2/100/5/".parse().unwrap()),
+            Some(Endpoint::ProofWithTx) // Should still be ProofWithTx
         );
     }
 }

@@ -28,12 +28,6 @@ pub fn build_app(
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers(Any);
 
-    async fn handle_metrics(
-        Extension(metrics): Extension<Arc<ProofGenMetrics>>,
-    ) -> impl axum::response::IntoResponse {
-        handle_metrics_response(metrics).await
-    }
-
     let router = Router::new()
         .route("/api/v1/health", get(health::health_check))
         .route("/health/live", get(health::liveness_check))
@@ -54,7 +48,14 @@ pub fn build_app(
     // Add /metrics endpoint and Extension if Prometheus metrics are enabled
     let router = if let Some(ref prom_metrics) = prom_metrics {
         router
-            .route("/metrics", get(handle_metrics))
+            .route(
+                "/metrics",
+                get(
+                    |Extension(metrics): Extension<Arc<ProofGenMetrics>>| async move {
+                        handle_metrics_response(metrics).await
+                    },
+                ),
+            )
             .layer(Extension(service))
             .layer(Extension(prom_metrics.clone()))
     } else {

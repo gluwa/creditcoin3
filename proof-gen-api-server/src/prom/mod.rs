@@ -86,32 +86,35 @@ pub struct ProofGenMetrics {
     registry: Registry,
 
     // Request metrics
-    pub requests: Family<labels::LabelRequest, Counter<u64, AtomicU64>>,
-    pub request_duration: Family<labels::LabelEndpoint, Histogram>,
+    requests: Family<labels::LabelRequest, Counter<u64, AtomicU64>>,
+    request_duration: Family<labels::LabelEndpoint, Histogram>,
     /// Transfer size in bytes (request/response differentiated by direction label)
-    pub transfer_size_bytes: Family<labels::LabelTransfer, Histogram>,
+    transfer_size_bytes: Family<labels::LabelTransfer, Histogram>,
 
     // Error metrics
-    pub errors: Family<labels::LabelError, Counter<u64, AtomicU64>>,
+    errors: Family<labels::LabelError, Counter<u64, AtomicU64>>,
 
     // Proof generation metrics
-    pub proof_blocks: Histogram,
-    pub merkle_generation_duration: Histogram,
-    pub last_proof_generation_timestamp: Gauge<f64, AtomicU64>,
+    proof_blocks: Histogram,
+    merkle_generation_duration: Histogram,
+    last_proof_generation_timestamp: Gauge<f64, AtomicU64>,
 
     // Business metrics
-    pub block_range: Histogram,
+    block_range: Histogram,
     /// Server start time as Unix timestamp (seconds since epoch).
     /// Use PromQL `time() - proof_gen_start_time_seconds` to calculate uptime.
-    pub start_time_seconds: Gauge<f64, AtomicU64>,
+    /// This field is registered with Prometheus registry and accessed during encoding,
+    /// so it's not directly read in code but is used by Prometheus.
+    #[allow(dead_code)]
+    start_time_seconds: Gauge<f64, AtomicU64>,
 
     // Hardware metrics
-    pub cpu_usage_percent: Gauge<f64, AtomicU64>,
-    pub memory_usage_bytes: Gauge<f64, AtomicU64>,
-    pub thread_count: Gauge<i64, AtomicI64>,
+    cpu_usage_percent: Gauge<f64, AtomicU64>,
+    memory_usage_bytes: Gauge<f64, AtomicU64>,
+    thread_count: Gauge<i64, AtomicI64>,
 
     // Block cache metrics (for Redis block cache)
-    pub block_cache_metrics: BlockCacheMetrics,
+    block_cache_metrics: BlockCacheMetrics,
 }
 
 impl ProofGenMetrics {

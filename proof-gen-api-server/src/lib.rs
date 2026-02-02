@@ -5,7 +5,7 @@ use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
 use tracing::{error, info};
 
-use crate::prom::{handle_metrics_response, Metrics, NoopMetrics, ProofGenMetrics};
+use crate::prom::{Metrics, NoopMetrics, ProofGenMetrics};
 use cc_client::Client as CcClient;
 use config::Config;
 use continuity::ContinuityBuilder;
@@ -45,9 +45,7 @@ impl Server {
     pub async fn new(config: Config) -> Result<Self> {
         // Create metrics first (if enabled) so we can share the registry with block cache
         let prom_metrics: Option<Arc<ProofGenMetrics>> = if config.enable_prometheus_metrics {
-            let prom_host = &config.prometheus_host;
-            let prom_port = config.prometheus_port;
-            info!("📈 Prometheus metrics enabled on http://{prom_host}:{prom_port}/metrics");
+            info!("📈 Prometheus metrics enabled on main API server at /metrics");
             Some(Arc::new(ProofGenMetrics::new(config.chain_key)))
         } else {
             None
@@ -231,19 +229,6 @@ impl Server {
 
         info!("Server listening on {bind_addr}");
 
-        // Start metrics server if configured
-        if let Some(ref prom_metrics) = self.prom_metrics {
-            let metrics_clone = Arc::clone(prom_metrics);
-            let metrics_host = self.config.prometheus_host.clone();
-            let metrics_port = self.config.prometheus_port;
-            tokio::spawn(async move {
-                if let Err(e) = run_metrics_server(metrics_clone, &metrics_host, metrics_port).await
-                {
-                    error!("Metrics server failed: {e}");
-                }
-            });
-        }
-
         // Start CC3 event subscription with the configured chain key
         // Events are processed directly in the subscription loop and checkpoint interval changes are monitored
         let cc3_client_clone = self.cc3_client.clone();
@@ -329,32 +314,4 @@ pub async fn shutdown_signal() {
     }
 
     info!("Shutdown signal received");
-}
-
-/// Run the Prometheus metrics HTTP server.
-async fn run_metrics_server(metrics: Arc<ProofGenMetrics>, host: &str, port: u16) -> Result<()> {
-    use axum::{routing::get, Router};
-
-    async fn handle_metrics(
-        axum::extract::State(metrics): axum::extract::State<Arc<ProofGenMetrics>>,
-    ) -> impl axum::response::IntoResponse {
-        handle_metrics_response(metrics).await
-    }
-
-    let router = Router::new()
-        .route("/metrics", get(handle_metrics))
-        .with_state(metrics);
-
-    let addr = format!("{host}:{port}");
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .with_context(|| format!("Failed to bind metrics server to {addr}"))?;
-
-    info!("📈 Metrics server listening on http://{addr}/metrics");
-
-    axum::serve(listener, router)
-        .await
-        .context("Metrics server failed")?;
-
-    Ok(())
 }
