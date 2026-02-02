@@ -121,20 +121,22 @@ impl ContinuityBuilder {
         // We rely solely on checkpoint height lookup - default hash values indicate bugs, not checkpoints
         let bounds_are_checkpoints = lower_is_checkpoint.is_some() && upper_is_checkpoint.is_some();
 
-        // Need checkpoint proof when bounds are checkpoints (query is between checkpoints OR at checkpoint)
-        // When query is at checkpoint height, bounds finder returns previous checkpoint and query checkpoint
-        // We build the full range from previous checkpoint to query checkpoint, including all attestations
-        // When query is between checkpoints, we build from lower checkpoint to upper checkpoint
-        let needs_checkpoint_proof = bounds_are_checkpoints;
+        // Need checkpoint proof when:
+        // 1. Both bounds are checkpoints (query is between checkpoints OR at checkpoint)
+        // 2. Upper bound is a checkpoint (even if lower is an attestation) - critical to avoid pruning issues
+        //    When upper bound is a checkpoint, we must use checkpoint-spanning proof to fetch all attestations
+        //    between lower attestation and upper checkpoint, ensuring the proof ends at a checkpoint (not pruned)
+        let needs_checkpoint_proof = bounds_are_checkpoints || upper_is_checkpoint.is_some();
 
         Ok(CheckpointInfo {
             needs_checkpoint_proof,
-            upper_checkpoint: if bounds_are_checkpoints {
-                // Bounds are checkpoints - query is between checkpoints
-                // Fetch all attestations from lower checkpoint to upper checkpoint
+            upper_checkpoint: if bounds_are_checkpoints || upper_is_checkpoint.is_some() {
+                // Upper bound is a checkpoint - use checkpoint-spanning proof
+                // This ensures we fetch all attestations from lower bound to upper checkpoint
+                // and the proof ends at a checkpoint (permanent, won't be pruned)
                 Some(upper_attestation.block_number)
             } else {
-                // Query is not between checkpoints - don't end at checkpoint
+                // Upper bound is not a checkpoint - don't end at checkpoint
                 None
             },
         })

@@ -90,21 +90,19 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
             .cloned();
 
         // If query is between checkpoints (has checkpoint before and after), use checkpoint boundaries
-        if let (Some(cp_before), Some(cp_after)) = (checkpoint_before, checkpoint_after) {
+        if let (Some(ref cp_before), Some(ref cp_after)) = (&checkpoint_before, &checkpoint_after) {
             info!(
                 lower_bound = cp_before.block_number,
                 upper_bound = cp_after.block_number,
                 "Query is between checkpoints - using checkpoint boundaries"
             );
             return Ok((
-                AttestationWithProof::from_checkpoint(&cp_before),
-                AttestationWithProof::from_checkpoint(&cp_after),
+                AttestationWithProof::from_checkpoint(cp_before),
+                AttestationWithProof::from_checkpoint(cp_after),
             ));
         }
 
-        // Otherwise, use attestation boundaries (original logic)
-        // CRITICAL: Check if query is between checkpoints first
-        // If so, use checkpoint boundaries instead of attestation boundaries
+        // Find lower bound (attestation before query)
         let required_before = min_query.saturating_sub(1);
         let lower = self
             .indexer
@@ -117,7 +115,19 @@ impl<'a> BoundsFinder for IndexerBoundsFinder<'a> {
                 ))
             })?;
 
-        // Find upper bound (attestation after max_query)
+        // Find upper bound - prefer checkpoint over attestation (checkpoints are permanent, won't be pruned)
+        // This is critical: if a checkpoint exists after the query, use it instead of an attestation
+        // because attestations can be pruned after checkpoint creation
+        if let Some(ref cp_after) = checkpoint_after {
+            info!(
+                lower_bound = lower.block_number,
+                upper_bound = cp_after.block_number,
+                "Using checkpoint as upper bound (preferring checkpoint over attestation to avoid pruning issues)"
+            );
+            return Ok((lower, AttestationWithProof::from_checkpoint(cp_after)));
+        }
+
+        // No checkpoint after query - use attestation boundaries
         let upper_opt = self
             .indexer
             .find_attestation_after(self.builder.config.chain_key, max_query)
