@@ -84,7 +84,7 @@ impl ContinuityBuilder {
     async fn determine_checkpoint_info(
         &self,
         min_query: u64,
-        lower_attestation: &AttestationWithProof,
+        _lower_attestation: &AttestationWithProof,
         upper_attestation: &AttestationWithProof,
     ) -> ContinuityResult<CheckpointInfo> {
         let last_checkpoint_block = *self.last_checkpoint_block.read().await;
@@ -108,35 +108,19 @@ impl ContinuityBuilder {
                 upper_attestation.block_number,
                 checkpoints_cache.as_deref(),
             )
-            .await?;
-        let lower_is_checkpoint = self
-            .check_if_at_checkpoint_height_cached(
-                lower_attestation.block_number,
-                checkpoints_cache.as_deref(),
-            )
-            .await?;
+            .await?
+            .is_some();
 
-        // Bounds are checkpoints if both lower and upper are checkpoints
-        // This happens when query is between checkpoints and bounds finder returns checkpoint boundaries
-        // We rely solely on checkpoint height lookup - default hash values indicate bugs, not checkpoints
-        let bounds_are_checkpoints = lower_is_checkpoint.is_some() && upper_is_checkpoint.is_some();
-
-        // Need checkpoint proof when:
-        // 1. Both bounds are checkpoints (query is between checkpoints OR at checkpoint)
-        // 2. Upper bound is a checkpoint (even if lower is an attestation) - critical to avoid pruning issues
-        //    When upper bound is a checkpoint, we must use checkpoint-spanning proof to fetch all attestations
-        //    between lower attestation and upper checkpoint, ensuring the proof ends at a checkpoint (not pruned)
-        let needs_checkpoint_proof = bounds_are_checkpoints || upper_is_checkpoint.is_some();
+        // Need checkpoint proof when upper bound is a checkpoint (even if lower is an attestation)
+        // This is critical to avoid pruning issues: when upper bound is a checkpoint, we must use
+        // checkpoint-spanning proof to fetch all attestations between lower bound and upper checkpoint,
+        // ensuring the proof ends at a checkpoint (permanent, won't be pruned)
 
         Ok(CheckpointInfo {
-            needs_checkpoint_proof,
-            upper_checkpoint: if bounds_are_checkpoints || upper_is_checkpoint.is_some() {
-                // Upper bound is a checkpoint - use checkpoint-spanning proof
-                // This ensures we fetch all attestations from lower bound to upper checkpoint
-                // and the proof ends at a checkpoint (permanent, won't be pruned)
+            needs_checkpoint_proof: upper_is_checkpoint,
+            upper_checkpoint: if upper_is_checkpoint {
                 Some(upper_attestation.block_number)
             } else {
-                // Upper bound is not a checkpoint - don't end at checkpoint
                 None
             },
         })
