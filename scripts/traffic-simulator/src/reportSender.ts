@@ -54,7 +54,7 @@ async function fetchMetrics(
     queueSize: data.queueSize ?? 0,
     sepoliaConnected: data.sepoliaConnected ?? false,
     cc3Connected: data.cc3Connected ?? false,
-    sourceChainKey: data.sourceChainKey ?? 0,
+    sourceChainKey: data.sourceChainKey ?? 1, // default to sepolia
     cc3WsUrl: data.cc3WsUrl ?? "",
     uptimeSeconds: data.uptimeSeconds ?? 0,
     lastError: data.lastError ?? null,
