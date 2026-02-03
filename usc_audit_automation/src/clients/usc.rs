@@ -124,8 +124,14 @@ impl USCClient {
         let result = maybe_val
             .map(|v| -> anyhow::Result<Digest> {
                 let bytes = v.encoded();
-                // LastDigest stores (u64, Digest) tuple, extract the digest
-                let (_block_number, digest) = <(u64, Digest)>::decode(&mut &bytes[..])?;
+                let digest = if bytes.len() == 32 {
+                    // legacy: stored Digest directly
+                    Digest::decode(&mut &bytes[..])?
+                } else {
+                    // current: stored (u64, Digest)
+                    let (_block_number, digest) = <(u64, Digest)>::decode(&mut &bytes[..])?;
+                    digest
+                };
                 Ok(digest)
             })
             .transpose()?;

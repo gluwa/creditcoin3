@@ -28,7 +28,7 @@ pub(crate) async fn get_attestor_latest_attestation_data(
     let decoded_signed_attestation = usc_client
         .get_attestation_by_digest(chain_key, last_digest)
         .await?
-        .context("No attestation found for the given digest")?;
+        .context("Error fetching attestation for the given digest")?;
 
     info!("Decoded signed attestation for chain key {chain_key} {decoded_signed_attestation:?}");
     Ok(decoded_signed_attestation)
@@ -100,6 +100,30 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
                 "Failed to get chain key for supported chain {{ id: {chain_id}, name: {chain_name} }}",
             ))?;
 
+        // Try to get the last digest for the chain first. If `None` then we can abort checks early
+        // since the chain has never been actively attested to.
+        let last_digest = match usc_client.fetch_last_digest(chain_key).await {
+            Ok(Some(digest)) => digest,
+            Ok(None) => {
+                info!(
+                    "❌ No last digest found for chain key {chain_key}. Skipping sanity checks for this chain."
+                );
+                continue;
+            }
+            Err(e) => {
+                error!(
+                    "Error fetching last digest for chain key {chain_key}: {}",
+                    e
+                );
+                continue;
+            }
+        };
+
+        info!(
+            "Fetched last digest for chain key {chain_key}: 0x{:x}",
+            last_digest
+        );
+
         let genesis_block_number =
             fetch_genesis_block_dynamic(usc_client.0.api(), chain_key).await?;
         info!(
@@ -139,28 +163,6 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
 
         // Create Ethereum client
         let eth_client: EthClient = EthClient::new(&eth_rpc_url, None).await?;
-
-        let last_digest = match usc_client.fetch_last_digest(chain_key).await {
-            Ok(Some(digest)) => digest,
-            Ok(None) => {
-                error!(
-                    "❌ No last digest found for chain key {chain_key}. Skipping sanity checks for this chain."
-                );
-                continue;
-            }
-            Err(e) => {
-                error!(
-                    "Error fetching last digest for chain key {chain_key}: {}",
-                    e
-                );
-                continue;
-            }
-        };
-
-        info!(
-            "Fetched last digest for chain key {chain_key}: 0x{:x}",
-            last_digest
-        );
 
         let latest = match get_attestor_latest_attestation_data(
             &usc_client,

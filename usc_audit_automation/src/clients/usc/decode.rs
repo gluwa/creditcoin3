@@ -12,7 +12,7 @@ use subxt::dynamic::{storage, DecodedValueThunk, Value};
 use subxt::ext::scale_value::{Composite, Primitive, ValueDef};
 use subxt::utils::AccountId32;
 use subxt::{OnlineClient, PolkadotConfig};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// How the continuity_proof field was obtained.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode)]
@@ -237,12 +237,6 @@ where
                         remaining,
                         consumed
                     );
-                } else {
-                    debug!(
-                        "✅ Static decode succeeded cleanly for `{}` ({} bytes consumed)",
-                        std::any::type_name::<T>(),
-                        consumed
-                    );
                 }
 
                 return Ok(Some(decoded));
@@ -328,7 +322,7 @@ pub fn decode_signed_attestation_dynamic<T>(val: &Value<T>) -> Option<DecodedSig
         let attestation = match AttestationData::<H256>::decode(&mut &att_bytes[..]) {
             Ok(a) => a,
             Err(e) => {
-                warn!("Failed to decode Attestation: {:?}", e);
+                error!("Failed to decode Attestation: {:?}", e);
                 return None;
             }
         };
@@ -498,15 +492,10 @@ pub async fn fetch_genesis_block_dynamic(
     api: &OnlineClient<PolkadotConfig>,
     chain_key: u64,
 ) -> Result<Option<u64>> {
-    // SCALE encode the key, then wrap as dynamic Value
-    let key_value = Value {
-        value: ValueDef::Primitive(Primitive::U128(chain_key as u128)),
-        context: (),
-    };
     let storage_addr = storage(
         "Attestation",
         "AttestationChainGenesisBlockNumber",
-        vec![key_value],
+        vec![Value::from(chain_key)],
     );
 
     let storage_at = api.storage().at_latest().await?;
