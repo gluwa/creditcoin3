@@ -1,0 +1,72 @@
+---
+name: Creditcoin USC Audit Automation Check
+
+"on":
+  schedule:
+    - cron: "0 */12 * * *"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  setup:
+    outputs:
+      release_tag: ${{ steps.devnet-env.outputs.release_tag }}
+      artifact_name: ${{ steps.devnet-env.outputs.artifact_name }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Devnet ENV
+        id: devnet-env
+        run: |
+          # shellcheck disable=SC2129
+          RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=usc_audit_automation-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  usc-audit:
+    runs-on: ubuntu-24.04
+    needs: setup
+
+    strategy:
+      matrix:
+        # TODO: Add testnet-v1 back after releasing V1 runtime support
+        config: [devnet-v2, testnet-v2]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
+        uses: i3h/download-release-asset@v1
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          tag: ${{ needs.setup.outputs.release_tag }}
+          file: ${{ needs.setup.outputs.artifact_name }}
+          path: target/release/
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Unzip & Restore executable permissions
+        working-directory: target/release
+        run: |
+          unzip ./*.zip
+
+          chmod a+x ./usc_audit_automation
+
+          ls -l
+
+      - name: Run USC Audit Automation for ${{ matrix.config }}
+        shell: bash
+        env:
+          USC_SLACK_WEBHOOK_URL: ${{ secrets.USC_SLACK_WEBHOOK_URL }}
+          USC_SLACK_ALERT_GROUP: ${{ secrets.USC_SLACK_ALERT_GROUP }}
+          USC_ACCOUNT_MNEMONIC: ${{ secrets.USC_ACCOUNT_MNEMONIC }}
+          USC_INFURA_API_KEY: ${{ secrets.USC_INFURA_API_KEY }}
+          USC_ALCHEMY_API_KEY: ${{ secrets.USC_ALCHEMY_API_KEY }}
+        run: |
+          CONFIG_FILE="usc_audit_automation/config-${{ matrix.config }}.toml"
+          ./target/release/usc_audit_automation --config-file "$CONFIG_FILE"
