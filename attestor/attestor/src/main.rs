@@ -465,14 +465,12 @@ async fn main() -> anyhow::Result<()> {
     let config = attestor::ConfigBuilder::new()
         .with_name(args.name)
         .with_chain_key(args.chain_key)
-        .with_eth(
-            attestor::chain_listener::eth::ConfigBuilder::new().with_eth_url(args.eth_url.clone()),
-        )
-        .with_cc3(
-            attestor::chain_listener::cc3::ConfigBuilder::new()
-                .with_eth_url(args.eth_url)
-                .with_cc3_url(args.cc3_url)
-                .with_cc3_key(args.secret),
+        .with_stream(
+            attestor::stream::ConfigBuilder::new()
+                .with_url_eth(args.eth_url)
+                .with_url_cc3(args.cc3_url)
+                .with_secret(args.secret)
+                .build(),
         )
         .with_p2p(
             attestor::worker::p2p::ConfigBuilder::new()

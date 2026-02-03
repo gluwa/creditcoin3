@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum Error {
-    Attestation(super::stream::attestation::Error),
-    CC3(super::stream::cc3::Error),
+    Attestation(crate::stream::attestation::Error),
+    CC3(crate::stream::cc3::Error),
     Interrupt,
 }
 

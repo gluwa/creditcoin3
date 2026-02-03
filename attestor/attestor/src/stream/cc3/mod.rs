@@ -1,21 +1,10 @@
 use crate::prelude::*;
 
-#[derive(Debug)]
-pub enum Error {
-    SubxtError(subxt::Error),
-}
+mod error;
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::SubxtError(err) => write!(f, "{err}"),
-        }
-    }
-}
+pub use error::Error;
 
-impl std::error::Error for Error {}
-
-#[derive(attestor_macro::Builder)]
+#[derive(Debug, attestor_macro::Builder)]
 pub struct Config {
     cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,
@@ -47,17 +36,6 @@ impl StreamCC3 {
             stream,
             chain_key: config.chain_key,
         })
-    }
-
-    pub async fn next(&mut self) -> Option<Result<CC3Events, Error>> {
-        match self.next_block().await {
-            Some(Ok(block)) => Some(Ok(CC3Events {
-                block,
-                chain_key: self.chain_key,
-            })),
-            Some(Err(err)) => Some(Err(err)),
-            None => None,
-        }
     }
 
     async fn next_block(&mut self) -> Option<Result<common::types::SubxtBlock, Error>> {
@@ -108,6 +86,26 @@ impl StreamCC3 {
             }
 
             delay = (delay * 2).min(DELAY_MAX);
+        }
+    }
+}
+
+impl futures::Stream for StreamCC3 {
+    type Item = Result<CC3Events, Error>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        use std::future::Future as _;
+
+        let chain_key = self.chain_key;
+
+        let fut = std::pin::pin!(self.next_block());
+        match std::task::ready!(fut.poll(cx)) {
+            Some(Ok(block)) => std::task::Poll::Ready(Some(Ok(CC3Events { block, chain_key }))),
+            Some(Err(err)) => std::task::Poll::Ready(Some(Err(err))),
+            None => std::task::Poll::Ready(None),
         }
     }
 }

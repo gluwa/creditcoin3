@@ -1,45 +1,12 @@
 use crate::prelude::*;
 
-#[derive(Debug)]
-pub enum Error {
-    Interrupt,
-    Eth(eth::Error),
-    FetchBlock(common::types::Height),
-    FetchBlockReceipts(common::types::Height),
-    FetchBlockReceiptsMismatch(common::types::Height),
-    OrderedBlockConversion(alloy::rpc::types::ConversionError),
-}
+mod error;
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::Interrupt => todo!(),
-            Error::Eth(err) => write!(f, "{err}"),
-            Error::FetchBlock(height) => write!(
-                f,
-                "Failed to retreive source chain block at height {height}"
-            ),
-            Error::FetchBlockReceipts(height) => write!(
-                f,
-                "Failed to retreive source chain block receipts at height {height}"
-            ),
-            Error::FetchBlockReceiptsMismatch(height) => write!(
-                f,
-                "Number of fetched transactions doesn't match number of fetched receipts at height {height}"
-            ),
-            Error::OrderedBlockConversion(err) => write!(
-                f,
-                "Failed to convert transaction: {err}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
+pub use error::Error;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
-#[derive(attestor_macro::Builder)]
+#[derive(Debug, attestor_macro::Builder)]
 pub struct Config {
     cc3: cc_client::Client,
     eth: eth::Client,
@@ -54,26 +21,6 @@ pub struct Config {
 }
 
 // ----------------------------------------- [ Types ] ----------------------------------------- //
-
-type AlloyProvider = alloy::providers::fillers::FillProvider<
-    ExeFiller,
-    alloy::providers::RootProvider<alloy::network::Ethereum>,
-    alloy::network::Ethereum,
->;
-
-type ExeFiller = alloy::providers::fillers::JoinFill<
-    alloy::providers::Identity,
-    alloy::providers::fillers::JoinFill<
-        alloy::providers::fillers::GasFiller,
-        alloy::providers::fillers::JoinFill<
-            alloy::providers::fillers::BlobGasFiller,
-            alloy::providers::fillers::JoinFill<
-                alloy::providers::fillers::NonceFiller,
-                alloy::providers::fillers::ChainIdFiller,
-            >,
-        >,
-    >,
->;
 
 pub struct StreamAttestation {
     continuity: CacheContinuity,
@@ -126,7 +73,7 @@ impl StreamAttestation {
             .interval_attestation
             .saturating_mul(config.interval_checkpoint);
 
-        let mut continuity = CacheContinuity::new(
+        let continuity = CacheContinuity::new(
             checkpoint_in_blocks.try_into().unwrap(),
             config.start_height,
             config.start_digest,
@@ -289,7 +236,6 @@ impl StreamAttestation {
     }
 
     async fn next_block(&mut self) -> Option<Result<common::types::Height, Error>> {
-        use alloy::providers::Provider as _;
         use futures::stream::StreamExt as _;
 
         const MAX_ATTEMPTS: usize = 5;
@@ -342,16 +288,16 @@ impl futures::Stream for StreamAttestation {
         let interval_attestation = self.interval_attestation.get();
         let interval_checkpoint = self.interval_checkpoint.get();
 
-        let mut block_current = self.block_current - (self.block_current % interval_attestation);
-        while block_current > self.block_start {
-            self.block_current.saturating_sub(interval_attestation);
+        let block_current = self.block_current - (self.block_current % interval_attestation);
+        if block_current > self.block_start {
+            self.block_current = block_current.saturating_sub(interval_attestation);
             return std::task::Poll::Ready(Some(Ok(Permit(block_current))));
         }
 
         let checkpoint_in_blocks = interval_attestation * interval_checkpoint;
         if self.block_limit - self.block_current >= checkpoint_in_blocks {
             assert!(self.waker.is_none());
-            self.waker.insert(cx.waker().clone());
+            self.waker.replace(cx.waker().clone());
         }
 
         let mut block_next = self.block_latest;
@@ -364,7 +310,7 @@ impl futures::Stream for StreamAttestation {
             };
 
             block_next = block_n.saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
-            block_next -= (block_next % interval_attestation);
+            block_next -= block_next % interval_attestation;
         }
 
         let block_target = self
@@ -469,8 +415,6 @@ impl CacheRoots {
         block_stop: common::types::Height,
     ) -> Result<(), Error> {
         use futures::FutureExt as _;
-        use futures::TryFutureExt as _;
-        use rayon::iter::IndexedParallelIterator as _;
         use rayon::iter::IntoParallelIterator as _;
         use rayon::iter::ParallelExtend as _;
         use rayon::iter::ParallelIterator as _;
@@ -580,7 +524,7 @@ impl crate::events::EventAttestationFinalizationAsync for CacheRoots {
                 let removed_last = self
                     .cache
                     .drain(0..=index_stop)
-                    .last()
+                    .next_back()
                     .unwrap()
                     .block
                     .number();
@@ -600,7 +544,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for StreamAttestation {
     async fn note_attestation_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: common::types::Height,
+        _attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
         self.interval_attestation = interval_new;
         self.update_interval();
@@ -615,10 +559,11 @@ impl crate::events::EventCheckpointIntervalChangeAsync for StreamAttestation {
     async fn note_checkpoint_interval_change_async(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: common::types::Height,
+        _attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
         self.interval_attestation = interval_new;
         self.update_interval();
         Ok(())
     }
 }
+impl crate::events::EventCheckpointIntervalChange for StreamAttestation {}

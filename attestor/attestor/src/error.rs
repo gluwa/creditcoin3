@@ -2,9 +2,10 @@
 pub enum Error {
     JoinError(tokio::task::JoinError),
     WorkerError(Box<dyn std::error::Error + Sync + Send>),
-    Init(anyhow::Error),
-    CC3Error(cc_client::Error),
-    InitError(Box<dyn std::error::Error + Sync + Send>),
+    InitError(anyhow::Error),
+    RpcError(cc_client::Error),
+    CC3Error(crate::stream::cc3::Error),
+    AttestationError(crate::stream::attestation::Error),
     MissingAttestationInterval(attestor_primitives::ChainKey),
     MissingCheckpointInterval(attestor_primitives::ChainKey),
     MissingTargetSampleSize(attestor_primitives::ChainKey),
@@ -15,9 +16,10 @@ impl std::fmt::Display for Error {
         match self {
             Error::JoinError(err) => write!(f, "{err}"),
             Error::WorkerError(err) => write!(f, "{err}"),
-            Error::Init(err) => write!(f, "Failed to intialize: {err}"),
-            Error::CC3Error(err) => write!(f, "Error starting CC3 source chain listener: {err}"),
-            Error::InitError(err) => write!(f, "Failed to initialize attestor: {err}"),
+            Error::InitError(err) => write!(f, "Failed to intialize: {err}"),
+            Error::CC3Error(err) => write!(f, "Error polling CC3 stream: {err}"),
+            Error::AttestationError(err) => write!(f, "Error polling attestation stream: {err}"),
+            Error::RpcError(err) => write!(f, "Error calling CC3 client: {err}"),
             Error::MissingAttestationInterval(chain_key) => write!(
                 f,
                 "Failed to retrieve attestation interval for chain {chain_key}"

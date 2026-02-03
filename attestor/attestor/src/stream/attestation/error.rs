@@ -2,8 +2,8 @@ use crate::prelude::*;
 
 #[derive(Debug)]
 pub enum Error {
-    SubscriptionEnd,
-    RpcError(alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
+    Interrupt,
+    Eth(eth::Error),
     FetchBlock(common::types::Height),
     FetchBlockReceipts(common::types::Height),
     FetchBlockReceiptsMismatch(common::types::Height),
@@ -13,8 +13,8 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::SubscriptionEnd => write!(f, "Unexpected end of stream"),
-            Error::RpcError(err) => write!(f, "{err}"),
+            Error::Interrupt => todo!(),
+            Error::Eth(err) => write!(f, "{err}"),
             Error::FetchBlock(height) => write!(
                 f,
                 "Failed to retreive source chain block at height {height}"

@@ -141,6 +141,7 @@ impl Client {
     }
 
     #[tracing::instrument(skip(events))]
+    #[allow(clippy::too_many_lines)]
     pub fn extract_events(
         filter: ChainKey,
         events: &subxt::events::Events<subxt::SubstrateConfig>,
@@ -238,7 +239,9 @@ impl Client {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::CheckpointIntervalChanged(interval_new as u64)))
+                        Some(Ok(CcEvent::CheckpointIntervalChanged(u64::from(
+                            interval_new,
+                        ))))
                     }
                     (AttestorsElected::PALLET, AttestorsElected::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestorsElected>() else {

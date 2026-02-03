@@ -1,23 +1,5 @@
 use crate::prelude::*;
 
-pub trait EventAttestationProductionAsync {
-    type Error;
-
-    async fn note_attestation_production_async(
-        &mut self,
-        info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error>;
-}
-
-pub trait EventAttestationProduction: EventAttestationProductionAsync {
-    fn note_attestation_production(
-        &mut self,
-        info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
-        poll_sync_future(self.note_attestation_production_async(info))
-    }
-}
-
 pub trait EventAttestationFinalizationAsync {
     type Error;
 

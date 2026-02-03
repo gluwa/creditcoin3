@@ -1,6 +1,6 @@
 pub mod attestation;
-pub mod chain_listener;
 pub mod common;
+pub mod stream;
 pub mod worker;
 
 mod error;
@@ -13,7 +13,6 @@ pub use error::Error;
 
 pub mod prelude {
     pub use crate::common;
-    pub(crate) use crate::util;
 }
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
@@ -22,12 +21,13 @@ pub mod prelude {
 pub struct Config {
     name: String,
     chain_key: attestor_primitives::ChainKey,
-    eth: chain_listener::eth::ConfigIncomplete,
-    cc3: chain_listener::cc3::ConfigIncomplete,
+
+    stream: stream::Config,
+    attestation: attestation::Config,
+
     p2p: worker::p2p::ConfigIncomplete,
     api: worker::api::ConfigIncomplete,
     pool: worker::validation::pool::ConfigIncomplete,
-    attestation: attestation::Config,
 }
 
 // ---------------------------------------- [ Main loop ] -------------------------------------- //
@@ -44,17 +44,21 @@ impl Attestor {
 
     #[tracing::instrument(name = "attestor", skip_all)]
     pub async fn run(self) -> Result<(), Error> {
+        use anyhow::Context as _;
+        use bls_signatures::Serialize as _;
+        use futures::stream::StreamExt as _;
         use std::str::FromStr as _;
 
         // --------------------------------------* Identity *--------------------------------------
 
-        let secret_uri = subxt_signer::SecretUri::from_str(&self.config.cc3.cc3_key.to_string())
-            .expect("Failed to create secret uri");
+        let secret = self.config.stream.secret.to_string();
+        let secret_uri =
+            subxt_signer::SecretUri::from_str(&secret).expect("Failed to create secret uri");
         let keypair_cc3 = subxt_signer::sr25519::Keypair::from_uri(&secret_uri)
             .expect("Failed to create secret keypair");
         let account_id = cc_client::AccountId32(keypair_cc3.public_key().0);
 
-        let mut seed = self.config.cc3.cc3_key.to_seed_normalized("");
+        let mut seed = self.config.stream.secret.to_seed_normalized("");
         let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed[..32]).unwrap();
         let peer_id = libp2p::PeerId::from_public_key(&keypair_p2p.public());
 
@@ -66,75 +70,102 @@ impl Attestor {
 
         loop {
             tokio::select! {
-                Ok(_) = tokio_tungstenite::connect_async(&self.config.eth.eth_url) => {
+                Ok(_) = tokio_tungstenite::connect_async(&self.config.stream.url_eth) => {
                     break;
                 }
                 _ = tokio::time::sleep(common::constants::RETRY_DELAY) => {}
             }
             tracing::info!(
-                url = %self.config.eth.eth_url,
+                url = %self.config.stream.url_eth,
                 "🛜 waiting for Eth WS connection to be made available..."
             );
         }
 
         loop {
             tokio::select! {
-                Ok(_) = tokio_tungstenite::connect_async(&self.config.cc3.cc3_url) => {
+                Ok(_) = tokio_tungstenite::connect_async(&self.config.stream.url_cc3) => {
                     break;
                 }
                 _ = tokio::time::sleep(common::constants::RETRY_DELAY) => {}
             }
             tracing::info!(
-                url = %self.config.cc3.cc3_url,
+                url = %self.config.stream.url_cc3,
                 "🛜 waiting for CC3 WS connection to be made available..."
             );
         }
 
-        // ----------------------------------* Connection to CC3 *---------------------------------
-
-        let cc3_key = self.config.cc3.cc3_key.to_string();
-        let cc3_client = cc_client::Client::new(&self.config.cc3.cc3_url.to_string(), &cc3_key)
+        let client_cc3 = cc_client::Client::new(self.config.stream.url_cc3.as_ref(), &secret)
             .await
-            .map_err(Error::Init)?;
+            .map_err(Error::InitError)?;
+
+        let client_eth = eth::Client::new(self.config.stream.url_eth.as_ref(), None)
+            .await
+            .map_err(Error::InitError)?;
+
+        // ------------------------------------* Registration *------------------------------------
+
+        tracing::info!("🔑 Making sure attestor bls key is registered...");
+
+        let bls_key =
+            bls_signatures::PrivateKey::new(self.config.stream.secret.to_string().as_bytes());
+
+        let is_bls_key_regsitered = client_cc3
+            .check_attestor_key_is_registered(self.config.chain_key)
+            .await
+            .context("Failed to check attestor bls registration")
+            .map_err(Error::InitError)?;
+
+        if !is_bls_key_regsitered {
+            tracing::info!("🔑  registering attestor bls pubkey...");
+
+            let mut bls_public_key = [0; 48];
+            let bytes = &bls_key.public_key().as_bytes();
+            bls_public_key.copy_from_slice(bytes);
+
+            let mut proof_of_possession = [0; 96];
+            let bytes = &bls_key.sign(bls_public_key).as_bytes()[..96];
+            proof_of_possession.copy_from_slice(bytes);
+
+            client_cc3
+                .start_attesting(self.config.chain_key, bls_public_key, proof_of_possession)
+                .await
+                .context("Failed to register attestor bls pubkey")
+                .map_err(Error::InitError)?;
+        }
 
         // ---------------------------------* Chain configuration *--------------------------------
 
-        let epoch = cc3_client
-            .get_current_epoch()
-            .await
-            .map_err(Error::CC3Error)?;
-
-        let attestation_interval = match self.config.attestation.attestation_interval {
+        let interval_attestation = match self.config.attestation.attestation_interval {
             Some(attestation_interval) => attestation_interval,
-            None => cc3_client
+            None => client_cc3
                 .chain_attestation_interval(self.config.chain_key)
                 .await
-                .map_err(Error::CC3Error)?
+                .map_err(Error::RpcError)?
                 .map(std::num::NonZero::<common::types::Height>::new)
                 .ok_or(Error::MissingAttestationInterval(self.config.chain_key))?
                 .unwrap(),
         };
 
-        let checkpoint_interval = match self.config.attestation.checkpoint_interval {
+        let interval_checkpoint = match self.config.attestation.checkpoint_interval {
             Some(checkpoint_interval) => checkpoint_interval,
-            None => cc3_client
+            None => client_cc3
                 .chain_checkpoint_interval(self.config.chain_key)
                 .await
-                .map_err(Error::CC3Error)?
+                .map_err(Error::RpcError)?
                 .map(std::num::NonZero::<common::types::Height>::new)
                 .ok_or(Error::MissingCheckpointInterval(self.config.chain_key))?
                 .unwrap(),
         };
 
-        let attestation_start_cc3 = match cc3_client
+        let attestation_start_cc3 = match client_cc3
             .fetch_last_digest(self.config.chain_key)
             .await
-            .map_err(|err| Error::InitError(Box::new(err)))?
+            .map_err(Error::RpcError)?
         {
-            Some(last_digest) => match cc3_client
+            Some(last_digest) => match client_cc3
                 .get_attestation_by_digest(self.config.chain_key, last_digest)
                 .await
-                .map_err(|err| Error::InitError(Box::new(err)))?
+                .map_err(Error::RpcError)?
             {
                 Some(last_attestation) => {
                     Some((last_attestation.digest(), last_attestation.header_number()))
@@ -143,53 +174,53 @@ impl Attestor {
                     unreachable!("Invalid last digest, something has gone very wrong!");
                 }
             },
-            None => cc3_client
+            None => client_cc3
                 .get_last_checkpoint(self.config.chain_key)
                 .await
-                .map_err(|err| Error::InitError(Box::new(err)))?
+                .map_err(Error::RpcError)?
                 .map(|last_checkpoint| (last_checkpoint.digest, last_checkpoint.block_number)),
         };
 
-        let attestors = cc3_client
+        let attestors = client_cc3
             .get_attestor_active_set(self.config.chain_key)
             .await
-            .map_err(|err| Error::InitError(Box::new(err)))?;
+            .map_err(Error::RpcError)?;
         let attestors = worker::validation::pool::AttestorValidatePermissioned::new(
             std::collections::HashSet::from_iter(attestors.into_iter().map(|attestor| {
                 attestor_primitives::AttestorId::new(sp_core::crypto::AccountId32::new(attestor.0))
             })),
         );
 
-        let (start_height, attestation_latest_cc3, digest_latest_cc3, empty_chain) =
+        let (start_height, start_digest, attestation_latest_cc3, empty_chain) =
             match self.config.attestation.start_height {
                 Some(start_height) => match attestation_start_cc3 {
-                    Some((digest, height)) => (start_height, height, Some(digest), false),
+                    Some((digest, height)) => (start_height, Some(digest), height, false),
                     None => {
-                        let genesis = cc3_client
+                        let genesis = client_cc3
                             .get_attestation_chain_genesis_block_number(self.config.chain_key)
                             .await
                             .unwrap_or_default();
-                        (start_height, genesis, None, true)
+                        (start_height, None, genesis, true)
                     }
                 },
                 None => match attestation_start_cc3 {
                     Some((digest, height)) => (
-                        util::next_multiple_of(attestation_interval, height),
-                        height,
+                        util::next_multiple_of(interval_attestation, height),
                         Some(digest),
+                        height,
                         false,
                     ),
                     None => {
-                        let genesis = cc3_client
+                        let genesis = client_cc3
                             .get_attestation_chain_genesis_block_number(self.config.chain_key)
                             .await
                             .unwrap_or_default();
-                        (genesis, genesis, None, true)
+                        (genesis, None, genesis, true)
                     }
                 },
             };
 
-        let target = cc3_client
+        let target = client_cc3
             .target_sample_size(self.config.chain_key)
             .await
             .map_err(|_| Error::MissingTargetSampleSize(self.config.chain_key))?;
@@ -199,43 +230,37 @@ impl Attestor {
 
         tracing::info!(quorum, "🧑‍🤝‍🧑 Retrieved target sample size");
 
-        // ----------------------------------* Chain listeners *-------------------------------- //
+        // -------------------------------------* Streams *------------------------------------- //
 
-        let config = self
-            .config
-            .cc3
-            .clone()
+        let config = stream::attestation::ConfigBuilder::new()
+            .with_cc3(client_cc3.clone())
+            .with_eth(client_eth)
+            .with_bls_key(bls_key)
+            .with_interval_attestation(interval_attestation)
+            .with_interval_checkpoint(interval_checkpoint)
             .with_chain_key(self.config.chain_key)
-            .with_cc3_client(cc3_client.clone())
-            .with_attestation_interval(attestation_interval)
-            .with_checkpoint_interval(checkpoint_interval)
-            .build();
-        let cc3_production = chain_listener::cc3::CC3::new(config)
-            .await
-            .map_err(Error::Init)?;
-
-        let config = self
-            .config
-            .cc3
-            .clone()
-            .with_chain_key(self.config.chain_key)
-            .with_cc3_client(cc3_client)
-            .with_attestation_interval(attestation_interval)
-            .with_checkpoint_interval(checkpoint_interval)
-            .build();
-        let cc3_validation = chain_listener::cc3::CC3::new(config)
-            .await
-            .map_err(Error::Init)?;
-
-        let config = self
-            .config
-            .eth
-            .with_attestation_interval(attestation_interval)
             .with_start_height(start_height)
+            .with_start_digest(start_digest)
             .build();
-        let eth = chain_listener::eth::Ethereum::new(config)
+        let mut stream_attestation = stream::attestation::StreamAttestation::new(config)
             .await
-            .map_err(Error::Init)?;
+            .map_err(Error::InitError)?;
+
+        let config = stream::cc3::ConfigBuilder::new()
+            .with_cc3(client_cc3.clone())
+            .with_chain_key(self.config.chain_key)
+            .build();
+        let mut stream_cc3_production = stream::cc3::StreamCC3::new(config)
+            .await
+            .map_err(Error::InitError)?;
+
+        let config = stream::cc3::ConfigBuilder::new()
+            .with_cc3(client_cc3.clone())
+            .with_chain_key(self.config.chain_key)
+            .build();
+        let stream_cc3_validation = stream::cc3::StreamCC3::new(config)
+            .await
+            .map_err(Error::InitError)?;
 
         // ---------------------------------------* Metrics *--------------------------------------
 
@@ -245,16 +270,16 @@ impl Attestor {
             .with_peer_id(peer_id)
             .with_chain_key(self.config.chain_key)
             .with_start_height(start_height)
-            .with_attestation_latest_eth(eth.block_latest())
+            .with_attestation_latest_eth(stream_attestation.block_highest())
             .with_attestation_latest_cc3(attestation_latest_cc3)
-            .with_attestation_interval(attestation_interval)
+            .with_attestation_interval(interval_attestation)
             .build();
         let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
 
-        // ----------------------------------* Message passing *-------------------------------- //
+        // -------------------------------------* Channels *------------------------------------ //
 
         // attestation production -> p2p sync
-        let (p2p_sender, p2p_receiver) =
+        let (sender_p2p, receiver_p2p) =
             tokio::sync::broadcast::channel(common::constants::CAPACITY_CHANNEL);
 
         // attestation production / p2p sync -> attestation validation
@@ -264,18 +289,97 @@ impl Attestor {
             .with_attestors(attestors)
             .with_quorum(quorum)
             .with_start_height(start_height)
-            .with_digest_latest_cc3(digest_latest_cc3)
-            .with_attestation_interval(attestation_interval)
+            .with_digest_latest_cc3(start_digest)
+            .with_attestation_interval(interval_attestation)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
-        let (validation_sender, validation_receiver) =
+        let (sender_validation, receiver_validation) =
             worker::validation::pool::attestation_pool(config);
 
-        // attestation production -> attestation validation
-        let (attestation_latest_sender, attestation_latest_receiver) =
-            tokio::sync::watch::channel(None);
+        // -------------------------------------* Genesis *------------------------------------- //
 
-        // -----------------------------------------* API *----------------------------------------
+        tracing::info!(
+            attestor = %account_id,
+            "⏲️ Waiting for attestor to be made eligible"
+        );
+
+        let can_attest = client_cc3
+            .get_attestor_status(self.config.chain_key)
+            .await
+            .context("Failed to retrieve attestor status")
+            .map_err(Error::InitError)?
+            .as_ref()
+            .is_some_and(attestor_primitives::AttestorStatus::is_active);
+
+        if !can_attest {
+            // FIXME: add Ctrl-C exit
+            loop {
+                let Some(block) = stream_cc3_production
+                    .next()
+                    .await
+                    .transpose()
+                    .map_err(Error::CC3Error)?
+                else {
+                    return Ok(());
+                };
+
+                for event in block.events().await.map_err(Error::CC3Error)? {
+                    let event = event.map_err(Error::CC3Error)?;
+                    if let cc_client::attestation::CcEvent::AttestorsElected(attestors) = event {
+                        if attestors.contains(&account_id) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::info!(start_height, "👶 Generating initial attestation");
+
+        let attestation = if empty_chain {
+            stream_attestation
+                .generate_attestation_genesis()
+                .await
+                .map_err(Error::AttestationError)?
+        } else {
+            let Some(permit) = stream_attestation
+                .next()
+                .await
+                .transpose()
+                .map_err(Error::AttestationError)?
+            else {
+                return Ok(());
+            };
+            stream_attestation
+                .generate_attestation(permit)
+                .await
+                .map_err(Error::AttestationError)?
+        };
+
+        let height = attestation.header_number();
+        let digest = attestation.digest();
+        let digest_prev = attestation.prev_digest();
+        let attestor_id = attestation.attestor.clone();
+
+        tracing::info!(
+            ?digest,
+            ?digest_prev,
+            height,
+            %attestor_id,
+            "📡 Generated intial attestation"
+        );
+
+        sender_p2p
+            .send(attestation.clone())
+            .context("Failed to send initial attestation over to p2p worker")
+            .map_err(Error::InitError)?;
+        sender_validation
+            .send(attestation)
+            .transpose()
+            .context("Failed to send initial attestation over for validation")
+            .map_err(Error::InitError)?;
+
+        // -------------------------------------* Workers *------------------------------------- //
 
         tracing::info!("⏳ [1/4] Starting API worker");
 
@@ -288,25 +392,21 @@ impl Attestor {
 
         let mut handle_api = Some(monitor.spawn(api));
 
-        // -------------------------------* Attestation Validation *-------------------------------
-
         tracing::info!("⏳ [2/4] Starting attestation validation worker");
 
-        let api = cc3_validation.api();
+        let api = client_cc3.api().await.map_err(Error::RpcError)?;
         let config = worker::validation::ConfigBuilder::new()
-            .with_cc3(cc3_validation)
-            .with_receiver_validation(validation_receiver)
-            .with_receiver_attestation_latest(attestation_latest_receiver)
+            .with_stream_cc3(stream_cc3_validation)
+            .with_cc3(client_cc3.clone())
+            .with_keypair(keypair_cc3)
+            .with_receiver_validation(receiver_validation)
             .with_api_calls(cc_client::Client::runtime_api())
             .with_api(api)
-            .with_keypair(keypair_cc3)
             .with_start_height(start_height)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let attestation_validation = worker::validation::WorkerAttestationValidation::new(config);
         let mut handle_validation = Some(monitor.spawn(attestation_validation));
-
-        // --------------------------------------* P2P Sync *--------------------------------------
 
         tracing::info!("⏳ [3/4] Starting P2P worker");
 
@@ -314,37 +414,61 @@ impl Attestor {
             .config
             .p2p
             .with_keypair(keypair_p2p)
-            .with_receiver_p2p(p2p_receiver)
-            .with_sender_validation(validation_sender.clone())
+            .with_receiver_p2p(receiver_p2p)
+            .with_sender_validation(sender_validation.clone())
             .with_chain_key(self.config.chain_key)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::WorkerError)?;
         let mut handle_p2p = Some(monitor.spawn(p2p));
 
-        // -------------------------------* Attestation Production *-------------------------------
-
         tracing::info!("⏳ [4/4] Starting attestation production worker");
 
-        // let config = worker::production::ConfigBuilder::new()
-        //     .with_eth(eth)
-        //     .with_cc3(cc3_production)
-        //     .with_account_id(account_id)
-        //     .with_sender_p2p(p2p_sender)
-        //     .with_sender_validation(validation_sender)
-        //     .with_sender_attestation_latest(attestation_latest_sender)
-        //     .with_attestation_start_cc3(attestation_start_cc3)
-        //     .with_attestation_interval(attestation_interval)
-        //     .with_epoch(epoch)
-        //     .with_start_height(start_height)
-        //     .with_empty_chain(empty_chain)
-        //     .with_chain_key(self.config.chain_key)
-        //     .with_metrics(metrics)
-        //     .build();
-        let attestation_production = worker::production::WorkerAttestationProduction::new(todo!())
-            .await
+        tracing::info!(
+            ?digest,
+            ?digest_prev,
+            height,
+            %attestor_id,
+            "⏲️ Waiting for intial attestation to finalize"
+        );
+
+        let attestation_latest_cc3 = 'outer: loop {
+            let Some(block) = stream_cc3_production
+                .next()
+                .await
+                .transpose()
+                .map_err(Error::CC3Error)?
+            else {
+                return Ok(());
+            };
+
+            for event in block.events().await.map_err(Error::CC3Error)? {
+                let event = event.map_err(Error::CC3Error)?;
+                if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
+                    if attestation.header_number > height {
+                        break 'outer common::types::AttestationInfo {
+                            digest: attestation.digest,
+                            height: attestation.header_number,
+                        };
+                    }
+                }
+            }
+        };
+
+        let config = worker::production::ConfigBuilder::new()
+            .with_stream_attestation(stream_attestation)
+            .with_stream_cc3(stream_cc3_production)
+            .with_sender_p2p(sender_p2p)
+            .with_sender_validation(sender_validation)
+            .with_interval_attestation(interval_attestation)
+            .with_attestation_latest_cc3(attestation_latest_cc3)
+            .with_start_height(start_height)
+            .with_account_id(account_id)
+            .with_metrics(metrics)
+            .build();
+        let production = worker::production::WorkerAttestationProduction::new(config)
             .map_err(Error::WorkerError)?;
-        let mut handle_production = Some(monitor.spawn(attestation_production));
+        let mut handle_production = Some(monitor.spawn(production));
 
         tracing::info!("✅ All services online!");
 

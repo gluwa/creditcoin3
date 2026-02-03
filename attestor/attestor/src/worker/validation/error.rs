@@ -1,7 +1,8 @@
 #[derive(Debug)]
 pub enum Error {
-    CC3Error(crate::chain_listener::cc3::Error),
-    Pool(super::pool::Error),
+    CC3Error(crate::stream::cc3::Error),
+    PoolError(super::pool::Error),
+    ClientError(cc_client::Error),
     SubxtError(subxt::Error),
     BlsError(bls_signatures::Error),
     InvalidAttestation(InvalidCause),
@@ -13,7 +14,8 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::CC3Error(err) => write!(f, "{err}"),
-            Self::Pool(err) => write!(f, "{err}"),
+            Self::PoolError(err) => write!(f, "{err}"),
+            Self::ClientError(err) => write!(f, "{err}"),
             Self::SubxtError(err) => write!(f, "{err}"),
             Self::BlsError(err) => write!(f, "{err}"),
             Self::InvalidAttestation(cause) => write!(f, "Invalid attestation: {cause}"),

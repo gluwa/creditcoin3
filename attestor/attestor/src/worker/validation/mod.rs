@@ -94,13 +94,16 @@ pub use error::*;
 
 #[derive(attestor_macro::Builder)]
 pub struct Config {
-    cc3: crate::chain_listener::cc3::CC3,
+    stream_cc3: crate::stream::cc3::StreamCC3,
+    cc3: cc_client::Client,
+    keypair: subxt_signer::sr25519::Keypair,
+
     receiver_validation: pool::AttestationPoolReceiver,
-    receiver_attestation_latest: tokio::sync::watch::Receiver<Option<common::types::Height>>,
+
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
-    keypair: subxt_signer::sr25519::Keypair,
     start_height: common::types::Height,
+
     metrics: common::types::Metrics,
 }
 
@@ -108,16 +111,13 @@ pub struct Config {
 
 pub(crate) struct WorkerAttestationValidation {
     // CHAIN LISTENERS
-    cc3: crate::chain_listener::cc3::CC3,
+    stream_cc3: crate::stream::cc3::StreamCC3,
+    cc3: cc_client::Client,
 
     // ATTESTATIONS
     keypair: subxt_signer::sr25519::Keypair,
     watch_submission: future::OptionFuture<(AttestationSubmission, common::types::Height)>,
-    attempts: usize,
-
-    // MESSAGE CHANNELS
     receiver_validation: pool::AttestationPoolReceiver,
-    receiver_attestation_latest: tokio::sync::watch::Receiver<Option<common::types::Height>>,
 
     // CHAIN DATA
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
@@ -131,14 +131,12 @@ pub(crate) struct WorkerAttestationValidation {
 impl WorkerAttestationValidation {
     pub(crate) fn new(config: Config) -> Self {
         Self {
+            stream_cc3: config.stream_cc3,
             cc3: config.cc3,
 
             keypair: config.keypair,
             watch_submission: future::OptionFuture::default(),
-            attempts: 0,
-
             receiver_validation: config.receiver_validation,
-            receiver_attestation_latest: config.receiver_attestation_latest,
 
             api_calls: config.api_calls,
             api: config.api,
@@ -222,9 +220,7 @@ impl WorkerAttestationValidation {
                     "🛫 Submitting attestation"
                 );
 
-                self.submit_attestation(attestation.into(), height)
-                    .await
-                    .transpose()?;
+                self.submit_attestation(attestation.into(), height).await?;
             }
             // CASE 2] VALID ATTESTATION - WAITING ON SUBMISSION
             //
@@ -273,6 +269,8 @@ impl WorkerAttestationValidation {
         &mut self,
         submission: (AttestationSubmission, common::types::Height),
     ) -> Result<(), Error> {
+        use futures::StreamExt as _;
+
         let (submission, height) = submission;
 
         match submission {
@@ -339,48 +337,39 @@ impl WorkerAttestationValidation {
                 // are racing for submission at the same time). To avoid stalling, we must FIRST
                 // check the latest attestation and THEN wait for updates if we are not already
                 // past finalization.
-                while (*self.receiver_attestation_latest.borrow())
-                    .is_none_or(|attestation_latest| attestation_latest < height)
-                {
+                'outer: loop {
                     tokio::select! {
-                        biased;
-
+                        Some(block) = self.stream_cc3.next() => {
+                            for event in block
+                                .map_err(Error::CC3Error)?
+                                .events()
+                                .await
+                                .map_err(Error::CC3Error)?
+                            {
+                                let event = event.map_err(Error::CC3Error)?;
+                                if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
+                                    event
+                                {
+                                    if attestation.header_number >= height {
+                                        break 'outer;
+                                    }
+                                }
+                            }
+                        }
                         _ = tokio::signal::ctrl_c() => {
-                            // WARNING: PANIC
-                            //
-                            // Any early return must reset the `watch_submission` future to
-                            // avoid double polling!
                             self.watch_submission = future::OptionFuture::default();
                             return Ok(());
                         }
-                        // WARNING: ERROR HANDLING
-                        //
-                        // From the tokio docs:
-                        //
-                        // > Returns a RecvError if the channel has been closed AND the current value is
-                        // > seen.
-                        //
-                        // This only errors if the receiving end of this channel has been dropped, which
-                        // can happen during shutdown. This is not a failure case!
-                        Ok(()) = self.receiver_attestation_latest.changed() => {}
                     }
                 }
-
-                // NOTE: EDGE CASE
-                //
-                // It is possible, but unlikely, that the submission VRF threshold computation does
-                // not select ANY attestor for submission. In this case, there is no point in
-                // re-computing the VRF threshold at the same height, as it will yield the same
-                // result. To avoid this, we keep track of the number of attempts to submit an
-                // attestation and take that into account in the VRF computation.
-                self.attempts = 0;
             }
             // CASE 2] NOT SELECTED FOR ATTESTATION SUBMISSION
-            AttestationSubmission::NotElligible(attestation) => {
+            AttestationSubmission::NotElligible => {
                 // ------------------------* Attestation finalization *----------------------------
 
-                let mut interval = tokio::time::interval(common::constants::ATTESTATION_TIMEOUT);
-                interval.tick().await;
+                let deadline = tokio::time::Instant::now()
+                    .checked_add(common::constants::ATTESTATION_TIMEOUT)
+                    .unwrap_or(tokio::time::Instant::now());
 
                 // NOTE: EDGE CASE
                 //
@@ -389,71 +378,41 @@ impl WorkerAttestationValidation {
                 // are racing for submission at the same time). To avoid stalling, we must FIRST
                 // check the latest attestation and THEN wait for updates if we are not already
                 // past finalization.
-                while (*self.receiver_attestation_latest.borrow())
-                    .is_none_or(|attestation_latest| attestation_latest < height)
-                {
+                'outer: loop {
                     tokio::select! {
-                        biased;
-
+                        Some(block) = self.stream_cc3.next() => {
+                            for event in block
+                                .map_err(Error::CC3Error)?
+                                .events()
+                                .await
+                                .map_err(Error::CC3Error)?
+                            {
+                                let event = event.map_err(Error::CC3Error)?;
+                                if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
+                                    event
+                                {
+                                    if attestation.header_number >= height {
+                                        break 'outer;
+                                    }
+                                }
+                            }
+                        }
+                        _ = tokio::time::sleep_until(deadline) => {
+                            tracing::warn!(
+                                height,
+                                "🏃 Attestation finalization timed out, assuming no leader was elected"
+                            );
+                            return Ok(());
+                        }
                         _ = tokio::signal::ctrl_c() => {
-                            // WARNING: PANIC
-                            //
-                            // Any early return must reset the `watch_submission` future to
-                            // avoid double polling!
                             self.watch_submission = future::OptionFuture::default();
                             return Ok(());
                         }
-                        _ = interval.tick() => {
-                            tracing::warn!(
-                                threshold = height,
-                                "🏃 Attestation finalization timed out, assuming no leader was elected"
-                            );
-
-                            // NOTE: EDGE CASE
-                            //
-                            // It is possible, but unlikely, that the submission VRF threshold
-                            // computation does not select ANY attestor for submission. In this
-                            // case, there is no point in re-computing the VRF threshold at the same
-                            // height, as it will yield the same result. To avoid this, we keep
-                            // track of the number of attempts to submit an attestation and take
-                            // that into account in the VRF computation.
-                            self.attempts += 1;
-                            self.submit_attestation(attestation, height).await.transpose()?;
-
-                            return Ok(());
-                        }
-                        // WARNING: ERROR HANDLING
-                        //
-                        // From the tokio docs:
-                        //
-                        // > Returns a RecvError if the channel has been closed AND the current value is
-                        // > seen.
-                        //
-                        // This only errors if the receiving end of this channel has been dropped, which
-                        // can happen during shutdown. This is not a failure case!
-                        Ok(()) = self.receiver_attestation_latest.changed() => {}
                     }
-                }
-
-                // Extra check needed because of potential timeout
-                if (*self.receiver_attestation_latest.borrow())
-                    .is_some_and(|attestation_latest| attestation_latest >= height)
-                {
-                    tracing::info!(height, "✅ Attestation submitted externally");
-
-                    // NOTE: EDGE CASE
-                    //
-                    // It is possible, but unlikely, that the submission VRF threshold computation
-                    // does not select ANY attestor for submission. In this case, there is no point
-                    // in re-computing the VRF threshold at the same height, as it will yield the
-                    // same result. To avoid this, we keep track of the number of attempts to submit
-                    // an attestation and take that into account in the VRF computation.
-                    self.attempts = 0;
                 }
             }
             AttestationSubmission::Finalized => {
                 tracing::info!(height, "✅ Attestation submitted externally");
-                self.attempts = 0;
             }
         }
 
@@ -474,9 +433,7 @@ impl WorkerAttestationValidation {
                 "🛫 Submitting pre-validated attestation"
             );
 
-            self.submit_attestation(attestation, height)
-                .await
-                .transpose()?;
+            self.submit_attestation(attestation, height).await?;
         } else {
             // CASE 2] NO ATTESTATION
             //
@@ -1007,12 +964,7 @@ impl WorkerAttestationValidation {
 
 enum AttestationSubmission {
     Elligible(Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>),
-    NotElligible(
-        cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
-            cc_client::H256,
-            cc_client::AccountId32,
-        >,
-    ),
+    NotElligible,
     Finalized,
 }
 
@@ -1024,208 +976,249 @@ impl WorkerAttestationValidation {
             cc_client::AccountId32,
         >,
         height: common::types::Height,
-    ) -> Option<Result<(), Error>> {
+    ) -> Result<(), Error> {
         use futures::FutureExt as _;
+        use futures::StreamExt as _;
 
-        match self
-            .cc3
-            .sign_vrf_submission(height + self.attempts as common::types::Height)
-            .await
-        {
-            // TODO: have the runtime validate the submission vrf
-            //
-            // Note that this will require being able to retrieve the randomness of past epochs so
-            // the runtime can use the same epoch in validating the vrf as used during generation.
-            Ok(Some(vrf)) => {
-                // -------------------------* Deterministic Rank Backoff *-------------------------
+        const MAX_ATTEMPTS: usize = 5;
+        const DELAY_BASE: u64 = 10;
+        const DELAY_MAX: u64 = 60;
 
-                // STEP 1]
-                //
-                // We stagger attestation submissions based on the election vrf to avoid multiple
-                // attestors racing the runtime for submission at the same time. We do this in an
-                // effort to save block space.
+        let mut attempt = 0;
+        let mut delay = DELAY_BASE;
 
-                let mut rank_input = Vec::with_capacity(vrf.output.len() + 8);
-                rank_input.extend_from_slice(&vrf.output);
-                rank_input.extend_from_slice(&height.to_be_bytes());
-                let rank_hash = sp_io::hashing::keccak_256(&rank_input);
+        let (randomness, epoch_index) = loop {
+            match self.cc3.fetch_babe_randomness_two_epoch_ego().await {
+                Ok(babe) => break babe,
+                Err(err) => {
+                    attempt += 1;
 
-                // Given a set S of 0..n-1 distinct elements, we pick at random 3 elements in S to
-                // form an ordered tuple. This tuple represents the ranks of each attestor during
-                // submission. We choose 3 as the size of the tuple as that is the target number of
-                // attestors for submission as per the round vrf. We call this tupple R.
-                //
-                // The number of the 3-tuples of S where the minimum element appears more than once
-                // is defined as:
-                //
-                //                              P(n) = n(3n - 1) / 2
-                //
-                // From this, we deduce the probability of the minimum element in R appearing
-                // EXACTLY once as:
-                //
-                //                        1 - P(n) = (2n - 1)(n - 1) / 2n^2
-                //
-                // This represents the probability of ONLY 1 attestor racing for submission at
-                // once, while other attestors can act as backup. Solving for 1 - P(n) > 0.8 we
-                // obtain 8, with diminishing returns beyond that point (see below).
-                const RANKS: u64 = 8;
-                let bytes = [
-                    rank_hash[0],
-                    rank_hash[1],
-                    rank_hash[2],
-                    rank_hash[3],
-                    rank_hash[4],
-                    rank_hash[5],
-                    rank_hash[6],
-                    rank_hash[7],
-                ];
-                let rank = u64::from_be_bytes(bytes) % RANKS;
+                    tracing::debug!(
+                        attempt,
+                        MAX_ATTEMPTS,
+                        height,
+                        "Failed to fetch babe randomness, retrying..."
+                    );
 
-                tracing::debug!(rank, "attestation submission race mitigation");
-
-                // Determined experimentally
-                const SUBMISSION_FINALIZATION_DELAY: u64 = 17;
-
-                // Given
-                //
-                //                m := average time to submission finalization (17s)
-                //
-                //                                 delay = rank * m
-                //
-                // This guarantees that on average the amount of time between submissions should
-                // approximate the time to finalization.
-                //
-                // Note that while 1 - P(n) grows roughly O(1 - 1/n) of the rank, the average
-                // finalization delay for any rank size grows roughly linearly. For a rank size of
-                // n, the min submission latency remains 0, while the max submission latency is
-                // defined as:
-                //
-                //                                 Δt = n(1 - P(n))
-                //
-                // Therefore, and assuming an uniform distribution between 0 and Δt (as should be
-                // guaranteed by the use of the round vrf as underlying randomness), we have an
-                // average submission latency of:
-                //
-                //                             μ = (2n - 1)(n - 1) / 4n
-                //
-                // For a rank size of 8, the average submission latency is of roughly 3.3x the
-                // average time to finalization.
-                let delay = std::time::Duration::from_secs(rank * SUBMISSION_FINALIZATION_DELAY);
-                let deadline = tokio::time::Instant::now()
-                    .checked_add(delay)
-                    .unwrap_or(tokio::time::Instant::now());
-
-                // Attestation should finalize before the deadline. If this is not the case then an
-                // attestor is most likely down.
-                loop {
-                    tokio::select! {
-                        Ok(()) = self.receiver_attestation_latest.changed() => {
-                            if self.receiver_attestation_latest.borrow()
-                                    .is_some_and(|attestation_latest| attestation_latest >= height)
-                            {
-                                self.watch_submission = Some(std::future::ready((
-                                    AttestationSubmission::Finalized, height
-                                )))
-                                .into();
-
-                                return Some(Ok(()));
-                            }
-                        }
-                        _ = tokio::time::sleep_until(deadline) => {
-                            break;
-                        }
-                        _ = tokio::signal::ctrl_c() => {
-                            self.watch_submission = future::OptionFuture::default();
-                            return None;
-                        }
+                    if attempt >= MAX_ATTEMPTS {
+                        return Err(Error::ClientError(err));
                     }
                 }
-
-                // ---------------------------------* Submission *---------------------------------
-
-                // STEP 2]
-                //
-                // If the attestation has not finalized in time, then we submit it anyway. This
-                // happens on average either if the attestor is first in line for submission or if
-                // another attestor went down.
-
-                let call = cc_client::cc3::tx()
-                    .attestation()
-                    .commit_attestation(attestation);
-
-                const MAX_ATTEMPTS: usize = 5;
-                const DELAY_BASE: u64 = 10;
-                const DELAY_MAX: u64 = 60;
-
-                let mut attempt = 0;
-                let mut delay = DELAY_BASE;
-
-                let submit = loop {
-                    match self
-                        .api
-                        .tx()
-                        .sign_and_submit_then_watch_default(&call, &self.keypair)
-                        .await
-                    {
-                        Ok(submit) => break submit,
-                        Err(err) => {
-                            attempt += 1;
-
-                            tracing::debug!(
-                                attempt,
-                                MAX_ATTEMPTS,
-                                height,
-                                "Failed to submit attestation, retrying..."
-                            );
-
-                            if attempt >= MAX_ATTEMPTS {
-                                return Some(Err(Error::SubxtError(err)));
-                            }
-                        }
-                    }
-
-                    tokio::select! {
-                        _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                        _ = tokio::signal::ctrl_c() => {
-                            self.watch_submission = future::OptionFuture::default();
-                            return None;
-                        }
-                    }
-
-                    delay = (delay * 2).min(DELAY_MAX);
-                };
-
-                // --------------------------------* Finalization *--------------------------------
-
-                // STEP 3]
-                //
-                // Once an attestation has been submitted, we wait for the runtime to validate it.
-                // Note that currently the code does not handle well the edge case of submitting
-                // invalid attestations to the runtime. This can happen either in the case of a bug
-                // in the attestor code or of a super-majority of malicious attestors, however in
-                // both cases we currently do not offer good recovery methods.
-
-                let watch = submit
-                    .wait_for_finalized_success()
-                    .map(move |res| (AttestationSubmission::Elligible(res), height));
-
-                self.watch_submission = Some(watch).into();
             }
-            Ok(None) => {
+
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
+                _ = tokio::signal::ctrl_c() => {
+                    self.watch_submission = future::OptionFuture::default();
+                    return Ok(());
+                }
+            }
+
+            delay = (delay * 2).min(DELAY_MAX);
+        };
+
+        let vrf = match self
+            .cc3
+            .sign_vrf_submission(
+                attestation.attestation.chain_key,
+                height,
+                randomness,
+                epoch_index,
+            )
+            .await
+        {
+            Ok(vrf) => vrf,
+            Err(cc_client::Error::FailedToCreateProofOfInclusion(_)) => {
                 tracing::info!(
                     height,
                     "🚦 Attestor was not selected for attestation submission"
                 );
 
                 self.watch_submission = Some(std::future::ready((
-                    AttestationSubmission::NotElligible(attestation),
+                    AttestationSubmission::NotElligible,
                     height,
                 )))
                 .into();
+
+                return Ok(());
             }
-            Err(err) => return Some(Err(Error::CC3Error(err))),
+            Err(err) => return Err(Error::ClientError(err)),
+        };
+
+        // -------------------------* Deterministic Rank Backoff *-------------------------
+
+        // STEP 1]
+        //
+        // We stagger attestation submissions based on the election vrf to avoid multiple
+        // attestors racing the runtime for submission at the same time. We do this in an
+        // effort to save block space.
+
+        let mut rank_input = Vec::with_capacity(vrf.output.len() + 8);
+        rank_input.extend_from_slice(&vrf.output);
+        rank_input.extend_from_slice(&height.to_be_bytes());
+        let rank_hash = sp_io::hashing::keccak_256(&rank_input);
+
+        // Given a set S of 0..n-1 distinct elements, we pick at random 3 elements in S to
+        // form an ordered tuple. This tuple represents the ranks of each attestor during
+        // submission. We choose 3 as the size of the tuple as that is the target number of
+        // attestors for submission as per the round vrf. We call this tupple R.
+        //
+        // The number of the 3-tuples of S where the minimum element appears more than once
+        // is defined as:
+        //
+        //                              P(n) = n(3n - 1) / 2
+        //
+        // From this, we deduce the probability of the minimum element in R appearing
+        // EXACTLY once as:
+        //
+        //                        1 - P(n) = (2n - 1)(n - 1) / 2n^2
+        //
+        // This represents the probability of ONLY 1 attestor racing for submission at
+        // once, while other attestors can act as backup. Solving for 1 - P(n) > 0.8 we
+        // obtain 8, with diminishing returns beyond that point (see below).
+        const RANKS: u64 = 8;
+        let bytes = [
+            rank_hash[0],
+            rank_hash[1],
+            rank_hash[2],
+            rank_hash[3],
+            rank_hash[4],
+            rank_hash[5],
+            rank_hash[6],
+            rank_hash[7],
+        ];
+        let rank = u64::from_be_bytes(bytes) % RANKS;
+
+        tracing::debug!(rank, "attestation submission race mitigation");
+
+        // Determined experimentally
+        const SUBMISSION_FINALIZATION_DELAY: u64 = 17;
+
+        // Given
+        //
+        //                m := average time to submission finalization (17s)
+        //
+        //                                 delay = rank * m
+        //
+        // This guarantees that on average the amount of time between submissions should
+        // approximate the time to finalization.
+        //
+        // Note that while 1 - P(n) grows roughly O(1 - 1/n) of the rank, the average
+        // finalization delay for any rank size grows roughly linearly. For a rank size of
+        // n, the min submission latency remains 0, while the max submission latency is
+        // defined as:
+        //
+        //                                 Δt = n(1 - P(n))
+        //
+        // Therefore, and assuming an uniform distribution between 0 and Δt (as should be
+        // guaranteed by the use of the round vrf as underlying randomness), we have an
+        // average submission latency of:
+        //
+        //                             μ = (2n - 1)(n - 1) / 4n
+        //
+        // For a rank size of 8, the average submission latency is of roughly 3.3x the
+        // average time to finalization.
+        let delay = std::time::Duration::from_secs(rank * SUBMISSION_FINALIZATION_DELAY);
+        let deadline = tokio::time::Instant::now()
+            .checked_add(delay)
+            .unwrap_or(tokio::time::Instant::now());
+
+        // Attestation should finalize before the deadline. If this is not the case then an
+        // attestor is most likely down.
+        loop {
+            tokio::select! {
+                Some(block) = self.stream_cc3.next() => {
+                    for event in block.map_err(Error::CC3Error)?.events().await.map_err(Error::CC3Error)? {
+                        let event = event.map_err(Error::CC3Error)?;
+
+                        if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
+                            if attestation.header_number >= height {
+                                self.watch_submission = Some(std::future::ready((
+                                    AttestationSubmission::Finalized, height
+                                )))
+                                .into();
+
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    break;
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    self.watch_submission = future::OptionFuture::default();
+                    return Ok(());
+                }
+            }
         }
 
-        Some(Ok(()))
+        // ---------------------------------* Submission *---------------------------------
+
+        // STEP 2]
+        //
+        // If the attestation has not finalized in time, then we submit it anyway. This
+        // happens on average either if the attestor is first in line for submission or if
+        // another attestor went down.
+
+        let call = cc_client::cc3::tx()
+            .attestation()
+            .commit_attestation(attestation);
+
+        let mut attempt = 0;
+        let mut delay = DELAY_BASE;
+
+        let submit = loop {
+            match self
+                .api
+                .tx()
+                .sign_and_submit_then_watch_default(&call, &self.keypair)
+                .await
+            {
+                Ok(submit) => break submit,
+                Err(err) => {
+                    attempt += 1;
+
+                    tracing::debug!(
+                        attempt,
+                        MAX_ATTEMPTS,
+                        height,
+                        "Failed to submit attestation, retrying..."
+                    );
+
+                    if attempt >= MAX_ATTEMPTS {
+                        return Err(Error::SubxtError(err));
+                    }
+                }
+            }
+
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
+                _ = tokio::signal::ctrl_c() => {
+                    self.watch_submission = future::OptionFuture::default();
+                    return Ok(());
+                }
+            }
+
+            delay = (delay * 2).min(DELAY_MAX);
+        };
+
+        // --------------------------------* Finalization *--------------------------------
+
+        // STEP 3]
+        //
+        // Once an attestation has been submitted, we wait for the runtime to validate it.
+        // Note that currently the code does not handle well the edge case of submitting
+        // invalid attestations to the runtime. This can happen either in the case of a bug
+        // in the attestor code or of a super-majority of malicious attestors, however in
+        // both cases we currently do not offer good recovery methods.
+
+        let watch = submit
+            .wait_for_finalized_success()
+            .map(move |res| (AttestationSubmission::Elligible(res), height));
+
+        self.watch_submission = Some(watch).into();
+
+        Ok(())
     }
 }

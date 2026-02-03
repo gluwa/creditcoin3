@@ -22,13 +22,12 @@ use alloy::{
     transports::{http::reqwest::Url, TransportErrorKind},
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ccnext_abi_encoding::common::EncodingVersion;
 use hex::FromHexError;
 use sp_core::H256;
 use std::str::FromStr;
 use thiserror::Error;
-use tokio::sync::mpsc::error::SendError;
 use tracing::{error, info, trace};
 use utils::block_item_traits::BlockItem;
 
@@ -241,7 +240,7 @@ pub struct Client {
 }
 
 impl Client {
-    async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
+    async fn init_rpc(url: &str) -> anyhow::Result<(Url, AlloyProvider, u64)> {
         let url = Url::parse(url)?;
         let url_scheme = url.scheme();
 
@@ -259,27 +258,24 @@ impl Client {
             }
 
             _ => {
-                return Err(anyhow::anyhow!(
-                    "Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {url_scheme}"
-                )
-                .into());
+                anyhow::bail!("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {url_scheme}");
             }
         };
 
         info!("Connecting to Ethereum node at {}", url);
 
-        let chain_id = rpc_provider.get_chain_id().await.map_err(|e| {
-            error!("Failed to get chain id: {:?}", e);
-            Error::FailedToGetChainId(e.to_string())
-        })?;
+        let chain_id = rpc_provider
+            .get_chain_id()
+            .await
+            .context("Failed to get chain_id")?;
 
-        Ok((url, rpc_provider, chain_id))
+        anyhow::Ok((url, rpc_provider, chain_id))
     }
 
-    pub async fn new(url: &str, private_key: Option<&str>) -> Result<Self, Error> {
+    pub async fn new(url: &str, private_key: Option<&str>) -> anyhow::Result<Self> {
         let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
 
-        Ok(Self {
+        anyhow::Ok(Self {
             url,
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
