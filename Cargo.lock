@@ -9641,7 +9641,6 @@ dependencies = [
  "frame-election-provider-support",
  "frame-support",
  "frame-system",
- "log",
  "pallet-attestation-poc",
  "pallet-babe",
  "pallet-balances",

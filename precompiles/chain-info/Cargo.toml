@@ -12,8 +12,6 @@ no_effect_underscore_binding = "allow"
 type_complexity = "allow"
 
 [dependencies]
-log = { workspace = true }
-
 # Moonbeam
 precompile-utils = { workspace = true }
 
@@ -57,7 +55,6 @@ supported-chains-primitives = { workspace = true }
 default = ["std"]
 runtime-benchmarks = []
 std = [
-    "log/std",
     "precompile-utils/std",
     "fp-evm/std",
     "frame-support/std",
