@@ -14,6 +14,8 @@ name: typescript-checks
       - '**yarn.lock'
       - '**deno.json'
       - '**deno.lock'
+      # controls the version of deno we test with
+      - 'scripts/traffic-simulator/Dockerfile'
       - '.github/workflows/typescript-checks.yml'
   workflow_dispatch:
 
