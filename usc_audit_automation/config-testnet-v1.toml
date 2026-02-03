@@ -3,7 +3,7 @@
 
 log_verbose = true
 usc_attestations_graphql_url = "https://attestations-graphql.usc-testnet.creditcoin.network"
-usc_network_name = "Creditcoin USC Testnet"
+usc_network_name = "Creditcoin USC Testnet V1"
 usc_rpc_url = "wss://rpc.usc-testnet.creditcoin.network"
 
 # Ethereum RPC providers (API keys loaded from USC_INFURA_API_KEY and USC_ALCHEMY_API_KEY env vars)
