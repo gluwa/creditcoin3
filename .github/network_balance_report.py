@@ -38,15 +38,26 @@ def fetch_balance(base_url, address):
 
 
 def main():
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+    if not webhook_url:
+        print("SLACK_WEBHOOK_URL is required", file=sys.stderr)
+        return 1
     networks_path = os.environ.get("NETWORKS_JSON_PATH")
     if not networks_path:
         print("NETWORKS_JSON_PATH is required", file=sys.stderr)
         return 1
-    with open(networks_path, "r", encoding="utf-8") as handle:
-        networks = json.load(handle)
-    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
-    if not webhook_url:
-        print("SLACK_WEBHOOK_URL is required", file=sys.stderr)
+    try:
+        with open(networks_path, "r", encoding="utf-8") as handle:
+            networks = json.load(handle)
+    except OSError as exc:
+        print(f"Failed to read {networks_path}: {exc}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON in {networks_path}: {exc}", file=sys.stderr)
+        return 1
+
+    if not isinstance(networks, list):
+        print("NETWORKS_JSON_PATH must contain a JSON array", file=sys.stderr)
         return 1
 
     alert_groups = [
