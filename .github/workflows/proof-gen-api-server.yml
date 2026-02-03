@@ -212,7 +212,7 @@ jobs:
           # wait for Anvil_1 attestors (chain 2)
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
 
-      - name: Start database
+      - name: Start Redis
         working-directory: proof-gen-api-server
         run: |
           docker compose pull
@@ -253,28 +253,12 @@ jobs:
         if: always()
         working-directory: proof-gen-api-server
         run: |
-          docker compose logs --no-color > /var/tmp/exercise-TransferWaitAndSubmit-js/database.log
-
-      - name: Simulate Postgres DB going down
-        working-directory: proof-gen-api-server
-        run: |
-          docker compose stop db
-
-      - name: Exercise TransferWaitAndSubmit.js
-        working-directory: scripts
-        run: |
-          # Using Anvil Account #0 on source chain & Alith on execution chain
-          node TransferWaitAndSubmit.js \
-            --source-rpc-url http://127.0.0.1:8141 \
-            --cc3-rpc-url ws://localhost:9944 \
-            --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
-            --api-url http://localhost:3100
+          docker compose logs --no-color > /var/tmp/exercise-TransferWaitAndSubmit-js/redis.log
 
       - name: Simulate Redis going down
         working-directory: proof-gen-api-server
         run: |
-          docker compose start db
-          docker compose stop redis
+          docker compose down
           sleep 30
 
       - name: Exercise TransferWaitAndSubmit.js
@@ -287,22 +271,7 @@ jobs:
             --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
             --api-url http://localhost:3100
 
-      - name: Simulate both DB & Redis going down
-        working-directory: proof-gen-api-server
-        run: |
-          docker compose down
-
-      - name: Exercise TransferWaitAndSubmit.js
-        working-directory: scripts
-        run: |
-          # Using Anvil Account #0 on source chain & Alith on execution chain
-          node TransferWaitAndSubmit.js \
-            --source-rpc-url http://127.0.0.1:8141 \
-            --cc3-rpc-url ws://localhost:9944 \
-            --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
-            --api-url http://localhost:3100
-
-      - name: Restart both DB & Redis
+      - name: Restart Redis
         working-directory: proof-gen-api-server
         run: |
           docker compose up -d
