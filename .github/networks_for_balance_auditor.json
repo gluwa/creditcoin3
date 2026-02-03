@@ -1,0 +1,26 @@
+[
+  {
+    "name": "USC Testnet 2",
+    "base_url": "https://blockscout.usc-testnet2.creditcoin.network/",
+    "accounts": [
+      {
+        "address": "0x44919C4B087B30d1afd7e58359604dE6fe986d8a",
+        "name": "Testnet v2 faucet"
+      }
+    ]
+  },
+  {
+    "name": "USC Devnet",
+    "base_url": "https://blockscout.usc-devnet.creditcoin.network/",
+    "accounts": [
+      {
+        "address": "0x053e6100c1C9A31e5c8a56156649f0972dCC815e",
+        "name": "Devnet bigbag"
+      },
+      {
+        "address": "0x465ac26CD80E6e6AADe0C2EdfF2518D03Ac4E4e5",
+        "name": "Devnet traffic sim"
+      }
+    ]
+  }
+]

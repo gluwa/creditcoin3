@@ -1,0 +1,23 @@
+name: Daily EVM balance report
+
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  balance-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # JSON array of networks with Blockscout base URLs and account lists.
+      NETWORKS_JSON_PATH: '.github/networks_for_balance_auditor.json'
+      # Comma-separated Slack user group IDs to mention on low balance.
+      SLACK_ALERT_USER_GROUP_IDS: 'S028FDV6CCV'
+    steps:
+      - uses: actions/checkout@v6
+      - name: Send balance report to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_FOR_BALANCE_AUDITOR }}
+        run: |
+          python3 .github/network_balance_report.py
