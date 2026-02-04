@@ -177,4 +177,34 @@ describe('Precompile: ChainInfo', (): void => {
         expect(bounds.childIsAttestation).toEqual(false);
         expect(bounds.isAttested).toEqual(false);
     });
+
+    test('get_attestation_height_for_digest should return data', async () => {
+        const targetHash = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
+        const heightByDigest = await contract.get_attestation_height_for_digest(supportedChainKey, targetHash, {
+            gasPrice,
+            gasLimit,
+        });
+        expect(heightByDigest).toBeDefined();
+        // We expect a 2 element tuple
+        expect(Array.isArray(heightByDigest)).toEqual(true);
+        expect(heightByDigest.length).toEqual(2);
+        // Since we have no attestations, we should get default values
+        expect(heightByDigest[0]).toEqual(0n); // height
+        expect(heightByDigest[1]).toEqual(false); // exists
+    });
+
+    test('get_checkpoint_for_height should return data', async () => {
+        const digestByHeight = await contract.get_checkpoint_for_height(supportedChainKey, targetHeight, {
+            gasPrice,
+            gasLimit,
+        });
+        expect(digestByHeight).toBeDefined();
+        // We expect a 3 element tuple
+        expect(Array.isArray(digestByHeight)).toEqual(true);
+        expect(digestByHeight.length).toEqual(3);
+        // Since we have no checkpoints, we should get default values
+        expect(digestByHeight[0]).toEqual(0n); // height
+        expect(digestByHeight[1]).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000'); // hash
+        expect(digestByHeight[2]).toEqual(false); // exists
+    });
 });

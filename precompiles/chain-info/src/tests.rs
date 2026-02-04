@@ -3,14 +3,15 @@ use crate::{
         Account::{Alice, Precompile},
         *,
     },
-    BoundsCheckResult, ChainInfo, ChainInfoResult, HeightHashResult,
+    BoundsCheckResult, ChainInfo, ChainInfoResult, HeightHashResult, HeightResult,
 };
 
 use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
     AttestationCheckpoint, AttestationData, SignedAttestation,
 };
-use pallet_attestation_poc::{Attestations, LastCheckpoint, LastDigest};
+
+use pallet_attestation_poc::{Attestations, Checkpoints, LastCheckpoint, LastDigest};
 use precompile_utils::{prelude::UnboundedBytes, testing::*};
 
 use sp_core::{H160, H256};
@@ -472,6 +473,123 @@ fn get_attestation_bounds_works() {
                     PCall::get_attestation_bounds {
                         chain_key: SUPPORTED_CHAIN_KEY,
                         target_height: dummy_height_from - 10,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn get_attestation_height_by_digest_works() {
+    let alice: H160 = Alice.into();
+
+    let expected_result = HeightResult {
+        height: 1234,
+        exists: true,
+    };
+
+    let digest = H256::from_slice(&[56_u8; 32]);
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            Attestations::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                digest,
+                create_dummy_attestation(1234),
+            );
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_attestation_height_for_digest {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        digest,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn get_attestation_height_by_digest_returns_empty_when_no_attestation_at_query_height() {
+    let alice: H160 = Alice.into();
+
+    let expected_result = HeightResult::default();
+
+    let digest = H256::from_slice(&[99_u8; 32]);
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // No attestation data in storage - should return default
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_attestation_height_for_digest {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        digest,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn get_checkpoint_by_height_works() {
+    let alice: H160 = Alice.into();
+
+    let fake_height: u64 = 2000;
+    let fake_digest = H256::from_slice(&[45_u8; 32]);
+
+    let expected_result = HeightHashResult {
+        height: fake_height,
+        exists: true,
+        hash: fake_digest,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // Inserting fake data into storage for testing
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, fake_height, fake_digest);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_checkpoint_for_height {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        height: fake_height,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn get_checkpoint_by_height_returns_default_when_no_checkpoint_at_query_height() {
+    let alice: H160 = Alice.into();
+    let fake_height: u64 = 3000;
+    let expected_result = HeightHashResult::default();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // No checkpoint data in storage - should return default
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_checkpoint_for_height {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        height: fake_height,
                     },
                 )
                 .execute_returns(expected_result);

@@ -153,4 +153,20 @@ interface ChainInfoContract {
         external
         view
         returns (BoundsCheckResult memory result);
+
+    /**
+     * @dev Get attestation height by its digest
+     * @param chainKey The chain key to query
+     * @param digest The attestation digest to look up
+     * @return result Attestation height result
+     */
+    function get_attestation_height_for_digest(uint64 chainKey, bytes32 digest) external view returns (HeightResult memory);
+
+    /**
+     * @dev Get checkpoint by its digest/hash
+     * @param chainKey The chain key to query
+     * @param height The checkpoint height to look up
+     * @return result Checkpoint height result
+     */
+    function get_checkpoint_for_height(uint64 chainKey, uint64 height) external view returns (HeightHashResult memory);
 }

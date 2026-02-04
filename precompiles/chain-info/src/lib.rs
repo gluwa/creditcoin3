@@ -502,6 +502,7 @@ where
     }
 
     #[precompile::public("get_attestation_bounds(uint64,uint64)")]
+    #[precompile::view]
     fn get_attestation_bounds(
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
@@ -522,5 +523,44 @@ where
         };
 
         Ok(bounds)
+    }
+
+    #[precompile::public("get_attestation_height_for_digest(uint64,bytes32)")]
+    #[precompile::view]
+    fn get_attestation_height_for_digest(
+        handle: &mut impl PrecompileHandle,
+        chain_key: ChainKey,
+        digest: H256,
+    ) -> EvmResult<HeightResult> {
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
+        if let Some(attestation) = Attestations::<Runtime>::get(chain_key, digest) {
+            Ok(HeightResult {
+                height: attestation.header_number(),
+                exists: true,
+            })
+        } else {
+            Ok(HeightResult::default())
+        }
+    }
+
+    #[precompile::public("get_checkpoint_for_height(uint64,uint64)")]
+    #[precompile::view]
+    fn get_checkpoint_for_height(
+        handle: &mut impl PrecompileHandle,
+        chain_key: ChainKey,
+        height: u64,
+    ) -> EvmResult<HeightHashResult> {
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
+        if let Some(digest) = Checkpoints::<Runtime>::get(chain_key, height) {
+            Ok(HeightHashResult {
+                height,
+                hash: digest,
+                exists: true,
+            })
+        } else {
+            Ok(HeightHashResult::default())
+        }
     }
 }
