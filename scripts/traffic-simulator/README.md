@@ -121,7 +121,6 @@ simulator's `/status` endpoint and sends periodic reports. This approach:
 
 - Separates concerns (simulator vs monitoring)
 - Allows independent scaling and scheduling
-- Works with multiple simulator instances
 - Persists metric snapshots across pod restarts
 
 ### Setup Steps
