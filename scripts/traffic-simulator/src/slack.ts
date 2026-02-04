@@ -185,10 +185,6 @@ export function createHourlyReportPayload(
   // Header emoji based on status
   const headerEmoji = hasErrors ? "🚨" : allConnected ? "📊" : "⚠️";
 
-  // Helper functions for table alignment
-  const padRight = (str: string, width: number): string => {
-    return String(str).padEnd(width);
-  };
   const padLeft = (str: string, width: number): string => {
     return String(str).padStart(width);
   };
@@ -209,14 +205,14 @@ export function createHourlyReportPayload(
     "🔗 Chains & Connection",
     "┌─────────┬─────────────────────────────┐",
     `│ Source  │ ${
-      padRight(
+      padLabel(
         (endMetrics.sepoliaConnected ? "🟢" : "🔴") + " " + sourceChain,
         27,
       )
     } │`,
     `├─────────┼─────────────────────────────┤`,
     `│ Target  │ ${
-      padRight(
+      padLabel(
         (endMetrics.cc3Connected ? "🟢" : "🔴") + " " + targetNetwork,
         27,
       )
@@ -229,7 +225,7 @@ export function createHourlyReportPayload(
       padLeft(formatNumber(delta.proofsSubmitted), 12)
     } │`,
     `├──────────────────┼──────────────┤`,
-    `│ ${padLabel(hasErrors ? "❌ Failed" : "✅ Failed", 15)} │ ${
+    `│ ${padLabel("❌ Failed", 15)} │ ${
       padLeft(formatNumber(delta.proofErrors), 12)
     } │`,
     `├──────────────────┼──────────────┤`,
