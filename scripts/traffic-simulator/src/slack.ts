@@ -11,6 +11,8 @@ export interface SlackConfig {
   alertGroup?: string;
   /** Username for Slack messages */
   username?: string;
+  /** Success rate threshold percentage below which alerts are triggered (default: 75) */
+  alertSuccessThresholdPct?: number;
 }
 
 export interface MetricsSnapshot {
@@ -190,7 +192,7 @@ export function createHourlyReportPayload(
   const padLeft = (str: string, width: number): string => {
     return String(str).padStart(width);
   };
-  
+
   // Pad label column - use fixed width padding
   const padLabel = (str: string, width: number): string => {
     return String(str).padEnd(width);
@@ -200,38 +202,70 @@ export function createHourlyReportPayload(
   const reportLines: string[] = [
     `${headerEmoji} Traffic Simulator ${periodLabel} Report`,
     "",
-    `🕐 Period: ${periodStartStr} → ${periodEndStr} UTC (${periodHours.toFixed(1)}h)`,
+    `🕐 Period: ${periodStartStr} → ${periodEndStr} UTC (${
+      periodHours.toFixed(1)
+    }h)`,
     "",
     "🔗 Chains & Connection",
     "┌─────────┬─────────────────────────────┐",
-    `│ Source  │ ${padRight((endMetrics.sepoliaConnected ? "🟢" : "🔴") + " " + sourceChain, 27)} │`,
+    `│ Source  │ ${
+      padRight(
+        (endMetrics.sepoliaConnected ? "🟢" : "🔴") + " " + sourceChain,
+        27,
+      )
+    } │`,
     `├─────────┼─────────────────────────────┤`,
-    `│ Target  │ ${padRight((endMetrics.cc3Connected ? "🟢" : "🔴") + " " + targetNetwork, 27)} │`,
+    `│ Target  │ ${
+      padRight(
+        (endMetrics.cc3Connected ? "🟢" : "🔴") + " " + targetNetwork,
+        27,
+      )
+    } │`,
     "└─────────┴─────────────────────────────┘",
     "",
-    "📤 Proof Submissions (Period)",
+    `📤 Proof Submissions (${periodHours.toFixed(1)}h)`,
     "┌──────────────────┬──────────────┐",
-    `│ ${padLabel("✅ Successful", 15)} │ ${padLeft(formatNumber(delta.proofsSubmitted), 12)} │`,
+    `│ ${padLabel("✅ Successful", 15)} │ ${
+      padLeft(formatNumber(delta.proofsSubmitted), 12)
+    } │`,
     `├──────────────────┼──────────────┤`,
-    `│ ${padLabel(hasErrors ? "❌ Failed" : "✅ Failed", 15)} │ ${padLeft(formatNumber(delta.proofErrors), 12)} │`,
+    `│ ${padLabel(hasErrors ? "❌ Failed" : "✅ Failed", 15)} │ ${
+      padLeft(formatNumber(delta.proofErrors), 12)
+    } │`,
     `├──────────────────┼──────────────┤`,
     `│ ${padLabel("📈 Rate", 16)} │ ${padLeft(proofsPerHour + "/hr", 12)} │`,
     `├──────────────────┼──────────────┤`,
     `│ ${padLabel("🎯 Success", 16)} │ ${padLeft(successRate + "%", 12)} │`,
     "└──────────────────┴──────────────┘",
     "",
-    "📋 Breakdown & Blocks",
+    `📋 Breakdown & Blocks (${periodHours.toFixed(1)}h)`,
     "┌──────────────────┬──────────────┬──────────────────┬──────────────┐",
-    `│ ${padLabel("📝 Single", 16)} │ ${padLeft(formatNumber(delta.singleSubmissions), 12)} │ ${padLabel("📦 Batch", 16)} │ ${padLeft(formatNumber(delta.batchSubmissions), 12)} │`,
+    `│ ${padLabel("📝 Single", 16)} │ ${
+      padLeft(formatNumber(delta.singleSubmissions), 12)
+    } │ ${padLabel("📦 Batch", 16)} │ ${
+      padLeft(formatNumber(delta.batchSubmissions), 12)
+    } │`,
     `├──────────────────┼──────────────┼──────────────────┼──────────────┤`,
-    `│ ${padLabel("⚙️  Processed", 16)} │ ${padLeft(formatNumber(delta.blocksProcessed), 12)} │ ${padLabel("📋 Queue", 16)} │ ${padLeft(formatNumber(endMetrics.queueSize), 12)} │`,
+    `│ ${padLabel("⚙️  Processed", 16)} │ ${
+      padLeft(formatNumber(delta.blocksProcessed), 12)
+    } │ ${padLabel("📋 Queue", 16)} │ ${
+      padLeft(formatNumber(endMetrics.queueSize), 12)
+    } │`,
     "└──────────────────┴──────────────┴──────────────────┴──────────────┘",
     "",
     "📊 Totals",
     "┌──────────────────┬──────────────┬──────────────────┬──────────────┐",
-    `│ ${padLabel("✅ Proofs", 15)} │ ${padLeft(formatNumber(endMetrics.proofsSubmitted), 12)} │ ${padLabel("❌ Errors", 15)} │ ${padLeft(formatNumber(endMetrics.proofErrors), 12)} │`,
+    `│ ${padLabel("✅ Proofs", 15)} │ ${
+      padLeft(formatNumber(endMetrics.proofsSubmitted), 12)
+    } │ ${padLabel("❌ Errors", 15)} │ ${
+      padLeft(formatNumber(endMetrics.proofErrors), 12)
+    } │`,
     `├──────────────────┼──────────────┼──────────────────┼──────────────┤`,
-    `│ ${padLabel("📦 Blocks", 16)} │ ${padLeft(formatNumber(endMetrics.blocksProcessed), 12)} │ ${padLabel("⏱️  Uptime", 16)} │ ${padLeft(formatUptime(endMetrics.uptimeSeconds), 12)} │`,
+    `│ ${padLabel("📦 Blocks", 16)} │ ${
+      padLeft(formatNumber(endMetrics.blocksProcessed), 12)
+    } │ ${padLabel("⏱️  Uptime", 16)} │ ${
+      padLeft(formatUptime(endMetrics.uptimeSeconds), 12)
+    } │`,
     "└──────────────────┴──────────────┴──────────────────┴──────────────┘",
   ];
 
@@ -252,11 +286,22 @@ export function createHourlyReportPayload(
     text += `, ${formatNumber(delta.proofErrors)} errors`;
   }
 
-  // Add alert mention if there are errors and alert group is configured
-  if (hasErrors && config.alertGroup) {
+  const totalAttempts = delta.proofsSubmitted + delta.proofErrors;
+
+  const successRatePct = totalAttempts > 0
+    ? (delta.proofsSubmitted / totalAttempts) * 100
+    : 100;
+
+  const alertSuccessThresholdPct = config.alertSuccessThresholdPct ?? 75;
+
+  const shouldAlertTeam = Boolean(config.alertGroup) &&
+    totalAttempts > 0 &&
+    successRatePct < alertSuccessThresholdPct;
+
+  let mentionPrefix = "";
+  if (shouldAlertTeam && config.alertGroup) {
     try {
-      const mention = formatSlackMention(config.alertGroup);
-      text = `${mention} ${text}`;
+      mentionPrefix = `${formatSlackMention(config.alertGroup)} `;
     } catch (error) {
       console.warn(`Failed to format Slack mention: ${error}`);
     }
@@ -265,6 +310,7 @@ export function createHourlyReportPayload(
   return {
     username: config.username || "traffic-simulator",
     icon_emoji: hasErrors ? ":rotating_light:" : ":chart_with_upwards_trend:",
+    link_names: true,
     text,
     blocks: [
       {
@@ -274,6 +320,19 @@ export function createHourlyReportPayload(
           text: `\`\`\`${reportText}\`\`\``,
         },
       },
+      ...(mentionPrefix
+        ? [
+          { type: "divider" },
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text:
+                `🚨 Errors detected, proof submission success rate below threshold (success ${successRate}% < ${alertSuccessThresholdPct}%), tagging ${mentionPrefix.trim()}`,
+            },
+          },
+        ]
+        : []),
     ],
   };
 }

@@ -11,6 +11,7 @@
  *   SLACK_ALERT_GROUP  - Slack user/group ID for alerts (optional)
  *   SNAPSHOT_PATH      - Path to store metrics snapshot (default: /tmp/metrics-snapshot.json)
  *   REPORT_INTERVAL_HOURS - Expected interval between reports in hours (default: 1)
+ *   ALERT_SUCCESS_THRESHOLD_PCT - Success rate % below which alerts are triggered (default: 75)
  */
 
 import {
@@ -166,6 +167,9 @@ async function main(): Promise<void> {
   const reportIntervalHours = parseFloat(
     Deno.env.get("REPORT_INTERVAL_HOURS") || "1",
   );
+  const alertSuccessThresholdPct = parseFloat(
+    Deno.env.get("ALERT_SUCCESS_THRESHOLD_PCT") || "75",
+  );
 
   if (!slackWebhookUrl) {
     console.error("❌ SLACK_WEBHOOK_URL environment variable is required");
@@ -180,10 +184,22 @@ async function main(): Promise<void> {
     Deno.exit(1);
   }
 
+  if (
+    isNaN(alertSuccessThresholdPct) || alertSuccessThresholdPct < 0 ||
+    alertSuccessThresholdPct > 100
+  ) {
+    console.error(
+      "❌ ALERT_SUCCESS_THRESHOLD_PCT must be a number between 0 and 100 (got: " +
+        Deno.env.get("ALERT_SUCCESS_THRESHOLD_PCT") + ")",
+    );
+    Deno.exit(1);
+  }
+
   const slackConfig: SlackConfig = {
     webhookUrl: slackWebhookUrl,
     alertGroup: slackAlertGroup,
     username: "traffic-simulator-reporter",
+    alertSuccessThresholdPct,
   };
 
   try {
