@@ -146,7 +146,7 @@ function formatPeriodLabel(hours: number): string {
 }
 
 /**
- * Create Slack payload for hourly report using Block Kit
+ * Create Slack payload for hourly report using a single code block
  */
 export function createHourlyReportPayload(
   report: HourlyReport,
@@ -183,136 +183,66 @@ export function createHourlyReportPayload(
   // Header emoji based on status
   const headerEmoji = hasErrors ? "🚨" : allConnected ? "📊" : "⚠️";
 
-  // Build blocks array
-  const blocks: unknown[] = [
-    // Header
-    {
-      type: "header",
-      text: {
-        type: "plain_text",
-        text: `${headerEmoji} Traffic Simulator ${periodLabel} Report`,
-        emoji: true,
-      },
-    },
-    // Period info
-    {
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: `🕐 *${periodStartStr}* → *${periodEndStr}* UTC  •  ${
-            periodHours.toFixed(1)
-          }h`,
-        },
-      ],
-    },
-    { type: "divider" },
-    // Chains & Connection Status
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: "*🔗 Chains & Connection*",
-      },
-    },
-    {
-      type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*Source*\n${
-            endMetrics.sepoliaConnected ? "🟢" : "🔴"
-          } ${sourceChain}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*Target*\n${
-            endMetrics.cc3Connected ? "🟢" : "🔴"
-          } ${targetNetwork}`,
-        },
-      ],
-    },
-    { type: "divider" },
-    // Proof Submissions
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: "*📤 Proof Submissions*",
-      },
-    },
-    {
-      type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*Successful*\n✅ ${formatNumber(delta.proofsSubmitted)}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*Failed*\n${hasErrors ? "❌" : "✅"} ${
-            formatNumber(delta.proofErrors)
-          }`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*Rate*\n📈 ${proofsPerHour}/hr`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*Success*\n🎯 ${successRate}%`,
-        },
-      ],
-    },
-    { type: "divider" },
-    // Breakdown & Blocks
-    {
-      type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*📋 Breakdown*\nSingle: ${
-            formatNumber(delta.singleSubmissions)
-          }\nBatch: ${formatNumber(delta.batchSubmissions)}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*📦 Blocks*\nProcessed: ${
-            formatNumber(delta.blocksProcessed)
-          }\nQueue: ${formatNumber(endMetrics.queueSize)}`,
-        },
-      ],
-    },
-    { type: "divider" },
-    // Totals
-    {
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: `📊 *Totals:* ${
-            formatNumber(endMetrics.proofsSubmitted)
-          } proofs  •  ${formatNumber(endMetrics.proofErrors)} errors  •  ${
-            formatNumber(endMetrics.blocksProcessed)
-          } blocks  •  ⏱️ ${formatUptime(endMetrics.uptimeSeconds)}`,
-        },
-      ],
-    },
+  // Helper functions for table alignment
+  const padRight = (str: string, width: number): string => {
+    return String(str).padEnd(width);
+  };
+  const padLeft = (str: string, width: number): string => {
+    return String(str).padStart(width);
+  };
+  
+  // Pad label column - use fixed width padding
+  const padLabel = (str: string, width: number): string => {
+    return String(str).padEnd(width);
+  };
+
+  // Build report text in code block format with tables
+  const reportLines: string[] = [
+    `${headerEmoji} Traffic Simulator ${periodLabel} Report`,
+    "",
+    `🕐 Period: ${periodStartStr} → ${periodEndStr} UTC (${periodHours.toFixed(1)}h)`,
+    "",
+    "🔗 Chains & Connection",
+    "┌─────────┬─────────────────────────────┐",
+    `│ Source  │ ${padRight((endMetrics.sepoliaConnected ? "🟢" : "🔴") + " " + sourceChain, 27)} │`,
+    `├─────────┼─────────────────────────────┤`,
+    `│ Target  │ ${padRight((endMetrics.cc3Connected ? "🟢" : "🔴") + " " + targetNetwork, 27)} │`,
+    "└─────────┴─────────────────────────────┘",
+    "",
+    "📤 Proof Submissions (Period)",
+    "┌──────────────────┬──────────────┐",
+    `│ ${padLabel("✅ Successful", 15)} │ ${padLeft(formatNumber(delta.proofsSubmitted), 12)} │`,
+    `├──────────────────┼──────────────┤`,
+    `│ ${padLabel(hasErrors ? "❌ Failed" : "✅ Failed", 15)} │ ${padLeft(formatNumber(delta.proofErrors), 12)} │`,
+    `├──────────────────┼──────────────┤`,
+    `│ ${padLabel("📈 Rate", 16)} │ ${padLeft(proofsPerHour + "/hr", 12)} │`,
+    `├──────────────────┼──────────────┤`,
+    `│ ${padLabel("🎯 Success", 16)} │ ${padLeft(successRate + "%", 12)} │`,
+    "└──────────────────┴──────────────┘",
+    "",
+    "📋 Breakdown & Blocks",
+    "┌──────────────────┬──────────────┬──────────────────┬──────────────┐",
+    `│ ${padLabel("📝 Single", 16)} │ ${padLeft(formatNumber(delta.singleSubmissions), 12)} │ ${padLabel("📦 Batch", 16)} │ ${padLeft(formatNumber(delta.batchSubmissions), 12)} │`,
+    `├──────────────────┼──────────────┼──────────────────┼──────────────┤`,
+    `│ ${padLabel("⚙️  Processed", 16)} │ ${padLeft(formatNumber(delta.blocksProcessed), 12)} │ ${padLabel("📋 Queue", 16)} │ ${padLeft(formatNumber(endMetrics.queueSize), 12)} │`,
+    "└──────────────────┴──────────────┴──────────────────┴──────────────┘",
+    "",
+    "📊 Totals",
+    "┌──────────────────┬──────────────┬──────────────────┬──────────────┐",
+    `│ ${padLabel("✅ Proofs", 15)} │ ${padLeft(formatNumber(endMetrics.proofsSubmitted), 12)} │ ${padLabel("❌ Errors", 15)} │ ${padLeft(formatNumber(endMetrics.proofErrors), 12)} │`,
+    `├──────────────────┼──────────────┼──────────────────┼──────────────┤`,
+    `│ ${padLabel("📦 Blocks", 16)} │ ${padLeft(formatNumber(endMetrics.blocksProcessed), 12)} │ ${padLabel("⏱️  Uptime", 16)} │ ${padLeft(formatUptime(endMetrics.uptimeSeconds), 12)} │`,
+    "└──────────────────┴──────────────┴──────────────────┴──────────────┘",
   ];
 
   // Add error section if there's a last error
   if (endMetrics.lastError) {
-    blocks.push(
-      { type: "divider" },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*🚨 Last Error*\n\`\`\`${endMetrics.lastError}\`\`\``,
-        },
-      },
-    );
+    reportLines.push("");
+    reportLines.push("🚨 Last Error");
+    reportLines.push(endMetrics.lastError);
   }
+
+  const reportText = reportLines.join("\n");
 
   // Build text for notifications (fallback)
   let text = `Traffic Simulator ${periodLabel} Report: ${
@@ -336,7 +266,15 @@ export function createHourlyReportPayload(
     username: config.username || "traffic-simulator",
     icon_emoji: hasErrors ? ":rotating_light:" : ":chart_with_upwards_trend:",
     text,
-    blocks,
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `\`\`\`${reportText}\`\`\``,
+        },
+      },
+    ],
   };
 }
 
