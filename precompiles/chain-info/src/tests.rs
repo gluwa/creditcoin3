@@ -3,7 +3,7 @@ use crate::{
         Account::{Alice, Precompile},
         *,
     },
-    BoundsCheckResult, ChainInfo, ChainInfoResult, HeightHashResult, HeightResult,
+    BoundsCheckResult, ChainInfo, ChainInfoResult, HashResult, HeightHashResult, HeightResult,
 };
 
 use attestor_primitives::{
@@ -155,6 +155,7 @@ fn get_latest_attestation_height_and_hash_works() {
     let expected_result = HeightHashResult {
         height: fake_height,
         hash: fake_digest,
+        is_attestation: true,
         exists: true,
     };
 
@@ -215,6 +216,7 @@ fn get_latest_checkpoint_height_and_hash_works() {
     let expected_result = HeightHashResult {
         height: fake_height,
         hash: fake_digest,
+        is_attestation: false,
         exists: true,
     };
 
@@ -270,6 +272,7 @@ fn find_highest_attested_before_works() {
     let expected_result = HeightHashResult {
         height: dummy_height,
         hash: dummy_attestation.digest(),
+        is_attestation: true,
         exists: true,
     };
 
@@ -306,6 +309,7 @@ fn find_lowest_attested_after_works() {
     let expected_result = HeightHashResult {
         height: dummy_height,
         hash: dummy_attestation.digest(),
+        is_attestation: true,
         exists: true,
     };
 
@@ -546,10 +550,9 @@ fn get_checkpoint_by_height_works() {
     let fake_height: u64 = 2000;
     let fake_digest = H256::from_slice(&[45_u8; 32]);
 
-    let expected_result = HeightHashResult {
-        height: fake_height,
-        exists: true,
+    let expected_result = HashResult {
         hash: fake_digest,
+        exists: true,
     };
 
     ExtBuilder::default()
@@ -576,7 +579,7 @@ fn get_checkpoint_by_height_works() {
 fn get_checkpoint_by_height_returns_default_when_no_checkpoint_at_query_height() {
     let alice: H160 = Alice.into();
     let fake_height: u64 = 3000;
-    let expected_result = HeightHashResult::default();
+    let expected_result = HashResult::default();
 
     ExtBuilder::default()
         .with_balances(vec![(alice.into(), 300)])

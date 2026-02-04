@@ -34,22 +34,21 @@ struct HeightResult {
 }
 
 /**
+ * @dev Hash result structure
+ */
+struct HashResult {
+    bytes32 hash;
+    bool exists;
+}
+
+/**
  * @dev Height with hash result structure
  */
 struct HeightHashResult {
     uint64 height;
     bytes32 hash; // The agreed-upon digest/hash
-    bool exists;
-}
-
-/**
- * @dev Closest height result structure NOT SURE IF WE ARE GOING TO NEED THIS
- */
-struct ClosestHeightResult {
-    uint64 height;
-    bytes32 hash; // The agreed-upon digest/hash
-    bool found;
     bool isAttestation; // true for attestation, false for checkpoint
+    bool exists;
 }
 
 /**
@@ -166,7 +165,7 @@ interface ChainInfoContract {
      * @dev Get checkpoint by its digest/hash
      * @param chainKey The chain key to query
      * @param height The checkpoint height to look up
-     * @return result Checkpoint height result
+     * @return result Checkpoint hash result
      */
-    function get_checkpoint_for_height(uint64 chainKey, uint64 height) external view returns (HeightHashResult memory);
+    function get_checkpoint_for_height(uint64 chainKey, uint64 height) external view returns (HashResult memory);
 }

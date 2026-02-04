@@ -111,71 +111,116 @@ describe('Precompile: ChainInfo', (): void => {
     });
 
     test('get_latest_attestation_height_and_hash should return data', async () => {
-        const latestAttestation = await contract.get_latest_attestation_height_and_hash(supportedChainKey, {
+        const latestAttestationResult = await contract.get_latest_attestation_height_and_hash(supportedChainKey, {
             gasPrice,
             gasLimit,
         });
-        expect(latestAttestation).toBeDefined();
+        expect(latestAttestationResult).toBeDefined();
+        expect(Array.isArray(latestAttestationResult)).toBe(true);
+        expect(latestAttestationResult.length).toBe(4);
         // Since we have no attestations, we should get default values
-        expect(latestAttestation.height).toEqual(0n);
-        expect(latestAttestation.hash).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
-        expect(latestAttestation.exists).toEqual(false);
+        expect(typeof latestAttestationResult[0]).toBe('bigint'); // height
+        expect(latestAttestationResult[0]).toEqual(0n);
+        expect(typeof latestAttestationResult[1]).toBe('string'); // hash
+        expect(latestAttestationResult[1]).toEqual(
+            '0x0000000000000000000000000000000000000000000000000000000000000000',
+        );
+        expect(typeof latestAttestationResult[2]).toBe('boolean'); // isAttestation
+        expect(latestAttestationResult[2]).toEqual(false);
+        expect(typeof latestAttestationResult[3]).toBe('boolean'); // exists
+        expect(latestAttestationResult[3]).toEqual(false);
     });
 
     test('get_latest_checkpoint_height_and_hash should return data', async () => {
-        const latestCheckpoint = await contract.get_latest_checkpoint_height_and_hash(supportedChainKey, {
+        const latestCheckpointResult = await contract.get_latest_checkpoint_height_and_hash(supportedChainKey, {
             gasPrice,
             gasLimit,
         });
-        expect(latestCheckpoint).toBeDefined();
+        expect(latestCheckpointResult).toBeDefined();
+        expect(Array.isArray(latestCheckpointResult)).toBe(true);
+        expect(latestCheckpointResult.length).toBe(4);
         // Since we have no checkpoints, we should get default values
-        expect(latestCheckpoint.height).toEqual(0n);
-        expect(latestCheckpoint.hash).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
-        expect(latestCheckpoint.exists).toEqual(false);
+        expect(typeof latestCheckpointResult[0]).toBe('bigint'); // height
+        expect(latestCheckpointResult[0]).toEqual(0n);
+        expect(typeof latestCheckpointResult[1]).toBe('string'); // hash
+        expect(latestCheckpointResult[1]).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
+        expect(typeof latestCheckpointResult[2]).toBe('boolean'); // isAttestation
+        expect(latestCheckpointResult[2]).toEqual(false);
+        expect(typeof latestCheckpointResult[3]).toBe('boolean'); // exists
+        expect(latestCheckpointResult[3]).toEqual(false);
     });
 
     test('find_highest_attested_before should return data', async () => {
-        const highestAttested = await contract.find_highest_attested_before(supportedChainKey, targetHeight, {
+        const highestAttestedResult = await contract.find_highest_attested_before(supportedChainKey, targetHeight, {
             gasPrice,
             gasLimit,
         });
-        expect(highestAttested).toBeDefined();
+        expect(highestAttestedResult).toBeDefined();
+        expect(Array.isArray(highestAttestedResult)).toBe(true);
+        expect(highestAttestedResult.length).toBe(4);
         // Since we have no attestations, we should get default values
-        expect(highestAttested.height).toEqual(0n);
-        expect(highestAttested.hash).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
-        expect(highestAttested.exists).toEqual(false);
+        expect(typeof highestAttestedResult[0]).toBe('bigint'); // height
+        expect(highestAttestedResult[0]).toEqual(0n);
+        expect(typeof highestAttestedResult[1]).toBe('string'); // hash
+        expect(highestAttestedResult[1]).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
+        expect(typeof highestAttestedResult[2]).toBe('boolean'); // isAttestation
+        expect(highestAttestedResult[2]).toEqual(false);
+        expect(typeof highestAttestedResult[3]).toBe('boolean'); // exists
+        expect(highestAttestedResult[3]).toEqual(false);
     });
 
     test('find_lowest_attested_after should return data', async () => {
-        const lowestAttested = await contract.find_lowest_attested_after(supportedChainKey, targetHeight, {
+        const lowestAttestedResult = await contract.find_lowest_attested_after(supportedChainKey, targetHeight, {
             gasPrice,
             gasLimit,
         });
-        expect(lowestAttested).toBeDefined();
+        expect(lowestAttestedResult).toBeDefined();
+        expect(Array.isArray(lowestAttestedResult)).toBe(true);
+        expect(lowestAttestedResult.length).toBe(4);
         // Since we have no attestations, we should get default values
-        expect(lowestAttested.height).toEqual(0n);
-        expect(lowestAttested.hash).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
-        expect(lowestAttested.exists).toEqual(false);
+        expect(typeof lowestAttestedResult[0]).toBe('bigint'); // height
+        expect(lowestAttestedResult[0]).toEqual(0n);
+        expect(typeof lowestAttestedResult[1]).toBe('string'); // hash
+        expect(lowestAttestedResult[1]).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
+        expect(typeof lowestAttestedResult[2]).toBe('boolean'); // isAttestation
+        expect(lowestAttestedResult[2]).toEqual(false);
+        expect(typeof lowestAttestedResult[3]).toBe('boolean'); // exists
+        expect(lowestAttestedResult[3]).toEqual(false);
     });
 
     test('is_height_attested should return data', async () => {
-        const isAttested = await contract.is_height_attested(supportedChainKey, targetHeight, { gasPrice, gasLimit });
-        expect(isAttested).toBeDefined();
+        const isAttestedResult = await contract.is_height_attested(supportedChainKey, targetHeight, {
+            gasPrice,
+            gasLimit,
+        });
+        expect(typeof isAttestedResult).toBe('boolean');
         // Since we have no attestations, we expect false
-        expect(isAttested).toEqual(false);
+        expect(isAttestedResult).toEqual(false);
     });
 
     test('get_attestation_bounds should return data', async () => {
-        const bounds = await contract.get_attestation_bounds(supportedChainKey, targetHeight, { gasPrice, gasLimit });
-        expect(bounds).toBeDefined();
+        const boundsResult = await contract.get_attestation_bounds(supportedChainKey, targetHeight, {
+            gasPrice,
+            gasLimit,
+        });
+        expect(boundsResult).toBeDefined();
+        expect(Array.isArray(boundsResult)).toBe(true);
+        expect(boundsResult.length).toBe(7);
         // Since we have no attestations, we should get default values
-        expect(bounds.parentHeight).toEqual(0n);
-        expect(bounds.parentHash).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
-        expect(bounds.parentIsAttestation).toEqual(false);
-        expect(bounds.childHeight).toEqual(0n);
-        expect(bounds.childHash).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
-        expect(bounds.childIsAttestation).toEqual(false);
-        expect(bounds.isAttested).toEqual(false);
+        expect(typeof boundsResult[0]).toBe('bigint'); // parentHeight
+        expect(boundsResult[0]).toEqual(0n);
+        expect(typeof boundsResult[1]).toBe('string'); // parentHash
+        expect(boundsResult[1]).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
+        expect(typeof boundsResult[2]).toBe('boolean'); // parentIsAttestation
+        expect(boundsResult[2]).toEqual(false);
+        expect(typeof boundsResult[3]).toBe('bigint'); // childHeight
+        expect(boundsResult[3]).toEqual(0n);
+        expect(typeof boundsResult[4]).toBe('string'); // childHash
+        expect(boundsResult[4]).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
+        expect(typeof boundsResult[5]).toBe('boolean'); // childIsAttestation
+        expect(boundsResult[5]).toEqual(false);
+        expect(typeof boundsResult[6]).toBe('boolean'); // isAttested
+        expect(boundsResult[6]).toEqual(false);
     });
 
     test('get_attestation_height_for_digest should return data', async () => {
@@ -189,8 +234,10 @@ describe('Precompile: ChainInfo', (): void => {
         expect(Array.isArray(heightByDigest)).toEqual(true);
         expect(heightByDigest.length).toEqual(2);
         // Since we have no attestations, we should get default values
-        expect(heightByDigest[0]).toEqual(0n); // height
-        expect(heightByDigest[1]).toEqual(false); // exists
+        expect(typeof heightByDigest[0]).toBe('bigint'); // height
+        expect(heightByDigest[0]).toEqual(0n);
+        expect(typeof heightByDigest[1]).toBe('boolean'); // exists
+        expect(heightByDigest[1]).toEqual(false);
     });
 
     test('get_checkpoint_for_height should return data', async () => {
@@ -199,12 +246,13 @@ describe('Precompile: ChainInfo', (): void => {
             gasLimit,
         });
         expect(digestByHeight).toBeDefined();
-        // We expect a 3 element tuple
+        // We expect a 2 element tuple
         expect(Array.isArray(digestByHeight)).toEqual(true);
-        expect(digestByHeight.length).toEqual(3);
+        expect(digestByHeight.length).toEqual(2);
         // Since we have no checkpoints, we should get default values
-        expect(digestByHeight[0]).toEqual(0n); // height
-        expect(digestByHeight[1]).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000'); // hash
-        expect(digestByHeight[2]).toEqual(false); // exists
+        expect(typeof digestByHeight[0]).toBe('string'); // hash
+        expect(digestByHeight[0]).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
+        expect(typeof digestByHeight[1]).toBe('boolean'); // exists
+        expect(digestByHeight[1]).toEqual(false);
     });
 });

@@ -64,9 +64,16 @@ pub struct HeightResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
+pub struct HashResult {
+    pub hash: H256,
+    pub exists: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
 pub struct HeightHashResult {
     pub height: u64,
     pub hash: H256,
+    pub is_attestation: bool,
     pub exists: bool,
 }
 
@@ -158,6 +165,7 @@ where
             Ok(HeightHashResult {
                 height: last_digest.0,
                 hash: last_digest.1,
+                is_attestation: true,
                 exists: true,
             })
         } else if let Some(last_checkpoint) = LastCheckpoint::<Runtime>::get(chain_key) {
@@ -166,6 +174,7 @@ where
             Ok(HeightHashResult {
                 height: last_checkpoint.block_number,
                 hash: last_checkpoint.digest,
+                is_attestation: false,
                 exists: true,
             })
         } else {
@@ -185,6 +194,7 @@ where
             Ok(HeightHashResult {
                 height: last_checkpoint.block_number,
                 hash: last_checkpoint.digest,
+                is_attestation: false,
                 exists: true,
             })
         } else {
@@ -238,6 +248,7 @@ where
                             <EvmResult<HeightHashResult>>::Ok(HeightHashResult {
                                 height: block_number,
                                 hash: digest,
+                                is_attestation: false,
                                 exists: true,
                             })
                         })
@@ -269,6 +280,7 @@ where
                 .map(|(hash, attestation)| HeightHashResult {
                     height: attestation.header_number(),
                     hash,
+                    is_attestation: true,
                     exists: true,
                 }) {
                 highest
@@ -282,6 +294,7 @@ where
                 HeightHashResult {
                     height: last_checkpoint_height,
                     hash: digest,
+                    is_attestation: false,
                     exists: true,
                 }
             } else {
@@ -340,6 +353,7 @@ where
                             <EvmResult<HeightHashResult>>::Ok(HeightHashResult {
                                 height: block_number,
                                 hash: digest,
+                                is_attestation: false,
                                 exists: true,
                             })
                         })
@@ -372,6 +386,7 @@ where
                 .map(|(hash, attestation)| HeightHashResult {
                     height: attestation.header_number(),
                     hash,
+                    is_attestation: true,
                     exists: true,
                 })
                 .unwrap_or_default();
@@ -515,10 +530,10 @@ where
         let bounds = BoundsCheckResult {
             parent: prev_attestation.height,
             parent_hash: prev_attestation.hash,
-            parent_is_attestation: prev_attestation.exists,
+            parent_is_attestation: prev_attestation.is_attestation,
             child: next_attestation.height,
             child_hash: next_attestation.hash,
-            child_is_attestation: next_attestation.exists,
+            child_is_attestation: next_attestation.is_attestation,
             is_attested: prev_attestation.exists && next_attestation.exists,
         };
 
@@ -550,17 +565,16 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
         height: u64,
-    ) -> EvmResult<HeightHashResult> {
+    ) -> EvmResult<HashResult> {
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         if let Some(digest) = Checkpoints::<Runtime>::get(chain_key, height) {
-            Ok(HeightHashResult {
-                height,
+            Ok(HashResult {
                 hash: digest,
                 exists: true,
             })
         } else {
-            Ok(HeightHashResult::default())
+            Ok(HashResult::default())
         }
     }
 }

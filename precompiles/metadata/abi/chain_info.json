@@ -28,6 +28,11 @@
           },
           {
             "internalType": "bool",
+            "name": "isAttestation",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
             "name": "exists",
             "type": "bool"
           }
@@ -66,6 +71,11 @@
             "internalType": "bytes32",
             "name": "hash",
             "type": "bytes32"
+          },
+          {
+            "internalType": "bool",
+            "name": "isAttestation",
+            "type": "bool"
           },
           {
             "internalType": "bool",
@@ -268,11 +278,6 @@
       {
         "components": [
           {
-            "internalType": "uint64",
-            "name": "height",
-            "type": "uint64"
-          },
-          {
             "internalType": "bytes32",
             "name": "hash",
             "type": "bytes32"
@@ -283,7 +288,7 @@
             "type": "bool"
           }
         ],
-        "internalType": "struct HeightHashResult",
+        "internalType": "struct HashResult",
         "name": "",
         "type": "tuple"
       }
@@ -312,6 +317,11 @@
             "internalType": "bytes32",
             "name": "hash",
             "type": "bytes32"
+          },
+          {
+            "internalType": "bool",
+            "name": "isAttestation",
+            "type": "bool"
           },
           {
             "internalType": "bool",
@@ -348,6 +358,11 @@
             "internalType": "bytes32",
             "name": "hash",
             "type": "bytes32"
+          },
+          {
+            "internalType": "bool",
+            "name": "isAttestation",
+            "type": "bool"
           },
           {
             "internalType": "bool",
