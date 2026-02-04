@@ -181,15 +181,10 @@ impl Attestor {
                 .map(|last_checkpoint| (last_checkpoint.digest, last_checkpoint.block_number)),
         };
 
-        let attestors = client_cc3
+        let mut attestors = client_cc3
             .get_attestor_active_set(self.config.chain_key)
             .await
             .map_err(Error::RpcError)?;
-        let attestors = worker::validation::pool::AttestorValidatePermissioned::new(
-            std::collections::HashSet::from_iter(attestors.into_iter().map(|attestor| {
-                attestor_primitives::AttestorId::new(sp_core::crypto::AccountId32::new(attestor.0))
-            })),
-        );
 
         let (start_height, start_digest, attestation_latest_cc3, empty_chain) =
             match self.config.attestation.start_height {
@@ -276,26 +271,6 @@ impl Attestor {
             .build();
         let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
 
-        // -------------------------------------* Channels *------------------------------------ //
-
-        // attestation production -> p2p sync
-        let (sender_p2p, receiver_p2p) =
-            tokio::sync::broadcast::channel(common::constants::CAPACITY_CHANNEL);
-
-        // attestation production / p2p sync -> attestation validation
-        let config = self
-            .config
-            .pool
-            .with_attestors(attestors)
-            .with_quorum(quorum)
-            .with_start_height(start_height)
-            .with_digest_latest_cc3(start_digest)
-            .with_attestation_interval(interval_attestation)
-            .with_metrics(std::sync::Arc::clone(&metrics))
-            .build();
-        let (sender_validation, receiver_validation) =
-            worker::validation::pool::attestation_pool(config);
-
         // -------------------------------------* Genesis *------------------------------------- //
 
         tracing::info!(
@@ -303,32 +278,34 @@ impl Attestor {
             "⏲️ Waiting for attestor to be made eligible"
         );
 
-        let can_attest = client_cc3
-            .get_attestor_status(self.config.chain_key)
-            .await
-            .context("Failed to retrieve attestor status")
-            .map_err(Error::InitError)?
-            .as_ref()
-            .is_some_and(attestor_primitives::AttestorStatus::is_active);
-
-        if !can_attest {
-            // FIXME: add Ctrl-C exit
-            loop {
-                let Some(block) = stream_cc3_production
-                    .next()
-                    .await
-                    .transpose()
-                    .map_err(Error::CC3Error)?
-                else {
-                    return Ok(());
-                };
-
-                for event in block.events().await.map_err(Error::CC3Error)? {
-                    let event = event.map_err(Error::CC3Error)?;
-                    if let cc_client::attestation::CcEvent::AttestorsElected(attestors) = event {
-                        if attestors.contains(&account_id) {
-                            break;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+        if !attestors.contains(&account_id) {
+            attestors = 'outer: loop {
+                tokio::select! {
+                    Some(block) = stream_cc3_production.next() => {
+                        for event in block
+                            .map_err(Error::CC3Error)?
+                            .events()
+                            .await
+                            .map_err(Error::CC3Error)?
+                        {
+                            let event = event.map_err(Error::CC3Error)?;
+                            if let cc_client::attestation::CcEvent::AttestorsElected(attestors) = event {
+                                if attestors.contains(&account_id) {
+                                    break 'outer attestors;
+                                }
+                            }
                         }
+                    }
+                    _ = tokio::signal::ctrl_c() => {
+                        tracing::info!("🔌 Received shutdown signal");
+                        return Ok(());
+                    }
+                    _ = interval.tick() => {
+                        tracing::info!(
+                            attestor = %account_id,
+                            "⏲️  waiting on attestor..."
+                        );
                     }
                 }
             }
@@ -369,6 +346,26 @@ impl Attestor {
             "📡 Generated intial attestation"
         );
 
+        // -------------------------------------* Channels *------------------------------------ //
+
+        // attestation production -> p2p sync
+        let (sender_p2p, receiver_p2p) =
+            tokio::sync::broadcast::channel(common::constants::CAPACITY_CHANNEL);
+
+        // attestation production / p2p sync -> attestation validation
+        let config = self
+            .config
+            .pool
+            .with_attestors(attestors)
+            .with_quorum(quorum)
+            .with_start_height(start_height)
+            .with_digest_latest_cc3(start_digest)
+            .with_attestation_interval(interval_attestation)
+            .with_metrics(std::sync::Arc::clone(&metrics))
+            .build();
+        let (sender_validation, receiver_validation) =
+            worker::validation::pool::attestation_pool(config);
+
         sender_p2p
             .send(attestation.clone())
             .context("Failed to send initial attestation over to p2p worker")
@@ -376,8 +373,7 @@ impl Attestor {
         sender_validation
             .send(attestation)
             .transpose()
-            .context("Failed to send initial attestation over for validation")
-            .map_err(Error::InitError)?;
+            .expect("Failed to send initial attestation over for validation");
 
         // -------------------------------------* Workers *------------------------------------- //
 
@@ -432,25 +428,36 @@ impl Attestor {
             "⏲️ Waiting for intial attestation to finalize"
         );
 
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         let attestation_latest_cc3 = 'outer: loop {
-            let Some(block) = stream_cc3_production
-                .next()
-                .await
-                .transpose()
-                .map_err(Error::CC3Error)?
-            else {
-                return Ok(());
-            };
-
-            for event in block.events().await.map_err(Error::CC3Error)? {
-                let event = event.map_err(Error::CC3Error)?;
-                if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
-                    if attestation.header_number > height {
-                        break 'outer common::types::AttestationInfo {
-                            digest: attestation.digest,
-                            height: attestation.header_number,
-                        };
+            tokio::select! {
+                Some(block) = stream_cc3_production.next() => {
+                    for event in block
+                        .map_err(Error::CC3Error)?
+                        .events()
+                        .await
+                        .map_err(Error::CC3Error)?
+                    {
+                        let event = event.map_err(Error::CC3Error)?;
+                        if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
+                            if attestation.header_number >= height {
+                                break 'outer common::types::AttestationInfo {
+                                    digest: attestation.digest,
+                                    height: attestation.header_number,
+                                };
+                            }
+                        }
                     }
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("🔌 Received shutdown signal");
+                    return Ok(());
+                }
+                _ = interval.tick() => {
+                    tracing::info!(
+                        attestor = %account_id,
+                        "⏲️  waiting on submission..."
+                    );
                 }
             }
         };

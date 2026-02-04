@@ -160,6 +160,7 @@ impl StreamAttestation {
         Ok(attestation)
     }
 
+    #[tracing::instrument(skip_all, level = "debug")]
     pub async fn generate_attestation_genesis(
         &mut self,
     ) -> Result<common::types::Attestation, Error> {
@@ -409,6 +410,7 @@ impl CacheRoots {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn update(
         &mut self,
         eth: &mut eth::Client,
@@ -432,11 +434,14 @@ impl CacheRoots {
                 .checked_sub(block_stop as usize - block_start as usize)
                 .is_none_or(|len_new| len_new > self.max_size.get())
         {
+            tracing::info!(block_start, block_stop, "🎯 Cache hit");
             return Ok(());
         }
 
+        tracing::info!(block_start, block_stop, "🎯 Cache miss");
+
         let encoding = ccnext_abi_encoding::common::EncodingVersion::V1;
-        let iter = (block_start..block_stop).map(|h| {
+        let iter = (block_start..=block_stop).map(|h| {
             eth.get_block(h, encoding).map(|opt| {
                 opt.ok_or(Error::Interrupt)
                     .and_then(|res| res.map_err(Error::Eth))
@@ -453,6 +458,11 @@ impl CacheRoots {
         assert!(
             self.cache.len() < self.max_size.get(),
             "Invalid digest cache size"
+        );
+
+        assert!(
+            !self.cache.is_empty(),
+            "Cache cannot be empty after an update"
         );
 
         Ok(())

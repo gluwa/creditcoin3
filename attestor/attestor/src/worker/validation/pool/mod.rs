@@ -148,10 +148,9 @@ pub struct Config {
     #[allow(unused)]
     max_size: std::num::NonZeroUsize,
 
-    /// Attestor validation policy, can be either [`AttestorValidatePermissionless`] or
-    /// [`AttestorValidatePermissioned`].
+    /// Active attestors
     #[specify_later]
-    attestors: Box<dyn ValidateAttestor>,
+    attestors: Vec<cc_client::AccountId32>,
 
     /// Target [`Quorum`] size. Ie: the number of valid attestors which must submit the same
     /// attestation before it reaches quorum.
@@ -215,8 +214,8 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
     tracing::info!(height = %config.start_height, "📮  with");
     tracing::info!(interval = %config.attestation_interval, "📮  with");
     tracing::info!(quorum = %config.quorum, "📮  with");
-    tracing::info!(attestors = %config.attestors, "📮  with");
 
+    let attestors = ValidateAttestor::new(config.attestors);
     let quorum = ValidateQuorum::new(
         config.quorum,
         config.attestation_interval,
@@ -225,7 +224,7 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
 
     let pool = AttestationPool::new(
         quorum,
-        config.attestors,
+        attestors,
         config.metrics,
         config.digest_latest_cc3,
         config.max_size,
@@ -349,7 +348,7 @@ struct AttestationPoolInner {
     valid: AttestationPoolValid,
     digest_local: Option<cc_client::H256>,
 
-    validate_attestor: Box<dyn ValidateAttestor>,
+    validate_attestor: ValidateAttestor,
 
     metrics: common::types::Metrics,
     attestation_delay: AttestationPoolDelays,
@@ -360,7 +359,7 @@ struct AttestationPoolInner {
 impl AttestationPool {
     fn new(
         validate_quorum: ValidateQuorum,
-        validate_attestor: Box<dyn ValidateAttestor>,
+        validate_attestor: ValidateAttestor,
         metrics: common::types::Metrics,
         prev_digest: Option<attestor_primitives::Digest>,
         max_size: std::num::NonZeroUsize,
@@ -1409,14 +1408,7 @@ impl crate::events::EventAttestorsElectedAsync for AttestationPoolSender {
     ) -> Result<(), Self::Error> {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             tracing::warn!("🗂️ Updating the attestor set");
-
-            inner.validate_attestor = Box::new(AttestorValidatePermissioned::new(
-                std::collections::HashSet::from_iter(attestors.iter().map(|attestor| {
-                    attestor_primitives::AttestorId::new(sp_core::crypto::AccountId32::new(
-                        attestor.0,
-                    ))
-                })),
-            ));
+            inner.validate_attestor = ValidateAttestor::new(attestors);
         }
 
         Ok(())
@@ -1716,23 +1708,27 @@ impl crate::events::EventAttestationIntervalChange for ValidateQuorum {}
 
 // ----------------------------------- [ Attestor Validation ] --------------------------------- //
 
-/// Common trait used to determine if an attestor can submit attestations.
-pub trait ValidateAttestor: Send + Sync + std::fmt::Debug + std::fmt::Display + 'static {
-    fn validate(&self, attestation: &common::types::Attestation) -> Result<(), Error>;
-}
-
 /// Enforces permissioned attesting.
 ///
 /// Attestors are retrieved on-chain from the currently elected authorities. Any other attestation
 /// source is denied.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AttestorValidatePermissioned {
+pub struct ValidateAttestor {
     attestor_set: std::collections::HashSet<attestor_primitives::AttestorId>,
 }
 
-impl AttestorValidatePermissioned {
-    pub fn new(attestor_set: std::collections::HashSet<attestor_primitives::AttestorId>) -> Self {
-        Self { attestor_set }
+impl ValidateAttestor {
+    pub fn new(attestors: Vec<cc_client::AccountId32>) -> Self {
+        Self {
+            attestor_set: attestors
+                .into_iter()
+                .map(|attestor| {
+                    attestor_primitives::AttestorId::new(sp_core::crypto::AccountId32::new(
+                        attestor.0,
+                    ))
+                })
+                .collect(),
+        }
     }
 
     pub fn attestors(&self) -> &std::collections::HashSet<attestor_primitives::AttestorId> {
@@ -1740,13 +1736,13 @@ impl AttestorValidatePermissioned {
     }
 }
 
-impl std::fmt::Display for AttestorValidatePermissioned {
+impl std::fmt::Display for ValidateAttestor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Permissioned: {:?}", self.attestor_set)
     }
 }
 
-impl ValidateAttestor for AttestorValidatePermissioned {
+impl ValidateAttestor {
     fn validate(&self, attestation: &common::types::Attestation) -> Result<(), Error> {
         if !self.attestor_set.contains(&attestation.attestor) {
             return Err(Error::Unauthorized(
@@ -1755,44 +1751,6 @@ impl ValidateAttestor for AttestorValidatePermissioned {
             ));
         }
         Ok(())
-    }
-}
-
-/// Allows attestations from any arbitrary source.
-#[derive(Clone, Debug, Default)]
-pub struct AttestorValidatePermissionless;
-
-impl ValidateAttestor for AttestorValidatePermissionless {
-    fn validate(&self, _attestation: &common::types::Attestation) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
-impl std::fmt::Display for AttestorValidatePermissionless {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Permisionless")
-    }
-}
-
-/// Denies attestations from any source.
-///
-/// This is useful as a placeholder while we wait to retrieve the set of active attestors on the
-/// next attestation election.
-#[derive(Clone, Debug, Default)]
-pub struct AttestorValidateDeny;
-
-impl ValidateAttestor for AttestorValidateDeny {
-    fn validate(&self, attestation: &common::types::Attestation) -> Result<(), Error> {
-        Err(Error::Unauthorized(
-            attestation.attestor.clone(),
-            attestation.header_number(),
-        ))
-    }
-}
-
-impl std::fmt::Display for AttestorValidateDeny {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Deny")
     }
 }
 
@@ -1915,7 +1873,7 @@ pub mod fixtures {
     }
 
     #[rstest::fixture]
-    pub fn quorum_validate(#[default(2)] vote_count: usize) -> ValidateQuorum {
+    pub fn validate_quorum(#[default(2)] vote_count: usize) -> ValidateQuorum {
         ValidateQuorum {
             target_quorum: vote_count.try_into().unwrap(),
             start_height: common::types::Height::MIN,
@@ -1924,23 +1882,24 @@ pub mod fixtures {
     }
 
     #[rstest::fixture]
-    pub fn permissioned(
+    pub fn validate_attestor(
         #[default([ATTESTOR_VALID_0, ATTESTOR_VALID_1, ATTESTOR_VALID_2, ATTESTOR_VALID_3])]
-        attestor_set: impl IntoIterator<Item = attestor_primitives::AttestorId>,
-    ) -> AttestorValidatePermissioned {
-        AttestorValidatePermissioned {
-            attestor_set: std::collections::HashSet::from_iter(attestor_set),
+        attestors: impl IntoIterator<Item = attestor_primitives::AttestorId>,
+    ) -> ValidateAttestor {
+        ValidateAttestor {
+            attestor_set: attestors.into_iter().collect(),
         }
     }
 
     #[rstest::fixture]
-    pub fn permissionless() -> AttestorValidatePermissionless {
-        AttestorValidatePermissionless
-    }
-
-    #[rstest::fixture]
-    pub fn deny() -> AttestorValidateDeny {
-        AttestorValidateDeny
+    pub fn attestors(
+        #[default([ATTESTOR_VALID_0, ATTESTOR_VALID_1, ATTESTOR_VALID_2, ATTESTOR_VALID_3])]
+        attestor_set: impl IntoIterator<Item = attestor_primitives::AttestorId>,
+    ) -> Vec<cc_client::AccountId32> {
+        attestor_set
+            .into_iter()
+            .map(|attestor| cc_client::AccountId32(attestor.public_key()))
+            .collect()
     }
 
     #[rstest::fixture]
@@ -1960,15 +1919,15 @@ pub mod fixtures {
 
     #[rstest::fixture]
     pub fn config(
-        quorum_validate: ValidateQuorum,
+        validate_quorum: ValidateQuorum,
         #[default(100)] capacity: usize,
-        permissioned: AttestorValidatePermissioned,
+        attestors: Vec<cc_client::AccountId32>,
         metrics: common::types::Metrics,
     ) -> Config {
         ConfigBuilder::new()
             .with_max_size(std::num::NonZeroUsize::new(capacity).unwrap())
-            .with_attestors(permissioned)
-            .with_quorum(quorum_validate.target_quorum)
+            .with_attestors(attestors)
+            .with_quorum(validate_quorum.target_quorum)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
             .with_digest_latest_cc3(DIGEST_0)
             .with_start_height(common::types::Height::MIN)
@@ -2210,7 +2169,7 @@ mod test {
         #[with([ATTESTOR_VALID_0])] attestation: AttestationVote,
         #[with([ATTESTOR_VALID_0])] permit: Permit,
         #[with([ATTESTOR_VALID_0])] quorum: Quorum,
-        #[from(quorum_validate)]
+        #[from(validate_quorum)]
         #[with(1)]
         _quorum_validate: ValidateQuorum,
         #[with(_quorum_validate.clone())] config: Config,
@@ -2336,7 +2295,7 @@ mod test {
         #[from(attestation)]
         #[with([ATTESTOR_VALID_2])]
         attestation_2: AttestationVote,
-        #[from(quorum_validate)]
+        #[from(validate_quorum)]
         #[with(1)]
         _quorum_validate: ValidateQuorum,
         #[from(config)]
@@ -2399,7 +2358,7 @@ mod test {
         #[from(attestation)]
         #[with([ATTESTOR_VALID_3])]
         attestation_3: AttestationVote,
-        #[from(quorum_validate)]
+        #[from(validate_quorum)]
         #[with(1)]
         _quorum_validate: ValidateQuorum,
         #[from(config)]
@@ -2477,7 +2436,7 @@ mod test {
         #[from(attestation)]
         #[with([ATTESTOR_VALID_2], 1)]
         attestation_2: AttestationVote,
-        #[from(quorum_validate)]
+        #[from(validate_quorum)]
         #[with(1)]
         _quorum_validate: ValidateQuorum,
         #[from(config)]
@@ -2562,14 +2521,14 @@ mod test {
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
         attestation_1: AttestationVote,
-        quorum_validate: ValidateQuorum,
+        validate_quorum: ValidateQuorum,
     ) {
-        assert!(quorum_validate.validate(&attestation_0));
-        assert!(!quorum_validate.validate(&attestation_1));
+        assert!(validate_quorum.validate(&attestation_0));
+        assert!(!validate_quorum.validate(&attestation_1));
     }
 
     #[rstest::rstest]
-    fn validator_parameters_validate_permissioned(
+    fn validator_parameters_validate(
         _logs: (),
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
@@ -2577,47 +2536,13 @@ mod test {
         #[from(attestation)]
         #[with([ATTESTOR_INVALID])]
         attestation_2: AttestationVote,
-        permissioned: AttestorValidatePermissioned,
+        validate_attestor: ValidateAttestor,
     ) {
-        assert!(permissioned.validate(&attestation_0.attestation).is_ok());
+        assert!(validate_attestor
+            .validate(&attestation_0.attestation)
+            .is_ok());
         assert_matches::assert_matches!(
-            permissioned.validate(&attestation_2.attestation),
-            Err(Error::Unauthorized(ATTESTOR_INVALID, 0))
-        );
-    }
-
-    #[rstest::rstest]
-    fn validator_parameters_validate_permissionless(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationVote,
-        #[from(attestation)]
-        #[with([ATTESTOR_INVALID])]
-        attestation_2: AttestationVote,
-        permissionless: AttestorValidatePermissionless,
-    ) {
-        assert!(permissionless.validate(&attestation_0.attestation).is_ok());
-        assert!(permissionless.validate(&attestation_2.attestation).is_ok());
-    }
-
-    #[rstest::rstest]
-    fn validator_parameters_validate_deny(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationVote,
-        #[from(attestation)]
-        #[with([ATTESTOR_INVALID])]
-        attestation_2: AttestationVote,
-        deny: AttestorValidateDeny,
-    ) {
-        assert_matches::assert_matches!(
-            deny.validate(&attestation_0.attestation),
-            Err(Error::Unauthorized(ATTESTOR_VALID_0, 0))
-        );
-        assert_matches::assert_matches!(
-            deny.validate(&attestation_2.attestation),
+            validate_attestor.validate(&attestation_2.attestation),
             Err(Error::Unauthorized(ATTESTOR_INVALID, 0))
         );
     }
