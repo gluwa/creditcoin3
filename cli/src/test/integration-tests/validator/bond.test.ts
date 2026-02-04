@@ -192,7 +192,8 @@ describe('bond', () => {
     );
 
     // Reproduces devnet bug: bonding 1100 CTC when minValidatorBond is 999 CTC
-    // This SHOULD succeed since 1100 > 999, but fails due to BN string comparison bug
+    // This SHOULD succeed after the fix since 1100 > 999, but it used to fail due to
+    // BN string comparison bug in `hasBondedEnough` fn
     testIf(
         process.env.PROXY_ENABLED === undefined ||
             process.env.PROXY_ENABLED === 'no' ||
