@@ -118,7 +118,8 @@ where
         // Gas is charged inside get_attestation() and get_checkpoint()
         // These functions return Result<Option<T>, ContinuityVerificationError> to properly propagate
         // gas recording errors
-        let attestation_matches = Self::get_attestation(handle, chain_key, final_digest)?
+        let attestation_matches = Self::get_attestation(handle, chain_key, final_digest)
+            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?
             .map(|a| a.attestation.header_number == final_block_number)
             .unwrap_or(false);
 
@@ -126,7 +127,8 @@ where
         let checkpoint_matches = if attestation_matches {
             false // No need to check checkpoint if attestation matches
         } else {
-            Self::get_checkpoint(handle, chain_key, final_block_number)?
+            Self::get_checkpoint(handle, chain_key, final_block_number)
+                .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?
                 .map(|digest| digest == final_digest)
                 .unwrap_or(false)
         };

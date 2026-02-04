@@ -22,7 +22,6 @@ use attestor_primitives::block::ContinuityProof;
 use ethabi::{encode, Token};
 use sp_std::vec::Vec;
 
-use crate::continuity::ContinuityVerificationError;
 use crate::verify::GAS_STORAGE_LOOKUP;
 
 // Use the TransactionMerkleProof from merkle
@@ -344,14 +343,10 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         digest: H256,
-    ) -> Result<
-        Option<attestor_primitives::SignedAttestation<Runtime::Hash, Runtime::AccountId>>,
-        crate::continuity::ContinuityVerificationError,
-    > {
+    ) -> EvmResult<Option<attestor_primitives::SignedAttestation<Runtime::Hash, Runtime::AccountId>>>
+    {
         // Charge for attestation storage lookup
-        handle
-            .record_cost(GAS_STORAGE_LOOKUP)
-            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?;
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
         Ok(pallet_attestation_poc::Pallet::<Runtime>::attestations(
             chain_key, digest,
         ))
@@ -379,11 +374,9 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         block_number: u64,
-    ) -> Result<Option<H256>, crate::continuity::ContinuityVerificationError> {
+    ) -> EvmResult<Option<H256>> {
         // Charge for checkpoint storage lookup only if we need to check it
-        handle
-            .record_cost(GAS_STORAGE_LOOKUP)
-            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?;
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
         Ok(pallet_attestation_poc::Pallet::<Runtime>::checkpoints(
             chain_key,
             block_number,
