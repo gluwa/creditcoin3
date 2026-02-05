@@ -56,9 +56,6 @@ describe('Precompile: block-prover', (): void => {
         verifyAndEmitSingle = contract.getFunction(
             'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
         );
-        verifyAndEmitBatch = contract.getFunction(
-            'verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))',
-        );
     }, 90_000);
 
     // Frontier calldata threshold (bytes) - transactions with calldata over this can trigger Estimate Gas issues
