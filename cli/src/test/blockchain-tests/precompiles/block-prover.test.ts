@@ -20,6 +20,7 @@ describe('Precompile: block-prover', (): void => {
     // Helper to get the single-query verify function (disambiguate from batch overload)
     let verifySingle: any;
     let verifyAndEmitSingle: any;
+    let verifyAndEmitBatch: any;
 
     // Helper to create a valid merkle proof for a single transaction
     // For single transactions, root = keccak256(0x00 || tx_data) with empty siblings
@@ -55,6 +56,9 @@ describe('Precompile: block-prover', (): void => {
         );
         verifyAndEmitSingle = contract.getFunction(
             'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
+        );
+        verifyAndEmitBatch = contract.getFunction(
+            'verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))',
         );
     }, 90_000);
 
@@ -139,7 +143,6 @@ describe('Precompile: block-prover', (): void => {
             expect(sourceTxn!.blockNumber).toBeDefined();
 
             const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
-            await chainInfoProvider.waitUntilHeightAttested(chain_Anvil1_Key, sourceTxn!.blockNumber!, 5_000, 300_000);
 
             const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
             const rawProofGenerator = new proof.raw.RawProofGenerator(
@@ -171,14 +174,7 @@ describe('Precompile: block-prover', (): void => {
             ];
 
             const iface = contract.interface;
-            const singleFragment = iface.getFunction(
-                'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
-            );
-            const batchFragment = iface.getFunction(
-                'verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))',
-            );
-
-            let data = iface.encodeFunctionData(singleFragment, [
+            let data = iface.encodeFunctionData(verifyAndEmitSingle.fragment, [
                 proofData.chainKey,
                 proofData.headerNumber,
                 txBytesHex,
@@ -188,7 +184,7 @@ describe('Precompile: block-prover', (): void => {
             let calldataSizeBytes = (data.length - 2) / 2;
 
             if (calldataSizeBytes <= FRONTIER_CALLDATA_THRESHOLD) {
-                data = iface.encodeFunctionData(batchFragment, [
+                data = iface.encodeFunctionData(verifyAndEmitBatch.fragment, [
                     proofData.chainKey,
                     [proofData.headerNumber, proofData.headerNumber],
                     [txBytesHex, txBytesHex],
@@ -235,7 +231,6 @@ describe('Precompile: block-prover', (): void => {
             expect(sourceTxn!.blockNumber).toBeDefined();
 
             const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
-            await chainInfoProvider.waitUntilHeightAttested(chain_Anvil1_Key, sourceTxn!.blockNumber!, 5_000, 300_000);
 
             const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
             const rawProofGenerator = new proof.raw.RawProofGenerator(
@@ -267,14 +262,7 @@ describe('Precompile: block-prover', (): void => {
             ];
 
             const iface = contract.interface;
-            const singleFragment = iface.getFunction(
-                'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
-            );
-            const batchFragment = iface.getFunction(
-                'verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))',
-            );
-
-            let data = iface.encodeFunctionData(singleFragment, [
+            let data = iface.encodeFunctionData(verifyAndEmitSingle.fragment, [
                 proofData.chainKey,
                 proofData.headerNumber,
                 txBytesHex,
@@ -284,7 +272,7 @@ describe('Precompile: block-prover', (): void => {
             let calldataSizeBytes = (data.length - 2) / 2;
 
             if (calldataSizeBytes <= FRONTIER_CALLDATA_THRESHOLD) {
-                data = iface.encodeFunctionData(batchFragment, [
+                data = iface.encodeFunctionData(verifyAndEmitBatch.fragment, [
                     proofData.chainKey,
                     [proofData.headerNumber, proofData.headerNumber],
                     [txBytesHex, txBytesHex],
@@ -316,7 +304,6 @@ describe('Precompile: block-prover', (): void => {
             expect(sourceTxn!.blockNumber).toBeDefined();
 
             const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
-            await chainInfoProvider.waitUntilHeightAttested(chain_Anvil1_Key, sourceTxn!.blockNumber!, 5_000, 300_000);
 
             const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
             const rawProofGenerator = new proof.raw.RawProofGenerator(
@@ -348,11 +335,7 @@ describe('Precompile: block-prover', (): void => {
             ];
 
             const iface = contract.interface;
-            const singleFragment = iface.getFunction(
-                'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
-            );
-
-            const data = iface.encodeFunctionData(singleFragment, [
+            const data = iface.encodeFunctionData(verifyAndEmitSingle.fragment, [
                 proofData.chainKey,
                 proofData.headerNumber,
                 txBytesHex,
