@@ -56,7 +56,13 @@ describe('Precompile: block-prover', (): void => {
         verifyAndEmitSingle = contract.getFunction(
             'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
         );
+        verifyAndEmitBatch = contract.getFunction(
+            'verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))',
+        );
     }, 90_000);
+
+    // Frontier calldata threshold (bytes) - transactions with calldata over this can trigger Estimate Gas issues
+    const FRONTIER_CALLDATA_THRESHOLD = 2893;
 
     afterAll(async () => {
         await api.disconnect();
@@ -99,7 +105,9 @@ describe('Precompile: block-prover', (): void => {
                 EncodingVersion.V1,
             );
             const rawProofResult = await rawProofGenerator.generateProof(transactionHash!);
-            expect(rawProofResult.success).toBe(true);
+            if (!rawProofResult.success) {
+                throw new Error(`Proof generation failed: ${rawProofResult.error ?? 'Unknown error'}`);
+            }
 
             const proofData = rawProofResult.data!;
             const proveResultRaw = await verifySingle.staticCall(
@@ -110,6 +118,263 @@ describe('Precompile: block-prover', (): void => {
                 proofData.continuityProof,
             );
             expect(proveResultRaw).toBe(true);
+        }, 360_000);
+    });
+
+    describe('Frontier calldata threshold (verifyAndEmit with calldata > 2893 bytes)', () => {
+        /**
+         * Reproduces Frontier EVM issue: transactions with calldata over ~2893 bytes
+         * can trigger bugs. This test submits a verifyAndEmit call with calldata
+         * exceeding the threshold (using batch API when single-call is smaller)
+         * and asserts the transaction succeeds.
+         *
+         * Requires: ANVIL1_TXN_HASH env var, running Anvil at chain_Anvil1_Url
+         */
+        test('should succeed when calldata exceeds 2893-byte Frontier threshold', async () => {
+            const anvil1Provider = new WebSocketProvider(chain_Anvil1_Url);
+
+            const transactionHash = process.env.ANVIL1_TXN_HASH;
+            expect(transactionHash).toBeTruthy();
+
+            const sourceTxn = await anvil1Provider.getTransaction(transactionHash!);
+            expect(sourceTxn).toBeDefined();
+            expect(sourceTxn!.blockNumber).toBeDefined();
+
+            const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
+            await chainInfoProvider.waitUntilHeightAttested(chain_Anvil1_Key, sourceTxn!.blockNumber!, 5_000, 300_000);
+
+            const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
+            const rawProofGenerator = new proof.raw.RawProofGenerator(
+                chain_Anvil1_Key,
+                blockProvider,
+                chainInfoProvider,
+                EncodingVersion.V1,
+            );
+            const rawProofResult = await rawProofGenerator.generateProof(transactionHash!);
+            if (!rawProofResult.success) {
+                throw new Error(`Proof generation failed: ${rawProofResult.error ?? 'Unknown error'}`);
+            }
+
+            const proofData = rawProofResult.data!;
+            const txBytesHex =
+                typeof proofData.txBytes === 'string'
+                    ? proofData.txBytes.startsWith('0x')
+                        ? proofData.txBytes
+                        : '0x' + proofData.txBytes
+                    : '0x' + Buffer.from(proofData.txBytes).toString('hex');
+
+            const merkleProofTuple = [
+                proofData.merkleProof.root,
+                proofData.merkleProof.siblings.map((s: { hash: string; isLeft: boolean }) => [s.hash, s.isLeft]),
+            ];
+            const continuityProofTuple = [
+                proofData.continuityProof.lowerEndpointDigest,
+                proofData.continuityProof.roots ?? [],
+            ];
+
+            const iface = contract.interface;
+            const singleFragment = iface.getFunction(
+                'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
+            );
+            const batchFragment = iface.getFunction(
+                'verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))',
+            );
+
+            let data = iface.encodeFunctionData(singleFragment, [
+                proofData.chainKey,
+                proofData.headerNumber,
+                txBytesHex,
+                merkleProofTuple,
+                continuityProofTuple,
+            ]);
+            let calldataSizeBytes = (data.length - 2) / 2;
+
+            if (calldataSizeBytes <= FRONTIER_CALLDATA_THRESHOLD) {
+                data = iface.encodeFunctionData(batchFragment, [
+                    proofData.chainKey,
+                    [proofData.headerNumber, proofData.headerNumber],
+                    [txBytesHex, txBytesHex],
+                    [merkleProofTuple, merkleProofTuple],
+                    continuityProofTuple,
+                ]);
+                calldataSizeBytes = (data.length - 2) / 2;
+            }
+
+            expect(calldataSizeBytes).toBeGreaterThan(FRONTIER_CALLDATA_THRESHOLD);
+
+            const tx = await alith.sendTransaction({
+                to: blockProverAddress,
+                data,
+                gasLimit: 500_000,
+                gasPrice,
+            });
+
+            const receipt = await tx.wait();
+            expect(receipt).toBeDefined();
+            expect(receipt!.status).toBe(1);
+
+            const verifiedEvents = receipt!.logs
+                .map((log: { data: string; topics: string[] }) => {
+                    try {
+                        return iface.parseLog({ data: log.data, topics: log.topics });
+                    } catch {
+                        return null;
+                    }
+                })
+                .filter((parsed: { name: string } | null) => parsed?.name === 'TransactionVerified');
+
+            expect(verifiedEvents.length).toBeGreaterThan(0);
+        }, 360_000);
+
+        test('estimateGas should fail when calldata exceeds 2893-byte Frontier threshold', async () => {
+            const anvil1Provider = new WebSocketProvider(chain_Anvil1_Url);
+
+            const transactionHash = process.env.ANVIL1_TXN_HASH;
+            expect(transactionHash).toBeTruthy();
+
+            const sourceTxn = await anvil1Provider.getTransaction(transactionHash!);
+            expect(sourceTxn).toBeDefined();
+            expect(sourceTxn!.blockNumber).toBeDefined();
+
+            const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
+            await chainInfoProvider.waitUntilHeightAttested(chain_Anvil1_Key, sourceTxn!.blockNumber!, 5_000, 300_000);
+
+            const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
+            const rawProofGenerator = new proof.raw.RawProofGenerator(
+                chain_Anvil1_Key,
+                blockProvider,
+                chainInfoProvider,
+                EncodingVersion.V1,
+            );
+            const rawProofResult = await rawProofGenerator.generateProof(transactionHash!);
+            if (!rawProofResult.success) {
+                throw new Error(`Proof generation failed: ${rawProofResult.error ?? 'Unknown error'}`);
+            }
+
+            const proofData = rawProofResult.data!;
+            const txBytesHex =
+                typeof proofData.txBytes === 'string'
+                    ? proofData.txBytes.startsWith('0x')
+                        ? proofData.txBytes
+                        : '0x' + proofData.txBytes
+                    : '0x' + Buffer.from(proofData.txBytes).toString('hex');
+
+            const merkleProofTuple = [
+                proofData.merkleProof.root,
+                proofData.merkleProof.siblings.map((s: { hash: string; isLeft: boolean }) => [s.hash, s.isLeft]),
+            ];
+            const continuityProofTuple = [
+                proofData.continuityProof.lowerEndpointDigest,
+                proofData.continuityProof.roots ?? [],
+            ];
+
+            const iface = contract.interface;
+            const singleFragment = iface.getFunction(
+                'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
+            );
+            const batchFragment = iface.getFunction(
+                'verifyAndEmit(uint64,uint64[],bytes[],(bytes32,(bytes32,bool)[])[],(bytes32,bytes32[]))',
+            );
+
+            let data = iface.encodeFunctionData(singleFragment, [
+                proofData.chainKey,
+                proofData.headerNumber,
+                txBytesHex,
+                merkleProofTuple,
+                continuityProofTuple,
+            ]);
+            let calldataSizeBytes = (data.length - 2) / 2;
+
+            if (calldataSizeBytes <= FRONTIER_CALLDATA_THRESHOLD) {
+                data = iface.encodeFunctionData(batchFragment, [
+                    proofData.chainKey,
+                    [proofData.headerNumber, proofData.headerNumber],
+                    [txBytesHex, txBytesHex],
+                    [merkleProofTuple, merkleProofTuple],
+                    continuityProofTuple,
+                ]);
+                calldataSizeBytes = (data.length - 2) / 2;
+            }
+
+            expect(calldataSizeBytes).toBeGreaterThan(FRONTIER_CALLDATA_THRESHOLD);
+
+            await expect(
+                provider.estimateGas({
+                    to: blockProverAddress,
+                    data,
+                    from: alith.address,
+                }),
+            ).rejects.toThrow();
+        }, 360_000);
+
+        test('estimateGas should succeed when calldata is below 2893-byte Frontier threshold', async () => {
+            const anvil1Provider = new WebSocketProvider(chain_Anvil1_Url);
+
+            const transactionHash = process.env.ANVIL1_TXN_HASH;
+            expect(transactionHash).toBeTruthy();
+
+            const sourceTxn = await anvil1Provider.getTransaction(transactionHash!);
+            expect(sourceTxn).toBeDefined();
+            expect(sourceTxn!.blockNumber).toBeDefined();
+
+            const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
+            await chainInfoProvider.waitUntilHeightAttested(chain_Anvil1_Key, sourceTxn!.blockNumber!, 5_000, 300_000);
+
+            const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
+            const rawProofGenerator = new proof.raw.RawProofGenerator(
+                chain_Anvil1_Key,
+                blockProvider,
+                chainInfoProvider,
+                EncodingVersion.V1,
+            );
+            const rawProofResult = await rawProofGenerator.generateProof(transactionHash!);
+            if (!rawProofResult.success) {
+                throw new Error(`Proof generation failed: ${rawProofResult.error ?? 'Unknown error'}`);
+            }
+
+            const proofData = rawProofResult.data!;
+            const txBytesHex =
+                typeof proofData.txBytes === 'string'
+                    ? proofData.txBytes.startsWith('0x')
+                        ? proofData.txBytes
+                        : '0x' + proofData.txBytes
+                    : '0x' + Buffer.from(proofData.txBytes).toString('hex');
+
+            const merkleProofTuple = [
+                proofData.merkleProof.root,
+                proofData.merkleProof.siblings.map((s: { hash: string; isLeft: boolean }) => [s.hash, s.isLeft]),
+            ];
+            const continuityProofTuple = [
+                proofData.continuityProof.lowerEndpointDigest,
+                proofData.continuityProof.roots ?? [],
+            ];
+
+            const iface = contract.interface;
+            const singleFragment = iface.getFunction(
+                'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
+            );
+
+            const data = iface.encodeFunctionData(singleFragment, [
+                proofData.chainKey,
+                proofData.headerNumber,
+                txBytesHex,
+                merkleProofTuple,
+                continuityProofTuple,
+            ]);
+            const calldataSizeBytes = (data.length - 2) / 2;
+
+            if (calldataSizeBytes > FRONTIER_CALLDATA_THRESHOLD) {
+                return; // Skip: this proof's single-call is already over threshold
+            }
+
+            const estimatedGas = await provider.estimateGas({
+                to: blockProverAddress,
+                data,
+                from: alith.address,
+            });
+
+            expect(estimatedGas).toBeDefined();
+            expect(estimatedGas).toBeGreaterThan(0n);
         }, 360_000);
     });
 

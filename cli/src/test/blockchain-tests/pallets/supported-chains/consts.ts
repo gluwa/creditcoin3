@@ -1,6 +1,7 @@
 // node/src/chain_spec.rs
 export const chain_Anvil1_Key = 2;
-export const chain_Anvil1_Url = 'ws://localhost:8141';
+// Override with ANVIL1_WS_URL for local dev (e.g. ws://localhost:8545 when using default Anvil port)
+export const chain_Anvil1_Url = process.env.ANVIL1_WS_URL ?? 'ws://localhost:8141';
 
 export const chain_Anvil2_Key = 4;
 export const chain_Anvil2_Id = 31338;
