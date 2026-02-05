@@ -650,4 +650,38 @@ mod benchmarks {
             true,
         )
     }
+
+    #[benchmark]
+    fn force_election() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        for j in 0..5 {
+            let stash_id = create_funded_user_with_balance::<T>("stash", j);
+            let attestor_id: T::AccountId =
+                create_funded_user_with_balance::<T>("attestor", j + 100);
+            let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+
+            assert_ok!(Attestation::<T>::register_attestor(
+                attestor.stash_origin.clone(),
+                DEV_CHAIN_KEY,
+                attestor_id.clone(),
+            ));
+
+            assert_ok!(Attestation::<T>::attest(
+                attestor.attestor_origin.clone(),
+                DEV_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature,
+            ));
+        }
+
+        let epoch: u64 = 1;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            epoch,
+        )
+    }
 }
