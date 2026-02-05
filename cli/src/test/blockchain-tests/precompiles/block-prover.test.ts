@@ -62,6 +62,7 @@ describe('Precompile: block-prover', (): void => {
     }, 90_000);
 
     // Frontier calldata threshold (bytes) - transactions with calldata over this can trigger Estimate Gas issues
+    // This is GasLimitPovSizeRatio configured in the runtime (2,893 bytes)
     const FRONTIER_CALLDATA_THRESHOLD = 2893;
 
     afterAll(async () => {
