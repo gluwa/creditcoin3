@@ -169,6 +169,7 @@ pub mod pallet {
         fn authorize_attestor() -> Weight;
         fn remove_authorized_attestor() -> Weight;
         fn kick_active_attestor() -> Weight;
+        fn force_election() -> Weight;
     }
 
     #[pallet::storage]
@@ -545,6 +546,10 @@ pub mod pallet {
         AuthorizedAttestorAdded(ChainKey, T::AccountId),
         /// An attestor was unauthorized for a specific chain.
         AuthorizedAttestorRemoved(ChainKey, T::AccountId),
+        /// A force election was triggered via sudo.
+        ForcedElection {
+            epoch: u64,
+        },
     }
 
     #[pallet::error]
@@ -1098,6 +1103,22 @@ pub mod pallet {
                 let stash = attestor.stash.clone();
                 Self::remove_attestor_and_emit_event(chain_key, stash, attestor_id)?;
             }
+
+            Ok(())
+        }
+
+        /// Force trigger an attestor election.
+        ///
+        /// A randomness of [0; 32] is used since randomness is not currently
+        /// used in the election logic.
+        #[pallet::call_index(25)]
+        #[pallet::weight(<T as Config>::WeightInfo::force_election())]
+        pub fn force_election(origin: OriginFor<T>, epoch: u64) -> DispatchResult {
+            ensure_root(origin)?;
+
+            Self::do_start_election(epoch, [0; 32])?;
+
+            Self::deposit_event(Event::<T>::ForcedElection { epoch });
 
             Ok(())
         }
