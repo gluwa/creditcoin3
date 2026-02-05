@@ -4952,3 +4952,111 @@ fn import_checkpoints_called_twice_works() {
         }
     });
 }
+
+#[test]
+fn force_election_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::force_election(RuntimeOrigin::none(), 1),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn force_election_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::force_election(RuntimeOrigin::signed(ATTESTOR_1), 1),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn force_election_should_emit_forced_election_event() {
+    ExtBuilder.build_and_execute(|| {
+        let epoch = 42u64;
+
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
+
+        System::assert_last_event(Event::ForcedElection { epoch }.into());
+    })
+}
+
+#[test]
+fn force_election_should_elect_waiting_attestors() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        // Register and activate attestor
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+
+        // Verify attestor is in Waiting status
+        let attestor_info = Attestors::<Test>::get(SUPPORTED_CHAIN_KEY, attestor.attestor_id)
+            .expect("Attestor should exist");
+        assert_eq!(attestor_info.status, AttestorStatus::Waiting);
+
+        // Force election
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 1));
+
+        // Verify attestor is now Active
+        let attestor_info = Attestors::<Test>::get(SUPPORTED_CHAIN_KEY, attestor.attestor_id)
+            .expect("Attestor should exist");
+        assert_eq!(attestor_info.status, AttestorStatus::Active);
+
+        // Verify attestor is in the active set
+        let active_attestors = ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert!(active_attestors.contains(&attestor.attestor_id));
+    })
+}
+
+#[test]
+fn force_election_should_emit_attestors_elected_event() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let epoch = 99u64;
+
+        // Register and activate attestor
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+
+        // Force election
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
+
+        // Check that AttestorsElected event was emitted
+        let events = System::events();
+        let elected_event = events.iter().find(|e| {
+            matches!(
+                &e.event,
+                RuntimeEvent::Attestation(crate::Event::AttestorsElected {
+                    epoch: e,
+                    chain_key,
+                    attestors,
+                }) if *e == epoch && *chain_key == SUPPORTED_CHAIN_KEY && attestors.contains(&attestor.attestor_id)
+            )
+        });
+        assert!(elected_event.is_some(), "AttestorsElected event should be emitted");
+    })
+}
