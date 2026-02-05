@@ -2,22 +2,13 @@
 name: cc3-indexer
 
 "on":
-  workflow_run:
-    # run the current CI jobs only when this completes
-    workflows: [build-creditcoin3-node-for-ci]
-    types:
-      - completed
-
-concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  workflow_call:
 
 permissions: read-all
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   deploy-runner-cc3-indexer:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"

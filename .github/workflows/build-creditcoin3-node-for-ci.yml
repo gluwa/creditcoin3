@@ -45,3 +45,9 @@ jobs:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy: "build-creditcoin-node-for-testing-ci"
     secrets: inherit
+
+  cc3-indexer:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+    uses: ./.github/workflows/cc3-indexer.yml
+    secrets: inherit
