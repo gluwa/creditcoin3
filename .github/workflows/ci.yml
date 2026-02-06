@@ -20,7 +20,10 @@ jobs:
   should-run:
     runs-on: ubuntu-24.04
     outputs:
+      attestor_cli_testing: ${{ steps.filter.outputs.attestor_cli_testing }}
       cc3_indexer: ${{ steps.filter.outputs.cc3_indexer }}
+      integration_test_blockchain: ${{ steps.filter.outputs.integration_test_blockchain }}
+      integration_test_cli: ${{ steps.filter.outputs.integration_test_cli }}
       unit_test_cli: ${{ steps.filter.outputs.unit_test_cli }}
     steps:
       - uses: actions/checkout@v6
@@ -30,11 +33,30 @@ jobs:
         id: filter
         with:
           filters: |
+            attestor_cli_testing:
+              - "attestor/**"
+              - "pallets/**"
+              - "precompiles/**"
+              - "runtime/**"
+              - "cli/src/test/attestation**"
+              - ".github/workflows/ci.yml"
             cc3_indexer:
               - "pallets/**"
               - "precompiles/**"
               - "runtime/**"
               - "cc3-indexer/**"
+              - ".github/workflows/ci.yml"
+            integration_test_blockchain:
+              - "pallets/**"
+              - "precompiles/**"
+              - "runtime/**"
+              - "cli/src/test/blockchain**"
+              - ".github/workflows/ci.yml"
+            integration_test_cli:
+              - "pallets/**"
+              - "precompiles/**"
+              - "runtime/**"
+              - "cli/**"
               - ".github/workflows/ci.yml"
             unit_test_cli:
               - "cli/src/**"
@@ -638,6 +660,8 @@ jobs:
   deploy-runner-integration-test-cli:
     needs:
       - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_cli == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -914,6 +938,8 @@ jobs:
   deploy-runner-blockchain:
     needs:
       - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
@@ -1485,6 +1511,8 @@ jobs:
   trigger-attestor-cli:
     needs:
       - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
