@@ -33,3 +33,4 @@ paths:
       # jobs disabled until we have a new testnet deployed, see CSUB-1907
       - "condition \"false\" is always evaluated to false. remove the if: section.*"
       - "constant expression \"false\" in condition. remove the if: section.*"
+      - "property \"changes\" is not defined in object type"

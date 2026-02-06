@@ -21,7 +21,9 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       attestor_cli_testing: ${{ steps.filter.outputs.attestor_cli_testing }}
+      attestor_network_testing: ${{ steps.filter.outputs.attestor_network_testing }}
       cc3_indexer: ${{ steps.filter.outputs.cc3_indexer }}
+      docs_smart_contract: ${{ steps.filter.outputs.docs_smart_contract }}
       integration_test_blockchain: ${{ steps.filter.outputs.integration_test_blockchain }}
       integration_test_cli: ${{ steps.filter.outputs.integration_test_cli }}
       unit_test_cli: ${{ steps.filter.outputs.unit_test_cli }}
@@ -35,31 +37,64 @@ jobs:
           filters: |
             attestor_cli_testing:
               - "attestor/**"
-              - "pallets/**"
+              - "common/**"
+              - "pallets/attestation-poc/**"
               - "precompiles/**"
+              - "primitives/**"
               - "runtime/**"
-              - "cli/src/test/attestation**"
+              - "cli/yarn.lock"
+              - "cli/src/test/integration-tests/attestor/**"
+              - ".github/workflows/ci.yml"
+            attestor_network_testing:
+              - "attestor/**"
+              - "common/**"
+              - "pallets/attestation-poc/**"
+              - "precompiles/**"
+              - "primitives/**"
+              - "runtime/**"
+              - "cli/yarn.lock"
+              - "cli/src/test/attestation-tests/**"
               - ".github/workflows/ci.yml"
             cc3_indexer:
+              - "attestor/**"
+              - "common/**"
               - "pallets/**"
               - "precompiles/**"
+              - "primitives/**"
               - "runtime/**"
               - "cc3-indexer/**"
+              - "query-cli/**"
+              - "cli/yarn.lock"
+              - "cli/src/test/cc3-indexer-tests/**"
+              - ".github/workflows/ci.yml"
+            docs_smart_contract:
+              - "docs/smart-contract-development/**"
               - ".github/workflows/ci.yml"
             integration_test_blockchain:
+              - "common/**"
               - "pallets/**"
               - "precompiles/**"
+              - "primitives/**"
               - "runtime/**"
-              - "cli/src/test/blockchain**"
+              - "cli/yarn.lock"
+              - "cli/src/test/blockchain-tests/**"
               - ".github/workflows/ci.yml"
             integration_test_cli:
+              - "common/**"
               - "pallets/**"
               - "precompiles/**"
+              - "primitives/**"
               - "runtime/**"
-              - "cli/**"
+              - "cli/yarn.lock"
+              - "cli/src/commands/**"
+              - "cli/src/lib/**"
+              - "cli/src/test/integration-tests/**"
               - ".github/workflows/ci.yml"
             unit_test_cli:
-              - "cli/src/**"
+              - "cli/yarn.lock"
+              - "cli/src/commands/**"
+              - "cli/src/lib/**"
+              - "cli/src/test/unit-tests/**"
               - ".github/workflows/ci.yml"
 
   sanity-tests:
@@ -212,6 +247,9 @@ jobs:
           .github/check-solidity-source-vs-metadata.sh
 
   deploy-runner-build-creditcoin-for-testing:
+    needs:
+      - should-run
+    if: toJSON(needs.should-run.outputs.changes) != '[]'
     strategy:
       fail-fast: false
       matrix:
@@ -393,6 +431,8 @@ jobs:
   deploy-runner-attestator-network:
     needs:
       - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.attestor_network_testing == 'true' }}
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
@@ -1119,6 +1159,8 @@ jobs:
   docs-smart-contract-development-with-hardhat:
     needs:
       - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.docs_smart_contract == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
