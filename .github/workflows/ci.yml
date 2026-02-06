@@ -17,6 +17,29 @@ permissions: read-all
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
+  should-run:
+    runs-on: ubuntu-24.04
+    outputs:
+      cc3_indexer: ${{ steps.filter.outputs.cc3_indexer }}
+      unit_test_cli: ${{ steps.filter.outputs.unit_test_cli }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: "Examine which files have been modified by this PR"
+        uses: dorny/paths-filter@v3.0.2
+        id: filter
+        with:
+          filters: |
+            cc3_indexer:
+              - "pallets/**"
+              - "precompiles/**"
+              - "runtime/**"
+              - "cc3-indexer/**"
+              - ".github/workflows/ci.yml"
+            unit_test_cli:
+              - "cli/src/**"
+              - ".github/workflows/ci.yml"
+
   sanity-tests:
     runs-on: ubuntu-24.04
     steps:
@@ -236,6 +259,9 @@ jobs:
             metadata-cmp-with-testnet.txt
 
   unit-test-cli:
+    needs:
+      - should-run
+    if: ${{ needs.should-run.outputs.unit_test_cli == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -1229,7 +1255,9 @@ jobs:
 
   deploy-runner-cc3-indexer:
     needs:
+      - should-run
       - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.cc3_indexer == 'true' }}
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
