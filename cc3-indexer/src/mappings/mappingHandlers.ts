@@ -34,6 +34,7 @@ import {
     AuthorizedAttestors,
     AuthorizedAttestorRemoved,
     ContinuityProof,
+    ForcedElection,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData } from './initStore';
@@ -1308,4 +1309,25 @@ export async function handleAuthorizedAttestorRemoved(event: SubstrateEvent): Pr
     const promiseList = [authorizedAttestorRemoved.save(), removeAuthorizedAttestor];
 
     await Promise.all(promiseList);
+}
+
+export async function handleForcedElection(event: SubstrateEvent): Promise<void> {
+    logger.info(`ForcedElection event found at block ${event.block.block.header.number.toString()}`);
+
+    const {
+        event: {
+            data: [epoch],
+        },
+    } = event;
+
+    const blockNumber = event.block.block.header.number.toBigInt();
+
+    const forcedElection = ForcedElection.create({
+        id: `${blockNumber}-${event.idx}`,
+        blockNumber,
+        date: event.block.timestamp,
+        epoch: BigInt(epoch.toString()),
+    });
+
+    await forcedElection.save();
 }

@@ -626,3 +626,16 @@ type AuthorizedAttestorRemoved @entity {
 
     attestor: Account!
 }
+
+type ForcedElection @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: BigInt!
+
+    date: Date
+
+    epoch: BigInt!
+}
