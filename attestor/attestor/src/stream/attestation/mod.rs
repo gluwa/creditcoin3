@@ -26,10 +26,10 @@ pub struct StreamAttestation {
     continuity: CacheContinuity,
     bls_key: bls_signatures::PrivateKey,
 
+    block_n: common::types::Height,
     block_start: common::types::Height,
-    block_latest: common::types::Height,
-    block_current: common::types::Height,
-    block_limit: common::types::Height,
+    block_stop: common::types::Height,
+    block_head: common::types::Height,
 
     cc3: cc_client::Client,
     eth: eth::Client,
@@ -69,12 +69,12 @@ impl StreamAttestation {
         use anyhow::Context as _;
         use futures::StreamExt as _;
 
-        let checkpoint_in_blocks = config
+        let catchup_limit = config
             .interval_attestation
             .saturating_mul(config.interval_checkpoint);
 
         let continuity = CacheContinuity::new(
-            checkpoint_in_blocks.try_into().unwrap(),
+            catchup_limit.try_into().unwrap(),
             config.start_height,
             config.start_digest,
         );
@@ -84,7 +84,7 @@ impl StreamAttestation {
             .subscribe()
             .await
             .context("Failed to initialize source chain connection")?;
-        let block_next = stream
+        let next = stream
             .next()
             .await
             .context("Unexpected end of stream")?
@@ -93,21 +93,19 @@ impl StreamAttestation {
 
         let interval_attestation = config.interval_attestation.get() as common::types::Height;
 
-        let block_start = config.start_height;
-        let block_latest = block_next - (block_next % interval_attestation);
-        let block_current = block_start
-            .saturating_add(checkpoint_in_blocks.get())
-            .min(block_latest);
-        let block_limit = block_current;
+        let block_head = next - (next % interval_attestation);
+        let block_n = block_head.min(config.start_height.saturating_add(catchup_limit.get()));
+        let block_stop = config.start_height;
+        let block_start = block_n;
 
         anyhow::Ok(Self {
             continuity,
             bls_key: config.bls_key,
 
+            block_n,
             block_start,
-            block_latest,
-            block_current,
-            block_limit,
+            block_stop,
+            block_head,
 
             cc3: config.cc3,
             eth: config.eth,
@@ -121,10 +119,13 @@ impl StreamAttestation {
         })
     }
 
+    #[tracing::instrument(skip_all, fields(height = block_stop))]
     pub async fn generate_attestation(
         &mut self,
         Permit(block_stop): Permit,
     ) -> Result<common::types::Attestation, Error> {
+        tracing::debug!("Generating attestation");
+
         self.continuity.update(&mut self.eth, block_stop).await?;
 
         assert!(
@@ -135,11 +136,22 @@ impl StreamAttestation {
         let block_first = self.continuity.cache.first().unwrap().block_number;
         assert!(block_stop >= block_first, "{block_stop} >= {block_first}");
 
-        let block_last = self.continuity.cache.last().unwrap().block_number;
+        let block_last = self
+            .continuity
+            .cache
+            .last()
+            .unwrap()
+            .block_number
+            .saturating_add(1);
         assert!(block_stop <= block_last, "{block_stop} <= {block_last}");
 
-        let block_index = block_stop - block_first;
-        let RootInfo { ref block, root } = self.continuity.roots.cache[block_index as usize];
+        let block_index = block_stop as usize - block_first as usize;
+        let RootInfo { ref block, root } = self.continuity.roots.cache[block_index];
+
+        let continuity_proof =
+            attestor_primitives::attestation_fragment::AttestationFragmentSerializable {
+                blocks: self.continuity.cache[0..block_index].as_ref().to_vec(),
+            };
 
         assert_eq!(
             block.number(),
@@ -147,15 +159,28 @@ impl StreamAttestation {
             "Misstached block height in cache"
         );
 
-        let attestation_data = common::types::AttestationData::new(
-            self.chain_key,
-            block.number(),
-            attestor_primitives::Digest::from(*block.hash()),
-            root,
-            Some(self.continuity.prev_digest),
+        tracing::debug!(
+            len = continuity_proof.blocks.len(),
+            start = continuity_proof
+                .blocks
+                .first()
+                .map(|block| block.block_number),
+            stop = continuity_proof
+                .blocks
+                .last()
+                .map(|block| block.block_number),
+            "Generated proof"
         );
 
-        let attestation = self.sign_attestation(attestation_data, Default::default());
+        let attestation_data = common::types::AttestationData::new(
+            self.chain_key,
+            block_stop,
+            attestor_primitives::Digest::from(*block.hash()),
+            root,
+            continuity_proof.head().map(|head| head.digest),
+        );
+
+        let attestation = self.sign_attestation(attestation_data, continuity_proof);
 
         Ok(attestation)
     }
@@ -169,6 +194,8 @@ impl StreamAttestation {
 
         let start_height = self.continuity.roots.start_height;
 
+        tracing::debug!(start_height, "Generating genesis attestation");
+
         self.continuity
             .roots
             .update(&mut self.eth, start_height)
@@ -181,7 +208,7 @@ impl StreamAttestation {
 
         let attestation_data = common::types::AttestationData::new(
             self.chain_key,
-            self.block_start,
+            start_height,
             attestor_primitives::Digest::from(*block.hash()),
             root,
             prev_digest,
@@ -191,7 +218,7 @@ impl StreamAttestation {
     }
 
     pub fn block_highest(&self) -> common::types::Height {
-        self.block_limit
+        self.block_head
     }
 
     fn sign_attestation(
@@ -286,45 +313,63 @@ impl futures::Stream for StreamAttestation {
     ) -> std::task::Poll<Option<Self::Item>> {
         use std::future::Future as _;
 
-        let interval_attestation = self.interval_attestation.get();
-        let interval_checkpoint = self.interval_checkpoint.get();
+        let block_n = self.block_n - (self.block_n % self.interval_attestation.get());
 
-        let block_current = self.block_current - (self.block_current % interval_attestation);
-        if block_current > self.block_start {
-            self.block_current = block_current.saturating_sub(interval_attestation);
-            return std::task::Poll::Ready(Some(Ok(Permit(block_current))));
+        if block_n > self.block_stop {
+            let permit = Permit(block_n);
+            self.block_n = block_n.saturating_sub(self.interval_attestation.get());
+
+            return std::task::Poll::Ready(Some(Ok(permit)));
         }
 
-        let checkpoint_in_blocks = interval_attestation * interval_checkpoint;
-        if self.block_limit - self.block_current >= checkpoint_in_blocks {
-            assert!(self.waker.is_none());
-            self.waker.replace(cx.waker().clone());
+        let catchup_limit = self
+            .interval_attestation
+            .saturating_mul(self.interval_checkpoint)
+            .get();
+
+        if self.block_stop.saturating_add(catchup_limit) > self.block_start {
+            tracing::debug!(
+                block_n,
+                block_stop = self.block_stop,
+                block_start = self.block_start,
+                catchup_limit,
+                "Fetching next catchup section"
+            );
+
+            let block_stop = self.block_stop.max(self.block_start);
+
+            while self.block_head <= block_stop {
+                let block_n = match std::task::ready!(std::pin::pin!(self.next_block()).poll(cx)) {
+                    Some(Ok(block_n)) => block_n,
+                    Some(Err(err)) => return std::task::Poll::Ready(Some(Err(err))),
+                    None => return std::task::Poll::Ready(Some(Err(Error::Interrupt))),
+                };
+
+                self.block_head =
+                    block_n.saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
+                self.block_head -= self.block_head % self.interval_attestation.get();
+            }
+
+            tracing::debug!(
+                block_head = self.block_head,
+                block_stop,
+                "Fetched latest head"
+            );
+
+            self.block_n = self
+                .block_head
+                .min(block_stop.saturating_add(catchup_limit));
+            self.block_stop = block_stop;
+            self.block_start = self.block_n;
+
+            let permit = Permit(self.block_n);
+            self.block_n = self.block_n.saturating_sub(self.interval_attestation.get());
+
+            return std::task::Poll::Ready(Some(Ok(permit)));
         }
 
-        let mut block_next = self.block_latest;
-        while block_next <= self.block_latest {
-            let fut = std::pin::pin!(self.next_block());
-            let block_n = match std::task::ready!(fut.poll(cx)) {
-                Some(Ok(block_n)) => block_n,
-                Some(Err(err)) => return std::task::Poll::Ready(Some(Err(err))),
-                None => return std::task::Poll::Ready(Some(Err(Error::Interrupt))),
-            };
-
-            block_next = block_n.saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
-            block_next -= block_next % interval_attestation;
-        }
-
-        let block_target = self
-            .block_start
-            .saturating_add(checkpoint_in_blocks)
-            .min(block_next);
-
-        self.block_start = self.block_latest;
-        self.block_latest = block_next;
-        self.block_current = block_target.saturating_sub(interval_attestation);
-        self.block_limit = self.block_current;
-
-        std::task::Poll::Ready(Some(Ok(Permit(block_target))))
+        self.waker.replace(cx.waker().clone());
+        std::task::Poll::Pending
     }
 }
 
@@ -335,14 +380,15 @@ impl CacheContinuity {
         start_digest: Option<attestor_primitives::Digest>,
     ) -> Self {
         Self {
-            cache: Vec::with_capacity(checkpoint_in_blocks.get()),
+            cache: Vec::with_capacity(checkpoint_in_blocks.saturating_add(1).get()),
             prev_digest: start_digest.unwrap_or_default(),
-            max_size: checkpoint_in_blocks,
+            max_size: checkpoint_in_blocks.saturating_add(1),
 
             roots: CacheRoots::new(checkpoint_in_blocks, start_height),
         }
     }
 
+    #[tracing::instrument(skip_all, fields(block_stop))]
     async fn update(
         &mut self,
         eth: &mut eth::Client,
@@ -366,7 +412,9 @@ impl CacheContinuity {
             return Ok(());
         }
 
-        let size_fragment = (block_stop - block_start).saturating_add(1) as usize;
+        tracing::debug!(block_start, block_stop, "Computing continuity proof");
+
+        let size_fragment = block_stop as usize - block_start as usize;
         let size_roots = self.roots.cache.len();
 
         assert!(size_fragment < size_roots, "{size_fragment} < {size_roots}");
@@ -378,7 +426,9 @@ impl CacheContinuity {
         let index_start = (block_start - roots_start) as usize;
         let index_stop = index_start + size_fragment;
 
-        for RootInfo { block, root } in &self.roots.cache[index_start..=index_stop] {
+        tracing::debug!(index_start, index_stop, "Computing missing segments");
+
+        for RootInfo { block, root } in &self.roots.cache[index_start..index_stop] {
             let prev_digest = self
                 .cache
                 .last()
@@ -394,6 +444,14 @@ impl CacheContinuity {
                 .push(attestor_primitives::block::BlockSerializable::from(block));
         }
 
+        let len_cache = self.cache.len();
+        let max_size = self.max_size.get();
+
+        assert!(
+            len_cache <= max_size,
+            "Invalid continuity cache size: {len_cache} <= {max_size}"
+        );
+
         Ok(())
     }
 }
@@ -404,8 +462,8 @@ impl CacheRoots {
         start_height: common::types::Height,
     ) -> Self {
         Self {
-            cache: Vec::with_capacity(checkpoint_in_blocks.get() * 2),
-            max_size: checkpoint_in_blocks,
+            cache: Vec::with_capacity(checkpoint_in_blocks.saturating_add(1).get()),
+            max_size: checkpoint_in_blocks.saturating_add(1),
             start_height,
         }
     }
@@ -421,24 +479,33 @@ impl CacheRoots {
         use rayon::iter::ParallelExtend as _;
         use rayon::iter::ParallelIterator as _;
 
+        let block_first = self
+            .cache
+            .first()
+            .map(|info| info.block.number())
+            .unwrap_or(self.start_height);
         let block_start = self
             .cache
             .last()
             .map(|info| info.block.number())
             .unwrap_or(self.start_height);
 
-        if block_stop < block_start
-            || self
+        if block_stop < block_start {
+            if self
                 .cache
                 .len()
                 .checked_sub(block_stop as usize - block_start as usize)
-                .is_none_or(|len_new| len_new > self.max_size.get())
-        {
-            tracing::info!(block_start, block_stop, "🎯 Cache hit");
+                .is_some_and(|len_new| len_new > self.max_size.get())
+            {
+                tracing::warn!(block_start, block_stop, "🏃 Max catchup reached");
+            } else {
+                tracing::info!(block_start, block_stop, "🎯 Cache hit");
+            }
             return Ok(());
         }
 
         tracing::info!(block_start, block_stop, "🎯 Cache miss");
+        tracing::debug!(block_start, block_stop, "Computing digests");
 
         let encoding = ccnext_abi_encoding::common::EncodingVersion::V1;
         let iter = (block_start..=block_stop).map(|h| {
@@ -455,14 +522,27 @@ impl CacheRoots {
                 block,
             }));
 
+        let len_cache = self.cache.len();
+        let max_size = self.max_size.get();
+
+        tracing::info!(
+            "[({block_first})/{block_start}:{block_stop}]: {:?}",
+            self.cache
+                .iter()
+                .map(|info| info.block.number())
+                .collect::<Vec<_>>()
+        );
+
         assert!(
-            self.cache.len() < self.max_size.get(),
-            "Invalid digest cache size"
+            len_cache <= max_size,
+            "From {} - Invalid digest cache size: {len_cache} <= {max_size} [({block_first})/{block_start}:{block_stop}]: {:?}",
+            self.start_height,
+            self.cache.iter().map(|info| info.block.number()).collect::<Vec<_>>()
         );
 
         assert!(
             !self.cache.is_empty(),
-            "Cache cannot be empty after an update"
+            "Cache cannot be empty after an update [({block_first}){block_start}:{block_stop}]"
         );
 
         Ok(())
@@ -472,6 +552,7 @@ impl CacheRoots {
 impl crate::events::EventAttestationFinalizationAsync for StreamAttestation {
     type Error = ();
 
+    #[tracing::instrument(skip_all, fields(height = info.height, digest = %info.digest))]
     async fn note_attestation_finalization_async(
         &mut self,
         info: common::types::AttestationInfo,
@@ -479,10 +560,18 @@ impl crate::events::EventAttestationFinalizationAsync for StreamAttestation {
         use crate::events::EventAttestationFinalization as _;
 
         let interval_attestation = self.interval_attestation.get();
-        let height = info.height + interval_attestation - (info.height % interval_attestation);
+        let height = info.height - (info.height % interval_attestation);
 
-        if self.block_current < height {
-            self.block_current = height;
+        tracing::debug!(
+            block_stop = self.block_stop,
+            height,
+            "Updating attestation stream"
+        );
+
+        if self.block_stop < height {
+            self.block_stop = height;
+            // FIXME: overflow, underflow, invariants violated?
+            self.continuity.roots.start_height = height;
         }
 
         if let Some(waker) = self.waker.take() {
@@ -507,7 +596,10 @@ impl crate::events::EventAttestationFinalizationAsync for CacheContinuity {
     ) -> Result<(), Self::Error> {
         use crate::events::EventAttestationFinalization as _;
 
+        tracing::debug!("Updating continuity cache");
+
         self.cache.clear();
+        self.prev_digest = info.digest;
 
         self.roots
             .note_attestation_finalization(info)
@@ -527,19 +619,22 @@ impl crate::events::EventAttestationFinalizationAsync for CacheRoots {
     ) -> Result<(), Self::Error> {
         if !self.cache.is_empty() {
             let block_first = self.cache.first().unwrap().block.number();
-            let block_last = self.cache.last().unwrap().block.number();
 
-            if info.height >= block_first && info.height <= block_last {
-                let index_stop = info.height as usize - block_first as usize;
+            if info.height >= block_first {
+                let index_stop =
+                    (info.height as usize - block_first as usize + 1).max(self.cache.len());
+
                 let removed_last = self
                     .cache
-                    .drain(0..=index_stop)
+                    .drain(0..index_stop)
                     .next_back()
                     .unwrap()
                     .block
                     .number();
 
                 assert_eq!(removed_last, info.height);
+
+                self.start_height = info.height.saturating_add(1);
             }
         }
 

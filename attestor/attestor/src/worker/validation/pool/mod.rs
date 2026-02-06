@@ -744,10 +744,12 @@ impl AttestationPoolForks {
     }
 
     fn pop(&mut self, digest: attestor_primitives::Digest) {
-        let vote = self
-            .forks_by_digest
-            .remove(&digest)
-            .expect("Missing mapping in forks_by_digest");
+        let Some(vote) = self.forks_by_digest.remove(&digest) else {
+            // NOTE: quorum was picked up right before note_attestation_finalization could run, and
+            // has since already been removed from the pool.
+            return;
+        };
+
         let height = vote.attestation.header_number();
         let size = vote.signers.len();
 

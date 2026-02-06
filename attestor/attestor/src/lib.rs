@@ -46,6 +46,7 @@ impl Attestor {
     pub async fn run(self) -> Result<(), Error> {
         use anyhow::Context as _;
         use bls_signatures::Serialize as _;
+        use events::EventAttestationFinalization as _;
         use futures::stream::StreamExt as _;
         use std::str::FromStr as _;
 
@@ -363,7 +364,7 @@ impl Attestor {
             .with_attestation_interval(interval_attestation)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
-        let (sender_validation, receiver_validation) =
+        let (mut sender_validation, receiver_validation) =
             worker::validation::pool::attestation_pool(config);
 
         sender_p2p
@@ -461,6 +462,13 @@ impl Attestor {
                 }
             }
         };
+
+        stream_attestation
+            .note_attestation_finalization(attestation_latest_cc3)
+            .expect("Infallible");
+        sender_validation
+            .note_attestation_finalization(attestation_latest_cc3)
+            .expect("Infallible");
 
         let config = worker::production::ConfigBuilder::new()
             .with_stream_attestation(stream_attestation)

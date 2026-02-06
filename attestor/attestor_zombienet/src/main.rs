@@ -119,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
                 break;
             }
             _ = tokio::signal::ctrl_c() => {
-                return Ok(());
+                return anyhow::Ok(());
             }
             _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
         }
@@ -148,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
                 break;
             }
             _ = tokio::signal::ctrl_c() => {
-                return Ok(());
+                return anyhow::Ok(());
             }
             _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
         }
@@ -403,9 +403,18 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    while let Some(res) = futures_chill.join_next().await {
-        let (name, account_id) = res??;
-        tracing::info!(name, %account_id, "❄️   Successfully chilled attestor");
+    while !futures_chill.is_empty() {
+        tokio::select! {
+            biased;
+
+            Some(res) = futures_chill.join_next() => {
+                let (name, account_id) = res??;
+                tracing::info!(name, %account_id, "❄️   Successfully chilled attestor");
+            }
+            _ = tokio::signal::ctrl_c() => {
+                return anyhow::Ok(());
+            }
+        }
     }
 
     // ------------------------* Attestor chilling (on-chain confirmation) *-----------------------
@@ -449,9 +458,18 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    while let Some(res) = futures_unregister.join_next().await {
-        let (name, account_id) = res??;
-        tracing::info!(name, %account_id, "🪦   Successfully un-registered attestor");
+    while !futures_unregister.is_empty() {
+        tokio::select! {
+            biased;
+
+            Some(res) = futures_unregister.join_next() => {
+                let (name, account_id) = res??;
+                tracing::info!(name, %account_id, "🪦   Successfully un-registered attestor");
+            }
+            _ = tokio::signal::ctrl_c() => {
+                return anyhow::Ok(());
+            }
+        }
     }
 
     anyhow::Ok(())
@@ -475,7 +493,6 @@ where
             biased;
 
             _ = tokio::signal::ctrl_c() => {
-                tracing::info!("🔌 Received shutdown signal");
                 return anyhow::Ok(());
             }
             block = blocks.next() => {
@@ -494,7 +511,6 @@ where
             biased;
 
             _ = tokio::signal::ctrl_c() => {
-                tracing::info!("🔌 Received shutdown signal");
                 return anyhow::Ok(());
             }
             events = block.events() => {
