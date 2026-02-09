@@ -1,0 +1,54 @@
+[package]
+authors = { workspace = true }
+description = "A Precompile to verify ed25519 signatures"
+edition = "2021"
+name = "pallet-evm-precompile-ed25519-verifier"
+version = "0.1.0"
+
+[dependencies]
+log = { workspace = true }
+
+# Moonbeam
+precompile-utils = { workspace = true }
+
+# Substrate
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+parity-scale-codec = { workspace = true, features = [
+  "max-encoded-len",
+], default-features = false }
+scale-info = { workspace = true, features = ["derive"] }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+
+# Frontier
+fp-evm = { workspace = true }
+pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
+
+[dev-dependencies]
+derive_more = { workspace = true }
+pallet-balances = { workspace = true }
+pallet-timestamp = { workspace = true }
+precompile-utils = { workspace = true, features = ["std", "testing"] }
+serde = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+  "log/std",
+  "precompile-utils/std",
+  "fp-evm/std",
+  "frame-support/std",
+  "frame-system/std",
+  "pallet-balances/std",
+  "pallet-evm/std",
+  "pallet-timestamp/std",
+  "parity-scale-codec/std",
+  "scale-info/std",
+  "sp-core/std",
+  "sp-io/std",
+  "sp-runtime/std",
+  "sp-std/std",
+]
