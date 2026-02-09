@@ -3,6 +3,7 @@ members = [
   "node",
   "runtime",
   "runtime/generate-bags",
+  "precompiles/ed25519-verifier",
   "precompiles/signature-verifier",
   "precompiles/substrate-transfer",
 ]
@@ -201,6 +202,7 @@ precompile-utils = { git = "https://github.com/paritytech/frontier", branch = "s
 creditcoin3-runtime = { path = "runtime", default-features = false }
 
 # Precompiles
+pallet-evm-precompile-ed25519-verifier = { path = "precompiles/ed25519-verifier", default-features = false }
 pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verifier", default-features = false }
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 
