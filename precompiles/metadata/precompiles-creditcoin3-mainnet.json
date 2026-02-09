@@ -1,5 +1,13 @@
 [
   {
+    "address": "0x00000000000000000000000000000000000013bA",
+    "name": "Ed25519Verifier",
+    "bytecode": "0xfe",
+    "compiler": "Not Installed",
+    "source": "// SPDX-License-Identifier: GPL-3.0-only\npragma solidity >=0.8.3;\n\n/// @dev The Ed25519Verifier precompile address\naddress constant ED25519_VERIFIER_ADDRESS = 0x00000000000000000000000000000000000013bA;\n\nEd25519Verifier constant ED25519_VERIFIER_CONTRACT = Ed25519Verifier(ED25519_VERIFIER_ADDRESS);\n\n/// @title Ed25519Verifier interface\n/// @notice This interface defines the function for verifying ed25519 signatures.\ninterface Ed25519Verifier {\n    /// @dev Verifies an ed25519 signature.\n    /// @param message The message that was signed.\n    /// @param signature The 64-byte ed25519 signature.\n    /// @param publicKey The 32-byte ed25519 public key.\n    /// @return bool true if the signature is valid, false otherwise.\n    function verify(bytes calldata message, bytes calldata signature, bytes32 publicKey) external view returns (bool);\n}",
+    "abi": "[{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"message\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"signature\",\"type\":\"bytes\"},{\"internalType\":\"bytes32\",\"name\":\"publicKey\",\"type\":\"bytes32\"}],\"name\":\"verify\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]"
+  },
+  {
     "address": "0x00000000000000000000000000000000000013B9",
     "name": "SignatureVerifier",
     "bytecode": "0xfe",
