@@ -26,7 +26,6 @@ jobs:
       docs_smart_contract: ${{ steps.filter.outputs.docs_smart_contract }}
       integration_test_blockchain: ${{ steps.filter.outputs.integration_test_blockchain }}
       integration_test_cli: ${{ steps.filter.outputs.integration_test_cli }}
-      unit_test_cli: ${{ steps.filter.outputs.unit_test_cli }}
     steps:
       - uses: actions/checkout@v6
 
@@ -89,12 +88,6 @@ jobs:
               - "cli/src/commands/**"
               - "cli/src/lib/**"
               - "cli/src/test/integration-tests/**"
-              - ".github/workflows/ci.yml"
-            unit_test_cli:
-              - "cli/yarn.lock"
-              - "cli/src/commands/**"
-              - "cli/src/lib/**"
-              - "cli/src/test/unit-tests/**"
               - ".github/workflows/ci.yml"
 
   deploy-runner-build-creditcoin-for-testing:
@@ -168,42 +161,6 @@ jobs:
             # disabled until we have mainnet
             # metadata-cmp-with-mainnet.txt
             metadata-cmp-with-testnet.txt
-
-  unit-test-cli:
-    needs:
-      - should-run
-    if: ${{ needs.should-run.outputs.unit_test_cli == 'true' }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-      - run: npm install -g yarn
-
-      - name: Install Solidity compiler
-        run: |
-          sudo .github/install-solidity-compiler.sh
-
-      - name: Generate precompiles ABI from source code
-        working-directory: ./precompiles/metadata
-        run: |
-          solc --version
-          ./abi-creator.sh
-
-      - name: Execute tests
-        working-directory: ./cli
-        run: |
-          yarn install
-          yarn test:unit
-
-      - uses: codecov/codecov-action@v5
-        with:
-          files: cli/coverage/lcov.info
-          fail_ci_if_error: false
-          verbose: true
 
   rm-gh-runner-integration-test-cli:
     needs:

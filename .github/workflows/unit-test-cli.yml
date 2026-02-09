@@ -1,0 +1,53 @@
+---
+name: unit-test-cli
+
+"on":
+  pull_request:
+    branches: [main, testnet, poc_external_attestation_network]
+    paths:
+      - "cli/yarn.lock"
+      - "cli/src/commands/**"
+      - "cli/src/lib/**"
+      - "cli/src/test/unit-tests/**"
+      - ".github/workflows/unit-test-cli.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  unit-test-cli:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Execute tests
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn test:unit
+
+      - uses: codecov/codecov-action@v5
+        with:
+          files: cli/coverage/lcov.info
+          fail_ci_if_error: false
+          verbose: true
