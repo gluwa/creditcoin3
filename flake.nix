@@ -2,7 +2,7 @@
   description = "cc3-next dev env and commands";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/release-25.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     rust-overlay.url = "github:oxalica/rust-overlay";
     crane.url = "github:ipetkov/crane";
     flake-utils.url = "github:numtide/flake-utils";
@@ -202,7 +202,7 @@
       '';
 
       script_anvil = pkgs.writeShellScriptBin "anvil" ''
-        exec ${pkgs.foundry}/bin/anvil --block-time 6 "$@"
+        exec ${pkgs.foundry}/bin/anvil --block-time 1 "$@"
       '';
 
       script_attestor = pkgs.writeScriptBin "attestor" ''
