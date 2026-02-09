@@ -6,6 +6,24 @@
       {
         "address": "0x44919C4B087B30d1afd7e58359604dE6fe986d8a",
         "name": "Testnet v2 faucet"
+      },
+      {
+        "address": "0x3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0",
+        "name": "Testnet v2 query submitter"
+      }
+    ]
+  },
+  {
+    "name": "USC Testnet 1",
+    "base_url": "https://blockscout.usc-testnet.creditcoin.network/",
+    "accounts": [
+      {
+        "address": "0x0dfa236F82eB264183E568280609df16c6901D2D",
+        "name": "Testnet v1 faucet"
+      },
+      {
+        "address": "0x3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0",
+        "name": "Testnet v1 query submitter"
       }
     ]
   },

@@ -112,6 +112,26 @@ def main():
     if not network_reports:
         lines.append("- no accounts or networks configured")
     else:
+        all_valid = [
+            r
+            for _, rows in network_reports
+            if isinstance(rows, list)
+            for r in rows
+            if r["token"] is not None
+        ]
+        status_width = len("Status")
+        display_width = max(
+            len("Account"),
+            max((len(r["display"]) for r in all_valid), default=0),
+        )
+        amount_width = max(
+            len("Balance"),
+            max(
+                (len(f"{r['token']:.6f} {TOKEN_SYMBOL}") for r in all_valid),
+                default=0,
+            ),
+        )
+
         for name, rows in network_reports:
             if isinstance(rows, str):
                 lines.append("```\n" + f"🟪 {name}\n{rows}\n```")
@@ -126,18 +146,6 @@ def main():
 
             table = []
             if valid_rows:
-                status_width = len("Status")
-                display_width = max(
-                    len("Account"),
-                    max(len(r["display"]) for r in valid_rows),
-                )
-                amount_width = max(
-                    len("Balance"),
-                    max(
-                        len(f"{r['token']:.6f} {TOKEN_SYMBOL}")
-                        for r in valid_rows
-                    ),
-                )
                 table.append(
                     f"{'Status':<{status_width}}  "
                     f"{'Account':<{display_width}}  "
