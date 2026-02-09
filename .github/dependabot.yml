@@ -38,6 +38,7 @@ updates:
       - "/client/rpc/trace"
       - "/node"
       - "/node/cli-opt"
+      - "/precompiles/ed25519-verifier"
       - "/precompiles/substrate-transfer"
       - "/precompiles/signature-verifier"
       - "/primitives/account"
