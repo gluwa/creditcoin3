@@ -1,6 +1,6 @@
 {
   "contracts": {
-    "sol/signature_verifier.sol:SignatureVerifier": {
+    "sol/ed25519_verifier.sol:Ed25519Verifier": {
       "abi": [
         {
           "inputs": [
@@ -36,18 +36,18 @@
         "kind": "dev",
         "methods": {
           "verify(bytes,bytes,bytes32)": {
-            "details": "Verifies an sr25519 signature.",
+            "details": "Verifies an ed25519 signature.",
             "params": {
               "message": "The message that was signed.",
-              "publicKey": "The 32-byte sr25519 public key.",
-              "signature": "The 64-byte sr25519 signature."
+              "publicKey": "The 32-byte ed25519 public key.",
+              "signature": "The 64-byte ed25519 signature."
             },
             "returns": {
               "_0": "bool true if the signature is valid, false otherwise."
             }
           }
         },
-        "title": "SignatureVerifier interface",
+        "title": "Ed25519Verifier interface",
         "version": 1
       },
       "hashes": {
