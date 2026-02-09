@@ -1,0 +1,163 @@
+---
+name: sanity
+
+"on":
+  pull_request:
+    branches: [main, testnet, poc_external_attestation_network]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Check JSON files
+        run: |
+          .github/check-json.sh
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "stable"
+
+      - name: Check for parity between extrinsics, benchmarks and weights
+        run: |
+          echo "INFO: active pallets are"
+          ./.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets
+          echo "========================"
+          ./.github/check-parity-bw-extrinsics-benchmarks-weights.sh
+
+      - name: Check migrations
+        run: |
+          ./.github/check-usage-of-log-warn.sh
+
+      - name: Check if Cargo.toml specifies dependencies from forks
+        run: |
+          ./.github/check-for-used-forks.sh
+
+      - name: Check if all Cargo.toml files are specified inside Dependabot config
+        run: |
+          .github/check-for-missing-Cargo-toml-in-Dependabot-config.sh
+
+      - name: Check if all package.json files are specified inside Dependabot config
+        run: |
+          .github/check-for-missing-package-json-in-Dependabot-config.sh
+
+      - name: Check if chainspecs are valid and not contain bootnodes
+        run: |
+          ./.github/check-bootnodes.sh
+
+  npm-packages:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Build and install creditcoin-cli
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          npm install -g .
+
+      - name: Execute creditcoin cli command
+        run: |
+          # this makes sure we have a `creditcoin` entrypoint in the standard PATH
+          which creditcoin
+          creditcoin help
+          creditcoin wizard --help
+          creditcoin attestor --help
+
+  solidity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Upload generated precompiles ABI
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: precompiles-abi
+          path: precompiles/metadata/abi/*.json
+
+      - name: Check metadata JSON files are up to date
+        working-directory: ./precompiles/metadata
+        run: |
+          ./generate-metadata-json.sh
+          cd ../..
+          # Check if metadata JSON files were modified
+          if [ -n "$(git status --short --untracked-files=no precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json)" ]; then
+            echo "ERROR: Metadata JSON files are out of date. Please run './generate-metadata-json.sh' and commit the changes."
+            git diff precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json
+            exit 1
+          fi
+
+      - name: Prepare ENV for Devnet
+        id: devnet-env
+        if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
+        run: |
+          echo "target_chain=devnet" >> "$GITHUB_OUTPUT"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare ENV for Testnet
+        id: testnet-env
+        if: github.base_ref == 'testnet'
+        run: |
+          echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare ENV for Mainnnet
+        id: mainnet-env
+        if: github.base_ref == 'main'
+        run: |
+          echo "target_chain=mainnet" >> "$GITHUB_OUTPUT"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "mainnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check precompiles
+        run: |
+          sudo apt-get install colordiff
+
+          export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
+          .github/check-solidity-source-vs-metadata.sh
