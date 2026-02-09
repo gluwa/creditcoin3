@@ -1459,6 +1459,7 @@ dependencies = [
  "pallet-evm",
  "pallet-evm-chain-id",
  "pallet-evm-precompile-bn128",
+ "pallet-evm-precompile-ed25519-verifier",
  "pallet-evm-precompile-modexp",
  "pallet-evm-precompile-sha3fips",
  "pallet-evm-precompile-signature-verifier",
@@ -6383,6 +6384,28 @@ dependencies = [
  "fp-evm",
  "sp-core",
  "substrate-bn",
+]
+
+[[package]]
+name = "pallet-evm-precompile-ed25519-verifier"
+version = "0.1.0"
+dependencies = [
+ "derive_more 1.0.0",
+ "fp-evm",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "pallet-evm",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "precompile-utils",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]
