@@ -29,7 +29,7 @@ polkadot.*
 **/throwaway
 
 # hardhat
-**/artifacts/
+docs/smart-contract-development/with-hardhat/artifacts/*
 **/cache/
 **/typechain-types/
 **/ignition/deployments/
