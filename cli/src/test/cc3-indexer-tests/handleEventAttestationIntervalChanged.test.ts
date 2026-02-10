@@ -31,7 +31,6 @@ describe('handleEventAttestationIntervalChanged()', () => {
                     null,
                     null,
                     null,
-                    null,
                     encoding,
                 ),
             )

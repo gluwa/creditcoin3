@@ -233,13 +233,6 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u32]
             >;
-            setVoteAcceptanceWindow: AugmentedSubmittable<
-                (
-                    chainKey: u64 | AnyNumber | Uint8Array,
-                    voteAcceptanceWindow: u64 | AnyNumber | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [u64, u64]
-            >;
             unregisterAttestor: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
@@ -3048,7 +3041,6 @@ declare module '@polkadot/api-base/types/submittable' {
                     maxAttestors: Option<u32> | null | Uint8Array | u32 | AnyNumber,
                     maxInvulnerables: Option<u32> | null | Uint8Array | u32 | AnyNumber,
                     attestationChainGenesisBlockNumber: Option<u64> | null | Uint8Array | u64 | AnyNumber,
-                    voteAcceptanceWindow: Option<u64> | null | Uint8Array | u64 | AnyNumber,
                     encoding: AttestorPrimitivesChainEncodingVersion | 'V1' | number | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [
@@ -3059,7 +3051,6 @@ declare module '@polkadot/api-base/types/submittable' {
                     Option<u32>,
                     Option<u32>,
                     Option<u32>,
-                    Option<u64>,
                     Option<u64>,
                     AttestorPrimitivesChainEncodingVersion,
                 ]

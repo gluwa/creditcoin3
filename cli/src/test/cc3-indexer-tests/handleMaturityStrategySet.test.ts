@@ -31,7 +31,6 @@ describe('handleMaturityStrategySet()', () => {
                     null,
                     null,
                     null,
-                    null,
                     encoding,
                 ),
             )

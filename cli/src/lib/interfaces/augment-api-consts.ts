@@ -35,7 +35,6 @@ declare module '@polkadot/api-base/types/consts' {
             defaultAttestationsPerCheckpoint: u32 & AugmentedConst<ApiType>;
             defaultMinBondRequirement: u128 & AugmentedConst<ApiType>;
             defaultTargetSampleSize: u32 & AugmentedConst<ApiType>;
-            defaultVoteAcceptanceWindow: u64 & AugmentedConst<ApiType>;
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;
             maxAttestationsPerBlock: u32 & AugmentedConst<ApiType>;
             maxCheckpointsImportedPerCall: u32 & AugmentedConst<ApiType>;

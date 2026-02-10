@@ -255,7 +255,6 @@ parameter_types! {
     pub const MaxAttestationsPerBlock: u32 = 10;
     pub const BondingDuration: EraIndex = 3;
     pub const DefaultAttestationChainGenesisBlockNumber: u64 = 0;
-    pub const DefaultVoteAcceptanceWindow: u64 = 3;
 }
 
 impl pallet_attestation_poc::Config for Runtime {
@@ -279,7 +278,6 @@ impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationRetentionDuration = ConstU32<10>;
     type MaxCheckpointsImportedPerCall = ConstU32<100>;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
-    type DefaultVoteAcceptanceWindow = DefaultVoteAcceptanceWindow;
 }
 
 parameter_types! {

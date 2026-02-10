@@ -190,7 +190,6 @@ pub mod pallet {
             max_attestors: Option<u32>,
             max_invulnerables: Option<u32>,
             attestation_chain_genesis_block_number: Option<u64>,
-            vote_acceptance_window: Option<u64>,
             encoding: ChainEncodingVersion,
         ) -> DispatchResult {
             ensure_root(origin)?;
@@ -228,7 +227,6 @@ pub mod pallet {
                 max_attestors,
                 max_invulnerables,
                 attestation_chain_genesis_block_number,
-                vote_acceptance_window,
                 encoding,
             );
 

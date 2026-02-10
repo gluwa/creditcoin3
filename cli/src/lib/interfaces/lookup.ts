@@ -925,7 +925,6 @@ export default {
             ClearedStorageForRemovedChain: 'u64',
             MaxAttestorsChanged: '(u64,u32)',
             AttestationChainGenesisBlockNumberSet: '(u64,u64)',
-            VoteAcceptanceWindowChanged: '(u64,u64)',
             ChangedElectionPolicy: '(u64,PalletAttestationPocAttestorElectionPolicy)',
             AuthorizedAttestorAdded: '(u64,AccountId32)',
             AuthorizedAttestorRemoved: '(u64,AccountId32)',
@@ -2594,10 +2593,7 @@ export default {
                 chainKey: 'u64',
                 genesisBlockNumber: 'u64',
             },
-            set_vote_acceptance_window: {
-                chainKey: 'u64',
-                voteAcceptanceWindow: 'u64',
-            },
+            __Unused20: 'Null',
             set_election_policy: {
                 chainKey: 'u64',
                 newPolicy: 'PalletAttestationPocAttestorElectionPolicy',
@@ -2665,7 +2661,6 @@ export default {
                 maxAttestors: 'Option<u32>',
                 maxInvulnerables: 'Option<u32>',
                 attestationChainGenesisBlockNumber: 'Option<u64>',
-                voteAcceptanceWindow: 'Option<u64>',
                 encoding: 'AttestorPrimitivesChainEncodingVersion',
             },
             remove_chain: {
@@ -3095,7 +3090,6 @@ export default {
             'InvalidTargetSampleSize',
             'AttestationFoundWhileImporting',
             'InvalidAttestationBlockNumber',
-            'InvalidVoteAcceptanceWindow',
             'InvalidAttestorFound',
             'AttestorNotActive',
             'AttestorWithInvalidPublicKey',

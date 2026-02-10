@@ -246,7 +246,6 @@ parameter_types! {
     pub const DefaultAttestationRetentionDuration: u32 = 10;
     pub const MaxCheckpointsImportedPerCall: u32 = 100;
     pub const DefaultAttestationChainGenesisBlockNumber: u64 = 0;
-    pub const DefaultVoteAcceptanceWindow: u64 = 3;
 }
 
 impl attestation_poc::Config for Test {
@@ -270,7 +269,6 @@ impl attestation_poc::Config for Test {
     type DefaultAttestationRetentionDuration = DefaultAttestationRetentionDuration;
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
-    type DefaultVoteAcceptanceWindow = DefaultVoteAcceptanceWindow;
 }
 
 parameter_types! {
@@ -350,7 +348,6 @@ impl ExtBuilder {
                 attestations_per_checkpoint: 10,
                 target_sample_size: TargetSampleSizeDefault::<Test>::get(),
                 checkpoints: vec![],
-                vote_acceptance_window: 3,
             }],
         };
         pallet_genesis.assimilate_storage(&mut t).unwrap();

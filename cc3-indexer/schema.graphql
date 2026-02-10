@@ -24,8 +24,6 @@ type AttestationChainData @entity {
     lastAttestedHeaderNumber: BigInt!
     # Last attested digest
     lastAttestedDigest: String!
-    # Vote acceptance window
-    voteAcceptanceWindow: BigInt!
     # Current attestor election policy
     electionPolicy: String!
 }
@@ -582,21 +580,6 @@ type MaturityStrategySet @entity {
     at: BigInt!
     # account that removed chain
     who: Account!
-}
-
-type VoteAcceptanceWindowChanged @entity {
-    """
-    id field is always required and must look like this
-    """
-    id: ID!
-
-    blockNumber: BigInt!
-
-    date: Date
-
-    chainKey: BigInt!
-
-    voteAcceptanceWindow: BigInt!
 }
 
 type ChangedElectionPolicy @entity {

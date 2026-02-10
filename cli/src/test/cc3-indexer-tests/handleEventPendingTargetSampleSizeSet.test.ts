@@ -29,7 +29,6 @@ describe('handleEventPendingTargetSampleSizeSet()', () => {
                     null,
                     null,
                     null,
-                    null,
                     encoding,
                 ),
             )

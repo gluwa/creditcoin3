@@ -50,7 +50,6 @@ pub struct AttestationChainConfiguration {
     pub attestations_per_checkpoint: u32,
     pub target_sample_size: u32,
     pub checkpoints: Vec<AttestationCheckpoint>,
-    pub vote_acceptance_window: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]

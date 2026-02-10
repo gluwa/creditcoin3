@@ -209,7 +209,6 @@ pub(crate) trait UniversalSmartContractProvider {
     ) -> Result<Option<AttestationCheckpoint>>;
     async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u32>>;
     async fn get_attestation_interval(&self, chain_key: u64) -> Result<Option<u64>>;
-    async fn get_attestation_vote_acceptance_window(&self, chain_key: u64) -> Result<Option<u64>>;
     async fn get_attestation_header_by_digest(
         &self,
         chain_key: u64,
@@ -254,15 +253,6 @@ impl UniversalSmartContractProvider for USCClientWrapper {
 
         Ok(attestation_interval)
     }
-    async fn get_attestation_vote_acceptance_window(&self, chain_key: u64) -> Result<Option<u64>> {
-        let vote_acceptance_window = self
-            .0
-            .get_attestation_vote_acceptance_window(chain_key)
-            .await?;
-
-        Ok(vote_acceptance_window)
-    }
-
     async fn get_attestation_header_by_digest(
         &self,
         chain_key: u64,
@@ -299,17 +289,8 @@ pub(crate) async fn check_attestation_checkpoint_created_within_block_interval_r
         .await?
         .unwrap_or_default();
     info!("Attestation interval: {:?}", attestation_interval);
-    let attestation_vote_acceptance_window = client
-        .get_attestation_vote_acceptance_window(chain_key)
-        .await?
-        .unwrap_or_default();
-    info!(
-        "Attestation vote acceptance window: {:?}",
-        attestation_vote_acceptance_window
-    );
 
-    let checkpoint_block_range =
-        checkpoint_interval as u64 * attestation_interval * attestation_vote_acceptance_window;
+    let checkpoint_block_range = checkpoint_interval as u64 * attestation_interval;
 
     info!("Checkpoint expected range: {checkpoint_block_range}");
 

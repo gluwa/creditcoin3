@@ -29,7 +29,6 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
                     null,
                     null,
                     null,
-                    null,
                     encoding,
                 ),
             )

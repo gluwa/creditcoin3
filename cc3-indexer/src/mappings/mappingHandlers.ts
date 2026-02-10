@@ -29,7 +29,6 @@ import {
     MaturityStrategySet,
     AttestationChainData,
     MaxAttestorsChanged,
-    VoteAcceptanceWindowChanged,
     ChangedElectionPolicy,
     AuthorizedAttestorAdded,
     AuthorizedAttestors,
@@ -147,7 +146,6 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100000000000000000000),
-        voteAcceptanceWindow: BigInt(3),
         electionPolicy: defaultElectionPolicy,
     });
 
@@ -1211,38 +1209,6 @@ export async function handleMaxAttestorsChanged(event: SubstrateEvent): Promise<
     }
 
     await maxAttestorsChanged.save();
-}
-
-export async function handleEventVoteAcceptanceWindowChanged(event: SubstrateEvent): Promise<void> {
-    logger.info(`New VoteAcceptanceWindowChanged event found at block ${event.block.block.header.number.toString()}`);
-
-    const {
-        event: {
-            data: [chainKey, u64],
-        },
-    } = event;
-
-    const blockNumber = event.block.block.header.number.toBigInt();
-
-    const chainKeyNumber = BigInt(chainKey.toString());
-
-    const voteAcceptanceWindowChanged = VoteAcceptanceWindowChanged.create({
-        id: `${blockNumber}-${event.idx}`,
-        blockNumber,
-        date: event.block.timestamp,
-        chainKey: chainKeyNumber,
-        voteAcceptanceWindow: BigInt(u64.toString()),
-    });
-
-    logger.info(`Going to update chainKey ${chainKeyNumber} with voteAcceptanceWindow ${u64.toString()}`);
-    const data = await getChainData(chainKeyNumber);
-    if (data) {
-        logger.info(`VoteAcceptanceWindowChanged event found for chainKey ${chainKeyNumber}`);
-        data.voteAcceptanceWindow = BigInt(u64.toString());
-        await data.save();
-    }
-
-    await voteAcceptanceWindowChanged.save();
 }
 
 export async function handleAttestorElectionPolicyChanged(event: SubstrateEvent): Promise<void> {

@@ -49,7 +49,6 @@ describe('handleEventTargetSampleSizeChanged()', () => {
                     null,
                     null,
                     null,
-                    null,
                     encoding,
                 ),
             )

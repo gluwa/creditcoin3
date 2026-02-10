@@ -301,10 +301,6 @@ mod testsupport {
         async fn get_attestation_interval(&self, _: u64) -> Result<Option<u64>> {
             Ok(None)
         }
-
-        async fn get_attestation_vote_acceptance_window(&self, _: u64) -> Result<Option<u64>> {
-            Ok(None)
-        }
     }
 
     // ------------------------------------------------

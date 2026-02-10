@@ -63,13 +63,6 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
             logger.warn(`minBondRequirement not found for chainKey ${chainKey}, defaulting to 100000000000000000000`);
         }
 
-        let voteAcceptanceWindow = BI(3); // u32, default to 3 if not set
-        try {
-            voteAcceptanceWindow = (await att.voteAcceptanceWindow(chainKey)).toBigInt(); //
-        } catch {
-            logger.warn(`voteAcceptanceWindow not found for chainKey ${chainKey}, defaulting to 3`);
-        }
-
         const supported = SupportedChain.create({
             id,
             chainKey,
@@ -92,7 +85,6 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
             maxSetSize,
             targetSampleSize,
             minBondRequirement,
-            voteAcceptanceWindow,
             electionPolicy: electionPolicyValue,
         });
 

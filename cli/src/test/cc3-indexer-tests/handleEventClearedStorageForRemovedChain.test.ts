@@ -28,7 +28,6 @@ describe('handleEventClearedStorageForRemovedChain()', () => {
                     null,
                     null,
                     null,
-                    null,
                     encoding,
                 ),
             )

@@ -877,7 +877,6 @@ parameter_types! {
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxAttestationsPerBlock: u32 = 10;
-    pub const DefaultVoteAcceptanceWindow: u64 = 3;
     // Attestation retention duration should result in attestations being retained
     // for a period >= proof submission latency.
     // Proof submission latency means the time it takes for the Oracle user to request
@@ -893,7 +892,6 @@ parameter_types! {
 impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
-    type DefaultVoteAcceptanceWindow = DefaultVoteAcceptanceWindow;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
@@ -1489,10 +1487,6 @@ impl_runtime_apis! {
 
         fn attestation_checkpoint_interval(chain_key: ChainKey) -> u32 {
             Attestation::attestation_checkpoint_interval(chain_key)
-        }
-
-        fn chain_vote_acceptance_window(chain_key: ChainKey) -> u64 {
-            Attestation::vote_acceptance_window(chain_key)
         }
 
         fn last_checkpoint(chain_key: ChainKey) -> Option<AttestationCheckpoint> {

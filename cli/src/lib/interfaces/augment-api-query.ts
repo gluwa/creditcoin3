@@ -257,16 +257,6 @@ declare module '@polkadot/api-base/types/storage' {
             targetSampleSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**
-             * The vote acceptance window for the attestation chain.
-             * This represents the number checkpoints worth of votes the chain accepts at a given time.
-             **/
-            voteAcceptanceWindow: AugmentedQuery<
-                ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<u64>,
-                [u64]
-            > &
-                QueryableStorageEntry<ApiType, [u64]>;
-            /**
              * Generic query
              **/
             [key: string]: QueryableStorageEntry<ApiType>;

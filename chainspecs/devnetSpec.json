@@ -23,48 +23,42 @@
               "attestations_per_checkpoint": 10,
               "chain_key": 1,
               "checkpoints": [],
-              "target_sample_size": 3,
-              "vote_acceptance_window": 3
+              "target_sample_size": 3
             },
             {
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 2,
               "checkpoints": [],
-              "target_sample_size": 3,
-              "vote_acceptance_window": 3
+              "target_sample_size": 3
             },
             {
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 3,
               "checkpoints": [],
-              "target_sample_size": 1,
-              "vote_acceptance_window": 3
+              "target_sample_size": 1
             },
             {
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 4,
               "checkpoints": [],
-              "target_sample_size": 3,
-              "vote_acceptance_window": 3
+              "target_sample_size": 3
             },
             {
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 5,
               "checkpoints": [],
-              "target_sample_size": 3,
-              "vote_acceptance_window": 3
+              "target_sample_size": 3
             },
             {
               "attestation_interval": 10,
               "attestations_per_checkpoint": 10,
               "chain_key": 6,
               "checkpoints": [],
-              "target_sample_size": 3,
-              "vote_acceptance_window": 3
+              "target_sample_size": 3
             }
           ],
           "invulnerables": []

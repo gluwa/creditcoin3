@@ -35,7 +35,6 @@ describe('RegisterChain', (): void => {
                         null,
                         null,
                         null,
-                        null,
                         encoding,
                     ),
                 )

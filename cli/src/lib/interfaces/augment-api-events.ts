@@ -111,10 +111,6 @@ declare module '@polkadot/api-base/types/events' {
             PendingTargetSampleSizeSet: AugmentedEvent<ApiType, [u64, u32]>;
             TargetSampleSizeChanged: AugmentedEvent<ApiType, [u64, u32]>;
             Unbonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
-            /**
-             * Note a change in the voter acceptance window for a chain.
-             **/
-            VoteAcceptanceWindowChanged: AugmentedEvent<ApiType, [u64, u64]>;
             Withdrawn: AugmentedEvent<
                 ApiType,
                 [stash: AccountId32, amount: u128],

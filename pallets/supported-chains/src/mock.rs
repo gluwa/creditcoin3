@@ -78,7 +78,6 @@ impl supported_chains_primitives::provider::OnRegisterChainProvider for DummyReg
         _max_attestors: Option<u32>,
         _max_invulnerables: Option<u32>,
         _attestation_chain_genesis_block_number: Option<u64>,
-        _vote_acceptance_window: Option<u64>,
         _encoding: ChainEncodingVersion,
     ) {
     }

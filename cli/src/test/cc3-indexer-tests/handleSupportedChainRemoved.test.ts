@@ -30,7 +30,6 @@ describe('handleSupportedChainRemoved()', () => {
                     null,
                     null,
                     null,
-                    null,
                     encoding,
                 ),
             )

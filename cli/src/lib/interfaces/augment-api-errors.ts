@@ -68,7 +68,6 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidBlsSignature: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
             InvalidTargetSampleSize: AugmentedError<ApiType>;
-            InvalidVoteAcceptanceWindow: AugmentedError<ApiType>;
             /**
              * The invulnerable list is full
              **/

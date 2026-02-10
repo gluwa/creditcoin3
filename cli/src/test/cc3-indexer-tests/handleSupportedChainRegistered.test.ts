@@ -45,7 +45,6 @@ describe('handleSupportedChainRegistered()', () => {
                         null,
                         null,
                         null,
-                        null,
                         encoding,
                     ),
                 )
@@ -125,7 +124,6 @@ describe('handleSupportedChainRegistered()', () => {
                             maxSetSize,
                             targetSampleSize,
                             minBondRequirement,
-                            voteAcceptanceWindow,
                             electionPolicy
                         }
                     }
@@ -162,11 +160,6 @@ describe('handleSupportedChainRegistered()', () => {
 
                 const minBondRequirement = (await api.query.attestation.minBondRequirement(node.chainKey)) as U128;
                 expect(node.minBondRequirement).toEqual(minBondRequirement.toString());
-
-                const voteAcceptanceWindow = (
-                    (await api.query.attestation.voteAcceptanceWindow(node.chainKey)) as U64
-                ).toBigInt();
-                expect(BigInt(node.voteAcceptanceWindow)).toEqual(voteAcceptanceWindow);
 
                 const electionPolicy = (await api.query.attestation.chainElectionPolicy(node.chainKey)).toString();
                 expect(node.electionPolicy).toEqual(electionPolicy);

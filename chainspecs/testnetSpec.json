@@ -23,8 +23,7 @@
               "attestations_per_checkpoint": 10,
               "chain_key": 1,
               "checkpoints": [],
-              "target_sample_size": 9,
-              "vote_acceptance_window": 3
+              "target_sample_size": 9
             }
           ],
           "invulnerables": []

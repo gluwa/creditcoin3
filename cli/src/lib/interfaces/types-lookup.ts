@@ -1163,8 +1163,6 @@ declare module '@polkadot/types/lookup' {
         readonly asMaxAttestorsChanged: ITuple<[u64, u32]>;
         readonly isAttestationChainGenesisBlockNumberSet: boolean;
         readonly asAttestationChainGenesisBlockNumberSet: ITuple<[u64, u64]>;
-        readonly isVoteAcceptanceWindowChanged: boolean;
-        readonly asVoteAcceptanceWindowChanged: ITuple<[u64, u64]>;
         readonly isChangedElectionPolicy: boolean;
         readonly asChangedElectionPolicy: ITuple<[u64, PalletAttestationPocAttestorElectionPolicy]>;
         readonly isAuthorizedAttestorAdded: boolean;
@@ -1194,7 +1192,6 @@ declare module '@polkadot/types/lookup' {
             | 'ClearedStorageForRemovedChain'
             | 'MaxAttestorsChanged'
             | 'AttestationChainGenesisBlockNumberSet'
-            | 'VoteAcceptanceWindowChanged'
             | 'ChangedElectionPolicy'
             | 'AuthorizedAttestorAdded'
             | 'AuthorizedAttestorRemoved';
@@ -3019,11 +3016,6 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly genesisBlockNumber: u64;
         } & Struct;
-        readonly isSetVoteAcceptanceWindow: boolean;
-        readonly asSetVoteAcceptanceWindow: {
-            readonly chainKey: u64;
-            readonly voteAcceptanceWindow: u64;
-        } & Struct;
         readonly isSetElectionPolicy: boolean;
         readonly asSetElectionPolicy: {
             readonly chainKey: u64;
@@ -3063,7 +3055,6 @@ declare module '@polkadot/types/lookup' {
             | 'WithdrawUnbonded'
             | 'ImportCheckpoints'
             | 'SetAttestationChainGenesisBlockNumber'
-            | 'SetVoteAcceptanceWindow'
             | 'SetElectionPolicy'
             | 'AuthorizeAttestor'
             | 'RemoveAuthorizedAttestor'
@@ -3112,7 +3103,6 @@ declare module '@polkadot/types/lookup' {
             readonly maxAttestors: Option<u32>;
             readonly maxInvulnerables: Option<u32>;
             readonly attestationChainGenesisBlockNumber: Option<u64>;
-            readonly voteAcceptanceWindow: Option<u64>;
             readonly encoding: AttestorPrimitivesChainEncodingVersion;
         } & Struct;
         readonly isRemoveChain: boolean;
@@ -3610,7 +3600,6 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidTargetSampleSize: boolean;
         readonly isAttestationFoundWhileImporting: boolean;
         readonly isInvalidAttestationBlockNumber: boolean;
-        readonly isInvalidVoteAcceptanceWindow: boolean;
         readonly isInvalidAttestorFound: boolean;
         readonly isAttestorNotActive: boolean;
         readonly isAttestorWithInvalidPublicKey: boolean;
@@ -3660,7 +3649,6 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidTargetSampleSize'
             | 'AttestationFoundWhileImporting'
             | 'InvalidAttestationBlockNumber'
-            | 'InvalidVoteAcceptanceWindow'
             | 'InvalidAttestorFound'
             | 'AttestorNotActive'
             | 'AttestorWithInvalidPublicKey'

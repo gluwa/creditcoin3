@@ -70,9 +70,6 @@ impl UniversalSmartContractProvider for MockUscRpcClientOk {
             digest: H256::from_slice(&[0u8; 32]),
         }))
     }
-    async fn get_attestation_vote_acceptance_window(&self, _chain_key: u64) -> Result<Option<u64>> {
-        Ok(Some(2_u64))
-    }
     async fn get_attestation_header_by_digest(
         &self,
         _chain_key: u64,
@@ -112,9 +109,6 @@ impl UniversalSmartContractProvider for MockUscRpcClientError {
         _chain_key: u64,
     ) -> Result<Option<AttestationCheckpoint>> {
         Ok(None)
-    }
-    async fn get_attestation_vote_acceptance_window(&self, _chain_key: u64) -> Result<Option<u64>> {
-        Ok(Some(2_u64))
     }
     async fn get_attestation_header_by_digest(
         &self,

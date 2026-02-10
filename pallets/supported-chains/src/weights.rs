@@ -52,8 +52,6 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::ChainAttestationInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::MaxAttestors` (r:0 w:1)
 	/// Proof: `Attestation::MaxAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::VoteAcceptanceWindow` (r:0 w:1)
-	/// Proof: `Attestation::VoteAcceptanceWindow` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::MaxInvulnerables` (r:0 w:1)
 	/// Proof: `Attestation::MaxInvulnerables` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::TargetSampleSize` (r:0 w:1)

@@ -267,35 +267,6 @@ impl USCClient {
         Ok(interval)
     }
 
-    pub async fn get_attestation_vote_acceptance_window(
-        &self,
-        chain_key: u64,
-    ) -> anyhow::Result<Option<u64>> {
-        let address = storage(
-            "Attestation",
-            "VoteAcceptanceWindow",
-            vec![Value::from(chain_key)],
-        );
-
-        let maybe_val = self
-            .api
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&address)
-            .await?;
-
-        // Decode Option<u64>
-        let window = maybe_val
-            .map(|v| -> anyhow::Result<u64> {
-                let bytes = v.encoded();
-                Ok(u64::decode(&mut &bytes[..])?)
-            })
-            .transpose()?;
-
-        Ok(window)
-    }
-
     pub async fn get_attestation_header_by_digest(
         &self,
         chain_key: u64,
