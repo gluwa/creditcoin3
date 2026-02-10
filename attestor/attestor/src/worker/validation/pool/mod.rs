@@ -171,16 +171,13 @@ pub struct Config {
     #[specify_later]
     start_height: common::types::Height,
 
+    /// Latest execution chain digest, used to validate the tail prev digest of new attestations.
     #[specify_later]
     digest_latest_cc3: Option<attestor_primitives::Digest>,
 
     #[specify_later]
     metrics: common::types::Metrics,
 }
-
-// ----------------------------------------- [ Types ] ----------------------------------------- //
-
-type AttestationKey = (common::types::Height, attestor_primitives::Digest);
 
 // ------------------------------------ [ Attestation Pool ] ----------------------------------- //
 
@@ -398,11 +395,9 @@ impl AttestationPoolInner {
         self.validate_attestor.validate(&attestation)?;
 
         tracing::debug!("Adding attestation to pool");
-
         let removed = self.forks.push(attestation)?;
 
         tracing::trace!("Updating metrics");
-
         self.attestation_delay.push(height);
 
         if let Some(waker) = self.wakers.pop_back() {
@@ -417,8 +412,8 @@ impl AttestationPoolInner {
         self.forks.peek().map(|fork| {
             let quorum = Quorum(fork.votes.clone());
             let height = fork.attestation.header_number();
-            let key = (height, fork.attestation.digest());
-            let permit = Permit(key);
+            let digest = fork.attestation.digest();
+            let permit = Permit(common::types::AttestationInfo { height, digest });
 
             // Only update metrics the first time quorum is reached at that height
             if let Some(elapsed) = self.attestation_delay.pop(height) {
@@ -429,14 +424,14 @@ impl AttestationPoolInner {
         })
     }
 
-    fn mark_valid(&mut self, Permit((height, digest)): Permit) {
-        self.forks.split_off(height);
+    fn mark_valid(&mut self, Permit(info): Permit) {
+        self.forks.split_off(info.height);
         self.forks.forks_best = self.forks.find_best();
-        self.digest_local = Some(cc_client::H256::from(digest.0));
+        self.digest_local = Some(cc_client::H256::from(info.digest.0));
     }
 
-    fn mark_invalid(&mut self, Permit((_height, digest)): Permit) {
-        self.forks.pop(digest);
+    fn mark_invalid(&mut self, Permit(info): Permit) {
+        self.forks.pop(info.digest);
     }
 
     fn mark_for_later(&mut self, permit: Permit, signed: common::types::AttestationSigned) {
@@ -492,6 +487,21 @@ struct PrevDigestTail(attestor_primitives::Digest);
 /// Holds and manages all attestation forks behind the execution chain finality. Keeps track of
 /// contentious forks, past equivocations and known invalid votes. Attestation [`Quorum`]s which can
 /// be validated ahead of finality are stored separately in an unbounded collection.
+///
+/// ## Indexing
+///
+/// We use compound keys for fast, cache-local indexing.
+///
+/// > Order matters! [`KeyHeight`] and [`KeySize`] have the same fields but a different ordering:
+/// > `KeyHeight` uses the attestation height as its primary key, while `KeySize` uses the quorum
+/// > size instead.
+///
+/// Compound keys are useful when we want to iterate over a large range of related values in an
+/// ordered manner, or in case we only need to check for the existence of a given value. They
+/// cannot be used to retrieve a value which was not already a part of the key however, and so
+/// should not be used to express mappings. Most importantly though, they are very good at
+/// condensing multiple orderings into a single tree data structure which improves cache locality
+/// and indexing speed.
 struct AttestationPoolForks {
     forks_by_digest: std::collections::BTreeMap<attestor_primitives::Digest, AttestationVote>,
     forks_by_height: std::collections::BTreeSet<KeyHeight>,
@@ -1653,7 +1663,7 @@ impl Quorum {
 /// [`mark_invalid`]: AttestationPoolReceiver::mark_invalid
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct Permit(AttestationKey);
+pub struct Permit(common::types::AttestationInfo);
 
 // ------------------------------------ [ Quorum Validation ] ---------------------------------- //
 
@@ -1766,7 +1776,11 @@ impl std::fmt::Display for ValidateQuorum {
 
 impl std::fmt::Display for Permit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{ height: {}, digest: {} }}", self.0 .0, self.0 .1)
+        write!(
+            f,
+            "{{ height: {}, digest: {} }}",
+            self.0.height, self.0.digest
+        )
     }
 }
 
@@ -1945,10 +1959,10 @@ pub mod fixtures {
         #[default(DIGEST_0)] _prev_digest: attestor_primitives::Digest,
         #[with(_attestors.clone(), _header_number, _prev_digest)] attestation: AttestationVote,
     ) -> Permit {
-        Permit((
-            attestation.attestation.header_number(),
-            attestation.attestation.digest(),
-        ))
+        Permit(common::types::AttestationInfo {
+            height: attestation.attestation.header_number(),
+            digest: attestation.attestation.digest(),
+        })
     }
 }
 

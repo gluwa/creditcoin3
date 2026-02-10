@@ -62,7 +62,7 @@ pool:
   #   Once this count has been reached, the attestor will automatically start
   #   evicting attestations to make space for new votes.
   #
-  capacity: 100
+  capacity: 1000
 
 attestation:
   # Optional: Initial height from which new attestations are produced
