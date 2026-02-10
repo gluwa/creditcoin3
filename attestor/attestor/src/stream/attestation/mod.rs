@@ -13,13 +13,33 @@
 //!
 //! - **Liveness:** changes in consensus should be gossiped rapidly.
 //!
-//! - **Efficiency:** catching up on future attestations should not be any less performant than
-//!   if we were to produce those attestations on by one.
+//! - **Efficiency:** catching up to many attestations at a time should not be any less performant
+//!   than if we were to produce them one by one.
 //!
-//! This is implemented as a complex non-linear stream of attestations with caching built-in to
-//! avoid duplicate computation. Getting this to work has taken much time and most of my sanity: do
-//! keep in mind that the below code has to uphold many invariants during generation, so please be
-//! very careful if you ever have to modify it.
+//! This is implemented as a rather complex non-linear stream of attestations with makes heavy use
+//! of caching to avoid duplicate computation. Getting this to work has taken much time and most of
+//! my sanity, so please do be very careful if you have to update this, and make sure that the
+//! following invariants hold at all times:
+//!
+//! 1. Attestors can NEVER produce more than the catchup limit number of attestations at a time.
+//!
+//! 2. Attestors can NEVER re-generate a past attestation.
+//!
+//! 3. Attestations MIGHT have to be pruned before they are propagated if a higher attestation
+//!    finalizes first.
+//!
+//! 4. Attestations MIGHT finalize out of order despite being submitted in order due to network
+//!    issues.
+//!
+//! 5. Source chain blocks MIGHT be produced out-of-order by whatever RPC is being used.
+//!
+//! 6. The attestation interval, checkpoint interval and catchup limit MIGHT change midway during
+//!    catchup, and this must not break any of the other invariants.
+//!
+//! The code bellow has been written in such a way that if any of these invariants are violated
+//! THEN THE ATTESTOR WILL CRASH. There is no recovery from an invalid state: the best we can do is
+//! not to propagate it. This also makes it easier to detect bugs during testing: if something
+//! isn't working, you will know.
 //!
 //! ## Catchup Strategy
 //!
@@ -38,21 +58,30 @@
 //! within the catchup limit. For example, if the latest source chain block is 1200, but the latest
 //! execution chain attestation height is only 500, then attestor will generate all attestations
 //! between 500 and 1000, starting from 1000 (so 1000, 990, 980, 970... 510). Essentially, the
-//! attestor "fills in the gap" in the attestation chain from the highest point possible.
+//! attestor "fills in the gap" in the attestation chain from top to bottom.
 //!
 //! This is done to ensure that, on average, the highest attestation will always reach quorum
 //! amongst attestors _first_, while still allowing older attestations to be considered as a
 //! backup. This way, we enforce a loose ordering of attestation submission based on the time it
 //! takes to generate and propagate votes. This is not a constant, and due to this the range of
-//! attestations being generated tends to fluctuate.
+//! attestations being generated tends to fluctuate, though generally the attestor does a good job
+//! of always voting on the highest point.
 //!
 //! ## Caching
 //!
 //! Since we generate attestations _backwards_ from the highest possible point in the source chain,
-//! respective of the catchup limit, caching becomes trivial. Blocks and continuity proofs are
-//! fetched and computed only _once_ when generating the first attestation in the catchup range and
-//! reused as much as possible. This is handled by [`CacheRoots`] and [`CacheContinuity`]
-//! respectively.
+//! caching becomes trivial. Blocks and continuity proofs are fetched and computed only _once_ when
+//! generating the first attestation in the catchup range and reused as much as possible. This is
+//! handled by [`CacheRoots`] and [`CacheContinuity`] respectively.
+//!
+//! ## Point for improvement
+//!
+//! The current attestation stream does not support re-generating attestations. This can cause
+//! invalidations during catchup, and some attestations to be dropped if the source chain is
+//! finalizing faster than the runtime can keep up.
+//!
+//! The continuity proof is also gossiped as part of the P2P layer, which poses an issue on large
+//! continuity proofs. This seems redundant as those values should be known locally anyways.
 //!
 //! [`MAX_CATCHUP`]: common::constants::MAX_CATCHUP
 
@@ -132,6 +161,10 @@ impl StreamAttestation {
             .interval_attestation
             .saturating_mul(config.interval_checkpoint);
 
+        let catchup_limit = checkpoint_in_blocks
+            .saturating_mul(common::constants::MAX_CATCHUP)
+            .get();
+
         let continuity = CacheContinuity::new(
             checkpoint_in_blocks,
             config.start_height,
@@ -150,15 +183,10 @@ impl StreamAttestation {
             .number
             .saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
 
-        let interval_attestation = config.interval_attestation.get() as common::types::Height;
+        let interval_attestation = config.interval_attestation.get();
 
         let block_head = next - (next % interval_attestation);
-        let block_n = block_head.min(
-            checkpoint_in_blocks
-                .saturating_mul(common::constants::MAX_CATCHUP)
-                .get()
-                .saturating_add(config.start_height),
-        );
+        let block_n = block_head.min(catchup_limit.saturating_add(config.start_height));
         let block_stop = config.start_height;
         let block_start = block_n;
 
@@ -260,7 +288,10 @@ impl StreamAttestation {
             .update(&mut self.eth, start_height)
             .await?;
 
-        assert!(!self.continuity.roots.cache.is_empty());
+        assert!(
+            !self.continuity.roots.cache.is_empty(),
+            "Cache should not be empty after an update"
+        );
 
         let RootInfo { ref block, root } = self.continuity.roots.cache[0];
         let prev_digest = None;
@@ -373,8 +404,10 @@ impl futures::Stream for StreamAttestation {
     ) -> std::task::Poll<Option<Self::Item>> {
         use std::future::Future as _;
 
+        // Attestation interval might have changed in between, always align the current block to it
         let block_n = self.block_n - (self.block_n % self.interval_attestation.get());
 
+        // We have not finished producing attestations backwards
         if block_n > self.block_stop {
             let permit = Permit(block_n);
             self.block_n = block_n.saturating_sub(self.interval_attestation.get());
@@ -382,12 +415,20 @@ impl futures::Stream for StreamAttestation {
             return std::task::Poll::Ready(Some(Ok(permit)));
         }
 
+        // We have produced the lowest possible attestation, now we check to see if we can produce
+        // attestations at a greater height while still respecting the catchup limit
+
         let checkpoint_in_blocks = self
             .interval_attestation
             .saturating_mul(self.interval_checkpoint);
         let catchup_limit = checkpoint_in_blocks
             .saturating_mul(common::constants::MAX_CATCHUP)
             .get();
+
+        // The catchup limit is ALWAYS based on the cache size. It is not reliable to refer to
+        // `self.block_start` and `self.block_stop` as there are multiple events which might purge
+        // the cache which are not reflected in those variables. The catchup limit is a guarantee on
+        // the max size of the cache, and so we use that as a reference.
         let cache_size = self.continuity.cache.len() as u64;
 
         if cache_size < catchup_limit {
@@ -401,8 +442,20 @@ impl futures::Stream for StreamAttestation {
                 "Fetching next catchup section"
             );
 
+            // `self.block_stop` is updated as new attestations finalize so that we do not generate
+            // attestations which have already reached finality on the execution chain. Because of
+            // this, it can be that `self.block_stop > self.block_start` if an attestor is lagging
+            // behind.
             let block_stop = self.block_stop.max(self.block_start);
+
+            // We do not trust the RPC we are connected to to return block in order. Keep looping
+            // until we get the next best height.
             while self.block_head <= block_stop {
+                //
+                // Fun fact: `eth.get_last_block` does not return the latest block despite calling
+                // `get_block_number`! :D
+                //
+                // https://knowyourmeme.com/memes/hide-the-pain-harold
                 let block_n = match std::task::ready!(std::pin::pin!(self.block_next()).poll(cx)) {
                     Some(Ok(block_n)) => block_n,
                     Some(Err(err)) => return std::task::Poll::Ready(Some(Err(err))),
@@ -414,18 +467,15 @@ impl futures::Stream for StreamAttestation {
                 self.block_head -= self.block_head % self.interval_attestation.get();
             }
 
-            tracing::debug!(
-                block_head = self.block_head,
-                block_stop,
-                "Fetched latest head"
-            );
-
             self.block_n = self
                 .block_head
                 .min(self.block_stop.saturating_add(catchup_limit - cache_size));
             self.block_stop = block_stop;
             self.block_start = self.block_n;
 
+            // We do NOT loop on poll_next to keep it simple to execute. Instead we use the next
+            // best height as the point to generate the next attestation and update the state
+            // accordingly.
             let permit = Permit(self.block_n);
             self.block_n = self.block_n.saturating_sub(self.interval_attestation.get());
 
@@ -447,6 +497,11 @@ impl futures::Stream for StreamAttestation {
             );
         }
 
+        // We don't really care about replacing a previous waker since we are executing this code
+        // in a single-threaded asynchronous context using a custom Tokio runtime, and so we should
+        // not be observing any contention on this future. This differs from the attestation pool,
+        // which needs to keep a queue of past wakers and cannot override them else it risks
+        // stalling other threads.
         self.waker.replace(cx.waker().clone());
         std::task::Poll::Pending
     }
@@ -460,7 +515,7 @@ impl CacheContinuity {
     ) -> Self {
         let max_size: std::num::NonZeroUsize = checkpoint_in_blocks
             .saturating_mul(common::constants::MAX_CATCHUP)
-            .saturating_add(1)
+            .saturating_add(1) // Inclusive
             .try_into()
             .unwrap();
 
@@ -489,7 +544,7 @@ impl CacheContinuity {
         let height_last = self
             .cache
             .last()
-            // FIXME: this breaks other invariants in case of overflow, saturating isn't enough
+            // FIXME: overflow breaks other invariants, saturating isn't enough
             .map(|info| info.block_number + 1)
             .unwrap_or(self.roots.boundary);
 
@@ -583,7 +638,7 @@ impl CacheRoots {
     ) -> Self {
         let max_size: std::num::NonZeroUsize = checkpoint_in_blocks
             .saturating_mul(common::constants::MAX_CATCHUP)
-            .saturating_add(1)
+            .saturating_add(1) // Inclusive
             .try_into()
             .unwrap();
 
@@ -613,6 +668,7 @@ impl CacheRoots {
         let height_last = self
             .cache
             .last()
+            // FIXME: overflow breaks other invariants, saturating isn't enough
             .map(|info| info.block.number() + 1)
             .unwrap_or(self.boundary);
 
