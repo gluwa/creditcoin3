@@ -536,11 +536,6 @@ impl CacheContinuity {
     ) -> Result<(), Error> {
         self.roots.update(eth, height_stop).await?;
 
-        let height_first = self
-            .cache
-            .first()
-            .map(|info| info.block_number)
-            .unwrap_or(self.roots.boundary);
         let height_last = self
             .cache
             .last()
@@ -563,14 +558,6 @@ impl CacheContinuity {
             height_stop,
             start_height = self.roots.boundary,
             "Computing continuity proof"
-        );
-
-        tracing::info!(
-            "[({height_first})/{height_last}:{height_stop}]: {:?}",
-            self.cache
-                .iter()
-                .map(|block| block.block_number)
-                .collect::<Vec<_>>()
         );
 
         let size_fragment = height_stop as usize - height_last as usize + 1;
@@ -610,14 +597,6 @@ impl CacheContinuity {
             self.cache
                 .push(attestor_primitives::block::BlockSerializable::from(block));
         }
-
-        tracing::info!(
-            "[({height_first})/{height_last}:{height_stop}]: {:?}",
-            self.cache
-                .iter()
-                .map(|block| block.block_number)
-                .collect::<Vec<_>>()
-        );
 
         let len_cache = self.cache.len();
         let max_size = self.max_size.get();
@@ -695,12 +674,6 @@ impl CacheRoots {
             start_height = self.boundary,
             "🎯 Cache miss"
         );
-        tracing::debug!(
-            height_last,
-            height_stop,
-            start_height = self.boundary,
-            "Computing digests"
-        );
 
         let encoding = ccnext_abi_encoding::common::EncodingVersion::V1;
         let iter = (height_last..=height_stop).map(|h| {
@@ -719,14 +692,6 @@ impl CacheRoots {
 
         let len_cache = self.cache.len();
         let max_size = self.max_size.get();
-
-        tracing::info!(
-            "[({height_first})/{height_last}:{height_stop}]: {:?}",
-            self.cache
-                .iter()
-                .map(|info| info.block.number())
-                .collect::<Vec<_>>()
-        );
 
         assert!(
             len_cache <= max_size,
@@ -816,17 +781,10 @@ impl crate::events::EventAttestationFinalizationAsync for CacheRoots {
         &mut self,
         info: common::types::AttestationInfo,
     ) -> Result<(), Self::Error> {
+        tracing::debug!("Updating roots cache");
+
         if !self.cache.is_empty() {
             let height_first = self.cache.first().unwrap().block.number();
-
-            tracing::info!(
-                "[{height_first}:{}]: {:?}",
-                info.height,
-                self.cache
-                    .iter()
-                    .map(|info| info.block.number())
-                    .collect::<Vec<_>>()
-            );
 
             if info.height >= height_first {
                 let index_stop =
@@ -839,15 +797,6 @@ impl crate::events::EventAttestationFinalizationAsync for CacheRoots {
                     .unwrap()
                     .block
                     .number();
-
-                tracing::info!(
-                    "[{height_first}:{}]: {:?}",
-                    info.height,
-                    self.cache
-                        .iter()
-                        .map(|info| info.block.number())
-                        .collect::<Vec<_>>()
-                );
 
                 assert_eq!(removed_last, info.height);
 
