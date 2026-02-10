@@ -253,7 +253,6 @@ impl CcRpcProvider for CcClient {
     async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u64>> {
         self.chain_checkpoint_interval(chain_key)
             .await
-            .map(|opt| opt.map(|v| v as u64))
             .map_err(|e| anyhow!("Failed to fetch checkpoint interval: {e}"))
     }
 }

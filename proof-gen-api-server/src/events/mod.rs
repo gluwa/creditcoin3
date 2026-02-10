@@ -167,12 +167,8 @@ async fn process_cc_event(
 
             Ok(())
         }
-        CcEvent::CheckpointIntervalChanged(event_chain_key, new_interval) => {
-            if *event_chain_key != chain_key {
-                return Ok(()); // Not our chain, ignore
-            }
-
-            let interval_u64 = *new_interval as u64;
+        CcEvent::CheckpointIntervalChanged(new_interval) => {
+            let interval_u64 = *new_interval;
             info!(
                 "⚙️  Checkpoint interval changed for chain {chain_key}: {} attestations",
                 interval_u64
