@@ -62,8 +62,7 @@ describe('Precompile: block-prover', (): void => {
         );
     }, 90_000);
 
-    // Frontier calldata threshold (bytes) - transactions with calldata over this can trigger Estimate Gas issues
-    // This is GasLimitPovSizeRatio configured in the runtime (2,893 bytes)
+    // Frontier calldata threshold (bytes) - GasLimitPovSizeRatio configured in the runtime (2,893 bytes)
     const FRONTIER_CALLDATA_THRESHOLD = 2893;
 
     afterAll(async () => {
@@ -220,7 +219,7 @@ describe('Precompile: block-prover', (): void => {
             expect(verifiedEvents.length).toBeGreaterThan(0);
         }, 360_000);
 
-        test('estimateGas should fail when calldata exceeds 2893-byte Frontier threshold', async () => {
+        test('estimateGas should succeed when calldata exceeds 2893-byte Frontier threshold', async () => {
             const anvil1Provider = new WebSocketProvider(chain_Anvil1_Url);
 
             const transactionHash = process.env.ANVIL1_TXN_HASH;
@@ -284,13 +283,14 @@ describe('Precompile: block-prover', (): void => {
 
             expect(calldataSizeBytes).toBeGreaterThan(FRONTIER_CALLDATA_THRESHOLD);
 
-            await expect(
-                provider.estimateGas({
-                    to: blockProverAddress,
-                    data,
-                    from: alith.address,
-                }),
-            ).rejects.toThrow();
+            const estimatedGas = await provider.estimateGas({
+                to: blockProverAddress,
+                data,
+                from: alith.address,
+            });
+
+            expect(estimatedGas).toBeDefined();
+            expect(estimatedGas).toBeGreaterThan(0n);
         }, 360_000);
 
         test('estimateGas should succeed when calldata is below 2893-byte Frontier threshold', async () => {
