@@ -237,7 +237,12 @@ impl WorkerAttestationProduction {
         &mut self,
         event: Result<crate::stream::attestation::Permit, crate::stream::attestation::Error>,
     ) -> Result<(), Error> {
-        let permit = event.map_err(Error::Attestation)?;
+        let permit = match event {
+            Ok(permit) => permit,
+            Err(crate::stream::attestation::Error::Interrupt) => return Ok(()),
+            Err(err) => return Err(Error::Attestation(err)),
+        };
+
         let now = std::time::Instant::now();
 
         let attestation = self
@@ -332,38 +337,40 @@ impl WorkerAttestationProduction {
                         "💾 New execution chain attestation"
                     );
 
-                    self.attestation_latest_cc3 = attestation_latest_cc3;
+                    if attestation_latest_cc3.height > self.attestation_latest_cc3.height {
+                        self.attestation_latest_cc3 = attestation_latest_cc3;
 
-                    // 1. Chain Listener - Eth
-                    //
-                    // This is ensure that we keep producing new attestation starting from the
-                    // latest finalized on-chain attestation.
-                    self.stream_attestation
-                        .note_attestation_finalization(attestation_latest_cc3)
-                        .expect("Infallible");
+                        // 1. Chain Listener - Eth
+                        //
+                        // This is ensure that we keep producing new attestation starting from the
+                        // latest finalized on-chain attestation.
+                        self.stream_attestation
+                            .note_attestation_finalization(attestation_latest_cc3)
+                            .expect("Infallible");
 
-                    // 2. Update the attestation pool
-                    //
-                    // As an edge case, it is possible that we have already generated past
-                    // attestations which have not yet been consumed by the validation thread. This
-                    // can happen if the production thread is generating attestations faster than
-                    // the validation thread can check new quorums. We remove those attestations
-                    // here and also update the target block height (if necessary, it is also
-                    // possible that we are in advance of the execution chain in which case we do
-                    // not want to update the target height and this a no-op).
-                    self.sender_validation
-                        .note_attestation_finalization(attestation_latest_cc3)
-                        .expect("Infallible");
+                        // 2. Update the attestation pool
+                        //
+                        // As an edge case, it is possible that we have already generated past
+                        // attestations which have not yet been consumed by the validation thread. This
+                        // can happen if the production thread is generating attestations faster than
+                        // the validation thread can check new quorums. We remove those attestations
+                        // here and also update the target block height (if necessary, it is also
+                        // possible that we are in advance of the execution chain in which case we do
+                        // not want to update the target height and this a no-op).
+                        self.sender_validation
+                            .note_attestation_finalization(attestation_latest_cc3)
+                            .expect("Infallible");
 
-                    // 5. Metrics
-                    //
-                    // Update attestation production metrics
-                    self.metrics.set_attestation_finalized(height);
-                    self.metrics.update_attestation_lag_cc3(
-                        self.attestation_local,
-                        height,
-                        self.attestation_interval,
-                    );
+                        // 5. Metrics
+                        //
+                        // Update attestation production metrics
+                        self.metrics.set_attestation_finalized(height);
+                        self.metrics.update_attestation_lag_cc3(
+                            self.attestation_local,
+                            height,
+                            self.attestation_interval,
+                        );
+                    }
                 }
 
                 // CASE 2] NEW TARGET SAMPLE SIZE

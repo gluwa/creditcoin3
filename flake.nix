@@ -81,6 +81,7 @@
         RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
         SCCACHE_DIR = "/tmp/sccache"; # Shared cache directory
         SCCACHE_CACHE_SIZE = "50G";
+        SCCACHE_SERVER_UDS = "/tmp/sccache-server.sock";
       };
 
       buildEnv = {
@@ -318,6 +319,7 @@
         RUSTC_WRAPPER = sccacheEnv.RUSTC_WRAPPER;
         SCCACHE_DIR = sccacheEnv.SCCACHE_DIR;
         SCCACHE_CACHE_SIZE = sccacheEnv.SCCACHE_CACHE_SIZE;
+        SCCACHE_SERVER_UDS = sccacheEnv.SCCACHE_SERVER_UDS;
 
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
           pkgs.gcc.cc.lib
