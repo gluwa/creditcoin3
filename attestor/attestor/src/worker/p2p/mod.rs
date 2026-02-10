@@ -7,21 +7,13 @@
 //! the performance of attestation production for another chain. Currently only Ethereum is
 //! supported.
 //!
-//! # Rebroadcast
-//!
-//! To maintain chain liveness, past attestations are periodically re-sent to the p2p worker by the
-//! [rebroadcast chain listener] as part of the [production worker]. These attestations are then
-//! re-submitted to the network so that nodes which might have missed those attestations have
-//! another chance at synchronization. This also helps with bootstrapping new nodes, as they might
-//! have joined in the middle of attestation finalization.
-//!
 //! # Reception
 //!
-//! Whether is is from initial gossiping or rebroadcasting, the p2p worker is also responsible for
-//! synchronizing new attestations it receives via gossipsub. On noticing a new attestation, the p2p
-//! worker will try to deserialize it and, if successful, send it to the [attestation pool] for
-//! further [`Quorum`] checks. Attestations which fail to be inserted into the attestation pool are
-//! considered invalid and potentially malicious and are not forwarded to the rest of the network.
+//! The p2p worker is also responsible for synchronizing new attestations it receives via gossipsub.
+//! On noticing a new attestation, the p2p worker will try to deserialize it and, if successful,
+//! send it to the [attestation pool] for further [`Quorum`] checks. Attestations which fail to be
+//! inserted into the attestation pool are considered invalid and potentially malicious and are not
+//! forwarded to the rest of the network.
 //!
 //! # Attestation network p2p flow
 //!
@@ -89,7 +81,6 @@
 //!
 //! [`Worker`]: crate::worker::Worker
 //! [gossipsub]: libp2p::gossipsub
-//! [rebroadcast chain listener]: crate::chain_listener::rebroadcast
 //! [production worker]: crate::worker::production
 //! [attestation pool]: crate::worker::validation::pool
 //! [`Quorum`]: crate::worker::validation::pool::Quorum

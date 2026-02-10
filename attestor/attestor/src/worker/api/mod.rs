@@ -1,5 +1,5 @@
 //! Public API endpoints for the attestor binary. By default endpoints are exposed on
-//! [`DEFAULT_METRICS_PORT`].
+//! [`DEFAULT_API_PORT`].
 //!
 //! # Endpoints
 //!
@@ -8,7 +8,7 @@
 //! [Prometheus] metrics endpoint, follows the [openmetrics] standard, see [`metrics`] for more
 //! information.
 //!
-//! [`DEFAULT_METRICS_PORT`]: common::constants::DEFAULT_METRICS_PORT
+//! [`DEFAULT_API_PORT`]: common::constants::DEFAULT_API_PORT
 //! [Prometheus]: prometheus_client
 //! [openmetrics]: https://openmetrics.io/
 

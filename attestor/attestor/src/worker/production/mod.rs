@@ -2,18 +2,10 @@
 //!
 //! # Ethereum Data
 //!
-//! The production worker keeps track of source chain finality via the [eth chain listener], which
-//! abstracts away a of lot the complexity associated with the synchronization of new source chain
-//! blocks. When a new source chain block is noticed and if it is past the
-//! [`ATTESTATION_FINALIZATION_LAG`], this triggers the production of a new [`Attestation`].
-//!
-//! Attestation computation occurs in two steps:
-//!
-//! 1. **Continuity fragment computation**: This is a blocking operation, and is parallelized across
-//!    a [`rayon`] thread pool to speed up computation.
-//! 2. **Attestation signing**: The generated attestation is signed with an attestor's private BLS
-//!    key to guarantee authenticity and integrity. Attestation BLS signatures are later aggregated
-//!    on submision by the [validation worker] to prove [`Quorum`].
+//! The production worker keeps track of source chain finality via the [attestation stream], which
+//! abstracts away a of lot the complexity associated with the generation of new attestations. When
+//! a new source chain block is noticed and if it is past the [`ATTESTATION_FINALIZATION_LAG`], this
+//! triggers the production of a new [`Attestation`].
 //!
 //! Attestations produced this way are then sent to the [p2p worker] for dissemination and the
 //! [validation worker] for validation and submission once quorum has been reached.
@@ -83,49 +75,16 @@
 //! # CC3 Data
 //!
 //! The production worker also listens to changes in execution chain state by subscribing to cc3
-//! events. These events are then forwarded to the [eth chain listener], [cc3 chain listener] and
-//! the [attestation pool] for further handling. The following events are supported.
-//!
-//! - **[`BlockAttested`]**: A new source chain attestation has been finalized on the execution
-//!   chain, invalidating all local attestation prior to it which have not yet been submitted to the
-//!   runtime.
-//!
-//! - **[`AttestationIntervalChanged`]**: New attestation production interval. This causes all
-//!   local attestations to be invalidated as we set the target attestation height to be the next
-//!   closest multiple of the new attestation interval.
-//!
-//! - **[`CheckpointReached`]**: A new source chain attestation checkpoint has been finalized on the
-//!   execution chain.
-//!
-//! - **[`RandomnessChanged`]**: New execution chain epoch, implies a rotation in the validator
-//!   set, which is emitted as a separate event.
-//!
-//! - **[`AttestorsElected`]**: Rotation in the elected attestor set. This lets us know which
-//!   attestors are allowed to submit attestations for the coming epoch.
-//!
-//! - **[`AttestorActivated`]**: Attestor registration. Keep in mind that an attestor still has to
-//!   wait for the next rotation in the elected attestor set to see if it is eligible to start
-//!   producing attestations.
-//!
-//! - **[`AttestorChilled`]**: Attestor deactivation. Attestors need to be chilled before they can
-//!   be un-registered, indicating they will no longer produce new attestations.
+//! events. These events are then forwarded for further handling.
 //!
 //! [`Worker`]: crate::worker::Worker
-//! [eth chain listener]: crate::chain_listener::eth
-//! [cc3 chain listener]: crate::chain_listener::cc3
+//! [attestation stream]: crate::stream::attestation
 //! [attestation pool]: crate::worker::validation::pool
 //! [`ATTESTATION_FINALIZATION_LAG`]: crate::common::constants::ATTESTATION_FINALIZATION_LAG
 //! [`Attestation`]: crate::common::types::Attestation
 //! [p2p worker]: crate::worker::p2p
 //! [validation worker]: crate::worker::validation
 //! [`Quorum`]: crate::worker::validation::pool::Quorum
-//! [`BlockAttested`]: cc_client::attestation::CcEvent::BlockAttested
-//! [`AttestationIntervalChanged`]: cc_client::attestation::CcEvent::AttestationIntervalChanged
-//! [`CheckpointReached`]: cc_client::attestation::CcEvent::CheckpointReached
-//! [`RandomnessChanged`]: cc_client::attestation::CcEvent::RandomnessChanged
-//! [`AttestorsElected`]: cc_client::attestation::CcEvent::AttestorsElected
-//! [`AttestorActivated`]: cc_client::attestation::CcEvent::AttestorActivated
-//! [`AttestorChilled`]: cc_client::attestation::CcEvent::AttestorChilled
 
 mod error;
 
@@ -137,8 +96,6 @@ pub use error::*;
 /// Attestation production configuration. This includes options to initialize cross-tread
 /// communication channels, set up [chain listeners] and store identifying information about an
 /// attestor, such as its account id.
-///
-/// [chain listeners]: crate::chain_listener
 #[derive(attestor_macro::Builder)]
 pub struct Config {
     stream_attestation: crate::stream::attestation::StreamAttestation,

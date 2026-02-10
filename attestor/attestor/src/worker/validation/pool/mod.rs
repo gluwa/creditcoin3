@@ -26,9 +26,9 @@
 //! validate the _continuity_ proof of an attestation by a factor of the quorum size.
 //!
 //! Polling the attestation pool after quorum has been reached does not perform any mutation, and
-//! instead returns an [`AttestationPermit`]. This permit _must_ be used by the [validation worker]
-//! to mark the attestation as [`valid`] or [`invalid`] and remove it from the pool once it has
-//! finished checking it, which is when the mutation occurs. This is done for several reasons:
+//! instead returns a [`Permit`]. This permit _must_ be used by the [validation worker] to mark the
+//! attestation as [`valid`] or [`invalid`] and remove it from the pool once it has finished
+//! checking it, which is when the mutation occurs. This is done for several reasons:
 //!
 //! 1. It makes it so polling the attestation pool is cancellation-safe, and can be run inside of a
 //!    [`select`] statement.
@@ -50,7 +50,6 @@
 //! # use attestor::prelude::*;
 //! # use attestor::worker::validation::pool::attestation_pool;
 //! # use attestor::worker::validation::pool::ConfigBuilder;
-//! # use attestor::worker::validation::pool::AttestorValidatePermissionless;
 //! #
 //! # fn attestation(attestor: attestor_primitives::AttestorId) -> common::types::Attestation {
 //! #   common::types::Attestation {
@@ -92,12 +91,17 @@
 //! #       .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
 //! #       .build();
 //! #   let metrics = std::sync::Arc::new(attestor::worker::api::metrics::Metrics::new(config));
+//! #   let attestors = vec![
+//! #       cc_client::AccountId32(*b"attestor_valid_0________________"),
+//! #       cc_client::AccountId32(*b"attestor_valid_1________________"),
+//! #       cc_client::AccountId32(*b"attestor_valid_2________________"),
+//! #   ];
 //! #
 //! // Initializes the attestation pool with some configuration
 //! let (sx, mut rx) = attestation_pool(
 //!     ConfigBuilder::new()
 //!         .with_max_size(std::num::NonZeroUsize::new(100).unwrap())
-//!         .with_attestors(AttestorValidatePermissionless)
+//!         .with_attestors(attestors)
 //!         .with_quorum(std::num::NonZeroUsize::new(3).unwrap())
 //!         .with_attestation_interval(std::num::NonZeroU64::new(1).unwrap())
 //!         .with_start_height(0u64)
@@ -440,41 +444,47 @@ impl AttestationPoolInner {
     }
 }
 
+/// Orders attestations by height.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct KeyHeight {
+pub struct KeyHeight {
     height: common::types::Height,
     size: usize,
     digest: attestor_primitives::Digest,
 }
 
+/// Orders attestations by quorum size.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct KeySize {
+pub struct KeySize {
     size: usize,
     height: common::types::Height,
     digest: attestor_primitives::Digest,
 }
 
+/// Orders attestor votes by height.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct KeyVote {
+pub struct KeyVote {
     height: common::types::Height,
     attestor: attestor_primitives::AttestorId,
 }
 
+/// Orders votes by their digest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct KeyDigest {
+pub struct KeyDigest {
     height: common::types::Height,
     digest: attestor_primitives::Digest,
 }
 
+/// Orders pending votes by their digest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct KeyHeightPending {
+pub struct KeyHeightPending {
     height: common::types::Height,
     digest: attestor_primitives::Digest,
     prev_digest_tail: PrevDigestTail,
 }
 
+/// Orders pending votes by their prev tail digest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct KeyTailPending {
+pub struct KeyTailPending {
     prev_digest_tail: PrevDigestTail,
     height: common::types::Height,
     digest: attestor_primitives::Digest,
@@ -502,7 +512,7 @@ struct PrevDigestTail(attestor_primitives::Digest);
 /// should not be used to express mappings. Most importantly though, they are very good at
 /// condensing multiple orderings into a single tree data structure which improves cache locality
 /// and indexing speed.
-struct AttestationPoolForks {
+pub struct AttestationPoolForks {
     forks_by_digest: std::collections::BTreeMap<attestor_primitives::Digest, AttestationVote>,
     forks_by_height: std::collections::BTreeSet<KeyHeight>,
     forks_by_size: std::collections::BTreeSet<KeySize>,

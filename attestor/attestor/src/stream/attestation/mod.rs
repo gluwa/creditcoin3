@@ -1,6 +1,7 @@
 //! # Attestation Generation
 //!
 //! > _"Though this be madness, there is method in’t"_
+//! >
 //! > Polonius, Hamnet Act II scene 2
 //!
 //! This module  is responsible for the generation and catchup of new attestations from a source
@@ -17,28 +18,36 @@
 //!   than if we were to produce them one by one.
 //!
 //! This is implemented as a rather complex non-linear stream of attestations with makes heavy use
-//! of caching to avoid duplicate computation. Getting this to work has taken much time and most of
-//! my sanity, so please do be very careful if you have to update this, and make sure that the
-//! following invariants hold at all times:
+//! of caching to avoid duplicate computation.
 //!
-//! 1. Attestors can NEVER produce more than the catchup limit number of attestations at a time.
+//! ## Invariants
 //!
-//! 2. Attestors can NEVER re-generate a past attestation.
+//! > _"C makes it easy to shoot yourself in the foot; C++ makes it harder, but when you do it blows
+//! > your whole leg off"_
+//! >
+//! > Bjarne Stroustrup
 //!
-//! 3. Attestations MIGHT have to be pruned before they are propagated if a higher attestation
+//! Getting this to work has taken much time and most of my sanity, so please do be very careful if
+//! you have to update this, and make sure that the following invariants hold at all times:
+//!
+//! 1. Attestors can **NEVER** produce more than the catchup limit number of attestations at a time.
+//!
+//! 2. Attestors can **NEVER** re-generate a past attestation.
+//!
+//! 3. Attestations **MIGHT** be dropped before they can be propagated if a higher attestation
 //!    finalizes first.
 //!
-//! 4. Attestations MIGHT finalize out of order despite being submitted in order due to network
+//! 4. Attestations **MIGHT** finalize out of order despite being submitted in order due to network
 //!    issues.
 //!
-//! 5. Source chain blocks MIGHT be produced out-of-order by whatever RPC is being used.
+//! 5. Source chain blocks **MIGHT** be produced out-of-order by whatever RPC is being used.
 //!
-//! 6. The attestation interval, checkpoint interval and catchup limit MIGHT change midway during
-//!    catchup, and this must not break any of the other invariants.
+//! 6. The attestation interval, checkpoint interval and catchup limit **MIGHT** change midway
+//!    during catchup, and this must not break any of the other invariants.
 //!
 //! The code bellow has been written in such a way that if any of these invariants are violated
-//! THEN THE ATTESTOR WILL CRASH. There is no recovery from an invalid state: the best we can do is
-//! not to propagate it. This also makes it easier to detect bugs during testing: if something
+//! **THEN THE ATTESTOR WILL CRASH**. There is no recovery from an invalid state: the best we can do
+//! is not to propagate it. This also makes it easier to detect bugs during testing: if something
 //! isn't working, you will know.
 //!
 //! ## Catchup Strategy
@@ -56,7 +65,7 @@
 //!
 //! Attestations are produced _backwards_ from the highest possible source chain block which falls
 //! within the catchup limit. For example, if the latest source chain block is 1200, but the latest
-//! execution chain attestation height is only 500, then attestor will generate all attestations
+//! execution chain attestation height is only 500, then attestors will generate all attestations
 //! between 500 and 1000, starting from 1000 (so 1000, 990, 980, 970... 510). Essentially, the
 //! attestor "fills in the gap" in the attestation chain from top to bottom.
 //!
@@ -65,7 +74,7 @@
 //! backup. This way, we enforce a loose ordering of attestation submission based on the time it
 //! takes to generate and propagate votes. This is not a constant, and due to this the range of
 //! attestations being generated tends to fluctuate, though generally the attestor does a good job
-//! of always voting on the highest point.
+//! at always submitting the highest attestation first.
 //!
 //! ## Caching
 //!
@@ -132,7 +141,7 @@ pub struct StreamAttestation {
 
 pub struct Permit(common::types::Height);
 
-struct CacheContinuity {
+pub struct CacheContinuity {
     cache: Vec<attestor_primitives::block::BlockSerializable>,
     prev_digest: attestor_primitives::Digest,
     max_size: std::num::NonZeroUsize,
@@ -140,7 +149,7 @@ struct CacheContinuity {
     roots: CacheRoots,
 }
 
-struct CacheRoots {
+pub struct CacheRoots {
     cache: Vec<RootInfo>,
     max_size: std::num::NonZeroUsize,
     boundary: common::types::Height,

@@ -181,6 +181,7 @@
             check               Run 'cargo check --tests --release'
             clippy              Run 'cargo clippy --tests --release'
             test                Run 'cargo test --release'
+            doc                 Run 'cargo doc --reslease --lib --no-deps'
 
         EXAMPLES
             nix run                         # Show this help
@@ -246,6 +247,11 @@
         ${shebang}
         cargo test --release "$@"
       '';
+
+      script_doc = pkgs.writeScriptBin "cargo_doc" ''
+        ${shebang}
+        cargo doc --lib --no-deps "$@"
+      '';
     in {
       # ====================================================================== #
       #                                PROGRAMS                                #
@@ -288,6 +294,10 @@
         test = {
           type = "app";
           program = "${script_test}/bin/cargo_test";
+        };
+        doc = {
+          type = "app";
+          program = "${script_doc}/bin/cargo_doc";
         };
       };
 
