@@ -48,6 +48,50 @@ fn mock_graphql_response_with_proof() -> serde_json::Value {
     })
 }
 
+/// Attestation entry at genesis block has an empty prevDigest and no continuity proof blocks,
+/// but should still be returned successfully by get_attestation() with a valid AttestationWithProof struct.
+/// This tests that edge case.
+fn mock_graphl_response_from_genesis() -> serde_json::Value {
+    serde_json::json!({
+        "data": {
+            "attestations": {
+                "nodes": [{
+                    "headerNumber": "0",
+                    "root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "digest": "0xdaa77426c30c02a43d9fba4e841a6556c524d47030762eb14dc4af897e605d9b",
+                    "prevDigest": "",
+                    "continuityProof": {
+                        "blocks": []
+                    }
+                },
+                {
+                    "headerNumber": "3",
+                    "root": "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "digest": "0x0000000000000000000000000000000000000000000000000000000000000005",
+                    "prevDigest": "0x0000000000000000000000000000000000000000000000000000000000000004",
+                    "continuityProof": {
+                        "blocks": [
+                            {
+                                "blockNumber": 1,
+                                "root": "0x0000000000000000000000000000000000000000000000000000000000000001",
+                                "prevDigest": "0xdaa77426c30c02a43d9fba4e841a6556c524d47030762eb14dc4af897e605d9b",
+                                "digest": "0x0000000000000000000000000000000000000000000000000000000000000002"
+                            },
+                            {
+                                "blockNumber": 2,
+                                "root": "0x0000000000000000000000000000000000000000000000000000000000000003",
+                                "prevDigest": "0x0000000000000000000000000000000000000000000000000000000000000002",
+                                "digest": "0x0000000000000000000000000000000000000000000000000000000000000004"
+                            }
+                        ]
+                    }
+                }
+                ]
+            }
+        }
+    })
+}
+
 /// Helper to create a mock GraphQL response with empty nodes (attestation not found)
 fn mock_graphql_response_empty() -> serde_json::Value {
     serde_json::json!({
@@ -143,6 +187,23 @@ async fn test_get_continuity_proof_not_found() {
 
     assert!(result.is_ok());
     assert!(result.unwrap().is_none(), "Expected None when not found");
+}
+
+#[tokio::test]
+async fn test_get_continuity_proof_at_genesis_block() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_graphl_response_from_genesis()))
+        .mount(&mock_server)
+        .await;
+
+    let client = IndexerClient::new(mock_server.uri()).unwrap();
+    let result = client.get_attestation(1, 2).await;
+
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_some(), "Expected proof");
 }
 
 #[tokio::test]

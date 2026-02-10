@@ -59,9 +59,12 @@ pub fn parse_attestation_node(
         error: e.to_string(),
     })?;
 
+    // Since it is possible for the first attestation at genesis to have an empty prev_digest,
+    // we treat an empty string as None
     let prev_digest = node
         .prev_digest
         .as_ref()
+        .filter(|s| !s.is_empty())
         .map(|s| {
             H256::from_str(s).map_err(|e| IndexerError::InvalidHex {
                 field: "prev_digest".to_string(),

@@ -38,3 +38,6 @@ attestor-primitives = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 wiremock = "0.6"
+
+[features]
+std = ["attestor-primitives/std"]
