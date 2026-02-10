@@ -107,7 +107,7 @@ pub struct Config {
     start_digest: Option<attestor_primitives::Digest>,
 }
 
-// ----------------------------------------- [ Types ] ----------------------------------------- //
+// ----------------------------------------- [ Stream ] ---------------------------------------- //
 
 pub struct StreamAttestation {
     continuity: CacheContinuity,
@@ -743,6 +743,8 @@ impl CacheRoots {
         Ok(())
     }
 }
+
+// ----------------------------------------- [ Events ] ---------------------------------------- //
 
 impl crate::events::EventAttestationFinalizationAsync for StreamAttestation {
     type Error = ();

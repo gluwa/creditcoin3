@@ -1,14 +1,24 @@
+//! # CC3 events
+//!
+//! A simple [`Stream`] of [`CC3Events`] which follows the state of the execution chain.
+//!
+//! [`Stream`]: futures::Stream
+
 use crate::prelude::*;
 
 mod error;
 
 pub use error::Error;
 
+// -------------------------------------- [ Configuration ] ------------------------------------ //
+
 #[derive(Debug, attestor_macro::Builder)]
 pub struct Config {
     cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,
 }
+
+// ----------------------------------------- [ Stream ] ---------------------------------------- //
 
 pub struct StreamCC3 {
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
@@ -114,6 +124,8 @@ pub struct CC3Events {
     block: common::types::SubxtBlock,
     chain_key: attestor_primitives::ChainKey,
 }
+
+// ----------------------------------------- [ Events ] ---------------------------------------- //
 
 impl CC3Events {
     pub async fn events(

@@ -1,3 +1,9 @@
+//! Data [`Stream`]s used to react to [source chain] and [execution chain] progress.
+//!
+//! [`Stream`]: futures::Stream
+//! [source chain]: attestation
+//! [execution chain]: cc3
+
 pub mod attestation;
 pub mod cc3;
 
