@@ -131,12 +131,12 @@ cargo run -- --config-file config.toml
 
 **For devnet:**
 ```bash
-cargo run -- --config-file config-devnet.toml
+cargo run -- --config-file config-devnet-v2.toml
 ```
 
-**For testnet:**
+**For testnet v2:**
 ```bash
-cargo run -- --config-file config-testnet.toml
+cargo run -- --config-file config-testnet-v2.toml
 ```
 
 You should see output similar to:
