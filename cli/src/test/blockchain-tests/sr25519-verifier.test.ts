@@ -6,11 +6,11 @@ import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../lib';
 import { fundFromSudo } from '../integration-tests/helpers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('./artifacts/signature_verifier.json');
+import contractABIJSON = require('./artifacts/sr25519_verifier.json');
 
-const contractABI = contractABIJSON.contracts['sol/signature_verifier.sol:SignatureVerifier'].abi;
+const contractABI = contractABIJSON.contracts['sol/sr25519_verifier.sol:Sr25519Verifier'].abi;
 
-describe('Precompile: SignatureVerifier.verify()', (): void => {
+describe('Precompile: Sr25519Verifier.verify()', (): void => {
     let contract: any;
     let provider: any;
     let alith: any;

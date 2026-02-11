@@ -78,7 +78,7 @@ pallet-evm-precompile-simple = { workspace = true }
 pallet-hotfix-sufficients = { workspace = true }
 
 pallet-evm-precompile-ed25519-verifier = { workspace = true }
-pallet-evm-precompile-signature-verifier = { workspace = true }
+pallet-evm-precompile-sr25519-verifier = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
 pallet-evm-precompile-bn128 = { workspace = true }
 
@@ -157,7 +157,7 @@ std = [
   "moonbeam-evm-tracer/std",
   "moonbeam-rpc-primitives-debug/std",
   "pallet-evm-precompile-ed25519-verifier/std",
-  "pallet-evm-precompile-signature-verifier/std",
+  "pallet-evm-precompile-sr25519-verifier/std",
   "pallet-evm-precompile-substrate-transfer/std",
   "ethereum/std",
   "frame-metadata-hash-extension/std",
