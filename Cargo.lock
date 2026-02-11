@@ -1462,8 +1462,8 @@ dependencies = [
  "pallet-evm-precompile-ed25519-verifier",
  "pallet-evm-precompile-modexp",
  "pallet-evm-precompile-sha3fips",
- "pallet-evm-precompile-signature-verifier",
  "pallet-evm-precompile-simple",
+ "pallet-evm-precompile-sr25519-verifier",
  "pallet-evm-precompile-substrate-transfer",
  "pallet-fast-unstake",
  "pallet-grandpa",
@@ -6427,7 +6427,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-evm-precompile-signature-verifier"
+name = "pallet-evm-precompile-simple"
+version = "2.0.0-dev"
+source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
+dependencies = [
+ "fp-evm",
+ "ripemd",
+ "sp-io",
+]
+
+[[package]]
+name = "pallet-evm-precompile-sr25519-verifier"
 version = "0.1.0"
 dependencies = [
  "derive_more 1.0.0",
@@ -6446,16 +6456,6 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
-]
-
-[[package]]
-name = "pallet-evm-precompile-simple"
-version = "2.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
-dependencies = [
- "fp-evm",
- "ripemd",
- "sp-io",
 ]
 
 [[package]]
