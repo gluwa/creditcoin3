@@ -532,7 +532,7 @@ impl CacheContinuity {
             prev_digest: start_digest.unwrap_or_default(),
             max_size,
 
-            roots: CacheRoots::new(checkpoint_in_blocks, start_height),
+            roots: CacheRoots::new(max_size, start_height),
         }
     }
 
@@ -551,13 +551,7 @@ impl CacheContinuity {
             .map(|info| info.block_number + 1)
             .unwrap_or(self.roots.boundary);
 
-        if height_stop < height_last
-            || self
-                .cache
-                .len()
-                .checked_add(height_stop as usize - height_last as usize)
-                .is_none_or(|len_new| len_new > self.max_size.get())
-        {
+        if height_stop < height_last {
             return Ok(());
         }
 
@@ -619,16 +613,7 @@ impl CacheContinuity {
 }
 
 impl CacheRoots {
-    pub fn new(
-        checkpoint_in_blocks: std::num::NonZero<common::types::Height>,
-        start_height: common::types::Height,
-    ) -> Self {
-        let max_size: std::num::NonZeroUsize = checkpoint_in_blocks
-            .saturating_mul(common::constants::MAX_CATCHUP)
-            .saturating_add(1) // Inclusive
-            .try_into()
-            .unwrap();
-
+    pub fn new(max_size: std::num::NonZeroUsize, start_height: common::types::Height) -> Self {
         Self {
             cache: Vec::with_capacity(max_size.get()),
             max_size,
@@ -659,13 +644,7 @@ impl CacheRoots {
             .map(|info| info.block.number() + 1)
             .unwrap_or(self.boundary);
 
-        if height_stop < height_last
-            || self
-                .cache
-                .len()
-                .checked_add(height_stop as usize - height_last as usize)
-                .is_none_or(|len_new| len_new <= self.max_size.get())
-        {
+        if height_stop < height_last {
             tracing::info!(
                 height_last,
                 height_stop,
@@ -739,7 +718,6 @@ impl crate::events::EventAttestationFinalizationAsync for StreamAttestation {
 
         if self.block_stop < height {
             self.block_stop = height;
-            self.continuity.roots.boundary = height;
         }
 
         if let Some(waker) = self.waker.take() {
