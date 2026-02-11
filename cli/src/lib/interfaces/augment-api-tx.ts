@@ -128,6 +128,16 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [AttestorPrimitivesSignedAttestation]
             >;
+            /**
+             * Force trigger an attestor election.
+             *
+             * A randomness of [0; 32] is used since randomness is not currently
+             * used in the election logic.
+             **/
+            forceElection: AugmentedSubmittable<
+                (epoch: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u64]
+            >;
             importCheckpoints: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,

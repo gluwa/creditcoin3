@@ -1169,6 +1169,10 @@ declare module '@polkadot/types/lookup' {
         readonly asAuthorizedAttestorAdded: ITuple<[u64, AccountId32]>;
         readonly isAuthorizedAttestorRemoved: boolean;
         readonly asAuthorizedAttestorRemoved: ITuple<[u64, AccountId32]>;
+        readonly isForcedElection: boolean;
+        readonly asForcedElection: {
+            readonly epoch: u64;
+        } & Struct;
         readonly type:
             | 'AttestorRegistered'
             | 'AttestorUnregistered'
@@ -1194,7 +1198,8 @@ declare module '@polkadot/types/lookup' {
             | 'AttestationChainGenesisBlockNumberSet'
             | 'ChangedElectionPolicy'
             | 'AuthorizedAttestorAdded'
-            | 'AuthorizedAttestorRemoved';
+            | 'AuthorizedAttestorRemoved'
+            | 'ForcedElection';
     }
 
     /** @name AttestorPrimitivesAttestationCheckpoint (94) */
@@ -3037,6 +3042,10 @@ declare module '@polkadot/types/lookup' {
             readonly attestorId: AccountId32;
             readonly unregister: bool;
         } & Struct;
+        readonly isForceElection: boolean;
+        readonly asForceElection: {
+            readonly epoch: u64;
+        } & Struct;
         readonly type:
             | 'SetChainAttestationInterval'
             | 'SetTargetSampleSize'
@@ -3058,7 +3067,8 @@ declare module '@polkadot/types/lookup' {
             | 'SetElectionPolicy'
             | 'AuthorizeAttestor'
             | 'RemoveAuthorizedAttestor'
-            | 'KickActiveAttestor';
+            | 'KickActiveAttestor'
+            | 'ForceElection';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (322) */

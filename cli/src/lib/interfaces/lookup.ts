@@ -928,6 +928,9 @@ export default {
             ChangedElectionPolicy: '(u64,PalletAttestationPocAttestorElectionPolicy)',
             AuthorizedAttestorAdded: '(u64,AccountId32)',
             AuthorizedAttestorRemoved: '(u64,AccountId32)',
+            ForcedElection: {
+                epoch: 'u64',
+            },
         },
     },
     /**
@@ -2610,6 +2613,9 @@ export default {
                 chainKey: 'u64',
                 attestorId: 'AccountId32',
                 unregister: 'bool',
+            },
+            force_election: {
+                epoch: 'u64',
             },
         },
     },

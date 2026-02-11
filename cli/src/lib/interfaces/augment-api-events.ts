@@ -98,6 +98,10 @@ declare module '@polkadot/api-base/types/events' {
              **/
             ClearedStorageForRemovedChain: AugmentedEvent<ApiType, [u64]>;
             /**
+             * A force election was triggered via sudo.
+             **/
+            ForcedElection: AugmentedEvent<ApiType, [epoch: u64], { epoch: u64 }>;
+            /**
              * Emitted when an invulnerable is properly registered with the attestation system
              **/
             InvulnerableRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
