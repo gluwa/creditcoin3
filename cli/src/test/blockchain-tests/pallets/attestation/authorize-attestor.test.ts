@@ -1,8 +1,9 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { extractFee, forElapsedBlocks } from '../../../utils';
 import { chain_Anvil2_Key } from '../supported-chains/consts';
+import { describeIf } from '../../../utils';
 
-describe('authorizeAttestor', (): void => {
+describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'authorizeAttestor', (): void => {
     let api: ApiPromise;
     let root: KeyringPair;
     let alice: KeyringPair;

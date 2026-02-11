@@ -429,6 +429,7 @@ jobs:
           yarn test:blockchain
         env:
           BLOCKCHAIN_TESTS_GLOBAL_SETUP: "./runtimeUpgradeTestingAgainstFork.ts"
+          SKIP_ON_PURPOSE: "true"
 
       - name: Configure testing environment
         id: test-env

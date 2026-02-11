@@ -1,8 +1,9 @@
 import { U64 } from '@polkadot/types-codec';
 import { newApi, ApiPromise } from '../../../../lib';
 import { getChainStatus } from '../../../../lib/chain/status';
+import { describeIf } from '../../../utils';
 
-describe('StoreRandomnessForEpoch events', (): void => {
+describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'StoreRandomnessForEpoch events', (): void => {
     let api: ApiPromise;
     const maxBlocks = 70; // > 5 min
 

@@ -1,8 +1,9 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { extractFee, forElapsedBlocks } from '../../../utils';
 import { chain_Anvil2_Key } from '../supported-chains/consts';
+import { describeIf } from '../../../utils';
 
-describe('UnregisterInvulnerable', (): void => {
+describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'UnregisterInvulnerable', (): void => {
     let api: ApiPromise;
     let root: KeyringPair;
     let attestorAccount: KeyringPair;

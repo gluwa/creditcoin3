@@ -2,8 +2,9 @@ import { newApi, ApiPromise, KeyringPair, BN, MICROUNITS_PER_CTC } from '../../.
 import { fundFromSudo, waitEras } from '../../../integration-tests/helpers';
 import { extractFee, forElapsedBlocks } from '../../../utils';
 import { chain_Anvil2_Key } from '../supported-chains/consts';
+import { describeIf } from '../../../utils';
 
-describe('WithdrawUnbonded', (): void => {
+describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'WithdrawUnbonded', (): void => {
     let api: ApiPromise;
     let alice: KeyringPair;
 

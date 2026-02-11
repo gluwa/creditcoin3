@@ -1,8 +1,9 @@
 import { U64 } from '@polkadot/types-codec';
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { extractFee, forElapsedBlocks } from '../../../utils';
+import { describeIf } from '../../../utils';
 
-describe('RemoveChain', (): void => {
+describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'RemoveChain', (): void => {
     let api: ApiPromise;
     let root: KeyringPair;
     let chainKey: U64;

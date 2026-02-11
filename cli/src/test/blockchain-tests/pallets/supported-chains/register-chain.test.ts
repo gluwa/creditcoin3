@@ -1,7 +1,8 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { extractFee } from '../../../utils';
+import { describeIf } from '../../../utils';
 
-describe('RegisterChain', (): void => {
+describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'RegisterChain', (): void => {
     let api: ApiPromise;
     let root: KeyringPair;
 

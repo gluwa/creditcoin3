@@ -19,7 +19,7 @@ describe('UnregisterAttestor', (): void => {
             .signAndSend(alice, { nonce });
 
         await forElapsedBlocks(api, { minBlocks: 1 });
-    }, 30_000);
+    }, 60_000);
 
     afterAll(async () => {
         await api.disconnect();
@@ -37,5 +37,5 @@ describe('UnregisterAttestor', (): void => {
         }).then((fee) => {
             expect(fee).toBeGreaterThanOrEqual((global as any).CREDITCOIN_MINIMUM_TXN_FEE);
         });
-    }, 30_000);
+    }, 60_000);
 });

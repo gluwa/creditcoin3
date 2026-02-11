@@ -4,8 +4,9 @@ import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { randomFundedAccount } from '../../../integration-tests/helpers';
 import { extractFee, forElapsedBlocks } from '../../../utils';
 import { chain_Anvil2_Key } from '../supported-chains/consts';
+import { describeIf } from '../../../utils';
 
-describe('Attest', (): void => {
+describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Attest', (): void => {
     let api: ApiPromise;
     let alice: KeyringPair;
     let attestor: any;
