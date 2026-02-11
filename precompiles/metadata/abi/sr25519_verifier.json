@@ -1,6 +1,6 @@
 {
   "contracts": {
-    "sol/signature_verifier.sol:SignatureVerifier": {
+    "sol/sr25519_verifier.sol:Sr25519Verifier": {
       "abi": [
         {
           "inputs": [
@@ -47,7 +47,7 @@
             }
           }
         },
-        "title": "SignatureVerifier interface",
+        "title": "Sr25519Verifier interface",
         "version": 1
       },
       "hashes": {

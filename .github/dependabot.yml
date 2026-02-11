@@ -40,7 +40,7 @@ updates:
       - "/node/cli-opt"
       - "/precompiles/ed25519-verifier"
       - "/precompiles/substrate-transfer"
-      - "/precompiles/signature-verifier"
+      - "/precompiles/sr25519-verifier"
       - "/primitives/account"
       - "/primitives/core"
       - "/primitives/ext"
