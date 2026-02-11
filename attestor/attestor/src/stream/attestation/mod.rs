@@ -225,7 +225,7 @@ impl StreamAttestation {
     pub async fn generate_attestation(
         &mut self,
         Permit(block_stop): Permit,
-    ) -> Result<common::types::Attestation, Error> {
+    ) -> Result<common::types::Attestation, Interrupt<Error>> {
         tracing::debug!("Generating attestation");
 
         self.continuity.update(&mut self.eth, block_stop).await?;
@@ -284,7 +284,7 @@ impl StreamAttestation {
     #[tracing::instrument(skip_all, level = "debug")]
     pub async fn generate_attestation_genesis(
         &mut self,
-    ) -> Result<common::types::Attestation, Error> {
+    ) -> Result<common::types::Attestation, Interrupt<Error>> {
         assert!(self.continuity.cache.is_empty());
         assert!(self.continuity.roots.cache.is_empty());
 
@@ -363,7 +363,7 @@ impl StreamAttestation {
         self.continuity.roots.max_size = size_new;
     }
 
-    async fn block_next(&mut self) -> Option<Result<common::types::Height, Error>> {
+    async fn block_next(&mut self) -> Result<common::types::Height, Interrupt<Error>> {
         use futures::stream::StreamExt as _;
 
         const MAX_ATTEMPTS: usize = 5;
@@ -375,7 +375,7 @@ impl StreamAttestation {
 
         loop {
             match self.stream.next().await {
-                Some(block) => break Some(Ok(block.number)),
+                Some(block) => break Ok(block.number),
                 None => match self.eth.subscribe().await {
                     Ok(sub) => self.stream = sub,
                     Err(err) => {
@@ -388,7 +388,7 @@ impl StreamAttestation {
                         );
 
                         if attempt >= MAX_ATTEMPTS {
-                            break Some(Err(Error::Eth(err)));
+                            break Err(Interrupt::Cont(Error::Eth(err)));
                         }
                     }
                 },
@@ -396,7 +396,7 @@ impl StreamAttestation {
 
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => break None
+                _ = tokio::signal::ctrl_c() => break Err(Interrupt::Stop)
             }
 
             delay = (delay * 2).min(DELAY_MAX);
@@ -405,7 +405,7 @@ impl StreamAttestation {
 }
 
 impl futures::Stream for StreamAttestation {
-    type Item = Result<Permit, Error>;
+    type Item = Result<Permit, Interrupt<Error>>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -466,9 +466,8 @@ impl futures::Stream for StreamAttestation {
                 //
                 // https://knowyourmeme.com/memes/hide-the-pain-harold
                 let block_n = match std::task::ready!(std::pin::pin!(self.block_next()).poll(cx)) {
-                    Some(Ok(block_n)) => block_n,
-                    Some(Err(err)) => return std::task::Poll::Ready(Some(Err(err))),
-                    None => return std::task::Poll::Ready(Some(Err(Error::Interrupt))),
+                    Ok(block_n) => block_n,
+                    Err(err) => return std::task::Poll::Ready(Some(Err(err))),
                 };
 
                 self.block_head =
@@ -542,7 +541,7 @@ impl CacheContinuity {
         &mut self,
         eth: &mut eth::Client,
         height_stop: common::types::Height,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Interrupt<Error>> {
         self.roots.update(eth, height_stop).await?;
 
         let height_last = self
@@ -642,7 +641,7 @@ impl CacheRoots {
         &mut self,
         eth: &mut eth::Client,
         height_stop: common::types::Height,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Interrupt<Error>> {
         use futures::FutureExt as _;
         use rayon::iter::IntoParallelIterator as _;
         use rayon::iter::ParallelExtend as _;
@@ -687,8 +686,8 @@ impl CacheRoots {
         let encoding = ccnext_abi_encoding::common::EncodingVersion::V1;
         let iter = (height_last..=height_stop).map(|h| {
             eth.get_block(h, encoding).map(|opt| {
-                opt.ok_or(Error::Interrupt)
-                    .and_then(|res| res.map_err(Error::Eth))
+                opt.ok_or(Interrupt::Stop)
+                    .and_then(|res| res.map_interrupt(Error::Eth))
             })
         });
         let blocks = futures::future::try_join_all(iter).await?;
@@ -843,7 +842,7 @@ impl crate::events::EventCheckpointIntervalChangeAsync for StreamAttestation {
         interval_new: std::num::NonZero<common::types::Height>,
         _attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
-        self.interval_attestation = interval_new;
+        self.interval_checkpoint = interval_new;
         self.update_interval();
         Ok(())
     }

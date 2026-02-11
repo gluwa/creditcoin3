@@ -10,6 +10,7 @@
 
 pub mod constants;
 pub mod types;
+pub mod user;
 
 #[cfg(test)]
 pub(crate) mod fixtures;

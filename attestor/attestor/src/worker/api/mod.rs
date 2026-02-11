@@ -12,7 +12,10 @@
 //! [Prometheus]: prometheus_client
 //! [openmetrics]: https://openmetrics.io/
 
+mod error;
 pub mod metrics;
+
+pub use error::Error;
 
 use crate::prelude::*;
 
@@ -42,10 +45,12 @@ impl WorkerApi {
 }
 
 impl super::Worker for WorkerApi {
+    type Error = Error;
+
     async fn task(
         self,
         shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
-    ) -> common::types::Result<()> {
+    ) -> crate::worker::Exit<Error> {
         let state = AppState {
             metrics: self.metrics,
         };
@@ -54,17 +59,22 @@ impl super::Worker for WorkerApi {
             .route("/metrics", axum::routing::get(handle_metrics))
             .with_state(std::sync::Arc::new(state));
 
-        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.port)).await?;
+        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.port))
+            .await
+            .map_interrupt(Error::Io)?;
         let address = listener.local_addr().unwrap();
 
         tracing::info!(?address, "📌 Starting api server");
 
         tokio::select! {
-            res = axum::serve(listener, router) => res?,
-            _ = shutdown => {}
+            _ = shutdown => {
+                Err(Interrupt::Stop)
+            }
+            res = axum::serve(listener, router) => {
+                res.map_interrupt(Error::Io)?;
+                Ok(())
+            },
         }
-
-        Ok(())
     }
 }
 

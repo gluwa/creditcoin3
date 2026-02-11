@@ -148,11 +148,13 @@ impl WorkerAttestationValidation {
 }
 
 impl super::Worker for WorkerAttestationValidation {
+    type Error = Error;
+
     #[tracing::instrument(name = "validation", skip_all)]
     async fn task(
         mut self,
         mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
-    ) -> common::types::Result<()> {
+    ) -> crate::worker::Exit<Error> {
         use futures::StreamExt as _;
 
         loop {
@@ -160,7 +162,7 @@ impl super::Worker for WorkerAttestationValidation {
                 biased;
 
                 _ = &mut shutdown => {
-                    break self.handle_event_shutdown().await;
+                    break Err(Interrupt::Stop);
                 }
                 event = &mut self.watch_submission => {
                     self.handle_event_submission(event).await?;
@@ -177,7 +179,7 @@ impl WorkerAttestationValidation {
     async fn handle_event_quorum(
         &mut self,
         quorum: Option<(pool::Quorum, pool::Permit, Option<cc_client::H256>)>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Interrupt<Error>> {
         // ---------------------------------* Handle pool closure *--------------------------------
 
         // WARNING: ERROR HANDLING
@@ -205,7 +207,7 @@ impl WorkerAttestationValidation {
             //
             // If the attestor notices a new quorum and it is not waiting on the runtime to
             // validate previous attestations, it will eagerly submit any new valid attestation.
-            Some(Ok(attestation)) if self.watch_submission.is_none() => {
+            Ok(attestation) if self.watch_submission.is_none() => {
                 // ---------------------------------* Pool update *--------------------------------
 
                 self.receiver_validation.mark_valid(permit);
@@ -221,13 +223,14 @@ impl WorkerAttestationValidation {
                 );
 
                 self.submit_attestation(attestation.into(), height).await?;
+                Ok(())
             }
             // CASE 2] VALID ATTESTATION - WAITING ON SUBMISSION
             //
             // If the attestor notices a new quorum but is waiting on the runtime to validate
             // previous attestations, it will optimistically validate new sequential attestations
             // for them to be submitted later.
-            Some(Ok(attestation)) => {
+            Ok(attestation) => {
                 // ---------------------------------* Pool update *--------------------------------
 
                 tracing::info!(
@@ -237,38 +240,38 @@ impl WorkerAttestationValidation {
                 );
 
                 self.receiver_validation.mark_for_later(permit, attestation);
+                Ok(())
             }
             // CASE 3] INVALID ATTESTATION
             //
             // Remove the attestation from the pool, it will eventually be re-generated
-            Some(Err(Error::InvalidAttestation(_))) => {
+            Err(Interrupt::Cont(Error::InvalidAttestation(_))) => {
                 self.receiver_validation.mark_invalid(permit);
                 self.metrics.increase_invalid_attestation_count();
+                Ok(())
             }
             // CASE 4] EXTERNAL ERROR
             //
             // Cleanup and close the validation worker thread.
-            Some(Err(err)) => {
+            Err(Interrupt::Cont(err)) => {
                 // WARNING: ERROR HANDLING
                 //
                 // Even if this is an irrecoverable error, we still need to restore the attestation
                 // pool to a valid state as it can still be referenced to from other worker threads.
                 self.receiver_validation.mark_invalid(permit);
-                return Err(err);
+                Err(Interrupt::Cont(err))
             }
             // CASE 5] EXTERNAL INTERRUPT
             //
             // User initiated shutdown via SIGINT during a blocking retry operation.
-            None => {}
+            Err(Interrupt::Stop) => Err(Interrupt::Stop),
         }
-
-        Ok(())
     }
 
     async fn handle_event_submission(
         &mut self,
         submission: (AttestationSubmission, common::types::Height),
-    ) -> Result<(), Error> {
+    ) -> Result<(), Interrupt<Error>> {
         use futures::StreamExt as _;
 
         let (submission, height) = submission;
@@ -283,7 +286,7 @@ impl WorkerAttestationValidation {
                     Err(subxt::Error::Runtime(subxt::error::DispatchError::Module(err))) => {
                         match err
                             .as_root_error::<cc_client::cc3::Error>()
-                            .map_err(Error::SubxtError)?
+                            .map_interrupt(Error::SubxtError)?
                         {
                             cc_client::cc3::Error::Attestation(
                                 cc_client::cc3::attestation::Error::AttestationExists,
@@ -309,7 +312,7 @@ impl WorkerAttestationValidation {
                     // CASE 1.B] WON THE ATTESTATION SUBMISSION RACE
                     res => {
                         match res
-                            .map_err(Error::SubxtError)?
+                            .map_interrupt(Error::SubxtError)?
                             .all_events_in_block()
                             .find_last::<cc_client::cc3::attestation::events::BlockAttested>()
                         {
@@ -322,7 +325,7 @@ impl WorkerAttestationValidation {
                                 // Any early return must reset the `watch_submission` future to
                                 // avoid double polling!
                                 self.watch_submission = future::OptionFuture::default();
-                                return Err(Error::InvalidAttestationEvent);
+                                return Err(Interrupt::Cont(Error::InvalidAttestationEvent));
                             }
                         }
                     }
@@ -341,12 +344,12 @@ impl WorkerAttestationValidation {
                     tokio::select! {
                         Some(block) = self.stream_cc3.next() => {
                             for event in block
-                                .map_err(Error::CC3Error)?
+                                .map_interrupt(Error::CC3Error)?
                                 .events()
                                 .await
-                                .map_err(Error::CC3Error)?
+                                .map_interrupt(Error::CC3Error)?
                             {
-                                let event = event.map_err(Error::CC3Error)?;
+                                let event = event.map_interrupt(Error::CC3Error)?;
                                 if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
                                     event
                                 {
@@ -358,7 +361,7 @@ impl WorkerAttestationValidation {
                         }
                         _ = tokio::signal::ctrl_c() => {
                             self.watch_submission = future::OptionFuture::default();
-                            return Ok(());
+                            return Err(Interrupt::Stop);
                         }
                     }
                 }
@@ -382,12 +385,12 @@ impl WorkerAttestationValidation {
                     tokio::select! {
                         Some(block) = self.stream_cc3.next() => {
                             for event in block
-                                .map_err(Error::CC3Error)?
+                                .map_interrupt(Error::CC3Error)?
                                 .events()
                                 .await
-                                .map_err(Error::CC3Error)?
+                                .map_interrupt(Error::CC3Error)?
                             {
-                                let event = event.map_err(Error::CC3Error)?;
+                                let event = event.map_interrupt(Error::CC3Error)?;
                                 if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
                                     event
                                 {
@@ -406,7 +409,7 @@ impl WorkerAttestationValidation {
                         }
                         _ = tokio::signal::ctrl_c() => {
                             self.watch_submission = future::OptionFuture::default();
-                            return Ok(());
+                            return Err(Interrupt::Stop);
                         }
                     }
                 }
@@ -444,10 +447,6 @@ impl WorkerAttestationValidation {
 
         Ok(())
     }
-
-    async fn handle_event_shutdown(&mut self) -> common::types::Result<()> {
-        Ok(())
-    }
 }
 
 impl WorkerAttestationValidation {
@@ -458,7 +457,7 @@ impl WorkerAttestationValidation {
         digest: attestor_primitives::Digest,
         height: common::types::Height,
         chain_key: attestor_primitives::ChainKey,
-    ) -> Option<Result<common::types::AttestationSigned, Error>> {
+    ) -> Result<common::types::AttestationSigned, Interrupt<Error>> {
         use bls_signatures::Serialize as _;
         use rand::seq::SliceRandom as _;
         use rand::SeedableRng as _;
@@ -470,10 +469,12 @@ impl WorkerAttestationValidation {
         let mut attempt = 0;
         let mut delay = DELAY_BASE;
 
-        let runtime_api = match self.api.runtime_api().at_latest().await {
-            Ok(runtime_api) => runtime_api,
-            Err(err) => return Some(Err(Error::SubxtError(err))),
-        };
+        let runtime_api = self
+            .api
+            .runtime_api()
+            .at_latest()
+            .await
+            .map_interrupt(Error::SubxtError)?;
 
         // -----------------------------------* Pre-validation *-----------------------------------
 
@@ -498,14 +499,14 @@ impl WorkerAttestationValidation {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Some(Err(Error::SubxtError(err)));
+                        return Err(Interrupt::Cont(Error::SubxtError(err)));
                     }
                 }
             };
 
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => return None
+                _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
             }
 
             delay = (delay * 2).min(DELAY_MAX);
@@ -518,9 +519,9 @@ impl WorkerAttestationValidation {
                 chain_key,
                 "⛔ Unsupported source chain"
             );
-            return Some(Err(Error::InvalidAttestation(InvalidCause::Unsupported(
-                chain_key,
-            ))));
+            return Err(Interrupt::Cont(Error::InvalidAttestation(
+                InvalidCause::Unsupported(chain_key),
+            )));
         }
 
         let is_duplicate = loop {
@@ -541,14 +542,14 @@ impl WorkerAttestationValidation {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Some(Err(Error::SubxtError(err)));
+                        return Err(Interrupt::Cont(Error::SubxtError(err)));
                     }
                 }
             };
 
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => return None
+                _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
             }
 
             delay = (delay * 2).min(DELAY_MAX);
@@ -560,7 +561,9 @@ impl WorkerAttestationValidation {
                 height,
                 "Attestation already exists"
             );
-            return Some(Err(Error::InvalidAttestation(InvalidCause::Duplicate)));
+            return Err(Interrupt::Cont(Error::InvalidAttestation(
+                InvalidCause::Duplicate,
+            )));
         }
 
         // Uses ChaCha under the hood
@@ -623,14 +626,14 @@ impl WorkerAttestationValidation {
                         );
 
                         if attempt >= MAX_ATTEMPTS {
-                            return Some(Err(Error::SubxtError(err)));
+                            return Err(Interrupt::Cont(Error::SubxtError(err)));
                         }
                     }
                 }
 
                 tokio::select! {
                     _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                    _ = tokio::signal::ctrl_c() => return None
+                    _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
                 }
 
                 delay = (delay * 2).min(DELAY_MAX);
@@ -653,7 +656,9 @@ impl WorkerAttestationValidation {
                             %attestor_id,
                             "⛔ Invalid Attestor bls signature"
                         );
-                        return Some(Err(Error::InvalidAttestation(InvalidCause::InvalidBls)));
+                        return Err(Interrupt::Cont(Error::InvalidAttestation(
+                            InvalidCause::InvalidBls,
+                        )));
                     }
                 }
                 Some(Err(..)) => {
@@ -663,7 +668,9 @@ impl WorkerAttestationValidation {
                         %attestor_id,
                         "⛔ Attestor is registered with an invalid bls public key"
                     );
-                    return Some(Err(Error::InvalidAttestation(InvalidCause::InvalidBls)));
+                    return Err(Interrupt::Cont(Error::InvalidAttestation(
+                        InvalidCause::InvalidBls,
+                    )));
                 }
                 None => {
                     tracing::error!(
@@ -672,7 +679,9 @@ impl WorkerAttestationValidation {
                         %attestor_id,
                         "⛔ Attestor is not registered on-chain"
                     );
-                    return Some(Err(Error::InvalidAttestation(InvalidCause::InvalidBls)));
+                    return Err(Interrupt::Cont(Error::InvalidAttestation(
+                        InvalidCause::InvalidBls,
+                    )));
                 }
             }
         }
@@ -702,7 +711,7 @@ impl WorkerAttestationValidation {
                 height,
                 "⛔ Empty continuity proof"
             );
-            return Some(Err(Error::InvalidAttestation(
+            return Err(Interrupt::Cont(Error::InvalidAttestation(
                 InvalidCause::EmptyContinuityProof,
             )));
         }
@@ -721,14 +730,14 @@ impl WorkerAttestationValidation {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Some(Err(Error::SubxtError(err)));
+                        return Err(Interrupt::Cont(Error::SubxtError(err)));
                     }
                 }
             };
 
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => return None
+                _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
             }
 
             delay = (delay * 2).min(DELAY_MAX);
@@ -761,7 +770,7 @@ impl WorkerAttestationValidation {
                     height,
                     "⛔ Empty prev digest despite already having finalized attestations on-chain"
                 );
-                return Some(Err(Error::InvalidAttestation(
+                return Err(Interrupt::Cont(Error::InvalidAttestation(
                     InvalidCause::EmptyPrevDigest,
                 )));
             }
@@ -771,7 +780,7 @@ impl WorkerAttestationValidation {
                     height,
                     "⛔ No prev digest despite already having finalized attestations on-chain"
                 );
-                return Some(Err(Error::InvalidAttestation(
+                return Err(Interrupt::Cont(Error::InvalidAttestation(
                     InvalidCause::EmptyPrevDigest,
                 )));
             }
@@ -806,7 +815,7 @@ impl WorkerAttestationValidation {
                     expected = %digest_prev,
                     "⛔ Invalid attestation continuity chain head digest"
                 );
-                return Some(Err(Error::InvalidAttestation(
+                return Err(Interrupt::Cont(Error::InvalidAttestation(
                     InvalidCause::InvalidContinuityHeadDigest {
                         actual: digest_head,
                         expected: digest_prev,
@@ -871,7 +880,7 @@ impl WorkerAttestationValidation {
                     height,
                     "⛔ Invalid attestation continuity chain tail digest"
                 );
-                return Some(Err(Error::InvalidAttestation(
+                return Err(Interrupt::Cont(Error::InvalidAttestation(
                     InvalidCause::InvalidContinuityTailDigest {
                         actual: digest_prev_tail,
                         expected: digest_last_finalized,
@@ -907,7 +916,7 @@ impl WorkerAttestationValidation {
                     block_height = block.block_number,
                     "⛔ Invalid attestation continuity chain"
                 );
-                return Some(Err(Error::InvalidAttestation(
+                return Err(Interrupt::Cont(Error::InvalidAttestation(
                     InvalidCause::InvalidContinuityProof {
                         block: block.clone(),
                         expected: digest_prev_continuity,
@@ -930,13 +939,13 @@ impl WorkerAttestationValidation {
             .iter()
             .map(|att| att.signature_bls.0)
             .collect::<Vec<_>>();
-        let bls_aggregate = match bls_signatures::aggregate(&sigs) {
-            Ok(bls_aggregate) => match bls_aggregate.as_bytes().try_into() {
-                Ok(bls_aggregate) => bls_aggregate,
-                Err(err) => return Some(Err(Error::InvalidBls(err))),
-            },
-            Err(err) => return Some(Err(Error::BlsError(err))),
-        };
+        let bls_signature = bls_signatures::aggregate(&sigs)
+            .map_interrupt(Error::BlsError)?
+            .as_bytes();
+        let bls_aggregate = bls_signature
+            .first_chunk::<96>()
+            .copied()
+            .ok_interrupt(Error::InvalidBls(bls_signature))?;
 
         tracing::debug!(
             %digest,
@@ -951,12 +960,12 @@ impl WorkerAttestationValidation {
             .pop()
             .expect("Invariant violated: quorum must always contain at least one vote");
 
-        Some(Ok(attestor_primitives::SignedAttestation {
+        Ok(attestor_primitives::SignedAttestation {
             attestation: attestation.attestation_data,
             signature: bls_aggregate,
             attestors,
             continuity_proof: attestation.continuity_proof,
-        }))
+        })
     }
 }
 
@@ -976,7 +985,7 @@ impl WorkerAttestationValidation {
             cc_client::AccountId32,
         >,
         height: common::types::Height,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Interrupt<Error>> {
         use futures::FutureExt as _;
         use futures::StreamExt as _;
 
@@ -1001,7 +1010,7 @@ impl WorkerAttestationValidation {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Err(Error::ClientError(err));
+                        return Err(Interrupt::Cont(Error::ClientError(err)));
                     }
                 }
             }
@@ -1010,7 +1019,7 @@ impl WorkerAttestationValidation {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
                 _ = tokio::signal::ctrl_c() => {
                     self.watch_submission = future::OptionFuture::default();
-                    return Ok(());
+                    return Err(Interrupt::Stop);
                 }
             }
 
@@ -1040,9 +1049,9 @@ impl WorkerAttestationValidation {
                 )))
                 .into();
 
-                return Ok(());
+                return Err(Interrupt::Stop);
             }
-            Err(err) => return Err(Error::ClientError(err)),
+            Err(err) => return Err(Interrupt::Cont(Error::ClientError(err))),
         };
 
         // -------------------------* Deterministic Rank Backoff *-------------------------
@@ -1128,13 +1137,19 @@ impl WorkerAttestationValidation {
         loop {
             tokio::select! {
                 Some(block) = self.stream_cc3.next() => {
-                    for event in block.map_err(Error::CC3Error)?.events().await.map_err(Error::CC3Error)? {
-                        let event = event.map_err(Error::CC3Error)?;
+                    for event in block
+                        .map_interrupt(Error::CC3Error)?
+                        .events()
+                        .await
+                        .map_interrupt(Error::CC3Error)?
+                    {
+                        let event = event.map_interrupt(Error::CC3Error)?;
 
                         if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
                             if attestation.header_number >= height {
                                 self.watch_submission = Some(std::future::ready((
-                                    AttestationSubmission::Finalized, height
+                                    AttestationSubmission::Finalized,
+                                    height,
                                 )))
                                 .into();
 
@@ -1148,7 +1163,7 @@ impl WorkerAttestationValidation {
                 }
                 _ = tokio::signal::ctrl_c() => {
                     self.watch_submission = future::OptionFuture::default();
-                    return Ok(());
+                    return Err(Interrupt::Stop);
                 }
             }
         }
@@ -1187,7 +1202,7 @@ impl WorkerAttestationValidation {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Err(Error::SubxtError(err));
+                        return Err(Interrupt::Cont(Error::SubxtError(err)));
                     }
                 }
             }
@@ -1196,7 +1211,7 @@ impl WorkerAttestationValidation {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
                 _ = tokio::signal::ctrl_c() => {
                     self.watch_submission = future::OptionFuture::default();
-                    return Ok(());
+                    return Err(Interrupt::Stop);
                 }
             }
 

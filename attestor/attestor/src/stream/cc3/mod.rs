@@ -48,7 +48,7 @@ impl StreamCC3 {
         })
     }
 
-    async fn next_block(&mut self) -> Option<Result<common::types::SubxtBlock, Error>> {
+    async fn next_block(&mut self) -> Result<common::types::SubxtBlock, Interrupt<Error>> {
         const MAX_ATTEMPTS: usize = 5;
         const DELAY_BASE: u64 = 10;
         const DELAY_MAX: u64 = 60;
@@ -58,7 +58,7 @@ impl StreamCC3 {
 
         loop {
             match self.stream.next().await {
-                Some(Ok(block)) => break Some(Ok(block)),
+                Some(Ok(block)) => break Ok(block),
                 Some(Err(err)) => {
                     attempt += 1;
 
@@ -69,7 +69,7 @@ impl StreamCC3 {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        break Some(Err(Error::SubxtError(err)));
+                        break Err(Interrupt::Cont(Error::SubxtError(err)));
                     }
                 }
                 None => match self.api.blocks().subscribe_finalized().await {
@@ -84,7 +84,7 @@ impl StreamCC3 {
                         );
 
                         if attempt >= MAX_ATTEMPTS {
-                            break Some(Err(Error::SubxtError(err)));
+                            break Err(Interrupt::Cont(Error::SubxtError(err)));
                         }
                     }
                 },
@@ -92,7 +92,7 @@ impl StreamCC3 {
 
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => break None
+                _ = tokio::signal::ctrl_c() => break Err(Interrupt::Stop)
             }
 
             delay = (delay * 2).min(DELAY_MAX);
@@ -101,7 +101,7 @@ impl StreamCC3 {
 }
 
 impl futures::Stream for StreamCC3 {
-    type Item = Result<CC3Events, Error>;
+    type Item = Result<CC3Events, Interrupt<Error>>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -112,11 +112,9 @@ impl futures::Stream for StreamCC3 {
         let chain_key = self.chain_key;
 
         let fut = std::pin::pin!(self.next_block());
-        match std::task::ready!(fut.poll(cx)) {
-            Some(Ok(block)) => std::task::Poll::Ready(Some(Ok(CC3Events { block, chain_key }))),
-            Some(Err(err)) => std::task::Poll::Ready(Some(Err(err))),
-            None => std::task::Poll::Ready(None),
-        }
+        let events = std::task::ready!(fut.poll(cx)).map(|block| CC3Events { block, chain_key });
+
+        std::task::Poll::Ready(Some(events))
     }
 }
 
@@ -130,8 +128,19 @@ pub struct CC3Events {
 impl CC3Events {
     pub async fn events(
         &self,
-    ) -> Result<impl Iterator<Item = Result<cc_client::attestation::CcEvent, Error>>, Error> {
-        let events = self.block.events().await.map_err(Error::SubxtError)?;
+    ) -> Result<
+        impl Iterator<Item = Result<cc_client::attestation::CcEvent, Error>>,
+        Interrupt<Error>,
+    > {
+        let events = tokio::select! {
+            res = self.block.events() => {
+                res.map_interrupt(Error::SubxtError)?
+            }
+            _ = tokio::signal::ctrl_c() => {
+                return Err(Interrupt::Stop);
+            }
+        };
+
         let iter = cc_client::Client::extract_events(self.chain_key, &events)
             .map(|event| event.map_err(|err| Error::SubxtError(err.into())));
 

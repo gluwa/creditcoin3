@@ -2,7 +2,6 @@ use crate::prelude::*;
 
 #[derive(Debug)]
 pub enum Error {
-    Interrupt,
     Eth(eth::Error),
     FetchBlock(common::types::Height),
     FetchBlockReceipts(common::types::Height),
@@ -13,7 +12,6 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Interrupt => todo!(),
             Error::Eth(err) => write!(f, "{err}"),
             Error::FetchBlock(height) => write!(
                 f,

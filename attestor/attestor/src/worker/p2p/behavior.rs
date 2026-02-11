@@ -1,5 +1,3 @@
-use crate::prelude::*;
-
 #[derive(libp2p::swarm::NetworkBehaviour)]
 pub(crate) struct P2PBehavior {
     /// [`Ping`] is used for peer reputation by disconnecting peers which repeatedly fail to
@@ -44,7 +42,9 @@ pub(crate) struct P2PBehavior {
 }
 
 impl P2PBehavior {
-    pub fn new(key: &libp2p::identity::Keypair) -> common::types::Result<Self> {
+    pub fn new(
+        key: &libp2p::identity::Keypair,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         tracing::info!(peer_id = %key.public().to_peer_id(), "🔭 Starting new p2p node");
 
         let ping = libp2p::ping::Behaviour::new(

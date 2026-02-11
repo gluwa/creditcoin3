@@ -17,21 +17,23 @@
 //! Worker threads must implement the [`Worker`] api, which provides a single entrypoint to drive a
 //! worker to completion via the [`task`] method.
 //!
-//! ```rust
+//! ```
 //! # use attestor::worker::Worker;
 //! # use attestor::prelude::*;
 //! #
 //! struct MyCustomWorker;
 //!
 //! impl Worker for MyCustomWorker {
+//!     type Error = std::io::Error;
+//!
 //!     async fn task(
 //!         self,
 //!         mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>
-//!     ) -> common::types::Result<()> {
+//!     ) -> attestor::worker::Exit<std::io::Error> {
 //!         loop {
 //!             tokio::select! {
 //!                 _ = &mut shutdown => {
-//!                     break Ok(());
+//!                     break Err(Interrupt::Stop);
 //!                 }
 //!             }
 //!         }
@@ -45,7 +47,7 @@
 //! [`JoinHandle`] which exits with the worker thread. It is the responsibility of the caller to
 //! wait on each worker thread this way.
 //!
-//! ```rust
+//! ```
 //! # use attestor::worker::CancellationMonitor;
 //! # use attestor::worker::Worker;
 //! # use attestor::prelude::*;
@@ -53,10 +55,12 @@
 //! # struct MyCustomWorker;
 //! #
 //! # impl Worker for MyCustomWorker {
+//! #   type Error = std::io::Error;
+//! #
 //! #   async fn task(
 //! #       self,
 //! #       shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>
-//! #   ) -> common::types::Result<()> {
+//! #   ) -> attestor::worker::Exit<Self::Error> {
 //! #       Ok(())
 //! #   }
 //! # }
@@ -86,8 +90,12 @@ pub mod validation;
 
 use crate::prelude::*;
 
+pub type Exit<E> = Result<(), Interrupt<E>>;
+
 /// An API for spawning attestation tasks in their own dedicated thread.
 pub trait Worker {
+    type Error: std::error::Error + Send + Sync + 'static;
+
     /// The main task of a worker thread. Workers must not exit this method unless an unrecoverable
     /// error has occurred or the `shutdown` future has completed.
     ///
@@ -98,10 +106,11 @@ pub trait Worker {
     /// # struct MyCustomWorker;
     /// #
     /// # impl Worker for MyCustomWorker {
+    /// #   type Error = std::io::Error;
     /// async fn task(
     ///     self,
     ///     mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>
-    /// ) -> common::types::Result<()> {
+    /// ) -> attestor::worker::Exit<Self::Error> {
     ///     loop {
     ///         tokio::select! {
     ///             _ = &mut shutdown => {
@@ -115,7 +124,7 @@ pub trait Worker {
     fn task(
         self,
         shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
-    ) -> impl std::future::Future<Output = common::types::Result<()>>;
+    ) -> impl std::future::Future<Output = Exit<Self::Error>>;
 }
 
 /// A global thread monitor responsible for spawning and driving other [`Worker`] threads to
@@ -130,10 +139,12 @@ pub trait Worker {
 /// # struct MyCustomWorker;
 /// #
 /// # impl Worker for MyCustomWorker {
+/// #   type Error = std::io::Error;
+/// #
 /// #   async fn task(
 /// #       self,
 /// #       shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>
-/// #   ) -> common::types::Result<()> {
+/// #   ) -> attestor::worker::Exit<Self::Error> {
 /// #       Ok(())
 /// #   }
 /// # }
@@ -197,7 +208,7 @@ impl CancellationMonitor {
     pub fn spawn<W: Worker + Send + 'static>(
         &self,
         worker: W,
-    ) -> std::thread::JoinHandle<common::types::Result<()>> {
+    ) -> std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
         let handle = std::sync::Arc::clone(&self.notify);
 
         std::thread::spawn(move || {
@@ -218,8 +229,11 @@ impl CancellationMonitor {
                 //
                 // To avoid this, we pin the `Notified` future to a stable address in memory and
                 // keep re-using it across `select`s.
-                let res = worker.task(Box::pin(handle.notified())).await;
-                res
+                worker
+                    .task(Box::pin(handle.notified()))
+                    .await
+                    .extract_interrupt()
+                    .map_err(Box::from)
             })
         })
     }

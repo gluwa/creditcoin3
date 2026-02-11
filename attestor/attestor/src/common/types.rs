@@ -2,8 +2,6 @@
 //! easy to swap underlying types in the future, or for readability by associating a specific use
 //! case to more generic types like [u64].
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
 pub type Height = u64;
 pub type Epoch = u64;
 

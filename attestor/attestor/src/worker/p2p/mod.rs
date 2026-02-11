@@ -129,7 +129,7 @@ pub(crate) struct WorkerP2P {
 }
 
 impl WorkerP2P {
-    pub(crate) fn new(config: Config) -> common::types::Result<Self> {
+    pub(crate) fn new(config: Config) -> anyhow::Result<Self> {
         let mut swarm = libp2p::SwarmBuilder::with_existing_identity(config.keypair)
             .with_tokio()
             // Connection fallback.
@@ -193,29 +193,33 @@ impl WorkerP2P {
 // ---------------------------------------- [ Main loop ] -------------------------------------- //
 
 impl super::Worker for WorkerP2P {
+    type Error = Error;
+
     #[tracing::instrument(name = "p2p_engine", skip_all)]
     async fn task(
         mut self,
         mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
-    ) -> common::types::Result<()> {
+    ) -> crate::worker::Exit<Error> {
         use futures::StreamExt as _;
 
         // Tell the swarm to listen on all interfaces on the configured port.
         // Default port is 9000, which is useful for Kubernetes LoadBalancer services.
-        self.swarm.listen_on(self.listen_addr.clone())?;
+        self.swarm
+            .listen_on(self.listen_addr.clone())
+            .map_interrupt(Error::Transport)?;
 
         loop {
             tokio::select! {
                 biased;
 
                 _ = &mut shutdown => {
-                    break self.handle_event_shutdown().await;
+                    break Err(Interrupt::Stop);
                 }
                 attestation = self.receiver_p2p.recv(), if self.can_broadcast => {
-                    self.handle_event_attestation(attestation).await?;
+                    self.handle_event_attestation(attestation).await.map_err(Interrupt::Cont)?;
                 }
                 event = self.swarm.select_next_some() => {
-                    self.handle_event_p2p(event).await?;
+                    self.handle_event_p2p(event).await.map_err(Interrupt::Cont)?;
                 }
             }
         }
@@ -593,10 +597,6 @@ impl WorkerP2P {
             _ => (),
         };
 
-        Ok(())
-    }
-
-    async fn handle_event_shutdown(&mut self) -> common::types::Result<()> {
         Ok(())
     }
 }

@@ -13,7 +13,10 @@ pub use error::Error;
 
 pub mod prelude {
     pub use crate::common;
+    pub use common::user::*;
 }
+
+use crate::prelude::*;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
@@ -284,12 +287,19 @@ impl Attestor {
             attestors = 'outer: loop {
                 tokio::select! {
                     Some(block) = stream_cc3_production.next() => {
-                        for event in block
-                            .map_err(Error::CC3Error)?
-                            .events()
-                            .await
-                            .map_err(Error::CC3Error)?
-                        {
+                        let block = match block.map_interrupt(Error::CC3Error) {
+                            Ok(block) => block,
+                            Err(Interrupt::Cont(err)) => return Err(err),
+                            Err(Interrupt::Stop) => return Ok(()),
+                        };
+
+                        let events = match block.events().await.map_interrupt(Error::CC3Error) {
+                            Ok(events) => events,
+                            Err(Interrupt::Cont(err)) => return Err(err),
+                            Err(Interrupt::Stop) => return Ok(()),
+                        };
+
+                        for event in events {
                             let event = event.map_err(Error::CC3Error)?;
                             if let cc_client::attestation::CcEvent::AttestorsElected(attestors) = event {
                                 if attestors.contains(&account_id) {
@@ -315,23 +325,36 @@ impl Attestor {
         tracing::info!(start_height, "👶 Generating initial attestation");
 
         let attestation = if empty_chain {
-            stream_attestation
+            match stream_attestation
                 .generate_attestation_genesis()
                 .await
-                .map_err(Error::AttestationError)?
+                .map_interrupt(Error::AttestationError)
+            {
+                Ok(attestation) => attestation,
+                Err(Interrupt::Cont(err)) => return Err(err),
+                Err(Interrupt::Stop) => return Ok(()),
+            }
         } else {
-            let Some(permit) = stream_attestation
+            let permit = match stream_attestation
                 .next()
                 .await
                 .transpose()
-                .map_err(Error::AttestationError)?
-            else {
-                return Ok(());
+                .map_interrupt(Error::AttestationError)
+            {
+                Ok(Some(permit)) => permit,
+                Err(Interrupt::Cont(err)) => return Err(err),
+                Ok(None) | Err(Interrupt::Stop) => return Ok(()),
             };
-            stream_attestation
+
+            match stream_attestation
                 .generate_attestation(permit)
                 .await
-                .map_err(Error::AttestationError)?
+                .map_interrupt(Error::AttestationError)
+            {
+                Ok(attestation) => attestation,
+                Err(Interrupt::Cont(err)) => return Err(err),
+                Err(Interrupt::Stop) => return Ok(()),
+            }
         };
 
         let height = attestation.header_number();
@@ -416,7 +439,7 @@ impl Attestor {
             .with_chain_key(self.config.chain_key)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
-        let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::WorkerError)?;
+        let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::InitError)?;
         let mut handle_p2p = Some(monitor.spawn(p2p));
 
         tracing::info!("⏳ [4/4] Starting attestation production worker");
@@ -433,12 +456,19 @@ impl Attestor {
         let attestation_latest_cc3 = 'outer: loop {
             tokio::select! {
                 Some(block) = stream_cc3_production.next() => {
-                    for event in block
-                        .map_err(Error::CC3Error)?
-                        .events()
-                        .await
-                        .map_err(Error::CC3Error)?
-                    {
+                    let block = match block.map_interrupt(Error::CC3Error) {
+                        Ok(block) => block,
+                        Err(Interrupt::Cont(err)) => return Err(err),
+                        Err(Interrupt::Stop) => return Ok(()),
+                    };
+
+                    let events = match block.events().await.map_interrupt(Error::CC3Error) {
+                        Ok(events) => events,
+                        Err(Interrupt::Cont(err)) => return Err(err),
+                        Err(Interrupt::Stop) => return Ok(()),
+                    };
+
+                    for event in events  {
                         let event = event.map_err(Error::CC3Error)?;
                         if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
                             if attestation.header_number >= height {
@@ -482,7 +512,7 @@ impl Attestor {
             .with_metrics(metrics)
             .build();
         let production = worker::production::WorkerAttestationProduction::new(config)
-            .map_err(Error::WorkerError)?;
+            .map_err(Error::InitError)?;
         let mut handle_production = Some(monitor.spawn(production));
 
         tracing::info!("✅ All services online!");

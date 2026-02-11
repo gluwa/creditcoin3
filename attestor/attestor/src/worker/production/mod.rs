@@ -137,7 +137,7 @@ pub(crate) struct WorkerAttestationProduction {
 }
 
 impl WorkerAttestationProduction {
-    pub(crate) fn new(config: Config) -> common::types::Result<Self> {
+    pub(crate) fn new(config: Config) -> anyhow::Result<Self> {
         Ok(Self {
             stream_attestation: config.stream_attestation,
             stream_cc3: config.stream_cc3,
@@ -160,11 +160,13 @@ impl WorkerAttestationProduction {
 // ---------------------------------------- [ Main loop ] -------------------------------------- //
 
 impl super::Worker for WorkerAttestationProduction {
+    type Error = Error;
+
     #[tracing::instrument(name = "production", skip_all)]
     async fn task(
         mut self,
         mut shutdown: std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
-    ) -> common::types::Result<()> {
+    ) -> crate::worker::Exit<Error> {
         use futures::StreamExt as _;
 
         loop {
@@ -172,7 +174,7 @@ impl super::Worker for WorkerAttestationProduction {
                 biased;
 
                 _ = &mut shutdown => {
-                    break self.handle_event_shutdown().await;
+                    break Err(Interrupt::Stop);
                 }
                 Some(event) = self.stream_cc3.next() => {
                     self.handle_event_cc3(event).await?;
@@ -192,21 +194,19 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_attestation(
         &mut self,
-        event: Result<crate::stream::attestation::Permit, crate::stream::attestation::Error>,
-    ) -> Result<(), Error> {
-        let permit = match event {
-            Ok(permit) => permit,
-            Err(crate::stream::attestation::Error::Interrupt) => return Ok(()),
-            Err(err) => return Err(Error::Attestation(err)),
-        };
-
+        event: Result<
+            crate::stream::attestation::Permit,
+            Interrupt<crate::stream::attestation::Error>,
+        >,
+    ) -> Result<(), Interrupt<Error>> {
+        let permit = event.map_interrupt(Error::Attestation)?;
         let now = std::time::Instant::now();
 
         let attestation = self
             .stream_attestation
             .generate_attestation(permit)
             .await
-            .map_err(Error::Attestation)?;
+            .map_interrupt(Error::Attestation)?;
 
         let height = attestation.header_number();
         let digest = attestation.digest();
@@ -221,13 +221,12 @@ impl WorkerAttestationProduction {
             "📡 Generated attestation"
         );
 
-        let attestation_latest = self.attestation_latest_cc3.height;
+        let attestation_latest_cc3 = self.attestation_latest_cc3.height;
 
         self.metrics
             .update_attestation_delay_production(now.elapsed());
 
-        self.metrics
-            .set_attestation_local(attestation.header_number());
+        self.metrics.set_attestation_local(height);
 
         self.metrics.update_attestation_lag_eth(
             attestation.header_number(),
@@ -236,13 +235,13 @@ impl WorkerAttestationProduction {
         );
         self.metrics.update_attestation_lag_cc3(
             attestation.header_number(),
-            attestation_latest,
+            attestation_latest_cc3,
             self.attestation_interval,
         );
 
         tracing::info!(
             ?digest,
-            attestation_latest,
+            height,
             %attestor_id,
             "🗳️ Sending local attestation over for validation"
         );
@@ -259,7 +258,7 @@ impl WorkerAttestationProduction {
             err.log_error(digest);
         }
 
-        self.attestation_local = attestation_latest;
+        self.attestation_local = height;
 
         Ok(())
     }
@@ -268,20 +267,20 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_cc3(
         &mut self,
-        res: Result<crate::stream::cc3::CC3Events, crate::stream::cc3::Error>,
-    ) -> Result<(), Error> {
+        res: Result<crate::stream::cc3::CC3Events, Interrupt<crate::stream::cc3::Error>>,
+    ) -> Result<(), Interrupt<Error>> {
         use crate::events::EventAttestationFinalization as _;
         use crate::events::EventAttestationIntervalChange as _;
         use crate::events::EventAttestorsElected as _;
         use crate::events::EventCheckpointIntervalChange as _;
 
         for event in res
-            .map_err(Error::CC3)?
+            .map_interrupt(Error::CC3)?
             .events()
             .await
-            .map_err(Error::CC3)?
+            .map_interrupt(Error::CC3)?
         {
-            match event.map_err(Error::CC3)? {
+            match event.map_interrupt(Error::CC3)? {
                 // CASE 1] NEW ATTESTATION
                 cc_client::attestation::CcEvent::BlockAttested(attestation) => {
                     let digest = attestation.digest;
@@ -474,12 +473,6 @@ impl WorkerAttestationProduction {
             }
         }
 
-        Ok(())
-    }
-
-    // -----------------------------------------* Shutdown *---------------------------------------
-
-    async fn handle_event_shutdown(&mut self) -> common::types::Result<()> {
         Ok(())
     }
 }
