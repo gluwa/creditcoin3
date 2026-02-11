@@ -2,7 +2,7 @@
 authors = { workspace = true }
 description = "A Precompile to verify Substrate signatures"
 edition = "2021"
-name = "pallet-evm-precompile-signature-verifier"
+name = "pallet-evm-precompile-sr25519-verifier"
 version = "0.1.0"
 
 [dependencies]
