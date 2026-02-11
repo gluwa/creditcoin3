@@ -13,7 +13,7 @@ mod mock;
 mod tests;
 
 /// Precompile for verifying Substrate sr25519 signatures.
-pub struct SignatureVerifierPrecompile<Runtime>(PhantomData<Runtime>);
+pub struct Sr25519VerifierPrecompile<Runtime>(PhantomData<Runtime>);
 
 // 1MB limit for message size
 type ConstU1MB = ConstU32<1048576>;
@@ -28,7 +28,7 @@ const GAS_BASE_VERIFY: u64 = 3_500; // Base cost for cryptographic signature ver
 const GAS_PER_MESSAGE_BYTE: u64 = 3; // Per-byte cost for message processing
 
 #[precompile_utils::precompile]
-impl<Runtime> SignatureVerifierPrecompile<Runtime>
+impl<Runtime> Sr25519VerifierPrecompile<Runtime>
 where
     Runtime: pallet_evm::Config,
 {
