@@ -2,7 +2,7 @@ use pallet_evm::{
     IsPrecompileResult, Precompile, PrecompileHandle, PrecompileResult, PrecompileSet,
 };
 use pallet_evm_precompile_ed25519_verifier::Ed25519VerifierPrecompile;
-use pallet_evm_precompile_signature_verifier::SignatureVerifierPrecompile;
+use pallet_evm_precompile_sr25519_verifier::Sr25519VerifierPrecompile;
 use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
 use sp_core::H160;
 use sp_std::marker::PhantomData;
@@ -61,7 +61,7 @@ where
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
             a if a == hash(4049) => Some(SubstrateTransferPrecompile::<R, ()>::execute(handle)),
-            a if a == hash(5049) => Some(SignatureVerifierPrecompile::<R>::execute(handle)),
+            a if a == hash(5049) => Some(Sr25519VerifierPrecompile::<R>::execute(handle)),
             a if a == hash(5050) => Some(Ed25519VerifierPrecompile::<R>::execute(handle)),
             _ => None,
         }
