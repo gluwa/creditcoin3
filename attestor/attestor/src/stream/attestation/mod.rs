@@ -659,20 +659,19 @@ impl CacheRoots {
             .map(|info| info.block.number() + 1)
             .unwrap_or(self.boundary);
 
-        if height_stop < height_last {
-            if self
+        if height_stop < height_last
+            || self
                 .cache
                 .len()
-                .checked_sub(height_stop as usize - height_last as usize)
+                .checked_add(height_stop as usize - height_last as usize)
                 .is_none_or(|len_new| len_new <= self.max_size.get())
-            {
-                tracing::info!(
-                    height_last,
-                    height_stop,
-                    start_height = self.boundary,
-                    "🎯 Cache hit"
-                );
-            }
+        {
+            tracing::info!(
+                height_last,
+                height_stop,
+                start_height = self.boundary,
+                "🎯 Cache hit"
+            );
             return Ok(());
         }
 
@@ -806,7 +805,11 @@ impl crate::events::EventAttestationFinalizationAsync for CacheRoots {
                     .block
                     .number();
 
-                assert_eq!(removed_last, info.height);
+                assert!(
+                    removed_last <= info.height,
+                    "{removed_last} <= {}",
+                    info.height
+                );
 
                 self.boundary = info.height.saturating_add(1);
             }
