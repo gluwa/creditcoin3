@@ -146,9 +146,9 @@ impl pallet_balances::Config for Runtime {
 use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBuilder};
 
 pub type Precompiles<R> =
-    PrecompileSetBuilder<R, (PrecompileAt<AddressU64<1>, SignatureVerifierPrecompile<R>>,)>;
+    PrecompileSetBuilder<R, (PrecompileAt<AddressU64<1>, Sr25519VerifierPrecompile<R>>,)>;
 
-pub type PCall = SignatureVerifierPrecompileCall<Runtime>;
+pub type PCall = Sr25519VerifierPrecompileCall<Runtime>;
 
 const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 /// Block storage limit in bytes. Set to 40 KB.
