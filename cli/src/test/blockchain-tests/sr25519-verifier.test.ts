@@ -273,12 +273,12 @@ describe('Precompile: Sr25519Verifier.verify()', (): void => {
             ).rejects.toThrow(/Value is too large for length/);
         });
 
-        test('should revert for message exceeding 1MB limit', async () => {
+        test('should revert for message exceeding 3MB limit', async () => {
             // Generate a keypair
             const pair = keyring.addFromMnemonic(mnemonicGenerate());
 
-            // Create a message larger than 1MB (1MB + 1 byte)
-            const largeMessage = 'A'.repeat(1048577);
+            // Create a message larger than 3MB (3MB + 1 byte)
+            const largeMessage = 'A'.repeat(3145729);
             const messageBytes = new TextEncoder().encode(largeMessage);
 
             // Sign the message (this will work in substrate)
@@ -293,7 +293,7 @@ describe('Precompile: Sr25519Verifier.verify()', (): void => {
             await expect(
                 contract.verify(messageHex, signatureHex, publicKeyHex, {
                     gasPrice,
-                    gasLimit: 30000000, // Higher gas limit
+                    gasLimit: 75_000_000,
                 }),
             ).rejects.toThrow(/Value is too large for length/);
         }, 120_000);
