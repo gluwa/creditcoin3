@@ -1546,7 +1546,6 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "url",
- "vrf",
 ]
 
 [[package]]
