@@ -1,8 +1,11 @@
 /**
  * Batch proof submitter
  *
- * Handles submission of multiple proofs in batch mode
- * using the native batch precompile with shared continuity proofs.
+ * Submits multiple proofs in batch mode using the native batch precompile.
+ * Continuity merging mirrors scripts/SubmitBatchProof.js:
+ * - gather per-query continuity roots
+ * - build one shared continuity proof from min->max query height
+ * - submit verifyAndEmit batch with shared continuity
  */
 
 import { ethers } from "ethers";
@@ -16,12 +19,149 @@ import { submitProofsIndividually } from "./singleSubmitter.ts";
 import { withContinuityRetry } from "../utils/retry.ts";
 import { randomInt } from "../utils/random.ts";
 
-/**
- * Submit proofs in batch mode
- *
- * Uses the native batch precompile with a shared continuity proof per block.
- * Falls back to single submissions if a batch fails.
- */
+interface ContinuityProof {
+  lowerEndpointDigest: string;
+  roots: string[];
+}
+
+interface BatchPayload {
+  heights: number[];
+  txBytesList: Uint8Array[];
+  merkleProofs: Array<
+    { root: string; siblings: Array<{ hash: string; isLeft: boolean }> }
+  >;
+  continuityProof: ContinuityProof;
+}
+
+interface ProofInput {
+  txInfo: TxInfo;
+  proof: {
+    continuityProof: ContinuityProof;
+    merkleProof: {
+      root: string;
+      siblings: Array<{ hash: string; isLeft: boolean }>;
+    };
+  };
+  txBytes: Uint8Array;
+  headerNumber: number;
+}
+
+function sortProofInputs(inputs: ProofInput[]): void {
+  inputs.sort((a, b) => {
+    if (a.headerNumber !== b.headerNumber) {
+      return a.headerNumber - b.headerNumber;
+    }
+    return a.txInfo.txIndex - b.txInfo.txIndex;
+  });
+}
+
+/** Merge roots from all proofs into one shared continuity chain. */
+function buildSharedContinuityProof(
+  batchInputs: Array<
+    { headerNumber: number; proof: { continuityProof: ContinuityProof } }
+  >,
+): ContinuityProof | null {
+  if (batchInputs.length === 0) return null;
+
+  const heights = batchInputs.map((b) => b.headerNumber);
+  const minHeight = Math.min(...heights);
+  const maxHeight = Math.max(...heights);
+
+  const heightToRoot = new Map<number, string>();
+  const heightToLowerDigest = new Map<number, string>();
+
+  for (const { headerNumber, proof } of batchInputs) {
+    const cp = proof.continuityProof;
+    if (!cp?.roots?.length) continue;
+
+    heightToLowerDigest.set(headerNumber, cp.lowerEndpointDigest);
+
+    for (let i = 0; i < cp.roots.length; i++) {
+      const blockHeight = headerNumber + i;
+      if (!heightToRoot.has(blockHeight)) {
+        heightToRoot.set(blockHeight, cp.roots[i]);
+      }
+    }
+  }
+
+  const lowerEndpointDigest = heightToLowerDigest.get(minHeight);
+  if (!lowerEndpointDigest) return null;
+
+  const allHeights = [...heightToRoot.keys()].sort((a, b) => a - b);
+  const actualMaxHeight = allHeights[allHeights.length - 1];
+
+  if (actualMaxHeight < maxHeight) return null;
+
+  const roots: string[] = [];
+  for (let h = minHeight; h <= actualMaxHeight; h++) {
+    const root = heightToRoot.get(h);
+    if (!root) return null;
+    roots.push(root);
+  }
+
+  return { lowerEndpointDigest, roots };
+}
+
+/** Validate payload before submitting to batch verifyAndEmit. */
+function validateBatchPayload(
+  payload: BatchPayload,
+  startHeight: number,
+): string | null {
+  const { heights, merkleProofs, continuityProof } = payload;
+  const maxHeight = Math.max(...heights);
+
+  // roots[0] maps to startHeight; chain must cover all query heights.
+  const lastContinuityBlock = startHeight + continuityProof.roots.length - 1;
+  if (lastContinuityBlock < maxHeight) {
+    return `Continuity chain ends at ${lastContinuityBlock}, does not cover max query height ${maxHeight}`;
+  }
+
+  // Each merkle root must match continuity root at that height offset.
+  for (let i = 0; i < heights.length; i++) {
+    const offset = heights[i] - startHeight;
+    const expectedRoot = continuityProof.roots[offset];
+    const actualRoot = merkleProofs[i].root;
+    if (expectedRoot !== actualRoot) {
+      return `Merkle root mismatch at height ${heights[i]}: expected ${
+        expectedRoot.slice(0, 10)
+      }..., got ${actualRoot.slice(0, 10)}...`;
+    }
+  }
+
+  return null;
+}
+
+async function fetchProofInputForTx(
+  config: SimulatorConfig,
+  txInfo: TxInfo,
+): Promise<ProofInput> {
+  const apiProof = await fetchProofForTx(
+    config.proofApiUrl,
+    config.chainKey,
+    txInfo,
+  );
+  const proof = convertProofFormat(apiProof);
+  if (!apiProof.txBytes) {
+    throw new Error("Transaction bytes not found in API response");
+  }
+  const txBytes = ethers.getBytes(apiProof.txBytes);
+  const headerNumber = apiProof.headerNumber ?? txInfo.blockNumber;
+  if (headerNumber !== txInfo.blockNumber) {
+    console.warn(
+      `⚠️  Proof header mismatch for ${
+        txInfo.txHash.slice(0, 10)
+      }...: expected ${txInfo.blockNumber}, got ${headerNumber}`,
+    );
+  }
+  return {
+    txInfo,
+    proof,
+    txBytes,
+    headerNumber,
+  };
+}
+
+/** Submit proofs in batch mode. Falls back to single submissions on failure. */
 export async function submitBatchProofs(
   config: SimulatorConfig,
   txInfos: TxInfo[],
@@ -37,40 +177,9 @@ export async function submitBatchProofs(
 
   const maxBatchSize = Math.min(config.batchSize, 10);
   const proofInputs = await Promise.all(
-    txInfos.map(async (txInfo) => {
-      const apiProof = await fetchProofForTx(
-        config.proofApiUrl,
-        config.chainKey,
-        txInfo,
-      );
-      const proof = convertProofFormat(apiProof);
-      if (!apiProof.txBytes) {
-        throw new Error("Transaction bytes not found in API response");
-      }
-      const txBytes = ethers.getBytes(apiProof.txBytes);
-      const headerNumber = apiProof.headerNumber ?? txInfo.blockNumber;
-      if (headerNumber !== txInfo.blockNumber) {
-        console.warn(
-          `⚠️  Proof header mismatch for ${
-            txInfo.txHash.slice(0, 10)
-          }...: expected ${txInfo.blockNumber}, got ${headerNumber}`,
-        );
-      }
-      return {
-        txInfo,
-        proof,
-        txBytes,
-        headerNumber,
-      };
-    }),
+    txInfos.map((txInfo) => fetchProofInputForTx(config, txInfo)),
   );
-
-  proofInputs.sort((a, b) => {
-    if (a.headerNumber !== b.headerNumber) {
-      return a.headerNumber - b.headerNumber;
-    }
-    return a.txInfo.txIndex - b.txInfo.txIndex;
-  });
+  sortProofInputs(proofInputs);
 
   let index = 0;
   while (index < proofInputs.length) {
@@ -127,25 +236,54 @@ export async function submitBatchProofs(
       .join(", ");
 
     try {
-      const heights = batchInputs.map((input) => input.headerNumber);
-      const txBytesList = batchInputs.map((input) => input.txBytes);
-      const merkleProofs = batchInputs.map((input) => input.proof.merkleProof);
+      const batchTxInfos = batchInputs.map((input) => input.txInfo);
 
-      batches++;
+      // Refetch on each continuity retry attempt; stale proofs often fail again.
+      const submitFreshBatch = async () => {
+        const freshInputs = await Promise.all(
+          batchTxInfos.map((txInfo) => fetchProofInputForTx(config, txInfo)),
+        );
+        sortProofInputs(freshInputs);
+
+        const heights = freshInputs.map((input) => input.headerNumber);
+        const txBytesList = freshInputs.map((input) => input.txBytes);
+        const merkleProofs = freshInputs.map((input) => input.proof.merkleProof);
+        const sharedContinuityProof = buildSharedContinuityProof(freshInputs);
+        if (!sharedContinuityProof) {
+          throw new Error("Could not build shared continuity proof from fresh inputs");
+        }
+
+        const payload: BatchPayload = {
+          heights,
+          txBytesList,
+          merkleProofs,
+          continuityProof: sharedContinuityProof,
+        };
+        const validationError = validateBatchPayload(
+          payload,
+          Math.min(...heights),
+        );
+        if (validationError) {
+          throw new Error(`Batch validation failed: ${validationError}`);
+        }
+
+        return submitBatchToPrecompile(
+          config.cc3HttpUrl,
+          config.cc3PrivateKey,
+          config.chainKey,
+          heights,
+          txBytesList,
+          merkleProofs,
+          sharedContinuityProof,
+        );
+      };
+
       console.log(`    📦 Batch txs: ${batchTxHashes}`);
       const batchResult = await withContinuityRetry(
-        () =>
-          submitBatchToPrecompile(
-            config.cc3HttpUrl,
-            config.cc3PrivateKey,
-            config.chainKey,
-            heights,
-            txBytesList,
-            merkleProofs,
-            continuityProof,
-          ),
+        submitFreshBatch,
         label,
       );
+      batches++;
 
       console.log(
         `    ✅ Batch submitted (${label}): ${batchInputs.length} proofs (tx: ${

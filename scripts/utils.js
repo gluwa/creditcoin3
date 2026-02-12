@@ -640,12 +640,12 @@ function buildSharedContinuityProof(queryProofs, verbose = false) {
     const heightToLowerDigest = new Map();
 
     for (const { height, proof } of queryProofs) {
-        const cp = proof.continuity_proof;
+        const cp = proof.continuityProof;
         if (!cp || !cp.roots) continue;
 
         // The proof's first root is at the query height
         // Store the lower endpoint digest for this height
-        heightToLowerDigest.set(height, cp.lower_endpoint_digest);
+        heightToLowerDigest.set(height, cp.lowerEndpointDigest);
 
         // Map each root to its height
         for (let i = 0; i < cp.roots.length; i++) {

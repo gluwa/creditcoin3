@@ -129,7 +129,7 @@ async function main() {
                 options.verbose,
             );
 
-            if (!apiProof.tx_bytes) {
+            if (!apiProof.txBytes) {
                 throw new Error(`Transaction bytes not found for height ${query.height}`);
             }
 
@@ -149,7 +149,7 @@ async function main() {
         // Prepare batch data
         const heights = queryProofs.map((qp) => BigInt(qp.height));
         const txBytesArray = queryProofs.map((qp) => {
-            const txBytesStr = qp.proof.tx_bytes;
+            const txBytesStr = qp.proof.txBytes;
             return Buffer.from(txBytesStr.startsWith('0x') ? txBytesStr.slice(2) : txBytesStr, 'hex');
         });
         const merkleProofs = queryProofs.map((qp) => {

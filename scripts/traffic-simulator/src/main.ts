@@ -190,14 +190,12 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
   }
 }
 
-/**
- * Select transactions for a block based on submission mode
- */
+/** Select transactions for a block. Batch mode: 1–2 txs per block; single: 1 tx. */
 function selectTxInfosForBlock(block: BlockInfo, useBatch: boolean): TxInfo[] {
   let selectedTxs: Array<{ txHash: string; txIndex: number }>;
   if (useBatch) {
-    // Batch mode: one tx per block (batching happens across blocks)
-    selectedTxs = selectRandomTransactions(block.txHashes, 1);
+    const maxPerBlock = block.txHashes.length >= 2 ? 2 : 1;
+    selectedTxs = selectRandomTransactions(block.txHashes, maxPerBlock);
   } else {
     if (!shouldSubmitSingleForBlock(block.blockNumber)) {
       console.log(

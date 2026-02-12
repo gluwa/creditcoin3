@@ -85,8 +85,9 @@ function isTransientNetworkError(error: unknown): boolean {
     msg.includes("fetch failed") ||
     msg.includes("connection reset") ||
     msg.includes("connection refused") ||
+    msg.includes("connection error") ||
     msg.includes("socket disconnected") ||
-    msg.includes("request to") && msg.includes("failed")
+    (msg.includes("request to") && msg.includes("failed"))
   );
 }
 
@@ -98,6 +99,35 @@ function getErrorMessage(error: unknown): string {
     return `${e.message ?? ""} ${e.shortMessage ?? ""}`;
   }
   return String(error);
+}
+
+/** Error(string) selector: 0x08c379a0. Precompile uses this for revert messages. */
+const ERROR_STRING_SELECTOR = "0x08c379a0";
+
+function decodeRevertMessage(revertData: string): string {
+  if (typeof revertData !== "string" || !revertData.startsWith("0x")) {
+    return "Unknown";
+  }
+  // Precompile uses Error(string) - decode the message
+  if (revertData.startsWith(ERROR_STRING_SELECTOR) && revertData.length > 10) {
+    try {
+      const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
+        ["string"],
+        "0x" + revertData.slice(10),
+      );
+      return decoded[0] as string;
+    } catch {
+      return "Error(string) decode failed";
+    }
+  }
+  // Try ABI parse for custom errors
+  const iface = new ethers.Interface(PRECOMPILE_ABI);
+  const parsed = iface.parseError(revertData);
+  if (parsed) {
+    const args = parsed.args ? ` (${parsed.args.join(", ")})` : "";
+    return `${parsed.name}${args}`;
+  }
+  return "Unknown";
 }
 
 // ============================================================================
@@ -266,11 +296,10 @@ async function submitToPrecompileInternal(
         return { entry, feeOverrides };
       } catch (error) {
         // Check for revert errors (not retriable)
-        const iface = new ethers.Interface(PRECOMPILE_ABI);
         const revertData = (error as { data?: string }).data;
         if (revertData) {
-          const parsed = iface.parseError(revertData);
-          throw new Error(`${label} will revert: ${parsed?.name ?? "Unknown"}`);
+          const revertMsg = decodeRevertMessage(revertData);
+          throw new Error(`${label} will revert: ${revertMsg}`);
         }
 
         // Check if it's a transient network error that should be retried
@@ -494,6 +523,31 @@ interface FetchProofContext {
   txIdentifier: number | string;
 }
 
+function isProofFetchRetriable(error: unknown): boolean {
+  const msg = getErrorMessage(error).toLowerCase();
+  // Timeout
+  if (msg.includes("timed out")) return true;
+  // Network errors (like SubmitBatchProof.js)
+  if (
+    msg.includes("fetch") ||
+    msg.includes("network") ||
+    msg.includes("econnreset") ||
+    msg.includes("econnrefused") ||
+    msg.includes("etimedout") ||
+    msg.includes("enotfound") ||
+    msg.includes("socket hang up") ||
+    msg.includes("connection reset") ||
+    msg.includes("connection refused")
+  ) {
+    return true;
+  }
+  // API 500 (e.g. "No attestation or checkpoint found after")
+  if (error instanceof ProofApiError && (error.retriable || error.status >= 500)) {
+    return true;
+  }
+  return false;
+}
+
 async function fetchProofWithRetry(
   url: string,
   label: string,
@@ -504,12 +558,7 @@ async function fetchProofWithRetry(
     try {
       return await fetchProof(url);
     } catch (error) {
-      const isRetriable =
-        (error instanceof Error && error.message.includes("timed out")) ||
-        (error instanceof ProofApiError &&
-          (error.retriable || error.status >= 500));
-
-      if (attempt < maxRetries - 1 && isRetriable) {
+      if (attempt < maxRetries - 1 && isProofFetchRetriable(error)) {
         const delayMs = PROOF_API_BASE_DELAY_MS * Math.pow(2, attempt) +
           Math.random() * 250;
 

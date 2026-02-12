@@ -18,9 +18,13 @@ export const PROOF_API_TIMEOUT_MS = 30_000;
 export const PROOF_API_MAX_RETRIES = 5;
 export const PROOF_API_BASE_DELAY_MS = 2_000;
 
-// RPC settings
-export const RPC_TIMEOUT_MS = 30_000;
-export const RECEIPT_TIMEOUT_MS = 120_000;
+// RPC settings (override via RPC_TIMEOUT_MS env var for slow/remote chains)
+const _rpcTimeout = Number(Deno.env.get("RPC_TIMEOUT_MS"));
+export const RPC_TIMEOUT_MS = _rpcTimeout > 0 ? _rpcTimeout : 30_000;
+const _receiptTimeout = Number(Deno.env.get("RECEIPT_TIMEOUT_MS"));
+export const RECEIPT_TIMEOUT_MS = _receiptTimeout > 0
+  ? _receiptTimeout
+  : 120_000;
 
 // Transient network error retry settings (for socket hang up, ECONNRESET, etc.)
 export const MAX_TRANSIENT_RETRIES = 3;

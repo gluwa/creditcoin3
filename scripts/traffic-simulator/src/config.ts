@@ -51,6 +51,7 @@ function parseCliArgs(): ParsedArgs {
       "health-port",
     ],
     boolean: [
+      "help",
       "verbose",
     ],
     default: {},
@@ -128,7 +129,7 @@ OPTIONS:
   
       --batch-probability <P>  Probability of batch mode (0.0-1.0)
                               Env: BATCH_PROBABILITY
-                              Default: 0.3
+                              Default: 0.5
 
       --single-every <N>    Submit a single proof once every N blocks
                             Env: SINGLE_EVERY_BLOCKS
@@ -146,7 +147,7 @@ ENVIRONMENT VARIABLES:
   CHAIN_KEY              Source chain key (default: 1 for Sepolia)
   MAX_QUEUE_SIZE         Max blocks to track (default: 100)
   BATCH_SIZE             Max txs per batch (random 1..N, default: 10)
-  BATCH_PROBABILITY      Probability of batch mode, 0.0-1.0 (default: 0.3)
+  BATCH_PROBABILITY      Probability of batch mode, 0.0-1.0 (default: 0.5)
   SINGLE_EVERY_BLOCKS    Submit a single proof once every N blocks (default: 1)
   LOG_VERBOSE            Enable verbose debug logging (default: false)
   HEALTH_PORT            Health check server port (default: 8080)

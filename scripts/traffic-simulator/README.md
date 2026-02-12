@@ -66,10 +66,12 @@ deno task start -- \
 | `SINGLE_EVERY_BLOCKS` | Submit a single proof once every N blocks | `1`                     |
 | `LOG_VERBOSE`         | Enable verbose debug logging              | `false`                 |
 | `HEALTH_PORT`         | Health check port                         | `8080`                  |
+| `RPC_TIMEOUT_MS`      | RPC call timeout (simulation, receipt)    | `30000`                 |
+| `RECEIPT_TIMEOUT_MS`  | Receipt wait timeout                      | `120000`                |
 
 Single submissions pick one random transaction once every `SINGLE_EVERY_BLOCKS`.
-Batch submissions pick one random transaction per block and group
-1..`BATCH_SIZE` blocks into a batch when they share a continuity proof.
+Batch submissions pick 1–2 transactions per block and group them into batches
+(up to `BATCH_SIZE`), merging continuity proofs from all proofs in the batch.
 
 ## Health Endpoints
 
