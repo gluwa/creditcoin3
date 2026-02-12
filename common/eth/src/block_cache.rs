@@ -21,6 +21,8 @@ use std::time::Duration;
 
 const ONE_HOUR_TTL: u64 = 60 * 60;
 const DBSIZE_COMMAND: &str = "DBSIZE";
+/// Interval for refreshing total cached blocks metric (seconds)
+const TOTAL_CACHED_BLOCKS_REFRESH_INTERVAL_SECS: u64 = 30;
 /// Connection timeout for Redis connections (time to establish connection)
 const REDIS_CONNECTION_TIMEOUT_SECS: u64 = 10;
 /// Response timeout for Redis operations (time to wait for response after request)
@@ -169,6 +171,23 @@ impl Client {
         let redis_conn = client
             .get_multiplexed_async_connection_with_config(&connection_config)
             .await?;
+
+        let metrics = config.metrics.clone();
+        let refresh_conn = redis_conn.clone();
+
+        // Spawn background task to periodically refresh total cached blocks.
+        // Uses Redis DBSIZE (total keys in DB); when Redis is dedicated to block cache,
+        // this equals source chain blocks cached (+ short-lived lock keys).
+        tokio::spawn(async move {
+            let interval =
+                std::time::Duration::from_secs(TOTAL_CACHED_BLOCKS_REFRESH_INTERVAL_SECS);
+            loop {
+                if let Ok(count) = get_total_cached_blocks(refresh_conn.clone()).await {
+                    metrics.set_total_cached_blocks(count as i64);
+                }
+                tokio::time::sleep(interval).await;
+            }
+        });
 
         let cache = Cache {
             redis_conn,

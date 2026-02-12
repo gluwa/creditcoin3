@@ -34,7 +34,7 @@ impl BlockCacheMetrics {
         let total_cached_blocks = Gauge::default();
         registry.register(
             "eth_block_cache_total_cached_blocks",
-            "Total number of cached blocks",
+            "Total source chain blocks cached in Redis (keys in DB; when Redis is dedicated to block cache)",
             total_cached_blocks.clone(),
         );
 

@@ -8,7 +8,6 @@
 /// - `eth_rpc_url`: Ethereum RPC url
 /// - `redis_url`: Optional Redis URL for Ethereum block caching
 /// - `indexer_url`: Optional CC3 Indexer GraphQL URL for pre-fetching continuity proofs
-/// - `enable_prometheus_metrics`: Whether to enable Prometheus metrics (served at /metrics on main API server)
 pub struct Config {
     pub bind_host: String,
     pub bind_port: u16,
@@ -18,7 +17,6 @@ pub struct Config {
     pub eth_rpc_url: String,
     pub redis_url: Option<String>,
     pub indexer_url: Option<String>,
-    pub enable_prometheus_metrics: bool,
 }
 
 impl Config {
@@ -36,7 +34,6 @@ impl Config {
             eth_rpc_url: "http://mock".to_string(),
             redis_url: None,
             indexer_url: None,
-            enable_prometheus_metrics: false,
         }
     }
 }

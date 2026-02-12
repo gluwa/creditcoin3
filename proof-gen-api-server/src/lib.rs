@@ -5,7 +5,7 @@ use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
 use tracing::{error, info};
 
-use crate::prom::{Metrics, NoopMetrics, ProofGenMetrics};
+use crate::prom::{Metrics, ProofGenMetrics};
 use cc_client::Client as CcClient;
 use config::Config;
 use continuity::ContinuityBuilder;
@@ -35,21 +35,16 @@ pub struct Server {
     // Last checkpoint block number per chain (updated via events)
     // Used to quickly determine if a query needs checkpoint data
     last_checkpoint_blocks: events::LastCheckpointBlockMap,
-    // Prometheus metrics, if enabled
-    // Store as Arc<ProofGenMetrics> to access block_cache_metrics(), convert to Metrics trait object when needed
-    prom_metrics: Option<Arc<ProofGenMetrics>>,
+    // Prometheus metrics (always enabled)
+    prom_metrics: Arc<ProofGenMetrics>,
 }
 
 impl Server {
     /// Create a new server based on `Config`.
     pub async fn new(config: Config) -> Result<Self> {
-        // Create metrics first (if enabled) so we can share the registry with block cache
-        let prom_metrics: Option<Arc<ProofGenMetrics>> = if config.enable_prometheus_metrics {
-            info!("📈 Prometheus metrics enabled on main API server at /metrics");
-            Some(Arc::new(ProofGenMetrics::new(config.chain_key)))
-        } else {
-            None
-        };
+        // Create metrics first so we can share the registry with block cache
+        let prom_metrics = Arc::new(ProofGenMetrics::new(config.chain_key));
+        info!("📈 Prometheus metrics available at /metrics");
 
         // Initialize CC3 client (read-only, no keypair needed)
         let cc3_client = Arc::<CcClient>::new(CcClient::new_read_only(&config.cc3_rpc_url).await?);
@@ -66,13 +61,7 @@ impl Server {
         let eth_client = if let Some(ref redis_url) = config.redis_url {
             info!("Using Redis block caching at {}", redis_url);
             // Get block cache metrics from our metrics (if enabled) or create standalone
-            let block_cache_metrics = if let Some(ref m) = prom_metrics {
-                m.block_cache_metrics()
-            } else {
-                // Create standalone metrics (won't be exported, but needed for the interface)
-                let mut dummy_registry = prometheus_client::registry::Registry::default();
-                eth::metrics::BlockCacheMetrics::new(&mut dummy_registry)
-            };
+            let block_cache_metrics = prom_metrics.block_cache_metrics();
             let cache_config = eth::block_cache::BlockCacheConfig {
                 redis_url: redis_url.clone(),
                 metrics: block_cache_metrics,
@@ -191,13 +180,7 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<()> {
-        // Convert prom_metrics to Metrics trait object, using NoopMetrics as fallback
-        // ContinuityService now uses Metrics (non-optional) with NoopMetrics fallback
-        let metrics: Metrics = self
-            .prom_metrics
-            .clone()
-            .map(|m| m as Metrics)
-            .unwrap_or_else(|| NoopMetrics::new());
+        let metrics: Metrics = self.prom_metrics.clone() as Metrics;
 
         let service = Arc::new(
             services::continuity_service::ContinuityService::new(
@@ -206,6 +189,10 @@ impl Server {
             )
             .await?,
         );
+
+        // Spawn background task to refresh hardware metrics (CPU, memory, threads)
+        // so /metrics responds instantly without blocking on sysinfo
+        ProofGenMetrics::spawn_hardware_updater(self.prom_metrics.clone());
 
         // Build axum application - uses the same Metrics instance
         // Pass prom_metrics for /metrics endpoint on main server

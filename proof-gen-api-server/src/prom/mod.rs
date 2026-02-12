@@ -213,7 +213,7 @@ impl ProofGenMetrics {
             thread_count.clone(),
         );
 
-        // Server info metric
+        // Server info metric (prometheus-client adds _info suffix when encoding)
         registry.register(
             "proof_gen_server",
             "Server information",
@@ -253,12 +253,10 @@ impl ProofGenMetrics {
         buffer
     }
 
-    /// Build metrics HTTP response with updated hardware metrics.
-    /// This is a shared helper used by both the main API server and the separate metrics server.
-    pub async fn build_metrics_response(&self) -> axum::response::Response {
-        // Update hardware metrics before encoding
-        self.update_hardware().await;
-
+    /// Build metrics HTTP response.
+    /// Hardware metrics (CPU, memory, threads) are updated by a background task;
+    /// this just encodes the current gauge values without blocking.
+    pub fn build_metrics_response(&self) -> axum::response::Response {
         axum::response::Response::builder()
             .status(axum::http::StatusCode::OK)
             .header(
@@ -269,9 +267,22 @@ impl ProofGenMetrics {
             .unwrap()
     }
 
+    /// Spawn a background task that periodically updates hardware metrics.
+    /// Call this once at server startup when metrics are enabled.
+    /// The task runs until the process exits.
+    pub fn spawn_hardware_updater(metrics: Arc<Self>) {
+        tokio::spawn(async move {
+            let interval = std::time::Duration::from_secs(5);
+            loop {
+                metrics.update_hardware().await;
+                tokio::time::sleep(interval).await;
+            }
+        });
+    }
+
     /// Update hardware metrics (CPU, memory usage, and thread count).
-    /// Should be called before encoding metrics for fresh values.
-    pub async fn update_hardware(&self) {
+    /// Called from the background task only; uses a 200ms sleep for accurate CPU sampling.
+    async fn update_hardware(&self) {
         if let Ok(pid) = sysinfo::get_current_pid() {
             let specifics = sysinfo::RefreshKind::nothing()
                 .with_cpu(sysinfo::CpuRefreshKind::nothing().with_cpu_usage())
@@ -316,10 +327,8 @@ impl ProofGenMetrics {
 
 /// Shared handler function for metrics endpoint.
 /// Can be used with either Extension or State extractor by passing the metrics.
-pub async fn handle_metrics_response(
-    metrics: Arc<ProofGenMetrics>,
-) -> impl axum::response::IntoResponse {
-    metrics.build_metrics_response().await
+pub fn handle_metrics_response(metrics: Arc<ProofGenMetrics>) -> impl axum::response::IntoResponse {
+    metrics.build_metrics_response()
 }
 
 impl MetricsTrait for ProofGenMetrics {

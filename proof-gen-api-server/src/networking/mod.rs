@@ -20,7 +20,7 @@ pub fn build_app(
     service: Arc<ContinuityService>,
     chain_key: u64,
     metrics: Metrics,
-    prom_metrics: Option<Arc<ProofGenMetrics>>,
+    prom_metrics: Arc<ProofGenMetrics>,
 ) -> Router {
     // Configure CORS to allow browser-based applications to access the API
     let cors = CorsLayer::new()
@@ -43,24 +43,17 @@ pub fn build_app(
         .route(
             "/api/v1/proof-by-tx/{chain_key}/{tx_hash}",
             get(continuity::get_proofs_by_tx_hash),
-        );
-
-    // Add /metrics endpoint and Extension if Prometheus metrics are enabled
-    let router = if let Some(ref prom_metrics) = prom_metrics {
-        router
-            .route(
-                "/metrics",
-                get(
-                    |Extension(metrics): Extension<Arc<ProofGenMetrics>>| async move {
-                        handle_metrics_response(metrics).await
-                    },
-                ),
-            )
-            .layer(Extension(service))
-            .layer(Extension(prom_metrics.clone()))
-    } else {
-        router.layer(Extension(service))
-    };
+        )
+        .route(
+            "/metrics",
+            get(
+                |Extension(metrics): Extension<Arc<ProofGenMetrics>>| async move {
+                    handle_metrics_response(metrics)
+                },
+            ),
+        )
+        .layer(Extension(service))
+        .layer(Extension(prom_metrics.clone()));
 
     router
         // Request metrics middleware - tracks count, duration, and sizes

@@ -60,13 +60,6 @@ pub struct ProofGenApiServer {
         help = "CC3 Indexer GraphQL URL for pre-fetching continuity proofs"
     )]
     indexer_url: Option<String>,
-
-    #[arg(
-        long,
-        default_value_t = false,
-        help = "Enable Prometheus metrics endpoint (served at /metrics on main API server)"
-    )]
-    enable_prometheus_metrics: bool,
 }
 
 #[tokio::main]
@@ -105,7 +98,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eth_rpc_url: args.eth_rpc_url,
         redis_url: args.redis_url,
         indexer_url: args.indexer_url,
-        enable_prometheus_metrics: args.enable_prometheus_metrics,
     };
 
     let server = Server::new(config).await?;
