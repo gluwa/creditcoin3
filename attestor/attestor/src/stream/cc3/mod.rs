@@ -20,13 +20,13 @@ pub struct Config {
 
 // ----------------------------------------- [ Stream ] ---------------------------------------- //
 
-type NextBlockFut =
-    dyn std::future::Future<Output = (State, Result<CC3Events, Interrupt<Error>>)> + Send;
-
 pub struct StreamCC3 {
     chain_key: attestor_primitives::ChainKey,
     state: State,
 }
+
+type NextEventsFut =
+    dyn std::future::Future<Output = (State, Result<CC3Events, Interrupt<Error>>)> + Send;
 
 enum State {
     Idle(
@@ -35,7 +35,7 @@ enum State {
             common::types::SubxtBlockStream,
         )>,
     ),
-    Polling(std::pin::Pin<Box<NextBlockFut>>),
+    Polling(std::pin::Pin<Box<NextEventsFut>>),
 }
 
 impl StreamCC3 {
@@ -59,7 +59,7 @@ impl StreamCC3 {
         })
     }
 
-    async fn next_events(
+    async fn events_next(
         api: subxt::OnlineClient<subxt::SubstrateConfig>,
         mut stream: common::types::SubxtBlockStream,
         chain_key: attestor_primitives::ChainKey,
@@ -151,7 +151,7 @@ impl futures::Stream for StreamCC3 {
             }
             State::Idle(inner) => {
                 let (api, stream) = inner.take().unwrap();
-                let mut fut = Box::pin(Self::next_events(api, stream, chain_key));
+                let mut fut = Box::pin(Self::events_next(api, stream, chain_key));
 
                 match fut.as_mut().poll(cx) {
                     std::task::Poll::Ready((state, events)) => {

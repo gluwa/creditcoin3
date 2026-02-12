@@ -128,8 +128,7 @@ pub struct StreamAttestation {
     block_head: common::types::Height,
 
     cc3: cc_client::Client,
-    eth: eth::Client,
-    stream: alloy::pubsub::SubscriptionStream<alloy::rpc::types::Header>,
+    state: State,
 
     chain_key: attestor_primitives::ChainKey,
     interval_attestation: std::num::NonZero<common::types::Height>,
@@ -153,6 +152,19 @@ pub struct CacheRoots {
     cache: Vec<RootInfo>,
     max_size: std::num::NonZeroUsize,
     boundary: common::types::Height,
+}
+
+type NextBlockFut = dyn std::future::Future<Output = (State, Result<common::types::Height, Interrupt<Error>>)>
+    + Send;
+
+enum State {
+    Idle(
+        Option<(
+            eth::Client,
+            alloy::pubsub::SubscriptionStream<alloy::rpc::types::Header>,
+        )>,
+    ),
+    Polling(std::pin::Pin<Box<NextBlockFut>>),
 }
 
 #[derive(Debug, Clone)]
@@ -209,8 +221,7 @@ impl StreamAttestation {
             block_head,
 
             cc3: config.cc3,
-            eth: config.eth,
-            stream,
+            state: State::Idle(Some((config.eth, stream))),
 
             chain_key: config.chain_key,
             interval_attestation: config.interval_attestation,
@@ -228,7 +239,11 @@ impl StreamAttestation {
     ) -> Result<common::types::Attestation, Interrupt<Error>> {
         tracing::debug!("Generating attestation");
 
-        self.continuity.update(&mut self.eth, block_stop).await?;
+        let State::Idle(Some((eth, _))) = &mut self.state else {
+            unreachable!();
+        };
+
+        self.continuity.update(eth, block_stop).await?;
 
         assert!(
             !self.continuity.cache.is_empty(),
@@ -292,10 +307,11 @@ impl StreamAttestation {
 
         tracing::debug!(start_height, "Generating genesis attestation");
 
-        self.continuity
-            .roots
-            .update(&mut self.eth, start_height)
-            .await?;
+        let State::Idle(Some((eth, _))) = &mut self.state else {
+            unreachable!();
+        };
+
+        self.continuity.roots.update(eth, start_height).await?;
 
         assert!(
             !self.continuity.roots.cache.is_empty(),
@@ -363,7 +379,10 @@ impl StreamAttestation {
         self.continuity.roots.max_size = size_new;
     }
 
-    async fn block_next(&mut self) -> Result<common::types::Height, Interrupt<Error>> {
+    async fn block_next(
+        eth: eth::Client,
+        mut stream: alloy::pubsub::SubscriptionStream<alloy::rpc::types::Header>,
+    ) -> (State, Result<common::types::Height, Interrupt<Error>>) {
         use futures::stream::StreamExt as _;
 
         const MAX_ATTEMPTS: usize = 5;
@@ -374,10 +393,10 @@ impl StreamAttestation {
         let mut delay = DELAY_BASE;
 
         loop {
-            match self.stream.next().await {
-                Some(block) => break Ok(block.number),
-                None => match self.eth.subscribe().await {
-                    Ok(sub) => self.stream = sub,
+            match stream.next().await {
+                Some(block) => break (State::Idle(Some((eth, stream))), Ok(block.number)),
+                None => match eth.subscribe().await {
+                    Ok(stream_new) => stream = stream_new,
                     Err(err) => {
                         attempt += 1;
 
@@ -388,7 +407,10 @@ impl StreamAttestation {
                         );
 
                         if attempt >= MAX_ATTEMPTS {
-                            break Err(Interrupt::Cont(Error::Eth(err)));
+                            break (
+                                State::Idle(Some((eth, stream))),
+                                Err(Interrupt::Cont(Error::Eth(err))),
+                            );
                         }
                     }
                 },
@@ -396,7 +418,12 @@ impl StreamAttestation {
 
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => break Err(Interrupt::Stop)
+                _ = tokio::signal::ctrl_c() => {
+                    break (
+                        State::Idle(Some((eth, stream))),
+                        Err(Interrupt::Stop)
+                    )
+                },
             }
 
             delay = (delay * 2).min(DELAY_MAX);
@@ -460,12 +487,84 @@ impl futures::Stream for StreamAttestation {
             // We do not trust the RPC we are connected to to return block in order. Keep looping
             // until we get the next best height.
             while self.block_head <= block_stop {
+                // Calls to `poll_next` must be cancellation-safe!
                 //
-                // Fun fact: `eth.get_last_block` does not return the latest block despite calling
-                // `get_block_number`! :D
+                // This means that any progress made before returning `std::task::Poll::Pending`
+                // should not be lost! When a future retuns `std::task::Poll::Pending`, it is
+                // indicating to the async monitor that it cannot make any more progress in its
+                // execution: here, this happens when reaching the catchup limit. Execution will be
+                // resumed when the future is woken via a call to `std::task::Waker::wake`, at
+                // which point the async monitor will try to poll it again. This gives it another
+                // opportunity to return `std::task::Poll::Ready`, without having to block other
+                // tasks in between.
                 //
-                // https://knowyourmeme.com/memes/hide-the-pain-harold
-                let block_n = match std::task::ready!(std::pin::pin!(self.block_next()).poll(cx)) {
+                // Futures are essentially implemented as a state machine which can be stopped and
+                // resumed depending on their output. This is abstracted when using `async` blocks,
+                // but then we don't get to decide when the future is to be woken again! A key
+                // observation is that we don't want progress we made between polling to be lost.
+                //
+                // Take the example of a tokio mutex: with a bit of digging, we can find out that
+                // under the hood `tokio::sync::Mutex::lock` ends up calling a low-level semaphore
+                // implementation to handle locking (this is not part of the public-facing API).
+                // This calls a _sync_ `acquire` method which returns an `Acquire` struct.
+                // `Acquire` itself implements `std::future::Future` and uses the Waiter` struct to
+                // keep track of async state. This includes, among other things, keeping track of
+                // lock priority to ensure fairness.
+                //
+                // https://github.com/tokio-rs/tokio/blob/9e7e1ef7ad30ad84f54a047ecd65b78e5973a9c4/tokio/src/sync/batch_semaphore.rs#L71
+                //
+                // > But what happens if this state is dropped?
+                //
+                // If the `Acquire` state is dropped, this is like giving up on locking a mutex
+                // mid-way and having to start all over again! Any priority which has been
+                // established is discarded, resulting in callers racing against each other in no
+                // particular order -yikes! Clearly dropping async state when manually implementing
+                // a polling state machine is bad, as we loose any progress that state machine had
+                // done up to that point :P
+                //
+                // It's not usual to have to think about this when writing async code, because the
+                // Rust compiler will desugar async methods to keep track of that state for you. In
+                // our case though we need to take the manual approach. This is what the `State`
+                // structure is responsible for: we want to make sure that _if_ a call to
+                // `poll_next` exits before it can reach the `std::poll::Ready` state, then any
+                // progress made so far is not lost.
+                //
+                // The advantage to this is that we have much more fine-grained control in telling
+                // the async runtime _when_ it needs to stop and resume computation in our stream.
+                // This allows use to make progress only when needed, and removes any overhead
+                // associated with running separate tasks for producing and receiving data.
+                let block = match &mut self.state {
+                    State::Polling(fut) => {
+                        let (state, block) = match fut.as_mut().poll(cx) {
+                            std::task::Poll::Ready((state, block)) => (state, block),
+                            std::task::Poll::Pending => {
+                                self.waker.replace(cx.waker().clone());
+                                return std::task::Poll::Pending;
+                            }
+                        };
+
+                        self.state = state;
+                        block
+                    }
+                    State::Idle(inner) => {
+                        let (eth, stream) = inner.take().unwrap();
+                        let mut fut = Box::pin(Self::block_next(eth, stream));
+
+                        match fut.as_mut().poll(cx) {
+                            std::task::Poll::Ready((state, block)) => {
+                                self.state = state;
+                                block
+                            }
+                            std::task::Poll::Pending => {
+                                self.state = State::Polling(fut);
+                                self.waker.replace(cx.waker().clone());
+                                return std::task::Poll::Pending;
+                            }
+                        }
+                    }
+                };
+
+                let block_n = match block {
                     Ok(block_n) => block_n,
                     Err(err) => return std::task::Poll::Ready(Some(Err(err))),
                 };
