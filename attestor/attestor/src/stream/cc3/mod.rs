@@ -20,10 +20,22 @@ pub struct Config {
 
 // ----------------------------------------- [ Stream ] ---------------------------------------- //
 
+type NextBlockFut =
+    dyn std::future::Future<Output = (State, Result<CC3Events, Interrupt<Error>>)> + Send;
+
 pub struct StreamCC3 {
-    api: subxt::OnlineClient<subxt::SubstrateConfig>,
-    stream: common::types::SubxtBlockStream,
     chain_key: attestor_primitives::ChainKey,
+    state: State,
+}
+
+enum State {
+    Idle(
+        Option<(
+            subxt::OnlineClient<subxt::SubstrateConfig>,
+            common::types::SubxtBlockStream,
+        )>,
+    ),
+    Polling(std::pin::Pin<Box<NextBlockFut>>),
 }
 
 impl StreamCC3 {
@@ -42,13 +54,16 @@ impl StreamCC3 {
             .context("Failed to initialize CC3 finalized block subscription")?;
 
         anyhow::Ok(Self {
-            api,
-            stream,
             chain_key: config.chain_key,
+            state: State::Idle(Some((api, stream))),
         })
     }
 
-    async fn next_block(&mut self) -> Result<common::types::SubxtBlock, Interrupt<Error>> {
+    async fn next_events(
+        api: subxt::OnlineClient<subxt::SubstrateConfig>,
+        mut stream: common::types::SubxtBlockStream,
+        chain_key: attestor_primitives::ChainKey,
+    ) -> (State, Result<CC3Events, Interrupt<Error>>) {
         const MAX_ATTEMPTS: usize = 5;
         const DELAY_BASE: u64 = 10;
         const DELAY_MAX: u64 = 60;
@@ -57,8 +72,13 @@ impl StreamCC3 {
         let mut delay = DELAY_BASE;
 
         loop {
-            match self.stream.next().await {
-                Some(Ok(block)) => break Ok(block),
+            match stream.next().await {
+                Some(Ok(block)) => {
+                    break (
+                        State::Idle(Some((api, stream))),
+                        Ok(CC3Events { block, chain_key }),
+                    )
+                }
                 Some(Err(err)) => {
                     attempt += 1;
 
@@ -69,11 +89,14 @@ impl StreamCC3 {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        break Err(Interrupt::Cont(Error::SubxtError(err)));
+                        break (
+                            State::Idle(Some((api, stream))),
+                            Err(Interrupt::Cont(Error::SubxtError(err))),
+                        );
                     }
                 }
-                None => match self.api.blocks().subscribe_finalized().await {
-                    Ok(stream) => self.stream = stream,
+                None => match api.blocks().subscribe_finalized().await {
+                    Ok(stream_new) => stream = stream_new,
                     Err(err) => {
                         attempt += 1;
 
@@ -84,7 +107,10 @@ impl StreamCC3 {
                         );
 
                         if attempt >= MAX_ATTEMPTS {
-                            break Err(Interrupt::Cont(Error::SubxtError(err)));
+                            break (
+                                State::Idle(Some((api, stream))),
+                                Err(Interrupt::Cont(Error::SubxtError(err))),
+                            );
                         }
                     }
                 },
@@ -92,7 +118,12 @@ impl StreamCC3 {
 
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => break Err(Interrupt::Stop)
+                _ = tokio::signal::ctrl_c() => {
+                    break (
+                        State::Idle(Some((api, stream))),
+                        Err(Interrupt::Stop)
+                    )
+                }
             }
 
             delay = (delay * 2).min(DELAY_MAX);
@@ -111,10 +142,29 @@ impl futures::Stream for StreamCC3 {
 
         let chain_key = self.chain_key;
 
-        let fut = std::pin::pin!(self.next_block());
-        let events = std::task::ready!(fut.poll(cx)).map(|block| CC3Events { block, chain_key });
+        match &mut self.state {
+            State::Polling(fut) => {
+                let (state, events) = std::task::ready!(fut.as_mut().poll(cx));
 
-        std::task::Poll::Ready(Some(events))
+                self.state = state;
+                std::task::Poll::Ready(Some(events))
+            }
+            State::Idle(inner) => {
+                let (api, stream) = inner.take().unwrap();
+                let mut fut = Box::pin(Self::next_events(api, stream, chain_key));
+
+                match fut.as_mut().poll(cx) {
+                    std::task::Poll::Ready((state, events)) => {
+                        self.state = state;
+                        std::task::Poll::Ready(Some(events))
+                    }
+                    std::task::Poll::Pending => {
+                        self.state = State::Polling(fut);
+                        std::task::Poll::Pending
+                    }
+                }
+            }
+        }
     }
 }
 
