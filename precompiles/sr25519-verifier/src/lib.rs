@@ -15,8 +15,8 @@ mod tests;
 /// Precompile for verifying Substrate sr25519 signatures.
 pub struct Sr25519VerifierPrecompile<Runtime>(PhantomData<Runtime>);
 
-// 1MB limit for message size
-type ConstU1MB = ConstU32<1048576>;
+// 3MB limit for message size
+type ConstU3MB = ConstU32<3145728>;
 
 // 64 bytes for sr25519 signature
 type SR25519SignatureBytes = ConstU32<64>;
@@ -45,7 +45,7 @@ where
     #[precompile::view]
     fn verify(
         handle: &mut impl PrecompileHandle,
-        message: BoundedBytes<ConstU1MB>,
+        message: BoundedBytes<ConstU3MB>,
         signature: BoundedBytes<SR25519SignatureBytes>,
         public_key: H256,
     ) -> EvmResult<bool> {
