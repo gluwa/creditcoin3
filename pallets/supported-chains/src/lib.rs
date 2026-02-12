@@ -61,6 +61,8 @@ pub mod pallet {
         /// - "FixedDelay: X" Gets blocks after they are X blocks old
         #[pallet::constant]
         type DefaultMaturityStrategy: Get<String>;
+        /// Origin that can perform Operator-only calls
+        type OperatorsOrigin: EnsureOrigin<Self::RuntimeOrigin>;
     }
 
     pub trait WeightInfo {
@@ -178,6 +180,8 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
+        /// Registers a supported chain with the given parameters. The chain key is automatically generated and returned in the ChainRegistered event.
+        /// Only accounts in the Operators membership can call this extrinsic.
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::register_chain())]
         pub fn register_chain(
@@ -192,7 +196,7 @@ pub mod pallet {
             attestation_chain_genesis_block_number: Option<u64>,
             encoding: ChainEncodingVersion,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             ensure!(
                 !ChainIdAndNameToUniqKey::<T>::contains_key(chain_id, chain_name.as_bytes()),
@@ -241,6 +245,7 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Removes a supported chain by its chain key. Only accounts in the Operators membership can call this extrinsic.
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::remove_chain())]
         pub fn remove_chain(
@@ -248,7 +253,7 @@ pub mod pallet {
             chain_key: ChainId,
             remove_checkpoints: bool,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             let item = SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
 
@@ -276,6 +281,7 @@ pub mod pallet {
         /// - "EvmSafe" Gets blocks once they are confirmed
         /// - "EvmLatest" Gets blocks as soon as available
         /// - "FixedDelay: X" Gets blocks after they are X blocks old
+        /// Only accounts in the Operators membership can call this extrinsic.
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::set_maturity_strategy())]
         pub fn set_maturity_strategy(
@@ -283,7 +289,8 @@ pub mod pallet {
             chain_key: ChainId,
             maturity_strategy: String,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
             ensure!(
                 is_valid_maturity_strategy(&maturity_strategy),
                 Error::<T>::InvalidMaturityStrategy

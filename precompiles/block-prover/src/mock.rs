@@ -278,6 +278,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationRetentionDuration = ConstU32<10>;
     type MaxCheckpointsImportedPerCall = ConstU32<100>;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
+    type OperatorsOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
 parameter_types! {
@@ -290,6 +291,7 @@ impl pallet_supported_chains::Config for Runtime {
     type EventListeners = Attestation;
     type ChainRegistrationHandler = Attestation;
     type DefaultMaturityStrategy = DefaultMaturityStrategy;
+    type OperatorsOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
 pub const SLASHING_DISABLING_FACTOR: usize = 3;

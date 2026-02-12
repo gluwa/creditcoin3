@@ -144,6 +144,8 @@ pub mod pallet {
         type MaxCheckpointsImportedPerCall: Get<u32>;
         #[pallet::constant]
         type DefaultAttestationChainGenesisBlockNumber: Get<u64>;
+        /// Origin that can perform Operator-only calls
+        type OperatorsOrigin: EnsureOrigin<Self::RuntimeOrigin>;
     }
 
     pub trait WeightInfo {
@@ -692,7 +694,7 @@ pub mod pallet {
             chain_key: ChainKey,
             chain_attestation_interval: ChainAttestationIntervalType,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             ensure! {
                 chain_attestation_interval > 0,
@@ -721,7 +723,7 @@ pub mod pallet {
             chain_key: ChainKey,
             new_target_sample_size: u32,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             ensure! {
                 new_target_sample_size > 0,
@@ -771,7 +773,7 @@ pub mod pallet {
             chain_key: ChainKey,
             new_max: u32,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             MaxAttestors::<T>::insert(chain_key, new_max);
 
@@ -787,7 +789,7 @@ pub mod pallet {
             chain_key: ChainKey,
             attestor: T::AccountId,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             Self::try_insert_invulnerable_and_emit_event(chain_key, &attestor)
         }
@@ -799,7 +801,7 @@ pub mod pallet {
             chain_key: ChainKey,
             attestor: T::AccountId,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             ensure!(
                 Self::address_is_invulnerable(chain_key, &attestor),
@@ -816,7 +818,7 @@ pub mod pallet {
             chain_key: ChainKey,
             new_max: u32,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             let count = Invulnerables::<T>::iter_prefix_values(chain_key)
                 .collect::<Vec<_>>()
@@ -837,7 +839,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             attestation: SignedAttestation<T::Hash, T::AccountId>,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             Self::do_bootstrap_chain(attestation)
         }
@@ -871,7 +873,7 @@ pub mod pallet {
             chain_key: ChainKey,
             attestations_per_checkpoint: u32,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             ensure! {
                 attestations_per_checkpoint > 0,
@@ -899,7 +901,7 @@ pub mod pallet {
             chain_key: ChainKey,
             min_bond_requirement: BalanceOf<T>,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             MinBondRequirement::<T>::set(chain_key, min_bond_requirement);
 
@@ -963,7 +965,7 @@ pub mod pallet {
             chain_key: ChainKey,
             checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             Self::do_import_checkpoints(chain_key, checkpoints)?;
 
@@ -977,7 +979,7 @@ pub mod pallet {
             chain_key: ChainKey,
             genesis_block_number: u64,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
@@ -1009,7 +1011,7 @@ pub mod pallet {
             chain_key: ChainKey,
             new_policy: AttestorElectionPolicy,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
@@ -1030,7 +1032,7 @@ pub mod pallet {
             chain_key: ChainKey,
             attestor_id: T::AccountId,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
@@ -1059,7 +1061,7 @@ pub mod pallet {
             chain_key: ChainKey,
             attestor_id: T::AccountId,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             ensure!(
                 AuthorizedAttestors::<T>::contains_key(chain_key, &attestor_id),
@@ -1084,7 +1086,7 @@ pub mod pallet {
             attestor_id: T::AccountId,
             unregister: bool,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             let attestor = Attestors::<T>::get(chain_key, &attestor_id)
                 .ok_or(Error::<T>::AddressNotAttestor)?;

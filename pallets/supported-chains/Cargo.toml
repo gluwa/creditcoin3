@@ -29,6 +29,8 @@ supported-chains-primitives = { workspace = true }
 sp-core = { workspace = true }
 sp-io = { workspace = true }
 
+pallet-membership = { workspace = true }
+
 [features]
 default = ["std"]
 runtime-benchmarks = [
@@ -36,6 +38,7 @@ runtime-benchmarks = [
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
+    "pallet-membership/runtime-benchmarks",
 ]
 std = [
     "parity-scale-codec/std",
@@ -49,4 +52,5 @@ std = [
     "attestor-primitives/std",
     "supported-chains-primitives/std",
     "sp-std/std",
+    "pallet-membership/std",
 ]

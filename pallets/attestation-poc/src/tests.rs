@@ -166,7 +166,7 @@ fn set_min_bond_requirement_should_error_when_not_signed() {
 }
 
 #[test]
-fn set_min_bond_requirement_should_error_when_not_signed_by_root() {
+fn set_min_bond_requirement_should_error_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
             Attestation::set_min_bond_requirement(
@@ -201,6 +201,17 @@ fn set_min_bond_requirement_should_update_storage_and_emit_event() {
 }
 
 #[test]
+fn set_min_bond_requirement_should_succeed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            200
+        ));
+    })
+}
+
+#[test]
 fn set_max_attestors_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
         let max_attestors = 200;
@@ -217,6 +228,19 @@ fn set_max_attestors_should_update_storage_and_emit_event() {
         System::assert_last_event(
             crate::Event::MaxAttestorsChanged(SUPPORTED_CHAIN_KEY, max_attestors).into(),
         );
+    })
+}
+
+#[test]
+fn set_max_attestors_should_succeed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let max_attestors = 200;
+
+        assert_ok!(Attestation::set_max_attestors(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            max_attestors
+        ));
     })
 }
 
@@ -1062,7 +1086,7 @@ fn set_max_invulnerables_should_error_when_not_signed() {
 }
 
 #[test]
-fn set_max_invulnerables_should_error_when_not_signed_by_root() {
+fn set_max_invulnerables_should_error_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
         assert_noop!(
@@ -1108,6 +1132,19 @@ fn set_max_invulnerables_should_update_storage() {
 }
 
 #[test]
+fn set_max_invulnerables_should_succeed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let alice_origin = RuntimeOrigin::signed(ALICE);
+        assert_ok!(Attestation::set_max_invulnerables(
+            alice_origin,
+            SUPPORTED_CHAIN_KEY,
+            10
+        ),);
+        assert_eq!(Attestation::max_invulnerables(SUPPORTED_CHAIN_KEY,), 10);
+    })
+}
+
+#[test]
 fn set_max_attestors_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
@@ -1118,7 +1155,7 @@ fn set_max_attestors_should_error_when_not_signed() {
 }
 
 #[test]
-fn set_max_attestors_should_error_with_non_root_origin() {
+fn set_max_attestors_should_error_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
         assert_noop!(
@@ -1306,6 +1343,40 @@ fn unregister_invulnerable_should_update_storage_and_emit_event() {
 }
 
 #[test]
+fn unregister_invulnerable_should_succeed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        // setup
+        assert!(!Invulnerables::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        let att = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_invulnerable(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+        assert!(Attestation::invulnerables(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_some());
+
+        // test
+        assert_ok!(Attestation::unregister_invulnerable(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert!(!Invulnerables::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        System::assert_last_event(
+            crate::Event::InvulnerableUnregistered(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+        )
+    })
+}
+
+#[test]
 fn unregister_invulnerable_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
@@ -1320,7 +1391,7 @@ fn unregister_invulnerable_should_error_when_not_signed() {
 }
 
 #[test]
-fn unregister_invulnerable_should_error_when_not_signed_by_root() {
+fn unregister_invulnerable_should_error_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
             Attestation::unregister_invulnerable(
@@ -1394,7 +1465,7 @@ fn set_target_sample_size_should_error_when_not_signed() {
 }
 
 #[test]
-fn set_target_sample_size_should_error_when_not_signed_by_root() {
+fn set_target_sample_size_should_error_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         let attestor = RuntimeOrigin::signed(ATTESTOR_1);
 
@@ -1444,6 +1515,21 @@ fn set_target_sample_size_should_update_storage_and_emit_an_event() {
 }
 
 #[test]
+fn set_target_sample_size_should_succed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let new_committee_size = 512;
+        assert_ok!(Attestation::set_target_sample_size(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            new_committee_size
+        ));
+
+        let committee_size = Attestation::pending_target_sample_size(SUPPORTED_CHAIN_KEY);
+        assert_eq!(committee_size, Some(512));
+    })
+}
+
+#[test]
 fn register_invulnerable_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_1, ATTESTOR_1);
@@ -1460,7 +1546,7 @@ fn register_invulnerable_should_error_when_not_signed() {
 }
 
 #[test]
-fn register_invulnerable_should_error_when_not_signed_by_root() {
+fn register_invulnerable_should_error_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_1, ATTESTOR_1);
 
@@ -1495,6 +1581,24 @@ fn register_invulnerable_adds_attestor_and_invulnerable_and_emits_events() {
         System::assert_last_event(
             crate::Event::InvulnerableRegistered(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
         );
+    })
+}
+
+#[test]
+fn register_invulnerable_should_succed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        assert!(!Invulnerables::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        assert_ok!(Attestation::register_invulnerable(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1,
+        ));
+
+        assert!(Attestation::invulnerables(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_some());
     })
 }
 
@@ -1537,7 +1641,7 @@ fn set_chain_attestation_interval_should_error_when_not_signed() {
 }
 
 #[test]
-fn set_chain_attestation_interval_should_error_when_not_signed_by_root() {
+fn set_chain_attestation_interval_should_error_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         let chain_attestation_interval = 101;
 
@@ -1608,6 +1712,21 @@ fn set_chain_attestation_interval_updates_internal_storage_and_emits_event() {
             )
             .into(),
         );
+    })
+}
+
+#[test]
+fn set_chain_attestation_interval_should_succed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_attestation_interval = 101;
+        assert_ok!(Attestation::set_chain_attestation_interval(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            chain_attestation_interval
+        ));
+
+        let attestation_interval = Attestation::pending_attestation_interval(SUPPORTED_CHAIN_KEY);
+        assert_eq!(attestation_interval, Some(101));
     })
 }
 
@@ -1743,7 +1862,7 @@ fn set_attestations_per_checkpoint_should_error_when_not_signed() {
 }
 
 #[test]
-fn set_attestations_per_checkpoint_should_error_when_not_signed_by_root() {
+fn set_attestations_per_checkpoint_should_error_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
             Attestation::set_attestations_per_checkpoint(
@@ -1787,6 +1906,21 @@ fn set_attestations_per_checkpoint_should_error_on_unsupported_chain() {
 }
 
 #[test]
+fn set_attestation_per_checkpoint_should_succeed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let new_att_per_check = 101;
+        assert_ok!(Attestation::set_attestations_per_checkpoint(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            new_att_per_check
+        ));
+
+        let att_per_check = Attestation::attestation_checkpoint_interval(SUPPORTED_CHAIN_KEY);
+        assert_eq!(att_per_check, 101);
+    })
+}
+
+#[test]
 fn bootstrap_chain_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
@@ -1801,7 +1935,7 @@ fn bootstrap_chain_should_error_when_not_signed() {
 }
 
 #[test]
-fn bootstrap_chain_should_error_when_not_signed_by_root() {
+fn bootstrap_chain_should_error_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let attestation =
@@ -2045,6 +2179,25 @@ fn bootstrap_chain_should_trigger_checkpoint_creation_with_expected_boundaries()
         System::assert_last_event(
             Event::CheckpointReached(SUPPORTED_CHAIN_KEY, expected_second_checkpoint.clone())
                 .into(),
+        );
+    })
+}
+
+#[test]
+fn bootstrap_chain_should_succeed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestation =
+            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 0, None, None);
+
+        assert_ok!(Attestation::bootstrap_chain(
+            RuntimeOrigin::signed(ALICE),
+            attestation.clone(),
+        ),);
+
+        assert_eq!(
+            Attestation::last_attestation_digest(SUPPORTED_CHAIN_KEY),
+            Some((attestation.header_number(), attestation.digest()))
         );
     })
 }
@@ -4076,6 +4229,22 @@ fn setting_attestation_chain_genesis_block_number_works() {
 }
 
 #[test]
+fn setting_attestation_chain_genesis_block_number_should_work_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let genesis_block_number = 1000;
+
+        assert_ok!(Attestation::set_attestation_chain_genesis_block_number(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            genesis_block_number
+        ));
+
+        let result = Attestation::attestation_chain_genesis_block_number(SUPPORTED_CHAIN_KEY);
+        assert_eq!(result, genesis_block_number);
+    });
+}
+
+#[test]
 fn default_attestation_chain_genesis_block_number_works() {
     ExtBuilder.build_and_execute(|| {
         let genesis_block_number =
@@ -4087,7 +4256,7 @@ fn default_attestation_chain_genesis_block_number_works() {
 }
 
 #[test]
-fn set_attestation_chain_genesis_block_number_should_fail_when_not_root() {
+fn set_attestation_chain_genesis_block_number_should_fail_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         let genesis_block_number = 1000;
 
@@ -4297,7 +4466,7 @@ mod set_election_policy {
     }
 
     #[test]
-    fn set_election_policy_should_error_when_not_signed_by_root() {
+    fn set_election_policy_should_error_when_not_signed_by_operator_nor_root() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
                 Attestation::set_election_policy(
@@ -4318,6 +4487,31 @@ mod set_election_policy {
 
             assert_ok!(Attestation::set_election_policy(
                 RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                AttestorElectionPolicy::DeniedToAll
+            ));
+
+            let updated_policy = Attestation::chain_election_policy(SUPPORTED_CHAIN_KEY);
+            assert_eq!(updated_policy, AttestorElectionPolicy::DeniedToAll);
+
+            System::assert_last_event(
+                crate::Event::ChangedElectionPolicy(
+                    SUPPORTED_CHAIN_KEY,
+                    AttestorElectionPolicy::DeniedToAll,
+                )
+                .into(),
+            );
+        })
+    }
+
+    #[test]
+    fn set_election_policy_should_succed_when_signed_by_operator() {
+        ExtBuilder.build_and_execute(|| {
+            let initial_policy = Attestation::chain_election_policy(SUPPORTED_CHAIN_KEY);
+            assert_eq!(initial_policy, AttestorElectionPolicy::OpenToAny);
+
+            assert_ok!(Attestation::set_election_policy(
+                RuntimeOrigin::signed(ALICE),
                 SUPPORTED_CHAIN_KEY,
                 AttestorElectionPolicy::DeniedToAll
             ));
@@ -4355,7 +4549,7 @@ mod authorize_attestor {
     }
 
     #[test]
-    fn authorize_attestor_should_error_when_not_signed_by_root() {
+    fn authorize_attestor_should_error_when_not_signed_by_operator_nor_root() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
                 Attestation::authorize_attestor(
@@ -4464,6 +4658,37 @@ mod authorize_attestor {
             );
         })
     }
+
+    #[test]
+    fn authorize_attestor_should_succeed_when_signed_by_operator() {
+        ExtBuilder.build_and_execute(|| {
+            // First, register an attestor
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+
+            // Authorize the attestor with Alice's signature
+            assert_ok!(Attestation::authorize_attestor(
+                RuntimeOrigin::signed(ALICE),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Check that attestor is now authorized
+            assert!(AuthorizedAttestors::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Check that the event was emitted
+            System::assert_last_event(
+                crate::Event::AuthorizedAttestorAdded(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+        })
+    }
 }
 
 #[cfg(test)]
@@ -4485,7 +4710,7 @@ mod removed_authorized_attestor {
     }
 
     #[test]
-    fn removed_authorized_attestor_should_error_when_not_signed_by_root() {
+    fn removed_authorized_attestor_should_error_when_not_signed_by_operator_nor_root() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
                 Attestation::remove_authorized_attestor(
@@ -4556,6 +4781,44 @@ mod removed_authorized_attestor {
             );
         })
     }
+
+    #[test]
+    fn remove_authorized_attestor_should_succeed_when_signed_by_operator() {
+        ExtBuilder.build_and_execute(|| {
+            // First, register an attestor
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+
+            // Then authorize the attestor
+            assert_ok!(Attestation::authorize_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Remove the authorization with Alice's signature
+            assert_ok!(Attestation::remove_authorized_attestor(
+                RuntimeOrigin::signed(ALICE),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Check that attestor is no longer authorized
+            assert!(!AuthorizedAttestors::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Check that the event was emitted
+            System::assert_last_event(
+                crate::Event::AuthorizedAttestorRemoved(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+        })
+    }
 }
 
 #[cfg(test)]
@@ -4578,7 +4841,7 @@ mod kick_active_attestor {
     }
 
     #[test]
-    fn kick_active_attestor_should_error_when_not_signed_by_root() {
+    fn kick_active_attestor_should_error_when_not_signed_by_operator_nor_root() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
                 Attestation::kick_active_attestor(
@@ -4695,6 +4958,46 @@ mod kick_active_attestor {
             // Check that the unregistered event was emitted
             System::assert_has_event(
                 crate::Event::AttestorUnregistered(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+        })
+    }
+
+    #[test]
+    fn kick_active_attestor_should_succeed_when_signed_by_operator() {
+        ExtBuilder.build_and_execute(|| {
+            // First, register an attestor
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+
+            // Activate the attestor
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature
+            ));
+
+            progress_to_block(5);
+
+            // Kick the active attestor with Alice's signature
+            assert_ok!(Attestation::kick_active_attestor(
+                RuntimeOrigin::signed(ALICE),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1,
+                false
+            ));
+
+            // Check that attestor is now chilled
+            let attestor_info = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
+            assert_eq!(attestor_info.status, AttestorStatus::Idle);
+
+            // Check that the chilled event was emitted
+            System::assert_has_event(
+                crate::Event::AttestorChilled(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
             );
         })
     }
@@ -4830,7 +5133,46 @@ fn import_checkpoints_works() {
 }
 
 #[test]
-fn import_checkpoints_should_fail_when_not_root() {
+fn import_checkpoints_should_succeed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let checkpoints: Vec<AttestationCheckpoint> = vec![
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: [1u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 200,
+                digest: [2u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 300,
+                digest: [3u8; 32].into(),
+            },
+        ];
+
+        assert_ok!(Attestation::import_checkpoints(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            checkpoints.clone().try_into().unwrap()
+        ));
+
+        for checkpoint in checkpoints {
+            let stored_digest =
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, checkpoint.block_number).unwrap();
+            assert_eq!(stored_digest, checkpoint.digest);
+
+            // Checkpoint buckets contains reference to checkpoint
+            assert!(CheckpointBuckets::<Test>::contains_key((
+                SUPPORTED_CHAIN_KEY,
+                Pallet::<Test>::compute_block_index_for(checkpoint.block_number),
+                checkpoint.block_number
+            )));
+        }
+    });
+}
+
+#[test]
+fn import_checkpoints_should_fail_when_not_signed_by_operator_nor_root() {
     ExtBuilder.build_and_execute(|| {
         let checkpoints: Vec<AttestationCheckpoint> = vec![
             AttestationCheckpoint {

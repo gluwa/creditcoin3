@@ -448,6 +448,7 @@ fn devnet_genesis(
             ],
             _phantom: Default::default(),
         },
+        operators: Default::default(),
         // prover: Default::default(),
     }
 }
@@ -593,5 +594,6 @@ fn testnet_genesis(
             ],
             _phantom: Default::default(),
         },
+        operators: Default::default(),
     }
 }

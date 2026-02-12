@@ -3,7 +3,7 @@ use crate::ChainId;
 use attestor_primitives::{ChainEncodingVersion, ChainKey};
 use frame_support::parameter_types;
 use frame_support::traits::{ConstU16, ConstU64};
-use sp_core::H256;
+use sp_core::{bounded_vec, H256};
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
     BuildStorage,
@@ -13,11 +13,14 @@ use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 pub type AccountId = u64;
 type Block = frame_system::mocking::MockBlock<Test>;
 
+pub const ALICE: AccountId = 1;
+
 frame_support::construct_runtime!(
     pub enum Test
     {
         System: frame_system,
         SupportedChain: supported_chains,
+        Operators: pallet_membership::<Instance1>,
     }
 );
 
@@ -57,12 +60,39 @@ parameter_types! {
     pub const DefaultMaturityStrategy: &'static str = MATURITY_FIXED_DELAY_10;
 }
 
+// Ensure origin for members of the Operators membership.
+type EnsureOperators = frame_system::EnsureSignedBy<Operators, AccountId>;
+// Ensure origin for either root or members of the Operators membership.
+type EnsureRootOrOperators =
+    frame_support::traits::EitherOfDiverse<frame_system::EnsureRoot<AccountId>, EnsureOperators>;
+
 impl supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = supported_chains::weights::WeightInfo<Test>;
     type EventListeners = ();
     type ChainRegistrationHandler = DummyRegistrationHandler;
     type DefaultMaturityStrategy = DefaultMaturityStrategy;
+    type OperatorsOrigin = EnsureRootOrOperators;
+}
+
+parameter_types! {
+    pub const MaxOperators: u32 = 5;
+}
+
+// Operators membership instance. Only the sudo account can add/remove members, and there can be at most 5 members.
+// This membership is used to control certain operations in the Attestation and SupportedChains pallets.
+type OperatorsInstance = pallet_membership::Instance1;
+impl pallet_membership::Config<OperatorsInstance> for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type AddOrigin = frame_system::EnsureRoot<AccountId>;
+    type RemoveOrigin = frame_system::EnsureRoot<AccountId>;
+    type SwapOrigin = frame_system::EnsureRoot<AccountId>;
+    type ResetOrigin = frame_system::EnsureRoot<AccountId>;
+    type PrimeOrigin = frame_system::EnsureNever<AccountId>;
+    type MembershipInitialized = ();
+    type MembershipChanged = ();
+    type MaxMembers = MaxOperators;
+    type WeightInfo = ();
 }
 
 pub struct DummyRegistrationHandler;
@@ -104,6 +134,13 @@ impl ExtBuilder {
 
         pallet_genesis.assimilate_storage(&mut storage).unwrap();
 
+        let membership_config = pallet_membership::GenesisConfig::<Test, OperatorsInstance> {
+            members: bounded_vec![ALICE],
+            ..Default::default()
+        };
+
+        membership_config.assimilate_storage(&mut storage).unwrap();
+
         storage.into()
     }
 
@@ -126,6 +163,13 @@ impl ExtBuilder {
         };
 
         pallet_genesis.assimilate_storage(&mut storage).unwrap();
+
+        let membership_config = pallet_membership::GenesisConfig::<Test, OperatorsInstance> {
+            members: bounded_vec![ALICE],
+            ..Default::default()
+        };
+
+        membership_config.assimilate_storage(&mut storage).unwrap();
 
         let mut ext: sp_io::TestExternalities = storage.into();
         ext.execute_with(test);

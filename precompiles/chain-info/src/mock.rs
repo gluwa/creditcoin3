@@ -253,6 +253,7 @@ impl pallet_supported_chains::Config for Runtime {
     type ChainRegistrationHandler = DummyRegistrationHandler;
 
     type DefaultMaturityStrategy = DefaultMaturityStrategy;
+    type OperatorsOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
 pub struct DummyRegistrationHandler;
@@ -414,6 +415,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationRetentionDuration = ConstU32<10>;
     type MaxCheckpointsImportedPerCall = ConstU32<100>;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
+    type OperatorsOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
 // Configure a mock runtime to test the pallet.

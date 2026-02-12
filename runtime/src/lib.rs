@@ -889,6 +889,12 @@ parameter_types! {
     pub const DefaultAttestationChainGenesisBlockNumber: u64 = 0;
 }
 
+// Ensure origin for members of the Operators membership.
+type EnsureOperators = frame_system::EnsureSignedBy<Operators, AccountId>;
+// Ensure origin for either root or members of the Operators membership.
+type EnsureRootOrOperators =
+    frame_support::traits::EitherOfDiverse<frame_system::EnsureRoot<AccountId>, EnsureOperators>;
+
 impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
@@ -911,6 +917,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationRetentionDuration = DefaultAttestationRetentionDuration;
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
+    type OperatorsOrigin = EnsureRootOrOperators;
 }
 
 parameter_types! {
@@ -923,12 +930,33 @@ impl pallet_supported_chains::Config for Runtime {
     type EventListeners = Attestation;
     type ChainRegistrationHandler = pallet_attestation_poc::Pallet<Runtime>;
     type DefaultMaturityStrategy = DefaultMaturityStrategy;
+    type OperatorsOrigin = EnsureRootOrOperators;
 }
 
 impl pallet_randomness::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_randomness::weights::WeightInfo<Runtime>;
     type EventListeners = Attestation;
+}
+
+parameter_types! {
+    pub const MaxOperators: u32 = 5;
+}
+
+// Operators membership instance. Only the sudo account can add/remove members, and there can be at most 5 members.
+// This membership is used to control certain operations in the Attestation and SupportedChains pallets.
+type OperatorsInstance = pallet_membership::Instance1;
+impl pallet_membership::Config<OperatorsInstance> for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type AddOrigin = frame_system::EnsureRoot<AccountId>;
+    type RemoveOrigin = frame_system::EnsureRoot<AccountId>;
+    type SwapOrigin = frame_system::EnsureRoot<AccountId>;
+    type ResetOrigin = frame_system::EnsureRoot<AccountId>;
+    type PrimeOrigin = frame_system::EnsureNever<AccountId>;
+    type MembershipInitialized = ();
+    type MembershipChanged = ();
+    type MaxMembers = MaxOperators;
+    type WeightInfo = pallet_membership::weights::SubstrateWeight<Self>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -969,6 +997,7 @@ construct_runtime!(
         SupportedChains: pallet_supported_chains,
 
         Randomness: pallet_randomness,
+        Operators: pallet_membership::<Instance1>,
     }
 );
 
@@ -1115,6 +1144,7 @@ mod benches {
         [pallet_evm, EVM]
         [pallet_attestation_poc, Attestation]
         [pallet_randomness, Randomness]
+        [pallet_membership, Operators]
     );
 }
 

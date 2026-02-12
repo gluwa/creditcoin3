@@ -89,6 +89,43 @@ fn register_chain_should_error_when_not_signed() {
 }
 
 #[test]
+fn register_chain_should_error_when_not_signed_by_alice() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+        // This should fail because account 2 is not ALICE (1)
+        assert_noop!(
+            SupportedChain::register_chain(
+                RuntimeOrigin::signed(2),
+                201,
+                "Ethereum_1".to_owned(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                ChainEncodingVersion::V1,
+            ),
+            BadOrigin
+        );
+
+        // This should succeed because ALICE is allowed in our MockOperators EnsureOrigin
+        assert_ok!(SupportedChain::register_chain(
+            RuntimeOrigin::signed(ALICE),
+            201,
+            "Ethereum_1".to_owned(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+        ));
+    });
+}
+
+#[test]
 fn register_chain_should_error_when_not_signed_by_root() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
@@ -287,6 +324,27 @@ fn remove_chain_should_error_when_not_signed() {
             SupportedChain::remove_chain(RuntimeOrigin::none(), chain_key, false),
             BadOrigin
         );
+    });
+}
+
+#[test]
+fn remove_chain_should_error_when_not_signed_by_alice() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+        let chain_key = 1;
+
+        // This should fail because account 2 is not ALICE (1)
+        assert_noop!(
+            SupportedChain::remove_chain(RuntimeOrigin::signed(2), chain_key, false),
+            BadOrigin
+        );
+
+        // This should succeed because ALICE is allowed in our MockOperators EnsureOrigin
+        assert_ok!(SupportedChain::remove_chain(
+            RuntimeOrigin::signed(ALICE),
+            chain_key,
+            false
+        ));
     });
 }
 
@@ -559,6 +617,35 @@ fn set_maturity_strategy_fails_when_not_signed() {
             ),
             BadOrigin
         );
+    });
+}
+
+#[test]
+fn set_maturity_strategy_fails_when_not_signed_by_alice() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+
+        // Verify the chain is supported
+        assert!(SupportedChain::supported_chain(chain_key).is_some());
+
+        // This should fail because acct 4 is not ALICE (1)
+        assert_noop!(
+            SupportedChain::set_maturity_strategy(
+                RuntimeOrigin::signed(4),
+                chain_key,
+                MATURITY_EVM_FINALIZED.to_string()
+            ),
+            BadOrigin
+        );
+
+        // This should succeed because ALICE is allowed in our MockOperators EnsureOrigin
+        assert_ok!(SupportedChain::set_maturity_strategy(
+            RuntimeOrigin::signed(ALICE),
+            chain_key,
+            MATURITY_EVM_FINALIZED.to_string()
+        ));
     });
 }
 

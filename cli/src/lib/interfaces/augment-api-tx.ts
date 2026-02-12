@@ -1966,6 +1966,136 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             [key: string]: SubmittableExtrinsicFunction<ApiType>;
         };
+        operators: {
+            /**
+             * Add a member `who` to the set.
+             *
+             * May only be called from `T::AddOrigin`.
+             **/
+            addMember: AugmentedSubmittable<
+                (
+                    who:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
+            >;
+            /**
+             * Swap out the sending member for some other key `new`.
+             *
+             * May only be called from `Signed` origin of a current member.
+             *
+             * Prime membership is passed from the origin account to `new`, if extant.
+             **/
+            changeKey: AugmentedSubmittable<
+                (
+                    updated:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
+            >;
+            /**
+             * Remove the prime member if it exists.
+             *
+             * May only be called from `T::PrimeOrigin`.
+             **/
+            clearPrime: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
+            /**
+             * Remove a member `who` from the set.
+             *
+             * May only be called from `T::RemoveOrigin`.
+             **/
+            removeMember: AugmentedSubmittable<
+                (
+                    who:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
+            >;
+            /**
+             * Change the membership to a new set, disregarding the existing membership. Be nice and
+             * pass `members` pre-sorted.
+             *
+             * May only be called from `T::ResetOrigin`.
+             **/
+            resetMembers: AugmentedSubmittable<
+                (members: Vec<AccountId32> | (AccountId32 | string | Uint8Array)[]) => SubmittableExtrinsic<ApiType>,
+                [Vec<AccountId32>]
+            >;
+            /**
+             * Set the prime member. Must be a current member.
+             *
+             * May only be called from `T::PrimeOrigin`.
+             **/
+            setPrime: AugmentedSubmittable<
+                (
+                    who:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
+            >;
+            /**
+             * Swap out one member `remove` for another `add`.
+             *
+             * May only be called from `T::SwapOrigin`.
+             *
+             * Prime membership is *not* passed from `remove` to `add`, if extant.
+             **/
+            swapMember: AugmentedSubmittable<
+                (
+                    remove:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                    add:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress, MultiAddress]
+            >;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
         proxy: {
             /**
              * Register a proxy account for the sender that is able to make calls on its behalf.
@@ -3041,6 +3171,10 @@ declare module '@polkadot/api-base/types/submittable' {
             [key: string]: SubmittableExtrinsicFunction<ApiType>;
         };
         supportedChains: {
+            /**
+             * Registers a supported chain with the given parameters. The chain key is automatically generated and returned in the ChainRegistered event.
+             * Only accounts in the Operators membership can call this extrinsic.
+             **/
             registerChain: AugmentedSubmittable<
                 (
                     chainId: u64 | AnyNumber | Uint8Array,
@@ -3065,6 +3199,9 @@ declare module '@polkadot/api-base/types/submittable' {
                     AttestorPrimitivesChainEncodingVersion,
                 ]
             >;
+            /**
+             * Removes a supported chain by its chain key. Only accounts in the Operators membership can call this extrinsic.
+             **/
             removeChain: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
@@ -3079,6 +3216,7 @@ declare module '@polkadot/api-base/types/submittable' {
              * - "EvmSafe" Gets blocks once they are confirmed
              * - "EvmLatest" Gets blocks as soon as available
              * - "FixedDelay: X" Gets blocks after they are X blocks old
+             * Only accounts in the Operators membership can call this extrinsic.
              **/
             setMaturityStrategy: AugmentedSubmittable<
                 (

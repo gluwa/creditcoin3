@@ -128,6 +128,9 @@ import type {
     PalletImOnlineHeartbeat,
     PalletImOnlineSr25519AppSr25519Public,
     PalletImOnlineSr25519AppSr25519Signature,
+    PalletMembershipCall,
+    PalletMembershipError,
+    PalletMembershipEvent,
     PalletNominationPoolsBondExtra,
     PalletNominationPoolsBondedPoolInner,
     PalletNominationPoolsCall,
@@ -352,6 +355,9 @@ declare module '@polkadot/types/types/registry' {
         PalletImOnlineHeartbeat: PalletImOnlineHeartbeat;
         PalletImOnlineSr25519AppSr25519Public: PalletImOnlineSr25519AppSr25519Public;
         PalletImOnlineSr25519AppSr25519Signature: PalletImOnlineSr25519AppSr25519Signature;
+        PalletMembershipCall: PalletMembershipCall;
+        PalletMembershipError: PalletMembershipError;
+        PalletMembershipEvent: PalletMembershipEvent;
         PalletNominationPoolsBondExtra: PalletNominationPoolsBondExtra;
         PalletNominationPoolsBondedPoolInner: PalletNominationPoolsBondedPoolInner;
         PalletNominationPoolsCall: PalletNominationPoolsCall;

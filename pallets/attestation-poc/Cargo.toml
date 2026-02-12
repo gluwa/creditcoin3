@@ -38,6 +38,7 @@ extend = "1.2.0"
 frame-election-provider-support = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
+pallet-membership = { workspace = true }
 pallet-offences = { workspace = true }
 pallet-randomness = { workspace = true }
 pallet-session = { workspace = true }
@@ -58,6 +59,7 @@ runtime-benchmarks = [
     "pallet-balances/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
     "sp-staking/runtime-benchmarks",
+    "pallet-membership/runtime-benchmarks",
 ]
 std = [
     "frame-support/std",
@@ -85,6 +87,7 @@ std = [
     "pallet-timestamp/std",
     "sp-consensus-babe/std",
     "randomness-primitives/std",
+    "pallet-membership/std",
     "pallet-randomness/std",
 ]
 try-runtime = []
