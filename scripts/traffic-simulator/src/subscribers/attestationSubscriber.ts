@@ -55,9 +55,10 @@ export class AttestationSubscriber extends BaseSubscriber {
       console.log(`✅ Connected to Creditcoin3 (${chain})`);
       this.resetReconnectAttempts();
 
-      this.unsubscribe = (await this.api.query.system.events((events: unknown) => {
-        this.handleEvents(events);
-      })) as unknown as () => void;
+      this.unsubscribe =
+        (await this.api.query.system.events((events: unknown) => {
+          this.handleEvents(events);
+        })) as unknown as () => void;
     } catch (error) {
       console.error("Failed to connect to Creditcoin3:", error);
       if (this.isRunning) await this.reconnect();

@@ -542,7 +542,9 @@ function isProofFetchRetriable(error: unknown): boolean {
     return true;
   }
   // API 500 (e.g. "No attestation or checkpoint found after")
-  if (error instanceof ProofApiError && (error.retriable || error.status >= 500)) {
+  if (
+    error instanceof ProofApiError && (error.retriable || error.status >= 500)
+  ) {
     return true;
   }
   return false;

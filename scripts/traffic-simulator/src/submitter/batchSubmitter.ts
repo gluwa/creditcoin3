@@ -247,10 +247,14 @@ export async function submitBatchProofs(
 
         const heights = freshInputs.map((input) => input.headerNumber);
         const txBytesList = freshInputs.map((input) => input.txBytes);
-        const merkleProofs = freshInputs.map((input) => input.proof.merkleProof);
+        const merkleProofs = freshInputs.map((input) =>
+          input.proof.merkleProof
+        );
         const sharedContinuityProof = buildSharedContinuityProof(freshInputs);
         if (!sharedContinuityProof) {
-          throw new Error("Could not build shared continuity proof from fresh inputs");
+          throw new Error(
+            "Could not build shared continuity proof from fresh inputs",
+          );
         }
 
         const payload: BatchPayload = {
