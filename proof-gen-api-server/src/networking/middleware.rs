@@ -1,12 +1,10 @@
 use axum::{
-    body::Body,
     extract::{MatchedPath, Request},
     http::{StatusCode, Uri},
     middleware::Next,
     response::{IntoResponse, Response},
     Extension,
 };
-use http_body_util::BodyExt;
 use serde_json::json;
 use std::time::Instant;
 
@@ -60,34 +58,18 @@ pub async fn request_metrics_middleware(
         metrics.inc_request(ep.clone(), status);
         metrics.observe_request_duration(ep.clone(), duration);
 
-        // Record response size
-        // We need to consume and recreate the body to get the size
-        let (parts, body) = response.into_parts();
-        match body.collect().await {
-            Ok(collected) => {
-                let bytes = collected.to_bytes();
-                let response_size = bytes.len() as u64;
-                metrics.observe_response_size(ep, response_size);
-                // Rebuild the response with the collected body
-                Response::from_parts(parts, Body::from(bytes))
-            }
-            Err(e) => {
-                // If we can't collect the body, log the error and return response with original status
-                // Note: Once response.into_parts() is called, the original body is consumed and cannot
-                // be recovered. We preserve the status code and headers, but must return an empty body.
-                // This scenario is extremely rare for in-memory JSON responses, but if it occurs,
-                // the error is logged for debugging.
-                tracing::error!(
-                    status = %parts.status,
-                    "Failed to collect response body for metrics - returning empty body: {e}"
-                );
-                // Return empty body but preserve the original status code and headers
-                Response::from_parts(parts, Body::empty())
-            }
-        }
-    } else {
-        response
+        // Use Content-Length header when present (axum's Json sets it) to avoid
+        // buffering the full body and risking silent data loss on collect failure
+        let response_size = response
+            .headers()
+            .get(axum::http::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        metrics.observe_response_size(ep, response_size);
     }
+
+    response
 }
 
 /// Parses API path segments.

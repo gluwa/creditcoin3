@@ -10944,7 +10944,6 @@ dependencies = [
  "dotenvy",
  "eth",
  "hex",
- "http-body-util",
  "indexer-client",
  "merkle",
  "prometheus-client 0.24.0",

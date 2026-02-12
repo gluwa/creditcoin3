@@ -269,21 +269,9 @@ impl ProofGenMetrics {
 
     /// Spawn a background task that periodically updates hardware metrics.
     /// Call this once at server startup when metrics are enabled.
-    /// The task runs until the process exits.
+    /// Persists a sysinfo::System instance for accurate CPU sampling over the full interval.
     pub fn spawn_hardware_updater(metrics: Arc<Self>) {
         tokio::spawn(async move {
-            let interval = std::time::Duration::from_secs(5);
-            loop {
-                metrics.update_hardware().await;
-                tokio::time::sleep(interval).await;
-            }
-        });
-    }
-
-    /// Update hardware metrics (CPU, memory usage, and thread count).
-    /// Called from the background task only; uses a 200ms sleep for accurate CPU sampling.
-    async fn update_hardware(&self) {
-        if let Ok(pid) = sysinfo::get_current_pid() {
             let specifics = sysinfo::RefreshKind::nothing()
                 .with_cpu(sysinfo::CpuRefreshKind::nothing().with_cpu_usage())
                 .with_memory(sysinfo::MemoryRefreshKind::nothing().with_ram())
@@ -294,15 +282,27 @@ impl ProofGenMetrics {
                 );
             let mut sys = sysinfo::System::new_with_specifics(specifics);
 
-            // CPU usage requires a delay between samples for accurate reading
+            // Initial CPU sample: sysinfo needs two samples with delay for accurate CPU usage
             tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
             sys.refresh_specifics(specifics);
 
+            let interval = std::time::Duration::from_secs(5);
+            loop {
+                metrics.update_gauges_from_system(&sys);
+                tokio::time::sleep(interval).await;
+                sys.refresh_specifics(specifics);
+            }
+        });
+    }
+
+    /// Update gauges from an existing System instance.
+    /// Called from the background task with a persisted System for accurate CPU over the interval.
+    fn update_gauges_from_system(&self, sys: &sysinfo::System) {
+        if let Ok(pid) = sysinfo::get_current_pid() {
             if let Some(process) = sys.process(pid) {
                 // CPU usage as percentage (normalized by CPU count)
                 let cpu_process = process.cpu_usage() as f64;
                 let cpu_count = sys.cpus().len() as f64;
-                // Avoid division by zero if CPU list is empty (can occur in containerized environments)
                 let cpu_percent = if cpu_count > 0.0 {
                     cpu_process / cpu_count
                 } else {
@@ -310,18 +310,13 @@ impl ProofGenMetrics {
                 };
                 self.cpu_usage_percent.set(cpu_percent);
 
-                // Memory usage in bytes
-                let memory_bytes = process.memory() as f64;
-                self.memory_usage_bytes.set(memory_bytes);
+                self.memory_usage_bytes.set(process.memory() as f64);
 
-                // Update thread count (only available on Linux)
                 if let Some(tasks) = process.tasks() {
                     self.thread_count.set(tasks.len() as i64);
                 }
-                // On non-Linux platforms, thread_count metric is not updated
             }
         }
-        // Note: start_time_seconds is set once at init, no periodic update needed
     }
 }
 
