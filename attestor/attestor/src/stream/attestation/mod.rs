@@ -544,38 +544,41 @@ impl CacheContinuity {
     ) -> Result<(), Interrupt<Error>> {
         self.roots.update(eth, height_stop).await?;
 
-        let height_last = self
+        let height_next = self
             .cache
             .last()
             // FIXME: overflow breaks other invariants, saturating isn't enough
             .map(|info| info.block_number + 1)
             .unwrap_or(self.roots.boundary);
 
-        if height_stop < height_last {
+        if height_stop < height_next {
             return Ok(());
         }
 
         tracing::debug!(
-            height_last,
+            height_next,
             height_stop,
             start_height = self.roots.boundary,
             "Computing continuity proof"
         );
 
-        let size_fragment = height_stop as usize - height_last as usize + 1;
-        let size_roots = self.roots.cache.len();
-
-        assert!(
-            size_fragment <= size_roots,
-            "{size_fragment} < {size_roots}"
-        );
+        let size_fragment = height_stop as usize - height_next as usize + 1;
 
         let roots_start = self.roots.cache[0].block.number();
-
-        assert!(roots_start <= height_last, "{roots_start} <= {height_last}");
-
-        let index_start = (height_last - roots_start) as usize;
+        let index_start = (height_next - roots_start) as usize;
         let index_stop = index_start + size_fragment;
+
+        let size_fragment_roots = self.roots.cache[index_start..].len();
+
+        assert!(
+            size_fragment <= size_fragment_roots,
+            "{size_fragment} <= {size_fragment_roots}: missing blocks in root cache"
+        );
+
+        assert!(
+            roots_start <= height_next,
+            "{roots_start} <= {height_next}: violated attestation order"
+        );
 
         tracing::debug!(
             index_start,
@@ -637,16 +640,16 @@ impl CacheRoots {
             .first()
             .map(|info| info.block.number())
             .unwrap_or(self.boundary);
-        let height_last = self
+        let height_next = self
             .cache
             .last()
             // FIXME: overflow breaks other invariants, saturating isn't enough
             .map(|info| info.block.number() + 1)
             .unwrap_or(self.boundary);
 
-        if height_stop < height_last {
+        if height_stop < height_next {
             tracing::info!(
-                height_last,
+                height_next,
                 height_stop,
                 start_height = self.boundary,
                 "🎯 Cache hit"
@@ -655,14 +658,14 @@ impl CacheRoots {
         }
 
         tracing::info!(
-            height_last,
+            height_next,
             height_stop,
             start_height = self.boundary,
             "🎯 Cache miss"
         );
 
         let encoding = ccnext_abi_encoding::common::EncodingVersion::V1;
-        let iter = (height_last..=height_stop).map(|h| {
+        let iter = (height_next..=height_stop).map(|h| {
             eth.get_block(h, encoding).map(|opt| {
                 opt.ok_or(Interrupt::Stop)
                     .and_then(|res| res.map_interrupt(Error::Eth))
@@ -681,14 +684,14 @@ impl CacheRoots {
 
         assert!(
             len_cache <= max_size,
-            "From {} - Invalid digest cache size: {len_cache} <= {max_size} [({height_first})/{height_last}:{height_stop}]: {:?}",
+            "From {} - Invalid digest cache size: {len_cache} <= {max_size} [({height_first})/{height_next}:{height_stop}]: {:?}",
             self.boundary,
             self.cache.iter().map(|info| info.block.number()).collect::<Vec<_>>()
         );
 
         assert!(
             !self.cache.is_empty(),
-            "Cache cannot be empty after an update [({height_first}){height_last}:{height_stop}]"
+            "Cache cannot be empty after an update [({height_first}){height_next}:{height_stop}]"
         );
 
         Ok(())
