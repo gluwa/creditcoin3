@@ -476,7 +476,7 @@ impl futures::Stream for StreamAttestation {
         // `self.block_start` and `self.block_stop` as there are multiple events which might purge
         // the cache which are not reflected in those variables. The catchup limit is a guarantee on
         // the max size of the cache, and so we use that as a reference.
-        let cache_size = self.continuity.cache.len() as u64;
+        let cache_size = self.continuity.roots.cache.len() as u64;
 
         if cache_size < catchup_limit {
             self.stop = false;
@@ -585,9 +585,19 @@ impl futures::Stream for StreamAttestation {
                 self.block_head -= self.block_head % self.interval_attestation.get();
             }
 
+            // Similarly to the catchup limit, we always refer to the actual cache size when
+            // calculating the max block to catch up to.
+            let height_first = self
+                .continuity
+                .roots
+                .cache
+                .first()
+                .map(|info| info.block.number())
+                .unwrap_or(self.block_stop);
+
             self.block_n = self
                 .block_head
-                .min(self.block_stop.saturating_add(catchup_limit - cache_size));
+                .min(height_first.saturating_add(catchup_limit - cache_size));
             self.block_stop = block_stop;
             self.block_start = self.block_n;
 

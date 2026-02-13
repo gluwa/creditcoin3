@@ -490,6 +490,13 @@ pub struct KeyTailPending {
     digest: attestor_primitives::Digest,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct KeyDigestPending {
+    height: common::types::Height,
+    digest: attestor_primitives::Digest,
+    prev_digest_tail: PrevDigestTail,
+}
+
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct PrevDigestTail(attestor_primitives::Digest);
@@ -518,7 +525,7 @@ pub struct AttestationPoolForks {
     forks_by_size: std::collections::BTreeSet<KeySize>,
     forks_best: Option<AttestationVote>,
 
-    pending_by_digest: std::collections::BTreeMap<attestor_primitives::Digest, AttestationVote>,
+    pending_by_digest: std::collections::BTreeMap<KeyDigestPending, AttestationVote>,
     pending_by_prev_digest_tail: std::collections::BTreeSet<KeyTailPending>,
     pending_by_height: std::collections::BTreeSet<KeyHeightPending>,
 
@@ -624,6 +631,11 @@ impl AttestationPoolForks {
             );
 
             if let Some(prev_digest_tail) = prev_digest_tail.map(PrevDigestTail) {
+                let key_digest_pending = KeyDigestPending {
+                    height,
+                    digest,
+                    prev_digest_tail,
+                };
                 let key_tail_pending = KeyTailPending {
                     prev_digest_tail,
                     height,
@@ -636,7 +648,7 @@ impl AttestationPoolForks {
                 };
 
                 let vote_new = AttestationVote::new(attestation);
-                match self.pending_by_digest.entry(digest) {
+                match self.pending_by_digest.entry(key_digest_pending) {
                     std::collections::btree_map::Entry::Vacant(entry) => {
                         entry.insert(vote_new);
 
@@ -870,19 +882,24 @@ impl AttestationPoolForks {
             prev_digest_tail,
         } in removed_pending
         {
-            let key_digest_pending = KeyTailPending {
+            let key_digest_pending = KeyDigestPending {
+                height,
+                digest,
+                prev_digest_tail,
+            };
+            let key_tail_pending = KeyTailPending {
                 prev_digest_tail,
                 height,
                 digest,
             };
 
             assert!(
-                self.pending_by_prev_digest_tail.remove(&key_digest_pending),
-                "Missing mapping in pending_by_prev_digest_tail: {key_digest_pending:#?}"
+                self.pending_by_prev_digest_tail.remove(&key_tail_pending),
+                "Missing mapping in pending_by_prev_digest_tail: {key_tail_pending:#?}"
             );
 
             self.pending_by_digest
-                .remove(&digest)
+                .remove(&key_digest_pending)
                 .expect("Missing mapping in pending_by_digest");
         }
 
@@ -942,20 +959,25 @@ impl AttestationPoolForks {
             prev_digest_tail,
         }) = self.pending_by_height.pop_last()
         {
-            let key_digest_pending = KeyTailPending {
+            let key_digest_pending = KeyDigestPending {
+                height,
+                digest,
+                prev_digest_tail,
+            };
+            let key_tail_pending = KeyTailPending {
                 prev_digest_tail,
                 height,
                 digest,
             };
 
             assert!(
-                self.pending_by_prev_digest_tail.remove(&key_digest_pending),
-                "Missing mapping in pending_by_prev_digest_tail: {key_digest_pending:#?}"
+                self.pending_by_prev_digest_tail.remove(&key_tail_pending),
+                "Missing mapping in pending_by_prev_digest_tail: {key_tail_pending:#?}"
             );
 
             let vote = self
                 .pending_by_digest
-                .remove(&digest)
+                .remove(&key_digest_pending)
                 .expect("Missing mapping in pending_by_digest");
 
             let key_vote = KeyVote {
@@ -1056,7 +1078,12 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolForks {
             digest,
         } in keys
         {
-            let key_digest_pending = KeyTailPending {
+            let key_digest_pending = KeyDigestPending {
+                height,
+                digest,
+                prev_digest_tail,
+            };
+            let key_tail_pending = KeyTailPending {
                 prev_digest_tail,
                 height,
                 digest,
@@ -1068,16 +1095,17 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolForks {
             };
 
             assert!(
-                self.pending_by_prev_digest_tail.remove(&key_digest_pending),
-                "Missing mapping in pending_by_prev_digest_tail: {key_digest_pending:#?}"
+                self.pending_by_prev_digest_tail.remove(&key_tail_pending),
+                "Missing mapping in pending_by_prev_digest_tail: {key_tail_pending:#?}"
             );
             assert!(
                 self.pending_by_height.remove(&key_height_pending),
                 "Missing mapping in pending_by_height: {key_height_pending:#?}"
             );
+
             let vote = self
                 .pending_by_digest
-                .remove(&digest)
+                .remove(&key_digest_pending)
                 .expect("Missing mapping in pending_by_digest");
 
             for attestation in vote.votes {
