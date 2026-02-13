@@ -58,7 +58,6 @@ Base path: `/api/v1`
 
 Endpoints:
 
-- `GET /proof/{chain_key}/{header_number}` – continuity proof for a header.
 - `GET /proof/{chain_key}/{header_number}/{tx_index}` – continuity + merkle proof for the transaction at `tx_index` (supports empty block with index 0).
 - `GET /proof-by-tx/{chain_key}/{tx_hash}` – currently disabled (returns TxHashLookupUnavailable) until reverse lookup is implemented.
 

@@ -78,7 +78,7 @@ pub async fn request_metrics_middleware(
 /// - chain_key: parsed chain_key or None
 /// - parts_count: number of path segments (for determining proof vs proof-with-tx)
 fn parse_api_path(path: &str) -> (Option<&str>, Option<u64>, usize) {
-    if path == "/api/v1/health" || path.starts_with("/health/") {
+    if path == "/api/v1/health" {
         return (Some("health"), None, 0);
     }
 
@@ -112,8 +112,7 @@ fn parse_api_path(path: &str) -> (Option<&str>, Option<u64>, usize) {
 /// This is more reliable than parsing the actual URI since it uses the route definition.
 fn extract_endpoint_from_matched_path(matched_path: &str) -> Option<Endpoint> {
     match matched_path {
-        "/api/v1/health" | "/health/live" | "/health/ready" => Some(Endpoint::Health),
-        "/api/v1/proof/{chain_key}/{header_number}" => Some(Endpoint::Proof),
+        "/api/v1/health" => Some(Endpoint::Health),
         "/api/v1/proof/{chain_key}/{header_number}/{tx_index}" => Some(Endpoint::ProofWithTx),
         "/api/v1/proof-by-tx/{chain_key}/{tx_hash}" => Some(Endpoint::ProofByTxHash),
         "/metrics" => None, // Metrics endpoint doesn't need endpoint classification
@@ -131,11 +130,9 @@ fn extract_endpoint_from_path(uri: &Uri) -> Option<Endpoint> {
         Some("health") => Some(Endpoint::Health),
         Some("proof-by-tx") => Some(Endpoint::ProofByTxHash),
         Some("proof") => {
-            // parts_count includes: "api", "v1", "proof", "chain_key", "header_number", ["tx_index"]
-            // So: 5 parts = proof only, 6 parts = proof with tx
-            if parts_count == 5 {
-                Some(Endpoint::Proof)
-            } else if parts_count == 6 {
+            // parts_count includes: "api", "v1", "proof", "chain_key", "header_number", "tx_index"
+            // So: 6 parts = proof with tx
+            if parts_count == 6 {
                 Some(Endpoint::ProofWithTx)
             } else {
                 None
@@ -155,8 +152,7 @@ pub async fn chain_key_validator_middleware(
     let uri = request.uri().clone();
 
     // Extract chain_key from path
-    // Paths are: /api/v1/proof/{chain_key}/{header_number}
-    //            /api/v1/proof/{chain_key}/{header_number}/{tx_index}
+    // Paths are: /api/v1/proof/{chain_key}/{header_number}/{tx_index}
     //            /api/v1/proof-by-tx/{chain_key}/{tx_hash}
     // Note: extract_chain_key_from_path returns None for health endpoints, so validation
     // automatically skips them without needing an explicit check.
@@ -229,14 +225,6 @@ mod tests {
     #[test]
     fn test_extract_endpoint_from_path_trailing_slash() {
         // Test that trailing slashes don't cause misclassification
-        assert_eq!(
-            extract_endpoint_from_path(&"/api/v1/proof/2/100".parse().unwrap()),
-            Some(Endpoint::Proof)
-        );
-        assert_eq!(
-            extract_endpoint_from_path(&"/api/v1/proof/2/100/".parse().unwrap()),
-            Some(Endpoint::Proof) // Should still be Proof, not ProofWithTx
-        );
         assert_eq!(
             extract_endpoint_from_path(&"/api/v1/proof/2/100/5".parse().unwrap()),
             Some(Endpoint::ProofWithTx)

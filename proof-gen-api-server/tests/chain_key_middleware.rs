@@ -12,7 +12,7 @@ async fn test_chain_key_validation_success() {
     let configured_chain_key = 2u64;
     let app = Router::new()
         .route(
-            "/api/v1/proof/{chain_key}/{header_number}",
+            "/api/v1/proof/{chain_key}/{header_number}/{tx_index}",
             get(|| async { "ok" }),
         )
         .layer(axum::middleware::from_fn_with_state(
@@ -25,7 +25,7 @@ async fn test_chain_key_validation_success() {
 
     // Valid chain_key should pass
     let request = Request::builder()
-        .uri("/api/v1/proof/2/100")
+        .uri("/api/v1/proof/2/100/0")
         .method("GET")
         .body(Body::empty())
         .unwrap();
@@ -39,7 +39,7 @@ async fn test_chain_key_validation_failure() {
     let configured_chain_key = 2u64;
     let app = Router::new()
         .route(
-            "/api/v1/proof/{chain_key}/{header_number}",
+            "/api/v1/proof/{chain_key}/{header_number}/{tx_index}",
             get(|| async { "ok" }),
         )
         .layer(axum::middleware::from_fn_with_state(
@@ -52,7 +52,7 @@ async fn test_chain_key_validation_failure() {
 
     // Invalid chain_key should return 400
     let request = Request::builder()
-        .uri("/api/v1/proof/99/100")
+        .uri("/api/v1/proof/99/100/0")
         .method("GET")
         .body(Body::empty())
         .unwrap();
@@ -152,7 +152,7 @@ async fn test_health_endpoint_bypasses_validation() {
     let app = Router::new()
         .route("/api/v1/health", get(|| async { "healthy" }))
         .route(
-            "/api/v1/proof/{chain_key}/{header_number}",
+            "/api/v1/proof/{chain_key}/{header_number}/{tx_index}",
             get(|| async { "ok" }),
         )
         .layer(axum::middleware::from_fn_with_state(
@@ -179,7 +179,7 @@ async fn test_invalid_path_format() {
     let configured_chain_key = 2u64;
     let app = Router::new()
         .route(
-            "/api/v1/proof/{chain_key}/{header_number}",
+            "/api/v1/proof/{chain_key}/{header_number}/{tx_index}",
             get(|| async { "ok" }),
         )
         .layer(axum::middleware::from_fn_with_state(

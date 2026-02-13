@@ -36,6 +36,10 @@ dotenvy = "0.15"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+## OpenAPI / Swagger
+utoipa = { version = "5.4", features = ["chrono", "non_strict_integers"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum", "vendored"] }
+
 ## Workspace dependencies
 alloy = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }

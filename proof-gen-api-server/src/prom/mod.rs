@@ -403,7 +403,6 @@ mod labels {
     // Endpoint labels
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
     pub enum Endpoint {
-        Proof,
         ProofWithTx,
         ProofByTxHash,
         Health,

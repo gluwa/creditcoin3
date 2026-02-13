@@ -12,8 +12,11 @@ use tracing::Level;
 use crate::prom::{handle_metrics_response, Metrics, ProofGenMetrics};
 use crate::services::continuity_service::ContinuityService;
 use routes::{continuity, health};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 pub mod middleware;
+pub mod openapi;
 pub mod routes;
 
 pub fn build_app(
@@ -30,12 +33,6 @@ pub fn build_app(
 
     let router = Router::new()
         .route("/api/v1/health", get(health::health_check))
-        .route("/health/live", get(health::liveness_check))
-        .route("/health/ready", get(health::readiness_check))
-        .route(
-            "/api/v1/proof/{chain_key}/{header_number}",
-            get(continuity::get_proof),
-        )
         .route(
             "/api/v1/proof/{chain_key}/{header_number}/{tx_index}",
             get(continuity::get_proof_with_tx),
@@ -51,6 +48,11 @@ pub fn build_app(
                     handle_metrics_response(metrics)
                 },
             ),
+        )
+        .merge(
+            SwaggerUi::new("/api/swagger")
+                .url("/api/swagger/openapi.json", openapi::ApiDoc::openapi())
+                .config(openapi::swagger_config()),
         )
         .layer(Extension(service))
         .layer(Extension(prom_metrics.clone()));

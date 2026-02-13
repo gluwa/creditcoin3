@@ -31,20 +31,55 @@ pub struct MerkleProofItem {
     pub merkle_root: H256,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Schema for OpenAPI documentation of ContinuityProof.
+/// Matches the structure of attestor_primitives::block::ContinuityProof.
+#[derive(utoipa::ToSchema)]
+#[schema(rename_all = "camelCase")]
+pub struct ContinuityProofSchema {
+    /// Digest of the block before the continuity chain starts (digest of queryHeight - 1).
+    /// 32-byte Keccak256 hash as hex string (e.g. 0x...).
+    pub lower_endpoint_digest: String,
+    /// Array of merkle roots; digests are computed on-chain.
+    /// Block number for index i = startBlock + i, where startBlock = queryBlockHeight.
+    /// The query block is at index 0.
+    pub roots: Vec<String>,
+}
+
+/// Schema for OpenAPI documentation of a single sibling in a Merkle proof path.
+#[derive(utoipa::ToSchema)]
+#[schema(rename_all = "camelCase")]
+pub struct MerkleProofEntrySchema {
+    /// The sibling hash (32-byte Keccak256 as hex string).
+    pub hash: String,
+    /// True if this sibling is to the left of the current hash in the tree.
+    pub is_left: bool,
+}
+
+/// Schema for OpenAPI documentation of TransactionMerkleProof.
+/// Proves that a transaction is included in a block's Merkle tree.
+#[derive(utoipa::ToSchema)]
+#[schema(rename_all = "camelCase")]
+pub struct TransactionMerkleProofSchema {
+    /// The Merkle root hash of the block's transaction tree (32-byte Keccak256 as hex string).
+    pub root: String,
+    /// Sibling hashes along the path from leaf to root, with position information.
+    pub siblings: Vec<MerkleProofEntrySchema>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContinuityResponse {
     pub chain_key: u64,
     pub header_number: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx_index: Option<u64>,
+    pub tx_index: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx_bytes: Option<String>, // Hex-encoded transaction bytes (payload only)
+    #[schema(value_type = ContinuityProofSchema)]
     pub continuity_proof: ContinuityProof,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub merkle_proof: Option<TransactionMerkleProof>,
+    #[schema(value_type = TransactionMerkleProofSchema)]
+    pub merkle_proof: TransactionMerkleProof,
     pub cached: bool,
     pub generated_at: DateTime<Utc>,
 }
@@ -159,18 +194,16 @@ impl ContinuityService {
         Ok(())
     }
 
-    /// Get proof for a block, optionally including merkle proof for a specific transaction.
-    /// - `tx_index = None`: returns continuity proof only
-    /// - `tx_index = Some(idx)`: returns continuity + merkle proof for transaction at `idx`
+    /// Get continuity proof with merkle proof for a transaction at the given index.
     ///
     /// Used by:
-    /// - `/api/v1/proof/{chain_key}/{header_number}` (tx_index = None)
-    /// - `/api/v1/proof/{chain_key}/{header_number}/{tx_index}` (tx_index = Some)
+    /// - `/api/v1/proof/{chain_key}/{header_number}/{tx_index}`
+    /// - `/api/v1/proof-by-tx/{chain_key}/{tx_hash}` (resolves tx_hash to block/index first)
     pub async fn get_proof(
         &self,
         chain_key: u64,
         header_number: u64,
-        tx_index: Option<u64>,
+        tx_index: u64,
     ) -> ServiceResult<ContinuityResponse> {
         let current_block = self.validate_block(header_number).await?;
 
@@ -205,35 +238,20 @@ impl ContinuityService {
                 }
             };
 
-        match tx_index {
-            Some(idx) => {
-                let merkle = self
-                    .generate_merkle_proof(chain_key, header_number, idx)
-                    .await?;
-                Ok(ContinuityResponse {
-                    chain_key,
-                    header_number,
-                    tx_index: Some(idx),
-                    tx_hash: merkle.tx_hash.map(|h| format!("0x{h:x}")),
-                    tx_bytes: merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b))),
-                    continuity_proof,
-                    merkle_proof: Some(merkle.merkle_proof),
-                    cached: was_cached,
-                    generated_at: Utc::now(),
-                })
-            }
-            None => Ok(ContinuityResponse {
-                chain_key,
-                header_number,
-                tx_index: None,
-                tx_hash: None,
-                tx_bytes: None,
-                continuity_proof,
-                merkle_proof: None,
-                cached: was_cached,
-                generated_at: Utc::now(),
-            }),
-        }
+        let merkle = self
+            .generate_merkle_proof(chain_key, header_number, tx_index)
+            .await?;
+        Ok(ContinuityResponse {
+            chain_key,
+            header_number,
+            tx_index,
+            tx_hash: merkle.tx_hash.map(|h| format!("0x{h:x}")),
+            tx_bytes: merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b))),
+            continuity_proof,
+            merkle_proof: merkle.merkle_proof,
+            cached: was_cached,
+            generated_at: Utc::now(),
+        })
     }
 
     /// Get proofs by transaction hash (resolves to block/index, then builds proofs).
@@ -246,16 +264,14 @@ impl ContinuityService {
         let tx_h256 = parse_tx_hash(&tx_hash)?;
         let (header_number, tx_index) = self.get_height_and_index_for_tx_hash(tx_h256).await?;
 
-        let response = self
-            .get_proof(chain_key, header_number, Some(tx_index))
-            .await?;
+        let response = self.get_proof(chain_key, header_number, tx_index).await?;
 
         // Verify tx_hash matches
         match &response.tx_hash {
             Some(computed_hash) if parse_tx_hash(computed_hash)? == tx_h256 => Ok(response),
             Some(computed_hash) => Err(ServiceError::TxHashNotFound {
                 tx_hash: format!(
-                    "Transaction hash mismatch: requested 0x{tx_h256:x}, found {computed_hash} at block {} index {:?}",
+                    "Transaction hash mismatch: requested 0x{tx_h256:x}, found {computed_hash} at block {} index {}",
                     response.header_number, response.tx_index
                 ),
             }),

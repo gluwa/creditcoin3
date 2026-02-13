@@ -8,7 +8,7 @@ use crate::prom::{ErrorType, GetErrorType};
 
 /// HTTP error response structure returned by the API.
 /// This struct is used for both serialization (API responses) and deserialization (tests).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 pub struct ErrorResponse {
     /// Error code (e.g., "BlockNotReady", "Internal")
     pub code: String,
