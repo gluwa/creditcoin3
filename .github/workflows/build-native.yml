@@ -7,9 +7,6 @@ name: Reusable workflow to build a native client
       build-options:
         required: true
         type: string
-      build-subkey:
-        required: false
-        type: boolean
       version-string:
         required: true
         type: string
@@ -19,6 +16,12 @@ name: Reusable workflow to build a native client
       runs-on:
         required: true
         type: string
+      build-subkey:
+        required: false
+        type: boolean
+      build-subxt:
+        required: false
+        type: boolean
 
 permissions: read-all
 
@@ -88,3 +91,17 @@ jobs:
         with:
           name: subkey
           path: ~/.cargo/bin/subkey
+
+      - name: Install subxt
+        if: ${{ inputs.build-subxt }}
+        uses: gluwa/cargo@dev
+        with:
+          command: install
+          args: subxt-cli@0.37.0 --locked
+
+      - name: Upload subxt binary
+        if: ${{ inputs.build-subxt }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: subxt
+          path: ~/.cargo/bin/subxt

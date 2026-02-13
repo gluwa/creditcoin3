@@ -26,6 +26,7 @@ jobs:
       docs_smart_contract: ${{ steps.filter.outputs.docs_smart_contract }}
       integration_test_blockchain: ${{ steps.filter.outputs.integration_test_blockchain }}
       integration_test_cli: ${{ steps.filter.outputs.integration_test_cli }}
+      regenerate_metadata: ${{ steps.filter.outputs.regenerate_metadata }}
     steps:
       - uses: actions/checkout@v6
 
@@ -89,6 +90,10 @@ jobs:
               - "cli/src/lib/**"
               - "cli/src/test/integration-tests/**"
               - ".github/workflows/ci.yml"
+            regenerate_metadata:
+              - "**.rs"
+              - "**Cargo**"
+              - ".github/workflows/ci.yml"
 
   deploy-runner-build-creditcoin-for-testing:
     needs:
@@ -114,6 +119,7 @@ jobs:
     with:
       build-options: "--release --features=fast-runtime"
       build-subkey: true
+      build-subxt: true
       version-string: testing-ci
       cache-key-name: build-creditcoin-node
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-ci']"
@@ -589,25 +595,6 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
 
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-
-      # WARNING: always before actions/download-artifact
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: subxt-cli
-
-      - name: Install subxt-cli
-        run: |
-          cargo install subxt-cli@0.37.0 --locked
-
       - name: Install Node.js
         uses: actions/setup-node@v6
         with:
@@ -620,13 +607,6 @@ jobs:
         with:
           name: binary-for-testing-ci
           path: target/release
-
-      - name: DEBUG
-        continue-on-error: true
-        run: |
-          ls -l  ./target/
-          ls -lR ./target/release/
-          md5sum ./target/release/creditcoin3-node
 
       - name: Start creditcoin3-node in order to update typedefs
         run: |
@@ -663,11 +643,9 @@ jobs:
           node dist/scripts/eth-check.js ws://127.0.0.1:9944
 
       - name: Auto-update typedefs
-        id: update_typedefs
         working-directory: ./cli
         run: |
           ./get-metadata.sh
-          subxt metadata -f bytes > ../common/cc-client/artifacts/metadata.scale
 
           # kill the node b/c the tests will launch their own processes
           killall -9 creditcoin3-node
@@ -679,16 +657,6 @@ jobs:
           git status --short --untracked-files=no
           git diff
           echo "======================================="
-
-          # do not update if only creditcoin.json has changed,
-          # usually happens on version bump without any real metadata change
-          # shellcheck disable=SC2143
-          if [ -n "$(git status --short --untracked-files=no | grep -v yarn.lock | grep -v creditcoin.json | grep -v metadata.scale)" ]; then
-              git diff
-              echo "git_diff=true" >> "$GITHUB_OUTPUT"
-          else
-              echo "git_diff=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Extra ENV for PRs towards dev branch
         if: github.base_ref == 'dev'
@@ -742,32 +710,6 @@ jobs:
         with:
           name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
           path: /tmp/creditcoin3-node-*.std*
-
-      - name: Commit changes for typedefs
-        if: ${{ (github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network') && env.GITHUB_TOKEN && success() && steps.update_typedefs.outputs.git_diff == 'true' && matrix.proxy == 'no' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        uses: EndBug/add-and-commit@v9
-        with:
-          add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
-          author_name: gluwa-bot
-          author_email: creditcoin@gluwa.com
-          message: "Auto-update metadata & TypeScript type definitions"
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check for uncommitted changes for typedefs on PR against non-default branches
-        # NOTE: not checking matrix condition on purpose! In case some of the jobs have failed we want
-        # maximum opportunities to expose uncommitted typedefs changes for a PR against non-default branches!
-        if: ${{ github.base_ref != 'dev' && github.base_ref != 'poc_external_attestation_network' && steps.update_typedefs.outputs.git_diff == 'true' }}
-        run: |
-          echo "FAIL: it appears there are uncommitted typedefs changes which is not supposed to happen"
-          echo "TODO: make sure these changes make it to the default branch first!"
-
-          echo "========== DEBUG DEBUG DEBUG =========="
-          git status --short --untracked-files=no
-          git diff
-          echo "======================================="
-          exit 1
 
       - name: Upload coverage report as artifact
         if: ${{ matrix.proxy == 'yes' && matrix.proxy_type == 'All' }}
@@ -1583,3 +1525,119 @@ jobs:
       secret: ${{ matrix.secret }}
       proxy_type: ${{ matrix.proxy_type }}
     secrets: inherit
+
+  regenerate-metadata:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.regenerate_metadata == 'true' }}
+    runs-on: ubuntu-24.04
+    # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      # WARNING: always after Swatinem/rust-cache
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v7
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Download subxt binary
+        uses: actions/download-artifact@v7
+        with:
+          name: subxt
+          path: ~/.cargo/bin
+
+      - name: Start creditcoin3-node in order to update typedefs
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for nodes to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Install creditcoin-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Auto-update typedefs
+        id: update_typedefs
+        working-directory: ./cli
+        run: |
+          ./get-metadata.sh
+
+          chmod a+x ~/.cargo/bin/subxt
+          sudo cp ~/.cargo/bin/subxt /usr/local/bin
+          subxt --help
+
+          subxt metadata -f bytes > ../common/cc-client/artifacts/metadata.scale
+
+          # kill the node b/c the tests will launch their own processes
+          killall -9 creditcoin3-node
+
+          yarn build:types
+          yarn format
+
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short --untracked-files=no
+          git diff
+          echo "======================================="
+
+          # do not update if only creditcoin.json has changed,
+          # usually happens on version bump without any real metadata change
+          # shellcheck disable=SC2143
+          if [ -n "$(git status --short --untracked-files=no | grep -v yarn.lock | grep -v creditcoin.json | grep -v metadata.scale)" ]; then
+              git diff
+              echo "git_diff=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "git_diff=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit changes for typedefs
+        if: ${{ (github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network') && success() && steps.update_typedefs.outputs.git_diff == 'true' }}
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Auto-update metadata & TypeScript type definitions"
+          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
+
+      - name: Check for uncommitted changes for typedefs on PR against non-default branches
+        if: ${{ github.base_ref != 'dev' && github.base_ref != 'poc_external_attestation_network' && steps.update_typedefs.outputs.git_diff == 'true' }}
+        run: |
+          echo "FAIL: it appears there are uncommitted typedefs changes which is not supposed to happen"
+          echo "TODO: make sure these changes make it to the default branch first!"
+
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short --untracked-files=no
+          git diff
+          echo "======================================="
+          exit 1
