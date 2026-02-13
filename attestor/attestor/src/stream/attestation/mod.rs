@@ -143,7 +143,6 @@ pub struct Permit(common::types::Height);
 pub struct CacheContinuity {
     cache: Vec<attestor_primitives::block::BlockSerializable>,
     prev_digest: attestor_primitives::Digest,
-    max_size: std::num::NonZeroUsize,
 
     roots: CacheRoots,
 }
@@ -365,18 +364,30 @@ impl StreamAttestation {
             .try_into()
             .unwrap();
 
-        if self.continuity.max_size < size_new {
-            let additional = size_new.get() - self.continuity.max_size.get();
+        if self.continuity.roots.max_size < size_new {
+            let additional = size_new.get() - self.continuity.roots.max_size.get();
             self.continuity.cache.reserve(additional);
             self.continuity.roots.cache.reserve(additional);
         } else {
-            // NOTE: interval updates happen infrequently enough and should be small enough that
-            // they should not be a concern for RAM usage, hence we do not bother with shrinking
-            // cache allocation on a smaller interval
+            self.continuity.cache.truncate(size_new.get());
+            self.continuity.cache.truncate(size_new.get());
         }
 
-        self.continuity.max_size = size_new;
         self.continuity.roots.max_size = size_new;
+
+        let len_cache_continuity = self.continuity.cache.len();
+        let len_cache_roots = self.continuity.roots.cache.len();
+        let max_size = self.continuity.roots.max_size.get();
+
+        assert!(
+            len_cache_continuity <= max_size,
+            "Invalid continuity cache size: {len_cache_continuity} <= {max_size}",
+        );
+
+        assert!(
+            len_cache_roots <= max_size,
+            "Invalid roots cache size: {len_cache_roots} <= {max_size}",
+        );
     }
 
     async fn block_next(
@@ -629,7 +640,6 @@ impl CacheContinuity {
         Self {
             cache: Vec::with_capacity(max_size.get()),
             prev_digest: start_digest.unwrap_or_default(),
-            max_size,
 
             roots: CacheRoots::new(max_size, start_height),
         }
@@ -643,6 +653,11 @@ impl CacheContinuity {
     ) -> Result<(), Interrupt<Error>> {
         self.roots.update(eth, height_stop).await?;
 
+        let height_first = self
+            .cache
+            .first()
+            .map(|info| info.block_number)
+            .unwrap_or(self.roots.boundary);
         let height_next = self
             .cache
             .last()
@@ -703,11 +718,11 @@ impl CacheContinuity {
         }
 
         let len_cache = self.cache.len();
-        let max_size = self.max_size.get();
+        let max_size = self.roots.max_size.get();
 
         assert!(
             len_cache <= max_size,
-            "Invalid continuity cache size: {len_cache} <= {max_size}"
+            "Invalid continuity cache size: {len_cache} <= {max_size} [({height_first})/{height_next}:{height_stop}]",
         );
 
         Ok(())
@@ -783,9 +798,7 @@ impl CacheRoots {
 
         assert!(
             len_cache <= max_size,
-            "From {} - Invalid digest cache size: {len_cache} <= {max_size} [({height_first})/{height_next}:{height_stop}]: {:?}",
-            self.boundary,
-            self.cache.iter().map(|info| info.block.number()).collect::<Vec<_>>()
+            "Invalid roots cache size: {len_cache} <= {max_size} [({height_first})/{height_next}:{height_stop}]",
         );
 
         assert!(
