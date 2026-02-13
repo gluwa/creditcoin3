@@ -902,6 +902,14 @@ jobs:
         run: |
           yarn install
 
+      - name: Run blockchain tests
+        if: always()
+        working-directory: ./cli
+        env:
+          ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
+        run: |
+          yarn test:blockchain
+
       - name: Collect pallet storage versions from Local chain
         working-directory: ./cli
         run: |
@@ -936,14 +944,6 @@ jobs:
               echo "$DIFF_OUTPUT"
               exit 1
           fi
-
-      - name: Run blockchain tests
-        if: always()
-        working-directory: ./cli
-        env:
-          ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
-        run: |
-          yarn test:blockchain
 
       - name: Upload logs
         if: always()
