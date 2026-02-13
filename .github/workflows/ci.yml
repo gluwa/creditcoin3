@@ -911,6 +911,7 @@ jobs:
           yarn test:blockchain
 
       - name: Collect pallet storage versions from Local chain
+        if: always()
         working-directory: ./cli
         run: |
           sudo apt-get install colordiff
@@ -918,6 +919,7 @@ jobs:
           node dist/scripts/queryPalletVersions.js ws://127.0.0.1:9944 2>/dev/null | sort > /var/tmp/pallet_storage.local
 
       - name: Compare to pallet storage versions from Devnet
+        if: always()
         timeout-minutes: 15
         working-directory: ./cli
         run: |
@@ -932,11 +934,10 @@ jobs:
 
       - name: Compare to pallet storage versions from Testnet
         timeout-minutes: 15
-        # revert when we have a new testnet, see CSUB-1907
-        if: false
+        if: always()
         working-directory: ./cli
         run: |
-          node dist/scripts/queryPalletVersions.js wss://rpc.usc-testnet.creditcoin.network 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
+          node dist/scripts/queryPalletVersions.js wss://rpc.usc-testnet2.creditcoin.network 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
           DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.testnet /var/tmp/pallet_storage.local | colordiff)
 
           if [ -n "$DIFF_OUTPUT" ]; then
