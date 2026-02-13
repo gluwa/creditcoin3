@@ -61,6 +61,15 @@ Endpoints:
 - `GET /proof/{chain_key}/{header_number}/{tx_index}` – continuity + merkle proof for the transaction at `tx_index` (supports empty block with index 0).
 - `GET /proof-by-tx/{chain_key}/{tx_hash}` – currently disabled (returns TxHashLookupUnavailable) until reverse lookup is implemented.
 
+### API Documentation (Swagger)
+
+When the server is running, interactive OpenAPI documentation is available at:
+
+- **Swagger UI**: `http://localhost:3100/api/swagger` (default port; use `--bind-port` to change)
+- **OpenAPI JSON**: `http://localhost:3100/api/swagger/openapi.json`
+
+The Swagger UI lets you explore endpoints, view request/response schemas (including `continuityProof` and `merkleProof` structures), and try requests from the browser.
+
 ### Integration Testing
 
 Integration tests exercise proof endpoints with Anvil. Run with:
