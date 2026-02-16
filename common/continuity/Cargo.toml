@@ -22,9 +22,10 @@ cc-client = { workspace = true }
 ccnext-abi-encoding = { workspace = true }
 eth = { workspace = true }
 indexer-client = { workspace = true }
+prometheus-client = { workspace = true, optional = true }
 sp-core = { workspace = true }
 utils = { workspace = true }
 
 [features]
-block_cache = ["eth/block_cache"]
+block_cache = ["eth/block_cache", "prometheus-client"]
 default = []

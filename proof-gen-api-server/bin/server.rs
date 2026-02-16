@@ -56,6 +56,13 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
+        default_value_t = false,
+        help = "Use Redis Cluster client (required when Redis is in cluster mode, e.g. ElastiCache)"
+    )]
+    redis_cluster_mode: bool,
+
+    #[arg(
+        long,
         required = false,
         help = "CC3 Indexer GraphQL URL for pre-fetching continuity proofs"
     )]
@@ -89,6 +96,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Prefer CLI, fallback to env var for backward compatibility
     let resolved_cc3_key = args.cc3_key.or_else(|| env::var("CC3_KEY").ok());
 
+    // redis_url: prefer CLI, fallback to REDIS_URL env var
+    let resolved_redis_url = args.redis_url.or_else(|| env::var("REDIS_URL").ok());
+
+    // redis_cluster_mode: prefer CLI, fallback to REDIS_CLUSTER_MODE env var
+    let resolved_redis_cluster_mode = if let Ok(env_val) = env::var("REDIS_CLUSTER_MODE") {
+        matches!(env_val.to_lowercase().as_str(), "1" | "true" | "yes")
+    } else {
+        args.redis_cluster_mode
+    };
+
     let config = Config {
         bind_host: args.bind_host,
         bind_port: args.bind_port,
@@ -96,7 +113,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cc3_key: resolved_cc3_key,
         chain_key: args.chain_key,
         eth_rpc_url: args.eth_rpc_url,
-        redis_url: args.redis_url,
+        redis_url: resolved_redis_url,
+        redis_cluster_mode: resolved_redis_cluster_mode,
         indexer_url: args.indexer_url,
     };
 

@@ -12,8 +12,8 @@ use alloy::eips::{BlockId, BlockNumberOrTag};
 use ccnext_abi_encoding::common::EncodingVersion;
 
 use redis::{
-    aio::MultiplexedConnection, AsyncCommands, AsyncConnectionConfig, ExistenceCheck, SetExpiry,
-    SetOptions,
+    aio::MultiplexedConnection, cluster_async::ClusterConnection, AsyncCommands,
+    AsyncConnectionConfig, ExistenceCheck, SetExpiry, SetOptions,
 };
 use serde_json::{from_slice, to_vec};
 use snap::{read::FrameDecoder, write::FrameEncoder};
@@ -31,14 +31,34 @@ const REDIS_RESPONSE_TIMEOUT_SECS: u64 = 30;
 
 pub struct BlockCacheConfig {
     pub redis_url: String,
+    /// When true, use Redis Cluster client (handles MOVED/ASK redirects).
+    /// Required when connecting to Redis Cluster (e.g. ElastiCache cluster mode, Redis Cloud).
+    pub redis_cluster_mode: bool,
     /// Mutable reference to the registry for registering block cache metrics.
     /// The caller owns the registry and can encode it later.
     pub metrics: BlockCacheMetrics,
 }
 
+/// Abstraction over standalone and cluster Redis connections.
+/// ClusterConnection handles MOVED/ASK redirects automatically.
+#[derive(Clone)]
+pub(crate) enum RedisConn {
+    Standalone(MultiplexedConnection),
+    Cluster(ClusterConnection),
+}
+
+impl std::fmt::Debug for RedisConn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RedisConn::Standalone(_) => write!(f, "RedisConn::Standalone(..)"),
+            RedisConn::Cluster(_) => write!(f, "RedisConn::Cluster(..)"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Cache {
-    redis_conn: MultiplexedConnection,
+    redis_conn: RedisConn,
     metrics: BlockCacheMetrics,
 }
 
@@ -55,18 +75,36 @@ fn inflate(buff: &[u8]) -> IoResult<Vec<u8>> {
     Ok(inflate_buff)
 }
 
-async fn get_total_cached_blocks(
-    mut conn: MultiplexedConnection,
-) -> Result<u64, redis::RedisError> {
-    redis::cmd(DBSIZE_COMMAND)
-        .query_async::<u64>(&mut conn)
-        .await
+async fn redis_set_options(
+    mut conn: RedisConn,
+    key: &str,
+    value: u32,
+    options: SetOptions,
+) -> Result<bool, redis::RedisError> {
+    match &mut conn {
+        RedisConn::Standalone(c) => c.set_options(key, value, options).await,
+        RedisConn::Cluster(c) => c.set_options(key, value, options).await,
+    }
+}
+
+async fn redis_del(mut conn: RedisConn, key: &str) -> Result<(), redis::RedisError> {
+    match &mut conn {
+        RedisConn::Standalone(c) => c.del(key).await,
+        RedisConn::Cluster(c) => c.del(key).await,
+    }
+}
+
+async fn get_total_cached_blocks(mut conn: RedisConn) -> Result<u64, redis::RedisError> {
+    match &mut conn {
+        RedisConn::Standalone(c) => redis::cmd(DBSIZE_COMMAND).query_async::<u64>(c).await,
+        RedisConn::Cluster(c) => redis::cmd(DBSIZE_COMMAND).query_async::<u64>(c).await,
+    }
 }
 
 // Try to get the block from redis cache, returning None if either a cache miss or an error occurs.
 // We purposefully dont fail on cache errors so that the client can fallback to direct block fetching.
 async fn get_cached_block(
-    mut conn: MultiplexedConnection,
+    mut conn: RedisConn,
     chain_id: u64,
     block_number: u64,
     metrics: &BlockCacheMetrics,
@@ -74,7 +112,10 @@ async fn get_cached_block(
     let key = format!("block:{chain_id}:{block_number}");
 
     let start = Instant::now();
-    let result = conn.get::<_, Option<Vec<u8>>>(&key).await;
+    let result = match &mut conn {
+        RedisConn::Standalone(c) => c.get::<_, Option<Vec<u8>>>(&key).await,
+        RedisConn::Cluster(c) => c.get::<_, Option<Vec<u8>>>(&key).await,
+    };
     metrics.observe_redis_operation(RedisOp::Get, start.elapsed());
 
     match result {
@@ -116,7 +157,7 @@ async fn get_cached_block(
 // Cache the block, logging any errors but not returning them
 // in order to not impact main flows
 async fn cache_block(
-    mut conn: MultiplexedConnection,
+    mut conn: RedisConn,
     chain_id: u64,
     block_number: u64,
     block: &OrderedBlock,
@@ -136,7 +177,10 @@ async fn cache_block(
             };
 
             let start = Instant::now();
-            let result = conn.set_ex::<_, _, ()>(&key, bytes, ONE_HOUR_TTL).await;
+            let result = match &mut conn {
+                RedisConn::Standalone(c) => c.set_ex::<_, _, ()>(&key, &bytes, ONE_HOUR_TTL).await,
+                RedisConn::Cluster(c) => c.set_ex::<_, _, ()>(&key, &bytes, ONE_HOUR_TTL).await,
+            };
             metrics.observe_redis_operation(RedisOp::Set, start.elapsed());
 
             if let Err(err) = result {
@@ -160,17 +204,29 @@ impl Client {
     ) -> Result<Self, Error> {
         let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
 
-        // Obtain redis connection with increased timeouts to handle concurrent requests
-        // Note: Redis supports concurrent connections via multiplexed connections, but we limit
-        // concurrency in block fetching (see continuity.rs) to avoid overwhelming Redis with
-        // too many simultaneous requests, which can cause timeouts even with multiplexed connections.
-        let client = redis::Client::open(config.redis_url.as_str())?;
-        let connection_config = AsyncConnectionConfig::new()
-            .set_connection_timeout(Some(Duration::from_secs(REDIS_CONNECTION_TIMEOUT_SECS)))
-            .set_response_timeout(Some(Duration::from_secs(REDIS_RESPONSE_TIMEOUT_SECS)));
-        let redis_conn = client
-            .get_multiplexed_async_connection_with_config(&connection_config)
-            .await?;
+        let connection_timeout = Duration::from_secs(REDIS_CONNECTION_TIMEOUT_SECS);
+        let response_timeout = Duration::from_secs(REDIS_RESPONSE_TIMEOUT_SECS);
+
+        let redis_conn = if config.redis_cluster_mode {
+            // Redis Cluster: handles MOVED/ASK redirects automatically.
+            // Use a single seed node; the client discovers the full topology.
+            let client = redis::cluster::ClusterClientBuilder::new(vec![config.redis_url.as_str()])
+                .connection_timeout(connection_timeout)
+                .response_timeout(response_timeout)
+                .build()?;
+            RedisConn::Cluster(client.get_async_connection().await?)
+        } else {
+            // Standalone Redis
+            let client = redis::Client::open(config.redis_url.as_str())?;
+            let connection_config = AsyncConnectionConfig::new()
+                .set_connection_timeout(Some(connection_timeout))
+                .set_response_timeout(Some(response_timeout));
+            RedisConn::Standalone(
+                client
+                    .get_multiplexed_async_connection_with_config(&connection_config)
+                    .await?,
+            )
+        };
 
         let metrics = config.metrics.clone();
         let refresh_conn = redis_conn.clone();
@@ -178,6 +234,7 @@ impl Client {
         // Spawn background task to periodically refresh total cached blocks.
         // Uses Redis DBSIZE (total keys in DB); when Redis is dedicated to block cache,
         // this equals source chain blocks cached (+ short-lived lock keys).
+        // Note: In cluster mode, DBSIZE returns one node's count (approximate).
         tokio::spawn(async move {
             let interval =
                 std::time::Duration::from_secs(TOTAL_CACHED_BLOCKS_REFRESH_INTERVAL_SECS);
@@ -241,11 +298,7 @@ impl Client {
                     .conditional_set(ExistenceCheck::NX) // Only set if not exists
                     .with_expiration(SetExpiry::EX(30)); // Lock expires in 30 seconds
 
-                match conn
-                    .clone()
-                    .set_options::<_, _, bool>(&lock_key, 1, set_options)
-                    .await
-                {
+                match redis_set_options(conn.clone(), &lock_key, 1, set_options).await {
                     Err(err) => {
                         metrics.inc_redis_error(RedisOp::Lock);
                         error!("Redis error during locking {lock_key}: {err}, falling back to fetching block directly");
@@ -261,7 +314,7 @@ impl Client {
                             cache_block(conn.clone(), self.chain_id, number, &block, metrics).await;
 
                             // Release the lock by deleting the key
-                            if let Err(err) = conn.clone().del::<_, ()>(&lock_key).await {
+                            if let Err(err) = redis_del(conn.clone(), &lock_key).await {
                                 metrics.inc_redis_error(RedisOp::Delete);
                                 error!("Redis error when unlocking {lock_key}: {err}");
                             }
@@ -274,7 +327,7 @@ impl Client {
                             Some(Ok(block))
                         } else {
                             // Release the lock by deleting the key
-                            if let Err(err) = conn.clone().del::<_, ()>(&lock_key).await {
+                            if let Err(err) = redis_del(conn.clone(), &lock_key).await {
                                 metrics.inc_redis_error(RedisOp::Delete);
                                 error!("Redis error when unlocking {lock_key}: {err}");
                             }

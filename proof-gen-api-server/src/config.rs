@@ -7,6 +7,7 @@
 /// - `chain_key`: Chain key for the source chain, must match the chain key on creditcoin3
 /// - `eth_rpc_url`: Ethereum RPC url
 /// - `redis_url`: Optional Redis URL for Ethereum block caching
+/// - `redis_cluster_mode`: When true, use Redis Cluster client (required for Redis Cluster deployments)
 /// - `indexer_url`: Optional CC3 Indexer GraphQL URL for pre-fetching continuity proofs
 pub struct Config {
     pub bind_host: String,
@@ -16,6 +17,7 @@ pub struct Config {
     pub chain_key: u64,
     pub eth_rpc_url: String,
     pub redis_url: Option<String>,
+    pub redis_cluster_mode: bool,
     pub indexer_url: Option<String>,
 }
 
@@ -33,6 +35,7 @@ impl Config {
             chain_key,
             eth_rpc_url: "http://mock".to_string(),
             redis_url: None,
+            redis_cluster_mode: false,
             indexer_url: None,
         }
     }

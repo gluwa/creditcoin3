@@ -209,6 +209,8 @@ impl ContinuityBuilder {
     /// # async fn example() -> anyhow::Result<()> {
     /// use continuity::{ContinuityBuilder, ContinuityConfig};
     /// use eth::block_cache::BlockCacheConfig;
+    /// use eth::metrics::BlockCacheMetrics;
+    /// use prometheus_client::registry::Registry;
     ///
     /// let config = ContinuityConfig::builder()
     ///     .cc3_rpc_url("wss://rpc.creditcoin.network")
@@ -217,9 +219,12 @@ impl ContinuityBuilder {
     ///     .checkpoint_interval(10)
     ///     .build();
     ///
+    /// let mut registry = Registry::default();
+    /// let block_cache_metrics = BlockCacheMetrics::new(&mut registry);
     /// let cache_config = BlockCacheConfig {
     ///     redis_url: "redis://localhost:6379".to_string(),
-    ///     metrics_registry: None,
+    ///     redis_cluster_mode: false,
+    ///     metrics: block_cache_metrics,
     /// };
     ///
     /// let builder = ContinuityBuilder::new_with_block_caching(config, cache_config).await?;

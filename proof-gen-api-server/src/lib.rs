@@ -59,11 +59,15 @@ impl Server {
         // Initialize source chain client and validate chain id matches
         // Use cached client if Redis is configured, otherwise regular client
         let eth_client = if let Some(ref redis_url) = config.redis_url {
-            info!("Using Redis block caching at {}", redis_url);
+            info!(
+                "Using Redis block caching at {} (cluster_mode={})",
+                redis_url, config.redis_cluster_mode
+            );
             // Get block cache metrics from our metrics (if enabled) or create standalone
             let block_cache_metrics = prom_metrics.block_cache_metrics();
             let cache_config = eth::block_cache::BlockCacheConfig {
                 redis_url: redis_url.clone(),
+                redis_cluster_mode: config.redis_cluster_mode,
                 metrics: block_cache_metrics,
             };
             Arc::new(EthClient::new_with_cache(&config.eth_rpc_url, None, cache_config).await?)
