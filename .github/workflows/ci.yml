@@ -1527,18 +1527,17 @@ jobs:
     secrets: inherit
 
   regenerate-metadata:
+    outputs:
+      git_diff: ${{ steps.update_typedefs.outputs.git_diff }}
     needs:
       - should-run
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.regenerate_metadata == 'true' }}
     runs-on: ubuntu-24.04
-    # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
-    permissions: write-all
     steps:
       - uses: actions/checkout@v6
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
+          lfs: true
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -1607,8 +1606,11 @@ jobs:
 
           echo "========== DEBUG DEBUG DEBUG =========="
           git status --short --untracked-files=no
-          git diff
+          git diff --binary
           echo "======================================="
+
+          # save this for later
+          git diff --binary > /var/tmp/new-metadata.diff
 
           # do not update if only creditcoin.json has changed,
           # usually happens on version bump without any real metadata change
@@ -1620,24 +1622,46 @@ jobs:
               echo "git_diff=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Commit changes for typedefs
-        if: ${{ (github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network') && success() && steps.update_typedefs.outputs.git_diff == 'true' }}
-        uses: EndBug/add-and-commit@v9
+      - name: Upload diff
+        uses: actions/upload-artifact@v6
+        if: always()
         with:
-          add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
-          author_name: gluwa-bot
-          author_email: creditcoin@gluwa.com
-          message: "Auto-update metadata & TypeScript type definitions"
-          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
+          if-no-files-found: warn
+          name: new-metadata.diff
+          path: /var/tmp/new-metadata.diff
 
-      - name: Check for uncommitted changes for typedefs on PR against non-default branches
-        if: ${{ github.base_ref != 'dev' && github.base_ref != 'poc_external_attestation_network' && steps.update_typedefs.outputs.git_diff == 'true' }}
-        run: |
-          echo "FAIL: it appears there are uncommitted typedefs changes which is not supposed to happen"
-          echo "TODO: make sure these changes make it to the default branch first!"
+  deploy-runner-rebuild-new-metadata:
+    needs:
+      - regenerate-metadata
+    if: ${{ needs.regenerate-metadata.outputs.git_diff == 'true' }}
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "rebuild-new-metadata"
+    secrets: inherit
 
-          echo "========== DEBUG DEBUG DEBUG =========="
-          git status --short --untracked-files=no
-          git diff
-          echo "======================================="
-          exit 1
+  rebuild-new-metadata:
+    # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
+    permissions: write-all
+    needs:
+      - deploy-runner-rebuild-new-metadata
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release"
+      version-string: new-metadata
+      cache-key-name: build-creditcoin-node
+      use-new-metadata: true
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-rebuild-new-metadata']"
+    secrets: inherit
+
+  rm-runner-rebuild-new-metadata:
+    needs:
+      - rebuild-new-metadata
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "rebuild-new-metadata"
+    secrets: inherit

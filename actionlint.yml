@@ -10,6 +10,7 @@ self-hosted-runner:
     - proxy-check
     - proxy-docker-build
     - proxy-docker-test
+    - proxy-rebuild-new-metadata
     - proxy-smart-contract
     - proxy-unit-test-creditcoin
     - proxy-cc3-indexer

@@ -1,3 +1,4 @@
+# checkov:skip=CKV2_GHA_1:Caller is responsible for permissions
 ---
 name: Reusable workflow to build a native client
 
@@ -22,16 +23,27 @@ name: Reusable workflow to build a native client
       build-subxt:
         required: false
         type: boolean
-
-permissions: read-all
+      use-new-metadata:
+        required: false
+        type: boolean
 
 jobs:
   build-creditcoin-node:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout code regularly
+        if: ${{ ! inputs.use-new-metadata }}
+        uses: actions/checkout@v6
         with:
           lfs: true
+
+      - name: Checkout code for typedefs update
+        if: ${{ inputs.use-new-metadata }}
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -53,6 +65,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ inputs.cache-key-name }}
+
+      - name: Download new_metadata.diff
+        if: ${{ inputs.use-new-metadata }}
+        uses: actions/download-artifact@v7
+        with:
+          name: new-metadata.diff
+          path: /var/tmp
+
+      - name: Apply new metadata patch
+        if: ${{ inputs.use-new-metadata }}
+        run: |
+          git apply /var/tmp/new-metadata.diff
+          git diff --binary
 
       - name: Build SUT
         uses: gluwa/cargo@dev
@@ -105,3 +130,13 @@ jobs:
         with:
           name: subxt
           path: ~/.cargo/bin/subxt
+
+      - name: Commit typedefs and metadata changes after successfull build
+        if: ${{ inputs.use-new-metadata }}
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Auto-update metadata & TypeScript type definitions"
+          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
