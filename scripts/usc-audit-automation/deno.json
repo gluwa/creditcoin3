@@ -1,0 +1,18 @@
+{
+  "tasks": {
+    "start": "deno run --allow-net --allow-env --allow-read --env-file=.env src/main.ts",
+    "dev": "deno run --allow-net --allow-env --allow-read --watch --env-file=.env src/main.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint",
+    "check": "deno check src/main.ts"
+  },
+  "imports": {
+    "@polkadot/api": "npm:@polkadot/api@^16.5.2",
+    "ethers": "npm:ethers@^6.16.0",
+    "@std/cli/parse-args": "jsr:@std/cli@^1.0.0/parse-args"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.window", "ES2022"]
+  }
+}

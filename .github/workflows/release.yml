@@ -219,7 +219,6 @@ jobs:
           zip -m "creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" creditcoin3-node
           zip -m "attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" attestor*
           zip -m "proof-gen-api-server-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" proof-gen-api-server
-          zip -m "usc_audit_automation-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" usc_audit_automation
 
           ls -lR
 
@@ -240,7 +239,6 @@ jobs:
             artifact/attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}*
             artifact/creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}*
             artifact/proof-gen-api-server-${{ needs.sanity-check.outputs.TAG_NAME }}*
-            artifact/usc_audit_automation-${{ needs.sanity-check.outputs.TAG_NAME }}*
             precompiles/metadata/abi/*.json
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}

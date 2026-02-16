@@ -2,6 +2,15 @@
 
 Utility scripts for interacting with the Creditcoin3 network and proof generation API.
 
+## USC Audit Automation
+
+Deno-based attestation sanity checker. See [usc-audit-automation/README.md](usc-audit-automation/README.md).
+
+```bash
+cd usc-audit-automation
+deno task start -- --config config-devnet.json --no-slack
+```
+
 ## Prerequisites
 
 The following components must be running for these scripts to work:

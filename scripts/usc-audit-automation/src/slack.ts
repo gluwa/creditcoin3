@@ -1,0 +1,47 @@
+/**
+ * Slack notification for USC audit reports
+ */
+
+export interface SlackPayload {
+  username: string;
+  icon_emoji: string;
+  text: string;
+}
+
+export function createSlackPayload(
+  reportText: string,
+  hasErrors: boolean,
+  alertGroup?: string,
+): SlackPayload {
+  let text = reportText;
+  if (alertGroup && hasErrors) {
+    const mention = alertGroup.startsWith("U")
+      ? `<@${alertGroup}>`
+      : alertGroup.startsWith("S")
+      ? `<!subteam^${alertGroup}>`
+      : alertGroup;
+    text = `${mention} ${text}`;
+  }
+
+  return {
+    username: "usc-audit-automation",
+    icon_emoji: hasErrors ? ":rotating_light:" : ":shield:",
+    text: "```" + reportText + "```",
+  };
+}
+
+export async function sendSlackMessage(
+  webhookUrl: string,
+  payload: SlackPayload,
+): Promise<void> {
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Slack webhook failed: ${res.status} - ${body}`);
+  }
+}

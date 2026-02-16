@@ -15,7 +15,6 @@ members = [
     "precompiles/block-prover",
     "common/*",
     "query-cli",
-    "usc_audit_automation",
     "proof-gen-api-server",
     "attestor/attestor",
     "attestor/attestor_macro",
