@@ -27,3 +27,5 @@ https://github.com/request/request/issues/(.*)
 https://blockscout.usc-testnet2.creditcoin.network/
 https://blockscout.usc-devnet.creditcoin.network/
 https://blockscout.usc-testnet.creditcoin.network/
+https://attestations-graphql.usc-devnet.creditcoin.network/
+https://attestations-graphql.usc-testnet2.creditcoin.network/

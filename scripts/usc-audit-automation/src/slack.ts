@@ -26,7 +26,7 @@ export function createSlackPayload(
   return {
     username: "usc-audit-automation",
     icon_emoji: hasErrors ? ":rotating_light:" : ":shield:",
-    text: "```" + reportText + "```",
+    text: "```" + text + "```",
   };
 }
 

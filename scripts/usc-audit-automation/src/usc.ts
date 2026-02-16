@@ -164,8 +164,8 @@ async function getChainKey(
       toNumber?: () => number;
       unwrap?: () => { toNumber?: () => number };
     };
-    return val?.toNumber?.() ?? val?.unwrap?.()?.toNumber?.() ?? Number(val) ??
-      null;
+    const n = val?.toNumber?.() ?? val?.unwrap?.()?.toNumber?.() ?? Number(val);
+    return typeof n === "number" && !isNaN(n) ? n : null;
   } catch {
     return null;
   }
