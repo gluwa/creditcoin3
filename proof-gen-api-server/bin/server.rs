@@ -100,11 +100,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let resolved_redis_url = args.redis_url.or_else(|| env::var("REDIS_URL").ok());
 
     // redis_cluster_mode: prefer CLI, fallback to REDIS_CLUSTER_MODE env var
-    let resolved_redis_cluster_mode = if let Ok(env_val) = env::var("REDIS_CLUSTER_MODE") {
-        matches!(env_val.to_lowercase().as_str(), "1" | "true" | "yes")
-    } else {
-        args.redis_cluster_mode
-    };
+    let resolved_redis_cluster_mode = args.redis_cluster_mode
+        || env::var("REDIS_CLUSTER_MODE")
+            .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
 
     let config = Config {
         bind_host: args.bind_host,
