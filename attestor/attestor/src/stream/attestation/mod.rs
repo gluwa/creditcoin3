@@ -156,6 +156,7 @@ pub struct CacheRoots {
 type NextBlockFut = dyn std::future::Future<Output = (State, Result<common::types::Height, Interrupt<Error>>)>
     + Send;
 
+#[allow(clippy::large_enum_variant)]
 enum State {
     Idle(
         Option<(
