@@ -499,7 +499,7 @@ impl WorkerAttestationValidation {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Err(Interrupt::Cont(Error::SubxtError(err)));
+                        tracing::error!(error = %err, "⛔ Failed to retrieve supported chain");
                     }
                 }
             };
@@ -542,7 +542,7 @@ impl WorkerAttestationValidation {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Err(Interrupt::Cont(Error::SubxtError(err)));
+                        tracing::error!(error = %err, "⛔ Failed to retrieve attestation digest");
                     }
                 }
             };
@@ -626,7 +626,7 @@ impl WorkerAttestationValidation {
                         );
 
                         if attempt >= MAX_ATTEMPTS {
-                            return Err(Interrupt::Cont(Error::SubxtError(err)));
+                            tracing::error!(error = %err, "⛔ Failed to retreve attestor bls pubkey");
                         }
                     }
                 }
@@ -730,7 +730,7 @@ impl WorkerAttestationValidation {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Err(Interrupt::Cont(Error::SubxtError(err)));
+                        tracing::error!(error = %err, "⛔ Failed to retrieve last finalized digest");
                     }
                 }
             };
@@ -1010,7 +1010,7 @@ impl WorkerAttestationValidation {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Err(Interrupt::Cont(Error::ClientError(err)));
+                        tracing::error!(error = %err, "⛔ Failed to fetch babe randomness");
                     }
                 }
             }
@@ -1202,7 +1202,7 @@ impl WorkerAttestationValidation {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Err(Interrupt::Cont(Error::SubxtError(err)));
+                        tracing::error!(error = %err, "⛔ Failed to submit attestation");
                     }
                 }
             }

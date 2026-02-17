@@ -89,10 +89,7 @@ impl StreamCC3 {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        break (
-                            State::Idle(Some((api, stream))),
-                            Err(Interrupt::Cont(Error::SubxtError(err))),
-                        );
+                        tracing::error!(error = %err, "⛔ Failed to retrieve cc3 block");
                     }
                 }
                 None => match api.blocks().subscribe_finalized().await {
@@ -107,10 +104,7 @@ impl StreamCC3 {
                         );
 
                         if attempt >= MAX_ATTEMPTS {
-                            break (
-                                State::Idle(Some((api, stream))),
-                                Err(Interrupt::Cont(Error::SubxtError(err))),
-                            );
+                            tracing::error!(error = %err, "⛔ Failed to reconnect to cc3");
                         }
                     }
                 },

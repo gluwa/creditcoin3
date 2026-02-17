@@ -419,10 +419,7 @@ impl StreamAttestation {
                         );
 
                         if attempt >= MAX_ATTEMPTS {
-                            break (
-                                State::Idle(Some((eth, stream))),
-                                Err(Interrupt::Cont(Error::Eth(err))),
-                            );
+                            tracing::error!(error = %err, "⛔ Failed to reconnect to eth");
                         }
                     }
                 },
