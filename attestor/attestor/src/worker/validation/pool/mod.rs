@@ -321,7 +321,7 @@ impl AttestationPoolCommon {
     pub fn new(pool: AttestationPool) -> Self {
         Self {
             pool: parking_lot::Mutex::new(pool),
-            count_sender: std::sync::atomic::AtomicUsize::new(0),
+            count_sender: std::sync::atomic::AtomicUsize::new(1),
         }
     }
 }
@@ -330,7 +330,7 @@ impl Default for AttestationPoolCommon {
     fn default() -> Self {
         Self {
             pool: parking_lot::Mutex::new(AttestationPool::Closed),
-            count_sender: std::sync::atomic::AtomicUsize::new(0),
+            count_sender: std::sync::atomic::AtomicUsize::new(1),
         }
     }
 }
@@ -934,7 +934,7 @@ impl AttestationPoolForks {
             .map(|KeyHeight { digest, .. }| digest)
             .or_else(|| {
                 self.forks_by_size
-                    .first()
+                    .last()
                     .map(|KeySize { digest, .. }| digest)
             })
             .map(|digest| {

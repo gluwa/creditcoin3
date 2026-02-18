@@ -592,10 +592,11 @@ impl futures::Stream for StreamAttestation {
                 .first()
                 .map(|info| info.block.number())
                 .unwrap_or(self.block_stop);
+            let height_first = height_first - (height_first % self.interval_attestation.get());
 
             self.block_n = self
                 .block_head
-                .min(height_first.saturating_add(catchup_limit - cache_size));
+                .min(height_first.saturating_add(catchup_limit));
             self.block_stop = block_stop;
             self.block_start = self.block_n;
 

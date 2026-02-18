@@ -362,7 +362,7 @@ impl Client {
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        return Some(Err(err));
+                        tracing::error!(error = %err, "⛔ Failed to retrieve eth block");
                     }
                 }
             }
