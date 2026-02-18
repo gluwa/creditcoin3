@@ -29,3 +29,6 @@ utils = { workspace = true }
 [features]
 block_cache = ["eth/block_cache", "prometheus-client"]
 default = []
+
+[package.metadata.cargo-machete]
+ignored = ["prometheus-client"]
