@@ -205,8 +205,8 @@ impl ContinuityBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
-    /// # async fn example() -> anyhow::Result<()> {
+    /// ```ignore
+    /// // Requires prometheus-client (from eth/block_cache) and block_cache feature
     /// use continuity::{ContinuityBuilder, ContinuityConfig};
     /// use eth::block_cache::BlockCacheConfig;
     /// use eth::metrics::BlockCacheMetrics;
@@ -228,8 +228,6 @@ impl ContinuityBuilder {
     /// };
     ///
     /// let builder = ContinuityBuilder::new_with_block_caching(config, cache_config).await?;
-    /// # Ok(())
-    /// # }
     /// ```
     #[cfg(feature = "block_cache")]
     pub async fn new_with_block_caching(

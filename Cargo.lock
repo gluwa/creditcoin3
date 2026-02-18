@@ -2570,7 +2570,6 @@ dependencies = [
  "ccnext-abi-encoding",
  "eth",
  "indexer-client",
- "prometheus-client 0.24.0",
  "serde",
  "sp-core",
  "thiserror 1.0.69",

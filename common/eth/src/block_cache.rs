@@ -94,6 +94,25 @@ async fn redis_del(mut conn: RedisConn, key: &str) -> Result<(), redis::RedisErr
     }
 }
 
+async fn redis_get(mut conn: RedisConn, key: &str) -> Result<Option<Vec<u8>>, redis::RedisError> {
+    match &mut conn {
+        RedisConn::Standalone(c) => c.get::<_, Option<Vec<u8>>>(key).await,
+        RedisConn::Cluster(c) => c.get::<_, Option<Vec<u8>>>(key).await,
+    }
+}
+
+async fn redis_set_ex(
+    mut conn: RedisConn,
+    key: &str,
+    value: &[u8],
+    ttl_secs: u64,
+) -> Result<(), redis::RedisError> {
+    match &mut conn {
+        RedisConn::Standalone(c) => c.set_ex::<_, _, ()>(key, value, ttl_secs).await,
+        RedisConn::Cluster(c) => c.set_ex::<_, _, ()>(key, value, ttl_secs).await,
+    }
+}
+
 async fn get_total_cached_blocks(mut conn: RedisConn) -> Result<u64, redis::RedisError> {
     match &mut conn {
         RedisConn::Standalone(c) => redis::cmd(DBSIZE_COMMAND).query_async::<u64>(c).await,
@@ -112,10 +131,7 @@ async fn get_cached_block(
     let key = format!("block:{chain_id}:{block_number}");
 
     let start = Instant::now();
-    let result = match &mut conn {
-        RedisConn::Standalone(c) => c.get::<_, Option<Vec<u8>>>(&key).await,
-        RedisConn::Cluster(c) => c.get::<_, Option<Vec<u8>>>(&key).await,
-    };
+    let result = redis_get(conn, &key).await;
     metrics.observe_redis_operation(RedisOp::Get, start.elapsed());
 
     match result {
@@ -177,10 +193,7 @@ async fn cache_block(
             };
 
             let start = Instant::now();
-            let result = match &mut conn {
-                RedisConn::Standalone(c) => c.set_ex::<_, _, ()>(&key, &bytes, ONE_HOUR_TTL).await,
-                RedisConn::Cluster(c) => c.set_ex::<_, _, ()>(&key, &bytes, ONE_HOUR_TTL).await,
-            };
+            let result = redis_set_ex(conn, &key, &bytes, ONE_HOUR_TTL).await;
             metrics.observe_redis_operation(RedisOp::Set, start.elapsed());
 
             if let Err(err) = result {
