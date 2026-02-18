@@ -1,0 +1,38 @@
+{
+  "name": "@creditcoin3/usc-messaging",
+  "version": "0.1.0",
+  "description": "USC Write-Ability Layer: quoter, relayer, and related messaging components",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/quoter/server.js",
+    "dev": "tsx src/quoter/server.ts",
+    "dev:quoter": "tsx src/quoter/server.ts",
+    "dev:relayer": "tsx src/relayer/server.ts",
+    "relayer": "node dist/relayer/server.js",
+    "deploy": "cd contracts && ./script/deploy.sh",
+    "seed-message": "tsx scripts/seed-message.ts",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "ethers": "^6.16.0",
+    "express": "^4.21.0",
+    "helmet": "^8.0.0",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^22.10.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
