@@ -5,6 +5,9 @@
  */
 
 import { ApiPromise, WsProvider } from "@polkadot/api";
+import { withTimeout } from "./timeout.ts";
+
+const USC_TIMEOUT_MS = 30_000;
 
 export interface SupportedChain {
   chainId: number;
@@ -29,8 +32,14 @@ let api: ApiPromise | null = null;
 
 export async function connect(wsUrl: string): Promise<void> {
   const provider = new WsProvider(wsUrl);
-  api = await ApiPromise.create({ provider, noInitWarn: true });
-  await api.isReady;
+  await withTimeout(
+    (async () => {
+      api = await ApiPromise.create({ provider, noInitWarn: true });
+      await api.isReady;
+    })(),
+    USC_TIMEOUT_MS,
+    "USC WebSocket connection timeout",
+  );
 }
 
 export function disconnect(): void {
@@ -66,6 +75,10 @@ function findStorageKey(
  * Tries common pallet names (metadata may vary).
  */
 export async function getSupportedChains(): Promise<SupportedChain[]> {
+  return await withTimeout(getSupportedChainsImpl(), USC_TIMEOUT_MS);
+}
+
+async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
   const a = getApi();
   const chains: SupportedChain[] = [];
 
@@ -180,6 +193,10 @@ async function getChainKey(
 }
 
 export async function getLastDigest(chainKey: number): Promise<string | null> {
+  return await withTimeout(getLastDigestImpl(chainKey), USC_TIMEOUT_MS);
+}
+
+async function getLastDigestImpl(chainKey: number): Promise<string | null> {
   const a = getApi();
   try {
     const p = findPallet(a, "attestation");
@@ -202,6 +219,12 @@ export async function getLastDigest(chainKey: number): Promise<string | null> {
 }
 
 export async function getLastCheckpoint(
+  chainKey: number,
+): Promise<LastCheckpoint | null> {
+  return await withTimeout(getLastCheckpointImpl(chainKey), USC_TIMEOUT_MS);
+}
+
+async function getLastCheckpointImpl(
   chainKey: number,
 ): Promise<LastCheckpoint | null> {
   const a = getApi();
@@ -232,6 +255,10 @@ export async function getLastCheckpoint(
 }
 
 export async function getCheckpointInterval(chainKey: number): Promise<number> {
+  return await withTimeout(getCheckpointIntervalImpl(chainKey), USC_TIMEOUT_MS);
+}
+
+async function getCheckpointIntervalImpl(chainKey: number): Promise<number> {
   const a = getApi();
   try {
     const p = findPallet(a, "attestation");
@@ -254,6 +281,13 @@ export async function getCheckpointInterval(chainKey: number): Promise<number> {
 export async function getAttestationInterval(
   chainKey: number,
 ): Promise<number> {
+  return await withTimeout(
+    getAttestationIntervalImpl(chainKey),
+    USC_TIMEOUT_MS,
+  );
+}
+
+async function getAttestationIntervalImpl(chainKey: number): Promise<number> {
   const a = getApi();
   try {
     const p = findPallet(a, "attestation");
@@ -293,6 +327,16 @@ function parseBlockNumber(v: unknown): number {
  * Returns header_number and header_hash from the attestation.
  */
 export async function getAttestationByDigest(
+  chainKey: number,
+  digestHex: string,
+): Promise<SignedAttestation | null> {
+  return await withTimeout(
+    getAttestationByDigestImpl(chainKey, digestHex),
+    USC_TIMEOUT_MS,
+  );
+}
+
+async function getAttestationByDigestImpl(
   chainKey: number,
   digestHex: string,
 ): Promise<SignedAttestation | null> {

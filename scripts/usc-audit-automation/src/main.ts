@@ -285,8 +285,7 @@ async function main(): Promise<void> {
   }
 
   if (reports.length === 0) {
-    const chains = await getSupportedChains();
-    if (chains.length === 0) {
+    if (supportedChains.length === 0) {
       reports.push(
         "No supported chains found. Add ethRpc with chainKey to config.",
       );
