@@ -2,6 +2,8 @@
  * Attestations GraphQL client
  */
 
+import { fetchWithTimeout } from "./fetch.ts";
+
 export interface AttestationNode {
   headerNumber: string;
   root: string;
@@ -44,7 +46,7 @@ export async function queryAttestation(
     }
   `;
 
-  const res = await fetch(graphqlUrl, {
+  const res = await fetchWithTimeout(graphqlUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query }),

@@ -45,6 +45,22 @@ function getApi(): ApiPromise {
   return api;
 }
 
+function findPallet(api: ApiPromise, substring: string): string | undefined {
+  return Object.keys(api.query).find((p) =>
+    p.toLowerCase().includes(substring.toLowerCase())
+  );
+}
+
+function findStorageKey(
+  storage: Record<string, unknown>,
+  ...substrings: string[]
+): string | undefined {
+  return Object.keys(storage).find((s) => {
+    const lower = s.toLowerCase();
+    return substrings.every((sub) => lower.includes(sub.toLowerCase()));
+  });
+}
+
 /**
  * Get supported chains from storage.
  * Tries common pallet names (metadata may vary).
@@ -54,22 +70,16 @@ export async function getSupportedChains(): Promise<SupportedChain[]> {
   const chains: SupportedChain[] = [];
 
   try {
-    // Try attestation pallet - some chains store supported chains there
-    const pallets = Object.keys(a.query);
-    const attestationPallet = pallets.find((p) =>
-      p.toLowerCase().includes("attestation")
-    );
-    const supportedPallet = pallets.find((p) =>
-      p.toLowerCase().includes("supported")
-    );
+    const attestationPallet = findPallet(a, "attestation");
+    const supportedPallet = findPallet(a, "supported");
 
     if (supportedPallet) {
       const storage = (a.query as Record<string, Record<string, unknown>>)[
         supportedPallet
-      ];
-      const storageName = Object.keys(storage || {}).find((s) =>
-        s.toLowerCase().includes("chain")
-      );
+      ] as Record<string, unknown>;
+      const storageName = storage
+        ? findStorageKey(storage, "chain")
+        : undefined;
       if (storageName && storage) {
         const entries = await (storage[storageName] as {
           entries: () => Promise<[unknown, unknown][]>;
@@ -141,17 +151,15 @@ async function getChainKey(
 ): Promise<number | null> {
   const a = getApi();
   try {
-    const pallets = Object.keys(a.query);
-    const attestationPallet = pallets.find((p) =>
-      p.toLowerCase().includes("attestation")
-    );
+    const attestationPallet = findPallet(a, "attestation");
     if (!attestationPallet) return null;
 
-    const storage =
-      (a.query as Record<string, Record<string, unknown>>)[attestationPallet];
-    const mapName = Object.keys(storage || {}).find((s) =>
-      s.toLowerCase().includes("chain") && s.toLowerCase().includes("key")
-    );
+    const storage = (a.query as Record<string, Record<string, unknown>>)[
+      attestationPallet
+    ] as Record<string, unknown>;
+    const mapName = storage
+      ? findStorageKey(storage, "chain", "key")
+      : undefined;
     if (!mapName || !storage) return null;
 
     const nameBytes = Array.from(chainName).map((c) => c.charCodeAt(0));
@@ -174,10 +182,11 @@ async function getChainKey(
 export async function getLastDigest(chainKey: number): Promise<string | null> {
   const a = getApi();
   try {
-    const pallets = Object.keys(a.query);
-    const p = pallets.find((x) => x.toLowerCase().includes("attestation"));
+    const p = findPallet(a, "attestation");
     if (!p) return null;
-    const storage = (a.query as Record<string, Record<string, unknown>>)[p];
+    const storage = (a.query as Record<string, Record<string, unknown>>)[
+      p
+    ] as Record<string, unknown>;
     const lastDigest = storage?.lastDigest ?? storage?.LastDigest;
     if (!lastDigest || typeof lastDigest !== "function") return null;
     const result = await (lastDigest as (key: number) => Promise<unknown>)(
@@ -197,10 +206,11 @@ export async function getLastCheckpoint(
 ): Promise<LastCheckpoint | null> {
   const a = getApi();
   try {
-    const pallets = Object.keys(a.query);
-    const p = pallets.find((x) => x.toLowerCase().includes("attestation"));
+    const p = findPallet(a, "attestation");
     if (!p) return null;
-    const storage = (a.query as Record<string, Record<string, unknown>>)[p];
+    const storage = (a.query as Record<string, Record<string, unknown>>)[
+      p
+    ] as Record<string, unknown>;
     const lastCp = storage?.lastCheckpoint ?? storage?.LastCheckpoint;
     if (!lastCp || typeof lastCp !== "function") return null;
     const result = await (lastCp as (key: number) => Promise<unknown>)(
@@ -224,10 +234,11 @@ export async function getLastCheckpoint(
 export async function getCheckpointInterval(chainKey: number): Promise<number> {
   const a = getApi();
   try {
-    const pallets = Object.keys(a.query);
-    const p = pallets.find((x) => x.toLowerCase().includes("attestation"));
+    const p = findPallet(a, "attestation");
     if (!p) return 180;
-    const storage = (a.query as Record<string, Record<string, unknown>>)[p];
+    const storage = (a.query as Record<string, Record<string, unknown>>)[
+      p
+    ] as Record<string, unknown>;
     const interval = storage?.attestationCheckpointInterval ??
       storage?.AttestationCheckpointInterval;
     if (!interval || typeof interval !== "function") return 180;
@@ -245,10 +256,11 @@ export async function getAttestationInterval(
 ): Promise<number> {
   const a = getApi();
   try {
-    const pallets = Object.keys(a.query);
-    const p = pallets.find((x) => x.toLowerCase().includes("attestation"));
+    const p = findPallet(a, "attestation");
     if (!p) return 10;
-    const storage = (a.query as Record<string, Record<string, unknown>>)[p];
+    const storage = (a.query as Record<string, Record<string, unknown>>)[
+      p
+    ] as Record<string, unknown>;
     const interval = storage?.chainAttestationInterval ??
       storage?.ChainAttestationInterval;
     if (!interval || typeof interval !== "function") return 10;
@@ -286,10 +298,11 @@ export async function getAttestationByDigest(
 ): Promise<SignedAttestation | null> {
   const a = getApi();
   try {
-    const pallets = Object.keys(a.query);
-    const p = pallets.find((x) => x.toLowerCase().includes("attestation"));
+    const p = findPallet(a, "attestation");
     if (!p) return null;
-    const storage = (a.query as Record<string, Record<string, unknown>>)[p];
+    const storage = (a.query as Record<string, Record<string, unknown>>)[
+      p
+    ] as Record<string, unknown>;
     const attestations = storage?.attestations ?? storage?.Attestations;
     if (!attestations || typeof attestations !== "function") return null;
 

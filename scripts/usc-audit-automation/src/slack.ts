@@ -2,6 +2,8 @@
  * Slack notification for USC audit reports
  */
 
+import { fetchWithTimeout } from "./fetch.ts";
+
 export interface SlackPayload {
   username: string;
   icon_emoji: string;
@@ -35,7 +37,7 @@ export async function sendSlackMessage(
   webhookUrl: string,
   payload: SlackPayload,
 ): Promise<void> {
-  const res = await fetch(webhookUrl, {
+  const res = await fetchWithTimeout(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
