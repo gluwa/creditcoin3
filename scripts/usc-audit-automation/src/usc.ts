@@ -270,7 +270,9 @@ function parseBlockNumber(v: unknown): number {
   }
   const obj = v as { toNumber?: () => number; toString?: () => string };
   if (typeof obj?.toNumber === "function") return obj.toNumber();
-  if (typeof obj?.toString === "function") return parseBlockNumber(obj.toString());
+  if (typeof obj?.toString === "function") {
+    return parseBlockNumber(obj.toString());
+  }
   return 0;
 }
 

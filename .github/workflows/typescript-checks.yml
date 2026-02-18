@@ -16,6 +16,7 @@ name: typescript-checks
       - '**deno.lock'
       # controls the version of deno we test with
       - 'scripts/traffic-simulator/Dockerfile'
+      - 'scripts/usc-audit-automation/Dockerfile'
       - '.github/workflows/typescript-checks.yml'
   workflow_dispatch:
 
@@ -70,7 +71,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        directory: [scripts/traffic-simulator]
+        directory: [scripts/traffic-simulator, scripts/usc-audit-automation]
         command: [lint, check, fmt-check]
 
     steps:

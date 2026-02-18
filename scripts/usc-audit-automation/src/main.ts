@@ -42,7 +42,6 @@ function buildReport(
   blockDiffOk: boolean,
   headerHashOk: boolean,
   checkpointRangeOk: boolean,
-  graphqlOk: boolean,
   graphqlAtt: { headerNumber: string; root: string; digest: string } | null,
   graphqlCp: { lastCheckpointHeaderNumber: string } | null,
 ): string {
@@ -54,38 +53,65 @@ function buildReport(
         formatNum(ethBlock)
       }|${formatNum(attBlock)})`,
   );
-  const headerHashMatch = headerHashOk && blockByHash != null && formatNum(blockByHash) === formatNum(attBlock);
+  const headerHashMatch = headerHashOk && blockByHash != null &&
+    formatNum(blockByHash) === formatNum(attBlock);
   lines.push(
     (headerHashOk ? "✅" : "❌") +
-      ` Attestation header hash matches correct Ethereum block${headerHashMatch ? "" : `: (${blockByHash != null ? formatNum(blockByHash) : "null"}|${formatNum(attBlock)})`}`,
+      ` Attestation header hash matches correct Ethereum block${
+        headerHashMatch
+          ? ""
+          : `: (${blockByHash != null ? formatNum(blockByHash) : "null"}|${
+            formatNum(attBlock)
+          })`
+      }`,
   );
   lines.push(
     (checkpointRangeOk ? "✅" : "❌") +
       ` Last checkpoint creation is ${
         checkpointRangeOk ? "within" : "outside"
-      } checkpoint range${checkpointRangeOk ? "" : `: (${formatNum(ethBlock)}|${formatNum(checkpointBlock)})`}`,
+      } checkpoint range${
+        checkpointRangeOk
+          ? ""
+          : `: (${formatNum(ethBlock)}|${formatNum(checkpointBlock)})`
+      }`,
   );
   if (graphqlAtt && graphqlCp) {
     const fmt = (s: string) => formatNum(Number(s) || 0);
-    const cpMatch = fmt(graphqlCp.lastCheckpointHeaderNumber) === formatNum(checkpointBlock);
+    const cpMatch =
+      fmt(graphqlCp.lastCheckpointHeaderNumber) === formatNum(checkpointBlock);
     const attMatch = fmt(graphqlAtt.headerNumber) === formatNum(attBlock);
-    lines.push(
-      (graphqlOk ? "✅" : "❌") +
-        ` Last checkpoint number found in GraphQL${cpMatch ? "" : `: (${fmt(graphqlCp.lastCheckpointHeaderNumber)}|${formatNum(checkpointBlock)})`}`,
-    );
-    lines.push(
-      (graphqlOk ? "✅" : "❌") +
-        ` Last attestation header number found in GraphQL${attMatch ? "" : `: (${fmt(graphqlAtt.headerNumber)}|${formatNum(attBlock)})`}`,
-    );
     const hasRoot = graphqlAtt.root && /^0x[0-9a-fA-F]+$/.test(graphqlAtt.root);
-    const hasDigest = graphqlAtt.digest && /^0x[0-9a-fA-F]+$/.test(graphqlAtt.digest);
+    const hasDigest = graphqlAtt.digest &&
+      /^0x[0-9a-fA-F]+$/.test(graphqlAtt.digest);
     lines.push(
-      (graphqlOk ? "✅" : "❌") +
-        ` Last attestation root found in GraphQL${hasRoot ? "" : `: (${graphqlAtt.root || "empty"})`}`,
+      (cpMatch ? "✅" : "❌") +
+        ` Last checkpoint number found in GraphQL${
+          cpMatch
+            ? ""
+            : `: (${fmt(graphqlCp.lastCheckpointHeaderNumber)}|${
+              formatNum(checkpointBlock)
+            })`
+        }`,
     );
     lines.push(
-      (graphqlOk ? "✅" : "❌") +
-        ` Last attestation digest found in GraphQL${hasDigest ? "" : `: (${graphqlAtt.digest || "empty"})`}`,
+      (attMatch ? "✅" : "❌") +
+        ` Last attestation header number found in GraphQL${
+          attMatch
+            ? ""
+            : `: (${fmt(graphqlAtt.headerNumber)}|${formatNum(attBlock)})`
+        }`,
+    );
+    lines.push(
+      (hasRoot ? "✅" : "❌") +
+        ` Last attestation root found in GraphQL${
+          hasRoot ? "" : `: (${graphqlAtt.root || "empty"})`
+        }`,
+    );
+    lines.push(
+      (hasDigest ? "✅" : "❌") +
+        ` Last attestation digest found in GraphQL${
+          hasDigest ? "" : `: (${graphqlAtt.digest || "empty"})`
+        }`,
     );
   } else {
     lines.push("❌ GraphQL data not found for attestation/checkpoint");
@@ -163,11 +189,14 @@ async function runChecksForChain(
     lastCheckpoint.blockNumber,
   );
 
-  const graphqlOk = graphqlResult.attestation != null &&
-    graphqlResult.checkpoint != null &&
-    graphqlResult.attestation.headerNumber === String(attBlock) &&
-    graphqlResult.checkpoint.lastCheckpointHeaderNumber ===
-      String(lastCheckpoint.blockNumber);
+  const att = graphqlResult.attestation;
+  const cp = graphqlResult.checkpoint;
+  const graphqlCpMatch = att != null && cp != null &&
+    cp.lastCheckpointHeaderNumber === String(lastCheckpoint.blockNumber);
+  const graphqlAttMatch = att != null && att.headerNumber === String(attBlock);
+  const graphqlHasRoot = att?.root != null && /^0x[0-9a-fA-F]+$/.test(att.root);
+  const graphqlHasDigest = att?.digest != null &&
+    /^0x[0-9a-fA-F]+$/.test(att.digest);
 
   const report = buildReport(
     chainLabel,
@@ -179,13 +208,12 @@ async function runChecksForChain(
     blockDiffOk,
     headerHashOk,
     checkpointRangeOk,
-    graphqlOk,
     graphqlResult.attestation,
     graphqlResult.checkpoint,
   );
 
   const hasErrors = !blockDiffOk || !headerHashOk || !checkpointRangeOk ||
-    !graphqlOk;
+    !graphqlCpMatch || !graphqlAttMatch || !graphqlHasRoot || !graphqlHasDigest;
   return { report, hasErrors };
 }
 
@@ -209,7 +237,11 @@ async function main(): Promise<void> {
   if (config.verbose && supportedChains.length > 0) {
     console.log(
       "Supported chains from USC:",
-      supportedChains.map((c) => ({ chainId: c.chainId, chainKey: c.chainKey, name: c.chainName })),
+      supportedChains.map((c) => ({
+        chainId: c.chainId,
+        chainKey: c.chainKey,
+        name: c.chainName,
+      })),
     );
   }
 
@@ -225,7 +257,9 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const discovered = supportedChains.find((c) => c.chainId === ethRpc.chainId);
+    const discovered = supportedChains.find((c) =>
+      c.chainId === ethRpc.chainId
+    );
     const chainKey = discovered?.chainKey ?? ethRpc.chainKey;
     if (chainKey == null) {
       console.warn(

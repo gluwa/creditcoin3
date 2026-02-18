@@ -13,20 +13,21 @@ export function createSlackPayload(
   hasErrors: boolean,
   alertGroup?: string,
 ): SlackPayload {
-  let text = reportText;
+  const codeBlock = "```" + reportText + "```";
+  let text = codeBlock;
   if (alertGroup && hasErrors) {
     const mention = alertGroup.startsWith("U")
       ? `<@${alertGroup}>`
       : alertGroup.startsWith("S")
       ? `<!subteam^${alertGroup}>`
       : alertGroup;
-    text = `${mention} ${text}`;
+    text = `${mention}\n\n${codeBlock}`;
   }
 
   return {
     username: "usc-audit-automation",
     icon_emoji: hasErrors ? ":rotating_light:" : ":shield:",
-    text: "```" + text + "```",
+    text,
   };
 }
 

@@ -3,6 +3,7 @@
     "start": "deno run --allow-net --allow-env --allow-read --env-file=.env src/main.ts",
     "dev": "deno run --allow-net --allow-env --allow-read --watch --env-file=.env src/main.ts",
     "fmt": "deno fmt",
+    "fmt-check": "deno fmt --check",
     "lint": "deno lint",
     "check": "deno check src/main.ts"
   },

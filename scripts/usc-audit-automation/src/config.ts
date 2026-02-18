@@ -82,7 +82,9 @@ export function loadConfig(): AuditConfig {
     );
   }
 
-  const ethRpcRaw = obj.ethRpc as Array<{ chainId: number; chainKey?: number; url: string }> | undefined;
+  const ethRpcRaw = obj.ethRpc as
+    | Array<{ chainId: number; chainKey?: number; url: string }>
+    | undefined;
   const sepoliaUrl = Deno.env.get("SEPOLIA_RPC_URL");
   const bscUrl = Deno.env.get("BSC_RPC_URL");
   const ethRpc = (ethRpcRaw ?? []).map((r) => {
