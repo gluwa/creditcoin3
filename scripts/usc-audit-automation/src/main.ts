@@ -171,7 +171,7 @@ async function runChecksForChain(
   const maxAllowed = checkpointInterval * attestationInterval +
     CHECKPOINT_BUFFER;
   const diff = ethBlock - lastCheckpoint.blockNumber;
-  const checkpointRangeOk = diff <= maxAllowed;
+  const checkpointRangeOk = diff >= 0 && diff <= maxAllowed;
 
   if (config.verbose && !checkpointRangeOk) {
     console.log(
@@ -180,7 +180,7 @@ async function runChecksForChain(
   }
 
   const blockDiff = ethBlock - attBlock;
-  const blockDiffOk = blockDiff <= MAX_BLOCK_DIFF;
+  const blockDiffOk = blockDiff >= 0 && blockDiff <= MAX_BLOCK_DIFF;
 
   const graphqlResult = await queryAttestation(
     config.graphqlUrl,

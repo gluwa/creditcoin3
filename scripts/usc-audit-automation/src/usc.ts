@@ -321,7 +321,7 @@ export async function getAttestationByDigest(
     const headerHash = String(
       attestation.headerHash ?? attestation.header_hash ?? "",
     ).replace(/^0x/, "");
-    const root = String(attestation.root ?? "").replace(/0x/g, "");
+    const root = String(attestation.root ?? "").replace(/^0x/, "");
     const prevDigest = attestation.prevDigest ?? attestation.prev_digest;
     const digestVal = attestation.digest ?? human.digest;
 
@@ -330,9 +330,9 @@ export async function getAttestationByDigest(
       headerHash,
       root,
       prevDigest: prevDigest != null
-        ? String(prevDigest).replace(/0x/g, "")
+        ? String(prevDigest).replace(/^0x/, "")
         : undefined,
-      digest: digestVal != null ? String(digestVal).replace(/0x/g, "") : "",
+      digest: digestVal != null ? String(digestVal).replace(/^0x/, "") : "",
     };
   } catch {
     return null;

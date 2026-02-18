@@ -36,12 +36,13 @@ export async function getBlockNumberByHash(
 }
 
 export async function checkRpcHealthy(rpcUrl: string): Promise<boolean> {
+  const provider = getProvider(rpcUrl);
   try {
-    const provider = getProvider(rpcUrl);
     await provider.getNetwork();
-    provider.destroy();
     return true;
   } catch {
     return false;
+  } finally {
+    provider.destroy();
   }
 }

@@ -20,8 +20,8 @@ All configuration is loaded from a single JSON file. For CI, env overrides:
 
 - [Deno](https://deno.land/) 2.x
 
-This project uses `deno.lock` for dependency pinning. The root `yarn.lock` is for
-Node.js packages elsewhere in the repo—both should be committed.
+This project uses `deno.lock` for dependency pinning. The root `yarn.lock` is
+for Node.js packages elsewhere in the repo—both should be committed.
 
 ## Quick Start
 
