@@ -1,0 +1,12 @@
+{
+    "uscWsUrl": "wss://rpc.usc-testnet.creditcoin.network",
+    "uscNetworkName": "Creditcoin USC Testnet V2",
+    "graphqlUrl": "https://attestations-graphql.usc-testnet.creditcoin.network",
+    "ethRpc": [
+        {
+            "chainId": 11155111,
+            "chainKey": 1,
+            "url": ""
+        }
+    ]
+}
