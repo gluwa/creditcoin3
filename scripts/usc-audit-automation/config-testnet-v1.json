@@ -1,6 +1,6 @@
 {
   "uscWsUrl": "wss://rpc.usc-testnet.creditcoin.network",
-  "uscNetworkName": "Creditcoin USC Testnet V2",
+  "uscNetworkName": "Creditcoin USC Testnet V1",
   "graphqlUrl": "https://attestations-graphql.usc-testnet.creditcoin.network",
   "ethRpc": [
     {
