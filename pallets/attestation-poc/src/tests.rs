@@ -3330,7 +3330,7 @@ fn creating_checkpoint_works_at_expected_intervals() {
             }
         }
 
-        // We should have left 11 attestations in the checkpointing queue
+        // We should have left 11 attestations in the checkpointing queue.
         // attestations 0 and 1 should have been completely consumed and after that
         // we should have consumed attestations 2 to 8 fully and attestation 9 partially,
         // leaving attestations 10 to 19 in the queue.
@@ -3345,7 +3345,7 @@ fn creating_checkpoint_works_at_expected_intervals() {
             .front()
             .and_then(|digest| Attestation::attestations(SUPPORTED_CHAIN_KEY, *digest))
             .expect("Front attestation should exist in storage.");
-        assert_eq!(front_attestation.header_number(), 103,);
+        assert_eq!(front_attestation.header_number(), 103);
 
         let resulting_checkpoint = checkpoint.expect("Checkpoint should have been set in loop.");
         System::assert_last_event(
@@ -3362,6 +3362,88 @@ fn creating_checkpoint_works_at_expected_intervals() {
         );
         // Assert that the checkpoint is at block 100
         assert_eq!(resulting_checkpoint.block_number, 100);
+    })
+}
+
+#[test]
+fn create_checkpoints_from_continuity_proof_with_500_blocks() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let att_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
+        let att_per_check = Attestation::attestation_checkpoint_interval(SUPPORTED_CHAIN_KEY);
+        let checkpoint_width = att_interval * att_per_check as u64;
+        assert_eq!(att_interval, 10);
+        assert_eq!(att_per_check, 10);
+        assert_eq!(checkpoint_width, 100);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+        progress_to_block(5);
+
+        // Genesis attestation (block 0)
+        let genesis_attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            genesis_attestation.clone(),
+        ));
+
+        // Attestation for block 501 with 500 blocks of continuity (blocks 1-500).
+        // create_checkpoints_from_continuity_proof should create checkpoints at boundaries
+        // 100, 200, 300, 400, 500 (checkpoint_width=100).
+        let fragment = construct_fragment(
+            Some(genesis_attestation.digest()),
+            RangeInclusive::new(1, 500),
+        );
+        let attestation_500 = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            501,
+            Some(genesis_attestation.digest()),
+            Some(fragment),
+        );
+        assert_eq!(attestation_500.continuity_proof.get_blocks_ref().len(), 500);
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_500.clone(),
+        ));
+
+        // Assert checkpoints were created at each boundary
+        let expected_checkpoint_blocks = [100u64, 200, 300, 400, 500];
+        for &block_num in &expected_checkpoint_blocks {
+            let digest = Attestation::checkpoints(SUPPORTED_CHAIN_KEY, block_num);
+            assert!(
+                digest.is_some(),
+                "Checkpoint at block {block_num} should exist"
+            );
+        }
+
+        // Last checkpoint should be at block 500
+        let last_checkpoint = Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY)
+            .expect("Last checkpoint should exist");
+        assert_eq!(last_checkpoint.block_number, 500);
+
+        // Verify checkpoint digests match the continuity proof
+        for &block_num in &expected_checkpoint_blocks {
+            let stored_digest = Attestation::checkpoints(SUPPORTED_CHAIN_KEY, block_num).unwrap();
+            let proof_block = attestation_500
+                .continuity_proof
+                .get_blocks_ref()
+                .iter()
+                .find(|b| b.block_number == block_num)
+                .expect("Block should be in continuity proof");
+            assert_eq!(stored_digest, proof_block.digest);
+        }
     })
 }
 

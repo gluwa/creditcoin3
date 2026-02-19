@@ -10,7 +10,7 @@ use sp_runtime::{
 };
 use sp_staking::StakingInterface;
 use sp_std::{
-    collections::{btree_set::BTreeSet, vec_deque::VecDeque},
+    collections::{btree_map::BTreeMap, btree_set::BTreeSet, vec_deque::VecDeque},
     vec::Vec,
 };
 
@@ -324,7 +324,15 @@ impl<T: Config> Pallet<T> {
         let mut queue = CheckpointingQueues::<T>::get(chain_key);
         queue.push_back(digest);
 
-        // Make checkpoint if necessary.
+        // When catching up (large continuity proof spanning 2+ checkpoint boundaries), create
+        // checkpoints directly from the proof. Otherwise use the legacy queue-based flow.
+        if let Err(e) =
+            Self::create_checkpoints_from_continuity_proof(chain_key, &attestation, digest)
+        {
+            log::error!("Error creating checkpoints from continuity proof: {e:?}");
+        }
+
+        // Make checkpoint if necessary (legacy path for queue-based checkpointing).
         // The extrinsic didn't fail even if checkpointing failed. We want
         // to keep the new attestation rather than removing it from storage
         // via extrinsic rollback in the case of checkpointing failure.
@@ -940,6 +948,99 @@ impl<T: Config> Pallet<T> {
         LastCheckpoint::<T>::insert(chain_key, &new_checkpoint);
 
         Self::remove_attestations(chain_key, attestation_removal_queue)?;
+
+        Ok(())
+    }
+
+    /// Create checkpoints dynamically from an attestation's continuity proof when catching up
+    /// (proof spans 2+ checkpoint intervals). Otherwise no-op so the legacy queue-based flow
+    /// handles normal attestation cadence.
+    #[transactional]
+    pub(crate) fn create_checkpoints_from_continuity_proof(
+        chain_key: ChainKey,
+        attestation: &SignedAttestation<T::Hash, T::AccountId>,
+        attestation_digest: Digest,
+    ) -> DispatchResult {
+        if attestation.continuity_proof.is_empty() {
+            return Ok(());
+        }
+
+        let last_checkpoint =
+            LastCheckpoint::<T>::get(chain_key).ok_or(Error::<T>::LastCheckpointEmpty)?;
+
+        let attestation_interval = Self::chain_attestation_interval(chain_key);
+        let checkpoint_interval = Self::attestation_checkpoint_interval(chain_key);
+        let checkpoint_width = attestation_interval.saturating_mul(checkpoint_interval as u64);
+        ensure!(checkpoint_width > 0, Error::<T>::CheckpointWidthIsZero);
+
+        // Only when catching up: proof spans 2+ checkpoint intervals
+        let proof_len = attestation.continuity_proof.get_blocks_ref().len();
+        if proof_len < 2 * checkpoint_width as usize {
+            return Ok(());
+        }
+
+        // Build map of block_number -> digest from continuity proof blocks
+        let block_digests: BTreeMap<u64, Digest> = attestation
+            .continuity_proof
+            .get_blocks_ref()
+            .iter()
+            .map(|b| (b.block_number, b.digest))
+            .collect();
+
+        let head_block = attestation
+            .continuity_proof
+            .head()
+            .map(|b| b.block_number)
+            .unwrap_or(0);
+
+        let mut last_checkpoint_block = last_checkpoint.block_number;
+        let mut attestation_removal_queue: VecDeque<Digest> =
+            AttestationRemovalQueues::<T>::get(chain_key);
+
+        // Create checkpoints for each boundary block in the continuity proof
+        loop {
+            let target_block = last_checkpoint_block.saturating_add(checkpoint_width);
+            if target_block > head_block {
+                break;
+            }
+
+            let Some(digest) = block_digests.get(&target_block) else {
+                break;
+            };
+
+            let new_checkpoint = AttestationCheckpoint {
+                block_number: target_block,
+                digest: *digest,
+            };
+
+            Self::deposit_event(Event::<T>::CheckpointReached(
+                chain_key,
+                new_checkpoint.clone(),
+            ));
+
+            Checkpoints::<T>::insert(
+                chain_key,
+                new_checkpoint.block_number,
+                new_checkpoint.digest,
+            );
+            CheckpointBuckets::<T>::insert(
+                (
+                    chain_key,
+                    Self::compute_block_index_for(new_checkpoint.block_number),
+                    new_checkpoint.block_number,
+                ),
+                (),
+            );
+            LastCheckpoint::<T>::insert(chain_key, &new_checkpoint);
+            last_checkpoint_block = target_block;
+        }
+
+        // Add attestation to removal queue once if we created any checkpoints from it
+        if last_checkpoint_block != last_checkpoint.block_number {
+            attestation_removal_queue.push_back(attestation_digest);
+            AttestationRemovalQueues::<T>::insert(chain_key, attestation_removal_queue);
+            Self::remove_attestations(chain_key, AttestationRemovalQueues::<T>::get(chain_key))?;
+        }
 
         Ok(())
     }

@@ -124,7 +124,7 @@ fn create_signed_attestation<T: frame_system::Config>(
 mod benchmarks {
     use super::*;
 
-    pub const MAX_SPAN: u32 = 300; // tune to a realistic worst path
+    pub const MAX_SPAN: u32 = 500; // continuity blocks: 10–500 for realistic weight scaling
     const MAX_ATTESTORS: u32 = 100;
 
     #[benchmark]
@@ -321,7 +321,7 @@ mod benchmarks {
 
     #[benchmark]
     fn commit_attestation(
-        s: Linear<1, MAX_SPAN>,      // continuity length (#headers)
+        s: Linear<10, MAX_SPAN>,     // continuity length (#headers), 10–500 blocks
         m: Linear<1, MAX_ATTESTORS>, // number of attestors
     ) {
         // Setup
@@ -334,6 +334,15 @@ mod benchmarks {
             root_origin.clone(),
             DEV_CHAIN_KEY,
             MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
+        ));
+
+        // Set checkpoint interval to 1 so continuity proof is tranched into checkpoints at
+        // every attestation_interval blocks. With interval=10, s=10 creates 1 checkpoint,
+        // s=500 creates 50. This ensures the benchmark reflects checkpoint creation weight.
+        assert_ok!(Attestation::<T>::set_attestations_per_checkpoint(
+            root_origin.clone(),
+            DEV_CHAIN_KEY,
+            1,
         ));
 
         // Set target sample to one
@@ -376,10 +385,11 @@ mod benchmarks {
             attestation_prev.clone(),
         ));
 
-        let interval: u64 = Attestation::<T>::chain_attestation_interval(DEV_CHAIN_KEY);
-
+        // Round s down to nearest 10 to reduce benchmark iterations (10, 20, 30, ... 500).
+        // Continuity proof has att_header - 1 blocks.
+        let s_rounded = (s / 10 * 10).max(10) as u64;
         let start_header = 1;
-        let att_header = ((s as u64 / interval) * interval).max(interval);
+        let att_header = s_rounded + 1;
 
         log::info!(
             "Creating attestation for header {att_header}  with {} attestors",
