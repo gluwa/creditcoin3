@@ -5,7 +5,6 @@ pub mod worker;
 
 mod error;
 mod events;
-mod util;
 
 pub use error::Error;
 
@@ -203,12 +202,7 @@ impl Attestor {
                     }
                 },
                 None => match attestation_start_cc3 {
-                    Some((digest, height)) => (
-                        util::next_multiple_of(interval_attestation, height),
-                        Some(digest),
-                        height,
-                        false,
-                    ),
+                    Some((digest, height)) => (height + 1, Some(digest), height, false),
                     None => {
                         let genesis = client_cc3
                             .get_attestation_chain_genesis_block_number(self.config.chain_key)
