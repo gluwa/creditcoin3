@@ -754,6 +754,8 @@ impl CacheRoots {
         height_stop: common::types::Height,
     ) -> Result<(), Interrupt<Error>> {
         use futures::FutureExt as _;
+        use futures::StreamExt as _;
+        use futures::TryStreamExt as _;
         use rayon::iter::IntoParallelIterator as _;
         use rayon::iter::ParallelExtend as _;
         use rayon::iter::ParallelIterator as _;
@@ -794,7 +796,10 @@ impl CacheRoots {
                     .and_then(|res| res.map_interrupt(Error::Eth))
             })
         });
-        let blocks = futures::future::try_join_all(iter).await?;
+        let blocks = futures::stream::iter(iter)
+            .buffered(common::constants::MAX_CONCURRENT_RPC_CALLS)
+            .try_collect::<Vec<_>>()
+            .await?;
 
         self.cache
             .par_extend(blocks.into_par_iter().map(|block| RootInfo {
