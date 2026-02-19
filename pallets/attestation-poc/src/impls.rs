@@ -320,17 +320,14 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Add to checkpointing queue
-        let mut queue = CheckpointingQueues::<T>::get(chain_key);
-        queue.push_back(digest);
-
         // When catching up (large continuity proof spanning 2+ checkpoint boundaries), create
         // checkpoints directly from the proof. Otherwise use the legacy queue-based flow.
-        if let Err(e) =
-            Self::create_checkpoints_from_continuity_proof(chain_key, &attestation, digest)
-        {
-            log::error!("Error creating checkpoints from continuity proof: {e:?}");
+        if Self::create_checkpoints_from_continuity_proof(chain_key, &attestation, digest)? {
+            return Ok(());
         }
+
+        let mut queue = CheckpointingQueues::<T>::get(chain_key);
+        queue.push_back(digest);
 
         // Make checkpoint if necessary (legacy path for queue-based checkpointing).
         // The extrinsic didn't fail even if checkpointing failed. We want
@@ -955,14 +952,17 @@ impl<T: Config> Pallet<T> {
     /// Create checkpoints dynamically from an attestation's continuity proof when catching up
     /// (proof spans 2+ checkpoint intervals). Otherwise no-op so the legacy queue-based flow
     /// handles normal attestation cadence.
+    ///
+    /// Returns `Ok(true)` when checkpoints were created and the digest was added to
+    /// AttestationRemovalQueues (caller must remove it from CheckpointingQueues to avoid duplicate).
     #[transactional]
     pub(crate) fn create_checkpoints_from_continuity_proof(
         chain_key: ChainKey,
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
         attestation_digest: Digest,
-    ) -> DispatchResult {
+    ) -> Result<bool, DispatchError> {
         if attestation.continuity_proof.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
 
         let last_checkpoint =
@@ -976,7 +976,7 @@ impl<T: Config> Pallet<T> {
         // Only when catching up: proof spans 2+ checkpoint intervals
         let proof_len = attestation.continuity_proof.get_blocks_ref().len();
         if proof_len < 2 * checkpoint_width as usize {
-            return Ok(());
+            return Ok(false);
         }
 
         // Build map of block_number -> digest from continuity proof blocks
@@ -1040,9 +1040,10 @@ impl<T: Config> Pallet<T> {
             attestation_removal_queue.push_back(attestation_digest);
             AttestationRemovalQueues::<T>::insert(chain_key, attestation_removal_queue);
             Self::remove_attestations(chain_key, AttestationRemovalQueues::<T>::get(chain_key))?;
+            return Ok(true);
         }
 
-        Ok(())
+        Ok(false)
     }
 
     #[transactional]
