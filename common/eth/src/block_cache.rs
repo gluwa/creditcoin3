@@ -123,7 +123,7 @@ async fn get_total_cached_blocks(mut conn: RedisConn) -> Result<u64, redis::Redi
 // Try to get the block from redis cache, returning None if either a cache miss or an error occurs.
 // We purposefully dont fail on cache errors so that the client can fallback to direct block fetching.
 async fn get_cached_block(
-    mut conn: RedisConn,
+    conn: RedisConn,
     chain_id: u64,
     block_number: u64,
     metrics: &BlockCacheMetrics,
@@ -173,7 +173,7 @@ async fn get_cached_block(
 // Cache the block, logging any errors but not returning them
 // in order to not impact main flows
 async fn cache_block(
-    mut conn: RedisConn,
+    conn: RedisConn,
     chain_id: u64,
     block_number: u64,
     block: &OrderedBlock,
