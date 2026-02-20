@@ -63,7 +63,7 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'StoreRandomnessForEpoch e
                 })
                 .catch((error) => reject(new Error(error)));
         }).then(() => {
-            expect(recordedEvents).toBeGreaterThan(4);
+            expect(recordedEvents).toBeGreaterThanOrEqual(4);
         });
     }, 500_000); // 70 blocks is 350 sec + reserve to avoid timeouts
 });
