@@ -26,7 +26,7 @@ if [ -n "$TOML_FILES" ]; then
     fi
 fi
 
-for TARGET_DIR in "cc3-indexer" "cli" "docs/smart-contract-development/with-hardhat"; do
+for TARGET_DIR in "cc3-indexer" "cli" "docs/smart-contract-development/with-hardhat" "scripts"; do
     if [ -n "$(git diff --cached --name-only $TARGET_DIR)" ]; then
         pushd "$TARGET_DIR" || exit 2
         yarn check-format
