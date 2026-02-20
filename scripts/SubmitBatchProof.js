@@ -87,9 +87,7 @@ function parseArgs() {
         );
         console.error('  -v, --verbose          Enable verbose logging');
         console.error('\nExample:');
-        console.error(
-            '  node SubmitBatchProof.js 3 --queries "9986381:0xabc...,9986382:0xdef..." --private-key 0x...',
-        );
+        console.error('  node SubmitBatchProof.js 3 --queries "9986381:0xabc...,9986382:0xdef..." --private-key 0x...');
         process.exit(1);
     }
 
@@ -120,14 +118,7 @@ async function main() {
 
         for (const query of options.queries) {
             console.log(`  Fetching proof for height ${query.height}...`);
-            const apiProof = await fetchProof(
-                options.apiUrl,
-                options.chainKey,
-                query.txHash,
-                5,
-                2000,
-                options.verbose,
-            );
+            const apiProof = await fetchProof(options.apiUrl, options.chainKey, query.txHash, 5, 2000, options.verbose);
 
             if (!apiProof.txBytes) {
                 throw new Error(`Transaction bytes not found for height ${query.height}`);

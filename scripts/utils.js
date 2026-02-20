@@ -356,8 +356,8 @@ async function submitToPrecompile(
     const txBytesHex = Buffer.isBuffer(txBytes)
         ? '0x' + txBytes.toString('hex')
         : txBytes.startsWith('0x')
-            ? txBytes
-            : '0x' + txBytes;
+          ? txBytes
+          : '0x' + txBytes;
 
     const merkleProofTuple = [merkleProof.root, merkleProof.siblings.map((s) => [s.hash, s.isLeft])];
     const continuityProofTuple = [
@@ -389,7 +389,9 @@ async function submitToPrecompile(
             } else if (revertReason.type === 'panic') {
                 throw new Error(`Transaction will panic: code ${revertReason.code}`);
             } else if (revertReason.type === 'custom') {
-                throw new Error(`Transaction will revert: ${revertReason.name}(${revertReason.args?.join(', ') || ''})`);
+                throw new Error(
+                    `Transaction will revert: ${revertReason.name}(${revertReason.args?.join(', ') || ''})`,
+                );
             } else {
                 throw new Error(`Transaction will revert: ${revertReason.name || 'Unknown error'}`);
             }
@@ -397,7 +399,9 @@ async function submitToPrecompile(
 
         // If we couldn't decode, show more debug info
         const errorMsg = simError.message || simError.toString();
-        const dataStr = revertData ? ` (data: ${typeof revertData === 'string' ? revertData.substring(0, 100) : JSON.stringify(revertData)})` : '';
+        const dataStr = revertData
+            ? ` (data: ${typeof revertData === 'string' ? revertData.substring(0, 100) : JSON.stringify(revertData)})`
+            : '';
 
         // Log the full error for debugging
         if (process.env.DEBUG) {
@@ -513,18 +517,11 @@ async function submitBatchToPrecompile(
 
     // Convert tx bytes to hex
     const txBytesHexArray = txBytesArray.map((txBytes) =>
-        Buffer.isBuffer(txBytes)
-            ? '0x' + txBytes.toString('hex')
-            : txBytes.startsWith('0x')
-              ? txBytes
-              : '0x' + txBytes,
+        Buffer.isBuffer(txBytes) ? '0x' + txBytes.toString('hex') : txBytes.startsWith('0x') ? txBytes : '0x' + txBytes,
     );
 
     // Convert merkle proofs to tuple format
-    const merkleProofTuples = merkleProofs.map((proof) => [
-        proof.root,
-        proof.siblings.map((s) => [s.hash, s.isLeft]),
-    ]);
+    const merkleProofTuples = merkleProofs.map((proof) => [proof.root, proof.siblings.map((s) => [s.hash, s.isLeft])]);
 
     // Convert continuity proof to tuple format
     const continuityProofTuple = [sharedContinuityProof.lowerEndpointDigest, sharedContinuityProof.roots];
@@ -551,7 +548,9 @@ async function submitBatchToPrecompile(
             } else if (revertReason.type === 'panic') {
                 throw new Error(`Transaction will panic: code ${revertReason.code}`);
             } else if (revertReason.type === 'custom') {
-                throw new Error(`Transaction will revert: ${revertReason.name}(${revertReason.args?.join(', ') || ''})`);
+                throw new Error(
+                    `Transaction will revert: ${revertReason.name}(${revertReason.args?.join(', ') || ''})`,
+                );
             } else {
                 throw new Error(`Transaction will revert: ${revertReason.name || 'Unknown error'}`);
             }
@@ -600,7 +599,9 @@ async function submitBatchToPrecompile(
     console.log(`   ${events.length} TransactionVerified events emitted:`);
 
     for (const event of events) {
-        console.log(`   - Chain Key: ${event.args.chainKey}, Height: ${event.args.height}, TX Index: ${event.args.transactionIndex}`);
+        console.log(
+            `   - Chain Key: ${event.args.chainKey}, Height: ${event.args.height}, TX Index: ${event.args.transactionIndex}`,
+        );
     }
 
     console.log(`\n✅ Transaction confirmed in block ${receipt.blockNumber}`);

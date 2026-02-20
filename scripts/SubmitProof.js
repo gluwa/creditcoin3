@@ -97,7 +97,7 @@ async function main() {
         // Fetch proof from API
         console.log('Fetching proof from API...');
         const apiProof = await fetchProof(options.apiUrl, options.chainKey, options.txHash, 5, 2000, options.verbose);
-        
+
         // Extract block height from API response
         const blockHeight = apiProof.headerNumber;
         if (!blockHeight) {
