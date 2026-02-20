@@ -3167,10 +3167,10 @@ dot-prop@^5.2.0:
   dependencies:
     is-obj "^2.0.0"
 
-dotenv@17.2.0:
-  version "17.2.0"
-  resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-17.2.0.tgz#e19678fdabcf86d4bfdb6764a758d7d44efbb6a2"
-  integrity sha512-Q4sgBT60gzd0BB0lSyYD3xM4YxrXA9y4uBDof1JNYGzOXrQdQ6yX+7XIAqoFOGQFOTK1D3Hts5OllpxMDZFONQ==
+dotenv@17.3.1:
+  version "17.3.1"
+  resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-17.3.1.tgz#2706f5b0165e45a1503348187b8468f87fe6aae2"
+  integrity sha512-IO8C/dzEb6O3F9/twg6ZLXz164a2fhTnEWb95H23Dm4OuN+92NmEAlTrupP9VW6Jm3sO26tQlqyvyi4CsnY9GA==
 
 dotenv@^16.4.5:
   version "16.6.1"

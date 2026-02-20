@@ -38,7 +38,7 @@
         "@typechain/ethers-v5": "^11.1.2",
         "@typescript-eslint/eslint-plugin": "8.40.0",
         "@typescript-eslint/parser": "8.54.0",
-        "dotenv": "17.2.0",
+        "dotenv": "17.3.1",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",
         "prettier": "^3.8.1",
