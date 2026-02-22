@@ -28,28 +28,34 @@ export async function queryAttestation(
   checkpointNumber: number,
 ): Promise<GraphQLAttestationResult> {
   const query = `
-    query AttestationData {
+    query AttestationData($chainKey: BigFloat!, $headerNumber: BigFloat!, $checkpointNumber: BigFloat!) {
       attestations(
         orderBy: HEADER_NUMBER_ASC,
         last: 1,
-        filter: { chainKey: { equalTo: "${chainKey}" }, headerNumber: { equalTo: "${headerNumber}" } }
+        filter: { chainKey: { equalTo: $chainKey }, headerNumber: { equalTo: $headerNumber } }
       ) {
         nodes { chainKey, headerNumber, headerHash, root, prevDigest, digest }
       }
       attestationChainData(
         orderBy: CHAIN_KEY_ASC,
         last: 1,
-        filter: { chainKey: { equalTo: "${chainKey}" }, lastCheckpointHeaderNumber: { equalTo: "${checkpointNumber}" } }
+        filter: { chainKey: { equalTo: $chainKey }, lastCheckpointHeaderNumber: { equalTo: $checkpointNumber } }
       ) {
         nodes { chainKey, lastAttestedDigest, lastCheckpointHeaderNumber }
       }
     }
   `;
 
+  const variables = {
+    chainKey,
+    headerNumber,
+    checkpointNumber,
+  };
+
   const res = await fetchWithTimeout(graphqlUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, variables }),
   });
 
   if (!res.ok) {

@@ -15,6 +15,7 @@ import {
   getLastCheckpoint,
   getLastDigest,
   getSupportedChains,
+  setVerbose,
 } from "./usc.ts";
 import {
   checkRpcHealthy,
@@ -54,7 +55,7 @@ function buildReport(
       }|${formatNum(attBlock)})`,
   );
   const headerHashMatch = headerHashOk && blockByHash != null &&
-    formatNum(blockByHash) === formatNum(attBlock);
+    blockByHash === attBlock;
   lines.push(
     (headerHashOk ? "✅" : "❌") +
       ` Attestation header hash matches correct Ethereum block${
@@ -230,6 +231,7 @@ async function main(): Promise<void> {
     });
   }
 
+  setVerbose(config.verbose);
   await connect(config.uscWsUrl);
   console.log(`✅ Connected to USC at ${config.uscWsUrl}\n`);
 

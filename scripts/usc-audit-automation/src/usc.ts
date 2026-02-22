@@ -29,6 +29,12 @@ export interface SignedAttestation {
 }
 
 let api: ApiPromise | null = null;
+let verboseLogging = false;
+
+/** Enable verbose error logging for USC queries. */
+export function setVerbose(v: boolean): void {
+  verboseLogging = v;
+}
 
 export async function connect(wsUrl: string): Promise<void> {
   const provider = new WsProvider(wsUrl);
@@ -116,7 +122,8 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
                 }
               }
             }
-          } catch {
+          } catch (e) {
+            if (verboseLogging) console.warn("[usc] error:", e);
             // Skip malformed entries
           }
         }
@@ -187,7 +194,8 @@ async function getChainKey(
     };
     const n = val?.toNumber?.() ?? val?.unwrap?.()?.toNumber?.() ?? Number(val);
     return typeof n === "number" && !isNaN(n) ? n : null;
-  } catch {
+  } catch (e) {
+    if (verboseLogging) console.warn("[usc] error:", e);
     return null;
   }
 }
@@ -213,7 +221,8 @@ async function getLastDigestImpl(chainKey: number): Promise<string | null> {
     const hex = (result as { toHex?: () => string }).toHex?.() ??
       (result as { toString: () => string }).toString?.();
     return hex ?? null;
-  } catch {
+  } catch (e) {
+    if (verboseLogging) console.warn("[usc] error:", e);
     return null;
   }
 }
@@ -249,7 +258,8 @@ async function getLastCheckpointImpl(
     );
     const digest = String(human.digest ?? "").replace(/^0x/, "");
     return { blockNumber, digest };
-  } catch {
+  } catch (e) {
+    if (verboseLogging) console.warn("[usc] error:", e);
     return null;
   }
 }
@@ -273,7 +283,8 @@ async function getCheckpointIntervalImpl(chainKey: number): Promise<number> {
       chainKey,
     );
     return parseBlockNumber(result ?? 180) || 180;
-  } catch {
+  } catch (e) {
+    if (verboseLogging) console.warn("[usc] error:", e);
     return 180;
   }
 }
@@ -302,7 +313,8 @@ async function getAttestationIntervalImpl(chainKey: number): Promise<number> {
       chainKey,
     );
     return parseBlockNumber(result ?? 10) || 10;
-  } catch {
+  } catch (e) {
+    if (verboseLogging) console.warn("[usc] error:", e);
     return 10;
   }
 }
@@ -391,7 +403,8 @@ async function getAttestationByDigestImpl(
         : undefined,
       digest: digestVal != null ? String(digestVal).replace(/^0x/, "") : "",
     };
-  } catch {
+  } catch (e) {
+    if (verboseLogging) console.warn("[usc] error:", e);
     return null;
   }
 }
