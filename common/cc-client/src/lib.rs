@@ -606,10 +606,7 @@ impl Client {
         Ok(result)
     }
 
-    pub async fn max_catchup(
-        &self,
-        chain_key: ChainKey,
-    ) -> Result<Option<u64>, Error> {
+    pub async fn max_catchup(&self, chain_key: ChainKey) -> Result<Option<u64>, Error> {
         let storage_query = cc3::storage().attestation().max_catchup(chain_key);
 
         let result = self

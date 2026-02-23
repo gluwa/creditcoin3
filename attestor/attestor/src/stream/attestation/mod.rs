@@ -469,9 +469,7 @@ impl futures::Stream for StreamAttestation {
         let checkpoint_in_blocks = self
             .interval_attestation
             .saturating_mul(self.interval_checkpoint);
-        let catchup_limit = checkpoint_in_blocks
-            .saturating_mul(self.max_catchup)
-            .get();
+        let catchup_limit = checkpoint_in_blocks.saturating_mul(self.max_catchup).get();
 
         // The catchup limit is ALWAYS based on the cache size. It is not reliable to refer to
         // `self.block_start` and `self.block_stop` as there are multiple events which might purge

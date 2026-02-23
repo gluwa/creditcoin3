@@ -318,14 +318,8 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn max_catchup)]
-    pub type MaxCatchup<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        ChainKey,
-        u32,
-        ValueQuery,
-        MaxCatchupDefault<T>,
-    >;
+    pub type MaxCatchup<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, MaxCatchupDefault<T>>;
 
     #[pallet::type_value]
     pub fn MaxCatchupDefault<T: Config>() -> u32 {
@@ -1180,10 +1174,7 @@ pub mod pallet {
 
             PendingMaxCatchup::<T>::set(chain_key, Some(max_catchup));
 
-            Self::deposit_event(Event::<T>::PendingMaxCatchupSet(
-                chain_key,
-                max_catchup,
-            ));
+            Self::deposit_event(Event::<T>::PendingMaxCatchupSet(chain_key, max_catchup));
 
             Ok(())
         }
