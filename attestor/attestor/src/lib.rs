@@ -149,18 +149,6 @@ impl Attestor {
                 .unwrap(),
         };
 
-        let max_catchup = match client_cc3
-            .max_catchup(self.config.chain_key)
-            .await
-            .map_err(Error::RpcError)?
-        {
-            Some(val) => std::num::NonZero::<common::types::Height>::new(val)
-                .unwrap_or(common::constants::MAX_CATCHUP),
-            None => common::constants::MAX_CATCHUP,
-        };
-
-        tracing::info!(%max_catchup, "🔧 Retrieved max catchup from chain");
-
         let interval_checkpoint = match self.config.attestation.checkpoint_interval {
             Some(checkpoint_interval) => checkpoint_interval,
             None => client_cc3
@@ -246,7 +234,6 @@ impl Attestor {
             .with_chain_key(self.config.chain_key)
             .with_start_height(start_height)
             .with_start_digest(start_digest)
-            .with_max_catchup(max_catchup)
             .build();
         let mut stream_attestation = stream::attestation::StreamAttestation::new(config)
             .await

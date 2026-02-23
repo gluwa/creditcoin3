@@ -1528,10 +1528,6 @@ impl_runtime_apis! {
         fn attestation_chain_genesis_block_number(chain_key: ChainKey) -> u64 {
             Attestation::attestation_chain_genesis_block_number(chain_key)
         }
-
-        fn max_catchup(chain_key: ChainKey) -> u32 {
-            Attestation::max_catchup(chain_key)
-        }
     }
 
     impl supported_chains_primitives::api::SupportedChainsApi<Block> for Runtime {

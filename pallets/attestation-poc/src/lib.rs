@@ -459,13 +459,6 @@ pub mod pallet {
                     chain_configuration.attestations_per_checkpoint,
                 );
 
-                MaxCatchup::<T>::insert(
-                    chain_configuration.chain_key,
-                    chain_configuration
-                        .max_catchup
-                        .unwrap_or_else(T::DefaultMaxCatchup::get),
-                );
-
                 MaxAttestors::<T>::insert(
                     chain_configuration.chain_key,
                     T::MaxAttestationNodes::get(),
