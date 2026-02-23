@@ -66,6 +66,7 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidAttestorFound: AugmentedError<ApiType>;
             InvalidBlsPublicKey: AugmentedError<ApiType>;
             InvalidBlsSignature: AugmentedError<ApiType>;
+            InvalidMaxCatchup: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
             InvalidTargetSampleSize: AugmentedError<ApiType>;
             /**

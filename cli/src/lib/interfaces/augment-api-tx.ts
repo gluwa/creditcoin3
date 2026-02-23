@@ -222,6 +222,13 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u32]
             >;
+            setMaxCatchup: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    maxCatchup: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
+            >;
             setMaxInvulnerables: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,

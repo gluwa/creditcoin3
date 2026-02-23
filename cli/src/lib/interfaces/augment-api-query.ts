@@ -234,6 +234,8 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [AccountId32]>;
             maxAttestors: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
+            maxCatchup: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
             maxInvulnerables: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
             minBondRequirement: AugmentedQuery<
@@ -245,6 +247,12 @@ declare module '@polkadot/api-base/types/storage' {
             pendingAttestationInterval: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u64>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            pendingMaxCatchup: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u32>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;

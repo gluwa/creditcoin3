@@ -33,6 +33,7 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             defaultAttestationRetentionDuration: u32 & AugmentedConst<ApiType>;
             defaultAttestationsPerCheckpoint: u32 & AugmentedConst<ApiType>;
+            defaultMaxCatchup: u32 & AugmentedConst<ApiType>;
             defaultMinBondRequirement: u128 & AugmentedConst<ApiType>;
             defaultTargetSampleSize: u32 & AugmentedConst<ApiType>;
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;

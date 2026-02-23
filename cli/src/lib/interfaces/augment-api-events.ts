@@ -110,8 +110,10 @@ declare module '@polkadot/api-base/types/events' {
              * Max attestors changed for a chain
              **/
             MaxAttestorsChanged: AugmentedEvent<ApiType, [u64, u32]>;
+            MaxCatchupChanged: AugmentedEvent<ApiType, [u64, u32]>;
             MinBondRequirementUpdated: AugmentedEvent<ApiType, [u64, u128]>;
             PendingAttestationIntervalSet: AugmentedEvent<ApiType, [u64, u64]>;
+            PendingMaxCatchupSet: AugmentedEvent<ApiType, [u64, u32]>;
             PendingTargetSampleSizeSet: AugmentedEvent<ApiType, [u64, u32]>;
             TargetSampleSizeChanged: AugmentedEvent<ApiType, [u64, u32]>;
             Unbonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;

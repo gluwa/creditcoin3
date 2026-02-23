@@ -922,6 +922,8 @@ export default {
             PendingAttestationIntervalSet: '(u64,u64)',
             CheckpointsCleared: 'u64',
             CheckpointIntervalChanged: '(u64,u32)',
+            MaxCatchupChanged: '(u64,u32)',
+            PendingMaxCatchupSet: '(u64,u32)',
             ClearedStorageForRemovedChain: 'u64',
             MaxAttestorsChanged: '(u64,u32)',
             AttestationChainGenesisBlockNumberSet: '(u64,u64)',
@@ -2623,6 +2625,10 @@ export default {
             force_election: {
                 epoch: 'u64',
             },
+            set_max_catchup: {
+                chainKey: 'u64',
+                maxCatchup: 'u32',
+            },
         },
     },
     /**
@@ -3129,6 +3135,7 @@ export default {
             'NoSupportedChains',
             'InvalidAttestationInterval',
             'InvalidAttestationsPerCheckpoint',
+            'InvalidMaxCatchup',
             'InvalidTargetSampleSize',
             'AttestationFoundWhileImporting',
             'InvalidAttestationBlockNumber',

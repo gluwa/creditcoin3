@@ -1157,6 +1157,10 @@ declare module '@polkadot/types/lookup' {
         readonly asCheckpointsCleared: u64;
         readonly isCheckpointIntervalChanged: boolean;
         readonly asCheckpointIntervalChanged: ITuple<[u64, u32]>;
+        readonly isMaxCatchupChanged: boolean;
+        readonly asMaxCatchupChanged: ITuple<[u64, u32]>;
+        readonly isPendingMaxCatchupSet: boolean;
+        readonly asPendingMaxCatchupSet: ITuple<[u64, u32]>;
         readonly isClearedStorageForRemovedChain: boolean;
         readonly asClearedStorageForRemovedChain: u64;
         readonly isMaxAttestorsChanged: boolean;
@@ -1193,6 +1197,8 @@ declare module '@polkadot/types/lookup' {
             | 'PendingAttestationIntervalSet'
             | 'CheckpointsCleared'
             | 'CheckpointIntervalChanged'
+            | 'MaxCatchupChanged'
+            | 'PendingMaxCatchupSet'
             | 'ClearedStorageForRemovedChain'
             | 'MaxAttestorsChanged'
             | 'AttestationChainGenesisBlockNumberSet'
@@ -3057,6 +3063,11 @@ declare module '@polkadot/types/lookup' {
         readonly asForceElection: {
             readonly epoch: u64;
         } & Struct;
+        readonly isSetMaxCatchup: boolean;
+        readonly asSetMaxCatchup: {
+            readonly chainKey: u64;
+            readonly maxCatchup: u32;
+        } & Struct;
         readonly type:
             | 'SetChainAttestationInterval'
             | 'SetTargetSampleSize'
@@ -3079,7 +3090,8 @@ declare module '@polkadot/types/lookup' {
             | 'AuthorizeAttestor'
             | 'RemoveAuthorizedAttestor'
             | 'KickActiveAttestor'
-            | 'ForceElection';
+            | 'ForceElection'
+            | 'SetMaxCatchup';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (323) */
@@ -3656,6 +3668,7 @@ declare module '@polkadot/types/lookup' {
         readonly isNoSupportedChains: boolean;
         readonly isInvalidAttestationInterval: boolean;
         readonly isInvalidAttestationsPerCheckpoint: boolean;
+        readonly isInvalidMaxCatchup: boolean;
         readonly isInvalidTargetSampleSize: boolean;
         readonly isAttestationFoundWhileImporting: boolean;
         readonly isInvalidAttestationBlockNumber: boolean;
@@ -3705,6 +3718,7 @@ declare module '@polkadot/types/lookup' {
             | 'NoSupportedChains'
             | 'InvalidAttestationInterval'
             | 'InvalidAttestationsPerCheckpoint'
+            | 'InvalidMaxCatchup'
             | 'InvalidTargetSampleSize'
             | 'AttestationFoundWhileImporting'
             | 'InvalidAttestationBlockNumber'
