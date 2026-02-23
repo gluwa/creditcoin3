@@ -358,6 +358,14 @@ jobs:
             --cc3-rpc-url http://localhost:9944 \
             --verbose
 
+      - name: Exercise TransferAndWait.js
+        working-directory: scripts
+        run: |
+          # Using Anvil Account #0 on source chain
+          node TransferAndWait.js --chain-key 2 \
+            --source-rpc-url http://127.0.0.1:8141 \
+            --cc3-rpc-url ws://localhost:9944
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v6
