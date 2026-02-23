@@ -616,7 +616,8 @@ impl Client {
             .at_latest()
             .await?
             .fetch(&storage_query)
-            .await?;
+            .await?
+            .map(Into::into);
 
         Ok(result)
     }
