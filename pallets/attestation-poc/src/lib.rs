@@ -103,6 +103,8 @@ pub mod pallet {
         #[pallet::constant]
         type DefaultTargetSampleSize: Get<u32>;
         #[pallet::constant]
+        type DefaultMaxCatchup: Get<u32>;
+        #[pallet::constant]
         type MaxAttestationNodes: Get<u32>;
         // TODO: Make this useful
         #[pallet::constant]
@@ -172,6 +174,7 @@ pub mod pallet {
         fn remove_authorized_attestor() -> Weight;
         fn kick_active_attestor() -> Weight;
         fn force_election() -> Weight;
+        fn set_max_catchup() -> Weight;
     }
 
     #[pallet::storage]
@@ -314,6 +317,27 @@ pub mod pallet {
     }
 
     #[pallet::storage]
+    #[pallet::getter(fn max_catchup)]
+    pub type MaxCatchup<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        u32,
+        ValueQuery,
+        MaxCatchupDefault<T>,
+    >;
+
+    #[pallet::type_value]
+    pub fn MaxCatchupDefault<T: Config>() -> u32 {
+        T::DefaultMaxCatchup::get()
+    }
+
+    #[pallet::storage]
+    #[pallet::getter(fn pending_max_catchup)]
+    pub type PendingMaxCatchup<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, OptionQuery>;
+
+    #[pallet::storage]
     #[pallet::getter(fn min_bond_requirement)]
     pub type MinBondRequirement<T: Config> = StorageMap<
         _,
@@ -441,6 +465,13 @@ pub mod pallet {
                     chain_configuration.attestations_per_checkpoint,
                 );
 
+                MaxCatchup::<T>::insert(
+                    chain_configuration.chain_key,
+                    chain_configuration
+                        .max_catchup
+                        .unwrap_or_else(T::DefaultMaxCatchup::get),
+                );
+
                 MaxAttestors::<T>::insert(
                     chain_configuration.chain_key,
                     T::MaxAttestationNodes::get(),
@@ -535,6 +566,8 @@ pub mod pallet {
         /// A fixed number of checkpoints will be cleared per block until none remain.
         CheckpointsCleared(ChainKey),
         CheckpointIntervalChanged(ChainKey, u32),
+        MaxCatchupChanged(ChainKey, u32),
+        PendingMaxCatchupSet(ChainKey, u32),
         /// A source chain was removed via pallet supported chains. Associated storage
         /// in pallet attestation was cleaned up.
         ClearedStorageForRemovedChain(ChainKey),
@@ -617,6 +650,7 @@ pub mod pallet {
         InvalidAttestationInterval,
         // Tried to set attestations per checkpoint to an invalid value.
         InvalidAttestationsPerCheckpoint,
+        InvalidMaxCatchup,
         // Tried to set committee set size to an invalid value.
         InvalidTargetSampleSize,
         // Tried to import checkpoints for chain key that already has attestations.
@@ -1121,6 +1155,35 @@ pub mod pallet {
             Self::do_start_election(epoch, [0; 32])?;
 
             Self::deposit_event(Event::<T>::ForcedElection { epoch });
+
+            Ok(())
+        }
+
+        #[pallet::call_index(26)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_max_catchup())]
+        pub fn set_max_catchup(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            max_catchup: u32,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure! {
+                max_catchup > 0,
+                Error::<T>::InvalidMaxCatchup
+            };
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            PendingMaxCatchup::<T>::set(chain_key, Some(max_catchup));
+
+            Self::deposit_event(Event::<T>::PendingMaxCatchupSet(
+                chain_key,
+                max_catchup,
+            ));
 
             Ok(())
         }

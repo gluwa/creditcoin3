@@ -609,10 +609,17 @@ impl<T: Config> Pallet<T> {
             ));
         });
 
-        // Clear PendingAttestationInterval & PendingTargetSampleSize
+        PendingMaxCatchup::<T>::iter().for_each(|(chain_key, new_max_catchup)| {
+            MaxCatchup::<T>::set(chain_key, new_max_catchup);
+
+            Self::deposit_event(Event::<T>::MaxCatchupChanged(chain_key, new_max_catchup));
+        });
+
+        // Clear PendingAttestationInterval, PendingTargetSampleSize & PendingMaxCatchup
         let num_supported_chains = T::SupportedChains::supported_chains().len();
         let _ = PendingAttestationInterval::<T>::clear(num_supported_chains as u32, None);
         let _ = PendingTargetSampleSize::<T>::clear(num_supported_chains as u32, None);
+        let _ = PendingMaxCatchup::<T>::clear(num_supported_chains as u32, None);
     }
 
     fn apply_target_sample_size_updates() {
@@ -1235,6 +1242,8 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         ChainAttestationInterval::<T>::remove(chain_key);
         PendingAttestationInterval::<T>::remove(chain_key);
         AttestationCheckpointInterval::<T>::remove(chain_key);
+        MaxCatchup::<T>::remove(chain_key);
+        PendingMaxCatchup::<T>::remove(chain_key);
 
         if remove_checkpoints {
             // Starting the process of clearing checkpoints. There may be a very large number of checkpoints

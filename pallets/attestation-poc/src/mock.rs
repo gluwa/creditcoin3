@@ -244,6 +244,7 @@ parameter_types! {
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
     pub const DefaultAttestationInterval: u64 = 10;
     pub const DefaultTargetSampleSize: u32 = 1;
+    pub const DefaultMaxCatchup: u32 = 5;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxUnlockingChunks: u32 = 10;
     pub const MaxAttestationsPerBlock: u32 = 10;
@@ -262,6 +263,7 @@ impl attestation_poc::Config for Test {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
+    type DefaultMaxCatchup = DefaultMaxCatchup;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = attestation_poc::weights::WeightInfo<Test>;
     type MaxAttestationNodes = MaxAttestorsDefault;

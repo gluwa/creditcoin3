@@ -55,6 +55,8 @@ pub struct AttestationChainConfiguration {
     pub attestation_interval: ChainAttestationIntervalType,
     pub attestations_per_checkpoint: u32,
     pub target_sample_size: u32,
+    #[serde(default)]
+    pub max_catchup: Option<u32>,
     pub checkpoints: Vec<AttestationCheckpoint>,
 }
 

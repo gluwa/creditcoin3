@@ -156,6 +156,20 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn set_max_catchup() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let max_catchup: u32 = 10;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            max_catchup,
+        )
+    }
+
+    #[benchmark]
     fn set_target_sample_size() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();

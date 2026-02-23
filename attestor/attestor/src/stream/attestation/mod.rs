@@ -114,6 +114,7 @@ pub struct Config {
     chain_key: attestor_primitives::ChainKey,
     start_height: common::types::Height,
     start_digest: Option<attestor_primitives::Digest>,
+    max_catchup: std::num::NonZero<common::types::Height>,
 }
 
 // ----------------------------------------- [ Stream ] ---------------------------------------- //
@@ -133,6 +134,7 @@ pub struct StreamAttestation {
     chain_key: attestor_primitives::ChainKey,
     interval_attestation: std::num::NonZero<common::types::Height>,
     interval_checkpoint: std::num::NonZero<common::types::Height>,
+    max_catchup: std::num::NonZero<common::types::Height>,
 
     waker: Option<std::task::Waker>,
     stop: bool,
@@ -183,7 +185,7 @@ impl StreamAttestation {
             .saturating_mul(config.interval_checkpoint);
 
         let catchup_limit = checkpoint_in_blocks
-            .saturating_mul(common::constants::MAX_CATCHUP)
+            .saturating_mul(config.max_catchup)
             .get();
 
         let continuity = CacheContinuity::new(
@@ -226,6 +228,7 @@ impl StreamAttestation {
             chain_key: config.chain_key,
             interval_attestation: config.interval_attestation,
             interval_checkpoint: config.interval_checkpoint,
+            max_catchup: config.max_catchup,
 
             waker: None,
             stop: false,
@@ -360,7 +363,7 @@ impl StreamAttestation {
             .interval_attestation
             .saturating_mul(self.interval_checkpoint);
         let size_new = checkpoint_in_blocks
-            .saturating_mul(common::constants::MAX_CATCHUP)
+            .saturating_mul(self.max_catchup)
             .saturating_add(1)
             .try_into()
             .unwrap();
@@ -467,7 +470,7 @@ impl futures::Stream for StreamAttestation {
             .interval_attestation
             .saturating_mul(self.interval_checkpoint);
         let catchup_limit = checkpoint_in_blocks
-            .saturating_mul(common::constants::MAX_CATCHUP)
+            .saturating_mul(self.max_catchup)
             .get();
 
         // The catchup limit is ALWAYS based on the cache size. It is not reliable to refer to
@@ -641,7 +644,7 @@ impl CacheContinuity {
         start_digest: Option<attestor_primitives::Digest>,
     ) -> Self {
         let max_size: std::num::NonZeroUsize = checkpoint_in_blocks
-            .saturating_mul(common::constants::MAX_CATCHUP)
+            .saturating_mul(self.max_catchup)
             .saturating_add(1) // Inclusive
             .try_into()
             .unwrap();

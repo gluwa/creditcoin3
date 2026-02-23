@@ -873,6 +873,7 @@ parameter_types! {
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
     pub const DefaultAttestationInterval: u64 = 10;
     pub const DefaultTargetSampleSize: u32 = 3;
+    pub const DefaultMaxCatchup: u32 = 5;
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
@@ -899,6 +900,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
+    type DefaultMaxCatchup = DefaultMaxCatchup;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
     // TODO make this setting useful
@@ -1525,6 +1527,10 @@ impl_runtime_apis! {
 
         fn attestation_chain_genesis_block_number(chain_key: ChainKey) -> u64 {
             Attestation::attestation_chain_genesis_block_number(chain_key)
+        }
+
+        fn max_catchup(chain_key: ChainKey) -> u32 {
+            Attestation::max_catchup(chain_key)
         }
     }
 

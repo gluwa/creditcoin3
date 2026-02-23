@@ -66,6 +66,28 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::PendingMaxCatchup` (r:0 w:1)
+	/// Proof: `Attestation::PendingMaxCatchup` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn set_max_catchup() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `375`
+		//  Estimated: `3840`
+		// Minimum execution time: 27_829_000 picoseconds.
+		Weight::from_parts(29_490_000, 0)
+			.saturating_add(Weight::from_parts(0, 3840))
+			.saturating_add(T::DbWeight::get().reads(5))
+			.saturating_add(T::DbWeight::get().writes(3))
+	}
+	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
+	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::AttestationCheckpointInterval` (r:0 w:1)
 	/// Proof: `Attestation::AttestationCheckpointInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_attestations_per_checkpoint() -> Weight {
