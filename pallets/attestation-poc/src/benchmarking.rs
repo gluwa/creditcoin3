@@ -336,13 +336,13 @@ mod benchmarks {
             MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
         ));
 
-        // Set checkpoint interval to 1 so continuity proof is tranched into checkpoints at
-        // every attestation_interval blocks. With interval=10, s=10 creates 1 checkpoint,
-        // s=500 creates 50. This ensures the benchmark reflects checkpoint creation weight.
+        // Set checkpoint interval to 10 (production-realistic: checkpoint every 100 blocks
+        // with attestation_interval=10). With s=500, this creates ~5 checkpoints.
+        // This ensures the benchmark reflects realistic checkpoint creation weight.
         assert_ok!(Attestation::<T>::set_attestations_per_checkpoint(
             root_origin.clone(),
             DEV_CHAIN_KEY,
-            1,
+            10,
         ));
 
         // Set target sample to one

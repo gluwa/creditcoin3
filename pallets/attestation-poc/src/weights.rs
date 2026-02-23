@@ -335,7 +335,15 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(Weight::from_parts(892_817_464, 0).saturating_mul(m.into()))
 			.saturating_add(T::DbWeight::get().reads(19))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(m.into())))
-			.saturating_add(T::DbWeight::get().writes(4))
+			// Base writes (LastDigest, Events, EventCount, CheckpointingQueues, AttestationRemovalQueues)
+			.saturating_add(T::DbWeight::get().writes(5))
+			// Each checkpoint created from continuity writes to Checkpoints + CheckpointBuckets.
+			// With checkpoint_interval = att_interval(10) * att_per_checkpoint(10) = 100 blocks,
+			// num_checkpoints = s / 100. Each checkpoint = 2 writes (Checkpoints + CheckpointBuckets).
+			// Use s/50 as a conservative upper bound (rounds up vs exact s/100*2).
+			.saturating_add(T::DbWeight::get().writes(
+				(s as u64).saturating_div(50).saturating_add(1)
+			))
 			.saturating_add(Weight::from_parts(0, 2678).saturating_mul(m.into()))
 	}
 	/// Storage: `System::Number` (r:1 w:0)
