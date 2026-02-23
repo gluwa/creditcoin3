@@ -145,7 +145,7 @@ jobs:
 
   rm-gh-runner-submit-proof:
     needs:
-      - exercise-TransferWaitAndSubmit-js
+      - exercise-scripts
     if: ${{ always() }}
     uses: ./.github/workflows/remove-runner.yml
     with:
@@ -153,7 +153,7 @@ jobs:
       proxy: "submit-proof"
     secrets: inherit
 
-  exercise-TransferWaitAndSubmit-js:
+  exercise-scripts:
     needs:
       - deploy-runner-submit-proof
     runs-on:
@@ -169,14 +169,14 @@ jobs:
 
       - name: Start creditcoin3-node - Alice
         run: |
-          mkdir -p /var/tmp/exercise-TransferWaitAndSubmit-js/
+          mkdir -p /var/tmp/exercise-scripts/
           chmod a+x ./target/release/creditcoin3-node
 
           ./target/release/creditcoin3-node \
             --chain dev \
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
-            --base-path ./alice-data >/var/tmp/exercise-TransferWaitAndSubmit-js/creditcoin3-node-alice.log 2>&1 &
+            --base-path ./alice-data >/var/tmp/exercise-scripts/creditcoin3-node-alice.log 2>&1 &
 
       - name: Start Ethereum simulation with Anvil
         run: |
@@ -235,7 +235,7 @@ jobs:
                 --cc3-url=ws://localhost:9944 \
                 --funding-address='//Alice' \
                 --config=./attestor/config.yaml \
-                >/var/tmp/exercise-TransferWaitAndSubmit-js/zombienet-alice.log &
+                >/var/tmp/exercise-scripts/zombienet-alice.log &
 
       - name: Wait for 3 attestors to be registered
         run: |
@@ -258,7 +258,7 @@ jobs:
             --cc3-key "//Alice" \
             --cc3-rpc-url ws://localhost:9944 \
             --eth-rpc-url http://localhost:8141 \
-            >/var/tmp/exercise-TransferWaitAndSubmit-js/proof-gen-api-server.log &
+            >/var/tmp/exercise-scripts/proof-gen-api-server.log &
 
           sleep 30
 
@@ -278,7 +278,7 @@ jobs:
         if: always()
         working-directory: proof-gen-api-server
         run: |
-          docker compose logs --no-color > /var/tmp/exercise-TransferWaitAndSubmit-js/redis.log
+          docker compose logs --no-color > /var/tmp/exercise-scripts/redis.log
 
       - name: Simulate Redis going down
         working-directory: proof-gen-api-server
@@ -326,8 +326,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: exercise-TransferWaitAndSubmit-js-logs
+          name: exercise-scripts-logs
           path: |
-            /var/tmp/exercise-TransferWaitAndSubmit-js/
+            /var/tmp/exercise-scripts/
             ./logs/
           include-hidden-files: true
