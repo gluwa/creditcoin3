@@ -1005,6 +1005,9 @@ impl<T: Config> Pallet<T> {
             }
 
             let Some(digest) = block_digests.get(&target_block) else {
+                log::warn!(
+                    "Continuity proof missing expected checkpoint boundary block {target_block} for chain {chain_key:?}"
+                );
                 break;
             };
 
@@ -1038,8 +1041,8 @@ impl<T: Config> Pallet<T> {
         // Add attestation to removal queue once if we created any checkpoints from it
         if last_checkpoint_block != last_checkpoint.block_number {
             attestation_removal_queue.push_back(attestation_digest);
-            AttestationRemovalQueues::<T>::insert(chain_key, attestation_removal_queue);
-            Self::remove_attestations(chain_key, AttestationRemovalQueues::<T>::get(chain_key))?;
+            AttestationRemovalQueues::<T>::insert(chain_key, &attestation_removal_queue);
+            Self::remove_attestations(chain_key, attestation_removal_queue)?;
             return Ok(true);
         }
 

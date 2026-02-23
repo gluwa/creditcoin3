@@ -280,7 +280,7 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(9))
 			.saturating_add(T::DbWeight::get().writes(8))
 	}
-		/// Storage: `Attestation::ActiveAttestors` (r:1 w:0)
+	/// Storage: `Attestation::ActiveAttestors` (r:1 w:0)
 	/// Proof: `Attestation::ActiveAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
