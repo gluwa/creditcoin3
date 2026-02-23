@@ -203,7 +203,6 @@ impl Server {
         let app = build_app(
             service,
             self.config.chain_key,
-            metrics,
             self.prom_metrics.clone(),
         );
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();

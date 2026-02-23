@@ -22,9 +22,9 @@ pub mod routes;
 pub fn build_app(
     service: Arc<ContinuityService>,
     chain_key: u64,
-    metrics: Metrics,
     prom_metrics: Arc<ProofGenMetrics>,
 ) -> Router {
+    let metrics: Metrics = prom_metrics.clone() as Metrics;
     // Configure CORS to allow browser-based applications to access the API
     let cors = CorsLayer::new()
         .allow_origin(Any)

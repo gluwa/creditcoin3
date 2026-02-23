@@ -188,7 +188,6 @@ mod anvil_integration {
         build_app(
             service,
             chain_key,
-            NoopMetrics::new(),
             std::sync::Arc::new(ProofGenMetrics::new(chain_key)),
         )
     }
