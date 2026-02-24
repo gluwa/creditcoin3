@@ -979,19 +979,17 @@ impl<T: Config> Pallet<T> {
             return Ok(false);
         }
 
-        // Build map of block_number -> digest from continuity proof blocks
-        let block_digests: BTreeMap<u64, Digest> = attestation
+        // Build map of block_number -> digest from continuity proof blocks.
+        // Include the attestation block itself so boundaries at header_number are not missed.
+        let mut block_digests: BTreeMap<u64, Digest> = attestation
             .continuity_proof
             .get_blocks_ref()
             .iter()
             .map(|b| (b.block_number, b.digest))
             .collect();
+        block_digests.insert(attestation.header_number(), attestation_digest);
 
-        let head_block = attestation
-            .continuity_proof
-            .head()
-            .map(|b| b.block_number)
-            .unwrap_or(0);
+        let head_block = attestation.header_number();
 
         let mut last_checkpoint_block = last_checkpoint.block_number;
         let mut attestation_removal_queue: VecDeque<Digest> =
@@ -1005,10 +1003,10 @@ impl<T: Config> Pallet<T> {
             }
 
             let Some(digest) = block_digests.get(&target_block) else {
-                log::warn!(
+                log::error!(
                     "Continuity proof missing expected checkpoint boundary block {target_block} for chain {chain_key:?}"
                 );
-                break;
+                return Err(Error::<T>::CheckpointCreationError.into());
             };
 
             let new_checkpoint = AttestationCheckpoint {
@@ -1041,7 +1039,7 @@ impl<T: Config> Pallet<T> {
         // Add attestation to removal queue once if we created any checkpoints from it
         if last_checkpoint_block != last_checkpoint.block_number {
             attestation_removal_queue.push_back(attestation_digest);
-            AttestationRemovalQueues::<T>::insert(chain_key, &attestation_removal_queue);
+            // remove_attestations writes the queue to storage, no need to insert beforehand
             Self::remove_attestations(chain_key, attestation_removal_queue)?;
             return Ok(true);
         }
