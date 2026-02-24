@@ -304,10 +304,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Checkpoints` (r:2 w:50)
+	/// Storage: `Attestation::Checkpoints` (r:2 w:5)
 	/// Proof: `Attestation::Checkpoints` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointingQueues` (r:1 w:1)
-	/// Proof: `Attestation::CheckpointingQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::ChainAttestationInterval` (r:1 w:0)
 	/// Proof: `Attestation::ChainAttestationInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::AttestationCheckpointInterval` (r:1 w:0)
@@ -316,34 +314,28 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::AttestationRemovalQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::AttestationRetentionDuration` (r:1 w:0)
 	/// Proof: `Attestation::AttestationRetentionDuration` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointBuckets` (r:0 w:50)
+	/// Storage: `Attestation::CheckpointBuckets` (r:0 w:5)
 	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::CheckpointingQueues` (r:1 w:1)
+	/// Proof: `Attestation::CheckpointingQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `s` is `[10, 500]`.
 	/// The range of component `m` is `[1, 100]`.
 	/// The range of component `s` is `[10, 500]`.
 	/// The range of component `m` is `[1, 100]`.
 	fn commit_attestation(s: u32, m: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1956 + m * (202 ±0)`
-		//  Estimated: `7865 + m * (2678 ±0)`
-		// Minimum execution time: 23_499_000_000 picoseconds.
-		Weight::from_parts(22_596_666_531, 0)
-			.saturating_add(Weight::from_parts(0, 7865))
-			// Standard Error: 1_176_260
-			.saturating_add(Weight::from_parts(754_968, 0).saturating_mul(s.into()))
-			// Standard Error: 5_800_729
-			.saturating_add(Weight::from_parts(892_817_464, 0).saturating_mul(m.into()))
-			.saturating_add(T::DbWeight::get().reads(19))
+		//  Measured:  `1909 + m * (202 ±0)`
+		//  Estimated: `7846 + m * (2678 ±0)`
+		// Minimum execution time: 22_205_000_000 picoseconds.
+		Weight::from_parts(19_061_514_094, 0)
+			.saturating_add(Weight::from_parts(0, 7846))
+			// Standard Error: 3_474_870
+			.saturating_add(Weight::from_parts(7_891_845, 0).saturating_mul(s.into()))
+			// Standard Error: 17_136_332
+			.saturating_add(Weight::from_parts(899_467_201, 0).saturating_mul(m.into()))
+			.saturating_add(T::DbWeight::get().reads(18))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(m.into())))
-			// Base writes (LastDigest, Events, EventCount, CheckpointingQueues, AttestationRemovalQueues)
-			.saturating_add(T::DbWeight::get().writes(5))
-			// Each checkpoint created from continuity writes to Checkpoints + CheckpointBuckets.
-			// With checkpoint_interval = att_interval(10) * att_per_checkpoint(10) = 100 blocks,
-			// num_checkpoints = s / 100. Each checkpoint = 2 writes (Checkpoints + CheckpointBuckets).
-			// Use s/50 as a conservative upper bound (rounds up vs exact s/100*2).
-			.saturating_add(T::DbWeight::get().writes(
-				(s as u64).saturating_div(50).saturating_add(1)
-			))
+			.saturating_add(T::DbWeight::get().writes(4))
 			.saturating_add(Weight::from_parts(0, 2678).saturating_mul(m.into()))
 	}
 	/// Storage: `System::Number` (r:1 w:0)
