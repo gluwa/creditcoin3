@@ -995,9 +995,12 @@ impl<T: Config> Pallet<T> {
         let mut attestation_removal_queue: VecDeque<Digest> =
             AttestationRemovalQueues::<T>::get(chain_key);
 
-        // Create checkpoints for each boundary block in the continuity proof
+        // Create checkpoints for each boundary block in the continuity proof.
+        // Target calculation mirrors the legacy path: round down to nearest global
+        // multiple of checkpoint_width to keep checkpoint placement consistent.
         loop {
-            let target_block = last_checkpoint_block.saturating_add(checkpoint_width);
+            let next = last_checkpoint_block.saturating_add(checkpoint_width);
+            let target_block = next.saturating_sub(next % checkpoint_width);
             if target_block > head_block {
                 break;
             }
