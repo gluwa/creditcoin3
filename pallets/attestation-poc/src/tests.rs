@@ -3448,6 +3448,266 @@ fn create_checkpoints_from_continuity_proof_with_500_blocks() {
 }
 
 #[test]
+fn create_checkpoints_from_continuity_proof_clears_checkpointing_queues() {
+    // When the catch-up path creates checkpoints, any stale entries in CheckpointingQueues
+    // should be cleared since LastCheckpoint has been advanced past them.
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let checkpoint_width = 100u64; // att_interval=10 * att_per_check=10
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+        progress_to_block(5);
+
+        // Genesis attestation
+        let genesis_attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            genesis_attestation.clone(),
+        ));
+
+        // Commit a small attestation that goes through the legacy path and populates CheckpointingQueues
+        let fragment_small = construct_fragment(
+            Some(genesis_attestation.digest()),
+            RangeInclusive::new(1, 10),
+        );
+        let small_attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            11,
+            Some(genesis_attestation.digest()),
+            Some(fragment_small),
+        );
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            small_attestation.clone(),
+        ));
+
+        // Verify CheckpointingQueues has entries
+        let queue = CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert!(
+            !queue.is_empty(),
+            "CheckpointingQueues should have entries from legacy path"
+        );
+
+        // Now commit a large attestation that triggers the catch-up path (2+ checkpoint widths)
+        let fragment_big = construct_fragment(
+            Some(small_attestation.digest()),
+            RangeInclusive::new(12, 500),
+        );
+        let big_attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            501,
+            Some(small_attestation.digest()),
+            Some(fragment_big),
+        );
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            big_attestation.clone(),
+        ));
+
+        // CheckpointingQueues should be cleared after catch-up
+        let queue = CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert!(
+            queue.is_empty(),
+            "CheckpointingQueues should be cleared after catch-up path"
+        );
+
+        // Checkpoints should exist
+        assert!(Attestation::checkpoints(SUPPORTED_CHAIN_KEY, checkpoint_width).is_some());
+    })
+}
+
+#[test]
+fn create_checkpoints_from_continuity_proof_below_threshold_uses_legacy_path() {
+    // When proof spans less than 2 checkpoint intervals, the legacy queue-based path should be used.
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+        progress_to_block(5);
+
+        // Genesis attestation
+        let genesis_attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            genesis_attestation.clone(),
+        ));
+
+        // Attestation with proof spanning less than 2*checkpoint_width (< 200 blocks)
+        // This should use the legacy path and add to CheckpointingQueues
+        let fragment = construct_fragment(
+            Some(genesis_attestation.digest()),
+            RangeInclusive::new(1, 150),
+        );
+        let attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            151,
+            Some(genesis_attestation.digest()),
+            Some(fragment),
+        );
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation.clone(),
+        ));
+
+        // Should use legacy path — CheckpointingQueues should have entries
+        let queue = CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert!(
+            !queue.is_empty(),
+            "Legacy path should populate CheckpointingQueues"
+        );
+    })
+}
+
+#[test]
+fn create_checkpoints_from_continuity_proof_at_exact_boundary() {
+    // When header_number falls exactly on a checkpoint boundary, it should still be created.
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let checkpoint_width = 100u64;
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+        progress_to_block(5);
+
+        // Genesis attestation
+        let genesis_attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            genesis_attestation.clone(),
+        ));
+
+        // Attestation at exactly block 300 (a checkpoint boundary) with 299 blocks of continuity
+        // (blocks 1-299). The proof has 299 blocks >= 2*checkpoint_width (200), triggering catch-up.
+        // Catch-up should create checkpoints at 100, 200, and 300 (header_number itself).
+        let fragment = construct_fragment(
+            Some(genesis_attestation.digest()),
+            RangeInclusive::new(1, 299),
+        );
+        let attestation_300 = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            300,
+            Some(genesis_attestation.digest()),
+            Some(fragment),
+        );
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_300.clone(),
+        ));
+
+        // Checkpoint at 100 should exist (from continuity proof block)
+        assert!(
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, checkpoint_width).is_some(),
+            "Checkpoint at block 100 should exist"
+        );
+
+        // Checkpoint at 200 should exist (from continuity proof block)
+        assert!(
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 2 * checkpoint_width).is_some(),
+            "Checkpoint at block 200 should exist"
+        );
+
+        // Checkpoint at 300 should also exist (from attestation block itself, i.e. header_number)
+        assert!(
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 3 * checkpoint_width).is_some(),
+            "Checkpoint at block 300 (header_number) should exist"
+        );
+
+        let last_checkpoint = Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY)
+            .expect("Last checkpoint should exist");
+        assert_eq!(last_checkpoint.block_number, 300);
+    })
+}
+
+#[test]
+fn create_checkpoints_from_continuity_proof_adds_to_removal_queue() {
+    // Attestation should be added to removal queue when catch-up checkpoints are created.
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+        progress_to_block(5);
+
+        // Genesis attestation
+        let genesis_attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            genesis_attestation.clone(),
+        ));
+
+        // Large attestation triggering catch-up
+        let fragment = construct_fragment(
+            Some(genesis_attestation.digest()),
+            RangeInclusive::new(1, 500),
+        );
+        let attestation_500 = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            501,
+            Some(genesis_attestation.digest()),
+            Some(fragment),
+        );
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_500.clone(),
+        ));
+
+        // Removal queue should contain the attestation digest
+        let removal_queue = AttestationRemovalQueues::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert!(
+            removal_queue.contains(&attestation_500.digest()),
+            "Attestation digest should be in removal queue"
+        );
+    })
+}
+
+#[test]
 fn creating_checkpoint_purges_attestations_in_removal_queue() {
     ExtBuilder.build_and_execute(|| {
         let checkpoints_in_retention = 1;
