@@ -5744,3 +5744,207 @@ fn force_election_should_emit_attestors_elected_event() {
         assert!(elected_event.is_some(), "AttestorsElected event should be emitted");
     })
 }
+
+#[cfg(test)]
+mod set_max_catchup {
+    use super::*;
+
+    #[test]
+    fn should_error_when_not_signed() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::set_max_catchup(RuntimeOrigin::none(), SUPPORTED_CHAIN_KEY, 10),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn should_error_when_not_signed_by_operator_nor_root() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::set_max_catchup(
+                    RuntimeOrigin::signed(ATTESTOR_1),
+                    SUPPORTED_CHAIN_KEY,
+                    10
+                ),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn should_error_with_value_zero() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::set_max_catchup(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 0),
+                Error::<Test>::InvalidMaxCatchup
+            );
+        })
+    }
+
+    #[test]
+    fn should_error_for_unsupported_chain() {
+        ExtBuilder.build_and_execute(|| {
+            let unsupported_chain_key = 999;
+            assert_noop!(
+                Attestation::set_max_catchup(RuntimeOrigin::root(), unsupported_chain_key, 10),
+                Error::<Test>::ChainNotSupported
+            );
+        })
+    }
+
+    #[test]
+    fn should_set_pending_value_and_emit_event() {
+        ExtBuilder.build_and_execute(|| {
+            let new_max_catchup = 20;
+
+            assert_eq!(Attestation::pending_max_catchup(SUPPORTED_CHAIN_KEY), None);
+
+            assert_ok!(Attestation::set_max_catchup(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                new_max_catchup
+            ));
+
+            assert_eq!(
+                Attestation::pending_max_catchup(SUPPORTED_CHAIN_KEY),
+                Some(new_max_catchup)
+            );
+
+            System::assert_last_event(
+                crate::Event::PendingMaxCatchupSet(SUPPORTED_CHAIN_KEY, new_max_catchup).into(),
+            );
+        })
+    }
+
+    #[test]
+    fn should_succeed_when_signed_by_operator() {
+        ExtBuilder.build_and_execute(|| {
+            let new_max_catchup = 20;
+
+            assert_ok!(Attestation::set_max_catchup(
+                RuntimeOrigin::signed(ALICE),
+                SUPPORTED_CHAIN_KEY,
+                new_max_catchup
+            ));
+
+            assert_eq!(
+                Attestation::pending_max_catchup(SUPPORTED_CHAIN_KEY),
+                Some(new_max_catchup)
+            );
+        })
+    }
+
+    #[test]
+    fn should_not_change_active_value_immediately() {
+        ExtBuilder.build_and_execute(|| {
+            let default_max_catchup = Attestation::max_catchup(SUPPORTED_CHAIN_KEY);
+            let new_max_catchup = 42;
+
+            assert_ok!(Attestation::set_max_catchup(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                new_max_catchup
+            ));
+
+            // Active value should still be the default
+            assert_eq!(
+                Attestation::max_catchup(SUPPORTED_CHAIN_KEY),
+                default_max_catchup
+            );
+        })
+    }
+
+    #[test]
+    fn default_should_match_config() {
+        ExtBuilder.build_and_execute(|| {
+            assert_eq!(
+                Attestation::max_catchup(SUPPORTED_CHAIN_KEY),
+                <Test as crate::Config>::DefaultMaxCatchup::get()
+            );
+        })
+    }
+
+    #[test]
+    fn pending_value_applied_on_epoch_change() {
+        ExtBuilder.build_and_execute(|| {
+            assert_eq!(<Test as pallet_babe::Config>::EpochDuration::get(), 3);
+
+            // This sets the genesis slot to 6
+            go_to_block(1, 6);
+
+            assert_eq!(*Babe::genesis_slot(), 6);
+            assert_eq!(*Babe::current_slot(), 6);
+            assert_eq!(Babe::epoch_index(), 0);
+
+            let new_max_catchup = 50;
+            assert_ok!(Attestation::set_max_catchup(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                new_max_catchup
+            ));
+
+            let pending = Attestation::pending_max_catchup(SUPPORTED_CHAIN_KEY);
+            assert_eq!(pending, Some(new_max_catchup));
+
+            // Progress past epoch boundary
+            progress_to_block(4);
+
+            let applied = Attestation::max_catchup(SUPPORTED_CHAIN_KEY);
+            assert_eq!(applied, new_max_catchup);
+
+            let pending = Attestation::pending_max_catchup(SUPPORTED_CHAIN_KEY);
+            assert_eq!(pending, None);
+
+            // Verify event
+            let all_events = <frame_system::Pallet<Test>>::events();
+            let max_catchup_event = all_events
+                .iter()
+                .filter_map(|event| {
+                    if let RuntimeEvent::Attestation(event) = &event.event {
+                        Some(event)
+                    } else {
+                        None
+                    }
+                })
+                .find(|e| matches!(e, Event::<Test>::MaxCatchupChanged(..)));
+            assert_eq!(
+                max_catchup_event,
+                Some(&Event::<Test>::MaxCatchupChanged(
+                    SUPPORTED_CHAIN_KEY,
+                    new_max_catchup
+                ))
+            );
+        });
+    }
+
+    #[test]
+    fn cleaned_up_on_chain_removal() {
+        ExtBuilder.build_and_execute(|| {
+            // Set both active and pending values
+            MaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 42);
+            PendingMaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 99);
+
+            assert_eq!(Attestation::max_catchup(SUPPORTED_CHAIN_KEY), 42);
+            assert_eq!(
+                Attestation::pending_max_catchup(SUPPORTED_CHAIN_KEY),
+                Some(99)
+            );
+
+            // Remove the chain
+            assert_ok!(SupportedChains::remove_chain(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                true
+            ));
+
+            // Both should be cleared (back to default / None)
+            assert_eq!(
+                Attestation::max_catchup(SUPPORTED_CHAIN_KEY),
+                <Test as crate::Config>::DefaultMaxCatchup::get()
+            );
+            assert_eq!(Attestation::pending_max_catchup(SUPPORTED_CHAIN_KEY), None);
+        })
+    }
+}
