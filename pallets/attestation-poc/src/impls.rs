@@ -1044,6 +1044,9 @@ impl<T: Config> Pallet<T> {
             attestation_removal_queue.push_back(attestation_digest);
             // remove_attestations writes the queue to storage, no need to insert beforehand
             Self::remove_attestations(chain_key, attestation_removal_queue)?;
+            // Clear any stale entries in CheckpointingQueues — the catch-up path has
+            // advanced LastCheckpoint past them, so they'd be invalid if processed later.
+            CheckpointingQueues::<T>::remove(chain_key);
             return Ok(true);
         }
 
