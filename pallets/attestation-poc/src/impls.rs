@@ -1065,8 +1065,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::AttestationFoundWhileImporting
         );
 
-        // Create last_checkpoint tracker
-        let mut last_checkpoint = LastCheckpoint::<T>::get(chain_key).unwrap_or_default();
+        let stored_last_checkpoint = LastCheckpoint::<T>::get(chain_key);
+        let mut last_checkpoint = stored_last_checkpoint.clone().unwrap_or_default();
+        let initial_block_number = last_checkpoint.block_number;
 
         for checkpoint in checkpoints {
             if Checkpoints::<T>::contains_key(chain_key, checkpoint.block_number) {
@@ -1088,7 +1089,9 @@ impl<T: Config> Pallet<T> {
             Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint));
         }
 
-        LastCheckpoint::<T>::insert(chain_key, last_checkpoint);
+        if last_checkpoint.block_number > initial_block_number || stored_last_checkpoint.is_none() {
+            LastCheckpoint::<T>::insert(chain_key, last_checkpoint);
+        }
         Ok(())
     }
 
