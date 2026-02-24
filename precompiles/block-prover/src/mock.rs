@@ -261,6 +261,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
+    type DefaultMaxCatchup = ConstU32<5>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
     type MaxAttestationNodes = MaxAttestorsDefault;
