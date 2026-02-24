@@ -7,7 +7,7 @@ use axum::{
 use tower::util::ServiceExt;
 
 #[tokio::test]
-async fn test_chain_key_validation_success() {
+async fn test_route_with_tx_index_should_report_success_with_valid_chain_key() {
     let configured_chain_key = 2u64;
     let app = test_utils::start_test_app(configured_chain_key).await;
 
@@ -23,7 +23,7 @@ async fn test_chain_key_validation_success() {
 }
 
 #[tokio::test]
-async fn test_chain_key_validation_failure() {
+async fn test_route_with_tx_index_should_report_failure_with_invalid_chain_key() {
     let configured_chain_key = 2u64;
     let app = test_utils::start_test_app(configured_chain_key).await;
 
@@ -47,32 +47,6 @@ async fn test_chain_key_validation_failure() {
         .unwrap()
         .contains("expected 2, got 99"));
     assert_eq!(body["retriable"], false);
-}
-
-#[tokio::test]
-async fn test_chain_key_validation_with_tx_index() {
-    let configured_chain_key = 42u64;
-    let app = test_utils::start_test_app(configured_chain_key).await;
-
-    // Valid chain_key should pass
-    let request = Request::builder()
-        .uri("/api/v1/proof/42/100/5")
-        .method("GET")
-        .body(Body::empty())
-        .unwrap();
-
-    let response = app.clone().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // Invalid chain_key should return 400
-    let request = Request::builder()
-        .uri("/api/v1/proof/1/100/5")
-        .method("GET")
-        .body(Body::empty())
-        .unwrap();
-
-    let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
