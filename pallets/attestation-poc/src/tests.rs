@@ -5839,7 +5839,7 @@ mod set_max_catchup {
     #[test]
     fn should_not_change_active_value_immediately() {
         ExtBuilder.build_and_execute(|| {
-            let default_max_catchup = Attestation::max_catchup(SUPPORTED_CHAIN_KEY);
+            let current_max_catchup = Attestation::max_catchup(SUPPORTED_CHAIN_KEY);
             let new_max_catchup = 42;
 
             assert_ok!(Attestation::set_max_catchup(
@@ -5851,7 +5851,7 @@ mod set_max_catchup {
             // Active value should still be the default
             assert_eq!(
                 Attestation::max_catchup(SUPPORTED_CHAIN_KEY),
-                default_max_catchup
+                current_max_catchup
             );
         })
     }
