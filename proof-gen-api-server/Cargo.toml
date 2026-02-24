@@ -70,5 +70,6 @@ integration-tests = []
 [dev-dependencies]
 alloy-node-bindings = "0.11"       # kept at 0.11 due to compatibility with alloy
 async-trait = { workspace = true }
+parameterized = "2.1.0"
 reqwest = { workspace = true }
 wiremock = "0.6"
