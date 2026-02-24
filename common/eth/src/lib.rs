@@ -23,6 +23,7 @@ use alloy::{
 };
 
 use anyhow::{Context, Result};
+use block_primitives::BlockLike;
 use ccnext_abi_encoding::common::EncodingVersion;
 use hex::FromHexError;
 use sp_core::H256;
@@ -171,6 +172,24 @@ impl OrderedBlock {
         self.hash
     }
     pub fn items(&self) -> &[TxRx] {
+        &self.items[..]
+    }
+}
+
+impl BlockLike for OrderedBlock {
+    type BlockNumber = u64;
+    type BlockHash = BlockHash;
+    type TxRx = TxRx;
+
+    fn number(&self) -> Self::BlockNumber {
+        self.number
+    }
+
+    fn hash(&self) -> Self::BlockHash {
+        self.hash
+    }
+
+    fn transactions(&self) -> &[Self::TxRx] {
         &self.items[..]
     }
 }

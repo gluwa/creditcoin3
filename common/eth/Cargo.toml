@@ -27,12 +27,13 @@ serde_json = { workspace = true, optional = true }
 snap = { workspace = true, optional = true }
 sp-core = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
 tracing = { workspace = true }
 url = { workspace = true }
 
 # Local dependencies
 attestor-primitives = { workspace = true }
+block-primitives = { workspace = true }
 merkle = { workspace = true }
 prometheus-client = { workspace = true, optional = true }
 utils = { workspace = true }
@@ -40,3 +41,4 @@ utils = { workspace = true }
 [features]
 block_cache = ["redis", "serde", "serde_json", "snap", "prometheus-client"]
 default = []
+std = ["attestor-primitives/std"]

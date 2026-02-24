@@ -7,6 +7,7 @@ members = [
     "pallets/randomness",
     "pallets/supported-chains",
     "primitives/attestor",
+    "primitives/block",
     "primitives/randomness",
     "primitives/supported-chains",
     "precompiles/chain-info",
@@ -80,7 +81,9 @@ tempfile = { version = "3.10", default-features = false }
 thiserror = { version = "1.0.63", default-features = false }
 tiny-bip39 = { version = "0.8", default-features = false }
 tokio = { version = "1.37.0" }
+tokio-retry = { version = "0.3.0", default-features = false }
 tokio-tungstenite = { version = "0.26.2" }
+tokio-util = { version = "0.7", default-features = false }
 tower = { version = "0.5", default-features = false }
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 tracing = "0.1.37"
@@ -271,6 +274,7 @@ moonbeam-rpc-primitives-debug = { git = "https://github.com/gluwa/moonbeam", bra
 # Attestation
 attestor = { path = "attestor/attestor" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
+block-primitives = { path = "primitives/block", default-features = false }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
 
 # Randomness
@@ -280,6 +284,7 @@ rand = { version = "0.9.0", default-features = false }
 randomness-primitives = { path = "primitives/randomness", default-features = false }
 
 # Common
+block-prefetcher = { path = "common/block-prefetcher", default-features = false }
 bls-signatures = { git = "https://github.com/gluwa/bls-signatures", tag = "v0.15.0", default-features = false, features = [
     "pairing",
 ] }
