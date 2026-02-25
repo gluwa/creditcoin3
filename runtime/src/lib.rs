@@ -873,7 +873,10 @@ parameter_types! {
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
     pub const DefaultAttestationInterval: u64 = 10;
     pub const DefaultTargetSampleSize: u32 = 3;
-    pub const DefaultMaxCatchup: u32 = 5;
+    /// The default maximum catchup distance, expressed in **blocks**.
+    /// Attestors that fall behind by more than this many blocks will not
+    /// attempt to catch up and will instead skip ahead.
+    pub const DefaultMaxCatchup: u32 = 500;
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units

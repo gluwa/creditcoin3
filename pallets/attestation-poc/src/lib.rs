@@ -102,6 +102,11 @@ pub mod pallet {
         type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
         #[pallet::constant]
         type DefaultTargetSampleSize: Get<u32>;
+        /// The default maximum catchup distance, expressed in **blocks**.
+        /// Chains that fall behind by more than this many blocks will not
+        /// attempt to catch up and will instead skip ahead. This value is
+        /// constant across all chains regardless of their attestation or
+        /// checkpoint intervals.
         #[pallet::constant]
         type DefaultMaxCatchup: Get<u32>;
         #[pallet::constant]
@@ -316,6 +321,9 @@ pub mod pallet {
         T::DefaultAttestationsPerCheckpoint::get()
     }
 
+    /// The maximum catchup distance (in **blocks**) per chain. Attestors
+    /// that fall behind by more than this many blocks skip ahead rather
+    /// than attempting to catch up.
     #[pallet::storage]
     #[pallet::getter(fn max_catchup)]
     pub type MaxCatchup<T: Config> =
@@ -1146,6 +1154,8 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Set the maximum catchup distance (in **blocks**) for a given chain.
+        /// Must be greater than zero. Takes effect at the next checkpoint.
         #[pallet::call_index(26)]
         #[pallet::weight(<T as Config>::WeightInfo::set_max_catchup())]
         pub fn set_max_catchup(
