@@ -234,6 +234,12 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [AccountId32]>;
             maxAttestors: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * The maximum catchup bound (in **blocks**) per chain. During catchup,
+             * each attestation's continuity proof will span **at most** this many
+             * blocks, preventing unbounded proof sizes from stalling the
+             * execution chain.
+             **/
             maxCatchup: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
             maxInvulnerables: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &

@@ -33,6 +33,16 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             defaultAttestationRetentionDuration: u32 & AugmentedConst<ApiType>;
             defaultAttestationsPerCheckpoint: u32 & AugmentedConst<ApiType>;
+            /**
+             * The default maximum catchup bound, expressed in **blocks**.
+             * When an attestation chain falls behind the source chain (e.g.
+             * during bootstrap or after a network stall), attestors produce
+             * larger-than-usual attestations whose continuity proofs span
+             * more blocks. To prevent unbounded proof sizes from overwhelming
+             * runtime validation (risking an execution chain stall), this
+             * parameter caps the continuity proof size: each catchup
+             * attestation covers **at most** this many blocks.
+             **/
             defaultMaxCatchup: u32 & AugmentedConst<ApiType>;
             defaultMinBondRequirement: u128 & AugmentedConst<ApiType>;
             defaultTargetSampleSize: u32 & AugmentedConst<ApiType>;
