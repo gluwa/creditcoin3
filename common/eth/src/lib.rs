@@ -462,23 +462,26 @@ impl Client {
     }
 
     /// Resolve a transaction hash to its block number and index within the block.
-    pub async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64), Error> {
-        // Convert sp_core::H256 to alloy TxHash via hex string
+    ///
+    /// Returns `Ok(None)` if the transaction is not found on chain (not mined or doesn't exist).
+    /// Returns `Err` only for actual RPC/transport failures.
+    pub async fn get_tx_position_by_hash(
+        &self,
+        tx_hash: H256,
+    ) -> Result<Option<(u64, u64)>, Error> {
         let tx_hash_alloy = TxHash::from_str(&tx_hash.encode_hex())
             .map_err(|e| Error::ClientError(anyhow::anyhow!("Invalid tx hash: {e}")))?;
 
-        // Fetch the transaction by hash
         let tx_opt = self
             .rpc_provider
             .get_transaction_by_hash(tx_hash_alloy)
             .await
             .map_err(Error::from)?;
 
-        let tx = tx_opt.ok_or_else(|| {
-            Error::ClientError(anyhow::anyhow!("Transaction not found for hash {tx_hash}"))
-        })?;
+        let Some(tx) = tx_opt else {
+            return Ok(None);
+        };
 
-        // Extract block number and transaction index (both should be Some for mined tx)
         let block_number = tx.block_number.ok_or_else(|| {
             Error::ClientError(anyhow::anyhow!(
                 "Transaction not in a block (pending): {tx_hash}"
@@ -490,7 +493,7 @@ impl Client {
             ))
         })?;
 
-        Ok((block_number, tx_index))
+        Ok(Some((block_number, tx_index)))
     }
 }
 

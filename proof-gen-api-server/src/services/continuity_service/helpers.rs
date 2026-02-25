@@ -62,7 +62,10 @@ impl ContinuityService {
         tx_hash: H256,
     ) -> ServiceResult<(u64, u64)> {
         match self.builder.get_tx_position_by_hash(tx_hash).await {
-            Ok((header_number, tx_index)) => Ok((header_number, tx_index)),
+            Ok(Some((header_number, tx_index))) => Ok((header_number, tx_index)),
+            Ok(None) => Err(ServiceError::TxHashNotFound {
+                tx_hash: format!("0x{}", hex::encode(tx_hash.as_bytes())),
+            }),
             Err(e) => Err(ServiceError::RpcUnavailable {
                 message: format!("failed to resolve tx by hash via RPC: {e}"),
             }),
@@ -157,4 +160,142 @@ pub(crate) fn parse_tx_hash(tx_hash: &str) -> Result<H256, ServiceError> {
         });
     }
     Ok(H256::from_slice(&bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prom::NoopMetrics;
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use attestor_primitives::block::Block;
+    use continuity::rpc::EthRpcProvider;
+    use continuity::{mocks::make_mock_providers, ContinuityBuilder, ContinuityConfig};
+    use std::sync::Arc;
+
+    struct FoundEthProvider;
+
+    #[async_trait]
+    impl EthRpcProvider for FoundEthProvider {
+        async fn build_continuity_blocks(
+            &self,
+            _lower_digest: H256,
+            _start: u64,
+            _end: u64,
+        ) -> Result<Vec<Block>> {
+            Ok(vec![])
+        }
+        async fn get_block_tx_bytes(&self, _block_number: u64) -> Result<Vec<Vec<u8>>> {
+            Ok(vec![])
+        }
+        async fn get_tx_hash_by_index(
+            &self,
+            _block_number: u64,
+            _tx_index: u64,
+        ) -> Result<Option<H256>> {
+            Ok(None)
+        }
+        async fn get_tx_position_by_hash(&self, _tx_hash: H256) -> Result<Option<(u64, u64)>> {
+            Ok(Some((42, 3)))
+        }
+        async fn get_last_block(&self) -> Result<u64> {
+            Ok(1000)
+        }
+        async fn get_chain_id(&self) -> Result<u64> {
+            Ok(31337)
+        }
+    }
+
+    struct ErrorEthProvider;
+
+    #[async_trait]
+    impl EthRpcProvider for ErrorEthProvider {
+        async fn build_continuity_blocks(
+            &self,
+            _lower_digest: H256,
+            _start: u64,
+            _end: u64,
+        ) -> Result<Vec<Block>> {
+            Ok(vec![])
+        }
+        async fn get_block_tx_bytes(&self, _block_number: u64) -> Result<Vec<Vec<u8>>> {
+            Ok(vec![])
+        }
+        async fn get_tx_hash_by_index(
+            &self,
+            _block_number: u64,
+            _tx_index: u64,
+        ) -> Result<Option<H256>> {
+            Ok(None)
+        }
+        async fn get_tx_position_by_hash(&self, _tx_hash: H256) -> Result<Option<(u64, u64)>> {
+            Err(anyhow::anyhow!("connection refused"))
+        }
+        async fn get_last_block(&self) -> Result<u64> {
+            Ok(1000)
+        }
+        async fn get_chain_id(&self) -> Result<u64> {
+            Ok(31337)
+        }
+    }
+
+    fn mock_config(chain_key: u64) -> ContinuityConfig {
+        ContinuityConfig::builder()
+            .cc3_rpc_url("ws://mock")
+            .eth_rpc_url("http://mock")
+            .chain_key(chain_key)
+            .attestation_interval(10)
+            .checkpoint_interval(10)
+            .build()
+    }
+
+    async fn make_service(eth_provider: Arc<dyn EthRpcProvider>) -> ContinuityService {
+        let chain_key = 2;
+        let (cc_provider, _) = make_mock_providers(chain_key);
+        let builder = Arc::new(ContinuityBuilder::new_with_providers(
+            mock_config(chain_key),
+            cc_provider,
+            eth_provider,
+        ));
+        ContinuityService::new(builder, NoopMetrics::new())
+            .await
+            .expect("service init should succeed with mocks")
+    }
+
+    #[tokio::test]
+    async fn tx_hash_found_returns_position() {
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+        let hash = H256::from_low_u64_be(1);
+        let result = svc.get_height_and_index_for_tx_hash(hash).await;
+        assert_eq!(result.unwrap(), (42, 3));
+    }
+
+    #[tokio::test]
+    async fn tx_hash_not_found_returns_not_found_error() {
+        let (_, eth_provider) = make_mock_providers(2);
+        let svc = make_service(eth_provider).await;
+        let hash = H256::from_low_u64_be(999);
+        let result = svc.get_height_and_index_for_tx_hash(hash).await;
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ServiceError::TxHashNotFound { .. }),
+            "expected TxHashNotFound, got {err:?}"
+        );
+        assert!(!err.retriable());
+        assert_eq!(err.code(), "TxHashNotFound");
+    }
+
+    #[tokio::test]
+    async fn tx_hash_rpc_error_returns_rpc_unavailable() {
+        let svc = make_service(Arc::new(ErrorEthProvider)).await;
+        let hash = H256::from_low_u64_be(1);
+        let result = svc.get_height_and_index_for_tx_hash(hash).await;
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ServiceError::RpcUnavailable { .. }),
+            "expected RpcUnavailable, got {err:?}"
+        );
+        assert!(err.retriable());
+        assert_eq!(err.code(), "RpcUnavailable");
+    }
 }

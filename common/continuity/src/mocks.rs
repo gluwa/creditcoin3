@@ -257,10 +257,8 @@ impl EthRpcProvider for MockEthRpcProvider {
         Ok(Some(H256::from(bytes)))
     }
 
-    async fn get_tx_position_by_hash(&self, _tx_hash: H256) -> Result<(u64, u64)> {
-        Err(anyhow::anyhow!(
-            "MockEthRpcProvider does not implement get_tx_position_by_hash"
-        ))
+    async fn get_tx_position_by_hash(&self, _tx_hash: H256) -> Result<Option<(u64, u64)>> {
+        Ok(None)
     }
 
     async fn get_last_block(&self) -> Result<u64> {

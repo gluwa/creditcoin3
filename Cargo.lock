@@ -10324,6 +10324,7 @@ dependencies = [
  "alloy",
  "alloy-node-bindings",
  "anyhow",
+ "async-trait",
  "attestor-primitives",
  "axum",
  "cc-client",

@@ -567,12 +567,13 @@ impl ContinuityBuilder {
     ///
     /// # Returns
     ///
-    /// A tuple of `(block_number, tx_index)` where the transaction is located.
+    /// `Some((block_number, tx_index))` if the transaction exists on chain,
+    /// `None` if the transaction hash is not found.
     ///
     /// # Errors
     ///
-    /// Returns an error if the transaction is not found or RPC calls fail.
-    pub async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64)> {
+    /// Returns an error if the RPC call itself fails.
+    pub async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<Option<(u64, u64)>> {
         self.eth_provider.get_tx_position_by_hash(tx_hash).await
     }
 

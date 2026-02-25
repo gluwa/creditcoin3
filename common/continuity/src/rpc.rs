@@ -158,8 +158,9 @@ pub trait EthRpcProvider: Send + Sync {
     ///
     /// # Returns
     ///
-    /// A tuple of `(block_number, tx_index)`.
-    async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64)>;
+    /// `Some((block_number, tx_index))` if the transaction exists on chain,
+    /// `None` if the transaction hash is not found.
+    async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<Option<(u64, u64)>>;
 
     /// Get the current source chain block height.
     async fn get_last_block(&self) -> Result<u64>;
@@ -305,7 +306,7 @@ impl EthRpcProvider for eth::Client {
         Ok(tx_hash)
     }
 
-    async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<(u64, u64)> {
+    async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<Option<(u64, u64)>> {
         self.get_tx_position_by_hash(tx_hash)
             .await
             .context("Failed to resolve tx position")
