@@ -873,9 +873,10 @@ parameter_types! {
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
     pub const DefaultAttestationInterval: u64 = 10;
     pub const DefaultTargetSampleSize: u32 = 3;
-    /// The default maximum catchup distance, expressed in **blocks**.
-    /// Attestors that fall behind by more than this many blocks will not
-    /// attempt to catch up and will instead skip ahead.
+    /// The default maximum catchup bound, expressed in **blocks**.
+    /// During catchup (e.g. bootstrap or recovery from a stall),
+    /// each attestation's continuity proof spans at most this many
+    /// blocks, bounding proof size to protect runtime validation.
     pub const DefaultMaxCatchup: u32 = 500;
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;

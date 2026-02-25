@@ -102,11 +102,14 @@ pub mod pallet {
         type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
         #[pallet::constant]
         type DefaultTargetSampleSize: Get<u32>;
-        /// The default maximum catchup distance, expressed in **blocks**.
-        /// Chains that fall behind by more than this many blocks will not
-        /// attempt to catch up and will instead skip ahead. This value is
-        /// constant across all chains regardless of their attestation or
-        /// checkpoint intervals.
+        /// The default maximum catchup bound, expressed in **blocks**.
+        /// When an attestation chain falls behind the source chain (e.g.
+        /// during bootstrap or after a network stall), attestors produce
+        /// larger-than-usual attestations whose continuity proofs span
+        /// more blocks. To prevent unbounded proof sizes from overwhelming
+        /// runtime validation (risking an execution chain stall), this
+        /// parameter caps the continuity proof size: each catchup
+        /// attestation covers **at most** this many blocks.
         #[pallet::constant]
         type DefaultMaxCatchup: Get<u32>;
         #[pallet::constant]
@@ -321,9 +324,10 @@ pub mod pallet {
         T::DefaultAttestationsPerCheckpoint::get()
     }
 
-    /// The maximum catchup distance (in **blocks**) per chain. Attestors
-    /// that fall behind by more than this many blocks skip ahead rather
-    /// than attempting to catch up.
+    /// The maximum catchup bound (in **blocks**) per chain. During catchup,
+    /// each attestation's continuity proof will span **at most** this many
+    /// blocks, preventing unbounded proof sizes from stalling the
+    /// execution chain.
     #[pallet::storage]
     #[pallet::getter(fn max_catchup)]
     pub type MaxCatchup<T: Config> =
@@ -1154,8 +1158,10 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Set the maximum catchup distance (in **blocks**) for a given chain.
-        /// Must be greater than zero. Takes effect at the next checkpoint.
+        /// Set the maximum catchup bound (in **blocks**) for a given chain.
+        /// During catchup, continuity proofs will span at most this many
+        /// blocks per attestation. Must be greater than zero. Takes effect
+        /// at the next checkpoint.
         #[pallet::call_index(26)]
         #[pallet::weight(<T as Config>::WeightInfo::set_max_catchup())]
         pub fn set_max_catchup(
