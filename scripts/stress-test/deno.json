@@ -1,0 +1,23 @@
+{
+  "tasks": {
+    "start": "deno run --allow-net --allow-env --allow-read src/main.ts",
+    "dev": "deno run --allow-net --allow-env --allow-read --watch src/main.ts",
+    "lint": "deno lint",
+    "fmt": "deno fmt",
+    "fmt-check": "deno fmt --check",
+    "check": "deno check src/main.ts"
+  },
+  "imports": {
+    "ethers": "npm:ethers@^6.16.0",
+    "@std/cli/": "jsr:@std/cli@^1.0.0/"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.window", "ES2022"]
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}
