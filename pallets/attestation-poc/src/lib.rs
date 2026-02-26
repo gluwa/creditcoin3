@@ -18,6 +18,7 @@ mod continuity_dev;
 mod benchmarking;
 
 mod asset;
+mod clear_or_revert;
 mod continuity;
 mod impls;
 mod ledger;
@@ -26,6 +27,7 @@ mod ledger;
 pub mod pallet {
     use core::marker::PhantomData;
 
+    use crate::clear_or_revert::CheckpointPruningState;
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
         provider::{AttestationProvider, CheckpointProvider},
@@ -45,8 +47,6 @@ pub mod pallet {
     use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::{OnRegisterChainProvider, SupportedChainsProvider};
-
-    pub const MAX_CHECKPOINTS_CLEARED_PER_BLOCK: u8 = 40;
 
     // Amount of blocks tracked in a single checkpoint bucket
     pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
@@ -174,7 +174,7 @@ pub mod pallet {
         fn chill() -> Weight;
         fn attest() -> Weight;
         fn withdraw_unbonded() -> Weight;
-        fn on_initialize(a: u32) -> Weight;
+        fn on_initialize(a: u32, b: u32, c: u32) -> Weight;
         fn import_checkpoints() -> Weight;
         fn set_attestation_chain_genesis_block_number() -> Weight;
         fn set_election_policy() -> Weight;
@@ -184,6 +184,7 @@ pub mod pallet {
         fn force_election() -> Weight;
         fn set_max_catchup() -> Weight;
         fn force_apply_updates() -> Weight;
+        fn revert_to() -> Weight;
     }
 
     #[pallet::storage]
@@ -368,13 +369,26 @@ pub mod pallet {
     #[pallet::getter(fn ledger)]
     pub type Ledger<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, AttestorLedger<T>>;
 
-    /// Progress markers for removing the checkpoints associated with source chains that are
-    /// no longer supported. Maps from a chain_key to a cursor representing the point up to which
+    /// Progress markers for removing the checkpoints associated with source chains that are no
+    /// longer supported. Maps from a chain_key to a cursor representing the point up to which
     /// that chain's checkpoints have been removed.
     #[pallet::storage]
     #[pallet::getter(fn checkpoint_clearing_cursors)]
     pub type CheckpointClearingCursors<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+
+    /// Progress markers for removing checkpoint buckets associated with source chains that are undergoing
+    /// chain reversion or are no longer supported.
+    #[pallet::storage]
+    #[pallet::getter(fn bucket_clearing_cursors)]
+    pub type BucketClearingCursors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+
+    /// The pivot of the next checkpoint bucket to be pruned. This is used during a chain reversion, when
+    /// we want to remove all `CheckpointBuckets` entries above the height of the checkpoint we reverted to.
+    #[pallet::storage]
+    pub type CheckpointPruningStates<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, CheckpointPruningState, OptionQuery>;
 
     /// The duration in number of attestations for which we keep attestations that have already been
     /// condensed in a checkpoint. Keeping these for a time ensures that proofs generated using the
@@ -587,6 +601,11 @@ pub mod pallet {
         },
         /// Pending updates were force-applied via operator call.
         ForcedUpdatesApplied,
+        /// A chain reversion was triggered
+        RevertedAttestationChainTo {
+            checkpoint_height: u64,
+            checkpoint_digest: Digest,
+        },
     }
 
     #[pallet::error]
@@ -692,30 +711,34 @@ pub mod pallet {
         InvalidAttestationContinuityProofBlockGenesis,
         // Attestation previous digest is invalid
         InvalidAttestationPrevDigest,
+        // More attestations in storage than there should have been during `revert_to`
+        TooManyAttestations,
+        // Tried to revert to a height at which there is no checkpoint
+        NoSuchCheckpoint,
+        // Last checkpoint not set when attempting to `revert_to` checkpoint
+        LastCheckpointNotSet,
     }
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Initialization
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
-            if let Some((chain_key, cursor)) = CheckpointClearingCursors::<T>::iter().next() {
-                let maybe_cursor = Checkpoints::<T>::clear_prefix(
-                    chain_key,
-                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                    Some(&cursor[..]),
-                )
-                .maybe_cursor;
-                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+            let checkpoint_pruning_ops = Self::on_init_prune_checkpoints();
 
-                // note: may be triggered multiple times when removing a large amount of checkpoints
-                Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
-
-                // Cleared checkpoints for 1 chain
-                <T as Config>::WeightInfo::on_initialize(1)
-            } else {
-                // Cleared checkpoints for 0 chains
-                <T as Config>::WeightInfo::on_initialize(0)
+            // Clearing old storage for a chain that is no longer supported is lower prio than
+            // pruning storage for a chain that is still supported. So we proceed with just pruning
+            if checkpoint_pruning_ops == 1 {
+                return <T as Config>::WeightInfo::on_initialize(0, 0, checkpoint_pruning_ops);
             }
+
+            let checkpoint_clearing_ops = Self::on_init_clear_checkpoints();
+            let bucket_clearing_ops = Self::on_init_clear_buckets();
+
+            <T as Config>::WeightInfo::on_initialize(
+                checkpoint_clearing_ops,
+                bucket_clearing_ops,
+                0,
+            )
         }
     }
 
@@ -1204,6 +1227,28 @@ pub mod pallet {
             Self::apply_interval_updates();
 
             Self::deposit_event(Event::<T>::ForcedUpdatesApplied);
+
+            Ok(())
+        }
+
+        /// Revert an attestation chain to the given checkpoint digest. This should only
+        /// be called if a deep reorg occurred on the corresponding source chain and one
+        /// or more attestations have become invalid.
+        #[pallet::call_index(28)]
+        #[pallet::weight(<T as Config>::WeightInfo::revert_to())]
+        pub fn revert_to(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            checkpoint_height: u64,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            let checkpoint_digest = Self::do_revert_to(chain_key, checkpoint_height)?;
+
+            Self::deposit_event(Event::<T>::RevertedAttestationChainTo {
+                checkpoint_height,
+                checkpoint_digest,
+            });
 
             Ok(())
         }

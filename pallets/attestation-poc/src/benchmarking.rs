@@ -1,6 +1,7 @@
 //! Pallet Attestation POC Benchmarks
 use super::Pallet as Attestation;
 use super::*;
+use crate::clear_or_revert::{CheckpointPruningState, MAX_CHECKPOINTS_CLEARED_PER_BLOCK};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use continuity_dev::construct_fragment;
 use frame_benchmarking::v2::*;
@@ -557,16 +558,18 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn on_initialize(a: Linear<0, 1>) {
+    fn on_initialize(a: Linear<0, 1>, b: Linear<0, 1>, c: Linear<0, 1>) {
         frame_system::Pallet::<T>::set_block_number(One::one());
+        let chain_key = 5;
+        let chain_removal_checkpoint_count = (MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10) as u64;
+        let chain_removal_checkpoint_spacing = 100;
         // Set up 0-1 chains with checkpoints to be removed. Should add at least
         // MAX_CHECKPOINTS_CLEARED_PER_BLOCK attestations to ensure appropriately
         // pessemistic weight.
         if a == 1 {
-            let chain_key = 5;
-            for j in 0..(MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10) {
-                let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&[j]));
-                Checkpoints::<T>::insert(chain_key, j as u64 * 100, checkpoint_digest);
+            for j in 0..(chain_removal_checkpoint_count) {
+                let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&j.to_be_bytes()));
+                Checkpoints::<T>::insert(chain_key, j * 100, checkpoint_digest);
             }
 
             // Mimic the effects of on_supported_chain_removed
@@ -577,6 +580,65 @@ mod benchmarks {
             )
             .maybe_cursor;
             CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+        }
+
+        // Set up 0-1 chains with checkpoint bucket entries to be removed.
+        if b == 1 {
+            for j in 0..(chain_removal_checkpoint_count) {
+                let header_number = j * chain_removal_checkpoint_spacing;
+                CheckpointBuckets::<T>::insert(
+                    (
+                        chain_key,
+                        Pallet::<T>::compute_block_index_for(header_number),
+                        header_number,
+                    ),
+                    (),
+                );
+            }
+
+            // Mimic the effects of on_supported_chain_removed
+            let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
+                (chain_key,),
+                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                None,
+            )
+            .maybe_cursor;
+            BucketClearingCursors::<T>::set(chain_key, maybe_cursor);
+        }
+
+        // Set up an additional set of checkpoints and bucket entries if necessary
+        // to benchmark checkpoint pruning for chain reversions
+        if c == 1 {
+            // Make sure checkpoint heights for testing pruning can't overlap with those for testing clearing
+            let starting_height =
+                chain_removal_checkpoint_count * chain_removal_checkpoint_spacing * 2;
+
+            for j in 0..MAX_CHECKPOINTS_CLEARED_PER_BLOCK {
+                // Pesemistic spacing of 1 checkpoint every other bucket
+                let header_number = starting_height + (j as u64 * CHECKPOINT_BUCKET_SIZE * 2);
+                CheckpointBuckets::<T>::insert(
+                    (
+                        chain_key,
+                        Pallet::<T>::compute_block_index_for(header_number),
+                        header_number,
+                    ),
+                    (),
+                );
+
+                let checkpoint_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&header_number.to_be_bytes()));
+                Checkpoints::<T>::insert(chain_key, header_number, checkpoint_digest);
+
+                // Set pruning state to trigger during on_initialize
+                let stop_height = starting_height
+                    + (MAX_CHECKPOINTS_CLEARED_PER_BLOCK as u64 * CHECKPOINT_BUCKET_SIZE * 2);
+                let first_pivot_height = Pallet::<T>::compute_block_index_for(starting_height);
+                let pruning_state = CheckpointPruningState {
+                    stop_height,
+                    next_pivot: first_pivot_height,
+                };
+                CheckpointPruningStates::<T>::insert(chain_key, pruning_state);
+            }
         }
 
         #[block]
@@ -721,5 +783,91 @@ mod benchmarks {
 
         #[extrinsic_call]
         _(root_origin as <T as frame_system::Config>::RuntimeOrigin)
+    }
+
+    #[benchmark]
+    fn revert_to() {
+        let stash_id = create_funded_user_with_balance::<T>("stash", 1);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let chain_key: ChainKey = DEV_CHAIN_KEY;
+
+        let revert_height: u64 = 1_500;
+        let pivot = Pallet::<T>::compute_block_index_for(revert_height);
+
+        // Set pessemistic checkpoint interval and retention duration. These will be used to
+        // cap how many attestations we remove in `revert_to`
+        let retention_duration = 40;
+        let checkpoint_interval = 100;
+        AttestationCheckpointInterval::<T>::set(chain_key, checkpoint_interval);
+        AttestationRetentionDuration::<T>::set(chain_key, retention_duration);
+
+        // 1) Pessemistic case for attestation cleanup:
+        let attestations_to_remove = (checkpoint_interval * 2 - 1 + retention_duration) as u64;
+
+        let attestor = Attestor::new(stash_id, attestor_id);
+
+        for i in 0..attestations_to_remove {
+            let a = create_signed_attestation::<T>(
+                Vec::from([attestor.clone()]),
+                chain_key,
+                1,
+                i * 10, // We don't need attestations to be at realistic heights
+                None,
+            );
+
+            Attestations::<T>::insert(chain_key, a.digest(), a.clone());
+
+            // mimic checkpointing queue with 2 checkpoints - 1 worth of entries
+            if i < (attestations_to_remove - retention_duration as u64) {
+                CheckpointingQueues::<T>::mutate(chain_key, |q| q.push_back(a.digest()));
+            }
+
+            // mimic removal queue
+            if i >= (attestations_to_remove - retention_duration as u64) {
+                AttestationRemovalQueues::<T>::mutate(chain_key, |q| q.push_back(a.digest()));
+            }
+
+            // Set LastDigest
+            if i == (attestations_to_remove) - 1 {
+                LastDigest::<T>::insert(chain_key, (a.header_number(), a.digest()));
+            }
+        }
+
+        // 2) Ensure revert target checkpoint exists (required by do_revert_to)
+        let revert_digest = H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+        Checkpoints::<T>::insert(chain_key, revert_height, revert_digest);
+
+        // Also set a LastCheckpoint so that pruning state can be properly established within `revert_to`
+        let last_digest = H256::from(&sp_io::hashing::blake2_256(
+            &(revert_height + CHECKPOINT_BUCKET_SIZE).to_be_bytes(),
+        ));
+        LastCheckpoint::<T>::insert(
+            chain_key,
+            AttestationCheckpoint {
+                block_number: revert_height + CHECKPOINT_BUCKET_SIZE,
+                digest: last_digest,
+            },
+        );
+
+        // 3) Very pessemistic case for bucket cleanup loop:
+        // Inserting a checkpoint at every block from our revert height through the end of the bucket
+        let max_in_bucket_above: u64 = pivot + CHECKPOINT_BUCKET_SIZE - 1;
+        for height in (revert_height + 1)..=max_in_bucket_above {
+            CheckpointBuckets::<T>::insert((chain_key, pivot, height), ());
+            let digest = H256::from(&sp_io::hashing::blake2_256(&height.to_be_bytes()));
+            Checkpoints::<T>::insert(chain_key, height, digest);
+        }
+
+        // -----------------------------
+        // Call (MEASURED)
+        // -----------------------------
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_key,
+            revert_height,
+        );
     }
 }

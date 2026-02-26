@@ -249,7 +249,11 @@ pub mod pallet {
 
         /// Removes a supported chain by its chain key. Only accounts in the Operators membership can call this extrinsic.
         #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::remove_chain())]
+        // We artificially add 200 writes to our assessed weight here since the `remove_chain` benchmark doesn't
+        // account for modifications to storage made in pallet attestation poc. Actually capturing these writes
+        // precisely requires dependence on about 10 additional pallets and 100's of added code lines. And we can afford
+        // to charge more than necessary since we remove chains very rarely.
+        #[pallet::weight(T::WeightInfo::remove_chain().saturating_add(T::DbWeight::get().writes(200)))]
         pub fn remove_chain(
             origin: OriginFor<T>,
             chain_key: ChainId,

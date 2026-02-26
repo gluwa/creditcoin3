@@ -21,9 +21,7 @@ use attestor_primitives::{
 use bls_signatures::key::aggregate_public_keys;
 use bls_signatures::{PublicKey, Serialize, Signature};
 use randomness_primitives::{OnRandomnessUpdate, Randomness};
-use supported_chains_primitives::{
-    chain_removal_listener::ChainRemovalListener, provider::SupportedChainsProvider,
-};
+use supported_chains_primitives::provider::SupportedChainsProvider;
 
 use crate::{
     asset::existential_deposit,
@@ -629,7 +627,7 @@ impl<T: Config> Pallet<T> {
         let _ = PendingMaxCatchup::<T>::clear(num_supported_chains as u32, None);
     }
 
-    fn chill_all_attestors_for_chain(chain_key: ChainKey) {
+    pub(crate) fn chill_all_attestors_for_chain(chain_key: ChainKey) {
         let attestor_ids = Attestors::<T>::iter_key_prefix(chain_key);
         for attestor_id in attestor_ids {
             Self::do_chill_attestor(chain_key, attestor_id);
@@ -1226,65 +1224,6 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
         // We also apply attestation interval updates, if any, at epoch boundaries.
         // Change attestation intervals and emit events
         Self::apply_interval_updates();
-    }
-}
-
-impl<T: Config> ChainRemovalListener for Pallet<T> {
-    fn on_supported_chain_removed(chain_key: ChainKey, remove_checkpoints: bool) {
-        Self::chill_all_attestors_for_chain(chain_key);
-
-        ActiveAttestors::<T>::remove(chain_key);
-
-        // Can dispense with result, since limit is equal to maximum storage size
-        _ = Invulnerables::<T>::clear_prefix(
-            chain_key,
-            MaxInvulnerables::<T>::get(chain_key),
-            None,
-        );
-
-        MaxAttestors::<T>::remove(chain_key);
-
-        MaxInvulnerables::<T>::remove(chain_key);
-
-        // Clearing attestations
-        let max_attestations_to_remove = AttestationCheckpointInterval::<T>::get(chain_key) * 2 + 1;
-        // Can dispense with result, since limit is equal to maximum storage size
-        _ = Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None);
-
-        CheckpointingQueues::<T>::remove(chain_key);
-        LastCheckpoint::<T>::remove(chain_key);
-        LastDigest::<T>::remove(chain_key);
-        PendingTargetSampleSize::<T>::remove(chain_key);
-        TargetSampleSize::<T>::remove(chain_key);
-        ChainAttestationInterval::<T>::remove(chain_key);
-        PendingAttestationInterval::<T>::remove(chain_key);
-        AttestationCheckpointInterval::<T>::remove(chain_key);
-        MaxCatchup::<T>::remove(chain_key);
-        PendingMaxCatchup::<T>::remove(chain_key);
-
-        if remove_checkpoints {
-            // Starting the process of clearing checkpoints. There may be a very large number of checkpoints
-            // in storage, and we aren't in a huge hurry to clear them out. So we clear a moderate number per
-            // block.
-            let maybe_cursor = Checkpoints::<T>::clear_prefix(
-                chain_key,
-                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                None,
-            )
-            .maybe_cursor;
-
-            if maybe_cursor.is_some() {
-                // more checkpoints left to be removed
-                // Attestation pallet will check this storage to trigger further checkpoint removals in future blocks
-                // and CheckpointsCleared event will be dispatched inside on_initialize()
-                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
-            } else {
-                // all checkpoints were removed in the call above, trigger the event here
-                // b/c on_initialize() won't do that
-                Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
-            }
-        }
-
-        Self::deposit_event(Event::<T>::ClearedStorageForRemovedChain(chain_key));
+        Self::apply_target_sample_size_updates();
     }
 }

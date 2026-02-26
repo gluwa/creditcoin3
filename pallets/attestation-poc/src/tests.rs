@@ -1,4 +1,5 @@
 use super::*;
+use crate::clear_or_revert::{CheckpointPruningState, MAX_CHECKPOINTS_CLEARED_PER_BLOCK};
 use crate::impls::ONE_TENTH_CTC;
 use crate::mock::*;
 use attestor_primitives::attestation_fragment::{
@@ -153,6 +154,16 @@ pub fn create_checkpoint(
         ));
     }
     (attestations, last_digest)
+}
+
+fn insert_checkpoint_and_buket_entry<Test: pallet::Config>(
+    chain_key: ChainKey,
+    block_number: u64,
+    digest: Digest,
+) {
+    Checkpoints::<Test>::insert(chain_key, block_number, digest);
+    let checkpoint_pivot = Pallet::<Test>::compute_block_index_for(block_number);
+    CheckpointBuckets::<Test>::insert((chain_key, checkpoint_pivot, block_number), ());
 }
 
 #[test]
@@ -4485,6 +4496,11 @@ fn on_supported_chain_removed_cleans_up_checkpoints() {
                     checkpoint.block_number,
                     checkpoint_digest,
                 );
+                let pivot = Pallet::<Test>::compute_block_index_for(checkpoint.block_number);
+                CheckpointBuckets::<Test>::insert(
+                    (SUPPORTED_CHAIN_KEY, pivot, checkpoint.block_number),
+                    (),
+                );
             }
             System::set_block_number(1);
             Timestamp::set_timestamp(1);
@@ -4493,6 +4509,10 @@ fn on_supported_chain_removed_cleans_up_checkpoints() {
                 Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
                 MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize * 2 + 10
             );
+            assert_eq!(
+                CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+                MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize * 2 + 10
+            )
         })
         .then_run(|| {
             // Remove supported chain
@@ -4506,6 +4526,10 @@ fn on_supported_chain_removed_cleans_up_checkpoints() {
                 Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
                 MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize + 10
             );
+            assert_eq!(
+                CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+                MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize + 10
+            )
         })
         .then_run(|| {
             progress_to_block(2);
@@ -4514,6 +4538,10 @@ fn on_supported_chain_removed_cleans_up_checkpoints() {
                 Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
                 10
             );
+            assert_eq!(
+                CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+                10
+            )
         })
         .run(|| {
             progress_to_block(3);
@@ -4523,7 +4551,15 @@ fn on_supported_chain_removed_cleans_up_checkpoints() {
                 0
             );
             assert_eq!(
+                CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+                0
+            );
+            assert_eq!(
                 CheckpointClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
+                None
+            );
+            assert_eq!(
+                BucketClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
                 None
             );
 
@@ -5471,6 +5507,369 @@ mod kick_active_attestor {
                 crate::Event::AttestorChilled(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
             );
         })
+    }
+}
+
+#[cfg(test)]
+mod revert_to {
+    use super::*;
+
+    #[test]
+    fn revert_to_should_appropriately_remove_storage_entries() {
+        ExtBuilder.build_and_execute(|| {
+            let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+
+            let revert_height: u64 = 1_500;
+            let pivot = Pallet::<Test>::compute_block_index_for(revert_height);
+            let checkpoint_interval =
+                AttestationCheckpointInterval::<Test>::get(SUPPORTED_CHAIN_KEY);
+            let retention_duration = AttestationRetentionDuration::<Test>::get(SUPPORTED_CHAIN_KEY);
+
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+            // We model the following for attestations:
+            // 1. 2 checkpoints - 1 of attestations in checkpointing queue
+            // 2. Retention duration of attestations in removal queue
+            let attestations_to_remove = (checkpoint_interval * 2 - 1 + retention_duration) as u64;
+
+            for i in 0..(attestations_to_remove) {
+                let a = create_signed_attestation(
+                    Vec::from([attestor.clone()]),
+                    SUPPORTED_CHAIN_KEY,
+                    i * 10, // We don't need attestations to be at realistic heights
+                    None,
+                    None,
+                );
+
+                Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
+
+                // mimic checkpointing queue with 2 checkpoints - 1 worth of entries
+                if i < (attestations_to_remove - retention_duration as u64) {
+                    CheckpointingQueues::<Test>::mutate(SUPPORTED_CHAIN_KEY, |q| {
+                        q.push_back(a.digest())
+                    });
+                }
+
+                // mimic removal queue
+                if i >= (attestations_to_remove - retention_duration as u64) {
+                    AttestationRemovalQueues::<Test>::mutate(SUPPORTED_CHAIN_KEY, |q| {
+                        q.push_back(a.digest())
+                    });
+                }
+
+                // Set LastDigest
+                if i == (attestations_to_remove) - 1 {
+                    LastDigest::<Test>::insert(
+                        SUPPORTED_CHAIN_KEY,
+                        (a.header_number(), a.digest()),
+                    );
+                }
+            }
+
+            // Ensure revert target checkpoint exists
+            let revert_digest =
+                H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+            insert_checkpoint_and_buket_entry::<Test>(
+                SUPPORTED_CHAIN_KEY,
+                revert_height,
+                revert_digest,
+            );
+
+            // Also set a LastCheckpoint so that pruning state can be properly established within `revert_to`
+            let last_height = revert_height + CHECKPOINT_BUCKET_SIZE;
+            let last_digest = H256::from(&sp_io::hashing::blake2_256(
+                &(revert_height + CHECKPOINT_BUCKET_SIZE).to_be_bytes(),
+            ));
+            insert_checkpoint_and_buket_entry::<Test>(
+                SUPPORTED_CHAIN_KEY,
+                last_height,
+                last_digest,
+            );
+            LastCheckpoint::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_height,
+                    digest: last_digest,
+                },
+            );
+
+            // Inserting several checkpoints in the same bucket as our revert checkpoint at greater heights.
+            // These should all be removed.
+            let max_in_bucket_above: u64 = pivot + CHECKPOINT_BUCKET_SIZE - 1;
+            for height in (revert_height + 1)..=max_in_bucket_above {
+                let digest = H256::from(&sp_io::hashing::blake2_256(&height.to_be_bytes()));
+                insert_checkpoint_and_buket_entry::<Test>(SUPPORTED_CHAIN_KEY, height, digest);
+            }
+
+            assert_eq!(
+                CheckpointBuckets::<Test>::iter_key_prefix((SUPPORTED_CHAIN_KEY, pivot)).count()
+                    as u64,
+                1 + max_in_bucket_above - revert_height
+            );
+
+            // Total checkpoint count for chain. Should include LastCheckpoint, which isn't in the same bucket as the others
+            assert_eq!(
+                Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count() as u64,
+                2 + max_in_bucket_above - revert_height
+            );
+
+            // all attestations inserted
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count() as u64,
+                attestations_to_remove
+            );
+
+            // queues filled as intended
+            assert_eq!(
+                CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY).len() as u32,
+                checkpoint_interval * 2 - 1
+            );
+            assert_eq!(
+                AttestationRemovalQueues::<Test>::get(SUPPORTED_CHAIN_KEY).len() as u32,
+                retention_duration
+            );
+            // Last checkpoint set
+            assert_eq!(
+                LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY),
+                Some(AttestationCheckpoint {
+                    block_number: revert_height + CHECKPOINT_BUCKET_SIZE,
+                    digest: last_digest,
+                })
+            );
+
+            // Initiate reversion
+            assert_ok!(Attestation::revert_to(
+                root_origin,
+                SUPPORTED_CHAIN_KEY,
+                revert_height
+            ));
+
+            // Assert checkpoints total = 2 (one from outside bucket + revert_checkpoint)
+            assert_eq!(
+                Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count() as u64,
+                2
+            );
+            // Assert that revert bucket now only contains revert checkpoint
+            assert_eq!(
+                CheckpointBuckets::<Test>::iter_key_prefix((SUPPORTED_CHAIN_KEY, pivot)).count()
+                    as u64,
+                1
+            );
+            // Assert attestations are cleared
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count() as u64,
+                0
+            );
+            // Assert queues are cleared
+            assert_eq!(
+                CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY).len() as u32,
+                0
+            );
+            assert_eq!(
+                AttestationRemovalQueues::<Test>::get(SUPPORTED_CHAIN_KEY).len() as u32,
+                0
+            );
+            // Assert LastCheckpoint changed
+            assert_eq!(
+                LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY),
+                Some(AttestationCheckpoint {
+                    block_number: revert_height,
+                    digest: revert_digest,
+                })
+            );
+            // Assert LastDigest changed
+            assert_eq!(
+                LastDigest::<Test>::get(SUPPORTED_CHAIN_KEY),
+                Some((revert_height, revert_digest))
+            );
+            // Assert CheckpointPruningState set to start of next bucket with stop height LastCheckpoint_prior
+            assert_eq!(
+                CheckpointPruningStates::<Test>::get(SUPPORTED_CHAIN_KEY),
+                Some(CheckpointPruningState {
+                    stop_height: last_height,
+                    next_pivot: pivot.saturating_add(CHECKPOINT_BUCKET_SIZE)
+                })
+            )
+        })
+    }
+
+    #[test]
+    fn revert_to_should_fail_for_invalid_revert_height() {
+        ExtBuilder.build_and_execute(|| {
+            let revert_height: u64 = 1_500;
+            let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+
+            assert_noop!(
+                Attestation::revert_to(root_origin, SUPPORTED_CHAIN_KEY, revert_height),
+                Error::<Test>::NoSuchCheckpoint
+            );
+        })
+    }
+
+    #[test]
+    fn revert_to_should_fail_if_no_last_checkpoint_set() {
+        ExtBuilder.build_and_execute(|| {
+            let revert_height: u64 = 1_500;
+            let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+
+            // Need to avoid NoSuchCheckpoint error
+            let revert_digest =
+                H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+            Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, revert_height, revert_digest);
+
+            assert_noop!(
+                Attestation::revert_to(root_origin, SUPPORTED_CHAIN_KEY, revert_height),
+                Error::<Test>::LastCheckpointNotSet
+            );
+        })
+    }
+
+    #[test]
+    fn revert_to_should_fail_if_more_than_expected_attestation_count() {
+        let mut ext = ExtBuilder.build();
+        // Add attestations first
+        ext.execute_with(|| {
+            let checkpoint_interval =
+                AttestationCheckpointInterval::<Test>::get(SUPPORTED_CHAIN_KEY);
+            let retention_duration = AttestationRetentionDuration::<Test>::get(SUPPORTED_CHAIN_KEY);
+
+            let excessive_attestation_count =
+                ((checkpoint_interval + retention_duration) * 10) as u64;
+
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+            for i in 0..excessive_attestation_count {
+                let a = create_signed_attestation(
+                    Vec::from([attestor.clone()]),
+                    SUPPORTED_CHAIN_KEY,
+                    i * 10, // We don't need attestations to be at realistic heights
+                    None,
+                    None,
+                );
+
+                Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
+            }
+        });
+
+        // Commit attestations to `DB` layer rather than leaving them in overlay.
+        // This prevents unexpected behavior from iter_prefix.
+        ext.commit_all().expect("commit should work");
+
+        ext.execute_with(|| {
+            let revert_height: u64 = 1_500;
+            let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+
+            assert_noop!(
+                Attestation::revert_to(root_origin, SUPPORTED_CHAIN_KEY, revert_height),
+                Error::<Test>::TooManyAttestations
+            );
+        })
+    }
+
+    #[test]
+    fn revert_to_cleans_up_checkpoints() {
+        let revert_height: u64 = 0;
+        let added_checkpoints = MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10;
+        let mut test_ext = ExtBuilder.build();
+        test_ext
+            .then_run(|| {
+                // Ensure revert target checkpoint exists
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                insert_checkpoint_and_buket_entry::<Test>(
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height,
+                    revert_digest,
+                );
+
+                // We don't want the other checkpoints to be removed in our initial `revert_to` call
+                // So we need them in different buckets than our revert checkpoint.
+                let start_height = revert_height + CHECKPOINT_BUCKET_SIZE;
+
+                for i in 0..added_checkpoints {
+                    let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&[i]));
+                    let checkpoint = AttestationCheckpoint {
+                        block_number: start_height + (i as u64) * 100, // Mimic gap between checkpoint blocks
+                        digest: checkpoint_digest,
+                    };
+                    insert_checkpoint_and_buket_entry::<Test>(
+                        SUPPORTED_CHAIN_KEY,
+                        checkpoint.block_number,
+                        checkpoint.digest,
+                    );
+
+                    if i == added_checkpoints - 1 {
+                        LastCheckpoint::<Test>::insert(SUPPORTED_CHAIN_KEY, checkpoint);
+                    }
+                }
+                System::set_block_number(1);
+                Timestamp::set_timestamp(1);
+
+                assert_eq!(
+                    Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize * 2 + 11
+                );
+                assert_eq!(
+                    CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+                    MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize * 2 + 11
+                )
+            })
+            .then_run(|| {
+                // Initiate reversion
+                assert_ok!(Attestation::revert_to(
+                    RuntimeOrigin::root(),
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height
+                ));
+                assert_eq!(
+                    Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize * 2 + 11
+                );
+                assert_eq!(
+                    CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+                    MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize * 2 + 11
+                )
+            })
+            .then_run(|| {
+                progress_to_block(2);
+
+                assert_eq!(
+                    Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize + 11
+                );
+                assert_eq!(
+                    CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+                    MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize + 11
+                )
+            })
+            .then_run(|| {
+                progress_to_block(3);
+
+                assert_eq!(
+                    Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    11
+                );
+                assert_eq!(
+                    CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+                    11
+                )
+            })
+            .run(|| {
+                progress_to_block(4);
+
+                assert_eq!(
+                    Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    1
+                );
+                assert_eq!(
+                    CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+                    1
+                );
+                assert_eq!(
+                    CheckpointPruningStates::<Test>::get(SUPPORTED_CHAIN_KEY),
+                    None
+                );
+            })
     }
 }
 
