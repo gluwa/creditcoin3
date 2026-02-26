@@ -143,6 +143,8 @@ impl<T: Config> Pallet<T> {
             // 2) Clear as much of the pivot as we can this block
 
             // Get removal heights first, as it's unsafe to remove entries directly within the iterator
+            // Iterating these keys is technically O(bucket_size), so we benchmark for the very pessimistic
+            // case of 1 checkpoint every block.
             let removal_heights: sp_std::vec::Vec<u64> =
                 CheckpointBuckets::<T>::iter_key_prefix((chain_key, current_pivot)).collect();
             let removal_limit = usize::min(removal_heights.len(), remaining_entries as usize);

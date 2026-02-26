@@ -565,7 +565,7 @@ mod benchmarks {
         let chain_removal_checkpoint_spacing = 100;
         // Set up 0-1 chains with checkpoints to be removed. Should add at least
         // MAX_CHECKPOINTS_CLEARED_PER_BLOCK attestations to ensure appropriately
-        // pessemistic weight.
+        // pessimistic weight.
         if a == 1 {
             for j in 0..(chain_removal_checkpoint_count) {
                 let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&j.to_be_bytes()));
@@ -614,7 +614,7 @@ mod benchmarks {
                 chain_removal_checkpoint_count * chain_removal_checkpoint_spacing * 2;
 
             for j in 0..MAX_CHECKPOINTS_CLEARED_PER_BLOCK {
-                // Pesemistic spacing of 1 checkpoint every other bucket
+                // Pessimistic spacing of 1 checkpoint every other bucket
                 let header_number = starting_height + (j as u64 * CHECKPOINT_BUCKET_SIZE * 2);
                 CheckpointBuckets::<T>::insert(
                     (
@@ -796,14 +796,14 @@ mod benchmarks {
         let revert_height: u64 = 1_500;
         let pivot = Pallet::<T>::compute_block_index_for(revert_height);
 
-        // Set pessemistic checkpoint interval and retention duration. These will be used to
+        // Set pessimistic checkpoint interval and retention duration. These will be used to
         // cap how many attestations we remove in `revert_to`
         let retention_duration = 40;
         let checkpoint_interval = 100;
         AttestationCheckpointInterval::<T>::set(chain_key, checkpoint_interval);
         AttestationRetentionDuration::<T>::set(chain_key, retention_duration);
 
-        // 1) Pessemistic case for attestation cleanup:
+        // 1) Pessimistic case for attestation cleanup:
         let attestations_to_remove = (checkpoint_interval * 2 - 1 + retention_duration) as u64;
 
         let attestor = Attestor::new(stash_id, attestor_id);
@@ -851,7 +851,7 @@ mod benchmarks {
             },
         );
 
-        // 3) Very pessemistic case for bucket cleanup loop:
+        // 3) Very pessimistic case for bucket cleanup loop:
         // Inserting a checkpoint at every block from our revert height through the end of the bucket
         let max_in_bucket_above: u64 = pivot + CHECKPOINT_BUCKET_SIZE - 1;
         for height in (revert_height + 1)..=max_in_bucket_above {

@@ -156,7 +156,7 @@ pub fn create_checkpoint(
     (attestations, last_digest)
 }
 
-fn insert_checkpoint_and_buket_entry<Test: pallet::Config>(
+fn insert_checkpoint_and_bucket_entry<Test: pallet::Config>(
     chain_key: ChainKey,
     block_number: u64,
     digest: Digest,
@@ -5569,7 +5569,7 @@ mod revert_to {
             // Ensure revert target checkpoint exists
             let revert_digest =
                 H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
-            insert_checkpoint_and_buket_entry::<Test>(
+            insert_checkpoint_and_bucket_entry::<Test>(
                 SUPPORTED_CHAIN_KEY,
                 revert_height,
                 revert_digest,
@@ -5580,7 +5580,7 @@ mod revert_to {
             let last_digest = H256::from(&sp_io::hashing::blake2_256(
                 &(revert_height + CHECKPOINT_BUCKET_SIZE).to_be_bytes(),
             ));
-            insert_checkpoint_and_buket_entry::<Test>(
+            insert_checkpoint_and_bucket_entry::<Test>(
                 SUPPORTED_CHAIN_KEY,
                 last_height,
                 last_digest,
@@ -5598,7 +5598,7 @@ mod revert_to {
             let max_in_bucket_above: u64 = pivot + CHECKPOINT_BUCKET_SIZE - 1;
             for height in (revert_height + 1)..=max_in_bucket_above {
                 let digest = H256::from(&sp_io::hashing::blake2_256(&height.to_be_bytes()));
-                insert_checkpoint_and_buket_entry::<Test>(SUPPORTED_CHAIN_KEY, height, digest);
+                insert_checkpoint_and_bucket_entry::<Test>(SUPPORTED_CHAIN_KEY, height, digest);
             }
 
             assert_eq!(
@@ -5776,7 +5776,7 @@ mod revert_to {
                 // Ensure revert target checkpoint exists
                 let revert_digest =
                     H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
-                insert_checkpoint_and_buket_entry::<Test>(
+                insert_checkpoint_and_bucket_entry::<Test>(
                     SUPPORTED_CHAIN_KEY,
                     revert_height,
                     revert_digest,
@@ -5792,7 +5792,7 @@ mod revert_to {
                         block_number: start_height + (i as u64) * 100, // Mimic gap between checkpoint blocks
                         digest: checkpoint_digest,
                     };
-                    insert_checkpoint_and_buket_entry::<Test>(
+                    insert_checkpoint_and_bucket_entry::<Test>(
                         SUPPORTED_CHAIN_KEY,
                         checkpoint.block_number,
                         checkpoint.digest,
