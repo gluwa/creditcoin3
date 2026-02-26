@@ -996,6 +996,27 @@ impl<T: Config> Pallet<T> {
             .collect();
         block_digests.insert(attestation.header_number(), attestation_digest);
 
+        // Also include digests from queued attestations that precede the current proof.
+        // When the attestation chain is not aligned to a checkpoint boundary, the
+        // CheckpointingQueues may contain attestations covering blocks between
+        // the last checkpoint and the start of this proof. We need their digests
+        // to create checkpoints at boundaries that fall in that gap.
+        let mut checkpointing_queue = CheckpointingQueues::<T>::get(chain_key);
+        for queued_digest in checkpointing_queue.iter() {
+            if let Some(queued_att) = Attestations::<T>::get(chain_key, queued_digest) {
+                // Add the attestation header block itself
+                block_digests
+                    .entry(queued_att.header_number())
+                    .or_insert(queued_att.digest());
+                // Add all blocks from its continuity proof
+                for block in queued_att.continuity_proof.get_blocks_ref() {
+                    block_digests
+                        .entry(block.block_number)
+                        .or_insert(block.digest);
+                }
+            }
+        }
+
         let head_block = attestation.header_number();
 
         let mut last_checkpoint_block = last_checkpoint.block_number;
@@ -1048,6 +1069,11 @@ impl<T: Config> Pallet<T> {
 
         // Add attestation to removal queue once if we created any checkpoints from it
         if last_checkpoint_block != last_checkpoint.block_number {
+            // Add all queued attestation digests to removal queue — they've been
+            // consumed by the checkpoint creation above.
+            for queued_digest in checkpointing_queue.drain(..) {
+                attestation_removal_queue.push_back(queued_digest);
+            }
             attestation_removal_queue.push_back(attestation_digest);
             // remove_attestations writes the queue to storage, no need to insert beforehand
             Self::remove_attestations(chain_key, attestation_removal_queue)?;

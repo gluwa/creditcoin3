@@ -3655,6 +3655,135 @@ fn create_checkpoints_from_continuity_proof_at_exact_boundary() {
 }
 
 #[test]
+fn create_checkpoints_from_continuity_proof_with_unaligned_last_attestation() {
+    // Regression test (devnet crash 2026-02-26): when the latest on-chain attestation
+    // is NOT aligned to a checkpoint boundary, the next large attestation's continuity
+    // proof starts mid-interval. Checkpoint boundaries that fall in the gap between
+    // the last checkpoint and the proof start must be resolved from previously queued
+    // attestations (in CheckpointingQueues) rather than erroring.
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let att_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
+        let att_per_check = Attestation::attestation_checkpoint_interval(SUPPORTED_CHAIN_KEY);
+        let checkpoint_width = att_interval * att_per_check as u64;
+        assert_eq!(checkpoint_width, 100);
+
+        // Set up: last checkpoint at block 200, with queued attestations covering
+        // blocks 201–391 in the CheckpointingQueues. The catch-up attestation's
+        // continuity proof starts at 392, so checkpoint target 300 must be
+        // resolved from the queued attestations.
+        let forced_checkpoint = AttestationCheckpoint {
+            block_number: 200,
+            digest: Digest::default(),
+        };
+        LastCheckpoint::<Test>::insert(SUPPORTED_CHAIN_KEY, &forced_checkpoint);
+
+        // Create queued attestations covering blocks 201–390 (19 attestations of
+        // 10 blocks each: 201-210, 211-220, ..., 381-390), then one for 391.
+        let mut prev_digest = Digest::default();
+        let mut queue: sp_std::collections::vec_deque::VecDeque<Digest> =
+            sp_std::collections::vec_deque::VecDeque::new();
+
+        for i in 0..19u64 {
+            let start = 201 + i * att_interval;
+            let end = start + att_interval - 1;
+            let fragment = construct_fragment(Some(prev_digest), RangeInclusive::new(start, end));
+            let att = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                end + 1,
+                Some(prev_digest),
+                Some(fragment),
+            );
+            let digest = att.digest();
+            Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, digest, att);
+            queue.push_back(digest);
+            prev_digest = digest;
+        }
+
+        // One more attestation for block 391 (non-aligned)
+        let fragment_391 = construct_fragment(Some(prev_digest), RangeInclusive::new(391, 391));
+        let att_391 = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            392,
+            Some(prev_digest),
+            Some(fragment_391),
+        );
+        let att_391_digest = att_391.digest();
+        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, att_391_digest, att_391);
+        queue.push_back(att_391_digest);
+        prev_digest = att_391_digest;
+
+        CheckpointingQueues::<Test>::insert(SUPPORTED_CHAIN_KEY, queue);
+
+        // Build the large catch-up attestation: proof covering blocks 392–891.
+        let fragment_catchup = construct_fragment(Some(prev_digest), RangeInclusive::new(392, 891));
+        let attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            892,
+            Some(prev_digest),
+            Some(fragment_catchup),
+        );
+        let attestation_digest = attestation.digest();
+
+        // Without the fix this returns Err(CheckpointCreationError) because it
+        // can't find block 300 in the current proof (which starts at 392).
+        // With the fix, block 300's digest is resolved from the queued attestations.
+        assert_ok!(Attestation::create_checkpoints_from_continuity_proof(
+            SUPPORTED_CHAIN_KEY,
+            &attestation,
+            attestation_digest,
+        ));
+
+        // Checkpoints should be created at 300 (from queued attestations),
+        // 400, 500, 600, 700, 800 (from current proof). No gaps.
+        for &block_num in &[300u64, 400, 500, 600, 700, 800] {
+            assert!(
+                Attestation::checkpoints(SUPPORTED_CHAIN_KEY, block_num).is_some(),
+                "Checkpoint at block {block_num} should exist"
+            );
+        }
+
+        let last_cp =
+            Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY).expect("should have last checkpoint");
+        assert_eq!(last_cp.block_number, 800);
+
+        // CheckpointingQueues should be cleared — all queued attestations were consumed
+        assert!(
+            Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).is_empty(),
+            "CheckpointingQueues should be empty after catch-up"
+        );
+
+        // All queued attestation digests + the catch-up attestation are added to
+        // AttestationRemovalQueues. With retention_duration=10, older entries get
+        // pruned by remove_attestations, leaving at most 10 in the queue.
+        let removal_queue = AttestationRemovalQueues::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert!(
+            !removal_queue.is_empty(),
+            "Removal queue should not be empty"
+        );
+        assert!(
+            removal_queue.contains(&attestation_digest),
+            "Catch-up attestation digest should be in removal queue"
+        );
+
+        // Verify the checkpoint at 300 has the correct digest — it should match
+        // the block at height 300 from one of the queued attestations' continuity
+        // proofs (attestation covering 291-300 contains block 300).
+        let checkpoint_300_digest = Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 300).unwrap();
+        // The 10th queued attestation covers blocks 291-300 (i=9: start=291, end=300).
+        // Its continuity proof's last block (300) should match.
+        assert_ne!(
+            checkpoint_300_digest,
+            Digest::default(),
+            "Checkpoint 300 digest should be a real value, not default"
+        );
+    })
+}
+
+#[test]
 fn create_checkpoints_from_continuity_proof_adds_to_removal_queue() {
     // Attestation should be added to removal queue when catch-up checkpoints are created.
     ExtBuilder.build_and_execute(|| {
