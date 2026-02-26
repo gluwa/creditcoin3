@@ -1,5 +1,5 @@
 ---
-name: Creditcoin USC Audit Automation Check
+name: Creditcoin USC V1 Audit Automation Check
 
 "on":
   schedule:
