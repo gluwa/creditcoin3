@@ -13,8 +13,8 @@
 // pallet
 // --chain
 // dev
-// --steps=2
-// --repeat=2
+// --steps=50
+// --repeat=20
 // --pallet
 // pallet_attestation_poc
 // --extrinsic=*
@@ -685,6 +685,44 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		//  Estimated: `1274681`
 		// Minimum execution time: 3_801_000_000 picoseconds.
 		Weight::from_parts(4_035_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 1274681))
+			.saturating_add(T::DbWeight::get().reads(747))
+			.saturating_add(T::DbWeight::get().writes(1244))
+	}
+	/// Storage: `Attestation::AttestationRetentionDuration` (r:1 w:0)
+	/// Proof: `Attestation::AttestationRetentionDuration` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::AttestationCheckpointInterval` (r:1 w:0)
+	/// Proof: `Attestation::AttestationCheckpointInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::Attestations` (r:239 w:239)
+	/// Proof: `Attestation::Attestations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::Checkpoints` (r:1 w:499)
+	/// Proof: `Attestation::Checkpoints` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::CheckpointBuckets` (r:500 w:499)
+	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::LastCheckpoint` (r:1 w:1)
+	/// Proof: `Attestation::LastCheckpoint` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::AttestationRemovalQueues` (r:0 w:1)
+	/// Proof: `Attestation::AttestationRemovalQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::CheckpointPruningStates` (r:0 w:1)
+	/// Proof: `Attestation::CheckpointPruningStates` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::LastDigest` (r:0 w:1)
+	/// Proof: `Attestation::LastDigest` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::CheckpointingQueues` (r:0 w:1)
+	/// Proof: `Attestation::CheckpointingQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn revert_to() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `36191`
+		//  Estimated: `1274681`
+		// Minimum execution time: 3_987_000_000 picoseconds.
+		Weight::from_parts(4_393_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 1274681))
 			.saturating_add(T::DbWeight::get().reads(747))
 			.saturating_add(T::DbWeight::get().writes(1244))
