@@ -603,6 +603,7 @@ pub mod pallet {
         ForcedUpdatesApplied,
         /// A chain reversion was triggered
         RevertedAttestationChainTo {
+            chain_key: ChainKey,
             checkpoint_height: u64,
             checkpoint_digest: Digest,
         },
@@ -1246,6 +1247,7 @@ pub mod pallet {
             let checkpoint_digest = Self::do_revert_to(chain_key, checkpoint_height)?;
 
             Self::deposit_event(Event::<T>::RevertedAttestationChainTo {
+                chain_key,
                 checkpoint_height,
                 checkpoint_digest,
             });

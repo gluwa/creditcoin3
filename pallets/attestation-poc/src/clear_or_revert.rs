@@ -48,7 +48,9 @@ impl<T: Config> Pallet<T> {
 
         // Remove all entries with height > checkpoint_height from bucket containing `checkpoint_height`
         let checkpoint_pivot = Self::compute_block_index_for(checkpoint_height);
-        for block_number in CheckpointBuckets::<T>::iter_key_prefix((chain_key, checkpoint_pivot)) {
+        let block_heights: Vec<u64> =
+            CheckpointBuckets::<T>::iter_key_prefix((chain_key, checkpoint_pivot)).collect();
+        for block_number in block_heights {
             if block_number > checkpoint_height {
                 Checkpoints::<T>::remove(chain_key, block_number);
                 CheckpointBuckets::<T>::remove((chain_key, checkpoint_pivot, block_number));
@@ -241,6 +243,10 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
                 BucketClearingCursors::<T>::set(chain_key, maybe_buckets_cursor);
             }
         }
+
+        // If there is an ongoing chain reversion for the chain being removed, we can
+        // drop the reversion in favor of the removal.
+        CheckpointPruningStates::<T>::remove(chain_key);
 
         Self::deposit_event(Event::<T>::ClearedStorageForRemovedChain(chain_key));
     }
