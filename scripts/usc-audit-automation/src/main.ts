@@ -24,7 +24,7 @@ import {
 import { queryAttestation } from "./graphql.ts";
 import { createSlackPayload, sendSlackMessage } from "./slack.ts";
 
-const MAX_BLOCK_DIFF = 100;
+const MAX_BLOCK_DIFF = 40;
 /** Extra blocks allowed beyond (checkpointInterval × attestationInterval) for checkpoint lag. */
 const CHECKPOINT_BUFFER = 150;
 
