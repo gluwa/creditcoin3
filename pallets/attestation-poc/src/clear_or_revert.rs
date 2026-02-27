@@ -79,7 +79,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Helpers to keep on_initialize readable ///
-    pub fn on_init_clear_checkpoints() -> u32 {
+    pub fn on_init_clear_checkpoints() -> bool {
         if let Some((chain_key, cursor)) = CheckpointClearingCursors::<T>::iter().next() {
             let maybe_cursor = Checkpoints::<T>::clear_prefix(
                 chain_key,
@@ -92,14 +92,14 @@ impl<T: Config> Pallet<T> {
             // note: may be triggered multiple times when removing a large amount of checkpoints
             Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
 
-            // 1 clear checkpoints operation (for gas calculation)
-            1
+            // Performed clear checkpoints operation (for gas calculation)
+            true
         } else {
-            0
+            false
         }
     }
 
-    pub fn on_init_clear_buckets() -> u32 {
+    pub fn on_init_clear_buckets() -> bool {
         if let Some((chain_key, cursor)) = BucketClearingCursors::<T>::iter().next() {
             let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
                 (chain_key,),
@@ -109,21 +109,21 @@ impl<T: Config> Pallet<T> {
             .maybe_cursor;
             BucketClearingCursors::<T>::set(chain_key, maybe_cursor);
 
-            // 1 clear buckets operation (for gas calculation)
-            1
+            // performed clear buckets operation (for gas calculation)
+            true
         } else {
-            0
+            false
         }
     }
 
-    pub fn on_init_prune_checkpoints() -> u32 {
+    pub fn on_init_prune_checkpoints() -> bool {
         match CheckpointPruningStates::<T>::iter().next() {
             Some((chain_key, state)) => {
                 Self::prune_checkpoints_impl(chain_key, state);
-                // 1 prune checkpoints operation (for gas calculation)
-                1
+                // performed prune checkpoints operation (for gas calculation)
+                true
             }
-            None => 0,
+            None => false,
         }
     }
 

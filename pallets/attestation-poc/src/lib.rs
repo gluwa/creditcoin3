@@ -724,20 +724,20 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Initialization
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
-            let checkpoint_pruning_ops = Self::on_init_prune_checkpoints();
+            let did_prune = Self::on_init_prune_checkpoints();
 
             // Clearing old storage for a chain that is no longer supported is lower prio than
             // pruning storage for a chain that is still supported. So we proceed with just pruning
-            if checkpoint_pruning_ops == 1 {
-                return <T as Config>::WeightInfo::on_initialize(0, 0, checkpoint_pruning_ops);
+            if did_prune {
+                return <T as Config>::WeightInfo::on_initialize(0, 0, u32::from(did_prune));
             }
 
-            let checkpoint_clearing_ops = Self::on_init_clear_checkpoints();
-            let bucket_clearing_ops = Self::on_init_clear_buckets();
+            let did_clear_checkpoints = Self::on_init_clear_checkpoints();
+            let did_clear_buckets = Self::on_init_clear_buckets();
 
             <T as Config>::WeightInfo::on_initialize(
-                checkpoint_clearing_ops,
-                bucket_clearing_ops,
+                u32::from(did_clear_checkpoints),
+                u32::from(did_clear_buckets),
                 0,
             )
         }
