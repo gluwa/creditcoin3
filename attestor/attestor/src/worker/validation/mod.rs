@@ -98,7 +98,8 @@ pub struct Config {
     cc3: cc_client::Client,
     keypair: subxt_signer::sr25519::Keypair,
 
-    receiver_validation: pool::AttestationPoolReceiver,
+    validation_sender: pool::AttestationPoolSender,
+    validation_receiver: pool::AttestationPoolReceiver,
 
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
@@ -117,7 +118,8 @@ pub(crate) struct WorkerAttestationValidation {
     // ATTESTATIONS
     keypair: subxt_signer::sr25519::Keypair,
     watch_submission: future::OptionFuture<(AttestationSubmission, common::types::Height)>,
-    receiver_validation: pool::AttestationPoolReceiver,
+    validation_sender: pool::AttestationPoolSender,
+    validation_receiver: pool::AttestationPoolReceiver,
 
     // CHAIN DATA
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
@@ -136,7 +138,8 @@ impl WorkerAttestationValidation {
 
             keypair: config.keypair,
             watch_submission: future::OptionFuture::default(),
-            receiver_validation: config.receiver_validation,
+            validation_receiver: config.validation_receiver,
+            validation_sender: config.validation_sender,
 
             api_calls: config.api_calls,
             api: config.api,
@@ -167,7 +170,7 @@ impl super::Worker for WorkerAttestationValidation {
                 event = &mut self.watch_submission => {
                     self.handle_event_submission(event).await?;
                 }
-                event = self.receiver_validation.next() => {
+                event = self.validation_receiver.next() => {
                     self.handle_event_quorum(event).await?;
                 },
             }
@@ -192,6 +195,7 @@ impl WorkerAttestationValidation {
         let digest = quorum.digest();
         let height = quorum.header_number();
         let chain_key = quorum.chain_key();
+        let votes = quorum.votes();
 
         tracing::info!(
             %digest,
@@ -210,7 +214,7 @@ impl WorkerAttestationValidation {
             Ok(attestation) if self.watch_submission.is_none() => {
                 // ---------------------------------* Pool update *--------------------------------
 
-                self.receiver_validation.mark_valid(permit);
+                self.validation_receiver.mark_valid(permit);
 
                 // ---------------------------* Attestation submission *---------------------------
 
@@ -222,7 +226,8 @@ impl WorkerAttestationValidation {
                     "🛫 Submitting attestation"
                 );
 
-                self.submit_attestation(attestation.into(), height).await?;
+                self.submit_attestation(attestation.into(), votes, height)
+                    .await?;
                 Ok(())
             }
             // CASE 2] VALID ATTESTATION - WAITING ON SUBMISSION
@@ -239,14 +244,15 @@ impl WorkerAttestationValidation {
                     "🗃️ Storing attestation for later submission"
                 );
 
-                self.receiver_validation.mark_for_later(permit, attestation);
+                self.validation_receiver
+                    .mark_for_later(permit, attestation, votes);
                 Ok(())
             }
             // CASE 3] INVALID ATTESTATION
             //
             // Remove the attestation from the pool, it will eventually be re-generated
             Err(Interrupt::Cont(Error::InvalidAttestation(_))) => {
-                self.receiver_validation.mark_invalid(permit);
+                self.validation_receiver.mark_invalid(permit);
                 self.metrics.increase_invalid_attestation_count();
                 Ok(())
             }
@@ -258,7 +264,7 @@ impl WorkerAttestationValidation {
                 //
                 // Even if this is an irrecoverable error, we still need to restore the attestation
                 // pool to a valid state as it can still be referenced to from other worker threads.
-                self.receiver_validation.mark_invalid(permit);
+                self.validation_receiver.mark_invalid(permit);
                 Err(Interrupt::Cont(err))
             }
             // CASE 5] EXTERNAL INTERRUPT
@@ -278,10 +284,10 @@ impl WorkerAttestationValidation {
 
         match submission {
             // CASE 1] SUBMITTED ATTESTATION
-            AttestationSubmission::Elligible(res) => {
+            AttestationSubmission::Elligible { success, votes } => {
                 // -----------------------* Attestation runtime validation *---------------------------
 
-                match res {
+                match success {
                     // CASE 1.A] LOST THE ATTESTATION SUBMISSION RACE
                     Err(subxt::Error::Runtime(subxt::error::DispatchError::Module(err))) => {
                         match err
@@ -299,6 +305,27 @@ impl WorkerAttestationValidation {
                                 // This is not a failure case.
                                 tracing::info!(height, "✅ Attestation already submitted");
                             }
+                            cc_client::cc3::Error::Attestation(
+                                cc_client::cc3::attestation::Error::MajorityNotReached,
+                            ) => {
+                                tracing::error!(height, ?err, "⛔ Target sample size missmatch");
+
+                                // There can be a temporary desync between the runtime and the
+                                // attestors at epoch rotation as the attestors haven't had the
+                                // time to update their target sample size yet. This can cause
+                                // attestations to be rejected in the runtime even if they were
+                                // flagged as valid locally.
+                                for vote in votes {
+                                    self.validation_sender.send(vote);
+                                }
+
+                                // WARNING: PANIC
+                                //
+                                // Any early return must reset the `watch_submission` future to
+                                // avoid double polling!
+                                self.watch_submission = future::OptionFuture::default();
+                                return Ok(());
+                            }
                             err => {
                                 tracing::error!(height, ?err, "⛔ Invalid attestation");
                                 // WARNING: PANIC
@@ -306,6 +333,7 @@ impl WorkerAttestationValidation {
                                 // Any early return must reset the `watch_submission` future to
                                 // avoid double polling!
                                 self.watch_submission = future::OptionFuture::default();
+                                return Ok(());
                             }
                         }
                     }
@@ -325,7 +353,7 @@ impl WorkerAttestationValidation {
                                 // Any early return must reset the `watch_submission` future to
                                 // avoid double polling!
                                 self.watch_submission = future::OptionFuture::default();
-                                return Err(Interrupt::Cont(Error::InvalidAttestationEvent));
+                                return Ok(());
                             }
                         }
                     }
@@ -354,6 +382,7 @@ impl WorkerAttestationValidation {
                                     event
                                 {
                                     if attestation.header_number >= height {
+                                        tracing::info!(height, "✅ Attestation submitted externally");
                                         break 'outer;
                                     }
                                 }
@@ -395,6 +424,7 @@ impl WorkerAttestationValidation {
                                     event
                                 {
                                     if attestation.header_number >= height {
+                                        tracing::info!(height, "✅ Attestation submitted externally");
                                         break 'outer;
                                     }
                                 }
@@ -405,6 +435,7 @@ impl WorkerAttestationValidation {
                                 height,
                                 "🏃 Attestation finalization timed out, assuming no leader was elected"
                             );
+                            self.watch_submission = future::OptionFuture::default();
                             return Ok(());
                         }
                         _ = tokio::signal::ctrl_c() => {
@@ -421,7 +452,9 @@ impl WorkerAttestationValidation {
 
         // -----------------------------* Attestation pre-validation *-----------------------------
 
-        if let Some((height, digest, attestation)) = self.receiver_validation.take_next_validated()
+        self.watch_submission = future::OptionFuture::default();
+        if let Some((height, digest, attestation, votes)) =
+            self.validation_receiver.take_next_validated()
         {
             // CASE 1] AN ATTESTATION IS READY
             //
@@ -436,7 +469,7 @@ impl WorkerAttestationValidation {
                 "🛫 Submitting pre-validated attestation"
             );
 
-            self.submit_attestation(attestation, height).await?;
+            self.submit_attestation(attestation, votes, height).await?;
         } else {
             // CASE 2] NO ATTESTATION
             //
@@ -972,7 +1005,10 @@ impl WorkerAttestationValidation {
 // ----------------------------------------- [ HELPERS ] --------------------------------------- //
 
 enum AttestationSubmission {
-    Elligible(Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>),
+    Elligible {
+        success: Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>,
+        votes: Vec<common::types::Attestation>,
+    },
     NotElligible,
     Finalized,
 }
@@ -984,6 +1020,7 @@ impl WorkerAttestationValidation {
             cc_client::H256,
             cc_client::AccountId32,
         >,
+        votes: Vec<common::types::Attestation>,
         height: common::types::Height,
     ) -> Result<(), Interrupt<Error>> {
         use futures::FutureExt as _;
@@ -1049,7 +1086,7 @@ impl WorkerAttestationValidation {
                 )))
                 .into();
 
-                return Err(Interrupt::Stop);
+                return Ok(());
             }
             Err(err) => return Err(Interrupt::Cont(Error::ClientError(err))),
         };
@@ -1230,7 +1267,7 @@ impl WorkerAttestationValidation {
 
         let watch = submit
             .wait_for_finalized_success()
-            .map(move |res| (AttestationSubmission::Elligible(res), height));
+            .map(move |success| (AttestationSubmission::Elligible { success, votes }, height));
 
         self.watch_submission = Some(watch).into();
 

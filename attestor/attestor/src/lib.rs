@@ -105,6 +105,24 @@ impl Attestor {
             .await
             .map_err(Error::InitError)?;
 
+        // -----------------------------------------* CC3 *----------------------------------------
+
+        let config = stream::cc3::ConfigBuilder::new()
+            .with_cc3(client_cc3.clone())
+            .with_chain_key(self.config.chain_key)
+            .build();
+        let mut stream_cc3_production = stream::cc3::StreamCC3::new(config)
+            .await
+            .map_err(Error::InitError)?;
+
+        let config = stream::cc3::ConfigBuilder::new()
+            .with_cc3(client_cc3.clone())
+            .with_chain_key(self.config.chain_key)
+            .build();
+        let stream_cc3_validation = stream::cc3::StreamCC3::new(config)
+            .await
+            .map_err(Error::InitError)?;
+
         // ------------------------------------* Registration *------------------------------------
 
         tracing::info!("🔑 Making sure attestor bls key is registered...");
@@ -223,7 +241,7 @@ impl Attestor {
 
         tracing::info!(quorum, "🧑‍🤝‍🧑 Retrieved target sample size");
 
-        // -------------------------------------* Streams *------------------------------------- //
+        // -------------------------------------* Attestation *------------------------------------
 
         let config = stream::attestation::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
@@ -236,22 +254,6 @@ impl Attestor {
             .with_start_digest(start_digest)
             .build();
         let mut stream_attestation = stream::attestation::StreamAttestation::new(config)
-            .await
-            .map_err(Error::InitError)?;
-
-        let config = stream::cc3::ConfigBuilder::new()
-            .with_cc3(client_cc3.clone())
-            .with_chain_key(self.config.chain_key)
-            .build();
-        let mut stream_cc3_production = stream::cc3::StreamCC3::new(config)
-            .await
-            .map_err(Error::InitError)?;
-
-        let config = stream::cc3::ConfigBuilder::new()
-            .with_cc3(client_cc3.clone())
-            .with_chain_key(self.config.chain_key)
-            .build();
-        let stream_cc3_validation = stream::cc3::StreamCC3::new(config)
             .await
             .map_err(Error::InitError)?;
 
@@ -297,6 +299,11 @@ impl Attestor {
                             let event = event.map_err(Error::CC3Error)?;
                             if let cc_client::attestation::CcEvent::AttestorsElected(attestors) = event {
                                 if attestors.contains(&account_id) {
+                                    tracing::info!(%account_id, "☀️ Attestor is eligible for production");
+
+                                    // Waiting for other attestors to process the AttestorsElected event
+                                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+
                                     break 'outer attestors;
                                 }
                             }
@@ -413,7 +420,8 @@ impl Attestor {
             .with_stream_cc3(stream_cc3_validation)
             .with_cc3(client_cc3.clone())
             .with_keypair(keypair_cc3)
-            .with_receiver_validation(receiver_validation)
+            .with_validation_receiver(receiver_validation)
+            .with_validation_sender(sender_validation.clone())
             .with_api_calls(cc_client::Client::runtime_api())
             .with_api(api)
             .with_start_height(start_height)

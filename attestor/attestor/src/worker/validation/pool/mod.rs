@@ -438,8 +438,13 @@ impl AttestationPoolInner {
         self.forks.pop(info.digest);
     }
 
-    fn mark_for_later(&mut self, permit: Permit, signed: common::types::AttestationSigned) {
-        self.valid.push(signed);
+    fn mark_for_later(
+        &mut self,
+        permit: Permit,
+        signed: common::types::AttestationSigned,
+        votes: Vec<common::types::Attestation>,
+    ) {
+        self.valid.push(signed, votes);
         self.mark_valid(permit);
     }
 }
@@ -1165,8 +1170,13 @@ impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolForks
 impl crate::events::EventAttestationIntervalChange for AttestationPoolForks {}
 
 struct AttestationPoolValid {
-    quorums_valid:
-        std::collections::BTreeMap<common::types::Height, common::types::AttestationSigned>,
+    quorums_valid: std::collections::BTreeMap<
+        common::types::Height,
+        (
+            common::types::AttestationSigned,
+            Vec<common::types::Attestation>,
+        ),
+    >,
 }
 
 impl AttestationPoolValid {
@@ -1176,10 +1186,14 @@ impl AttestationPoolValid {
         }
     }
 
-    fn push(&mut self, signed: common::types::AttestationSigned) {
+    fn push(
+        &mut self,
+        signed: common::types::AttestationSigned,
+        votes: Vec<common::types::Attestation>,
+    ) {
         let height = signed.attestation.header_number();
         assert!(
-            self.quorums_valid.insert(height, signed).is_none(),
+            self.quorums_valid.insert(height, (signed, votes)).is_none(),
             "Duplicate mapping in quorums_valid: {height}"
         );
     }
@@ -1193,10 +1207,11 @@ impl AttestationPoolValid {
             cc_client::H256,
             cc_client::AccountId32,
         >,
+        Vec<common::types::Attestation>,
     )> {
         self.quorums_valid
             .pop_last()
-            .map(|(_height, att)| (att.header_number(), att.digest(), att.into()))
+            .map(|(_height, (att, votes))| (att.header_number(), att.digest(), att.into(), votes))
     }
 }
 
@@ -1547,11 +1562,16 @@ impl AttestationPoolReceiver {
     /// [validation worker]: crate::worker::validation
     /// [`take_next_validated`]: Self::take_next_validated
     #[tracing::instrument(skip_all, fields(%permit))]
-    pub fn mark_for_later(&self, permit: Permit, signed: common::types::AttestationSigned) {
+    pub fn mark_for_later(
+        &self,
+        permit: Permit,
+        signed: common::types::AttestationSigned,
+        votes: Vec<common::types::Attestation>,
+    ) {
         match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => {
                 tracing::debug!("Marking attestation for later removal");
-                inner.mark_for_later(permit, signed);
+                inner.mark_for_later(permit, signed, votes);
             }
             AttestationPool::Closed => {
                 tracing::warn!(
@@ -1579,6 +1599,7 @@ impl AttestationPoolReceiver {
             cc_client::H256,
             cc_client::AccountId32,
         >,
+        Vec<common::types::Attestation>,
     )> {
         match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => {
@@ -1688,8 +1709,8 @@ impl Quorum {
         self.0[0].chain_key()
     }
 
-    pub fn votes(self) -> Vec<common::types::Attestation> {
-        self.0
+    pub fn votes(&self) -> Vec<common::types::Attestation> {
+        self.0.clone()
     }
 }
 
@@ -2127,7 +2148,14 @@ mod test {
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
         assert_eq!(quorum_actual, quorum_expected);
-        rx.mark_for_later(permit, attestation_signed.clone());
+        rx.mark_for_later(
+            permit,
+            attestation_signed.clone(),
+            vec![
+                attestation_0.attestation.clone(),
+                attestation_1.attestation.clone(),
+            ],
+        );
 
         // Such types, much wow... -fuck subxt and the incompatible dependencies which make using
         // our own types an even more royal pain $$%%^#$#
@@ -2136,11 +2164,17 @@ mod test {
             cc_client::AccountId32,
         > = attestation_signed.clone().into();
 
-        assert_matches::assert_matches!(rx.take_next_validated(), Some((height, digest, attestation)) => {
+        assert_matches::assert_matches!(rx.take_next_validated(), Some((height, digest, attestation, votes)) => {
             assert_eq!(height, attestation_0.attestation.header_number());
             assert_eq!(digest, attestation_0.attestation.digest());
             // Other types in this don't implement PartialEq and Eq...
             assert_eq!(attestation.attestors, attestation_expected.attestors);
+            assert_eq!(votes,
+                vec![
+                    attestation_0.attestation,
+                    attestation_1.attestation,
+                ],
+            )
         });
 
         assert_eq!(
