@@ -193,7 +193,9 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         MaxInvulnerables::<T>::remove(chain_key);
 
         // Clearing attestations
-        let max_attestations_to_remove = AttestationCheckpointInterval::<T>::get(chain_key) * 2 + 1;
+        let retention_duration = AttestationRetentionDuration::<T>::get(chain_key);
+        let max_attestations_to_remove =
+            AttestationCheckpointInterval::<T>::get(chain_key) * 2 + retention_duration;
         // Can dispense with result, since limit is equal to maximum storage size
         _ = Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None);
 
@@ -208,6 +210,7 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         AttestationCheckpointInterval::<T>::remove(chain_key);
         MaxCatchup::<T>::remove(chain_key);
         PendingMaxCatchup::<T>::remove(chain_key);
+        AttestationRetentionDuration::<T>::remove(chain_key);
 
         if remove_checkpoints {
             // Starting the process of clearing checkpoints. There may be a very large number of checkpoints
