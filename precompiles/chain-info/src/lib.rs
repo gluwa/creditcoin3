@@ -276,7 +276,7 @@ where
                     items_processed += 1;
                 })
                 .filter(|(_, attestation)| attestation.header_number() < target_height)
-                .max_by_key(|(height, _)| *height)
+                .max_by_key(|(_, attestation)| attestation.header_number())
                 .map(|(hash, attestation)| HeightHashResult {
                     height: attestation.header_number(),
                     hash,
@@ -382,7 +382,7 @@ where
                     items_processed += 1;
                 })
                 .filter(|(_, attestation)| attestation.header_number() >= target_height)
-                .min_by_key(|(height, _)| *height)
+                .min_by_key(|(_, attestation)| attestation.header_number())
                 .map(|(hash, attestation)| HeightHashResult {
                     height: attestation.header_number(),
                     hash,
