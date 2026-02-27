@@ -13,8 +13,8 @@
 // pallet
 // --chain
 // dev
-// --steps=50
-// --repeat=20
+// --steps=2
+// --repeat=2
 // --pallet
 // pallet_attestation_poc
 // --extrinsic=*
@@ -33,7 +33,7 @@ use core::marker::PhantomData;
 
 /// Weight functions for `pallet_attestation_poc`.
 pub struct WeightInfo<T>(PhantomData<T>);
-impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
+impl<T: frame_system::Config> pallet_attestation_poc::WeightInfo for WeightInfo<T> {
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
@@ -497,12 +497,12 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::CheckpointPruningStates` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::CheckpointBuckets` (r:119 w:40)
 	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Checkpoints` (r:0 w:40)
-	/// Proof: `Attestation::Checkpoints` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::CheckpointClearingCursors` (r:1 w:0)
 	/// Proof: `Attestation::CheckpointClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::BucketClearingCursors` (r:1 w:0)
 	/// Proof: `Attestation::BucketClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::Checkpoints` (r:0 w:40)
+	/// Proof: `Attestation::Checkpoints` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `a` is `[0, 1]`.
 	/// The range of component `b` is `[0, 1]`.
 	/// The range of component `c` is `[0, 1]`.
@@ -706,8 +706,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `36191`
 		//  Estimated: `1274681`
-		// Minimum execution time: 3_987_000_000 picoseconds.
-		Weight::from_parts(4_393_000_000, 0)
+		// Minimum execution time: 3_816_000_000 picoseconds.
+		Weight::from_parts(4_468_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 1274681))
 			.saturating_add(T::DbWeight::get().reads(747))
 			.saturating_add(T::DbWeight::get().writes(1244))

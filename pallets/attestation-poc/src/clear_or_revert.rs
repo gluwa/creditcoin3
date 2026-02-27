@@ -1,6 +1,7 @@
 use frame_support::{pallet_prelude::*, transactional};
 
 use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest};
+use sp_runtime::Vec;
 use supported_chains_primitives::chain_removal_listener::ChainRemovalListener;
 
 use super::pallet::*;

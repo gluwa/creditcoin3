@@ -725,20 +725,13 @@ pub mod pallet {
         /// Initialization
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
             let did_prune = Self::on_init_prune_checkpoints();
-
-            // Clearing old storage for a chain that is no longer supported is lower prio than
-            // pruning storage for a chain that is still supported. So we proceed with just pruning
-            if did_prune {
-                return <T as Config>::WeightInfo::on_initialize(0, 0, u32::from(did_prune));
-            }
-
             let did_clear_checkpoints = Self::on_init_clear_checkpoints();
             let did_clear_buckets = Self::on_init_clear_buckets();
 
             <T as Config>::WeightInfo::on_initialize(
                 u32::from(did_clear_checkpoints),
                 u32::from(did_clear_buckets),
-                0,
+                u32::from(did_prune),
             )
         }
     }
