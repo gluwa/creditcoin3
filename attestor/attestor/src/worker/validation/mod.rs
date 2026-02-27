@@ -316,7 +316,10 @@ impl WorkerAttestationValidation {
                                 // attestations to be rejected in the runtime even if they were
                                 // flagged as valid locally.
                                 for vote in votes {
-                                    self.validation_sender.send(vote);
+                                    let digest = vote.digest();
+                                    if let Some(Err(err)) = self.validation_sender.send(vote) {
+                                        err.log_error(digest);
+                                    };
                                 }
 
                                 // WARNING: PANIC
