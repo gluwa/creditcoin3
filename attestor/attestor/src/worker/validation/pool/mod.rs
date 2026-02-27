@@ -1198,6 +1198,7 @@ impl AttestationPoolValid {
         );
     }
 
+    #[allow(clippy::type_complexity)]
     fn pop(
         &mut self,
     ) -> Option<(
@@ -1590,6 +1591,7 @@ impl AttestationPoolReceiver {
     /// enough time to validate attestations between submissions.
     ///
     /// [`mark_for_later`]: Self::mark_for_later
+    #[allow(clippy::type_complexity)]
     pub fn take_next_validated(
         &self,
     ) -> Option<(
