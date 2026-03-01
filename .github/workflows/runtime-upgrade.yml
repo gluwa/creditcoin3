@@ -102,7 +102,7 @@ jobs:
           HTTPS_RPC_URL: ${{ steps.testnet-env.outputs.https_rpc_url || steps.mainnet-env.outputs.https_rpc_url }}
 
       - name: Upload last block info
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: last-block-info
           path: "last-block*"
@@ -230,14 +230,14 @@ jobs:
           sleep 120
 
       - name: Upload logs
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: fork-creditcoin-logs
           path: "*.log"
 
       - name: Upload creditcoin-fork.json
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: creditcoin-fork.json
           path: creditcoin-fork.json
@@ -337,7 +337,7 @@ jobs:
           sleep 120
 
       - name: Upload logs
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: live-sync-creditcoin-logs
@@ -357,13 +357,13 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download creditcoin3-node from current PR
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: binary-for-PR
           path: target/release
 
       - name: Download creditcoin-fork.json
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: creditcoin-fork.json
 
@@ -410,7 +410,7 @@ jobs:
 
       - name: Download WASM runtime from current PR
         id: download-wasm
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-PR
 
@@ -443,7 +443,7 @@ jobs:
           echo "private_key=$EVM_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
 
       - name: Upload logs
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-against-fork-logs

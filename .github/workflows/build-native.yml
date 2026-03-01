@@ -68,7 +68,7 @@ jobs:
 
       - name: Download new_metadata.diff
         if: ${{ inputs.use-new-metadata }}
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: new-metadata.diff
           path: /var/tmp
@@ -86,7 +86,7 @@ jobs:
           args: ${{ inputs.build-options }}
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: binary-for-${{ inputs.version-string }}
           path: |
@@ -97,7 +97,7 @@ jobs:
             target/release/query-cli
 
       - name: Upload WASM runtime
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ inputs.version-string }}
           path: target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm
@@ -111,7 +111,7 @@ jobs:
 
       - name: Upload subkey binary
         if: ${{ inputs.build-subkey }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: subkey
           path: ~/.cargo/bin/subkey
@@ -125,7 +125,7 @@ jobs:
 
       - name: Upload subxt binary
         if: ${{ inputs.build-subxt }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: subxt
           path: ~/.cargo/bin/subxt

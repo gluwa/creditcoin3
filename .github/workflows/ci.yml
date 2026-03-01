@@ -140,7 +140,7 @@ jobs:
       - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -157,7 +157,7 @@ jobs:
       # Upload logs if nodes are not connecting.
       # head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
       - name: Upload logs
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           if-no-files-found: warn
@@ -265,7 +265,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download binaries
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -447,7 +447,7 @@ jobs:
 
       - name: Upload checkpoints.json
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: checkpoints.json
           path: attestor/scripts/checkpoints.json*
@@ -497,7 +497,7 @@ jobs:
       # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: integration-test-attestor-network
           path: |
@@ -604,7 +604,7 @@ jobs:
 
       # WARNING: always after Swatinem/rust-cache
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -707,14 +707,14 @@ jobs:
 
       - name: Upload logs from Alice and Bob
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
           path: /tmp/creditcoin3-node-*.std*
 
       - name: Upload coverage report as artifact
         if: ${{ matrix.proxy == 'yes' && matrix.proxy_type == 'All' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: integration-test-cli-coverage-report
           path: cli/src/test/coverage/
@@ -748,7 +748,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -891,7 +891,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: integration-test-blockchain
           path: |
@@ -918,7 +918,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -945,7 +945,7 @@ jobs:
 
       - name: Upload coverage report as artifact
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: hardhat-coverage-report
           path: ./docs/smart-contract-development/with-hardhat/coverage/
@@ -1065,7 +1065,7 @@ jobs:
           # npx hardhat node --fork https://rpc.cc3-testnet.creditcoin.network
 
       - name: Upload logs
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           if-no-files-found: warn
@@ -1095,7 +1095,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download binaries
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -1274,7 +1274,7 @@ jobs:
       # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: cc3-indexer-testing
           path: /var/tmp/cc3-indexer-testing/
@@ -1374,13 +1374,13 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download binaries
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Download subkey binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: subkey
           path: ~/.cargo/bin
@@ -1484,7 +1484,7 @@ jobs:
 
       - name: Upload logs from Alice and Bob
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: logs-for-attestor-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
           path: |
@@ -1548,13 +1548,13 @@ jobs:
 
       # WARNING: always after Swatinem/rust-cache
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Download subxt binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: subxt
           path: ~/.cargo/bin
@@ -1624,7 +1624,7 @@ jobs:
           fi
 
       - name: Upload diff
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           if-no-files-found: warn
