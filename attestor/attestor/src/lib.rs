@@ -331,7 +331,7 @@ impl Attestor {
         }
 
         // Waiting for 2 blocks so other attestors have time to update the attestor set
-        tokio::time::sleep(std::time::Duration::from_secs(cc3_block_time_ms * 2)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(cc3_block_time_ms * 2)).await;
 
         tracing::info!(start_height, "👶 Generating initial attestation");
 
