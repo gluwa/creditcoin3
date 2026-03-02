@@ -93,7 +93,6 @@ updates:
   - package-ecosystem: "npm"
     directories:
       - "/attestor/scripts"
-      - "/bridge-usage-example"
       - "/cc3-indexer"
       - "/cli"
       - "/common/eth/contracts"

@@ -1,1 +1,0 @@
-../../../../bridge-usage-example/src/TestERC20.sol
