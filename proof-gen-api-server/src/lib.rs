@@ -190,6 +190,7 @@ impl Server {
             services::continuity_service::ContinuityService::new(
                 self.builder.clone(),
                 metrics.clone(),
+                self.config.max_batch_size,
             )
             .await?,
         );

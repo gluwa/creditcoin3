@@ -90,7 +90,7 @@ fn parse_api_path(path: &str) -> (Option<&str>, Option<u64>, usize) {
     let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     // parts[0] = "api"
     // parts[1] = "v1"
-    // parts[2] = "proof" or "proof-by-tx"
+    // parts[2] = "proof" or "proof-by-tx" or "proof-batch" or "proof-batch-by-tx"
     // parts[3] = chain_key
     // parts[4+] = additional path segments
 
@@ -115,6 +115,8 @@ fn extract_endpoint_from_matched_path(matched_path: &str) -> Option<Endpoint> {
         "/api/v1/health" => Some(Endpoint::Health),
         "/api/v1/proof/{chain_key}/{header_number}/{tx_index}" => Some(Endpoint::ProofWithTx),
         "/api/v1/proof-by-tx/{chain_key}/{tx_hash}" => Some(Endpoint::ProofByTxHash),
+        "/api/v1/proof-batch/{chain_key}" => Some(Endpoint::ProofBatch),
+        "/api/v1/proof-batch-by-tx/{chain_key}" => Some(Endpoint::ProofBatchByTxHash),
         "/metrics" => None, // Metrics endpoint doesn't need endpoint classification
         _ => None,
     }
@@ -129,11 +131,20 @@ fn extract_endpoint_from_path(uri: &Uri) -> Option<Endpoint> {
     match endpoint_type {
         Some("health") => Some(Endpoint::Health),
         Some("proof-by-tx") => Some(Endpoint::ProofByTxHash),
+        Some("proof-batch-by-tx") => Some(Endpoint::ProofBatchByTxHash),
         Some("proof") => {
             // parts_count includes: "api", "v1", "proof", "chain_key", "header_number", "tx_index"
             // So: 6 parts = proof with tx
             if parts_count == 6 {
                 Some(Endpoint::ProofWithTx)
+            } else {
+                None
+            }
+        }
+        Some("proof-batch") => {
+            // parts_count includes: "api", "v1", "proof-batch", "chain_key"
+            if parts_count == 4 {
+                Some(Endpoint::ProofBatch)
             } else {
                 None
             }
@@ -183,7 +194,10 @@ fn extract_chain_key_from_path(uri: &Uri) -> Option<u64> {
     let (endpoint_type, chain_key, _parts_count) = parse_api_path(path);
 
     // Only extract chain_key for proof endpoints
-    if matches!(endpoint_type, Some("proof") | Some("proof-by-tx")) {
+    if matches!(
+        endpoint_type,
+        Some("proof") | Some("proof-by-tx") | Some("proof-batch") | Some("proof-batch-by-tx")
+    ) {
         chain_key
     } else {
         None
@@ -209,6 +223,14 @@ mod tests {
             Some(123)
         );
         assert_eq!(
+            extract_chain_key_from_path(&"/api/v1/proof-batch/7".parse().unwrap()),
+            Some(7)
+        );
+        assert_eq!(
+            extract_chain_key_from_path(&"/api/v1/proof-batch-by-tx/8".parse().unwrap()),
+            Some(8)
+        );
+        assert_eq!(
             extract_chain_key_from_path(&"/api/v1/health".parse().unwrap()),
             None
         );
@@ -232,6 +254,30 @@ mod tests {
         assert_eq!(
             extract_endpoint_from_path(&"/api/v1/proof/2/100/5/".parse().unwrap()),
             Some(Endpoint::ProofWithTx) // Should still be ProofWithTx
+        );
+        assert_eq!(
+            extract_endpoint_from_path(&"/api/v1/proof-by-tx/123/0xabcdef".parse().unwrap()),
+            Some(Endpoint::ProofByTxHash)
+        );
+        assert_eq!(
+            extract_endpoint_from_path(&"/api/v1/proof-by-tx/123/0xabcdef/".parse().unwrap()),
+            Some(Endpoint::ProofByTxHash) // Should still be ProofByTxHash
+        );
+        assert_eq!(
+            extract_endpoint_from_path(&"/api/v1/proof-batch/7".parse().unwrap()),
+            Some(Endpoint::ProofBatch)
+        );
+        assert_eq!(
+            extract_endpoint_from_path(&"/api/v1/proof-batch/7/".parse().unwrap()),
+            Some(Endpoint::ProofBatch) // Should still be ProofBatch
+        );
+        assert_eq!(
+            extract_endpoint_from_path(&"/api/v1/proof-batch-by-tx/8".parse().unwrap()),
+            Some(Endpoint::ProofBatchByTxHash)
+        );
+        assert_eq!(
+            extract_endpoint_from_path(&"/api/v1/proof-batch-by-tx/8/".parse().unwrap()),
+            Some(Endpoint::ProofBatchByTxHash) // Should still be ProofBatchByTxHash
         );
     }
 }

@@ -67,6 +67,14 @@ pub struct ProofGenApiServer {
         help = "CC3 Indexer GraphQL URL for pre-fetching continuity proofs"
     )]
     indexer_url: Option<String>,
+
+    #[arg(
+        long,
+        default_value_t = 10,
+        env = "MAX_BATCH_SIZE",
+        help = "Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes. Adjust based on expected load and RPC rate limits."
+    )]
+    max_batch_size: usize,
 }
 
 #[tokio::main]
@@ -105,6 +113,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
 
+    if args.max_batch_size == 0 {
+        panic!("max_batch_size must be greater than 0");
+    }
+
     let config = Config {
         bind_host: args.bind_host,
         bind_port: args.bind_port,
@@ -115,6 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         redis_url: resolved_redis_url,
         redis_cluster_mode: resolved_redis_cluster_mode,
         indexer_url: args.indexer_url,
+        max_batch_size: args.max_batch_size,
     };
 
     let server = Server::new(config).await?;

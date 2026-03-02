@@ -7,7 +7,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-use std::time::Instant;
+use std::{collections::BTreeMap, time::Instant};
 
 use crate::prom::Metrics;
 use crate::services::continuity_service::helpers::*;
@@ -16,6 +16,15 @@ use continuity::ContinuityBuilder;
 use merkle::proof::TransactionMerkleProof;
 
 pub mod helpers;
+
+// Single block proof query object, used in batch requests to specify which transactions to include merkle proofs for. If a block is included in the batch but not listed in the tx_indexes, it will be processed with tx_index = None (continuity proof only)
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProofQuery {
+    pub header_number: u64,
+    #[serde(default)]
+    pub tx_indexes: Vec<u64>, // Empty vector means no merkle proof, just continuity proof
+}
 
 // Merkle proof object. This is what we will enter in the DB and perhaps
 // also what we return from api calls
@@ -29,6 +38,25 @@ pub struct MerkleProofItem {
     // Use concrete types for downstream consumers; we'll serialize only at DB boundary.
     pub merkle_proof: TransactionMerkleProof,
     pub merkle_root: H256,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[serde(untagged)]
+pub enum ContinuityResponse {
+    Single(SingleContinuityResponse),
+    Batch(BatchedContinuityResponse),
+}
+
+impl From<SingleContinuityResponse> for ContinuityResponse {
+    fn from(response: SingleContinuityResponse) -> Self {
+        ContinuityResponse::Single(response)
+    }
+}
+
+impl From<BatchedContinuityResponse> for ContinuityResponse {
+    fn from(response: BatchedContinuityResponse) -> Self {
+        ContinuityResponse::Batch(response)
+    }
 }
 
 /// Schema for OpenAPI documentation of ContinuityProof.
@@ -68,7 +96,7 @@ pub struct TransactionMerkleProofSchema {
 
 #[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ContinuityResponse {
+pub struct SingleContinuityResponse {
     pub chain_key: u64,
     pub header_number: u64,
     pub tx_index: u64,
@@ -82,6 +110,30 @@ pub struct ContinuityResponse {
     pub merkle_proof: TransactionMerkleProof,
     pub cached: bool,
     pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchedContinuityResponse {
+    pub chain_key: u64,
+    pub from_header: u64,
+    pub to_header: u64,
+    #[schema(value_type = ContinuityProofSchema)]
+    pub continuity_proof: ContinuityProof,
+    pub merkle_proofs: BTreeMap<u64, BTreeMap<u64, BatchedMerkleProofEntry>>,
+    pub cached: bool,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchedMerkleProofEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_bytes: Option<String>, // Hex-encoded transaction bytes (payload only)
+    #[schema(value_type = TransactionMerkleProofSchema)]
+    pub merkle_proof: TransactionMerkleProof,
 }
 
 use crate::services::errors::ServiceError;
@@ -98,6 +150,8 @@ pub struct ContinuityService {
     attestation_genesis_block: u64,
     /// Prometheus metrics for instrumentation (uses NoopMetrics when disabled).
     metrics: Metrics,
+    /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
+    max_batch_size: usize,
 }
 
 impl ContinuityService {
@@ -105,7 +159,11 @@ impl ContinuityService {
     ///
     /// # Errors
     /// Returns an error if the attestation genesis block cannot be fetched from RPC.
-    pub async fn new(builder: Arc<ContinuityBuilder>, metrics: Metrics) -> anyhow::Result<Self> {
+    pub async fn new(
+        builder: Arc<ContinuityBuilder>,
+        metrics: Metrics,
+        max_batch_size: usize,
+    ) -> anyhow::Result<Self> {
         // Fetch genesis block at startup - fail fast if RPC is unavailable
         let attestation_genesis_block = builder
             .get_attestation_genesis_block()
@@ -123,17 +181,21 @@ impl ContinuityService {
             total_proof_requests: AtomicU64::new(0),
             attestation_genesis_block,
             metrics,
+            max_batch_size,
         })
     }
 
-    /// Validate that the requested block can be processed:
+    /// Validate that the requested blocks can be processed:
     /// 1. Not before attestation genesis
     /// 2. Exists on source chain (ETH)
     ///
     /// Returns the current block height for reuse in validating predicted attestation bounds.
-    async fn validate_block(&self, header_number: u64) -> ServiceResult<u64> {
+    async fn validate_blocks(&self, header_numbers: &[u64]) -> ServiceResult<u64> {
         // Check genesis bound
-        if header_number < self.attestation_genesis_block {
+        if let Some(&header_number) = header_numbers
+            .iter()
+            .find(|h| **h < self.attestation_genesis_block)
+        {
             tracing::warn!(
                 requested_block = header_number,
                 genesis_block = self.attestation_genesis_block,
@@ -144,7 +206,6 @@ impl ContinuityService {
                 genesis_block: self.attestation_genesis_block,
             });
         }
-
         // Check source chain existence
         let current_block =
             self.builder
@@ -154,7 +215,7 @@ impl ContinuityService {
                     message: format!("Failed to get current block height from source chain: {e}"),
                 })?;
 
-        if header_number > current_block {
+        if let Some(&header_number) = header_numbers.iter().find(|h| **h > current_block) {
             tracing::warn!(
                 requested_block = header_number,
                 current_block,
@@ -165,6 +226,7 @@ impl ContinuityService {
                 current_block,
             });
         }
+
         Ok(current_block)
     }
 
@@ -194,6 +256,36 @@ impl ContinuityService {
         Ok(())
     }
 
+    /// Build continuity proof for the given blocks, validating them first.
+    async fn get_continuity_proof_for(
+        &self,
+        headers: &[u64],
+        current_block: u64,
+    ) -> ServiceResult<ContinuityProof> {
+        // ContinuityBuilder will automatically use indexer if available
+        self.build_continuity(headers, current_block)
+            .await
+            .inspect(|proof| {
+                // Increment total proof requests counter
+                self.total_proof_requests.fetch_add(1, Ordering::Relaxed);
+
+                // Record metrics
+                self.metrics.observe_proof_blocks(proof.roots.len() as u64);
+                // Record timestamp of successful proof generation
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs_f64())
+                    .unwrap_or(0.0);
+                self.metrics.set_last_proof_generation_timestamp(now);
+
+                tracing::info!(
+                    proof_block_count = proof.roots.len(),
+                    lower_endpoint_digest = ?proof.lower_endpoint_digest,
+                    "Generated continuity proof for API response"
+                );
+            })
+    }
+
     /// Get continuity proof with merkle proof for a transaction at the given index.
     ///
     /// Used by:
@@ -204,63 +296,134 @@ impl ContinuityService {
         chain_key: u64,
         header_number: u64,
         tx_index: u64,
-    ) -> ServiceResult<ContinuityResponse> {
-        let current_block = self.validate_block(header_number).await?;
+    ) -> ServiceResult<SingleContinuityResponse> {
+        // Validate that the requested block can be processed and get current block for validating predicted attestation bounds
+        let current_block = self.validate_blocks(&[header_number]).await?;
 
         // Record block range metric
         self.metrics.observe_block_range(header_number);
 
         // ContinuityBuilder will automatically use indexer if available
-        let (continuity_proof, was_cached) =
-            match self.build_continuity(header_number, current_block).await {
-                Ok(proof) => {
-                    // Increment total proof requests counter
-                    self.total_proof_requests.fetch_add(1, Ordering::Relaxed);
-
-                    // Record metrics
-                    self.metrics.observe_proof_blocks(proof.roots.len() as u64);
-                    // Record timestamp of successful proof generation
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs_f64())
-                        .unwrap_or(0.0);
-                    self.metrics.set_last_proof_generation_timestamp(now);
-
-                    tracing::info!(
-                        proof_block_count = proof.roots.len(),
-                        lower_endpoint_digest = ?proof.lower_endpoint_digest,
-                        "Generated continuity proof for API response"
-                    );
-                    (proof, false) // Always false since we generate fresh proofs
-                }
-                Err(e) => {
-                    return Err(e);
-                }
-            };
+        let continuity_proof = self
+            .get_continuity_proof_for(&[header_number], current_block)
+            .await?;
 
         let merkle = self
             .generate_merkle_proof(chain_key, header_number, tx_index)
             .await?;
-        Ok(ContinuityResponse {
+
+        let tx_hash = merkle.tx_hash.map(|h| format!("0x{h:x}"));
+        let tx_bytes = merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b)));
+
+        Ok(SingleContinuityResponse {
             chain_key,
             header_number,
             tx_index,
-            tx_hash: merkle.tx_hash.map(|h| format!("0x{h:x}")),
-            tx_bytes: merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b))),
+            tx_hash,
+            tx_bytes,
             continuity_proof,
             merkle_proof: merkle.merkle_proof,
-            cached: was_cached,
+            cached: false, // Always false since we generate fresh proofs
             generated_at: Utc::now(),
         })
     }
 
-    /// Get proofs by transaction hash (resolves to block/index, then builds proofs).
+    /// Get batch of proofs for a list of blocks, optionally including merkle proof for specific transactions.
+    ///
+    /// `queries` is guaranteed to be non-empty and ordered both per header and per transaction index, so we can safely unwrap when building the response.
+    ///
+    /// Used by:
+    /// - `/api/v1/proof-batch/{chain_key}`
+    pub async fn get_proof_batch(
+        &self,
+        chain_key: u64,
+        queries: &[ProofQuery],
+    ) -> ServiceResult<BatchedContinuityResponse> {
+        // Extract unique header numbers for validation and proof building
+        let header_numbers = queries
+            .iter()
+            .map(|q| q.header_number)
+            .collect::<Vec<u64>>();
+        // Validate that the requested blocks can be processed and get current block for validating predicted attestation bounds
+        let current_block = self.validate_blocks(&header_numbers).await?;
+
+        // We can safely unwrap header_numbers here because the API layer guarantees at least one query is present.
+        let from_header = *header_numbers.iter().min().unwrap();
+        let to_header = *header_numbers.iter().max().unwrap();
+
+        // Record block range metric
+        for &header_number in header_numbers.iter() {
+            self.metrics.observe_block_range(header_number);
+        }
+
+        // ContinuityBuilder will automatically use indexer if available
+        let continuity_proof = self
+            .get_continuity_proof_for(&header_numbers, current_block)
+            .await?;
+
+        let mut merkle_proofs = BTreeMap::new();
+
+        // We flatten the list of queries into a list of (header_number, tx_index) pairs to generate merkle proofs for,
+        // then regroup them into the desired response structure after generating the proofs.
+        let merkle_futures = queries
+            .iter()
+            .cloned()
+            .flat_map(|query| {
+                query
+                    .tx_indexes
+                    .into_iter()
+                    .map(move |tx_index| (query.header_number, tx_index))
+            })
+            .map(|(header_number, tx_index)| async move {
+                let merkle = self
+                    .generate_merkle_proof(chain_key, header_number, tx_index)
+                    .await?;
+
+                let entry = BatchedMerkleProofEntry {
+                    tx_hash: merkle.tx_hash.map(|h| format!("0x{h:x}")),
+                    tx_bytes: merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b))),
+                    merkle_proof: merkle.merkle_proof,
+                };
+
+                Ok::<(u64, u64, BatchedMerkleProofEntry), ServiceError>((
+                    header_number,
+                    tx_index,
+                    entry,
+                ))
+            });
+
+        use futures::StreamExt as _;
+        use futures::TryStreamExt as _;
+
+        for (header_number, tx_index, entry) in futures::stream::iter(merkle_futures)
+            .buffer_unordered(self.max_batch_size)
+            .try_collect::<Vec<_>>()
+            .await?
+        {
+            merkle_proofs
+                .entry(header_number)
+                .or_insert_with(BTreeMap::new)
+                .insert(tx_index, entry);
+        }
+
+        Ok(BatchedContinuityResponse {
+            chain_key,
+            from_header,
+            to_header,
+            continuity_proof,
+            merkle_proofs,
+            cached: false, // Always false since we generate fresh proofs
+            generated_at: Utc::now(),
+        })
+    }
+
+    /// Get proof by transaction hash (resolves to block/index, then builds proof).
     /// Used by: `/api/v1/proof-by-tx/{chain_key}/{tx_hash}`
-    pub async fn get_proofs_by_tx_hash(
+    pub async fn get_proof_by_tx_hash(
         &self,
         chain_key: u64,
         tx_hash: String,
-    ) -> ServiceResult<ContinuityResponse> {
+    ) -> ServiceResult<SingleContinuityResponse> {
         let tx_h256 = parse_tx_hash(&tx_hash)?;
         let (header_number, tx_index) = self.get_height_and_index_for_tx_hash(tx_h256).await?;
 
@@ -279,5 +442,65 @@ impl ContinuityService {
                 message: format!("tx_hash missing from generated proof. tx_hash: {tx_h256:x}"),
             }),
         }
+    }
+
+    /// Get proof by transaction hashes (resolves to block/index, then builds proof).
+    ///
+    /// `tx_hashes` is guaranteed to be non-empty, so we can safely unwrap when building the response.
+    ///
+    /// Used by: `/api/v1/proof-batch-by-tx/{chain_key}/{tx_hash}`
+    pub async fn get_proof_batch_by_tx_hashes(
+        &self,
+        chain_key: u64,
+        tx_hashes: &[String],
+    ) -> ServiceResult<BatchedContinuityResponse> {
+        // First we parsed all string hashes into H256, returning an error if any are invalid.
+        // This avoids doing partial work if there's a bad hash in the list.
+        let parsed_hashes = tx_hashes
+            .iter()
+            .map(|tx_hash| parse_tx_hash(tx_hash))
+            .collect::<Result<Vec<H256>, ServiceError>>()?;
+
+        // After that we calculate the block header and transaction index for each hash, returning an error if any hash is not found.
+        // Again we do this upfront to avoid doing partial work.
+        let header_tx_pairs = {
+            let mut futures = Vec::with_capacity(parsed_hashes.len());
+
+            for tx_h256 in parsed_hashes {
+                futures.push(self.get_height_and_index_for_tx_hash(tx_h256));
+            }
+
+            use futures::StreamExt as _;
+            use futures::TryStreamExt as _;
+
+            futures::stream::iter(futures)
+                .buffer_unordered(self.max_batch_size)
+                .try_collect::<Vec<(u64, u64)>>()
+                .await?
+        };
+
+        // Now we have all the header numbers and tx indexes, we can build the proofs.
+        // We first group by header number to optimize proof building (one proof per block, even if multiple txs), then flatten back out for the response.
+        let proof_queries = {
+            let mut block_queries = BTreeMap::new();
+
+            for (header_number, tx_index) in header_tx_pairs {
+                block_queries
+                    .entry(header_number)
+                    .or_insert_with(Vec::new)
+                    .push(tx_index);
+            }
+
+            block_queries
+                .into_iter()
+                .map(|(header_number, tx_indexes)| ProofQuery {
+                    header_number,
+                    tx_indexes,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Build the continuity proof for all requested blocks and transactions
+        self.get_proof_batch(chain_key, &proof_queries).await
     }
 }

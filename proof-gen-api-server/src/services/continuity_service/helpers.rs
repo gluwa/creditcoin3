@@ -24,19 +24,19 @@ impl ContinuityService {
     /// </div>
     pub(crate) async fn build_continuity(
         &self,
-        header_number: u64,
+        header_numbers: &[u64],
         current_block: u64,
     ) -> Result<ContinuityProof, ServiceError> {
         // Pass current_block to get_endpoints so it can validate predicted blocks immediately and fail fast
         let (lower_attestation, upper_attestation) = self
             .builder
-            .get_endpoints(&[header_number], Some(current_block))
+            .get_endpoints(header_numbers, Some(current_block))
             .await
             .map_err(ServiceError::from)?;
 
         let proof = self
             .builder
-            .build_for_single_query(header_number, lower_attestation.clone(), upper_attestation)
+            .build_for_batch_queries(header_numbers, lower_attestation.clone(), upper_attestation)
             .await
             .map_err(ServiceError::from)?;
 
@@ -91,10 +91,15 @@ impl ContinuityService {
             })?;
         if tx_bytes.is_empty() {
             if tx_index != 0 {
-                return Err(ServiceError::TxIndexOutOfBounds { tx_index, len: 0 });
+                return Err(ServiceError::TxIndexOutOfBounds {
+                    height: header_number,
+                    tx_index,
+                    len: 0,
+                });
             }
         } else if tx_index as usize >= tx_bytes.len() {
             return Err(ServiceError::TxIndexOutOfBounds {
+                height: header_number,
                 tx_index,
                 len: tx_bytes.len(),
             });
@@ -257,7 +262,7 @@ mod tests {
             cc_provider,
             eth_provider,
         ));
-        ContinuityService::new(builder, NoopMetrics::new())
+        ContinuityService::new(builder, NoopMetrics::new(), 10)
             .await
             .expect("service init should succeed with mocks")
     }

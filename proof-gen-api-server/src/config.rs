@@ -9,6 +9,7 @@
 /// - `redis_url`: Optional Redis URL for Ethereum block caching
 /// - `redis_cluster_mode`: When true, use Redis Cluster client (required for Redis Cluster deployments)
 /// - `indexer_url`: Optional CC3 Indexer GraphQL URL for pre-fetching continuity proofs
+/// - `max_batch_size`: Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes. Adjust based on expected load and RPC rate limits.
 pub struct Config {
     pub bind_host: String,
     pub bind_port: u16,
@@ -19,6 +20,7 @@ pub struct Config {
     pub redis_url: Option<String>,
     pub redis_cluster_mode: bool,
     pub indexer_url: Option<String>,
+    pub max_batch_size: usize,
 }
 
 impl Config {
@@ -37,6 +39,7 @@ impl Config {
             redis_url: None,
             redis_cluster_mode: false,
             indexer_url: None,
+            max_batch_size: 10,
         }
     }
 }

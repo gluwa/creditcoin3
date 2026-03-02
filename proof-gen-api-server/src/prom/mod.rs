@@ -405,6 +405,8 @@ mod labels {
     pub enum Endpoint {
         ProofWithTx,
         ProofByTxHash,
+        ProofBatch,
+        ProofBatchByTxHash,
         Health,
     }
 
@@ -454,6 +456,11 @@ mod labels {
         AttestationsMissing,
         QueryOutOfRange,
         TxHashLookupUnavailable,
+        EmptyProofQueries,
+        TooManyProofQueries,
+        TooManyTxQueriesInProofQuery,
+        EmptyTxHashes,
+        TooManyTxHashes,
         Internal,
     }
 

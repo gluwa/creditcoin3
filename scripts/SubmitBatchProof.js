@@ -3,21 +3,23 @@
 /**
  * Submit batch proof to block-prover precompile
  *
- * Usage: node SubmitBatchProof.js <chainKey> --queries <height1:txHash1,height2:txHash2,...> --private-key <key> [options]
+ * Usage: node SubmitBatchProof.js <chainKey> --hashes <txHash1,txHash2,...> --private-key <key> [options]
  *
  * Options:
  *   --private-key <key>    Private key for signing transactions (required)
- *   --queries <queries>    Comma-separated list of height:txHash pairs (required)
+ *   --hashes <hashes>      Comma-separated list of transaction hashes (required)
  *   --api-url <url>        Proof API server URL (default: http://localhost:3100)
  *   --cc3-rpc-url <url>    Creditcoin3 RPC URL (default: http://localhost:9944)
  *   --precompile-addr <addr> Precompile address (default: 0x0000000000000000000000000000000000000FD2)
  *   -v, --verbose          Enable verbose logging
  *
  * Example:
- *   node SubmitBatchProof.js 3 --queries "9986381:0xabc...,9986382:0xdef...,9986385:0x123..." --private-key 0x...
+ *   node SubmitBatchProof.js 3 --hashes "0xabc...,0xdef...,0x123..." --private-key 0x...
  *
  * The script will:
- *   1. Fetch individual proofs for each query from the API
+ *   1. Fetch a proof batch for the specified transaction hashes from the API, which includes:
+ *      - Individual proofs for each transaction hash
+ *      - A continuity proof covering the range of block heights for the included transactions
  *   2. Build a shared continuity proof covering min to max block heights
  *   3. Submit the batch to the precompile's verifyAndEmit function
  */
@@ -27,17 +29,15 @@ const {
     DEFAULT_PRECOMPILE_ADDRESS,
     DEFAULT_API_URL,
     DEFAULT_CC3_HTTP_URL,
-    fetchProof,
-    convertProofFormat,
+    fetchProofBatch,
     submitBatchToPrecompile,
-    buildSharedContinuityProof,
 } = require('./utils');
 
 function parseArgs() {
     const args = process.argv.slice(2);
     const options = {
         chainKey: null,
-        queries: [], // Array of { height, txHash }
+        txHashes: [], // Array of txHash
         privateKey: null,
         apiUrl: DEFAULT_API_URL,
         cc3RpcUrl: DEFAULT_CC3_HTTP_URL,
@@ -49,16 +49,9 @@ function parseArgs() {
     while (i < args.length) {
         if (args[i] === '--private-key' && i + 1 < args.length) {
             options.privateKey = args[++i];
-        } else if (args[i] === '--queries' && i + 1 < args.length) {
-            const queriesStr = args[++i];
-            options.queries = queriesStr.split(',').map((q) => {
-                const [height, txHash] = q.trim().split(':');
-                if (!height || !txHash) {
-                    console.error(`Invalid query format: "${q}". Expected "height:txHash"`);
-                    process.exit(1);
-                }
-                return { height: parseInt(height, 10), txHash: txHash.trim() };
-            });
+        } else if (args[i] === '--hashes' && i + 1 < args.length) {
+            const txHashesStr = args[++i];
+            options.txHashes = txHashesStr.split(',').map((txHash) => txHash.trim());
         } else if (args[i] === '--api-url' && i + 1 < args.length) {
             options.apiUrl = args[++i];
         } else if (args[i] === '--cc3-rpc-url' && i + 1 < args.length) {
@@ -73,13 +66,13 @@ function parseArgs() {
         i++;
     }
 
-    if (!options.chainKey || options.queries.length === 0 || !options.privateKey) {
+    if (!options.chainKey || options.txHashes.length === 0 || !options.privateKey) {
         console.error(
-            'Usage: node SubmitBatchProof.js <chainKey> --queries <height1:txHash1,height2:txHash2,...> --private-key <key> [options]',
+            'Usage: node SubmitBatchProof.js <chainKey> --hashes <txHash1,txHash2,...> --private-key <key> [options]',
         );
         console.error('\nOptions:');
         console.error('  --private-key <key>    Private key for signing transactions (required)');
-        console.error('  --queries <queries>    Comma-separated list of height:txHash pairs (required)');
+        console.error('  --hashes <hashes>      Comma-separated list of transaction hashes (required)');
         console.error('  --api-url <url>        Proof API server URL (default: http://localhost:3100)');
         console.error('  --cc3-rpc-url <url>    Creditcoin3 RPC URL (default: http://localhost:9944)');
         console.error(
@@ -87,12 +80,12 @@ function parseArgs() {
         );
         console.error('  -v, --verbose          Enable verbose logging');
         console.error('\nExample:');
-        console.error('  node SubmitBatchProof.js 3 --queries "9986381:0xabc...,9986382:0xdef..." --private-key 0x...');
+        console.error('  node SubmitBatchProof.js 3 --hashes "0xabc...,0xdef..." --private-key 0x...');
         process.exit(1);
     }
 
-    if (options.queries.length > 10) {
-        console.error('Error: Maximum 10 queries allowed per batch');
+    if (options.txHashes.length > 10) {
+        console.error('Error: Maximum 10 hashes allowed per batch');
         process.exit(1);
     }
 
@@ -104,49 +97,43 @@ async function main() {
 
     console.log('=== Batch Proof Submission ===\n');
     console.log(`Chain Key: ${options.chainKey}`);
-    console.log(`Number of queries: ${options.queries.length}`);
-    console.log('Queries:');
-    for (const q of options.queries) {
-        console.log(`  - Height: ${q.height}, TxHash: ${q.txHash.substring(0, 20)}...`);
+    console.log(`Number of hashes: ${options.txHashes.length}`);
+    console.log('Hashes:');
+    for (const txHash of options.txHashes) {
+        console.log(`  - TxHash: ${txHash.substring(0, 20)}...`);
     }
     console.log('');
 
     try {
         // Fetch proofs for each query
         console.log('Fetching proofs from API...');
-        const queryProofs = [];
 
-        for (const query of options.queries) {
-            console.log(`  Fetching proof for height ${query.height}...`);
-            const apiProof = await fetchProof(options.apiUrl, options.chainKey, query.txHash, 5, 2000, options.verbose);
+        const apiUrl = options.apiUrl;
+        const chainKey = options.chainKey;
+        const verbose = options.verbose;
+        const txHashes = options.txHashes;
 
-            if (!apiProof.txBytes) {
-                throw new Error(`Transaction bytes not found for height ${query.height}`);
+        // Fetch batch proofs from API - this will return a structure containing proofs for all requested txHashes,
+        // along with a continuity proof covering the range of block heights
+        const apiProofs = await fetchProofBatch(apiUrl, chainKey, txHashes, 5, 2000, verbose);
+
+        // Extract batch data for precompile submission
+        const heights = [];
+        const txBytesArray = [];
+        const merkleProofs = [];
+        for (const [headerNumber, proofsMap] of Object.entries(apiProofs.merkleProofs)) {
+            for (const [_, proofEntry] of Object.entries(proofsMap)) {
+                if (!proofEntry.txBytes) {
+                    throw new Error(`Transaction bytes not found for height ${headerNumber}`);
+                }
+
+                heights.push(BigInt(headerNumber));
+                txBytesArray.push(proofEntry.txBytes);
+                merkleProofs.push(proofEntry.merkleProof);
             }
-
-            queryProofs.push({
-                height: query.height,
-                txHash: query.txHash,
-                proof: apiProof,
-            });
         }
-        console.log(`✓ Fetched ${queryProofs.length} proofs\n`);
 
-        // Build shared continuity proof
-        console.log('Building shared continuity proof...');
-        const sharedContinuityProof = buildSharedContinuityProof(queryProofs, options.verbose);
-        console.log(`✓ Shared continuity proof built (${sharedContinuityProof.roots.length} blocks)\n`);
-
-        // Prepare batch data
-        const heights = queryProofs.map((qp) => BigInt(qp.height));
-        const txBytesArray = queryProofs.map((qp) => {
-            const txBytesStr = qp.proof.txBytes;
-            return Buffer.from(txBytesStr.startsWith('0x') ? txBytesStr.slice(2) : txBytesStr, 'hex');
-        });
-        const merkleProofs = queryProofs.map((qp) => {
-            const { merkleProof } = convertProofFormat(qp.proof);
-            return merkleProof;
-        });
+        console.log(`✓ Fetched ${merkleProofs.length} proofs\n`);
 
         console.log('Batch data prepared:');
         console.log(`  Heights: [${heights.join(', ')}]`);
@@ -176,7 +163,7 @@ async function main() {
             heights,
             txBytesArray,
             merkleProofs,
-            sharedContinuityProof,
+            apiProofs.continuityProof,
         );
 
         console.log('\n✅ Batch proof submission completed successfully!');

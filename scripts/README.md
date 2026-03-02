@@ -211,3 +211,49 @@ node SubmitProof.js 3 9986381 0xd93880ebc927784c9ab2605d319a1e4ff78c3d91e7d74401
   --cc3-rpc-url https://rpc.usc-devnet.creditcoin.network \
   -v
 ```
+
+### SubmitBatchProof.js
+
+Fetches proofs for multiple transactions from the proof-gen-api-server and submits them as a batch to the block-prover precompile.
+
+**Usage:**
+
+```bash
+node SubmitBatchProof.js <chainKey> --hashes <txHash1,txHash2,...> --private-key <key> [options]
+```
+
+**Example:**
+
+```bash
+node SubmitBatchProof.js 3 \
+  --hashes "0xabc123...,0xdef456...,0x789012..." \
+  --private-key 0x1234...5678 \
+  --api-url http://localhost:3100 \
+  --cc3-rpc-url http://localhost:9944
+```
+
+**Options:**
+
+- `--private-key <key>` - Private key for signing transactions (required)
+- `--hashes <hashes>` - Comma-separated list of transaction hashes (required, max 10)
+- `--api-url <url>` - Proof generation API server URL (default: http://localhost:3100)
+- `--cc3-rpc-url <url>` - Creditcoin3 RPC URL (default: http://localhost:9944)
+- `--precompile-addr <addr>` - Precompile address (default: 0x0000000000000000000000000000000000000FD2)
+- `-v, --verbose` - Enable verbose logging
+
+**What it does:**
+
+1. Fetches proofs for each transaction hash from the proof-gen-api-server
+2. The API returns individual merkle proofs along with a shared continuity proof covering the range of block heights
+3. Prepares batch data including heights, transaction bytes, and merkle proofs
+4. Submits the entire batch to the block-prover precompile's `verifyAndEmit` function in a single transaction
+
+**Limitations:**
+
+- Maximum of 10 transaction hashes per batch
+
+**Use Cases:**
+
+- **Batch processing** - Submit multiple transaction proofs efficiently in a single transaction
+- **Cost optimization** - Reduce gas costs by batching multiple proofs together
+- **Bulk attestation verification** - Verify multiple transactions from the source chain at once

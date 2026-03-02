@@ -57,8 +57,12 @@ pub enum ServiceError {
     AttestationsMissing { chain_key: u64 },
     #[error("query height {height} out of range")]
     QueryOutOfRange { height: u64 },
-    #[error("tx_index {tx_index} out of bounds (len={len})")]
-    TxIndexOutOfBounds { tx_index: u64, len: usize },
+    #[error("tx_index {tx_index} at height {height} out of bounds (len={len})")]
+    TxIndexOutOfBounds {
+        height: u64,
+        tx_index: u64,
+        len: usize,
+    },
     #[error("rpc unavailable: {message}")]
     RpcUnavailable { message: String },
     #[error("merkle proof generation failed: {message}")]
@@ -86,6 +90,16 @@ pub enum ServiceError {
         requested_block: u64,
         current_block: u64,
     },
+    #[error("Batch request should contain at least one proof query")]
+    EmptyProofQueries,
+    #[error("Batch request cannot contain more than 10 proof queries")]
+    TooManyProofQueries,
+    #[error("Each proof query can contain at most 10 tx indexes")]
+    TooManyTxQueriesInProofQuery,
+    #[error("Batch request should contain at least one tx hash")]
+    EmptyTxHashes,
+    #[error("Batch request cannot contain more than 100 tx hashes")]
+    TooManyTxHashes,
 }
 
 impl ServiceError {
@@ -111,6 +125,11 @@ impl ServiceError {
             ServiceError::BlockNotReady { .. } => "BlockNotReady",
             ServiceError::BlockBeforeGenesis { .. } => "BlockBeforeGenesis",
             ServiceError::BlockNotOnSourceChain { .. } => "BlockNotOnSourceChain",
+            ServiceError::EmptyProofQueries => "EmptyProofQueries",
+            ServiceError::TooManyProofQueries => "TooManyProofQueries",
+            ServiceError::TooManyTxQueriesInProofQuery => "TooManyTxQueriesInProofQuery",
+            ServiceError::TooManyTxHashes => "TooManyTxHashes",
+            ServiceError::EmptyTxHashes => "EmptyTxHashes",
         }
     }
 
@@ -120,7 +139,12 @@ impl ServiceError {
             Self::QueryOutOfRange { .. }
             | Self::TxIndexOutOfBounds { .. }
             | Self::InvalidParameter { .. }
-            | Self::BlockBeforeGenesis { .. } => StatusCode::BAD_REQUEST,
+            | Self::BlockBeforeGenesis { .. }
+            | Self::EmptyProofQueries
+            | Self::TooManyProofQueries
+            | Self::TooManyTxQueriesInProofQuery
+            | Self::EmptyTxHashes
+            | Self::TooManyTxHashes => StatusCode::BAD_REQUEST,
             Self::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::TxHashNotFound { .. }
@@ -213,6 +237,11 @@ impl GetErrorType for ServiceError {
             ServiceError::BlockNotReady { .. } => ErrorType::BlockNotReady,
             ServiceError::BlockBeforeGenesis { .. } => ErrorType::BlockBeforeGenesis,
             ServiceError::BlockNotOnSourceChain { .. } => ErrorType::BlockNotOnSourceChain,
+            ServiceError::EmptyProofQueries => ErrorType::EmptyProofQueries,
+            ServiceError::TooManyProofQueries => ErrorType::TooManyProofQueries,
+            ServiceError::TooManyTxQueriesInProofQuery => ErrorType::TooManyTxQueriesInProofQuery,
+            ServiceError::EmptyTxHashes => ErrorType::EmptyTxHashes,
+            ServiceError::TooManyTxHashes => ErrorType::TooManyTxHashes,
         }
     }
 }

@@ -4,7 +4,8 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::Config;
 
 use crate::services::continuity_service::{
-    ContinuityProofSchema, ContinuityResponse, MerkleProofEntrySchema, TransactionMerkleProofSchema,
+    ContinuityProofSchema, ContinuityResponse, MerkleProofEntrySchema, ProofQuery,
+    TransactionMerkleProofSchema,
 };
 use crate::services::errors::ErrorResponse;
 
@@ -20,7 +21,9 @@ use super::routes::{continuity, health};
     paths(
         health::health_check,
         continuity::get_proof_with_tx,
-        continuity::get_proofs_by_tx_hash,
+        continuity::get_proof_by_tx_hash,
+        continuity::get_proof_batch,
+        continuity::get_proof_batch_by_tx_hash,
     ),
     components(schemas(
         ContinuityResponse,
@@ -28,6 +31,7 @@ use super::routes::{continuity, health};
         TransactionMerkleProofSchema,
         MerkleProofEntrySchema,
         ErrorResponse,
+        ProofQuery,
         health::HealthCheckResponse,
     ))
 )]

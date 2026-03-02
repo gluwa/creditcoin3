@@ -205,7 +205,57 @@ async function waitForCreditcoin3Blocks(api, numBlocks = 2) {
  */
 async function fetchProof(apiUrl, chainKey, txHash, maxRetries = 5, initialDelay = 2000, verbose = false) {
     const url = `${apiUrl}/api/v1/proof-by-tx/${chainKey}/${txHash}`;
+    const fetchParams = {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+    };
 
+    return await fetchProofWithParams(url, fetchParams, maxRetries, initialDelay, verbose);
+}
+
+/**
+ * Fetch proof batch from the proof generation API
+ *
+ * @param {string} apiUrl - Base URL of the proof API server
+ * @param {number|string} chainKey - Chain key identifier
+ * @param {string[]} txHashes - Array of transaction hashes to fetch proof for
+ * @param {number} maxRetries - Maximum number of retry attempts (default: 5)
+ * @param {number} initialDelay - Initial delay between retries in ms (default: 2000)
+ * @param {boolean} verbose - Enable verbose logging (default: false)
+ * @returns {Promise<Object>} Proof object containing continuityProof, merkleProof, and txBytes
+ *
+ * @description
+ * Verbose logging (when verbose=true) outputs:
+ * - The exact API URL being called
+ * - HTTP response status code and status text
+ * - Response headers
+ * - Success confirmation when response is received
+ * - Error response bodies if API calls fail
+ *
+ * This is useful for debugging API connectivity issues and understanding
+ * the proof structure returned by the API.
+ */
+async function fetchProofBatch(apiUrl, chainKey, txHashes, maxRetries = 5, initialDelay = 2000, verbose = false) {
+    const url = `${apiUrl}/api/v1/proof-batch-by-tx/${chainKey}`;
+    const fetchParams = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(txHashes),
+    };
+
+    return await fetchProofWithParams(url, fetchParams, maxRetries, initialDelay, verbose);
+}
+
+/**
+ * Fetch proof with retry logic and verbose logging
+ * @param {string} url - The URL to fetch
+ * @param {Object} params - Fetch parameters (method, headers, body)
+ * @param {number} maxRetries - Maximum number of retry attempts
+ * @param {number} initialDelay - Initial delay between retries in ms
+ * @param {boolean} verbose - Enable verbose logging
+ * @returns {Promise<Object>} - The fetched proof data
+ */
+async function fetchProofWithParams(url, params, maxRetries = 5, initialDelay = 2000, verbose = false) {
     if (verbose) {
         console.log(`API URL: ${url}`);
     }
@@ -213,7 +263,7 @@ async function fetchProof(apiUrl, chainKey, txHash, maxRetries = 5, initialDelay
     let lastError = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, params);
 
             // Verbose logging: Show HTTP response details
             if (verbose) {
@@ -716,6 +766,7 @@ module.exports = {
     waitForAttestation,
     waitForCreditcoin3Blocks,
     fetchProof,
+    fetchProofBatch,
     convertProofFormat,
     loadPrecompileABI,
     decodeRevertReason,

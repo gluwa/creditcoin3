@@ -1,4 +1,8 @@
-use axum::{http::Method, routing::get, Extension, Router};
+use axum::{
+    http::Method,
+    routing::{get, post},
+    Extension, Router,
+};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -39,7 +43,15 @@ pub fn build_app(
         )
         .route(
             "/api/v1/proof-by-tx/{chain_key}/{tx_hash}",
-            get(continuity::get_proofs_by_tx_hash),
+            get(continuity::get_proof_by_tx_hash),
+        )
+        .route(
+            "/api/v1/proof-batch/{chain_key}",
+            post(continuity::get_proof_batch),
+        )
+        .route(
+            "/api/v1/proof-batch-by-tx/{chain_key}",
+            post(continuity::get_proof_batch_by_tx_hash),
         )
         .route(
             "/metrics",
