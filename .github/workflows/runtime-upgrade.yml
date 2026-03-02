@@ -120,8 +120,6 @@ jobs:
 
   build-sut:
     needs:
-      - setup
-      - setup-self-hosted
       - deploy-runner-build-sut
     uses: ./.github/workflows/build-native.yml
     with:
