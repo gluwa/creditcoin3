@@ -82,16 +82,3 @@ impl AbiProvider for BlockscoutAbiProvider {
         }
     }
 }
-
-pub struct PocAbiProvider();
-
-#[async_trait]
-impl AbiProvider for PocAbiProvider {
-    async fn get_abi(&self, _contract_address: String) -> Result<String, QueryBuilderError> {
-        // Path to file of burn ERC20 ABI from bridge-usage-example
-        let path = "../bridge-usage-example/TestERC20Abi.txt";
-        let abi = std::fs::read_to_string(path).expect("Abi should be there");
-
-        Ok(abi)
-    }
-}
