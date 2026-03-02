@@ -284,7 +284,7 @@ impl WorkerAttestationValidation {
 
         match submission {
             // CASE 1] SUBMITTED ATTESTATION
-            AttestationSubmission::Elligible { success, votes } => {
+            AttestationSubmission::Eligible { success, votes } => {
                 // -----------------------* Attestation runtime validation *---------------------------
 
                 match success {
@@ -1008,7 +1008,7 @@ impl WorkerAttestationValidation {
 // ----------------------------------------- [ HELPERS ] --------------------------------------- //
 
 enum AttestationSubmission {
-    Elligible {
+    Eligible {
         success: Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>,
         votes: Vec<common::types::Attestation>,
     },
@@ -1270,7 +1270,7 @@ impl WorkerAttestationValidation {
 
         let watch = submit
             .wait_for_finalized_success()
-            .map(move |success| (AttestationSubmission::Elligible { success, votes }, height));
+            .map(move |success| (AttestationSubmission::Eligible { success, votes }, height));
 
         self.watch_submission = Some(watch).into();
 

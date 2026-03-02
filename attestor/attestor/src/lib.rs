@@ -156,6 +156,17 @@ impl Attestor {
 
         // ---------------------------------* Chain configuration *--------------------------------
 
+        let cc3_block_time_ms = client_cc3
+            .api()
+            .await
+            .context("Failed to initialize cc3 api")
+            .map_err(Error::InitError)?
+            .constants()
+            .at(&cc_client::cc3::constants().timestamp().minimum_period())
+            .context("Failed to retrieve cc3 block time")
+            .map_err(Error::InitError)?
+            * 2;
+
         let interval_attestation = match self.config.attestation.attestation_interval {
             Some(attestation_interval) => attestation_interval,
             None => client_cc3
@@ -300,10 +311,6 @@ impl Attestor {
                             if let cc_client::attestation::CcEvent::AttestorsElected(attestors) = event {
                                 if attestors.contains(&account_id) {
                                     tracing::info!(%account_id, "☀️ Attestor is eligible for production");
-
-                                    // Waiting for other attestors to process the AttestorsElected event
-                                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-
                                     break 'outer attestors;
                                 }
                             }
@@ -322,6 +329,9 @@ impl Attestor {
                 }
             }
         }
+
+        // Waiting for 2 blocks so other attestors have time to update the attestor set
+        tokio::time::sleep(std::time::Duration::from_secs(cc3_block_time_ms * 2)).await;
 
         tracing::info!(start_height, "👶 Generating initial attestation");
 
