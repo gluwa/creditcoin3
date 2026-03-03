@@ -1,7 +1,9 @@
 //! Pallet Attestation POC Benchmarks
 use super::Pallet as Attestation;
 use super::*;
-use crate::clear_or_revert::{CheckpointPruningState, MAX_CHECKPOINTS_CLEARED_PER_BLOCK};
+use crate::clear_or_revert::{
+    CheckpointPruningState, ClearingCursor, MAX_CHECKPOINTS_CLEARED_PER_BLOCK,
+};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use continuity_dev::construct_fragment;
 use frame_benchmarking::v2::*;
@@ -562,24 +564,26 @@ mod benchmarks {
         frame_system::Pallet::<T>::set_block_number(One::one());
         let chain_key = 5;
         let chain_removal_checkpoint_count = (MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10) as u64;
-        let chain_removal_checkpoint_spacing = 100;
-        // Set up 0-1 chains with checkpoints to be removed. Should add at least
-        // MAX_CHECKPOINTS_CLEARED_PER_BLOCK attestations to ensure appropriately
-        // pessimistic weight.
+        let chain_removal_checkpoint_spacing = 100; // Based on attestation interval 10 and checkpoint interval 10
+                                                    // Set up 0-1 chains with checkpoints to be removed. Should add at least
+                                                    // MAX_CHECKPOINTS_CLEARED_PER_BLOCK checkpoints to ensure appropriately
+                                                    // pessimistic weight.
         if a == 1 {
             for j in 0..(chain_removal_checkpoint_count) {
                 let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&j.to_be_bytes()));
-                Checkpoints::<T>::insert(chain_key, j * 100, checkpoint_digest);
+                Checkpoints::<T>::insert(
+                    chain_key,
+                    j * chain_removal_checkpoint_spacing,
+                    checkpoint_digest,
+                );
             }
 
-            // Mimic the effects of on_supported_chain_removed
-            let maybe_cursor = Checkpoints::<T>::clear_prefix(
-                chain_key,
-                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                None,
-            )
-            .maybe_cursor;
-            CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+            // Set a cursor so that we actually trigger checkpoint removal in on_initialize
+            let cursor = Some(ClearingCursor {
+                is_benchmark: true,
+                inner: None,
+            });
+            CheckpointClearingCursors::<T>::set(chain_key, cursor);
         }
 
         // Set up 0-1 chains with checkpoint bucket entries to be removed.
@@ -596,14 +600,12 @@ mod benchmarks {
                 );
             }
 
-            // Mimic the effects of on_supported_chain_removed
-            let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
-                (chain_key,),
-                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                None,
-            )
-            .maybe_cursor;
-            BucketClearingCursors::<T>::set(chain_key, maybe_cursor);
+            // Set a cursor so that we actually trigger bucket entry removal in on_initialize
+            let cursor = Some(ClearingCursor {
+                is_benchmark: true,
+                inner: None,
+            });
+            BucketClearingCursors::<T>::set(chain_key, cursor);
         }
 
         // Set up an additional set of checkpoints and bucket entries if necessary

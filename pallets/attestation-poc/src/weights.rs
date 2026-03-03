@@ -495,14 +495,22 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	}
 	/// Storage: `Attestation::CheckpointPruningStates` (r:2 w:1)
 	/// Proof: `Attestation::CheckpointPruningStates` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointBuckets` (r:119 w:40)
+	/// Storage: `Attestation::CheckpointBuckets` (r:143 w:63)
 	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointClearingCursors` (r:1 w:0)
+	/// Storage: `Attestation::CheckpointClearingCursors` (r:2 w:1)
 	/// Proof: `Attestation::CheckpointClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::BucketClearingCursors` (r:1 w:0)
-	/// Proof: `Attestation::BucketClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Checkpoints` (r:0 w:40)
+	/// Storage: `Attestation::Checkpoints` (r:41 w:67)
 	/// Proof: `Attestation::Checkpoints` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::BucketClearingCursors` (r:2 w:1)
+	/// Proof: `Attestation::BucketClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `a` is `[0, 1]`.
 	/// The range of component `b` is `[0, 1]`.
 	/// The range of component `c` is `[0, 1]`.
@@ -706,8 +714,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `36191`
 		//  Estimated: `1274681`
-		// Minimum execution time: 3_816_000_000 picoseconds.
-		Weight::from_parts(4_468_000_000, 0)
+		// Minimum execution time: 3_801_000_000 picoseconds.
+		Weight::from_parts(4_035_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 1274681))
 			.saturating_add(T::DbWeight::get().reads(747))
 			.saturating_add(T::DbWeight::get().writes(1244))

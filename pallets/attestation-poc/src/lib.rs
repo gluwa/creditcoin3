@@ -27,7 +27,7 @@ mod ledger;
 pub mod pallet {
     use core::marker::PhantomData;
 
-    use crate::clear_or_revert::CheckpointPruningState;
+    use crate::clear_or_revert::{CheckpointPruningState, ClearingCursor};
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
         provider::{AttestationProvider, CheckpointProvider},
@@ -375,14 +375,14 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn checkpoint_clearing_cursors)]
     pub type CheckpointClearingCursors<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, ChainKey, ClearingCursor, OptionQuery>;
 
     /// Progress markers for removing checkpoint buckets associated with source chains that are undergoing
     /// chain reversion or are no longer supported.
     #[pallet::storage]
     #[pallet::getter(fn bucket_clearing_cursors)]
     pub type BucketClearingCursors<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, ChainKey, ClearingCursor, OptionQuery>;
 
     /// The pivot of the next checkpoint bucket to be pruned. This is used during a chain reversion, when
     /// we want to remove all `CheckpointBuckets` entries above the height of the checkpoint we reverted to.

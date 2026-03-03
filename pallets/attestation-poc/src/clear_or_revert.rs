@@ -1,7 +1,7 @@
 use frame_support::{pallet_prelude::*, transactional};
 
 use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest};
-use sp_runtime::Vec;
+use sp_std::vec::Vec;
 use supported_chains_primitives::chain_removal_listener::ChainRemovalListener;
 
 use super::pallet::*;
@@ -16,6 +16,26 @@ pub const MAX_CHECKPOINTS_CLEARED_PER_BLOCK: u8 = 40;
 pub struct CheckpointPruningState {
     pub stop_height: u64, // This is the height of the last checkpoint before reversion was initiated
     pub next_pivot: u64,  // inclusive lower bound for scanning pivots
+}
+
+// Benchmarking our checkpoint clearing implementation for on_initialize
+// wasn't possible without this strange looking wrapper. Basically, it
+// hasn't been possible so far to generate and store a checkpoint clearing
+// cursor in benchmarks. So instead we allow for the storage of a cursor
+// wrapper which allows the cursor to be null only during benchmarks.
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+pub struct ClearingCursor {
+    pub is_benchmark: bool,
+    pub inner: Option<Vec<u8>>,
+}
+
+impl ClearingCursor {
+    pub fn new(cursor: Option<Vec<u8>>) -> Self {
+        ClearingCursor {
+            is_benchmark: false,
+            inner: cursor,
+        }
+    }
 }
 
 impl<T: Config> Pallet<T> {
@@ -82,13 +102,35 @@ impl<T: Config> Pallet<T> {
     /// Helpers to keep on_initialize readable ///
     pub fn on_init_clear_checkpoints() -> bool {
         if let Some((chain_key, cursor)) = CheckpointClearingCursors::<T>::iter().next() {
-            let maybe_cursor = Checkpoints::<T>::clear_prefix(
-                chain_key,
-                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                Some(&cursor[..]),
-            )
-            .maybe_cursor;
-            CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+            if let Some(cursor) = cursor.inner {
+                let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                    chain_key,
+                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                    Some(&cursor[..]),
+                )
+                .maybe_cursor;
+                CheckpointClearingCursors::<T>::set(
+                    chain_key,
+                    Some(ClearingCursor::new(maybe_cursor)),
+                );
+            } else {
+                if !cursor.is_benchmark {
+                    // We have a clearing cursor with an empty inner cursor. We can ignore and remove it.
+                    CheckpointClearingCursors::<T>::remove(chain_key);
+                    return true;
+                } else {
+                    let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                        chain_key,
+                        u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                        None,
+                    )
+                    .maybe_cursor;
+                    CheckpointClearingCursors::<T>::set(
+                        chain_key,
+                        Some(ClearingCursor::new(maybe_cursor)),
+                    );
+                }
+            };
 
             // note: may be triggered multiple times when removing a large amount of checkpoints
             Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
@@ -102,13 +144,32 @@ impl<T: Config> Pallet<T> {
 
     pub fn on_init_clear_buckets() -> bool {
         if let Some((chain_key, cursor)) = BucketClearingCursors::<T>::iter().next() {
-            let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
-                (chain_key,),
-                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                Some(&cursor[..]),
-            )
-            .maybe_cursor;
-            BucketClearingCursors::<T>::set(chain_key, maybe_cursor);
+            if let Some(cursor) = cursor.inner {
+                let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
+                    (chain_key,),
+                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                    Some(&cursor[..]),
+                )
+                .maybe_cursor;
+                BucketClearingCursors::<T>::set(chain_key, Some(ClearingCursor::new(maybe_cursor)));
+            } else {
+                if !cursor.is_benchmark {
+                    // We have a clearing cursor with an empty inner cursor. We can ignore and remove it.
+                    BucketClearingCursors::<T>::remove(chain_key);
+                    return true;
+                } else {
+                    let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
+                        (chain_key,),
+                        u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                        None,
+                    )
+                    .maybe_cursor;
+                    BucketClearingCursors::<T>::set(
+                        chain_key,
+                        Some(ClearingCursor::new(maybe_cursor)),
+                    );
+                }
+            };
 
             // performed clear buckets operation (for gas calculation)
             true
@@ -227,7 +288,10 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
                 // more checkpoints left to be removed
                 // Attestation pallet will check this storage to trigger further checkpoint removals in future blocks
                 // and CheckpointsCleared event will be dispatched inside on_initialize()
-                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+                CheckpointClearingCursors::<T>::set(
+                    chain_key,
+                    Some(ClearingCursor::new(maybe_cursor)),
+                );
             } else {
                 // all checkpoints were removed in the call above, trigger the event here
                 // b/c on_initialize() won't do that
@@ -244,7 +308,10 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
 
             if maybe_buckets_cursor.is_some() {
                 // more buckets left to be removed
-                BucketClearingCursors::<T>::set(chain_key, maybe_buckets_cursor);
+                BucketClearingCursors::<T>::set(
+                    chain_key,
+                    Some(ClearingCursor::new(maybe_buckets_cursor)),
+                );
             }
         }
 
