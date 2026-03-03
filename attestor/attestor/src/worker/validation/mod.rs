@@ -458,7 +458,6 @@ impl WorkerAttestationValidation {
 
         // -----------------------------* Attestation pre-validation *-----------------------------
 
-        self.watch_submission = future::OptionFuture::default();
         if let Some((height, digest, attestation, votes)) =
             self.validation_receiver.take_next_validated()
         {
