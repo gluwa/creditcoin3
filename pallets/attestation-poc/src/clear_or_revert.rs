@@ -109,10 +109,12 @@ impl<T: Config> Pallet<T> {
                     Some(&cursor[..]),
                 )
                 .maybe_cursor;
-                CheckpointClearingCursors::<T>::set(
-                    chain_key,
-                    Some(ClearingCursor::new(maybe_cursor)),
-                );
+                let maybe_cursor_struct = if maybe_cursor.is_some() {
+                    Some(ClearingCursor::new(maybe_cursor))
+                } else {
+                    None
+                };
+                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
             } else {
                 if !cursor.is_benchmark {
                     // We have a clearing cursor with an empty inner cursor. We can ignore and remove it.
@@ -125,10 +127,12 @@ impl<T: Config> Pallet<T> {
                         None,
                     )
                     .maybe_cursor;
-                    CheckpointClearingCursors::<T>::set(
-                        chain_key,
-                        Some(ClearingCursor::new(maybe_cursor)),
-                    );
+                    let maybe_cursor_struct = if maybe_cursor.is_some() {
+                        Some(ClearingCursor::new(maybe_cursor))
+                    } else {
+                        None
+                    };
+                    CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
                 }
             };
 
@@ -151,7 +155,12 @@ impl<T: Config> Pallet<T> {
                     Some(&cursor[..]),
                 )
                 .maybe_cursor;
-                BucketClearingCursors::<T>::set(chain_key, Some(ClearingCursor::new(maybe_cursor)));
+                let maybe_cursor_struct = if maybe_cursor.is_some() {
+                    Some(ClearingCursor::new(maybe_cursor))
+                } else {
+                    None
+                };
+                BucketClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
             } else {
                 if !cursor.is_benchmark {
                     // We have a clearing cursor with an empty inner cursor. We can ignore and remove it.
@@ -164,10 +173,12 @@ impl<T: Config> Pallet<T> {
                         None,
                     )
                     .maybe_cursor;
-                    BucketClearingCursors::<T>::set(
-                        chain_key,
-                        Some(ClearingCursor::new(maybe_cursor)),
-                    );
+                    let maybe_cursor_struct = if maybe_cursor.is_some() {
+                        Some(ClearingCursor::new(maybe_cursor))
+                    } else {
+                        None
+                    };
+                    BucketClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
                 }
             };
 
