@@ -404,7 +404,7 @@ impl Attestor {
         let attestation_latest_cc3 = match start_digest {
             Some(digest) => common::types::AttestationInfo {
                 digest,
-                height: genesis,
+                height: attestation_latest_cc3,
             },
             None => {
                 tracing::info!(start_height, "👶 Generating genesis attestation");
