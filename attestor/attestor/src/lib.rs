@@ -111,7 +111,7 @@ impl Attestor {
             .with_cc3(client_cc3.clone())
             .with_chain_key(self.config.chain_key)
             .build();
-        let mut stream_cc3_production = stream::cc3::StreamCC3::new(config)
+        let stream_cc3_production = stream::cc3::StreamCC3::new(config)
             .await
             .map_err(Error::InitError)?;
 
@@ -120,6 +120,14 @@ impl Attestor {
             .with_chain_key(self.config.chain_key)
             .build();
         let stream_cc3_validation = stream::cc3::StreamCC3::new(config)
+            .await
+            .map_err(Error::InitError)?;
+
+        let config = stream::cc3::ConfigBuilder::new()
+            .with_cc3(client_cc3.clone())
+            .with_chain_key(self.config.chain_key)
+            .build();
+        let mut stream_cc3_genesis = stream::cc3::StreamCC3::new(config)
             .await
             .map_err(Error::InitError)?;
 
@@ -181,7 +189,7 @@ impl Attestor {
         if !attestors.contains(&account_id) {
             attestors = 'outer: loop {
                 tokio::select! {
-                    Some(block) = stream_cc3_production.next() => {
+                    Some(block) = stream_cc3_genesis.next() => {
                         let block = match block.map_interrupt(Error::CC3Error) {
                             Ok(block) => block,
                             Err(Interrupt::Cont(err)) => return Err(err),
@@ -438,7 +446,7 @@ impl Attestor {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
                 let attestation_latest_cc3 = 'outer: loop {
                     tokio::select! {
-                        Some(block) = stream_cc3_production.next() => {
+                        Some(block) = stream_cc3_genesis.next() => {
                             let block = match block.map_interrupt(Error::CC3Error) {
                                 Ok(block) => block,
                                 Err(Interrupt::Cont(err)) => return Err(err),
