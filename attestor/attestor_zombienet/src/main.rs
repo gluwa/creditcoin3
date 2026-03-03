@@ -258,35 +258,63 @@ async fn main() -> anyhow::Result<()> {
         let mut attempt = 0;
 
         futures_register.spawn(async move {
-            let mut nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-            while let Err(err) = cc3
-                .attestor_register(args.chain_key, account_id.clone(), Some(nonce_local))
+            let query = cc_client::cc3::storage()
+                .attestation()
+                .attestors(args.chain_key, &account_id);
+            let attestor = cc3
+                .api()
                 .await
-            {
-                attempt += 1;
-                if attempt >= MAX_ATTEMPTS {
-                    anyhow::bail!("Failed to register attestor {name} - {account_id}: {err}");
-                }
+                .unwrap()
+                .storage()
+                .at_latest()
+                .await
+                .unwrap()
+                .fetch(&query)
+                .await
+                .unwrap();
 
-                nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            if attestor.is_none() {
+                let mut nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
+                while let Err(err) = cc3
+                    .attestor_register(args.chain_key, account_id.clone(), Some(nonce_local))
+                    .await
+                {
+                    tracing::error!(%err, "Failed to register attestor");
+
+                    attempt += 1;
+                    if attempt >= MAX_ATTEMPTS {
+                        anyhow::bail!("Failed to register attestor {name} - {account_id}: {err}");
+                    }
+
+                    nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                }
+                tracing::debug!(nonce_local, "OK - register");
+                anyhow::Ok(Some((name, account_id)))
+            } else {
+                tracing::info!(name, %account_id, "👷   Already registered");
+                anyhow::Ok(None)
             }
-            tracing::debug!(nonce_local, "OK - register");
-            anyhow::Ok((name, account_id))
         });
     }
 
+    let mut to_register = 0;
     while let Some(res) = futures_register.join_next().await {
-        let (name, account_id) = res??;
-        tracing::info!(name, %account_id, "👷   Successfully registered attestor");
+        if let Some((name, account_id)) = res?? {
+            tracing::info!(name, %account_id, "👷   Successfully registered attestor");
+            to_register += 1;
+        }
     }
 
     // ----------------------* Attestor registration (on-chain confirmation) *---------------------
 
-    wait_for_event::<cc_client::cc3::attestation::events::AttestorRegistered>(
-        args.number.get(),
-        blocks,
-    )
-    .await?;
+    if to_register > 0 {
+        wait_for_event::<cc_client::cc3::attestation::events::AttestorRegistered>(
+            args.number.get(),
+            blocks,
+        )
+        .await?;
+    }
 
     // -------------------------------------* Start attestors *------------------------------------
 

@@ -218,27 +218,20 @@ impl Attestor {
             .await
             .map_err(Error::RpcError)?;
 
+        let genesis = client_cc3
+            .get_attestation_chain_genesis_block_number(self.config.chain_key)
+            .await
+            .unwrap_or_default();
+
         let (start_height, start_digest, attestation_latest_cc3, empty_chain) =
             match self.config.attestation.start_height {
                 Some(start_height) => match attestation_start_cc3 {
                     Some((digest, height)) => (start_height, Some(digest), height, false),
-                    None => {
-                        let genesis = client_cc3
-                            .get_attestation_chain_genesis_block_number(self.config.chain_key)
-                            .await
-                            .unwrap_or_default();
-                        (start_height, None, genesis, true)
-                    }
+                    None => (start_height, None, genesis, true),
                 },
                 None => match attestation_start_cc3 {
                     Some((digest, height)) => (height + 1, Some(digest), height, false),
-                    None => {
-                        let genesis = client_cc3
-                            .get_attestation_chain_genesis_block_number(self.config.chain_key)
-                            .await
-                            .unwrap_or_default();
-                        (genesis, None, genesis, true)
-                    }
+                    None => (genesis, None, genesis, true),
                 },
             };
 
@@ -331,7 +324,19 @@ impl Attestor {
         }
 
         // Waiting for 2 blocks so other attestors have time to update the attestor set
-        tokio::time::sleep(std::time::Duration::from_millis(cc3_block_time_ms * 2)).await;
+        let step = cc3_block_time_ms * 2 / 10;
+
+        for i in 1..=10 {
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(step)) => {
+                    tracing::info!("⏳ Startup delay {}/{}ms", step * i, cc3_block_time_ms * 2);
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("🔌 Received shutdown signal");
+                    return Ok(());
+                }
+            }
+        }
 
         tracing::info!(start_height, "👶 Generating initial attestation");
 
@@ -435,6 +440,7 @@ impl Attestor {
             .with_api_calls(cc_client::Client::runtime_api())
             .with_api(api)
             .with_start_height(start_height)
+            .with_genesis(genesis)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let attestation_validation = worker::validation::WorkerAttestationValidation::new(config);
@@ -456,61 +462,71 @@ impl Attestor {
 
         tracing::info!("⏳ [4/4] Starting attestation production worker");
 
-        tracing::info!(
-            ?digest,
-            ?digest_prev,
-            height,
-            %attestor_id,
-            "⏲️ Waiting for intial attestation to finalize"
-        );
+        let attestation_latest_cc3 = match start_digest {
+            Some(digest) => common::types::AttestationInfo {
+                digest,
+                height: attestation_latest_cc3,
+            },
+            None => {
+                tracing::info!(
+                    ?digest,
+                    ?digest_prev,
+                    height,
+                    %attestor_id,
+                    "⏲️ Waiting for intial attestation to finalize"
+                );
 
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-        let attestation_latest_cc3 = 'outer: loop {
-            tokio::select! {
-                Some(block) = stream_cc3_production.next() => {
-                    let block = match block.map_interrupt(Error::CC3Error) {
-                        Ok(block) => block,
-                        Err(Interrupt::Cont(err)) => return Err(err),
-                        Err(Interrupt::Stop) => return Ok(()),
-                    };
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+                let attestation_latest_cc3 = 'outer: loop {
+                    tokio::select! {
+                        Some(block) = stream_cc3_production.next() => {
+                            let block = match block.map_interrupt(Error::CC3Error) {
+                                Ok(block) => block,
+                                Err(Interrupt::Cont(err)) => return Err(err),
+                                Err(Interrupt::Stop) => return Ok(()),
+                            };
 
-                    let events = match block.events().await.map_interrupt(Error::CC3Error) {
-                        Ok(events) => events,
-                        Err(Interrupt::Cont(err)) => return Err(err),
-                        Err(Interrupt::Stop) => return Ok(()),
-                    };
+                            let events = match block.events().await.map_interrupt(Error::CC3Error) {
+                                Ok(events) => events,
+                                Err(Interrupt::Cont(err)) => return Err(err),
+                                Err(Interrupt::Stop) => return Ok(()),
+                            };
 
-                    for event in events  {
-                        let event = event.map_err(Error::CC3Error)?;
-                        if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
-                            if attestation.header_number >= height {
-                                break 'outer common::types::AttestationInfo {
-                                    digest: attestation.digest,
-                                    height: attestation.header_number,
-                                };
+                            for event in events  {
+                                let event = event.map_err(Error::CC3Error)?;
+                                if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
+                                    if attestation.header_number >= height {
+                                        break 'outer common::types::AttestationInfo {
+                                            digest: attestation.digest,
+                                            height: attestation.header_number,
+                                        };
+                                    }
+                                }
                             }
                         }
+                        _ = tokio::signal::ctrl_c() => {
+                            tracing::info!("🔌 Received shutdown signal");
+                            return Ok(());
+                        }
+                        _ = interval.tick() => {
+                            tracing::info!(
+                                attestor = %account_id,
+                                "⏲️  waiting on submission..."
+                            );
+                        }
                     }
-                }
-                _ = tokio::signal::ctrl_c() => {
-                    tracing::info!("🔌 Received shutdown signal");
-                    return Ok(());
-                }
-                _ = interval.tick() => {
-                    tracing::info!(
-                        attestor = %account_id,
-                        "⏲️  waiting on submission..."
-                    );
-                }
+                };
+
+                stream_attestation
+                    .note_attestation_finalization(attestation_latest_cc3)
+                    .expect("Infallible");
+                sender_validation
+                    .note_attestation_finalization(attestation_latest_cc3)
+                    .expect("Infallible");
+
+                attestation_latest_cc3
             }
         };
-
-        stream_attestation
-            .note_attestation_finalization(attestation_latest_cc3)
-            .expect("Infallible");
-        sender_validation
-            .note_attestation_finalization(attestation_latest_cc3)
-            .expect("Infallible");
 
         let config = worker::production::ConfigBuilder::new()
             .with_stream_attestation(stream_attestation)

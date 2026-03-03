@@ -104,6 +104,7 @@ pub struct Config {
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
     start_height: common::types::Height,
+    genesis: common::types::Height,
 
     metrics: common::types::Metrics,
 }
@@ -125,6 +126,7 @@ pub(crate) struct WorkerAttestationValidation {
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
     api: subxt::OnlineClient<subxt::SubstrateConfig>,
     start_height: common::types::Height,
+    genesis: common::types::Height,
 
     // METRICS
     metrics: common::types::Metrics,
@@ -144,6 +146,7 @@ impl WorkerAttestationValidation {
             api_calls: config.api_calls,
             api: config.api,
             start_height: config.start_height,
+            genesis: config.genesis,
 
             metrics: config.metrics,
         }
@@ -1066,144 +1069,148 @@ impl WorkerAttestationValidation {
             delay = (delay * 2).min(DELAY_MAX);
         };
 
-        let vrf = match self
-            .cc3
-            .sign_vrf_submission(
-                attestation.attestation.chain_key,
-                height,
-                randomness,
-                epoch_index,
-            )
-            .await
-        {
-            Ok(vrf) => vrf,
-            Err(cc_client::Error::FailedToCreateProofOfInclusion(_)) => {
-                tracing::info!(
+        if height == self.genesis {
+            tracing::info!("🛫 Submitting genesis attestation");
+        } else {
+            let vrf = match self
+                .cc3
+                .sign_vrf_submission(
+                    attestation.attestation.chain_key,
                     height,
-                    "🚦 Attestor was not selected for attestation submission"
-                );
+                    randomness,
+                    epoch_index,
+                )
+                .await
+            {
+                Ok(vrf) => vrf,
+                Err(cc_client::Error::FailedToCreateProofOfInclusion(_)) => {
+                    tracing::info!(
+                        height,
+                        "🚦 Attestor was not selected for attestation submission"
+                    );
 
-                self.watch_submission = Some(std::future::ready((
-                    AttestationSubmission::NotElligible,
-                    height,
-                )))
-                .into();
+                    self.watch_submission = Some(std::future::ready((
+                        AttestationSubmission::NotElligible,
+                        height,
+                    )))
+                    .into();
 
-                return Ok(());
-            }
-            Err(err) => return Err(Interrupt::Cont(Error::ClientError(err))),
-        };
+                    return Ok(());
+                }
+                Err(err) => return Err(Interrupt::Cont(Error::ClientError(err))),
+            };
 
-        // -------------------------* Deterministic Rank Backoff *-------------------------
+            // -------------------------* Deterministic Rank Backoff *-------------------------
 
-        // STEP 1]
-        //
-        // We stagger attestation submissions based on the election vrf to avoid multiple
-        // attestors racing the runtime for submission at the same time. We do this in an
-        // effort to save block space.
+            // STEP 1]
+            //
+            // We stagger attestation submissions based on the election vrf to avoid multiple
+            // attestors racing the runtime for submission at the same time. We do this in an
+            // effort to save block space.
 
-        let mut rank_input = Vec::with_capacity(vrf.output.len() + 8);
-        rank_input.extend_from_slice(&vrf.output);
-        rank_input.extend_from_slice(&height.to_be_bytes());
-        let rank_hash = sp_io::hashing::keccak_256(&rank_input);
+            let mut rank_input = Vec::with_capacity(vrf.output.len() + 8);
+            rank_input.extend_from_slice(&vrf.output);
+            rank_input.extend_from_slice(&height.to_be_bytes());
+            let rank_hash = sp_io::hashing::keccak_256(&rank_input);
 
-        // Given a set S of 0..n-1 distinct elements, we pick at random 3 elements in S to
-        // form an ordered tuple. This tuple represents the ranks of each attestor during
-        // submission. We choose 3 as the size of the tuple as that is the target number of
-        // attestors for submission as per the round vrf. We call this tupple R.
-        //
-        // The number of the 3-tuples of S where the minimum element appears more than once
-        // is defined as:
-        //
-        //                              P(n) = n(3n - 1) / 2
-        //
-        // From this, we deduce the probability of the minimum element in R appearing
-        // EXACTLY once as:
-        //
-        //                        1 - P(n) = (2n - 1)(n - 1) / 2n^2
-        //
-        // This represents the probability of ONLY 1 attestor racing for submission at
-        // once, while other attestors can act as backup. Solving for 1 - P(n) > 0.8 we
-        // obtain 8, with diminishing returns beyond that point (see below).
-        const RANKS: u64 = 8;
-        let bytes = [
-            rank_hash[0],
-            rank_hash[1],
-            rank_hash[2],
-            rank_hash[3],
-            rank_hash[4],
-            rank_hash[5],
-            rank_hash[6],
-            rank_hash[7],
-        ];
-        let rank = u64::from_be_bytes(bytes) % RANKS;
+            // Given a set S of 0..n-1 distinct elements, we pick at random 3 elements in S to
+            // form an ordered tuple. This tuple represents the ranks of each attestor during
+            // submission. We choose 3 as the size of the tuple as that is the target number of
+            // attestors for submission as per the round vrf. We call this tupple R.
+            //
+            // The number of the 3-tuples of S where the minimum element appears more than once
+            // is defined as:
+            //
+            //                              P(n) = n(3n - 1) / 2
+            //
+            // From this, we deduce the probability of the minimum element in R appearing
+            // EXACTLY once as:
+            //
+            //                        1 - P(n) = (2n - 1)(n - 1) / 2n^2
+            //
+            // This represents the probability of ONLY 1 attestor racing for submission at
+            // once, while other attestors can act as backup. Solving for 1 - P(n) > 0.8 we
+            // obtain 8, with diminishing returns beyond that point (see below).
+            const RANKS: u64 = 8;
+            let bytes = [
+                rank_hash[0],
+                rank_hash[1],
+                rank_hash[2],
+                rank_hash[3],
+                rank_hash[4],
+                rank_hash[5],
+                rank_hash[6],
+                rank_hash[7],
+            ];
+            let rank = u64::from_be_bytes(bytes) % RANKS;
 
-        tracing::debug!(rank, "attestation submission race mitigation");
+            tracing::debug!(rank, "attestation submission race mitigation");
 
-        // Determined experimentally
-        const SUBMISSION_FINALIZATION_DELAY: u64 = 17;
+            // Determined experimentally
+            const SUBMISSION_FINALIZATION_DELAY: u64 = 17;
 
-        // Given
-        //
-        //                m := average time to submission finalization (17s)
-        //
-        //                                 delay = rank * m
-        //
-        // This guarantees that on average the amount of time between submissions should
-        // approximate the time to finalization.
-        //
-        // Note that while 1 - P(n) grows roughly O(1 - 1/n) of the rank, the average
-        // finalization delay for any rank size grows roughly linearly. For a rank size of
-        // n, the min submission latency remains 0, while the max submission latency is
-        // defined as:
-        //
-        //                                 Δt = n(1 - P(n))
-        //
-        // Therefore, and assuming an uniform distribution between 0 and Δt (as should be
-        // guaranteed by the use of the round vrf as underlying randomness), we have an
-        // average submission latency of:
-        //
-        //                             μ = (2n - 1)(n - 1) / 4n
-        //
-        // For a rank size of 8, the average submission latency is of roughly 3.3x the
-        // average time to finalization.
-        let delay = std::time::Duration::from_secs(rank * SUBMISSION_FINALIZATION_DELAY);
-        let deadline = tokio::time::Instant::now()
-            .checked_add(delay)
-            .unwrap_or(tokio::time::Instant::now());
+            // Given
+            //
+            //                m := average time to submission finalization (17s)
+            //
+            //                                 delay = rank * m
+            //
+            // This guarantees that on average the amount of time between submissions should
+            // approximate the time to finalization.
+            //
+            // Note that while 1 - P(n) grows roughly O(1 - 1/n) of the rank, the average
+            // finalization delay for any rank size grows roughly linearly. For a rank size of
+            // n, the min submission latency remains 0, while the max submission latency is
+            // defined as:
+            //
+            //                                 Δt = n(1 - P(n))
+            //
+            // Therefore, and assuming an uniform distribution between 0 and Δt (as should be
+            // guaranteed by the use of the round vrf as underlying randomness), we have an
+            // average submission latency of:
+            //
+            //                             μ = (2n - 1)(n - 1) / 4n
+            //
+            // For a rank size of 8, the average submission latency is of roughly 3.3x the
+            // average time to finalization.
+            let delay = std::time::Duration::from_secs(rank * SUBMISSION_FINALIZATION_DELAY);
+            let deadline = tokio::time::Instant::now()
+                .checked_add(delay)
+                .unwrap_or(tokio::time::Instant::now());
 
-        // Attestation should finalize before the deadline. If this is not the case then an
-        // attestor is most likely down.
-        loop {
-            tokio::select! {
-                Some(block) = self.stream_cc3.next() => {
-                    for event in block
-                        .map_interrupt(Error::CC3Error)?
-                        .events()
-                        .await
-                        .map_interrupt(Error::CC3Error)?
-                    {
-                        let event = event.map_interrupt(Error::CC3Error)?;
+            // Attestation should finalize before the deadline. If this is not the case then an
+            // attestor is most likely down.
+            loop {
+                tokio::select! {
+                    Some(block) = self.stream_cc3.next() => {
+                        for event in block
+                            .map_interrupt(Error::CC3Error)?
+                            .events()
+                            .await
+                            .map_interrupt(Error::CC3Error)?
+                        {
+                            let event = event.map_interrupt(Error::CC3Error)?;
 
-                        if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
-                            if attestation.header_number >= height {
-                                self.watch_submission = Some(std::future::ready((
-                                    AttestationSubmission::Finalized,
-                                    height,
-                                )))
-                                .into();
+                            if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
+                                if attestation.header_number >= height {
+                                    self.watch_submission = Some(std::future::ready((
+                                        AttestationSubmission::Finalized,
+                                        height,
+                                    )))
+                                    .into();
 
-                                return Ok(());
+                                    return Ok(());
+                                }
                             }
                         }
                     }
-                }
-                _ = tokio::time::sleep_until(deadline) => {
-                    break;
-                }
-                _ = tokio::signal::ctrl_c() => {
-                    self.watch_submission = future::OptionFuture::default();
-                    return Err(Interrupt::Stop);
+                    _ = tokio::time::sleep_until(deadline) => {
+                        break;
+                    }
+                    _ = tokio::signal::ctrl_c() => {
+                        self.watch_submission = future::OptionFuture::default();
+                        return Err(Interrupt::Stop);
+                    }
                 }
             }
         }
