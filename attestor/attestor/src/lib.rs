@@ -243,7 +243,7 @@ impl Attestor {
             std::num::NonZeroUsize::new(attestor_primitives::calculate_threshold(target) as usize)
                 .expect("Failed to compute quorum threshold");
 
-        tracing::info!(quorum, "🧑‍🤝‍🧑 Retrieved target sample size");
+        tracing::info!(quorum, ?start_digest, "🧑‍🤝‍🧑 Retrieved chain data");
 
         // -------------------------------------* Attestation *------------------------------------
 
@@ -275,7 +275,7 @@ impl Attestor {
             .build();
         let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
 
-        // -------------------------------------* Genesis *------------------------------------- //
+        // -----------------------------------* Eligibility *----------------------------------- //
 
         tracing::info!(
             attestor = %account_id,
@@ -338,54 +338,6 @@ impl Attestor {
             }
         }
 
-        tracing::info!(start_height, "👶 Generating initial attestation");
-
-        let attestation = if empty_chain {
-            match stream_attestation
-                .generate_attestation_genesis()
-                .await
-                .map_interrupt(Error::AttestationError)
-            {
-                Ok(attestation) => attestation,
-                Err(Interrupt::Cont(err)) => return Err(err),
-                Err(Interrupt::Stop) => return Ok(()),
-            }
-        } else {
-            let permit = match stream_attestation
-                .next()
-                .await
-                .transpose()
-                .map_interrupt(Error::AttestationError)
-            {
-                Ok(Some(permit)) => permit,
-                Err(Interrupt::Cont(err)) => return Err(err),
-                Ok(None) | Err(Interrupt::Stop) => return Ok(()),
-            };
-
-            match stream_attestation
-                .generate_attestation(permit)
-                .await
-                .map_interrupt(Error::AttestationError)
-            {
-                Ok(attestation) => attestation,
-                Err(Interrupt::Cont(err)) => return Err(err),
-                Err(Interrupt::Stop) => return Ok(()),
-            }
-        };
-
-        let height = attestation.header_number();
-        let digest = attestation.digest();
-        let digest_prev = attestation.prev_digest();
-        let attestor_id = attestation.attestor.clone();
-
-        tracing::info!(
-            ?digest,
-            ?digest_prev,
-            height,
-            %attestor_id,
-            "📡 Generated intial attestation"
-        );
-
         // -------------------------------------* Channels *------------------------------------ //
 
         // attestation production -> p2p sync
@@ -406,14 +358,43 @@ impl Attestor {
         let (mut sender_validation, receiver_validation) =
             worker::validation::pool::attestation_pool(config);
 
-        sender_p2p
-            .send(attestation.clone())
-            .context("Failed to send initial attestation over to p2p worker")
-            .map_err(Error::InitError)?;
-        sender_validation
-            .send(attestation)
-            .transpose()
-            .expect("Failed to send initial attestation over for validation");
+        // --------------------------------------* Genesis *------------------------------------ //
+
+        if empty_chain {
+            tracing::info!(start_height, "👶 Generating genesis attestation");
+
+            let attestation = match stream_attestation
+                .generate_attestation_genesis()
+                .await
+                .map_interrupt(Error::AttestationError)
+            {
+                Ok(attestation) => attestation,
+                Err(Interrupt::Cont(err)) => return Err(err),
+                Err(Interrupt::Stop) => return Ok(()),
+            };
+
+            let height = attestation.header_number();
+            let digest = attestation.digest();
+            let digest_prev = attestation.prev_digest();
+            let attestor_id = attestation.attestor.clone();
+
+            tracing::info!(
+                ?digest,
+                ?digest_prev,
+                height,
+                %attestor_id,
+                "📡 Generated genesis attestation"
+            );
+
+            sender_p2p
+                .send(attestation.clone())
+                .context("Failed to send initial attestation over to p2p worker")
+                .map_err(Error::InitError)?;
+            sender_validation
+                .send(attestation)
+                .transpose()
+                .expect("Failed to send initial attestation over for validation");
+        }
 
         // -------------------------------------* Workers *------------------------------------- //
 
@@ -468,13 +449,7 @@ impl Attestor {
                 height: attestation_latest_cc3,
             },
             None => {
-                tracing::info!(
-                    ?digest,
-                    ?digest_prev,
-                    height,
-                    %attestor_id,
-                    "⏲️ Waiting for intial attestation to finalize"
-                );
+                tracing::info!(genesis, "⏲️ Waiting for intial attestation to finalize");
 
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
                 let attestation_latest_cc3 = 'outer: loop {
@@ -495,7 +470,7 @@ impl Attestor {
                             for event in events  {
                                 let event = event.map_err(Error::CC3Error)?;
                                 if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
-                                    if attestation.header_number >= height {
+                                    if attestation.header_number >= genesis {
                                         break 'outer common::types::AttestationInfo {
                                             digest: attestation.digest,
                                             height: attestation.header_number,
