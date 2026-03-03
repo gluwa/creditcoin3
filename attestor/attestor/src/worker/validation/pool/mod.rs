@@ -2176,7 +2176,7 @@ mod test {
                     attestation_0.attestation,
                     attestation_1.attestation,
                 ],
-            )
+            );
         });
 
         assert_eq!(
