@@ -115,25 +115,23 @@ impl<T: Config> Pallet<T> {
                     None
                 };
                 CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
+            } else if !cursor.is_benchmark {
+                // We have a clearing cursor with an empty inner cursor. We can ignore and remove it.
+                CheckpointClearingCursors::<T>::remove(chain_key);
+                return true;
             } else {
-                if !cursor.is_benchmark {
-                    // We have a clearing cursor with an empty inner cursor. We can ignore and remove it.
-                    CheckpointClearingCursors::<T>::remove(chain_key);
-                    return true;
+                let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                    chain_key,
+                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                    None,
+                )
+                .maybe_cursor;
+                let maybe_cursor_struct = if maybe_cursor.is_some() {
+                    Some(ClearingCursor::new(maybe_cursor))
                 } else {
-                    let maybe_cursor = Checkpoints::<T>::clear_prefix(
-                        chain_key,
-                        u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                        None,
-                    )
-                    .maybe_cursor;
-                    let maybe_cursor_struct = if maybe_cursor.is_some() {
-                        Some(ClearingCursor::new(maybe_cursor))
-                    } else {
-                        None
-                    };
-                    CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
-                }
+                    None
+                };
+                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
             };
 
             // note: may be triggered multiple times when removing a large amount of checkpoints
@@ -161,25 +159,23 @@ impl<T: Config> Pallet<T> {
                     None
                 };
                 BucketClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
+            } else if !cursor.is_benchmark {
+                // We have a clearing cursor with an empty inner cursor. We can ignore and remove it.
+                BucketClearingCursors::<T>::remove(chain_key);
+                return true;
             } else {
-                if !cursor.is_benchmark {
-                    // We have a clearing cursor with an empty inner cursor. We can ignore and remove it.
-                    BucketClearingCursors::<T>::remove(chain_key);
-                    return true;
+                let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
+                    (chain_key,),
+                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                    None,
+                )
+                .maybe_cursor;
+                let maybe_cursor_struct = if maybe_cursor.is_some() {
+                    Some(ClearingCursor::new(maybe_cursor))
                 } else {
-                    let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
-                        (chain_key,),
-                        u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                        None,
-                    )
-                    .maybe_cursor;
-                    let maybe_cursor_struct = if maybe_cursor.is_some() {
-                        Some(ClearingCursor::new(maybe_cursor))
-                    } else {
-                        None
-                    };
-                    BucketClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
-                }
+                    None
+                };
+                BucketClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
             };
 
             // performed clear buckets operation (for gas calculation)

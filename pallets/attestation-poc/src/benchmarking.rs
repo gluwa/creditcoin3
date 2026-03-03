@@ -630,17 +630,16 @@ mod benchmarks {
                 let checkpoint_digest =
                     H256::from(&sp_io::hashing::blake2_256(&header_number.to_be_bytes()));
                 Checkpoints::<T>::insert(chain_key, header_number, checkpoint_digest);
-
-                // Set pruning state to trigger during on_initialize
-                let stop_height = starting_height
-                    + (MAX_CHECKPOINTS_CLEARED_PER_BLOCK as u64 * CHECKPOINT_BUCKET_SIZE * 2);
-                let first_pivot_height = Pallet::<T>::compute_block_index_for(starting_height);
-                let pruning_state = CheckpointPruningState {
-                    stop_height,
-                    next_pivot: first_pivot_height,
-                };
-                CheckpointPruningStates::<T>::insert(chain_key, pruning_state);
             }
+            // Set pruning state to trigger during on_initialize
+            let stop_height = starting_height
+                + (MAX_CHECKPOINTS_CLEARED_PER_BLOCK as u64 * CHECKPOINT_BUCKET_SIZE * 2);
+            let first_pivot_height = Pallet::<T>::compute_block_index_for(starting_height);
+            let pruning_state = CheckpointPruningState {
+                stop_height,
+                next_pivot: first_pivot_height,
+            };
+            CheckpointPruningStates::<T>::insert(chain_key, pruning_state);
         }
 
         #[block]
