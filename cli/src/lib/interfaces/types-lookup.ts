@@ -1177,6 +1177,7 @@ declare module '@polkadot/types/lookup' {
         readonly asForcedElection: {
             readonly epoch: u64;
         } & Struct;
+        readonly isForcedUpdatesApplied: boolean;
         readonly type:
             | 'AttestorRegistered'
             | 'AttestorUnregistered'
@@ -1205,7 +1206,8 @@ declare module '@polkadot/types/lookup' {
             | 'ChangedElectionPolicy'
             | 'AuthorizedAttestorAdded'
             | 'AuthorizedAttestorRemoved'
-            | 'ForcedElection';
+            | 'ForcedElection'
+            | 'ForcedUpdatesApplied';
     }
 
     /** @name AttestorPrimitivesAttestationCheckpoint (94) */
@@ -3068,6 +3070,7 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly maxCatchup: u32;
         } & Struct;
+        readonly isForceApplyUpdates: boolean;
         readonly type:
             | 'SetChainAttestationInterval'
             | 'SetTargetSampleSize'
@@ -3091,7 +3094,8 @@ declare module '@polkadot/types/lookup' {
             | 'RemoveAuthorizedAttestor'
             | 'KickActiveAttestor'
             | 'ForceElection'
-            | 'SetMaxCatchup';
+            | 'SetMaxCatchup'
+            | 'ForceApplyUpdates';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (323) */

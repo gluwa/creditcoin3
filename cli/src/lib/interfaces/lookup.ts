@@ -933,6 +933,7 @@ export default {
             ForcedElection: {
                 epoch: 'u64',
             },
+            ForcedUpdatesApplied: 'Null',
         },
     },
     /**
@@ -2629,6 +2630,7 @@ export default {
                 chainKey: 'u64',
                 maxCatchup: 'u32',
             },
+            force_apply_updates: 'Null',
         },
     },
     /**

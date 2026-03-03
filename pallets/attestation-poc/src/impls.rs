@@ -588,7 +588,7 @@ impl<T: Config> Pallet<T> {
         free_b.saturating_sub(min_b).saturating_sub(locked_balance)
     }
 
-    fn apply_interval_updates() {
+    pub fn apply_interval_updates() {
         PendingAttestationInterval::<T>::iter().for_each(
             |(chain_key, new_attestation_interval)| {
                 ChainAttestationInterval::<T>::set(chain_key, new_attestation_interval);
@@ -620,21 +620,6 @@ impl<T: Config> Pallet<T> {
         let _ = PendingAttestationInterval::<T>::clear(num_supported_chains as u32, None);
         let _ = PendingTargetSampleSize::<T>::clear(num_supported_chains as u32, None);
         let _ = PendingMaxCatchup::<T>::clear(num_supported_chains as u32, None);
-    }
-
-    fn apply_target_sample_size_updates() {
-        PendingTargetSampleSize::<T>::iter().for_each(|(chain_key, new_target_sample_size)| {
-            TargetSampleSize::<T>::set(chain_key, new_target_sample_size);
-
-            Self::deposit_event(Event::<T>::TargetSampleSizeChanged(
-                chain_key,
-                new_target_sample_size,
-            ));
-        });
-
-        // Clear PendingTargetSampleSize
-        let num_supported_chains = T::SupportedChains::supported_chains().len();
-        let _ = PendingTargetSampleSize::<T>::clear(num_supported_chains as u32, None);
     }
 
     fn chill_all_attestors_for_chain(chain_key: ChainKey) {
@@ -1234,7 +1219,6 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
         // We also apply attestation interval updates, if any, at epoch boundaries.
         // Change attestation intervals and emit events
         Self::apply_interval_updates();
-        Self::apply_target_sample_size_updates();
     }
 }
 

@@ -129,6 +129,14 @@ declare module '@polkadot/api-base/types/submittable' {
                 [AttestorPrimitivesSignedAttestation]
             >;
             /**
+             * Force apply all pending configuration updates immediately.
+             *
+             * This applies pending attestation intervals, target sample sizes,
+             * and max catchup values for all supported chains without waiting
+             * for the next epoch boundary.
+             **/
+            forceApplyUpdates: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
+            /**
              * Force trigger an attestor election.
              *
              * A randomness of [0; 32] is used since randomness is not currently

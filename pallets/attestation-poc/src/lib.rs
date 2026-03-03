@@ -183,6 +183,7 @@ pub mod pallet {
         fn kick_active_attestor() -> Weight;
         fn force_election() -> Weight;
         fn set_max_catchup() -> Weight;
+        fn force_apply_updates() -> Weight;
     }
 
     #[pallet::storage]
@@ -584,6 +585,8 @@ pub mod pallet {
         ForcedElection {
             epoch: u64,
         },
+        /// Pending updates were force-applied via operator call.
+        ForcedUpdatesApplied,
     }
 
     #[pallet::error]
@@ -1184,6 +1187,23 @@ pub mod pallet {
             PendingMaxCatchup::<T>::set(chain_key, Some(max_catchup));
 
             Self::deposit_event(Event::<T>::PendingMaxCatchupSet(chain_key, max_catchup));
+
+            Ok(())
+        }
+
+        /// Force apply all pending configuration updates immediately.
+        ///
+        /// This applies pending attestation intervals, target sample sizes,
+        /// and max catchup values for all supported chains without waiting
+        /// for the next epoch boundary.
+        #[pallet::call_index(27)]
+        #[pallet::weight(<T as Config>::WeightInfo::force_apply_updates())]
+        pub fn force_apply_updates(origin: OriginFor<T>) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            Self::apply_interval_updates();
+
+            Self::deposit_event(Event::<T>::ForcedUpdatesApplied);
 
             Ok(())
         }

@@ -102,6 +102,10 @@ declare module '@polkadot/api-base/types/events' {
              **/
             ForcedElection: AugmentedEvent<ApiType, [epoch: u64], { epoch: u64 }>;
             /**
+             * Pending updates were force-applied via operator call.
+             **/
+            ForcedUpdatesApplied: AugmentedEvent<ApiType, []>;
+            /**
              * Emitted when an invulnerable is properly registered with the attestation system
              **/
             InvulnerableRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;

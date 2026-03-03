@@ -633,4 +633,30 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(28))
 			.saturating_add(T::DbWeight::get().writes(8))
 	}
+	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
+	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::PendingAttestationInterval` (r:1 w:1)
+	/// Proof: `Attestation::PendingAttestationInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::PendingTargetSampleSize` (r:1 w:1)
+	/// Proof: `Attestation::PendingTargetSampleSize` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::PendingMaxCatchup` (r:1 w:1)
+	/// Proof: `Attestation::PendingMaxCatchup` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn force_apply_updates() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `375`
+		//  Estimated: `3840`
+		// Minimum execution time: 35_000_000 picoseconds.
+		Weight::from_parts(40_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3840))
+			.saturating_add(T::DbWeight::get().reads(8))
+			.saturating_add(T::DbWeight::get().writes(5))
+	}
 }

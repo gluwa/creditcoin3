@@ -6077,3 +6077,254 @@ mod set_max_catchup {
         })
     }
 }
+
+#[cfg(test)]
+mod force_apply_updates {
+    use super::*;
+
+    #[test]
+    fn should_error_when_not_signed() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::force_apply_updates(RuntimeOrigin::none()),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn should_error_when_not_signed_by_operator_nor_root() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::force_apply_updates(RuntimeOrigin::signed(ATTESTOR_1)),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn should_succeed_when_signed_by_operator() {
+        ExtBuilder.build_and_execute(|| {
+            assert_ok!(Attestation::force_apply_updates(RuntimeOrigin::signed(
+                ALICE
+            )));
+        })
+    }
+
+    #[test]
+    fn should_succeed_when_signed_by_root() {
+        ExtBuilder.build_and_execute(|| {
+            assert_ok!(Attestation::force_apply_updates(RuntimeOrigin::root()));
+        })
+    }
+
+    #[test]
+    fn should_apply_pending_attestation_interval() {
+        ExtBuilder.build_and_execute(|| {
+            let new_interval = 200u64;
+
+            // Set pending interval
+            assert_ok!(Attestation::set_chain_attestation_interval(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                new_interval
+            ));
+
+            // Value is still the default
+            let default_interval = <Test as crate::Config>::DefaultAttestationInterval::get();
+            assert_eq!(
+                Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY),
+                default_interval
+            );
+
+            // Force apply updates
+            assert_ok!(Attestation::force_apply_updates(RuntimeOrigin::root()));
+
+            // Interval should now be applied
+            assert_eq!(
+                Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY),
+                new_interval
+            );
+
+            // Pending should be cleared
+            assert_eq!(
+                Attestation::pending_attestation_interval(SUPPORTED_CHAIN_KEY),
+                None
+            );
+
+            // Check for events
+            let events = System::events();
+            let forced_event = events.iter().find(|e| {
+                matches!(
+                    e.event,
+                    RuntimeEvent::Attestation(Event::ForcedUpdatesApplied)
+                )
+            });
+            assert!(
+                forced_event.is_some(),
+                "ForcedUpdatesApplied event should be emitted"
+            );
+
+            let attestation_interval_event = events.iter().find(|e| {
+                matches!(
+                    e.event,
+                    RuntimeEvent::Attestation(Event::AttestationIntervalChanged(
+                        chain_key,
+                        new_interval
+                    )) if chain_key == SUPPORTED_CHAIN_KEY && new_interval == new_interval
+                )
+            });
+            assert!(
+                attestation_interval_event.is_some(),
+                "AttestationIntervalChanged event should be emitted with correct values"
+            );
+        })
+    }
+
+    #[test]
+    fn should_apply_pending_target_sample_size() {
+        ExtBuilder.build_and_execute(|| {
+            let new_size = 10u32;
+
+            // Set pending target sample size
+            assert_ok!(Attestation::set_target_sample_size(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                new_size
+            ));
+
+            // Value is still the default
+            let default_size = <Test as crate::Config>::DefaultTargetSampleSize::get();
+            assert_eq!(
+                Attestation::target_sample_size(SUPPORTED_CHAIN_KEY),
+                default_size
+            );
+
+            // Force apply updates
+            assert_ok!(Attestation::force_apply_updates(RuntimeOrigin::root()));
+
+            // Size should now be applied
+            assert_eq!(
+                Attestation::target_sample_size(SUPPORTED_CHAIN_KEY),
+                new_size
+            );
+
+            // Pending should be cleared
+            assert_eq!(
+                Attestation::pending_target_sample_size(SUPPORTED_CHAIN_KEY),
+                None
+            );
+
+            // Check for events
+            let events = System::events();
+            let forced_event = events.iter().find(|e| {
+                matches!(
+                    e.event,
+                    RuntimeEvent::Attestation(Event::ForcedUpdatesApplied)
+                )
+            });
+            assert!(
+                forced_event.is_some(),
+                "ForcedUpdatesApplied event should be emitted"
+            );
+
+            let target_sample_size_event = events.iter().find(|e| {
+                matches!(
+                    e.event,
+                    RuntimeEvent::Attestation(Event::TargetSampleSizeChanged(
+                        chain_key,
+                        new_size
+                    )) if chain_key == SUPPORTED_CHAIN_KEY && new_size == new_size
+                )
+            });
+            assert!(
+                target_sample_size_event.is_some(),
+                "TargetSampleSizeChanged event should be emitted with correct values"
+            );
+        })
+    }
+
+    #[test]
+    fn should_apply_pending_max_catchup() {
+        ExtBuilder.build_and_execute(|| {
+            let new_max_catchup = 50u32;
+
+            // Set pending max catchup
+            assert_ok!(Attestation::set_max_catchup(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                new_max_catchup
+            ));
+
+            // Value is still the default
+            let default_catchup = <Test as crate::Config>::DefaultMaxCatchup::get();
+            assert_eq!(
+                Attestation::max_catchup(SUPPORTED_CHAIN_KEY),
+                default_catchup
+            );
+
+            // Force apply updates
+            assert_ok!(Attestation::force_apply_updates(RuntimeOrigin::root()));
+
+            // Max catchup should now be applied
+            assert_eq!(
+                Attestation::max_catchup(SUPPORTED_CHAIN_KEY),
+                new_max_catchup
+            );
+
+            // Pending should be cleared
+            assert_eq!(Attestation::pending_max_catchup(SUPPORTED_CHAIN_KEY), None);
+
+            // Check for events
+            let events = System::events();
+            let forced_event = events.iter().find(|e| {
+                matches!(
+                    e.event,
+                    RuntimeEvent::Attestation(Event::ForcedUpdatesApplied)
+                )
+            });
+            assert!(
+                forced_event.is_some(),
+                "ForcedUpdatesApplied event should be emitted"
+            );
+
+            let max_catchup_event = events.iter().find(|e| {
+                matches!(
+                    e.event,
+                    RuntimeEvent::Attestation(Event::MaxCatchupChanged(
+                        chain_key,
+                        new_max_catchup
+                    )) if chain_key == SUPPORTED_CHAIN_KEY && new_max_catchup == new_max_catchup
+                )
+            });
+            assert!(
+                max_catchup_event.is_some(),
+                "MaxCatchupChanged event should be emitted with correct values"
+            );
+        })
+    }
+
+    #[test]
+    fn should_work_with_no_pending_updates() {
+        ExtBuilder.build_and_execute(|| {
+            // No pending values set - should still succeed
+            assert_ok!(Attestation::force_apply_updates(RuntimeOrigin::root()));
+
+            let events = System::events();
+            assert_eq!(events.len(), 1, "Only one event should be emitted");
+
+            // Check for the ForcedUpdatesApplied event
+            let events = System::events();
+            let forced_event = events.iter().find(|e| {
+                matches!(
+                    e.event,
+                    RuntimeEvent::Attestation(Event::ForcedUpdatesApplied)
+                )
+            });
+            assert!(
+                forced_event.is_some(),
+                "ForcedUpdatesApplied event should be emitted"
+            );
+        })
+    }
+}

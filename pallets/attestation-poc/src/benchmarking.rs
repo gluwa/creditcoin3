@@ -708,4 +708,18 @@ mod benchmarks {
             epoch,
         )
     }
+
+    #[benchmark]
+    fn force_apply_updates() {
+        // Setup: populate pending storage items for all supported chains
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        // Set pending values that will be applied
+        PendingAttestationInterval::<T>::insert(DEV_CHAIN_KEY, 200u64);
+        PendingTargetSampleSize::<T>::insert(DEV_CHAIN_KEY, 10u32);
+        PendingMaxCatchup::<T>::insert(DEV_CHAIN_KEY, 50u32);
+
+        #[extrinsic_call]
+        _(root_origin as <T as frame_system::Config>::RuntimeOrigin)
+    }
 }
