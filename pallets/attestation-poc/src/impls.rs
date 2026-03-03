@@ -283,11 +283,11 @@ impl<T: Config> Pallet<T> {
 
         // Update last digest
         LastDigest::<T>::mutate(chain_key, |last_digest| {
-            if let Some((h, d)) = last_digest {
-                if header_number > *h {
-                    *h = header_number;
-                    *d = digest;
-                }
+            if last_digest
+                .as_ref()
+                .is_none_or(|(h, ..)| header_number > *h)
+            {
+                *last_digest = Some((header_number, digest));
             }
         });
 
