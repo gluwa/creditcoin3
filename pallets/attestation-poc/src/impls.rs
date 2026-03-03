@@ -282,7 +282,14 @@ impl<T: Config> Pallet<T> {
         Attestations::<T>::insert(chain_key, digest, &attestation);
 
         // Update last digest
-        LastDigest::<T>::set(chain_key, Some((header_number, digest)));
+        LastDigest::<T>::mutate(chain_key, |last_digest| {
+            if let Some((h, d)) = last_digest {
+                if header_number > *h {
+                    *h = header_number;
+                    *d = digest;
+                }
+            }
+        });
 
         // Emit event
         Self::deposit_event(Event::<T>::BlockAttested(chain_key, header_number, digest));
