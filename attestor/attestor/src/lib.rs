@@ -404,12 +404,12 @@ impl Attestor {
         let attestation_latest_cc3 = match start_digest {
             Some(digest) => common::types::AttestationInfo {
                 digest,
-                height: attestation_latest_cc3,
+                height: genesis,
             },
             None => {
                 tracing::info!(start_height, "👶 Generating genesis attestation");
 
-                let attestation = match stream_attestation
+                let attestation_genesis = match stream_attestation
                     .generate_attestation_genesis()
                     .await
                     .map_interrupt(Error::AttestationError)
@@ -419,10 +419,12 @@ impl Attestor {
                     Err(Interrupt::Stop) => return Ok(()),
                 };
 
-                let height = attestation.header_number();
-                let digest = attestation.digest();
-                let digest_prev = attestation.prev_digest();
-                let attestor_id = attestation.attestor.clone();
+                let height = attestation_genesis.header_number();
+                let digest = attestation_genesis.digest();
+                let digest_prev = attestation_genesis.prev_digest();
+                let attestor_id = attestation_genesis.attestor.clone();
+
+                assert_eq!(height, genesis, "Genesis attestation height mismatch");
 
                 tracing::info!(
                     ?digest,
@@ -433,11 +435,11 @@ impl Attestor {
                 );
 
                 sender_p2p
-                    .send(attestation.clone())
+                    .send(attestation_genesis.clone())
                     .context("Failed to send initial attestation over to p2p worker")
                     .map_err(Error::InitError)?;
                 sender_validation
-                    .send(attestation)
+                    .send(attestation_genesis)
                     .transpose()
                     .expect("Failed to send initial attestation over for validation");
 
@@ -461,11 +463,11 @@ impl Attestor {
 
                             for event in events  {
                                 let event = event.map_err(Error::CC3Error)?;
-                                if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
-                                    if attestation.header_number >= genesis {
+                                if let cc_client::attestation::CcEvent::BlockAttested(attestation_new) = event {
+                                    if attestation_new.header_number >= height {
                                         break 'outer common::types::AttestationInfo {
-                                            digest: attestation.digest,
-                                            height: attestation.header_number,
+                                            digest: attestation_new.digest,
+                                            height: attestation_new.header_number,
                                         };
                                     }
                                 }
