@@ -40,28 +40,6 @@ pub trait EventAttestationIntervalChange: EventAttestationIntervalChangeAsync {
     }
 }
 
-pub trait EventCheckpointIntervalChangeAsync {
-    type Error;
-
-    async fn note_checkpoint_interval_change_async(
-        &mut self,
-        interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: common::types::Height,
-    ) -> Result<(), Self::Error>;
-}
-
-pub trait EventCheckpointIntervalChange: EventCheckpointIntervalChangeAsync {
-    fn note_checkpoint_interval_change(
-        &mut self,
-        interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: common::types::Height,
-    ) -> Result<(), Self::Error> {
-        poll_sync_future(
-            self.note_checkpoint_interval_change_async(interval_new, attestation_latest_cc3),
-        )
-    }
-}
-
 pub trait EventAttestorsElectedAsync {
     type Error;
 

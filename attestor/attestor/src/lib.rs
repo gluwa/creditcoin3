@@ -154,7 +154,17 @@ impl Attestor {
                 .map_err(Error::InitError)?;
         }
 
-        // ---------------------------------* Chain configuration *--------------------------------
+        // -----------------------------------* Eligibility *----------------------------------- //
+
+        tracing::info!(
+            attestor = %account_id,
+            "⏲️ Waiting for attestor to be made eligible"
+        );
+
+        let mut attestors = client_cc3
+            .get_attestor_active_set(self.config.chain_key)
+            .await
+            .map_err(Error::RpcError)?;
 
         let cc3_block_time_ms = client_cc3
             .api()
@@ -166,121 +176,6 @@ impl Attestor {
             .context("Failed to retrieve cc3 block time")
             .map_err(Error::InitError)?
             * 2;
-
-        let interval_attestation = match self.config.attestation.attestation_interval {
-            Some(attestation_interval) => attestation_interval,
-            None => client_cc3
-                .chain_attestation_interval(self.config.chain_key)
-                .await
-                .map_err(Error::RpcError)?
-                .map(std::num::NonZero::<common::types::Height>::new)
-                .ok_or(Error::MissingAttestationInterval(self.config.chain_key))?
-                .unwrap(),
-        };
-
-        let interval_checkpoint = match self.config.attestation.checkpoint_interval {
-            Some(checkpoint_interval) => checkpoint_interval,
-            None => client_cc3
-                .chain_checkpoint_interval(self.config.chain_key)
-                .await
-                .map_err(Error::RpcError)?
-                .map(std::num::NonZero::<common::types::Height>::new)
-                .ok_or(Error::MissingCheckpointInterval(self.config.chain_key))?
-                .unwrap(),
-        };
-
-        let attestation_start_cc3 = match client_cc3
-            .fetch_last_digest(self.config.chain_key)
-            .await
-            .map_err(Error::RpcError)?
-        {
-            Some(last_digest) => match client_cc3
-                .get_attestation_by_digest(self.config.chain_key, last_digest)
-                .await
-                .map_err(Error::RpcError)?
-            {
-                Some(last_attestation) => {
-                    Some((last_attestation.digest(), last_attestation.header_number()))
-                }
-                None => {
-                    unreachable!("Invalid last digest, something has gone very wrong!");
-                }
-            },
-            None => client_cc3
-                .get_last_checkpoint(self.config.chain_key)
-                .await
-                .map_err(Error::RpcError)?
-                .map(|last_checkpoint| (last_checkpoint.digest, last_checkpoint.block_number)),
-        };
-
-        let mut attestors = client_cc3
-            .get_attestor_active_set(self.config.chain_key)
-            .await
-            .map_err(Error::RpcError)?;
-
-        let genesis = client_cc3
-            .get_attestation_chain_genesis_block_number(self.config.chain_key)
-            .await
-            .unwrap_or_default();
-
-        let (start_height, start_digest, attestation_latest_cc3, empty_chain) =
-            match self.config.attestation.start_height {
-                Some(start_height) => match attestation_start_cc3 {
-                    Some((digest, height)) => (start_height, Some(digest), height, false),
-                    None => (start_height, None, genesis, true),
-                },
-                None => match attestation_start_cc3 {
-                    Some((digest, height)) => (height + 1, Some(digest), height, false),
-                    None => (genesis, None, genesis, true),
-                },
-            };
-
-        let target = client_cc3
-            .target_sample_size(self.config.chain_key)
-            .await
-            .map_err(|_| Error::MissingTargetSampleSize(self.config.chain_key))?;
-        let quorum =
-            std::num::NonZeroUsize::new(attestor_primitives::calculate_threshold(target) as usize)
-                .expect("Failed to compute quorum threshold");
-
-        tracing::info!(quorum, ?start_digest, "🧑‍🤝‍🧑 Retrieved chain data");
-
-        // -------------------------------------* Attestation *------------------------------------
-
-        let config = stream::attestation::ConfigBuilder::new()
-            .with_cc3(client_cc3.clone())
-            .with_eth(client_eth)
-            .with_bls_key(bls_key)
-            .with_interval_attestation(interval_attestation)
-            .with_interval_checkpoint(interval_checkpoint)
-            .with_chain_key(self.config.chain_key)
-            .with_start_height(start_height)
-            .with_start_digest(start_digest)
-            .build();
-        let mut stream_attestation = stream::attestation::StreamAttestation::new(config)
-            .await
-            .map_err(Error::InitError)?;
-
-        // ---------------------------------------* Metrics *--------------------------------------
-
-        let config = worker::api::metrics::ConfigBuilder::new()
-            .with_name(self.config.name)
-            .with_address(account_id.clone())
-            .with_peer_id(peer_id)
-            .with_chain_key(self.config.chain_key)
-            .with_start_height(start_height)
-            .with_attestation_latest_eth(stream_attestation.block_highest())
-            .with_attestation_latest_cc3(attestation_latest_cc3)
-            .with_attestation_interval(interval_attestation)
-            .build();
-        let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
-
-        // -----------------------------------* Eligibility *----------------------------------- //
-
-        tracing::info!(
-            attestor = %account_id,
-            "⏲️ Waiting for attestor to be made eligible"
-        );
 
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         if !attestors.contains(&account_id) {
@@ -338,6 +233,99 @@ impl Attestor {
             }
         }
 
+        // ---------------------------------* Chain configuration *--------------------------------
+
+        let interval_attestation = match self.config.attestation.attestation_interval {
+            Some(attestation_interval) => attestation_interval,
+            None => client_cc3
+                .chain_attestation_interval(self.config.chain_key)
+                .await
+                .map_err(Error::RpcError)?
+                .map(std::num::NonZero::<common::types::Height>::new)
+                .ok_or(Error::MissingAttestationInterval(self.config.chain_key))?
+                .unwrap(),
+        };
+
+        let attestation_start_cc3 = match client_cc3
+            .fetch_last_digest(self.config.chain_key)
+            .await
+            .map_err(Error::RpcError)?
+        {
+            Some(last_digest) => match client_cc3
+                .get_attestation_by_digest(self.config.chain_key, last_digest)
+                .await
+                .map_err(Error::RpcError)?
+            {
+                Some(last_attestation) => {
+                    Some((last_attestation.digest(), last_attestation.header_number()))
+                }
+                None => {
+                    unreachable!("Invalid last digest, something has gone very wrong!");
+                }
+            },
+            None => client_cc3
+                .get_last_checkpoint(self.config.chain_key)
+                .await
+                .map_err(Error::RpcError)?
+                .map(|last_checkpoint| (last_checkpoint.digest, last_checkpoint.block_number)),
+        };
+
+        let genesis = client_cc3
+            .get_attestation_chain_genesis_block_number(self.config.chain_key)
+            .await
+            .unwrap_or_default();
+
+        let (start_height, start_digest, attestation_latest_cc3) =
+            match self.config.attestation.start_height {
+                Some(start_height) => match attestation_start_cc3 {
+                    Some((digest, height)) => (start_height, Some(digest), height),
+                    None => (start_height, None, genesis),
+                },
+                None => match attestation_start_cc3 {
+                    Some((digest, height)) => (height + 1, Some(digest), height),
+                    None => (genesis, None, genesis),
+                },
+            };
+
+        let target = client_cc3
+            .target_sample_size(self.config.chain_key)
+            .await
+            .map_err(|_| Error::MissingTargetSampleSize(self.config.chain_key))?;
+        let quorum =
+            std::num::NonZeroUsize::new(attestor_primitives::calculate_threshold(target) as usize)
+                .expect("Failed to compute quorum threshold");
+
+        tracing::info!(quorum, ?start_digest, "🧑‍🤝‍🧑 Retrieved chain data");
+
+        // -------------------------------------* Attestation *------------------------------------
+
+        let config = stream::attestation::ConfigBuilder::new()
+            .with_cc3(client_cc3.clone())
+            .with_eth(client_eth)
+            .with_bls_key(bls_key)
+            .with_interval_attestation(interval_attestation)
+            .with_chain_key(self.config.chain_key)
+            .with_start_height(start_height)
+            .with_start_digest(start_digest)
+            .build();
+        let mut stream_attestation = stream::attestation::StreamAttestation::new(config)
+            .await
+            .map_err(Error::InitError)?;
+
+        // ---------------------------------------* Metrics *--------------------------------------
+
+        let config = worker::api::metrics::ConfigBuilder::new()
+            .with_name(self.config.name)
+            .with_address(account_id.clone())
+            .with_peer_id(peer_id)
+            .with_chain_key(self.config.chain_key)
+            .with_start_height(start_height)
+            .with_attestation_latest_eth(stream_attestation.block_highest())
+            .with_attestation_latest_cc3(attestation_latest_cc3)
+            .with_attestation_interval(interval_attestation)
+            .build();
+        let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
+
         // -------------------------------------* Channels *------------------------------------ //
 
         // attestation production -> p2p sync
@@ -357,44 +345,6 @@ impl Attestor {
             .build();
         let (mut sender_validation, receiver_validation) =
             worker::validation::pool::attestation_pool(config);
-
-        // --------------------------------------* Genesis *------------------------------------ //
-
-        if empty_chain {
-            tracing::info!(start_height, "👶 Generating genesis attestation");
-
-            let attestation = match stream_attestation
-                .generate_attestation_genesis()
-                .await
-                .map_interrupt(Error::AttestationError)
-            {
-                Ok(attestation) => attestation,
-                Err(Interrupt::Cont(err)) => return Err(err),
-                Err(Interrupt::Stop) => return Ok(()),
-            };
-
-            let height = attestation.header_number();
-            let digest = attestation.digest();
-            let digest_prev = attestation.prev_digest();
-            let attestor_id = attestation.attestor.clone();
-
-            tracing::info!(
-                ?digest,
-                ?digest_prev,
-                height,
-                %attestor_id,
-                "📡 Generated genesis attestation"
-            );
-
-            sender_p2p
-                .send(attestation.clone())
-                .context("Failed to send initial attestation over to p2p worker")
-                .map_err(Error::InitError)?;
-            sender_validation
-                .send(attestation)
-                .transpose()
-                .expect("Failed to send initial attestation over for validation");
-        }
 
         // -------------------------------------* Workers *------------------------------------- //
 
@@ -441,7 +391,7 @@ impl Attestor {
         let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::InitError)?;
         let mut handle_p2p = Some(monitor.spawn(p2p));
 
-        tracing::info!("⏳ [4/4] Starting attestation production worker");
+        // --------------------------------------* Genesis *------------------------------------ //
 
         let attestation_latest_cc3 = match start_digest {
             Some(digest) => common::types::AttestationInfo {
@@ -449,7 +399,41 @@ impl Attestor {
                 height: attestation_latest_cc3,
             },
             None => {
-                tracing::info!(genesis, "⏲️ Waiting for intial attestation to finalize");
+                tracing::info!(start_height, "👶 Generating genesis attestation");
+
+                let attestation = match stream_attestation
+                    .generate_attestation_genesis()
+                    .await
+                    .map_interrupt(Error::AttestationError)
+                {
+                    Ok(attestation) => attestation,
+                    Err(Interrupt::Cont(err)) => return Err(err),
+                    Err(Interrupt::Stop) => return Ok(()),
+                };
+
+                let height = attestation.header_number();
+                let digest = attestation.digest();
+                let digest_prev = attestation.prev_digest();
+                let attestor_id = attestation.attestor.clone();
+
+                tracing::info!(
+                    ?digest,
+                    ?digest_prev,
+                    height,
+                    %attestor_id,
+                    "📡 Generated genesis attestation"
+                );
+
+                sender_p2p
+                    .send(attestation.clone())
+                    .context("Failed to send initial attestation over to p2p worker")
+                    .map_err(Error::InitError)?;
+                sender_validation
+                    .send(attestation)
+                    .transpose()
+                    .expect("Failed to send initial attestation over for validation");
+
+                tracing::info!(genesis, "⏲️ Waiting for genesis attestation to finalize");
 
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
                 let attestation_latest_cc3 = 'outer: loop {
@@ -502,6 +486,8 @@ impl Attestor {
                 attestation_latest_cc3
             }
         };
+
+        tracing::info!("⏳ [4/4] Starting attestation production worker");
 
         let config = worker::production::ConfigBuilder::new()
             .with_stream_attestation(stream_attestation)

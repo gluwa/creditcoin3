@@ -46,7 +46,7 @@ pub const METRICS_HEADER: &str = "application/openmetrics-text; version=1.0.0; c
 pub const MAX_REBROADCAST: common::types::Height = 10;
 
 pub const MAX_CATCHUP: std::num::NonZero<common::types::Height> =
-    std::num::NonZero::new(5).unwrap();
+    std::num::NonZero::new(500).unwrap();
 
 pub const MAX_CONCURRENT_RPC_CALLS: usize = 10;
 

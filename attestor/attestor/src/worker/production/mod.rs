@@ -272,7 +272,6 @@ impl WorkerAttestationProduction {
         use crate::events::EventAttestationFinalization as _;
         use crate::events::EventAttestationIntervalChange as _;
         use crate::events::EventAttestorsElected as _;
-        use crate::events::EventCheckpointIntervalChange as _;
 
         for event in res
             .map_interrupt(Error::CC3)?
@@ -383,17 +382,6 @@ impl WorkerAttestationProduction {
 
                 cc_client::attestation::CcEvent::CheckpointIntervalChanged(interval) => {
                     tracing::info!(interval, "🔢 New source chain checkpoint interval");
-
-                    let Some(interval) = std::num::NonZero::<common::types::Height>::new(interval)
-                    else {
-                        return Ok(());
-                    };
-
-                    let attestation_latest_cc3 = self.attestation_latest_cc3.height;
-
-                    self.stream_attestation
-                        .note_checkpoint_interval_change(interval, attestation_latest_cc3)
-                        .expect("Infallible");
                 }
 
                 // CASE 3] NEW ATTESTATION CHECKPOINT

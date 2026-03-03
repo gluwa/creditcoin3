@@ -540,7 +540,6 @@ pub struct AttestationPoolForks {
     quorums_by_height: std::collections::BTreeSet<KeyHeight>,
 
     last_finalized_digest: Option<attestor_primitives::Digest>,
-    prev_finalized_digest: Option<attestor_primitives::Digest>,
     max_size: std::num::NonZeroUsize,
     validate_quorum: ValidateQuorum,
 }
@@ -567,7 +566,6 @@ impl AttestationPoolForks {
             quorums_by_height: Default::default(),
 
             last_finalized_digest,
-            prev_finalized_digest: None,
             max_size,
             validate_quorum,
         }
@@ -630,13 +628,10 @@ impl AttestationPoolForks {
             }
         }
 
-        if prev_digest_tail != self.last_finalized_digest
-            && prev_digest_tail != self.prev_finalized_digest
-        {
+        if prev_digest_tail != self.last_finalized_digest {
             tracing::warn!(
                 last_finalized_digest = ?self.last_finalized_digest,
-                prev_finalized_digest = ?self.prev_finalized_digest,
-                prev_digest_tail = ?prev_digest_tail,
+                 prev_digest_tail = ?prev_digest_tail,
                 "🏎️ Received pending attestation"
             );
 
@@ -1060,7 +1055,6 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolForks {
         tracing::debug!("Updating forks");
 
         self.split_off(info.height);
-        self.prev_finalized_digest = self.last_finalized_digest;
         self.last_finalized_digest = Some(info.digest);
 
         let key_start = KeyTailPending {

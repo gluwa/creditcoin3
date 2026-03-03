@@ -109,7 +109,6 @@ pub struct Config {
     bls_key: bls_signatures::PrivateKey,
 
     interval_attestation: std::num::NonZero<common::types::Height>,
-    interval_checkpoint: std::num::NonZero<common::types::Height>,
 
     chain_key: attestor_primitives::ChainKey,
     start_height: common::types::Height,
@@ -132,7 +131,6 @@ pub struct StreamAttestation {
 
     chain_key: attestor_primitives::ChainKey,
     interval_attestation: std::num::NonZero<common::types::Height>,
-    interval_checkpoint: std::num::NonZero<common::types::Height>,
 
     waker: Option<std::task::Waker>,
     stop: bool,
@@ -178,19 +176,7 @@ impl StreamAttestation {
         use anyhow::Context as _;
         use futures::StreamExt as _;
 
-        let checkpoint_in_blocks = config
-            .interval_attestation
-            .saturating_mul(config.interval_checkpoint);
-
-        let catchup_limit = checkpoint_in_blocks
-            .saturating_mul(common::constants::MAX_CATCHUP)
-            .get();
-
-        let continuity = CacheContinuity::new(
-            checkpoint_in_blocks,
-            config.start_height,
-            config.start_digest,
-        );
+        let continuity = CacheContinuity::new(config.start_height, config.start_digest);
 
         let mut stream = config
             .eth
@@ -207,7 +193,11 @@ impl StreamAttestation {
         let interval_attestation = config.interval_attestation.get();
 
         let block_head = next - (next % interval_attestation);
-        let block_n = block_head.min(catchup_limit.saturating_add(config.start_height));
+        let block_n = block_head.min(
+            common::constants::MAX_CATCHUP
+                .get()
+                .saturating_add(config.start_height),
+        );
         let block_stop = config.start_height;
         let block_start = block_n;
 
@@ -225,7 +215,6 @@ impl StreamAttestation {
 
             chain_key: config.chain_key,
             interval_attestation: config.interval_attestation,
-            interval_checkpoint: config.interval_checkpoint,
 
             waker: None,
             stop: false,
@@ -355,42 +344,6 @@ impl StreamAttestation {
         }
     }
 
-    fn update_interval(&mut self) {
-        let checkpoint_in_blocks = self
-            .interval_attestation
-            .saturating_mul(self.interval_checkpoint);
-        let size_new = checkpoint_in_blocks
-            .saturating_mul(common::constants::MAX_CATCHUP)
-            .saturating_add(1)
-            .try_into()
-            .unwrap();
-
-        if self.continuity.roots.max_size < size_new {
-            let additional = size_new.get() - self.continuity.roots.max_size.get();
-            self.continuity.cache.reserve(additional);
-            self.continuity.roots.cache.reserve(additional);
-        } else {
-            self.continuity.cache.truncate(size_new.get());
-            self.continuity.cache.truncate(size_new.get());
-        }
-
-        self.continuity.roots.max_size = size_new;
-
-        let len_cache_continuity = self.continuity.cache.len();
-        let len_cache_roots = self.continuity.roots.cache.len();
-        let max_size = self.continuity.roots.max_size.get();
-
-        assert!(
-            len_cache_continuity <= max_size,
-            "Invalid continuity cache size: {len_cache_continuity} <= {max_size}",
-        );
-
-        assert!(
-            len_cache_roots <= max_size,
-            "Invalid roots cache size: {len_cache_roots} <= {max_size}",
-        );
-    }
-
     async fn block_next(
         eth: eth::Client,
         mut stream: alloy::pubsub::SubscriptionStream<alloy::rpc::types::Header>,
@@ -463,27 +416,19 @@ impl futures::Stream for StreamAttestation {
         // We have produced the lowest possible attestation, now we check to see if we can produce
         // attestations at a greater height while still respecting the catchup limit
 
-        let checkpoint_in_blocks = self
-            .interval_attestation
-            .saturating_mul(self.interval_checkpoint);
-        let catchup_limit = checkpoint_in_blocks
-            .saturating_mul(common::constants::MAX_CATCHUP)
-            .get();
-
         // The catchup limit is ALWAYS based on the cache size. It is not reliable to refer to
         // `self.block_start` and `self.block_stop` as there are multiple events which might purge
         // the cache which are not reflected in those variables. The catchup limit is a guarantee on
         // the max size of the cache, and so we use that as a reference.
         let cache_size = self.continuity.roots.cache.len() as u64;
 
-        if cache_size < catchup_limit {
+        if cache_size < common::constants::MAX_CATCHUP.get() {
             self.stop = false;
 
             tracing::debug!(
                 block_n,
                 block_stop = self.block_stop,
                 block_start = self.block_start,
-                catchup_limit,
                 "Fetching next catchup section"
             );
 
@@ -596,7 +541,7 @@ impl futures::Stream for StreamAttestation {
 
             self.block_n = self
                 .block_head
-                .min(height_first.saturating_add(catchup_limit));
+                .min(height_first.saturating_add(common::constants::MAX_CATCHUP.get()));
             self.block_stop = block_stop;
             self.block_start = self.block_n;
 
@@ -636,12 +581,10 @@ impl futures::Stream for StreamAttestation {
 
 impl CacheContinuity {
     pub fn new(
-        checkpoint_in_blocks: std::num::NonZero<common::types::Height>,
         start_height: common::types::Height,
         start_digest: Option<attestor_primitives::Digest>,
     ) -> Self {
-        let max_size: std::num::NonZeroUsize = checkpoint_in_blocks
-            .saturating_mul(common::constants::MAX_CATCHUP)
+        let max_size: std::num::NonZeroUsize = common::constants::MAX_CATCHUP
             .saturating_add(1) // Inclusive
             .try_into()
             .unwrap();
@@ -938,23 +881,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for StreamAttestation {
         _attestation_latest_cc3: common::types::Height,
     ) -> Result<(), Self::Error> {
         self.interval_attestation = interval_new;
-        self.update_interval();
         Ok(())
     }
 }
 impl crate::events::EventAttestationIntervalChange for StreamAttestation {}
-
-impl crate::events::EventCheckpointIntervalChangeAsync for StreamAttestation {
-    type Error = std::convert::Infallible;
-
-    async fn note_checkpoint_interval_change_async(
-        &mut self,
-        interval_new: std::num::NonZero<common::types::Height>,
-        _attestation_latest_cc3: common::types::Height,
-    ) -> Result<(), Self::Error> {
-        self.interval_checkpoint = interval_new;
-        self.update_interval();
-        Ok(())
-    }
-}
-impl crate::events::EventCheckpointIntervalChange for StreamAttestation {}
