@@ -310,7 +310,7 @@ async fn main() -> anyhow::Result<()> {
 
     if to_register > 0 {
         wait_for_event::<cc_client::cc3::attestation::events::AttestorRegistered>(
-            args.number.get(),
+            to_register,
             blocks,
         )
         .await?;
