@@ -38,7 +38,7 @@ pub mod pallet {
     use frame_support::{
         dispatch::{ClassifyDispatch, DispatchClass, Pays, PaysFee, WeighData},
         pallet_prelude::{OptionQuery, ValueQuery, *},
-        traits::{Currency, LockableCurrency, OnUnbalanced},
+        traits::{Currency, LockableCurrency, OnUnbalanced, StorageVersion},
         Blake2_128Concat, Twox64Concat,
     };
     use frame_system::pallet_prelude::*;
@@ -50,6 +50,8 @@ pub mod pallet {
 
     // Amount of blocks tracked in a single checkpoint bucket
     pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
+
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
     /// The balance type of this pallet.
     pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
@@ -458,6 +460,7 @@ pub mod pallet {
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
+    #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     #[pallet::genesis_config]
@@ -718,6 +721,8 @@ pub mod pallet {
         NoSuchCheckpoint,
         // Last checkpoint not set when attempting to `revert_to` checkpoint
         LastCheckpointNotSet,
+        // Tried to trigger reversion for a chain that is still processing a current reversion.
+        TriedToRevertDuringOngoingReversion,
     }
 
     #[pallet::hooks]
@@ -733,6 +738,33 @@ pub mod pallet {
                 u32::from(did_clear_buckets),
                 u32::from(did_prune),
             )
+        }
+
+        fn on_runtime_upgrade() -> Weight {
+            let prior_version = StorageVersion::get::<Pallet<T>>();
+            // If already upgraded, do nothing
+            if STORAGE_VERSION == prior_version {
+                return T::DbWeight::get().reads(1);
+            }
+
+            // Storage version 0 has only one difference from version 1. It uses:
+            // The raw cursor type `Vec<u8>` rather than a `ClearingCursor` struct for both
+            // CheckpointClearingCursors and BucketClearingCursors
+            //
+            // For this runtime upgrade in particular, we don't expect any storage entries
+            // to exist. So we don't add the complexity of trying to map them to a new version
+            // Instead we just clear them for safety and move on.
+            if prior_version == 0 {
+                _ = CheckpointClearingCursors::<T>::clear(u32::MAX, None);
+                _ = BucketClearingCursors::<T>::clear(u32::MAX, None);
+            }
+
+            STORAGE_VERSION.put::<Pallet<T>>();
+
+            // Weight: 1 read for get version, 1 write for put version,
+            T::DbWeight::get()
+                .reads_writes(1, 1)
+                .saturating_add(T::DbWeight::get().writes(2))
         }
     }
 
@@ -1236,6 +1268,11 @@ pub mod pallet {
             checkpoint_height: u64,
         ) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure! {
+                CheckpointPruningStates::<T>::get(chain_key).is_none(),
+                Error::<T>::TriedToRevertDuringOngoingReversion
+            };
 
             let checkpoint_digest = Self::do_revert_to(chain_key, checkpoint_height)?;
 
