@@ -1,14 +1,13 @@
 //! Pallet Attestation POC Benchmarks
 use super::Pallet as Attestation;
 use super::*;
-use crate::clear_or_revert::{CheckpointPruningState, MAX_CHECKPOINTS_CLEARED_PER_BLOCK};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use continuity_dev::construct_fragment;
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
-use frame_support::traits::{OnInitialize, OriginTrait};
+use frame_support::traits::OriginTrait;
 use sp_core::H256;
-use sp_runtime::traits::{Bounded, One};
+use sp_runtime::traits::Bounded;
 use sp_std::{ops::RangeInclusive, vec::Vec};
 
 use attestor_primitives::{
