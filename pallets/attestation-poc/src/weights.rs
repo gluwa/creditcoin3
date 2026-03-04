@@ -493,37 +493,6 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
-	/// Storage: `Attestation::CheckpointPruningStates` (r:2 w:1)
-	/// Proof: `Attestation::CheckpointPruningStates` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointBuckets` (r:143 w:63)
-	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointClearingCursors` (r:2 w:1)
-	/// Proof: `Attestation::CheckpointClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Checkpoints` (r:41 w:67)
-	/// Proof: `Attestation::Checkpoints` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::BucketClearingCursors` (r:2 w:1)
-	/// Proof: `Attestation::BucketClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// The range of component `a` is `[0, 1]`.
-	/// The range of component `b` is `[0, 1]`.
-	/// The range of component `c` is `[0, 1]`.
-	/// The range of component `a` is `[0, 1]`.
-	fn on_initialize(_a: u32, ) -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `288`
-		//  Estimated: `3753`
-		// Minimum execution time: 5_120_000 picoseconds.
-		Weight::from_parts(5_862_500, 0)
-			.saturating_add(Weight::from_parts(0, 3753))
-			.saturating_add(T::DbWeight::get().reads(1))
-	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)

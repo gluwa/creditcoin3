@@ -27,7 +27,7 @@ mod ledger;
 pub mod pallet {
     use core::marker::PhantomData;
 
-    use crate::clear_or_revert::{CheckpointPruningState, ClearingCursor};
+    use crate::clear_or_revert::CheckpointPruningState;
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
         provider::{AttestationProvider, CheckpointProvider},
@@ -38,7 +38,7 @@ pub mod pallet {
     use frame_support::{
         dispatch::{ClassifyDispatch, DispatchClass, Pays, PaysFee, WeighData},
         pallet_prelude::{OptionQuery, ValueQuery, *},
-        traits::{Currency, LockableCurrency, OnUnbalanced, StorageVersion},
+        traits::{Currency, LockableCurrency, OnUnbalanced},
         Blake2_128Concat, Twox64Concat,
     };
     use frame_system::pallet_prelude::*;
@@ -50,8 +50,6 @@ pub mod pallet {
 
     // Amount of blocks tracked in a single checkpoint bucket
     pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
-
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
     /// The balance type of this pallet.
     pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
@@ -176,7 +174,6 @@ pub mod pallet {
         fn chill() -> Weight;
         fn attest() -> Weight;
         fn withdraw_unbonded() -> Weight;
-        fn on_initialize(a: u32, b: u32, c: u32) -> Weight;
         fn import_checkpoints() -> Weight;
         fn set_attestation_chain_genesis_block_number() -> Weight;
         fn set_election_policy() -> Weight;
@@ -377,14 +374,14 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn checkpoint_clearing_cursors)]
     pub type CheckpointClearingCursors<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, ClearingCursor, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
 
     /// Progress markers for removing checkpoint buckets associated with source chains that are undergoing
     /// chain reversion or are no longer supported.
     #[pallet::storage]
     #[pallet::getter(fn bucket_clearing_cursors)]
     pub type BucketClearingCursors<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, ClearingCursor, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
 
     /// The pivot of the next checkpoint bucket to be pruned. This is used during a chain reversion, when
     /// we want to remove all `CheckpointBuckets` entries above the height of the checkpoint we reverted to.
@@ -460,7 +457,6 @@ pub mod pallet {
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
-    #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     #[pallet::genesis_config]
@@ -729,42 +725,14 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Initialization
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
-            let did_prune = Self::on_init_prune_checkpoints();
-            let did_clear_checkpoints = Self::on_init_clear_checkpoints();
-            let did_clear_buckets = Self::on_init_clear_buckets();
+            let prune_weight = Self::on_init_prune_checkpoints();
+            let checkpoint_clear_weight = Self::on_init_clear_checkpoints();
+            let bucket_clear_weight = Self::on_init_clear_buckets();
 
-            <T as Config>::WeightInfo::on_initialize(
-                u32::from(did_clear_checkpoints),
-                u32::from(did_clear_buckets),
-                u32::from(did_prune),
-            )
-        }
-
-        fn on_runtime_upgrade() -> Weight {
-            let prior_version = StorageVersion::get::<Pallet<T>>();
-            // If already upgraded, do nothing
-            if STORAGE_VERSION == prior_version {
-                return T::DbWeight::get().reads(1);
-            }
-
-            // Storage version 0 has only one difference from version 1. It uses:
-            // The raw cursor type `Vec<u8>` rather than a `ClearingCursor` struct for both
-            // CheckpointClearingCursors and BucketClearingCursors
-            //
-            // For this runtime upgrade in particular, we don't expect any storage entries
-            // to exist. So we don't add the complexity of trying to map them to a new version
-            // Instead we just clear them for safety and move on.
-            if prior_version == 0 {
-                _ = CheckpointClearingCursors::<T>::clear(u32::MAX, None);
-                _ = BucketClearingCursors::<T>::clear(u32::MAX, None);
-            }
-
-            STORAGE_VERSION.put::<Pallet<T>>();
-
-            // Weight: 1 read for get version, 1 write for put version,
-            T::DbWeight::get()
-                .reads_writes(1, 1)
-                .saturating_add(T::DbWeight::get().writes(2))
+            // Return combined weight from helpers this is a more practical
+            prune_weight
+                .saturating_add(checkpoint_clear_weight)
+                .saturating_add(bucket_clear_weight)
         }
     }
 

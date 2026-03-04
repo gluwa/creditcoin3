@@ -18,26 +18,6 @@ pub struct CheckpointPruningState {
     pub next_pivot: u64,  // inclusive lower bound for scanning pivots
 }
 
-// Benchmarking our checkpoint clearing implementation for on_initialize
-// wasn't possible without this strange looking wrapper. Basically, it
-// hasn't been possible so far to generate and store a checkpoint clearing
-// cursor in benchmarks. So instead we allow for the storage of a cursor
-// wrapper which allows the cursor to be null only during benchmarks.
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-pub struct ClearingCursor {
-    pub is_benchmark: bool,
-    pub inner: Option<Vec<u8>>,
-}
-
-impl ClearingCursor {
-    pub fn new(cursor: Option<Vec<u8>>) -> Self {
-        ClearingCursor {
-            is_benchmark: false,
-            inner: cursor,
-        }
-    }
-}
-
 impl<T: Config> Pallet<T> {
     #[transactional]
     pub(crate) fn do_revert_to(
@@ -100,103 +80,78 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Helpers to keep on_initialize readable ///
-    pub fn on_init_clear_checkpoints() -> bool {
+    pub fn on_init_clear_checkpoints() -> Weight {
+        // Cost of the "is there work?" check
+        let mut w = T::DbWeight::get().reads(1);
+
         if let Some((chain_key, cursor)) = CheckpointClearingCursors::<T>::iter().next() {
-            if let Some(cursor) = cursor.inner {
-                let maybe_cursor = Checkpoints::<T>::clear_prefix(
-                    chain_key,
-                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                    Some(&cursor[..]),
+            // Clear prefix
+            let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                chain_key,
+                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                Some(&cursor[..]),
+            )
+            .maybe_cursor;
+            // Record pessimistic cost that assumes max clear
+            w = w
+                .saturating_add(
+                    T::DbWeight::get().reads(u64::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK)),
                 )
-                .maybe_cursor;
-                let maybe_cursor_struct = if maybe_cursor.is_some() {
-                    Some(ClearingCursor::new(maybe_cursor))
-                } else {
-                    None
-                };
-                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
-            } else if !cursor.is_benchmark {
-                // We have a clearing cursor with an empty inner cursor. We can ignore and remove it.
-                CheckpointClearingCursors::<T>::remove(chain_key);
-                return true;
-            } else {
-                let maybe_cursor = Checkpoints::<T>::clear_prefix(
-                    chain_key,
-                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                    None,
-                )
-                .maybe_cursor;
-                let maybe_cursor_struct = if maybe_cursor.is_some() {
-                    Some(ClearingCursor::new(maybe_cursor))
-                } else {
-                    None
-                };
-                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
-            };
+                .saturating_add(
+                    T::DbWeight::get().writes(u64::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK)),
+                );
 
-            // note: may be triggered multiple times when removing a large amount of checkpoints
+            // Cursor persistence
+            CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+            w = w.saturating_add(T::DbWeight::get().writes(1));
+
             Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
-
-            // Performed clear checkpoints operation (for gas calculation)
-            true
-        } else {
-            false
+            // Sets EventCount + Events
+            w = w.saturating_add(T::DbWeight::get().writes(2));
         }
+        w
     }
 
-    pub fn on_init_clear_buckets() -> bool {
+    pub fn on_init_clear_buckets() -> Weight {
+        // Cost of the "is there work?" check
+        let mut w = T::DbWeight::get().reads(1);
+
         if let Some((chain_key, cursor)) = BucketClearingCursors::<T>::iter().next() {
-            if let Some(cursor) = cursor.inner {
-                let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
-                    (chain_key,),
-                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                    Some(&cursor[..]),
+            let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
+                (chain_key,),
+                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                Some(&cursor[..]),
+            )
+            .maybe_cursor;
+            // Record pessimistic cost that assumes max clear
+            w = w
+                .saturating_add(
+                    T::DbWeight::get().reads(u64::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK)),
                 )
-                .maybe_cursor;
-                let maybe_cursor_struct = if maybe_cursor.is_some() {
-                    Some(ClearingCursor::new(maybe_cursor))
-                } else {
-                    None
-                };
-                BucketClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
-            } else if !cursor.is_benchmark {
-                // We have a clearing cursor with an empty inner cursor. We can ignore and remove it.
-                BucketClearingCursors::<T>::remove(chain_key);
-                return true;
-            } else {
-                let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
-                    (chain_key,),
-                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                    None,
-                )
-                .maybe_cursor;
-                let maybe_cursor_struct = if maybe_cursor.is_some() {
-                    Some(ClearingCursor::new(maybe_cursor))
-                } else {
-                    None
-                };
-                BucketClearingCursors::<T>::set(chain_key, maybe_cursor_struct);
-            };
+                .saturating_add(
+                    T::DbWeight::get().writes(u64::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK)),
+                );
 
-            // performed clear buckets operation (for gas calculation)
-            true
-        } else {
-            false
+            // Cursor persistance
+            BucketClearingCursors::<T>::set(chain_key, maybe_cursor);
+            w = w.saturating_add(T::DbWeight::get().writes(1));
         }
+        w
     }
 
-    pub fn on_init_prune_checkpoints() -> bool {
+    pub fn on_init_prune_checkpoints() -> Weight {
+        // Cost of the "is there work?" check
+        let w = T::DbWeight::get().reads(1);
         match CheckpointPruningStates::<T>::iter().next() {
             Some((chain_key, state)) => {
-                Self::prune_checkpoints_impl(chain_key, state);
-                // performed prune checkpoints operation (for gas calculation)
-                true
+                w.saturating_add(Self::prune_checkpoints_impl(chain_key, state))
             }
-            None => false,
+            None => w,
         }
     }
 
-    fn prune_checkpoints_impl(chain_key: ChainKey, mut state: CheckpointPruningState) {
+    fn prune_checkpoints_impl(chain_key: ChainKey, mut state: CheckpointPruningState) -> Weight {
+        let mut w = Weight::zero();
         let mut remaining_entries = u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK);
         // In the extremely unlikely case that there are 1000's of pivots containing no entries, this
         // prevents us from looping and reading state until we max out the block's compute.
@@ -208,24 +163,34 @@ impl<T: Config> Pallet<T> {
             // 1) If state.next_pivot > state.stop_height, then we are done clearing checkpoints.
             if current_pivot > state.stop_height {
                 CheckpointPruningStates::<T>::remove(chain_key);
-                return; // We return here to prevent Checkpoint pruning states from being reset below
+                w = w.saturating_add(T::DbWeight::get().writes(1));
+                return w;
             }
 
             // 2) Clear as much of the pivot as we can this block
 
             // Get removal heights first, as it's unsafe to remove entries directly within the iterator
-            // Iterating these keys is technically O(bucket_size), so we benchmark for the very pessimistic
-            // case of 1 checkpoint every block.
+            let max_to_collect: usize = (MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize) + 1;
             let removal_heights: sp_std::vec::Vec<u64> =
-                CheckpointBuckets::<T>::iter_key_prefix((chain_key, current_pivot)).collect();
+                CheckpointBuckets::<T>::iter_key_prefix((chain_key, current_pivot))
+                    .take(max_to_collect)
+                    .collect();
+            // We cap collection and pessimistically charge reads for the most possible keys.
+            w = w.saturating_add(T::DbWeight::get().reads(max_to_collect as u64));
+
             let removal_limit = usize::min(removal_heights.len(), remaining_entries as usize);
+            // Each removal does 2 deletes => 2 writes.
+            w = w.saturating_add(
+                T::DbWeight::get().writes((removal_limit as u64).saturating_mul(2)),
+            );
+
             for idx in 0..removal_limit {
                 if let Some(height) = removal_heights.get(idx) {
                     Checkpoints::<T>::remove(chain_key, height);
                     CheckpointBuckets::<T>::remove((chain_key, current_pivot, height));
                 } else {
                     log::error!("Could not access removal_height. This shouldn't happen! Skipping remaining checkpoint clearing this block.");
-                    return;
+                    return w;
                 }
             }
 
@@ -240,6 +205,9 @@ impl<T: Config> Pallet<T> {
 
         // If we didn't finish, ensure state persisted
         CheckpointPruningStates::<T>::insert(chain_key, state);
+        w = w.saturating_add(T::DbWeight::get().writes(1));
+
+        w
     }
 }
 
@@ -295,10 +263,7 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
                 // more checkpoints left to be removed
                 // Attestation pallet will check this storage to trigger further checkpoint removals in future blocks
                 // and CheckpointsCleared event will be dispatched inside on_initialize()
-                CheckpointClearingCursors::<T>::set(
-                    chain_key,
-                    Some(ClearingCursor::new(maybe_cursor)),
-                );
+                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
             } else {
                 // all checkpoints were removed in the call above, trigger the event here
                 // b/c on_initialize() won't do that
@@ -315,10 +280,7 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
 
             if maybe_buckets_cursor.is_some() {
                 // more buckets left to be removed
-                BucketClearingCursors::<T>::set(
-                    chain_key,
-                    Some(ClearingCursor::new(maybe_buckets_cursor)),
-                );
+                BucketClearingCursors::<T>::set(chain_key, maybe_buckets_cursor);
             }
         }
 
