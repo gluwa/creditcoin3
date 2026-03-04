@@ -1224,6 +1224,5 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
         // We also apply attestation interval updates, if any, at epoch boundaries.
         // Change attestation intervals and emit events
         Self::apply_interval_updates();
-        Self::apply_target_sample_size_updates();
     }
 }
