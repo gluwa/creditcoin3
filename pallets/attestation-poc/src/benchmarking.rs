@@ -1,9 +1,7 @@
 //! Pallet Attestation POC Benchmarks
 use super::Pallet as Attestation;
 use super::*;
-use crate::clear_or_revert::{
-    CheckpointPruningState, ClearingCursor, MAX_CHECKPOINTS_CLEARED_PER_BLOCK,
-};
+use crate::clear_or_revert::{CheckpointPruningState, MAX_CHECKPOINTS_CLEARED_PER_BLOCK};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use continuity_dev::construct_fragment;
 use frame_benchmarking::v2::*;
