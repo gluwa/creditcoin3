@@ -177,7 +177,7 @@ pub struct Config {
 
     /// Latest execution chain digest, used to validate the tail prev digest of new attestations.
     #[specify_later]
-    digest_latest_cc3: Option<attestor_primitives::Digest>,
+    start_info: Option<common::types::AttestationInfo>,
 
     #[specify_later]
     metrics: common::types::Metrics,
@@ -227,7 +227,7 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
         quorum,
         attestors,
         config.metrics,
-        config.digest_latest_cc3,
+        config.start_info.map(|info| info.digest),
         config.max_size,
     );
 
@@ -1993,8 +1993,9 @@ pub mod fixtures {
             .with_peer_id(libp2p::PeerId::random())
             .with_chain_key(2u64)
             .with_start_height(common::types::Height::MIN)
+            .with_start_info(None)
+            .with_genesis(common::types::Height::MIN)
             .with_attestation_latest_eth(common::types::Height::MIN)
-            .with_attestation_latest_cc3(common::types::Height::MIN)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
             .build();
         std::sync::Arc::new(crate::worker::api::metrics::Metrics::new(config))
@@ -2012,7 +2013,7 @@ pub mod fixtures {
             .with_attestors(attestors)
             .with_quorum(validate_quorum.target_quorum)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
-            .with_digest_latest_cc3(DIGEST_0)
+            .with_start_info(None)
             .with_start_height(common::types::Height::MIN)
             .with_metrics(metrics)
             .build()

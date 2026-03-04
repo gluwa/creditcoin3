@@ -10,10 +10,12 @@ pub struct Config {
     address: cc_client::AccountId32,
     peer_id: libp2p::PeerId,
     chain_key: attestor_primitives::ChainKey,
+
     start_height: common::types::Height,
+    start_info: Option<common::types::AttestationInfo>,
+    genesis: common::types::Height,
 
     attestation_latest_eth: common::types::Height,
-    attestation_latest_cc3: common::types::Height,
     attestation_interval: std::num::NonZero<common::types::Height>,
 }
 
@@ -280,8 +282,13 @@ impl Metrics {
             metrics_error,
         };
 
-        metrics.set_attestation_local(config.attestation_latest_cc3);
-        metrics.set_attestation_finalized(config.attestation_latest_cc3);
+        let attestation_latest_cc3 = config
+            .start_info
+            .map(|info| info.height)
+            .unwrap_or(config.genesis);
+
+        metrics.set_attestation_finalized(attestation_latest_cc3);
+        metrics.set_attestation_local(attestation_latest_cc3);
 
         let attestation_local = config
             .start_height
@@ -293,7 +300,7 @@ impl Metrics {
         );
         metrics.update_attestation_lag_cc3(
             attestation_local,
-            config.attestation_latest_cc3,
+            attestation_latest_cc3,
             config.attestation_interval,
         );
 

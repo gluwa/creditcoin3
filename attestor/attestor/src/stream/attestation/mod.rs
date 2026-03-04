@@ -112,7 +112,7 @@ pub struct Config {
 
     chain_key: attestor_primitives::ChainKey,
     start_height: common::types::Height,
-    start_digest: Option<attestor_primitives::Digest>,
+    start_info: Option<common::types::AttestationInfo>,
 }
 
 // ----------------------------------------- [ Stream ] ---------------------------------------- //
@@ -176,7 +176,7 @@ impl StreamAttestation {
         use anyhow::Context as _;
         use futures::StreamExt as _;
 
-        let continuity = CacheContinuity::new(config.start_height, config.start_digest);
+        let continuity = CacheContinuity::new(config.start_height, config.start_info);
 
         let mut stream = config
             .eth
@@ -582,7 +582,7 @@ impl futures::Stream for StreamAttestation {
 impl CacheContinuity {
     pub fn new(
         start_height: common::types::Height,
-        start_digest: Option<attestor_primitives::Digest>,
+        start_info: Option<common::types::AttestationInfo>,
     ) -> Self {
         let max_size: std::num::NonZeroUsize = common::constants::MAX_CATCHUP
             .saturating_add(1) // Inclusive
@@ -591,7 +591,7 @@ impl CacheContinuity {
 
         Self {
             cache: Vec::with_capacity(max_size.get()),
-            prev_digest: start_digest.unwrap_or_default(),
+            prev_digest: start_info.map(|info| info.digest).unwrap_or_default(),
 
             roots: CacheRoots::new(max_size, start_height),
         }
