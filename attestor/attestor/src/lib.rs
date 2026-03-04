@@ -281,7 +281,7 @@ impl Attestor {
         let genesis = client_cc3
             .get_attestation_chain_genesis_block_number(self.config.chain_key)
             .await
-            .unwrap_or_default();
+            .map_err(Error::RpcError)?;
 
         let (start_height, start_digest, attestation_latest_cc3) =
             match self.config.attestation.start_height {
