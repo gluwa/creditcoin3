@@ -389,26 +389,31 @@ impl Attestor {
                 }
                 _ = monitor.failed() => {
                     tracing::error!("⛔ Worker thread error");
-                    res = res.and(Self::wait_for_worker(
-                        &mut shutdown,
-                        &mut handle_api,
-                        &mut handle_production,
-                        &mut handle_validation,
-                        &mut handle_p2p,
-                    ));
+                    res = res.and(
+                        Self::wait_for_worker(
+                            &mut shutdown,
+                            &mut handle_api,
+                            &mut handle_production,
+                            &mut handle_validation,
+                            &mut handle_p2p,
+                        ).await,
+                    );
                 }
             }
         }
 
         // Wait for remaining workers
         while shutdown < common::constants::WORKER_COUNT {
-            res = res.and(Self::wait_for_worker(
-                &mut shutdown,
-                &mut handle_api,
-                &mut handle_production,
-                &mut handle_validation,
-                &mut handle_p2p,
-            ))
+            res = res.and(
+                Self::wait_for_worker(
+                    &mut shutdown,
+                    &mut handle_api,
+                    &mut handle_production,
+                    &mut handle_validation,
+                    &mut handle_p2p,
+                )
+                .await,
+            );
         }
 
         res
@@ -658,7 +663,7 @@ impl Attestor {
     }
 
     #[allow(clippy::result_large_err)]
-    fn wait_for_worker(
+    async fn wait_for_worker(
         shutdown: &mut usize,
         handle_api: &mut Option<
             std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
@@ -734,7 +739,7 @@ impl Attestor {
                 };
             }
 
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
     }
 }
