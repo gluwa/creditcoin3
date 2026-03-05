@@ -58,6 +58,24 @@ pub trait EventAttestorsElected: EventAttestorsElectedAsync {
     }
 }
 
+pub trait EventRevertedAttestationChainToAsync {
+    type Error;
+
+    async fn note_attestation_chain_reversion_async(
+        &mut self,
+        info: common::types::AttestationInfo,
+    ) -> Result<(), Self::Error>;
+}
+
+pub trait EventRevertedAttestationChainTo: EventRevertedAttestationChainToAsync {
+    fn note_attestation_chain_reversion(
+        &mut self,
+        info: common::types::AttestationInfo,
+    ) -> Result<(), Self::Error> {
+        poll_sync_future(self.note_attestation_chain_reversion_async(info))
+    }
+}
+
 fn poll_sync_future<O>(f: impl std::future::Future<Output = O>) -> O {
     let mut fut = std::pin::pin!(f);
     let waker = std::task::Waker::noop();

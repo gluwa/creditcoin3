@@ -271,6 +271,7 @@ impl WorkerAttestationProduction {
         use crate::events::EventAttestationFinalization as _;
         use crate::events::EventAttestationIntervalChange as _;
         use crate::events::EventAttestorsElected as _;
+        use crate::events::EventRevertedAttestationChainTo as _;
         use futures::TryStreamExt as _;
 
         while let Some(event) = events.try_next().await.map_interrupt(Error::CC3)? {
@@ -331,7 +332,7 @@ impl WorkerAttestationProduction {
                         .note_target_sample_size_change(target_sample_size);
                 }
 
-                // CASE 2] NEW ATTESTATION INTERVAL
+                // CASE 3] NEW ATTESTATION INTERVAL
                 cc_client::attestation::CcEvent::AttestationIntervalChanged(interval) => {
                     tracing::info!(interval, "🔢 New source chain attestation interval");
 
@@ -379,7 +380,7 @@ impl WorkerAttestationProduction {
                     tracing::info!(interval, "🔢 New source chain checkpoint interval");
                 }
 
-                // CASE 3] NEW ATTESTATION CHECKPOINT
+                // CASE 4] NEW ATTESTATION CHECKPOINT
                 cc_client::attestation::CcEvent::CheckpointReached(checkpoint) => {
                     tracing::info!(
                         height = checkpoint.block_number,
@@ -393,7 +394,7 @@ impl WorkerAttestationProduction {
                     tracing::info!(epoch, "🎲 New epoch rotation");
                 }
 
-                // CASE 5] ATTESTOR ELECTION
+                // CASE 6] ATTESTOR ELECTION
                 cc_client::attestation::CcEvent::AttestorsElected(attestors) => {
                     tracing::info!("⏰ New attestors elected");
 

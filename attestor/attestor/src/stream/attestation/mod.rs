@@ -32,7 +32,9 @@
 //!
 //! 1. Attestors can **NEVER** produce more than the catchup limit number of attestations at a time.
 //!
-//! 2. Attestors can **NEVER** re-generate a past attestation.
+//! 2. Attestors can **NEVER** re-generate a past attestation. In the case of a chain reversion we
+//!    can generate new attestations at the same height as past attestations which were reverted.
+//!    This doesn't count as re-generating, since the roots and digests will be different.
 //!
 //! 3. Attestations **MIGHT** be dropped before they can be propagated if a higher attestation
 //!    finalizes first.
@@ -137,6 +139,15 @@ pub struct StreamAttestation {
 
     waker: Option<std::task::Waker>,
     stop: bool,
+
+    // Stored for recreating eth client and stream in the case of a chain reversion.
+    // Why is this necessary? If the chain is reverted while the attestation stream
+    // is in `State::Polling`, then we have no way of accessing the current eth client
+    // and stream until polling is complete. Waiting would require the introduction
+    // of complex and fragile `pending reversion` logic. Instead, we can safely drop
+    // the future containing our old eth client and stream since whatever work was
+    // being done is now invalid anyways.
+    eth_url: alloy::transports::http::reqwest::Url,
 }
 
 pub struct Permit(common::types::Height);
@@ -204,6 +215,12 @@ impl StreamAttestation {
         let block_stop = config.start_height;
         let block_start = block_n;
 
+        let eth_url = if let eth::ConnectionTransport::Http(url) = config.eth.get_url()? {
+            url
+        } else {
+            return Err(Error::UrlExtractionFailed.into());
+        };
+
         anyhow::Ok(Self {
             continuity,
             bls_key: config.bls_key,
@@ -222,6 +239,8 @@ impl StreamAttestation {
 
             waker: None,
             stop: false,
+
+            eth_url,
         })
     }
 
@@ -888,3 +907,60 @@ impl crate::events::EventAttestationIntervalChangeAsync for StreamAttestation {
     }
 }
 impl crate::events::EventAttestationIntervalChange for StreamAttestation {}
+
+impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
+    type Error = Error;
+
+    #[tracing::instrument(skip_all, fields(height = info.height, digest = %info.digest))]
+    async fn note_attestation_chain_reversion_async(
+        &mut self,
+        info: common::types::AttestationInfo,
+    ) -> Result<(), Self::Error> {
+        use futures::StreamExt as _;
+
+        tracing::debug!(
+            reset_height = info.height,
+            "Chain reversion: resetting attestation stream"
+        );
+
+        // Re-creating attestation stream state.
+        let client_eth = eth::Client::new(self.eth_url.as_ref(), None)
+            .await
+            .map_err(|e| Error::ReInitError(e.to_string()))?;
+
+        let mut stream = client_eth
+            .subscribe()
+            .await
+            .map_err(|e| Error::StreamError(e.to_string()))?;
+        let next = stream
+            .next()
+            .await
+            .ok_or(Error::StreamError("Unexpected end of stream".to_string()))?
+            .number
+            .saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
+
+        self.state = State::Idle(Some((client_eth, stream)));
+
+        // Resetting cache. We can't trust stored blocks or roots after a reversion.
+        self.continuity = CacheContinuity::new(info.height, Some(info.digest));
+
+        // Resetting key markers
+        let interval_attestation = self.interval_attestation.get();
+
+        self.block_head = next - (next % interval_attestation);
+        self.block_n = self.block_head.min(
+            common::constants::MAX_CATCHUP
+                .get()
+                .saturating_add(info.height),
+        );
+        self.block_stop = info.height;
+        self.block_start = self.block_n;
+
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+
+        Ok(())
+    }
+}
+impl crate::events::EventRevertedAttestationChainTo for StreamAttestation {}

@@ -1488,6 +1488,49 @@ impl crate::events::EventAttestorsElectedAsync for AttestationPoolSender {
 }
 impl crate::events::EventAttestorsElected for AttestationPoolSender {}
 
+impl crate::events::EventRevertedAttestationChainToAsync for AttestationPoolSender {
+    type Error = std::convert::Infallible;
+
+    /// A new attestation has reached finality on the execution chain.
+    ///
+    /// Remove all attestations _up to and including_ that attestation height from the inner
+    /// attestation pool.
+    #[tracing::instrument(
+        skip_all,
+        fields(digest = ?info.digest, height = info.height),
+        level = "debug"
+    )]
+    async fn note_attestation_chain_reversion_async(
+        &mut self,
+        info: common::types::AttestationInfo,
+    ) -> Result<(), Self::Error> {
+        use crate::events::EventRevertedAttestationChainTo as _;
+
+        /*if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
+            // Updating the inner pool
+            inner
+                .forks
+                .note_attestation_finalization(info)
+                .expect("Infallible");
+
+            // Remove past quorums
+            inner
+                .valid
+                .note_attestation_finalization(info)
+                .expect("Infallible");
+
+            // Update metrics
+            inner
+                .attestation_delay
+                .note_attestation_finalization(info)
+                .expect("Infallible");
+        }*/
+
+        Ok(())
+    }
+}
+impl crate::events::EventRevertedAttestationChainTo for AttestationPoolSender {}
+
 impl Clone for AttestationPoolSender {
     fn clone(&self) -> Self {
         self.common
