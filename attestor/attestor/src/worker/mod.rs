@@ -243,7 +243,9 @@ impl CancellationMonitor {
                     .map_err(Box::from);
 
                 // Notify error
-                failure.notify_waiters();
+                if res.is_err() {
+                    failure.notify_waiters();
+                }
 
                 res
             })

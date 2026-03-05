@@ -207,8 +207,7 @@ impl Attestor {
             .config
             .attestation
             .start_height
-            .or(start_attestation.as_ref().map(|info| info.height))
-            .map(|height| height + 1)
+            .or(start_attestation.as_ref().map(|info| info.height + 1))
             .unwrap_or(genesis);
 
         let target = client_cc3
