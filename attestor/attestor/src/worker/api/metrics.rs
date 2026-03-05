@@ -12,7 +12,7 @@ pub struct Config {
     chain_key: attestor_primitives::ChainKey,
 
     start_height: common::types::Height,
-    start_info: Option<common::types::AttestationInfo>,
+    start_attestation: Option<common::types::AttestationInfo>,
     genesis: common::types::Height,
 
     attestation_latest_eth: common::types::Height,
@@ -283,7 +283,7 @@ impl Metrics {
         };
 
         let attestation_latest_cc3 = config
-            .start_info
+            .start_attestation
             .map(|info| info.height)
             .unwrap_or(config.genesis);
 

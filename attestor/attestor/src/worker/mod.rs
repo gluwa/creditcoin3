@@ -171,7 +171,8 @@ pub trait Worker {
 /// # }
 /// ```
 pub struct CancellationMonitor {
-    notify: std::sync::Arc<tokio::sync::Notify>,
+    shutdown: std::sync::Arc<tokio::sync::Notify>,
+    failure: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl Default for CancellationMonitor {
@@ -184,7 +185,8 @@ impl CancellationMonitor {
     /// Creates a new [`CancellationMonitor`].
     pub fn new() -> Self {
         Self {
-            notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+            shutdown: std::sync::Arc::new(tokio::sync::Notify::new()),
+            failure: std::sync::Arc::new(tokio::sync::Notify::new()),
         }
     }
 
@@ -192,13 +194,17 @@ impl CancellationMonitor {
     ///
     /// [`Future`]: std::future::Future
     pub async fn cancelled(&self) {
-        self.notify.notified().await
+        self.shutdown.notified().await
+    }
+
+    pub async fn failed(&self) {
+        self.failure.notified().await
     }
 
     /// Shuts down the [`CancellationMonitor`] and notifies all [`Worker`] threads for a graceful
     /// shutdown.
     pub fn shutdown(self) {
-        self.notify.notify_waiters();
+        self.shutdown.notify_waiters();
     }
 
     /// Spawns a [`Worker`] into a new isolated thread, returning a [`JoinHandle`] to it. It is the
@@ -209,7 +215,8 @@ impl CancellationMonitor {
         &self,
         worker: W,
     ) -> std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
-        let handle = std::sync::Arc::clone(&self.notify);
+        let shutdown = std::sync::Arc::clone(&self.shutdown);
+        let failure = std::sync::Arc::clone(&self.failure);
 
         std::thread::spawn(move || {
             // TODO: properly handle this error
@@ -229,11 +236,16 @@ impl CancellationMonitor {
                 //
                 // To avoid this, we pin the `Notified` future to a stable address in memory and
                 // keep re-using it across `select`s.
-                worker
-                    .task(Box::pin(handle.notified()))
+                let res = worker
+                    .task(Box::pin(shutdown.notified()))
                     .await
                     .extract_interrupt()
-                    .map_err(Box::from)
+                    .map_err(Box::from);
+
+                // Notify error
+                failure.notify_waiters();
+
+                res
             })
         })
     }

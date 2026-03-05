@@ -112,7 +112,7 @@ pub struct Config {
 
     chain_key: attestor_primitives::ChainKey,
     start_height: common::types::Height,
-    start_info: Option<common::types::AttestationInfo>,
+    start_attestation: Option<common::types::AttestationInfo>,
 }
 
 // ----------------------------------------- [ Stream ] ---------------------------------------- //
@@ -176,7 +176,7 @@ impl StreamAttestation {
         use anyhow::Context as _;
         use futures::StreamExt as _;
 
-        let continuity = CacheContinuity::new(config.start_height, config.start_info);
+        let continuity = CacheContinuity::new(config.start_height, config.start_attestation);
 
         let mut stream = config
             .eth
