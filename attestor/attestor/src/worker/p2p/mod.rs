@@ -94,7 +94,7 @@ pub use error::*;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
-#[derive(attestor_macro::Builder)]
+#[derive(builder::Builder)]
 pub struct Config {
     boot_nodes: Vec<libp2p::Multiaddr>,
     public_addr: Option<String>,

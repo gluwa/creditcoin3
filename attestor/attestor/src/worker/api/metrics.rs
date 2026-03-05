@@ -4,7 +4,7 @@
 
 use crate::prelude::*;
 
-#[derive(attestor_macro::Builder)]
+#[derive(builder::Builder)]
 pub struct Config {
     name: String,
     address: cc_client::AccountId32,

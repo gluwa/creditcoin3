@@ -104,7 +104,7 @@ pub use error::Error;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
-#[derive(Debug, attestor_macro::Builder)]
+#[derive(Debug, builder::Builder)]
 pub struct Config {
     cc3: cc_client::Client,
     eth: eth::Client,

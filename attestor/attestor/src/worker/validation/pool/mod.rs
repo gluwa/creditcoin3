@@ -143,7 +143,7 @@ pub use error::*;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
-#[derive(Debug, attestor_macro::Builder)]
+#[derive(Debug, builder::Builder)]
 /// Attestation pool configuration options
 pub struct Config {
     /// Maximum number of attestations which can be held in the pool before the pool begins

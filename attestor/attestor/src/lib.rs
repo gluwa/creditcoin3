@@ -19,7 +19,7 @@ use crate::prelude::*;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
-#[derive(Debug, attestor_macro::Builder)]
+#[derive(Debug, builder::Builder)]
 pub struct Config {
     name: String,
     chain_key: attestor_primitives::ChainKey,

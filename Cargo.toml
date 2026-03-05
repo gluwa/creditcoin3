@@ -13,11 +13,18 @@ members = [
     "precompiles/signature-verifier",
     "precompiles/substrate-transfer",
     "precompiles/block-prover",
-    "common/*",
+    "common/cc-client",
+    "common/continuity",
+    "common/eth",
+    "common/indexer-client",
+    "common/merkle",
+    "common/utils",
+    "common/vrf",
+    "common/builder",
+    "common/streams/eth",
     "query-cli",
     "proof-gen-api-server",
     "attestor/attestor",
-    "attestor/attestor_macro",
     "attestor/attestor_zombienet",
 ]
 resolver = "2"
@@ -32,6 +39,7 @@ version = "3.100.0"
 
 [workspace.dependencies]
 assert_matches = "1.5.0"
+async-stream = "0.3.6"
 rstest = "0.26.1"
 tokio-retry = "0.3"
 tokio-test = "0.4.4"
@@ -286,6 +294,7 @@ randomness-primitives = { path = "primitives/randomness", default-features = fal
 bls-signatures = { git = "https://github.com/gluwa/bls-signatures", tag = "v0.15.0", default-features = false, features = [
     "pairing",
 ] }
+builder = { path = "common/builder" }
 cc-client = { path = "common/cc-client" }
 continuity = { path = "common/continuity", default-features = false }
 eth = { path = "common/eth", default-features = false }
@@ -293,6 +302,7 @@ indexer-client = { path = "common/indexer-client" }
 libp2p = { version = "0.56", default-features = false }
 merkle = { path = "common/merkle", default-features = false }
 prometheus-client = { version = "0.24.0" }
+stream_eth = { path = "common/streams/eth" }
 sysinfo = { version = "0.37.2" }
 utils = { path = "common/utils", default-features = false }
 vrf = { path = "common/vrf", default-features = false }

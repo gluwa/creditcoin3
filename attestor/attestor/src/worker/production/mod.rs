@@ -95,7 +95,7 @@ pub use error::*;
 /// Attestation production configuration. This includes options to initialize cross-tread
 /// communication channels, set up [chain listeners] and store identifying information about an
 /// attestor, such as its account id.
-#[derive(attestor_macro::Builder)]
+#[derive(builder::Builder)]
 pub struct Config {
     stream_attestation: crate::stream::attestation::StreamAttestation,
     stream_cc3: crate::stream::cc3::StreamCC3,

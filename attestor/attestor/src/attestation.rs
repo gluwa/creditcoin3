@@ -2,7 +2,7 @@
 
 use crate::prelude::*;
 
-#[derive(Debug, attestor_macro::Builder)]
+#[derive(Debug, builder::Builder)]
 /// Attestation production options
 pub struct Config {
     /// **Optional** forced interval at which attestations are produced. By default this value is

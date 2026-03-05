@@ -92,7 +92,7 @@ pub use error::*;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
-#[derive(attestor_macro::Builder)]
+#[derive(builder::Builder)]
 pub struct Config {
     stream_cc3: crate::stream::cc3::StreamCC3,
     cc3: cc_client::Client,

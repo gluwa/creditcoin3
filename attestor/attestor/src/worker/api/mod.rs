@@ -19,7 +19,7 @@ pub use error::Error;
 
 use crate::prelude::*;
 
-#[derive(attestor_macro::Builder)]
+#[derive(builder::Builder)]
 pub struct Config {
     #[specify_later]
     metrics: common::types::Metrics,

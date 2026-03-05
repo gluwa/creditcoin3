@@ -1,0 +1,28 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "stream_eth"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+# Ethereum
+eth = { workspace = true, default-features = true }
+
+# Creditcoin
+attestor-primitives = { workspace = true, default-features = true }
+ccnext-abi-encoding = { workspace = true }
+
+# Async & Parallelism
+async-stream = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+# Parsing 
+clap = { workspace = true, features = ["cargo"] }
+url = { workspace = true, features = ["serde"] }
+
+# Util
+builder = { workspace = true }
