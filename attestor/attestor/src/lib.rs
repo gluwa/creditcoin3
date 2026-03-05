@@ -646,6 +646,7 @@ impl Attestor {
         Ok(attestation_latest_cc3)
     }
 
+    #[allow(clippy::result_large_err)]
     fn wait_for_worker(
         shutdown: &mut usize,
         handle_api: &mut Option<
