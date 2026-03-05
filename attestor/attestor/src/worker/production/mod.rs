@@ -463,6 +463,23 @@ impl WorkerAttestationProduction {
                         genesis_block,
                         "🎬 Attestation chain genesis block number set"
                     );
+
+                    self.attestation_latest_cc3 = attestation_latest_cc3;
+
+                    // 1. Chain Listener - Eth
+                    //
+                    // This ensures that we keep producing new attestations starting from the
+                    // revert height.
+                    self.stream_attestation
+                        .note_attestation_chain_reversion(attestation_latest_cc3)
+                        .map_interrupt(Error::Attestation)?;
+
+                    // 2. Update the attestation pool
+                    //
+                    // Upon chain reversion, we clear all pending attestations in the attestation pool.
+                    self.sender_validation
+                        .note_attestation_chain_reversion(attestation_latest_cc3)
+                        .expect("Infallible");
                 }
             }
         }
