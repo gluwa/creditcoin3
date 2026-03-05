@@ -85,6 +85,9 @@ pub type ChainAttestationIntervalType = u64;
 /// Attestation digest
 pub type Digest = H256;
 
+/// Block height
+pub type Height = u64;
+
 /// BLS public keys as bytes
 pub type BlsPublicKey = [u8; 48];
 
@@ -159,7 +162,7 @@ where
         self.attestation.chain_key
     }
 
-    pub fn header_number(&self) -> u64 {
+    pub fn header_number(&self) -> Height {
         self.attestation.header_number
     }
 
@@ -206,7 +209,7 @@ where
         self.attestation_data.chain_key()
     }
 
-    pub fn header_number(&self) -> u64 {
+    pub fn header_number(&self) -> Height {
         self.attestation_data.header_number
     }
 
@@ -230,7 +233,7 @@ where
 )]
 pub struct AttestationData<H> {
     pub chain_key: ChainKey,
-    pub header_number: u64,
+    pub header_number: Height,
     pub header_hash: H,
     pub root: H256,
     pub prev_digest: Option<Digest>,
@@ -238,12 +241,12 @@ pub struct AttestationData<H> {
 
 /// Attestation round
 /// Is the chain key and the header number
-pub type Round = (ChainKey, u64);
+pub type Round = (ChainKey, Height);
 
 impl AttestationData<Digest> {
     pub fn new(
         chain_key: ChainKey,
-        header_number: u64,
+        header_number: Height,
         header_hash: Digest,
         root: H256,
         prev_digest: Option<Digest>,
@@ -304,7 +307,7 @@ where
         self.chain_key
     }
 
-    pub fn header_number(&self) -> u64 {
+    pub fn header_number(&self) -> Height {
         self.header_number
     }
 }
@@ -324,19 +327,19 @@ where
     Default,
 )]
 pub struct AttestationCheckpoint {
-    pub block_number: u64,
+    pub block_number: Height,
     pub digest: Digest,
 }
 
 impl AttestationCheckpoint {
-    pub fn new(block_number: u64, digest: Digest) -> Self {
+    pub fn new(block_number: Height, digest: Digest) -> Self {
         Self {
             block_number,
             digest,
         }
     }
 
-    pub fn block_number(&self) -> u64 {
+    pub fn block_number(&self) -> Height {
         self.block_number
     }
 
