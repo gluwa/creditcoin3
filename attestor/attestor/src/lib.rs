@@ -193,12 +193,13 @@ impl Attestor {
                 }),
         };
 
-        let start_height = self.config.attestation.start_height.unwrap_or(
-            start_attestation
-                .as_ref()
-                .map(|info| info.height)
-                .unwrap_or(genesis),
-        ) + 1;
+        let start_height = self
+            .config
+            .attestation
+            .start_height
+            .or(start_attestation.as_ref().map(|info| info.height))
+            .map(|height| height + 1)
+            .unwrap_or(genesis);
 
         let target = client_cc3
             .target_sample_size(self.config.chain_key)
@@ -405,19 +406,13 @@ impl Attestor {
             let bytes = &bls_key.sign(bls_public_key).as_bytes()[..96];
             proof_of_possession.copy_from_slice(bytes);
 
-            client_cc3
-                .start_attesting(self.config.chain_key, bls_public_key, proof_of_possession)
-                .await
-                .context("Failed to register attestor bls pubkey")
-                .map_interrupt(Error::InitError)?;
-
             tokio::select! {
                 res = client_cc3.start_attesting(
                     self.config.chain_key,
                     bls_public_key,
                     proof_of_possession,
                 ) => {
-                    res.context("Failed to register attestor bls pubkey")
+                    res.context("Failed to start attesting")
                         .map_interrupt(Error::InitError)?;
                 }
                 _ = tokio::signal::ctrl_c() => {
