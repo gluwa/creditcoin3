@@ -5777,7 +5777,7 @@ fn force_election_should_error_when_not_signed() {
 }
 
 #[test]
-fn force_election_should_error_when_not_signed_by_root() {
+fn force_election_should_error_when_not_signed_by_operator_or_root() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
             Attestation::force_election(RuntimeOrigin::signed(ATTESTOR_1), 1),
@@ -5795,6 +5795,18 @@ fn force_election_should_emit_forced_election_event() {
 
         System::assert_last_event(Event::ForcedElection { epoch }.into());
     })
+}
+
+#[test]
+fn force_election_should_succeed_when_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let epoch = 42u64;
+
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::signed(ALICE),
+            epoch
+        ));
+    });
 }
 
 #[test]
