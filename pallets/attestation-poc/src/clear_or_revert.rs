@@ -49,6 +49,8 @@ impl<T: Config> Pallet<T> {
 
         // Remove all entries with height > checkpoint_height from bucket containing `checkpoint_height`
         let checkpoint_pivot = Self::compute_block_index_for(checkpoint_height);
+        // Expected upper bound here is `CHECKPOINT_BUCKET_SIZE / (attestation_interval * checkpoint_interval`
+        // So in practice this should be fewer than 20 keys
         let block_heights: Vec<u64> =
             CheckpointBuckets::<T>::iter_key_prefix((chain_key, checkpoint_pivot)).collect();
         for block_number in block_heights {
@@ -231,7 +233,7 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         // Clearing attestations
         let retention_duration = AttestationRetentionDuration::<T>::get(chain_key);
         let max_attestations_to_remove =
-            AttestationCheckpointInterval::<T>::get(chain_key) * 2 + retention_duration;
+            AttestationCheckpointInterval::<T>::get(chain_key) * 2 - 1 + retention_duration;
         // Can dispense with result, since limit is equal to maximum storage size
         _ = Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None);
 

@@ -1237,6 +1237,11 @@ pub mod pallet {
         ) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
 
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
             ensure! {
                 CheckpointPruningStates::<T>::get(chain_key).is_none(),
                 Error::<T>::TriedToRevertDuringOngoingReversion
