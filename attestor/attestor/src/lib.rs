@@ -70,6 +70,7 @@ impl Attestor {
         match Self::wait_for_endpoints(&self.config.stream.url_eth, &self.config.stream.url_cc3)
             .await
         {
+            Ok(()) => {}
             Err(Interrupt::Stop) => {
                 tracing::info!("🔌 Received shutdown signal");
                 return Ok(());
@@ -78,7 +79,6 @@ impl Attestor {
                 tracing::error!(%err, "⛔ Failed to wait for chain endpoints");
                 return Err(err);
             }
-            _ => {}
         }
 
         let client_cc3 = cc_client::Client::new(self.config.stream.url_cc3.as_ref(), &secret)
