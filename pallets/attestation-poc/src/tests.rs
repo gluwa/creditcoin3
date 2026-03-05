@@ -5515,7 +5515,7 @@ mod revert_to {
     use super::*;
 
     #[test]
-    fn revert_to_should_appropriately_remove_storage_entries() {
+    fn revert_to_should_appropriately_remove_storage_entries_and_emit_event() {
         ExtBuilder.build_and_execute(|| {
             let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
 
@@ -5689,7 +5689,17 @@ mod revert_to {
                     stop_height: last_height,
                     next_pivot: pivot.saturating_add(CHECKPOINT_BUCKET_SIZE)
                 })
-            )
+            );
+
+            // Check that revert event was emitted
+            System::assert_has_event(
+                crate::Event::RevertedAttestationChainTo {
+                    chain_key: SUPPORTED_CHAIN_KEY,
+                    checkpoint_height: revert_height,
+                    checkpoint_digest: revert_digest,
+                }
+                .into(),
+            );
         })
     }
 
@@ -5764,6 +5774,111 @@ mod revert_to {
                 Error::<Test>::TooManyAttestations
             );
         })
+    }
+
+    #[test]
+    fn revert_to_should_fail_if_there_is_an_ongoing_reversion() {
+        ExtBuilder.build_and_execute(|| {
+            let revert_height: u64 = 1_500;
+            let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+
+            // Ensure revert target checkpoint exists
+            let revert_digest =
+                H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+            insert_checkpoint_and_bucket_entry::<Test>(
+                SUPPORTED_CHAIN_KEY,
+                revert_height,
+                revert_digest,
+            );
+
+            // Also set a LastCheckpoint so that pruning state can be properly established within `revert_to`
+            let last_height = revert_height + CHECKPOINT_BUCKET_SIZE;
+            let last_digest = H256::from(&sp_io::hashing::blake2_256(
+                &(revert_height + CHECKPOINT_BUCKET_SIZE).to_be_bytes(),
+            ));
+            insert_checkpoint_and_bucket_entry::<Test>(
+                SUPPORTED_CHAIN_KEY,
+                last_height,
+                last_digest,
+            );
+            LastCheckpoint::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_height,
+                    digest: last_digest,
+                },
+            );
+
+            // Initiate first reversion
+            assert_ok!(Attestation::revert_to(
+                root_origin.clone(),
+                SUPPORTED_CHAIN_KEY,
+                revert_height
+            ));
+
+            // Try second reversion while checkpoints not done clearing from first
+            assert_noop!(
+                Attestation::revert_to(root_origin, SUPPORTED_CHAIN_KEY, revert_height),
+                Error::<Test>::TriedToRevertDuringOngoingReversion
+            );
+        });
+    }
+
+    #[test]
+    fn revert_to_should_fail_if_origin_is_not_root_or_operator() {
+        ExtBuilder.build_and_execute(|| {
+            let revert_height: u64 = 1_500;
+            // Initiate reversion
+            assert_noop!(
+                Attestation::revert_to(
+                    RuntimeOrigin::signed(ATTESTOR_1),
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height
+                ),
+                BadOrigin
+            );
+        });
+    }
+
+    #[test]
+    fn revert_to_should_succeed_with_operator_origin() {
+        ExtBuilder.build_and_execute(|| {
+            let revert_height: u64 = 1_500;
+
+            // Ensure revert target checkpoint exists
+            let revert_digest =
+                H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+            insert_checkpoint_and_bucket_entry::<Test>(
+                SUPPORTED_CHAIN_KEY,
+                revert_height,
+                revert_digest,
+            );
+
+            // Also set a LastCheckpoint so that pruning state can be properly established within `revert_to`
+            let last_height = revert_height + CHECKPOINT_BUCKET_SIZE;
+            let last_digest = H256::from(&sp_io::hashing::blake2_256(
+                &(revert_height + CHECKPOINT_BUCKET_SIZE).to_be_bytes(),
+            ));
+            insert_checkpoint_and_bucket_entry::<Test>(
+                SUPPORTED_CHAIN_KEY,
+                last_height,
+                last_digest,
+            );
+            LastCheckpoint::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_height,
+                    digest: last_digest,
+                },
+            );
+
+            // Initiate reversion
+            assert_ok!(Attestation::revert_to(
+                RuntimeOrigin::signed(ALICE),
+                SUPPORTED_CHAIN_KEY,
+                revert_height
+            ));
+        });
     }
 
     #[test]
