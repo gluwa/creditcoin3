@@ -272,7 +272,7 @@ impl Attestor {
             .build();
         let api = worker::api::WorkerApi::new(config);
 
-        let handle_api = Some(monitor.spawn(api));
+        let mut handle_api = Some(monitor.spawn(api));
 
         // ------------------------------------* Validation *----------------------------------- //
 
@@ -292,7 +292,7 @@ impl Attestor {
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let attestation_validation = worker::validation::WorkerAttestationValidation::new(config);
-        let handle_validation = Some(monitor.spawn(attestation_validation));
+        let mut handle_validation = Some(monitor.spawn(attestation_validation));
 
         // ---------------------------------------* P2P *--------------------------------------- //
 
@@ -308,7 +308,7 @@ impl Attestor {
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::InitError)?;
-        let handle_p2p = Some(monitor.spawn(p2p));
+        let mut handle_p2p = Some(monitor.spawn(p2p));
 
         // --------------------------------------* Genesis *------------------------------------ //
 
@@ -357,26 +357,50 @@ impl Attestor {
             .build();
         let production = worker::production::WorkerAttestationProduction::new(config)
             .map_err(Error::InitError)?;
-        let handle_production = Some(monitor.spawn(production));
+        let mut handle_production = Some(monitor.spawn(production));
 
         tracing::info!("✅ All services online!");
 
         // -----------------------------------* Thread waiting *-----------------------------------
 
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("🔌 Received shutdown signal");
-                monitor.shutdown();
-            },
-            _ = monitor.cancelled() => {
-                tracing::info!("🔌 Received cancellation signal");
-            }
-            _ = monitor.failed() => {
-                tracing::error!("⛔ Worker thread error");
+        let mut shutdown = 0;
+        let mut res = Ok(());
+
+        loop {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("🔌 Received shutdown signal");
+                    monitor.shutdown();
+                    break;
+                },
+                _ = monitor.cancelled() => {
+                    tracing::info!("🔌 Received cancellation signal");
+                    break;
+                }
+                _ = monitor.failed() => {
+                    tracing::error!("⛔ Worker thread error");
+                    res = res.and(Self::wait_for_worker(
+                        &mut shutdown,
+                        &mut handle_api,
+                        &mut handle_production,
+                        &mut handle_validation,
+                        &mut handle_p2p,
+                    ));
+                }
             }
         }
 
-        Self::wait_for_threads(handle_api, handle_production, handle_validation, handle_p2p)
+        while shutdown < common::constants::WORKER_COUNT {
+            res = res.and(Self::wait_for_worker(
+                &mut shutdown,
+                &mut handle_api,
+                &mut handle_production,
+                &mut handle_validation,
+                &mut handle_p2p,
+            ))
+        }
+
+        res
     }
 
     async fn register_bls(
@@ -622,86 +646,83 @@ impl Attestor {
         Ok(attestation_latest_cc3)
     }
 
-    fn wait_for_threads(
-        mut handle_api: Option<
+    fn wait_for_worker(
+        shutdown: &mut usize,
+        handle_api: &mut Option<
             std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
         >,
-        mut handle_production: Option<
+        handle_production: &mut Option<
             std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
         >,
-        mut handle_validation: Option<
+        handle_validation: &mut Option<
             std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
         >,
-        mut handle_p2p: Option<
+        handle_p2p: &mut Option<
             std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
         >,
     ) -> Result<(), Error> {
-        let mut res = Ok(());
-        let mut shutdown = 0;
-        while shutdown < common::constants::WORKER_COUNT {
+        loop {
             if let Some(handle) = handle_api.take_if(|handle| handle.is_finished()) {
-                shutdown += 1;
+                *shutdown += 1;
                 match handle.join() {
                     Ok(Ok(_)) => {
-                        tracing::info!("✅ API worker graceful shutdown");
+                        tracing::info!("⏳ [{shutdown}/4] Exited API worker");
+                        break Ok(());
                     }
                     Ok(Err(err)) => {
-                        tracing::error!(%err, "⛔ API worker failure");
-                        res = res.and(Err(Error::WorkerError(err)));
+                        tracing::error!(%err, "⛔ [{shutdown}/4] API worker failure");
+                        break Err(Error::WorkerError(err));
                     }
                     Err(payload) => std::panic::resume_unwind(payload),
                 }
-                tracing::info!("⏳ [{shutdown}/4] Exited API worker");
             }
 
             if let Some(handle) = handle_production.take_if(|handle| handle.is_finished()) {
-                shutdown += 1;
+                *shutdown += 1;
                 match handle.join() {
                     Ok(Ok(_)) => {
-                        tracing::info!("✅ Production worker graceful shutdown");
+                        tracing::info!("⏳ [{shutdown}/4] Exited production worker");
+                        break Ok(());
                     }
                     Ok(Err(err)) => {
-                        tracing::error!(%err, "⛔ Production worker failure");
-                        res = res.and(Err(Error::WorkerError(err)));
+                        tracing::error!(%err, "⛔ [{shutdown}/4] Production worker failure");
+                        break Err(Error::WorkerError(err));
                     }
                     Err(payload) => std::panic::resume_unwind(payload),
                 };
-                tracing::info!("⏳ [{shutdown}/4] Exited production worker");
             }
 
             if let Some(handle) = handle_validation.take_if(|handle| handle.is_finished()) {
-                shutdown += 1;
+                *shutdown += 1;
                 match handle.join() {
                     Ok(Ok(_)) => {
-                        tracing::info!("✅ Validation worker graceful shutdown");
+                        tracing::info!("⏳ [{shutdown}/4] Exited validation worker");
+                        break Ok(());
                     }
                     Ok(Err(err)) => {
-                        tracing::error!(%err, "⛔ Validation worker failure");
-                        res = res.and(Err(Error::WorkerError(err)));
+                        tracing::error!(%err, "⛔ [{shutdown}/4] Validation worker failure");
+                        break Err(Error::WorkerError(err));
                     }
                     Err(payload) => std::panic::resume_unwind(payload),
                 };
-                tracing::info!("⏳ [{shutdown}/4] Exited validation worker");
             }
 
             if let Some(handle) = handle_p2p.take_if(|handle| handle.is_finished()) {
-                shutdown += 1;
+                *shutdown += 1;
                 match handle.join() {
                     Ok(Ok(_)) => {
-                        tracing::info!("✅ Validation worker graceful shutdown");
+                        tracing::info!("⏳ [{shutdown}/4] Exited P2P worker");
+                        break Ok(());
                     }
                     Ok(Err(err)) => {
-                        tracing::error!(%err, "⛔ P2P worker failure");
-                        res = res.and(Err(Error::WorkerError(err)));
+                        tracing::error!(%err, "⛔ [{shutdown}/4] P2P worker failure");
+                        break Err(Error::WorkerError(err));
                     }
                     Err(payload) => std::panic::resume_unwind(payload),
                 };
-                tracing::info!("⏳ [{shutdown}/4] Exited P2P worker");
             }
 
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
-
-        res
     }
 }

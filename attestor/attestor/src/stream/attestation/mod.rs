@@ -591,7 +591,7 @@ impl CacheContinuity {
 
         Self {
             cache: Vec::with_capacity(max_size.get()),
-            prev_digest: start_info.map(|info| info.digest).unwrap_or_default(),
+            prev_digest: start_info.unwrap_or_default().digest,
 
             roots: CacheRoots::new(max_size, start_height),
         }
