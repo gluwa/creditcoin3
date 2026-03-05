@@ -934,6 +934,11 @@ export default {
                 epoch: 'u64',
             },
             ForcedUpdatesApplied: 'Null',
+            RevertedAttestationChainTo: {
+                chainKey: 'u64',
+                checkpointHeight: 'u64',
+                checkpointDigest: 'H256',
+            },
         },
     },
     /**
@@ -2625,6 +2630,10 @@ export default {
                 maxCatchup: 'u32',
             },
             force_apply_updates: 'Null',
+            revert_to: {
+                chainKey: 'u64',
+                checkpointHeight: 'u64',
+            },
         },
     },
     /**
@@ -3095,6 +3104,13 @@ export default {
         era: 'Compact<u32>',
     },
     /**
+     * Lookup416: pallet_attestation_poc::clear_or_revert::CheckpointPruningState
+     **/
+    PalletAttestationPocClearOrRevertCheckpointPruningState: {
+        stopHeight: 'u64',
+        nextPivot: 'u64',
+    },
+    /**
      * Lookup417: pallet_attestation_poc::pallet::Error<T>
      **/
     PalletAttestationPocError: {
@@ -3148,6 +3164,10 @@ export default {
             'InvalidAttestationContinuityProofBlock',
             'InvalidAttestationContinuityProofBlockGenesis',
             'InvalidAttestationPrevDigest',
+            'TooManyAttestations',
+            'NoSuchCheckpoint',
+            'LastCheckpointNotSet',
+            'TriedToRevertDuringOngoingReversion',
         ],
     },
     /**

@@ -119,6 +119,14 @@ declare module '@polkadot/api-base/types/events' {
             PendingAttestationIntervalSet: AugmentedEvent<ApiType, [u64, u64]>;
             PendingMaxCatchupSet: AugmentedEvent<ApiType, [u64, u32]>;
             PendingTargetSampleSizeSet: AugmentedEvent<ApiType, [u64, u32]>;
+            /**
+             * A chain reversion was triggered
+             **/
+            RevertedAttestationChainTo: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, checkpointHeight: u64, checkpointDigest: H256],
+                { chainKey: u64; checkpointHeight: u64; checkpointDigest: H256 }
+            >;
             TargetSampleSizeChanged: AugmentedEvent<ApiType, [u64, u32]>;
             Unbonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
             Withdrawn: AugmentedEvent<

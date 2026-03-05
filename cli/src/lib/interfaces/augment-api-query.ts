@@ -27,6 +27,7 @@ import type {
     FrameSystemLastRuntimeUpgradeInfo,
     FrameSystemPhase,
     PalletAttestationPocAttestorElectionPolicy,
+    PalletAttestationPocClearOrRevertCheckpointPruningState,
     PalletAttestationPocLedgerAttestorLedger,
     PalletBagsListListBag,
     PalletBagsListListNode,
@@ -148,6 +149,16 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
+             * Progress markers for removing checkpoint buckets associated with source chains that are undergoing
+             * chain reversion or are no longer supported.
+             **/
+            bucketClearingCursors: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<Bytes>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             chainAttestationInterval: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<u64>,
@@ -175,8 +186,8 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64, u64, u64]>;
             /**
-             * Progress markers for removing the checkpoints associated with source chains that are
-             * no longer supported. Maps from a chain_key to a cursor representing the point up to which
+             * Progress markers for removing the checkpoints associated with source chains that are no
+             * longer supported. Maps from a chain_key to a cursor representing the point up to which
              * that chain's checkpoints have been removed.
              **/
             checkpointClearingCursors: AugmentedQuery<
@@ -188,6 +199,18 @@ declare module '@polkadot/api-base/types/storage' {
             checkpointingQueues: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Vec<H256>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * The pivot of the next checkpoint bucket to be pruned. This is used during a chain reversion, when
+             * we want to remove all `CheckpointBuckets` entries above the height of the checkpoint we reverted to.
+             **/
+            checkpointPruningStates: AugmentedQuery<
+                ApiType,
+                (
+                    arg: u64 | AnyNumber | Uint8Array,
+                ) => Observable<Option<PalletAttestationPocClearOrRevertCheckpointPruningState>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;

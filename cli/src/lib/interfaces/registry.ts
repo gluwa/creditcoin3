@@ -72,6 +72,7 @@ import type {
     FrameSystemPhase,
     PalletAttestationPocAttestorElectionPolicy,
     PalletAttestationPocCall,
+    PalletAttestationPocClearOrRevertCheckpointPruningState,
     PalletAttestationPocError,
     PalletAttestationPocEvent,
     PalletAttestationPocLedgerAttestorLedger,
@@ -299,6 +300,7 @@ declare module '@polkadot/types/types/registry' {
         FrameSystemPhase: FrameSystemPhase;
         PalletAttestationPocAttestorElectionPolicy: PalletAttestationPocAttestorElectionPolicy;
         PalletAttestationPocCall: PalletAttestationPocCall;
+        PalletAttestationPocClearOrRevertCheckpointPruningState: PalletAttestationPocClearOrRevertCheckpointPruningState;
         PalletAttestationPocError: PalletAttestationPocError;
         PalletAttestationPocEvent: PalletAttestationPocEvent;
         PalletAttestationPocLedgerAttestorLedger: PalletAttestationPocLedgerAttestorLedger;

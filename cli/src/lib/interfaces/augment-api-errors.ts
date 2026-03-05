@@ -74,6 +74,7 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvulnerableListFull: AugmentedError<ApiType>;
             LastCheckpointEmpty: AugmentedError<ApiType>;
+            LastCheckpointNotSet: AugmentedError<ApiType>;
             MajorityNotReached: AugmentedError<ApiType>;
             /**
              * The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
@@ -82,9 +83,12 @@ declare module '@polkadot/api-base/types/errors' {
             NoFinalizedAttestation: AugmentedError<ApiType>;
             NoMoreChunks: AugmentedError<ApiType>;
             NoPreviousDigest: AugmentedError<ApiType>;
+            NoSuchCheckpoint: AugmentedError<ApiType>;
             NoSupportedChains: AugmentedError<ApiType>;
             NotStash: AugmentedError<ApiType>;
             NotYourAttestor: AugmentedError<ApiType>;
+            TooManyAttestations: AugmentedError<ApiType>;
+            TriedToRevertDuringOngoingReversion: AugmentedError<ApiType>;
             /**
              * Generic error
              **/

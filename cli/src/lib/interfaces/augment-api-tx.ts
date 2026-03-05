@@ -189,6 +189,18 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
             >;
+            /**
+             * Revert an attestation chain to the given checkpoint digest. This should only
+             * be called if a deep reorg occurred on the corresponding source chain and one
+             * or more attestations have become invalid.
+             **/
+            revertTo: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    checkpointHeight: u64 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u64]
+            >;
             setAttestationChainGenesisBlockNumber: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,

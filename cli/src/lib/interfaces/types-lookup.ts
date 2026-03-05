@@ -1178,6 +1178,12 @@ declare module '@polkadot/types/lookup' {
             readonly epoch: u64;
         } & Struct;
         readonly isForcedUpdatesApplied: boolean;
+        readonly isRevertedAttestationChainTo: boolean;
+        readonly asRevertedAttestationChainTo: {
+            readonly chainKey: u64;
+            readonly checkpointHeight: u64;
+            readonly checkpointDigest: H256;
+        } & Struct;
         readonly type:
             | 'AttestorRegistered'
             | 'AttestorUnregistered'
@@ -1207,7 +1213,8 @@ declare module '@polkadot/types/lookup' {
             | 'AuthorizedAttestorAdded'
             | 'AuthorizedAttestorRemoved'
             | 'ForcedElection'
-            | 'ForcedUpdatesApplied';
+            | 'ForcedUpdatesApplied'
+            | 'RevertedAttestationChainTo';
     }
 
     /** @name AttestorPrimitivesAttestationCheckpoint (94) */
@@ -3064,6 +3071,11 @@ declare module '@polkadot/types/lookup' {
             readonly maxCatchup: u32;
         } & Struct;
         readonly isForceApplyUpdates: boolean;
+        readonly isRevertTo: boolean;
+        readonly asRevertTo: {
+            readonly chainKey: u64;
+            readonly checkpointHeight: u64;
+        } & Struct;
         readonly type:
             | 'SetChainAttestationInterval'
             | 'SetTargetSampleSize'
@@ -3088,7 +3100,8 @@ declare module '@polkadot/types/lookup' {
             | 'KickActiveAttestor'
             | 'ForceElection'
             | 'SetMaxCatchup'
-            | 'ForceApplyUpdates';
+            | 'ForceApplyUpdates'
+            | 'RevertTo';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (323) */
@@ -3630,6 +3643,12 @@ declare module '@polkadot/types/lookup' {
         readonly era: Compact<u32>;
     }
 
+    /** @name PalletAttestationPocClearOrRevertCheckpointPruningState (416) */
+    interface PalletAttestationPocClearOrRevertCheckpointPruningState extends Struct {
+        readonly stopHeight: u64;
+        readonly nextPivot: u64;
+    }
+
     /** @name PalletAttestationPocError (417) */
     interface PalletAttestationPocError extends Enum {
         readonly isAlreadyAttestor: boolean;
@@ -3681,6 +3700,10 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidAttestationContinuityProofBlock: boolean;
         readonly isInvalidAttestationContinuityProofBlockGenesis: boolean;
         readonly isInvalidAttestationPrevDigest: boolean;
+        readonly isTooManyAttestations: boolean;
+        readonly isNoSuchCheckpoint: boolean;
+        readonly isLastCheckpointNotSet: boolean;
+        readonly isTriedToRevertDuringOngoingReversion: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -3730,7 +3753,11 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidAttestationContinuityProofHead'
             | 'InvalidAttestationContinuityProofBlock'
             | 'InvalidAttestationContinuityProofBlockGenesis'
-            | 'InvalidAttestationPrevDigest';
+            | 'InvalidAttestationPrevDigest'
+            | 'TooManyAttestations'
+            | 'NoSuchCheckpoint'
+            | 'LastCheckpointNotSet'
+            | 'TriedToRevertDuringOngoingReversion';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (418) */
