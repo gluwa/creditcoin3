@@ -57,7 +57,7 @@ impl StreamRpc {
                             blocks.spawn(async move {
                                 eth.get_block(
                                     n - lag,
-                                    ccnext_abi_encoding::common::EncodingVersion::V1
+                                    usc_abi_encoding::common::EncodingVersion::V1
                                 )
                                 .await
                                 .transpose()

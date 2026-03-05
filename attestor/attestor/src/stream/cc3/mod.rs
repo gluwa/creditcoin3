@@ -3,7 +3,7 @@ use crate::prelude::*;
 mod error;
 pub use error::Error;
 
-#[derive(Debug, attestor_macro::Builder)]
+#[derive(Debug, builder::Builder)]
 pub struct Config {
     cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,

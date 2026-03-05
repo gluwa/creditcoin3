@@ -12,7 +12,7 @@ pub use error::Error;
 
 pub mod prelude {
     pub use crate::common;
-    pub use common::user::*;
+    pub use user::prelude::*;
 }
 
 use crate::prelude::*;

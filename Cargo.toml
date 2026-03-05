@@ -9,6 +9,7 @@ members = [
     "primitives/attestor",
     "primitives/randomness",
     "primitives/supported-chains",
+    "primitives/user",
     "precompiles/chain-info",
     "precompiles/signature-verifier",
     "precompiles/substrate-transfer",
@@ -39,7 +40,6 @@ version = "3.100.0"
 
 [workspace.dependencies]
 assert_matches = "1.5.0"
-async-stream = "0.3.6"
 rstest = "0.26.1"
 tokio-retry = "0.3"
 tokio-test = "0.4.4"
@@ -289,6 +289,8 @@ pallet-randomness = { path = "pallets/randomness", default-features = false }
 # Using an old version of rand as it is already in the dependency graph
 rand = { version = "0.9.0", default-features = false }
 randomness-primitives = { path = "primitives/randomness", default-features = false }
+
+user = { path = "primitives/user" }
 
 # Common
 bls-signatures = { git = "https://github.com/gluwa/bls-signatures", tag = "v0.15.0", default-features = false, features = [

@@ -13,7 +13,7 @@ eth = { workspace = true, default-features = true }
 
 # Creditcoin
 attestor-primitives = { workspace = true, default-features = true }
-ccnext-abi-encoding = { workspace = true }
+usc-abi-encoding = { workspace = true }
 
 # Async & Parallelism
 async-stream = { workspace = true }

@@ -236,11 +236,10 @@ impl CancellationMonitor {
                 //
                 // To avoid this, we pin the `Notified` future to a stable address in memory and
                 // keep re-using it across `select`s.
-                let res = worker
-                    .task(Box::pin(shutdown.notified()))
-                    .await
-                    .extract_interrupt()
-                    .map_err(Box::from);
+                let res = match worker.task(Box::pin(shutdown.notified())).await {
+                    Ok(_) | Err(Interrupt::Stop) => Ok(()),
+                    Err(Interrupt::Cont(err)) => Err(Box::from(err)),
+                };
 
                 // Notify error
                 if res.is_err() {

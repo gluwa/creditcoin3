@@ -18,6 +18,12 @@
 //!
 //! [`Try`]: https://doc.rust-lang.org/stable/std/ops/trait.Try.html
 
+pub mod prelude {
+    pub use crate::Interrupt;
+    pub use crate::MapInterrupt;
+    pub use crate::OkInterrupt;
+}
+
 #[derive(Debug)]
 pub enum Interrupt<T> {
     Cont(T),
@@ -64,19 +70,5 @@ pub trait OkInterrupt<T, E> {
 impl<T, E> OkInterrupt<T, E> for Option<T> {
     fn ok_interrupt(self, err: E) -> Result<T, Interrupt<E>> {
         self.ok_or(Interrupt::Cont(err))
-    }
-}
-
-pub trait ExtractInterrupt<E> {
-    fn extract_interrupt(self) -> Result<(), E>;
-}
-
-impl<E> ExtractInterrupt<E> for Result<(), Interrupt<E>> {
-    fn extract_interrupt(self) -> Result<(), E> {
-        match self {
-            Ok(res) => Ok(res),
-            Err(Interrupt::Cont(err)) => Err(err),
-            Err(Interrupt::Stop) => Ok(()),
-        }
     }
 }

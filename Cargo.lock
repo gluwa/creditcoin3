@@ -1517,10 +1517,10 @@ dependencies = [
  "assert_matches",
  "async-stream",
  "attestor-primitives",
- "attestor_macro",
  "axum",
  "bip39",
  "bls-signatures",
+ "builder",
  "cc-client",
  "clap",
  "eth",
@@ -1550,6 +1550,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "usc-abi-encoding",
+ "user",
  "zeroize",
 ]
 
@@ -1570,15 +1571,6 @@ dependencies = [
  "sp-runtime",
  "sp-std",
  "usc-abi-encoding",
-]
-
-[[package]]
-name = "attestor_macro"
-version = "3.100.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.111",
 ]
 
 [[package]]
@@ -2068,6 +2060,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bdce191bf3fa4995ce948c8c83b4640a1745457a149e73c6db75b4ffe36aad5f"
 dependencies = [
  "semver 0.6.0",
+]
+
+[[package]]
+name = "builder"
+version = "3.100.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
 ]
 
 [[package]]
@@ -14643,6 +14644,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "stream_eth"
+version = "3.100.0"
+dependencies = [
+ "async-stream",
+ "attestor-primitives",
+ "builder",
+ "clap",
+ "eth",
+ "futures 0.3.31",
+ "tokio",
+ "url",
+ "usc-abi-encoding",
+]
+
+[[package]]
 name = "string-interner"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -16005,6 +16021,10 @@ dependencies = [
  "hex",
  "usc-abi-encoding",
 ]
+
+[[package]]
+name = "user"
+version = "3.100.0"
 
 [[package]]
 name = "utf-8"
