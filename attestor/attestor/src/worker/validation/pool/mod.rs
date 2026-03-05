@@ -1440,7 +1440,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolSende
             inner
                 .valid
                 .note_attestation_interval_change(interval_new, attestation_latest_cc3)
-                .expect("Invallable");
+                .expect("Infallible");
 
             // Update metrics
             inner
