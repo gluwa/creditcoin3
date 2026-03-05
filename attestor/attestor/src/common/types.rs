@@ -17,7 +17,7 @@ pub type AttestationSigned = attestor_primitives::SignedAttestation<
     attestor_primitives::AttestorId,
 >;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AttestationInfo {
     pub digest: attestor_primitives::Digest,
     pub height: Height,

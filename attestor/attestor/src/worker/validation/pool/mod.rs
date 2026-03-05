@@ -86,8 +86,9 @@
 //! #       .with_peer_id(libp2p::PeerId::random())
 //! #       .with_chain_key(2u64)
 //! #       .with_start_height(common::types::Height::MIN)
+//! #       .with_start_info(Some(common::types::AttestationInfo::default()))
+//! #       .with_genesis(common::types::Height::MIN)
 //! #       .with_attestation_latest_eth(common::types::Height::MIN)
-//! #       .with_attestation_latest_cc3(common::types::Height::MIN)
 //! #       .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
 //! #       .build();
 //! #   let metrics = std::sync::Arc::new(attestor::worker::api::metrics::Metrics::new(config));
@@ -105,7 +106,7 @@
 //!         .with_quorum(std::num::NonZeroUsize::new(3).unwrap())
 //!         .with_attestation_interval(std::num::NonZeroU64::new(1).unwrap())
 //!         .with_start_height(0u64)
-//!         .with_digest_latest_cc3(None)
+//!         .with_start_info(None)
 //!         .with_metrics(metrics)
 //!         .build(),
 //! );
@@ -2013,7 +2014,10 @@ pub mod fixtures {
             .with_attestors(attestors)
             .with_quorum(validate_quorum.target_quorum)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
-            .with_start_info(None)
+            .with_start_info(Some(common::types::AttestationInfo {
+                digest: DIGEST_0,
+                height: common::types::Height::MIN,
+            }))
             .with_start_height(common::types::Height::MIN)
             .with_metrics(metrics)
             .build()

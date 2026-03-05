@@ -523,7 +523,7 @@ impl Attestor {
             * 2;
 
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-        if !attestors.contains(&account_id) {
+        if !attestors.contains(account_id) {
             attestors = 'outer: loop {
                 tokio::select! {
                     Some(block) = stream_cc3.next() => {
@@ -533,7 +533,7 @@ impl Attestor {
                         for event in events {
                             let event = event.map_interrupt(Error::CC3Error)?;
                             if let cc_client::attestation::CcEvent::AttestorsElected(attestors) = event {
-                                if attestors.contains(&account_id) {
+                                if attestors.contains(account_id) {
                                     break 'outer attestors;
                                 }
                             }
