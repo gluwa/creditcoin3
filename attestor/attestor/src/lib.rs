@@ -366,6 +366,7 @@ impl Attestor {
         let mut shutdown = 0;
         let mut res = Ok(());
 
+        // Worker error and shutdown signal
         loop {
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
@@ -390,6 +391,7 @@ impl Attestor {
             }
         }
 
+        // Wait for remaining workers
         while shutdown < common::constants::WORKER_COUNT {
             res = res.and(Self::wait_for_worker(
                 &mut shutdown,
