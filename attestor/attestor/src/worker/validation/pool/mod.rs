@@ -1506,6 +1506,8 @@ impl crate::events::EventRevertedAttestationChainToAsync for AttestationPoolSend
     ) -> Result<(), Self::Error> {
         use crate::events::EventRevertedAttestationChainTo as _;
 
+        //TODO: Implement this!
+
         /*if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             // Updating the inner pool
             inner
