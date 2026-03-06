@@ -40,31 +40,47 @@ impl StreamRoots {
 
             loop {
                 tokio::select! {
+                    // TASK 1] Poll source chain blocks
                     Some(block) = stream_blocks.next() => {
                         match block {
                             Ok(block) => {
+
+                                // Backpressure: limit the number of blocks being processed
+                                // in parallel to `max_parallelism`
                                 while roots.len() >= max_parallelism {
-                                    if let Some(root) = roots.join_next().await {
-                                        match root.map_err(Error::Task) {
-                                            Ok(info) => {
-                                                heap.push(std::cmp::Reverse(info));
-                                                if heap
-                                                    .peek()
-                                                    .is_some_and(|info| info.0.height == next)
-                                                {
-                                                    next += 1;
-                                                    yield Ok(heap
-                                                        .pop()
-                                                        .expect("Checked above")
-                                                        .0
-                                                        .digest);
-                                                }
-                                            },
-                                            Err(err) => yield Err(err),
-                                        }
+
+                                    // Spawn the root computation anyways if the block stream has
+                                    // ended. That way we can drain existing roots before exiting.
+                                    let Some(root) = roots.join_next().await else {
+                                        break;
+                                    };
+
+                                    // Tries to drain existing roots to make space for new
+                                    // computations.
+                                    match root.map_err(Error::Task) {
+                                        Ok(info) => {
+
+                                            // Since blocks roots are computed in parallel,
+                                            // they need to be re-ordered manually
+                                            heap.push(std::cmp::Reverse(info));
+                                            while heap
+                                                .peek()
+                                                .is_some_and(|info| info.0.height == next)
+                                            {
+                                                next += 1;
+                                                yield Ok(heap
+                                                    .pop()
+                                                    .expect("Checked above")
+                                                    .0
+                                                    .digest);
+                                            }
+                                        },
+                                        Err(err) => yield Err(err),
                                     }
                                 }
 
+                                // Actual root computation. No more than `max_parallelism` roots
+                                // may be computed at once.
                                 roots.spawn_blocking(move || {
                                     RootInfo {
                                         height: block.number(),
@@ -75,10 +91,14 @@ impl StreamRoots {
                             Err(err) => yield Err(err),
                         }
                     }
+                    // TASK 2] Drain completed block roots
                     Some(root) = roots.join_next(), if !roots.is_empty() => {
                         match root.map_err(Error::Task) {
                             Ok(info) => {
                                 heap.push(std::cmp::Reverse(info));
+
+                                // Drain as many roots as possible to deal with sporadic bursts in
+                                // ordering.
                                 while heap.peek().is_some_and(|info| info.0.height == next) {
                                     next += 1;
                                     yield Ok(heap.pop().expect("Checked above").0.digest);
@@ -88,6 +108,9 @@ impl StreamRoots {
                         }
                     }
                     else => {
+                        // Eth block stream has completed and there are no more roots left to
+                        // drain. We can safely exit the stream and only out-of-order roots will be
+                        // lost.
                         break;
                     }
                 }
@@ -120,8 +143,14 @@ impl StreamRpc {
         Ok(async_stream::stream! {
             loop {
                 tokio::select! {
+                    // TASK 1] Poll source chain headers
                     Some(n) = stream_n.next() => {
+
+                        // Backpressure: limit the number of blocks which can be fetched
+                        // concurrently to `max_concurrency`.
                         while blocks.len() >= config.max_concurrency.get() {
+
+                            // Tries to drain existing blocks to make space for new ones.
                             if let Some(block) = blocks.join_next().await {
                                 match block.map_err(Error::Task)
                                 {
@@ -136,6 +165,8 @@ impl StreamRpc {
                         let eth = config.eth.clone();
                         let lag = config.finalization_lag;
 
+                        // Actual block fetching. No more than `max_concurrency` blocks may be
+                        // fetched at once.
                         blocks.spawn(async move {
                             eth.get_block(
                                 n - lag,
@@ -145,6 +176,7 @@ impl StreamRpc {
                             .map_interrupt(Error::Client)
                         });
                     }
+                    // TASK 2] Drain fetched blocks (out-of-order)
                     Some(block) = blocks.join_next(), if !blocks.is_empty() => {
                         match block.map_err(Error::Task)
                         {
