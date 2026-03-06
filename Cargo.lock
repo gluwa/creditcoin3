@@ -14647,6 +14647,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "stream_attestation"
+version = "3.100.0"
+dependencies = [
+ "async-stream",
+ "attestor-primitives",
+ "builder",
+ "clap",
+ "eth",
+ "futures 0.3.31",
+ "stream_eth",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "stream_eth"
 version = "3.100.0"
 dependencies = [

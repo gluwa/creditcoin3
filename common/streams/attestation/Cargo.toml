@@ -1,0 +1,35 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "stream_attestation"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+# Ethereum
+eth = { workspace = true, default-features = true }
+
+# Creditcoin
+attestor-primitives = { workspace = true, default-features = true }
+
+# Streams
+async-stream = { workspace = true }
+futures = { workspace = true }
+stream_eth = { workspace = true }
+
+# Async & Parallelism
+tokio = { workspace = true, features = ["full"] }
+
+# Util
+builder = { workspace = true }
+
+[dev-dependencies]
+# Parsing 
+clap = { workspace = true, features = ["cargo"] }
+url = { workspace = true, features = ["serde"] }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }

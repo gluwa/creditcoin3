@@ -6,11 +6,11 @@ pub use error::Error;
 
 #[derive(builder::Builder)]
 pub struct Config {
-    eth: eth::Client,
-    start_height: attestor_primitives::Height,
-    finalization_lag: attestor_primitives::Height,
-    max_concurrency: std::num::NonZeroUsize,
-    max_parallelism: std::num::NonZeroUsize,
+    pub eth: eth::Client,
+    pub start_height: attestor_primitives::Height,
+    pub finalization_lag: attestor_primitives::Height,
+    pub max_concurrency: std::num::NonZeroUsize,
+    pub max_parallelism: std::num::NonZeroUsize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -19,23 +19,23 @@ pub struct RootInfo {
     pub digest: attestor_primitives::Digest,
 }
 
-pub struct StreamRoots;
+pub struct StreamRoots {
+    stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<RootInfo, Error>> + Send>>,
+}
+
 impl StreamRoots {
-    pub async fn new(
-        config: Config,
-    ) -> Result<impl futures::Stream<Item = Result<attestor_primitives::Digest, Error>>, Error>
-    {
+    pub async fn new(config: Config) -> Result<Self, Error> {
         use futures::StreamExt as _;
 
         let start_height = config.start_height;
         let max_parallelism = config.max_parallelism.get();
-        let stream_blocks = StreamRpc::new(config).await?;
+        let stream_blocks = stream_rpc(config).await?;
 
         let mut next = start_height;
         let mut roots = tokio::task::JoinSet::<RootInfo>::new();
         let mut heap = std::collections::BinaryHeap::with_capacity(max_parallelism);
 
-        Ok(async_stream::stream! {
+        let stream = async_stream::stream! {
             let mut stream_blocks = std::pin::pin!(stream_blocks);
 
             loop {
@@ -72,7 +72,7 @@ impl StreamRoots {
                                                     .pop()
                                                     .expect("Checked above")
                                                     .0
-                                                    .digest);
+                                                    );
                                             }
                                         },
                                         Err(err) => yield Err(err),
@@ -101,7 +101,7 @@ impl StreamRoots {
                                 // ordering.
                                 while heap.peek().is_some_and(|info| info.0.height == next) {
                                     next += 1;
-                                    yield Ok(heap.pop().expect("Checked above").0.digest);
+                                    yield Ok(heap.pop().expect("Checked above").0);
                                 }
                             },
                             Err(err) => yield Err(err),
@@ -115,82 +115,94 @@ impl StreamRoots {
                     }
                 }
             }
-        })
+        }
+        .boxed();
+
+        Ok(Self { stream })
     }
 }
 
-struct StreamRpc;
-impl StreamRpc {
-    pub async fn new(
-        config: Config,
-    ) -> Result<impl futures::Stream<Item = Result<eth::OrderedBlock, Error>>, Error> {
+impl futures::Stream for StreamRoots {
+    type Item = Result<RootInfo, Error>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
         use futures::StreamExt as _;
+        self.stream.poll_next_unpin(cx)
+    }
+}
 
-        let mut stream_headers = config.eth.subscribe().await.map_err(Error::Client)?;
-        let next = stream_headers.next().await.ok_or(Error::StreamEnd)?.number;
+async fn stream_rpc(
+    config: Config,
+) -> Result<impl futures::Stream<Item = Result<eth::OrderedBlock, Error>>, Error> {
+    use futures::StreamExt as _;
 
-        let mut stream_n = futures::stream::iter(config.start_height..=next)
-            .chain(stream_headers.map(|header| header.number))
-            .skip_while(move |number| {
-                futures::future::ready(
-                    *number < config.finalization_lag
-                        || *number < config.start_height + config.finalization_lag,
-                )
-            });
+    let mut stream_headers = config.eth.subscribe().await.map_err(Error::Client)?;
+    let next = stream_headers.next().await.ok_or(Error::StreamEnd)?.number;
 
-        let mut blocks = tokio::task::JoinSet::new();
+    let mut stream_n = futures::stream::iter(config.start_height..=next)
+        .chain(stream_headers.map(|header| header.number))
+        .skip_while(move |number| {
+            futures::future::ready(
+                *number < config.finalization_lag
+                    || *number < config.start_height + config.finalization_lag,
+            )
+        });
 
-        Ok(async_stream::stream! {
-            loop {
-                tokio::select! {
-                    // TASK 1] Poll source chain headers
-                    Some(n) = stream_n.next() => {
+    let mut blocks = tokio::task::JoinSet::new();
 
-                        // Backpressure: limit the number of blocks which can be fetched
-                        // concurrently to `max_concurrency`.
-                        while blocks.len() >= config.max_concurrency.get() {
+    Ok(async_stream::stream! {
+        loop {
+            tokio::select! {
+                // TASK 1] Poll source chain headers
+                Some(n) = stream_n.next() => {
 
-                            // Tries to drain existing blocks to make space for new ones.
-                            if let Some(block) = blocks.join_next().await {
-                                match block.map_err(Error::Task)
-                                {
-                                    Ok(Ok(block)) => yield Ok(block),
-                                    Ok(Err(Interrupt::Cont(err))) => yield Err(err),
-                                    Ok(Err(Interrupt::Stop)) => break,
-                                    Err(err) => yield Err(err),
-                                }
+                    // Backpressure: limit the number of blocks which can be fetched
+                    // concurrently to `max_concurrency`.
+                    while blocks.len() >= config.max_concurrency.get() {
+
+                        // Tries to drain existing blocks to make space for new ones.
+                        if let Some(block) = blocks.join_next().await {
+                            match block.map_err(Error::Task)
+                            {
+                                Ok(Ok(block)) => yield Ok(block),
+                                Ok(Err(Interrupt::Cont(err))) => yield Err(err),
+                                Ok(Err(Interrupt::Stop)) => break,
+                                Err(err) => yield Err(err),
                             }
                         }
-
-                        let eth = config.eth.clone();
-                        let lag = config.finalization_lag;
-
-                        // Actual block fetching. No more than `max_concurrency` blocks may be
-                        // fetched at once.
-                        blocks.spawn(async move {
-                            eth.get_block(
-                                n - lag,
-                                usc_abi_encoding::common::EncodingVersion::V1
-                            )
-                            .await
-                            .map_interrupt(Error::Client)
-                        });
                     }
-                    // TASK 2] Drain fetched blocks (out-of-order)
-                    Some(block) = blocks.join_next(), if !blocks.is_empty() => {
-                        match block.map_err(Error::Task)
-                        {
-                            Ok(Ok(block)) => yield Ok(block),
-                            Ok(Err(Interrupt::Cont(err))) => yield Err(err),
-                            Ok(Err(Interrupt::Stop)) => break,
-                            Err(err) => yield Err(err),
-                        }
-                    }
-                    else => {
-                        break;
+
+                    let eth = config.eth.clone();
+                    let lag = config.finalization_lag;
+
+                    // Actual block fetching. No more than `max_concurrency` blocks may be
+                    // fetched at once.
+                    blocks.spawn(async move {
+                        eth.get_block(
+                            n - lag,
+                            usc_abi_encoding::common::EncodingVersion::V1
+                        )
+                        .await
+                        .map_interrupt(Error::Client)
+                    });
+                }
+                // TASK 2] Drain fetched blocks (out-of-order)
+                Some(block) = blocks.join_next(), if !blocks.is_empty() => {
+                    match block.map_err(Error::Task)
+                    {
+                        Ok(Ok(block)) => yield Ok(block),
+                        Ok(Err(Interrupt::Cont(err))) => yield Err(err),
+                        Ok(Err(Interrupt::Stop)) => break,
+                        Err(err) => yield Err(err),
                     }
                 }
+                else => {
+                    break;
+                }
             }
-        })
-    }
+        }
+    })
 }
