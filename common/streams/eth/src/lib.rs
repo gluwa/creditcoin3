@@ -1,5 +1,7 @@
 mod error;
 
+use user::prelude::*;
+
 pub use error::Error;
 
 #[derive(builder::Builder)]
@@ -34,19 +36,18 @@ impl StreamRpc {
         let mut blocks = tokio::task::JoinSet::new();
 
         Ok(StreamRpc {
-            stream: async_stream::try_stream! {
+            stream: async_stream::stream! {
                 loop {
                     tokio::select! {
                         Some(n) = numbers.next() => {
                             while blocks.len() >= config.max_concurrency.get() {
                                 if let Some(block) = blocks.join_next().await {
-                                    match block
-                                        .map_err(Error::Task)
-                                        .and_then(|inner| inner)
-                                        .transpose()
+                                    match block.map_err(Error::Task)
                                     {
-                                        Some(block) => yield block?,
-                                        None => break,
+                                        Ok(Ok(block)) => yield Ok(block),
+                                        Ok(Err(Interrupt::Cont(err))) => yield Err(err),
+                                        Ok(Err(Interrupt::Stop)) => break,
+                                        Err(err) => yield Err(err),
                                     }
                                 }
                             }
@@ -60,18 +61,16 @@ impl StreamRpc {
                                     usc_abi_encoding::common::EncodingVersion::V1
                                 )
                                 .await
-                                .transpose()
-                                .map_err(Error::Client)
+                                .map_interrupt(Error::Client)
                             });
                         }
                         Some(block) = blocks.join_next() => {
-                            match block
-                                .map_err(Error::Task)
-                                .and_then(|inner| inner)
-                                .transpose()
+                            match block.map_err(Error::Task)
                             {
-                                Some(block) => yield block?,
-                                None => break,
+                                Ok(Ok(block)) => yield Ok(block),
+                                Ok(Err(Interrupt::Cont(err))) => yield Err(err),
+                                Ok(Err(Interrupt::Stop)) => break,
+                                Err(err) => yield Err(err),
                             }
                         }
                     }

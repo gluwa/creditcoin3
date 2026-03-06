@@ -14,6 +14,7 @@ mod workflow;
 
 use crate::prompt::prompt as prompt_user;
 use eth::Client;
+use user::prelude::*;
 
 // Configuration structs to group related parameters
 #[derive(Debug, Clone)]
@@ -396,8 +397,9 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
         .get_block(prompt_output.height, prompt_output.encoding)
         .await
     {
-        Some(block) => block?,
-        None => return Ok(()),
+        Ok(block) => block,
+        Err(Interrupt::Cont(err)) => return Err(Box::new(err)),
+        Err(Interrupt::Stop) => return Ok(()),
     };
     println!("Block fetched successfully");
 

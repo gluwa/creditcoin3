@@ -2556,6 +2556,7 @@ dependencies = [
  "tokio",
  "tracing",
  "usc-abi-encoding",
+ "user",
  "utils",
 ]
 
@@ -3798,6 +3799,7 @@ dependencies = [
  "tracing",
  "url",
  "usc-abi-encoding",
+ "user",
  "utils",
 ]
 
@@ -10559,6 +10561,7 @@ dependencies = [
  "tracing-subscriber",
  "usc-abi-encoding",
  "usc-query-builder",
+ "user",
  "utils",
 ]
 
@@ -14656,6 +14659,7 @@ dependencies = [
  "tokio",
  "url",
  "usc-abi-encoding",
+ "user",
 ]
 
 [[package]]

@@ -11,6 +11,7 @@ use cc_client::{AccountId32, Client as CcClient};
 use eth::continuity::Manager as ContinuityManager;
 use sp_core::H256;
 use std::sync::Arc;
+use user::prelude::*;
 
 use attestor_primitives::block::Block;
 use usc_abi_encoding::common::EncodingVersion;
@@ -270,8 +271,8 @@ impl EthRpcProvider for eth::Client {
         let ordered = self
             .get_block(block_number, EncodingVersion::V1)
             .await
-            .context("Failed to fetch block transactions")?
-            .context("Not handling user interrupts yet")?;
+            .unwrap_interrupt("Not handling user interrupts yet")
+            .context("Failed to fetch block transactions")?;
 
         let tx_bytes: Vec<Vec<u8>> = ordered.items().iter().map(|item| item.to_bytes()).collect();
 
@@ -283,8 +284,8 @@ impl EthRpcProvider for eth::Client {
         let ordered = self
             .get_block(block_number, EncodingVersion::V1)
             .await
-            .context("Failed to fetch block")?
-            .context("Not handling user interrupts yet")?;
+            .unwrap_interrupt("Not handling user interrupts yet")
+            .context("Failed to fetch block")?;
 
         let tx_hash = ordered.items().get(tx_index as usize).map(|item| {
             // Convert alloy BlockHash to sp_core::H256

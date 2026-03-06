@@ -1,8 +1,5 @@
 use anyhow::Result;
-use futures::{
-    stream::{self, StreamExt},
-    FutureExt,
-};
+use futures::stream::{self, StreamExt};
 use sp_core::H256;
 use tracing::{debug, trace};
 use usc_abi_encoding::common::EncodingVersion;
@@ -12,6 +9,7 @@ use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentError},
     block::{Block as FragmentBlock, BlockError},
 };
+use user::prelude::*;
 
 /// Maximum number of concurrent block fetches when building continuity chains.
 /// This limits concurrency to avoid overwhelming Redis with too many simultaneous requests.
@@ -78,17 +76,16 @@ impl<'a> Manager<'a> {
         // Get all blocks with limited concurrency to avoid overwhelming Redis
         // This list is sorted because we provide the futures in order
         let blocks = stream::iter(self.start_block..=self.end_block)
-            .map(|i| {
-                self.eth_client
-                    .get_block(i, encoding)
-                    .map(|res| res.expect("Not handling user interrupts here"))
-            })
+            .map(|i| self.eth_client.get_block(i, encoding))
             .buffered(MAX_CONCURRENT_BLOCK_FETCHES)
             .collect::<Vec<_>>()
             .await;
 
         // Handle errors and collect blocks
-        let collected_blocks = blocks.into_iter().collect::<Result<Vec<_>, _>>()?;
+        let collected_blocks = blocks
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap_interrupt("Not handling user interrupts")?;
 
         // Now spawn MMR computations in parallel threads
         let blocks_with_roots = stream::iter(collected_blocks)

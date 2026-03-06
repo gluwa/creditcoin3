@@ -18,6 +18,7 @@ use redis::{
 use serde_json::{from_slice, to_vec};
 use snap::{read::FrameDecoder, write::FrameEncoder};
 use std::time::Duration;
+use user::prelude::*;
 
 const ONE_HOUR_TTL: u64 = 60 * 60;
 const DBSIZE_COMMAND: &str = "DBSIZE";
@@ -277,7 +278,7 @@ impl Client {
         &self,
         number: u64,
         encoding: EncodingVersion,
-    ) -> Option<Result<OrderedBlock, Error>> {
+    ) -> Result<OrderedBlock, Interrupt<Error>> {
         trace!(
             "Getting block {}",
             BlockId::Number(BlockNumberOrTag::Number(number))
@@ -298,7 +299,7 @@ impl Client {
         match get_cached_block(conn.clone(), self.chain_id, number, metrics).await {
             Some(block) => {
                 metrics.observe_cache_hit();
-                Some(Ok(block))
+                Ok(block)
             }
             None => {
                 metrics.observe_cache_miss();
@@ -323,7 +324,7 @@ impl Client {
                         // We acquired the lock, fetch and cache the block
                         let maybe_block = self.try_fetch_block(number, encoding).await;
 
-                        if let Some(Ok(block)) = maybe_block {
+                        if let Ok(block) = maybe_block {
                             cache_block(conn.clone(), self.chain_id, number, &block, metrics).await;
 
                             // Release the lock by deleting the key
@@ -337,7 +338,7 @@ impl Client {
                                 metrics.set_total_cached_blocks(cache_blocks as i64);
                             }
 
-                            Some(Ok(block))
+                            Ok(block)
                         } else {
                             // Release the lock by deleting the key
                             if let Err(err) = redis_del(conn.clone(), &lock_key).await {
@@ -358,7 +359,7 @@ impl Client {
                         if let Some(block) =
                             get_cached_block(conn.clone(), self.chain_id, number, metrics).await
                         {
-                            Some(Ok(block))
+                            Ok(block)
                         } else {
                             // As a last resort, fetch the block directly
                             self.try_fetch_block(number, encoding).await

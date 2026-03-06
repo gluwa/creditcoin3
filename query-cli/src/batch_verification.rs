@@ -14,6 +14,7 @@ use utils::block_item_traits::BlockItem;
 use crate::merkle;
 use crate::verification::VerificationConfig;
 use ::merkle::TransactionMerkleProof;
+use user::prelude::*;
 
 /// Represents a single query in a batch
 #[derive(Debug, Clone)]
@@ -345,8 +346,9 @@ pub async fn execute_batch_query(
 
         // Fetch block
         let block = match eth_client.get_block(*block_height, encoding).await {
-            Some(block) => block?,
-            None => return Ok(()),
+            Ok(block) => block,
+            Err(Interrupt::Cont(err)) => return Err(err.into()),
+            Err(Interrupt::Stop) => return Ok(()),
         };
 
         // Find transaction by hash

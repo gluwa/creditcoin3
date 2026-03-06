@@ -22,6 +22,7 @@ pub mod prelude {
     pub use crate::Interrupt;
     pub use crate::MapInterrupt;
     pub use crate::OkInterrupt;
+    pub use crate::UnwrapInterrupt;
 }
 
 #[derive(Debug)]
@@ -70,5 +71,19 @@ pub trait OkInterrupt<T, E> {
 impl<T, E> OkInterrupt<T, E> for Option<T> {
     fn ok_interrupt(self, err: E) -> Result<T, Interrupt<E>> {
         self.ok_or(Interrupt::Cont(err))
+    }
+}
+
+pub trait UnwrapInterrupt<T, E> {
+    fn unwrap_interrupt(self, msg: &'static str) -> Result<T, E>;
+}
+
+impl<T, E> UnwrapInterrupt<T, E> for Result<T, Interrupt<E>> {
+    fn unwrap_interrupt(self, msg: &'static str) -> Result<T, E> {
+        match self {
+            Ok(ok) => Ok(ok),
+            Err(Interrupt::Cont(err)) => Err(err),
+            Err(Interrupt::Stop) => panic!("{msg}"),
+        }
     }
 }

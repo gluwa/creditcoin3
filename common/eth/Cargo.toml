@@ -35,6 +35,7 @@ usc-abi-encoding = { workspace = true }
 attestor-primitives = { workspace = true }
 merkle = { workspace = true }
 prometheus-client = { workspace = true, optional = true }
+user = { workspace = true }
 utils = { workspace = true }
 
 [features]

@@ -29,6 +29,7 @@ use std::str::FromStr;
 use thiserror::Error;
 use tracing::{error, info, trace};
 use usc_abi_encoding::common::EncodingVersion;
+use user::prelude::*;
 use utils::block_item_traits::BlockItem;
 
 pub use alloy::core::primitives::Address;
@@ -333,7 +334,7 @@ impl Client {
         &self,
         number: u64,
         encoding: EncodingVersion,
-    ) -> Option<Result<OrderedBlock, Error>> {
+    ) -> Result<OrderedBlock, Interrupt<Error>> {
         trace!(
             "Getting block {:?}",
             BlockId::Number(BlockNumberOrTag::Number(number))
@@ -369,19 +370,19 @@ impl Client {
 
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay)) => {},
-                _ = tokio::signal::ctrl_c() => return None
+                _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
             }
 
             delay = (delay * 2).min(DELAY_MAX);
         };
 
         if block.transactions.len() != receipts.len() {
-            return Some(Err(Error::TransactionsReceiptsMismatch(number)));
+            return Err(Interrupt::Cont(Error::TransactionsReceiptsMismatch(number)));
         }
 
         let transactions = block.transactions.into_transactions().collect::<Vec<_>>();
 
-        let block = OrderedBlock::try_create(
+        OrderedBlock::try_create(
             self.chain_id,
             number,
             block.header.hash,
@@ -389,9 +390,7 @@ impl Client {
             receipts,
             encoding,
         )
-        .map_err(Error::TransactionConversion);
-
-        Some(block)
+        .map_interrupt(Error::TransactionConversion)
     }
 
     #[cfg(not(feature = "block_cache"))]
@@ -399,7 +398,7 @@ impl Client {
         &self,
         number: u64,
         encoding: EncodingVersion,
-    ) -> Option<Result<OrderedBlock, Error>> {
+    ) -> Result<OrderedBlock, Interrupt<Error>> {
         Self::try_fetch_block(self, number, encoding).await
     }
 

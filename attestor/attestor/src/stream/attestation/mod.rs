@@ -752,10 +752,8 @@ impl CacheRoots {
 
         let encoding = usc_abi_encoding::common::EncodingVersion::V1;
         let iter = (height_next..=height_stop).map(|h| {
-            eth.get_block(h, encoding).map(|opt| {
-                opt.ok_or(Interrupt::Stop)
-                    .and_then(|res| res.map_interrupt(Error::Eth))
-            })
+            eth.get_block(h, encoding)
+                .map(|res| res.map_interrupt(Error::Eth))
         });
         let blocks = futures::stream::iter(iter)
             .buffered(common::constants::MAX_CONCURRENT_RPC_CALLS)

@@ -24,6 +24,7 @@ cc-client = { workspace = true }
 eth = { workspace = true }
 merkle = { workspace = true }
 sp-core = { workspace = true }
+user = { workspace = true }
 
 anyhow.workspace = true
 continuity = { path = "../common/continuity" }

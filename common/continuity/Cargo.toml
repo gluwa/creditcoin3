@@ -23,6 +23,7 @@ eth = { workspace = true }
 indexer-client = { workspace = true }
 sp-core = { workspace = true }
 usc-abi-encoding = { workspace = true }
+user = { workspace = true }
 utils = { workspace = true }
 
 [features]

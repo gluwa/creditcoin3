@@ -26,3 +26,4 @@ url = { workspace = true, features = ["serde"] }
 
 # Util
 builder = { workspace = true }
+user = { workspace = true }
