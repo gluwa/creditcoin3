@@ -138,7 +138,7 @@ impl Attestor {
             "⏲️ Waiting for attestor to be made eligible"
         );
 
-        let attestors = match Self::wait_for_elligible(
+        let attestors = match Self::wait_for_eligible(
             self.config.chain_key,
             &client_cc3,
             &account_id,
@@ -429,13 +429,13 @@ impl Attestor {
         let bls_key =
             bls_signatures::PrivateKey::new(self.config.stream.secret.to_string().as_bytes());
 
-        let is_bls_key_regsitered = client_cc3
+        let is_bls_key_registered = client_cc3
             .check_attestor_key_is_registered(self.config.chain_key)
             .await
             .context("Failed to check attestor bls registration")
             .map_interrupt(Error::InitError)?;
 
-        if !is_bls_key_regsitered {
+        if !is_bls_key_registered {
             tracing::info!("🔑  registering attestor bls pubkey...");
 
             let mut bls_public_key = [0; 48];
@@ -503,7 +503,7 @@ impl Attestor {
         Ok(())
     }
 
-    async fn wait_for_elligible(
+    async fn wait_for_eligible(
         chain_key: attestor_primitives::ChainKey,
         client_cc3: &cc_client::Client,
         account_id: &cc_client::AccountId32,
