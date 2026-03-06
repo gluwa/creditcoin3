@@ -7,9 +7,8 @@ pub enum Error {
     FetchBlockReceipts(common::types::Height),
     FetchBlockReceiptsMismatch(common::types::Height),
     OrderedBlockConversion(alloy::rpc::types::ConversionError),
-    UrlExtractionFailed,
     ReInitError(String),
-    StreamError(String),
+    StreamError,
 }
 
 impl std::fmt::Display for Error {
@@ -32,17 +31,13 @@ impl std::fmt::Display for Error {
                 f,
                 "Failed to convert transaction: {err}"
             ),
-            Error::UrlExtractionFailed => write!(
-                f,
-                "Expected an http url but found a ws. This can't be used to reconstruct an eth client like we need."
-            ),
             Error::ReInitError(err) => write!(
                 f,
                 "Reinitializing the eth client upon chain reversion failed: {err}"
             ),
-            Error::StreamError(err) => write!(
+            Error::StreamError => write!(
                 f,
-                "Error re-creating stream on reversion or calling next to get head of stream: {err}"
+                "Unexpected end of stream."
             )
         }
     }

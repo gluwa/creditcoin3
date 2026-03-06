@@ -147,7 +147,7 @@ pub struct StreamAttestation {
     // of complex and fragile `pending reversion` logic. Instead, we can safely drop
     // the future containing our old eth client and stream since whatever work was
     // being done is now invalid anyways.
-    eth_url: alloy::transports::http::reqwest::Url,
+    eth_transport: eth::ConnectionTransport,
 }
 
 pub struct Permit(common::types::Height);
@@ -215,11 +215,7 @@ impl StreamAttestation {
         let block_stop = config.start_height;
         let block_start = block_n;
 
-        let eth_url = if let eth::ConnectionTransport::Http(url) = config.eth.get_url()? {
-            url
-        } else {
-            return Err(Error::UrlExtractionFailed.into());
-        };
+        let eth_transport = config.eth.get_url()?;
 
         anyhow::Ok(Self {
             continuity,
@@ -240,7 +236,7 @@ impl StreamAttestation {
             waker: None,
             stop: false,
 
-            eth_url,
+            eth_transport,
         })
     }
 
@@ -924,18 +920,25 @@ impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
         );
 
         // Re-creating attestation stream state.
-        let client_eth = eth::Client::new(self.eth_url.as_ref(), None)
-            .await
-            .map_err(|e| Error::ReInitError(e.to_string()))?;
+        let client_eth = match &self.eth_transport {
+            eth::ConnectionTransport::Http(url) => eth::Client::new(url.as_ref(), None)
+                .await
+                .map_err(|e| Error::ReInitError(e.to_string()))?,
+            eth::ConnectionTransport::Ws(ws_connect) => {
+                eth::Client::new(ws_connect.url.as_ref(), None)
+                    .await
+                    .map_err(|e| Error::ReInitError(e.to_string()))?
+            }
+        };
 
         let mut stream = client_eth
             .subscribe()
             .await
-            .map_err(|e| Error::StreamError(e.to_string()))?;
+            .map_err(|e| Error::ReInitError(e.to_string()))?;
         let next = stream
             .next()
             .await
-            .ok_or(Error::StreamError("Unexpected end of stream".to_string()))?
+            .ok_or(Error::StreamError)?
             .number
             .saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
 

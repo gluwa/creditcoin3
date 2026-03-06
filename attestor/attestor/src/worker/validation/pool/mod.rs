@@ -1548,10 +1548,8 @@ impl crate::events::EventAttestorsElected for AttestationPoolSender {}
 impl crate::events::EventRevertedAttestationChainToAsync for AttestationPoolSender {
     type Error = std::convert::Infallible;
 
-    /// A new attestation has reached finality on the execution chain.
-    ///
-    /// Remove all attestations _up to and including_ that attestation height from the inner
-    /// attestation pool.
+    /// An attestation chain reversion has been detected.
+    /// We need to clear the structures `forks`, `valid`, and `attestation_delay`
     #[tracing::instrument(
         skip_all,
         fields(digest = ?info.digest, height = info.height),
