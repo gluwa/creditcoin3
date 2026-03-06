@@ -15,6 +15,7 @@ ignored = ["serde_bytes"]
 [dependencies]
 # Workspace
 bls-signatures = { workspace = true, default-features = false }
+sha3 = { workspace = true, default-features = false }
 
 # Substrate
 parity-scale-codec = { workspace = true, default-features = false }
@@ -22,7 +23,6 @@ precompile-utils = { workspace = true }
 scale-info = { workspace = true, default-features = false }
 sp-api = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
-sp-io = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
 
@@ -37,10 +37,10 @@ serde_json = { workspace = true, default-features = false }
 default = ["std"]
 std = [
     "parity-scale-codec/std",
+    "sha3/std",
     "sp-core/std",
     "sp-std/std",
     "sp-runtime/std",
-    "sp-io/std",
     "serde/std",
     "serde_bytes/std",
     "scale-info/std",

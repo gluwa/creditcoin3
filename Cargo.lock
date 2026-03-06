@@ -1560,9 +1560,9 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+ "sha3",
  "sp-api",
  "sp-core",
- "sp-io",
  "sp-runtime",
  "sp-std",
 ]

@@ -289,24 +289,7 @@ where
     /// Digest for the attestation is the keccak256 hash of the header number, root,
     /// and the previous digest if it exists
     pub fn digest(&self) -> Digest {
-        use sp_io::hashing::keccak_256;
-
-        // Build input bytes: header_number || root || prev_digest (if exists)
-        // Pre-allocate: 8 bytes (u64) + 32 bytes (H256) + 32 bytes (H256 if exists) = max 72 bytes
-        let capacity = if self.prev_digest.is_some() {
-            8 + 32 + 32
-        } else {
-            8 + 32
-        };
-        let mut bytes = Vec::with_capacity(capacity);
-        bytes.extend_from_slice(&self.header_number.to_be_bytes());
-        bytes.extend_from_slice(self.root.as_bytes());
-
-        if let Some(prev_digest) = self.prev_digest {
-            bytes.extend_from_slice(prev_digest.as_bytes());
-        }
-
-        H256::from(keccak_256(&bytes))
+        compute_digest_for(self.header_number, &self.root, self.prev_digest.as_ref())
     }
 
     pub fn prev_digest(&self) -> Option<Digest> {
@@ -365,6 +348,24 @@ impl AttestationCheckpoint {
 /// Function to calculate the threshold for a committee set size to reach majority vote
 pub fn calculate_threshold(target_sample_size: u32) -> u32 {
     (2 * target_sample_size) / 3 + 1
+}
+
+/// Computes the digest for a block given its number, root, and optional previous digest.
+///
+/// Build input bytes: header_number || root || prev_digest (if exists)
+#[must_use]
+#[inline]
+pub fn compute_digest_for(block_number: u64, root: &H256, prev_digest: Option<&H256>) -> H256 {
+    use sha3::{Digest, Keccak256};
+
+    let result: [u8; 32] = Keccak256::new()
+        .chain_update(block_number.to_be_bytes())
+        .chain_update(root.as_bytes())
+        .chain_update(prev_digest.map(H256::as_bytes).unwrap_or_default())
+        .finalize()
+        .into();
+
+    H256(result)
 }
 
 #[cfg(test)]
