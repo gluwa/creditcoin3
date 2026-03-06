@@ -14657,6 +14657,8 @@ dependencies = [
  "eth",
  "futures 0.3.31",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "url",
  "usc-abi-encoding",
  "user",

@@ -7,6 +7,10 @@ publish.workspace = true
 repository.workspace = true
 version.workspace = true
 
+[[bench]]
+harness = false
+name = "block_sync"
+
 [dependencies]
 # Ethereum
 eth = { workspace = true, default-features = true }
@@ -20,10 +24,15 @@ async-stream = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
+# Util
+builder = { workspace = true }
+user = { workspace = true }
+
+[dev-dependencies]
 # Parsing 
 clap = { workspace = true, features = ["cargo"] }
 url = { workspace = true, features = ["serde"] }
 
-# Util
-builder = { workspace = true }
-user = { workspace = true }
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
