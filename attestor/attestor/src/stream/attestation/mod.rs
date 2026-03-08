@@ -905,7 +905,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for StreamAttestation {
 impl crate::events::EventAttestationIntervalChange for StreamAttestation {}
 
 impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
-    type Error = Error;
+    type Error = Interrupt<Error>;
 
     #[tracing::instrument(skip_all, fields(height = info.height, digest = %info.digest))]
     async fn note_attestation_chain_reversion_async(
@@ -914,7 +914,7 @@ impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
     ) -> Result<(), Self::Error> {
         use futures::StreamExt as _;
 
-        tracing::debug!(
+        tracing::info!(
             reset_height = info.height,
             "Chain reversion: resetting attestation stream"
         );
@@ -923,22 +923,22 @@ impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
         let client_eth = match &self.eth_transport {
             eth::ConnectionTransport::Http(url) => eth::Client::new(url.as_ref(), None)
                 .await
-                .map_err(|e| Error::ReInitError(e.to_string()))?,
+                .map_err(|e| Interrupt::Cont(Error::ReInitError(e.to_string())))?,
             eth::ConnectionTransport::Ws(ws_connect) => {
                 eth::Client::new(ws_connect.url.as_ref(), None)
                     .await
-                    .map_err(|e| Error::ReInitError(e.to_string()))?
+                    .map_err(|e| Interrupt::Cont(Error::ReInitError(e.to_string())))?
             }
         };
 
         let mut stream = client_eth
             .subscribe()
             .await
-            .map_err(|e| Error::ReInitError(e.to_string()))?;
+            .map_err(|e| Interrupt::Cont(Error::ReInitError(e.to_string())))?;
         let next = stream
             .next()
             .await
-            .ok_or(Error::StreamError)?
+            .ok_or(Interrupt::Cont(Error::StreamError))?
             .number
             .saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
 
@@ -959,6 +959,21 @@ impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
         self.block_stop = info.height;
         self.block_start = self.block_n;
 
+        // Waiting for 10 seconds so that other attestors have time to clear their votes
+        // before we gossip new ones
+        let wait_time_ms = 100000;
+        let step = wait_time_ms / 10;
+
+        for i in 1..=10 {
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(step)) => {
+                    tracing::info!("⏳ Delaying attestation production for synchronization {}/{}ms", step * i, wait_time_ms);
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    return Err(Interrupt::Stop);
+                }
+            }
+        }
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
