@@ -5825,6 +5825,35 @@ mod revert_to {
     }
 
     #[test]
+    fn revert_to_should_fail_if_chain_is_unsupported() {
+        ExtBuilder.build_and_execute(|| {
+            let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+            let revert_height: u64 = 1_500;
+            // Initiate reversion
+            assert_noop!(
+                Attestation::revert_to(
+                    root_origin,
+                    1000, // Unsupported chain key
+                    revert_height
+                ),
+                Error::<Test>::ChainNotSupported
+            );
+        });
+    }
+
+    #[test]
+    fn revert_to_should_fail_if_unsigned() {
+        ExtBuilder.build_and_execute(|| {
+            let revert_height: u64 = 1_500;
+            // Initiate reversion
+            assert_noop!(
+                Attestation::revert_to(RuntimeOrigin::none(), SUPPORTED_CHAIN_KEY, revert_height),
+                BadOrigin
+            );
+        });
+    }
+
+    #[test]
     fn revert_to_should_fail_if_origin_is_not_root_or_operator() {
         ExtBuilder.build_and_execute(|| {
             let revert_height: u64 = 1_500;
@@ -5882,7 +5911,7 @@ mod revert_to {
     }
 
     #[test]
-    fn revert_to_cleans_up_checkpoints() {
+    fn revert_to_triggers_multi_block_checkpoint_removal_via_on_initialize() {
         let revert_height: u64 = 0;
         let added_checkpoints = MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10;
         let mut test_ext = ExtBuilder.build();
