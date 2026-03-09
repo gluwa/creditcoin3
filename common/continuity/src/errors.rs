@@ -53,12 +53,12 @@ pub enum ContinuityError {
         last_attested_block: u64,
     },
 
-    /// The requested block is before the attestation genesis block.
+    /// The requested block is before or at the attestation genesis block.
     ///
     /// Proofs cannot be generated for blocks before the attestation system
     /// was initialized on the Creditcoin3 chain.
-    #[error("Block {requested_block} is before attestation genesis block {genesis_block}. Cannot generate proofs for blocks before the attestation system was initialized.")]
-    BlockBeforeGenesis {
+    #[error("Block {requested_block} is before or at attestation genesis block {genesis_block}. Cannot generate proofs for blocks before the attestation system was initialized.")]
+    BlockBeforeOrAtGenesis {
         requested_block: u64,
         genesis_block: u64,
     },

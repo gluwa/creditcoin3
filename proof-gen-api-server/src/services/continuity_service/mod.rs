@@ -145,9 +145,9 @@ pub struct ContinuityService {
     /// Total number of proof requests processed (for health endpoint statistics)
     total_proof_requests: AtomicU64,
     /// The genesis block number for the attestation chain.
-    /// Blocks before this number cannot be attested to.
+    /// Blocks at and before this number cannot be attested to.
     /// Fetched once at service startup and cached for the lifetime of the service.
-    attestation_genesis_block: u64,
+    attestation_genesis_block: AtomicU64,
     /// Prometheus metrics for instrumentation (uses NoopMetrics when disabled).
     metrics: Metrics,
     /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
@@ -179,7 +179,7 @@ impl ContinuityService {
             builder,
             start_time: Instant::now(),
             total_proof_requests: AtomicU64::new(0),
-            attestation_genesis_block,
+            attestation_genesis_block: AtomicU64::new(attestation_genesis_block),
             metrics,
             max_batch_size,
         })
@@ -191,21 +191,21 @@ impl ContinuityService {
     ///
     /// Returns the current block height for reuse in validating predicted attestation bounds.
     async fn validate_blocks(&self, header_numbers: &[u64]) -> ServiceResult<u64> {
+        let genesis_block = self.attestation_genesis_block.load(Ordering::Relaxed);
+
         // Check genesis bound
-        if let Some(&header_number) = header_numbers
-            .iter()
-            .find(|h| **h < self.attestation_genesis_block)
-        {
+        if let Some(&header_number) = header_numbers.iter().find(|h| **h <= genesis_block) {
             tracing::warn!(
                 requested_block = header_number,
-                genesis_block = self.attestation_genesis_block,
-                "Requested block is before attestation genesis"
+                genesis_block,
+                "Requested block is before or at attestation genesis"
             );
-            return Err(ServiceError::BlockBeforeGenesis {
+            return Err(ServiceError::BlockBeforeOrAtGenesis {
                 requested_block: header_number,
-                genesis_block: self.attestation_genesis_block,
+                genesis_block,
             });
         }
+
         // Check source chain existence
         let current_block =
             self.builder
@@ -254,6 +254,19 @@ impl ContinuityService {
         // Try to get the ETH chain ID as a basic connectivity check
         let _chain_id = self.builder.get_eth_chain_id().await?;
         Ok(())
+    }
+
+    /// Updates the attestation genesis block number.
+    /// This will be called when we receive an AttestationChainGenesisBlockNumberSet event from CC3,
+    /// allowing the service to adapt if the attestation genesis block changes (e.g. due to a chain reset or reconfiguration).
+    pub async fn update_genesis_block(&self, new_genesis_block: u64) {
+        self.attestation_genesis_block
+            .store(new_genesis_block, Ordering::Relaxed);
+
+        tracing::info!(
+            attestation_genesis_block = new_genesis_block,
+            "Updated attestation genesis block"
+        );
     }
 
     /// Build continuity proof for the given blocks, validating them first.

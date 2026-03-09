@@ -458,6 +458,16 @@ impl WorkerAttestationProduction {
                         );
                     }
                 }
+
+                // CASE 10] ATTESTATION GENESIS BLOCK NUMBER SET
+                cc_client::attestation::CcEvent::AttestationChainGenesisBlockNumberSet(
+                    genesis_block,
+                ) => {
+                    tracing::info!(
+                        genesis_block,
+                        "🎬 Attestation chain genesis block number set"
+                    );
+                }
             }
         }
 

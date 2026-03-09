@@ -80,8 +80,8 @@ pub enum ServiceError {
         block_number: u64,
         last_attested_block: u64,
     },
-    #[error("Block {requested_block} is before attestation genesis block {genesis_block}. Cannot generate proofs for blocks before the attestation system was initialized.")]
-    BlockBeforeGenesis {
+    #[error("Block {requested_block} is before or at attestation genesis block {genesis_block}. Cannot generate proofs for blocks before the attestation system was initialized.")]
+    BlockBeforeOrAtGenesis {
         requested_block: u64,
         genesis_block: u64,
     },
@@ -123,7 +123,7 @@ impl ServiceError {
             ServiceError::TxHashLookupUnavailable { .. } => "TxHashLookupUnavailable",
             ServiceError::TxHashNotFound { .. } => "TxHashNotFound",
             ServiceError::BlockNotReady { .. } => "BlockNotReady",
-            ServiceError::BlockBeforeGenesis { .. } => "BlockBeforeGenesis",
+            ServiceError::BlockBeforeOrAtGenesis { .. } => "BlockBeforeOrAtGenesis",
             ServiceError::BlockNotOnSourceChain { .. } => "BlockNotOnSourceChain",
             ServiceError::EmptyProofQueries => "EmptyProofQueries",
             ServiceError::TooManyProofQueries => "TooManyProofQueries",
@@ -139,7 +139,7 @@ impl ServiceError {
             Self::QueryOutOfRange { .. }
             | Self::TxIndexOutOfBounds { .. }
             | Self::InvalidParameter { .. }
-            | Self::BlockBeforeGenesis { .. }
+            | Self::BlockBeforeOrAtGenesis { .. }
             | Self::EmptyProofQueries
             | Self::TooManyProofQueries
             | Self::TooManyTxQueriesInProofQuery
@@ -180,10 +180,10 @@ impl From<ContinuityError> for ServiceError {
             ContinuityError::MissingBlock => ServiceError::Internal {
                 message: "Block not found in continuity chain".to_string(),
             },
-            ContinuityError::BlockBeforeGenesis {
+            ContinuityError::BlockBeforeOrAtGenesis {
                 requested_block,
                 genesis_block,
-            } => ServiceError::BlockBeforeGenesis {
+            } => ServiceError::BlockBeforeOrAtGenesis {
                 requested_block,
                 genesis_block,
             },
@@ -235,7 +235,7 @@ impl GetErrorType for ServiceError {
             ServiceError::TxHashLookupUnavailable { .. } => ErrorType::TxHashLookupUnavailable,
             ServiceError::TxHashNotFound { .. } => ErrorType::TxHashNotFound,
             ServiceError::BlockNotReady { .. } => ErrorType::BlockNotReady,
-            ServiceError::BlockBeforeGenesis { .. } => ErrorType::BlockBeforeGenesis,
+            ServiceError::BlockBeforeOrAtGenesis { .. } => ErrorType::BlockBeforeOrAtGenesis,
             ServiceError::BlockNotOnSourceChain { .. } => ErrorType::BlockNotOnSourceChain,
             ServiceError::EmptyProofQueries => ErrorType::EmptyProofQueries,
             ServiceError::TooManyProofQueries => ErrorType::TooManyProofQueries,

@@ -5,6 +5,8 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
+use crate::ContinuityService;
+
 const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(60);
 
@@ -48,6 +50,7 @@ pub async fn start_cc3_event_subscription(
     checkpoint_intervals: CheckpointIntervalMap,
     last_checkpoint_blocks: LastCheckpointBlockMap,
     builder: std::sync::Arc<continuity::ContinuityBuilder>,
+    service: std::sync::Arc<ContinuityService>,
 ) -> Result<()> {
     let mut backoff = INITIAL_BACKOFF;
 
@@ -76,6 +79,7 @@ pub async fn start_cc3_event_subscription(
                                 &checkpoint_intervals,
                                 &last_checkpoint_blocks,
                                 &builder,
+                                &service,
                             )
                             .await
                             {
@@ -109,6 +113,7 @@ async fn process_cc_event(
     checkpoint_intervals: &CheckpointIntervalMap,
     last_checkpoint_blocks: &LastCheckpointBlockMap,
     builder: &std::sync::Arc<continuity::ContinuityBuilder>,
+    service: &std::sync::Arc<ContinuityService>,
 ) -> Result<()> {
     match event {
         CcEvent::BlockAttested(metadata) => {
@@ -181,6 +186,22 @@ async fn process_cc_event(
             info!(
                 "✅ Updated checkpoint interval for chain {chain_key} to {}",
                 interval_u64
+            );
+
+            Ok(())
+        }
+        CcEvent::AttestationChainGenesisBlockNumberSet(new_genesis) => {
+            let new_genesis = *new_genesis;
+            info!(
+                "⚙️  Chain genesis block changed for chain {chain_key}: {}",
+                new_genesis
+            );
+
+            service.update_genesis_block(new_genesis).await;
+
+            info!(
+                "✅ Updated chain genesis block for chain {chain_key} to {}",
+                new_genesis
             );
 
             Ok(())

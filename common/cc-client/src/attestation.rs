@@ -11,8 +11,9 @@ use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest};
 
 use crate::cc3::{
     attestation::events::{
-        AttestationIntervalChanged, AttestorActivated, AttestorChilled, AttestorsElected,
-        BlockAttested, CheckpointIntervalChanged, CheckpointReached, TargetSampleSizeChanged,
+        AttestationChainGenesisBlockNumberSet, AttestationIntervalChanged, AttestorActivated,
+        AttestorChilled, AttestorsElected, BlockAttested, CheckpointIntervalChanged,
+        CheckpointReached, TargetSampleSizeChanged,
     },
     randomness::events::StoreRandomnessForEpoch,
     staking::events::Kicked,
@@ -56,6 +57,7 @@ pub enum CcEvent {
     AttestorActivated(AccountId32),
     AttestorChilled(AccountId32),
     AttestorKicked(AccountId32),
+    AttestationChainGenesisBlockNumberSet(u64),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -301,6 +303,27 @@ impl Client {
                         }
 
                         Some(Ok(CcEvent::AttestorChilled(account_id)))
+                    }
+                    (
+                        AttestationChainGenesisBlockNumberSet::PALLET,
+                        AttestationChainGenesisBlockNumberSet::EVENT,
+                    ) => {
+                        let Ok(Some(event)) =
+                            event.as_event::<AttestationChainGenesisBlockNumberSet>()
+                        else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        let AttestationChainGenesisBlockNumberSet(chain_key, block_number) = event;
+
+                        if chain_key != filter {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::AttestationChainGenesisBlockNumberSet(
+                            block_number,
+                        )))
                     }
                     (_module, _event) => None,
                 }

@@ -446,7 +446,7 @@ mod labels {
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
     pub enum ErrorType {
         BlockNotReady,
-        BlockBeforeGenesis,
+        BlockBeforeOrAtGenesis,
         BlockNotOnSourceChain,
         RpcUnavailable,
         MerkleError,

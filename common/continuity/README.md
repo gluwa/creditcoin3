@@ -170,7 +170,7 @@ The crate uses custom error types (`ContinuityError`) with specific variants:
 
 - `NoAttestations` - No attestations found for chain
 - `BlockNotReady` - Block not yet attested (retriable)
-- `BlockBeforeGenesis` - Block before attestation system initialized
+- `BlockBeforeOrAtGenesis` - Block before or at attestation system initialized
 - `EmptyQuery` - No query heights provided
 - `UpperBoundNotOnSourceChain` - Predicted attestation doesn't exist yet
 
