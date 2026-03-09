@@ -39,6 +39,11 @@ jobs:
           docker build -f scripts/traffic-simulator/Dockerfile -t ${{ github.repository }}:proof-traffic-simulator-for-${{ inputs.version-string }} .
           docker images
 
+      - name: Build ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} docker image
+        run: |
+          docker build -f scripts/stress-test/Dockerfile -t ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} .
+          docker images
+
       - name: Export docker image into a file
         run: |
           mkdir -p "${{ runner.temp }}/gluwa/"
@@ -65,6 +70,9 @@ jobs:
 
           # NOTE: not tagging proof-traffic-simulator as `:latest` b/c it is not the primary image in this repository!
           docker push ${{ github.repository }}:proof-traffic-simulator-for-${{ inputs.version-string }}
+
+          # NOTE: not tagging proof-gen-stress-test as `:latest` b/c it is not the primary image in this repository!
+          docker push ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }}
 
           # only -mainnet images are tagged as :latest
           # shellcheck disable=SC2046,SC2143
