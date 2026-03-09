@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        directory: [scripts/traffic-simulator, scripts/usc-audit-automation]
+        directory: [scripts/stress-test, scripts/traffic-simulator, scripts/usc-audit-automation]
         command: [lint, check, fmt-check]
 
     steps:
