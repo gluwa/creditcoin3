@@ -961,7 +961,7 @@ impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
 
         // Waiting for 10 seconds so that other attestors have time to clear their votes
         // before we gossip new ones
-        let wait_time_ms = 100000;
+        let wait_time_ms = 10000;
         let step = wait_time_ms / 10;
 
         for i in 1..=10 {
