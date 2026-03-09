@@ -272,6 +272,7 @@ impl WorkerAttestationProduction {
         use crate::events::EventAttestationIntervalChange as _;
         use crate::events::EventAttestorsElected as _;
         use crate::events::EventRevertedAttestationChainTo as _;
+        use crate::events::EventRevertedAttestationChainToAsync as _;
         use futures::TryStreamExt as _;
 
         while let Some(event) = events.try_next().await.map_interrupt(Error::CC3)? {
@@ -471,7 +472,8 @@ impl WorkerAttestationProduction {
                     // This ensures that we keep producing new attestations starting from the
                     // revert height.
                     self.stream_attestation
-                        .note_attestation_chain_reversion(attestation_latest_cc3)
+                        .note_attestation_chain_reversion_async(attestation_latest_cc3)
+                        .await
                         .map_interrupt(Error::Attestation)?;
 
                     // 2. Update the attestation pool
