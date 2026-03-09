@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     str::FromStr,
 };
-use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
+use supported_chains_primitives::{MATURITY_EVM_SAFE, MATURITY_FIXED_DELAY_10};
 
 // Substrate
 use attestor_primitives::{AttestationChainConfiguration, ChainEncodingVersion, ChainId};
@@ -589,7 +589,7 @@ fn testnet_genesis(
                     11155111,
                     "Sepolia ethereum".as_bytes().to_vec(),
                     ChainEncodingVersion::V1,
-                    MATURITY_FIXED_DELAY_10.to_string(),
+                    MATURITY_EVM_SAFE.to_string(),
                 ),
             ],
             _phantom: Default::default(),

@@ -17,11 +17,6 @@ pub const CAPACITY_CHANNEL: usize = 100;
 /// retry their elegibility check with different parameters.
 pub const ATTESTATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Currently we only support attesting to Ethereum, which has probabilistic finality. To avoid the
-/// risk of attesting to a block which becomes invalidated as part of a reorg, we only attest to
-/// data which is at least [`ATTESTATION_FINALIZATION_LAG`] blocks in the past.
-pub const ATTESTATION_FINALIZATION_LAG: super::types::Height = 10;
-
 /// General delay used to retry network connections.
 pub const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 

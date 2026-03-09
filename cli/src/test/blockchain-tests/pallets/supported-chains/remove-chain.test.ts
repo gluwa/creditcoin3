@@ -18,7 +18,18 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'RemoveChain', (): void =>
         const nonce = await api.rpc.system.accountNextIndex(root.address);
         await api.tx.sudo
             .sudo(
-                api.tx.supportedChains.registerChain(chainId, chainName, null, null, null, null, null, null, encoding),
+                api.tx.supportedChains.registerChain(
+                    chainId,
+                    chainName,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    encoding,
+                    null,
+                ),
             )
             .signAndSend(root, { nonce });
 

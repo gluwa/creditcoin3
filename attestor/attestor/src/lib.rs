@@ -169,6 +169,20 @@ impl Attestor {
                 .unwrap(),
         };
 
+        let strategy_str = client_cc3
+            .get_supported_chain(self.config.chain_key)
+            .await
+            .map_err(Error::RpcError)?
+            .ok_or(Error::ChainKeyNotSupported(self.config.chain_key))?
+            .maturity_strategy;
+        let strategy_enum: supported_chains_primitives::MaturityStrategy = strategy_str
+            .as_str()
+            .try_into()
+            .map_err(|e| Error::InvalidMaturityStrategy(self.config.chain_key, e))?;
+        let maturity_delay = strategy_enum
+            .maturity_delay()
+            .ok_or(Error::NoMaturityDelayForStrategy(strategy_enum))?;
+
         let genesis = client_cc3
             .get_attestation_chain_genesis_block_number(self.config.chain_key)
             .await
@@ -229,6 +243,7 @@ impl Attestor {
             .with_chain_key(self.config.chain_key)
             .with_start_height(start_height)
             .with_start_attestation(start_attestation)
+            .with_maturity_delay(maturity_delay)
             .build();
         let mut stream_attestation = stream::attestation::StreamAttestation::new(config)
             .await

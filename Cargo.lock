@@ -1532,13 +1532,14 @@ dependencies = [
  "prometheus-client 0.24.0",
  "rand 0.9.0",
  "rayon",
- "rstest",
+ "rstest 0.26.1",
  "serde",
  "serde_yaml",
  "sp-core",
  "sp-io",
  "subxt",
  "subxt-signer",
+ "supported-chains-primitives",
  "sysinfo",
  "tokio",
  "tokio-test",
@@ -9474,6 +9475,7 @@ dependencies = [
  "frame-system",
  "pallet-membership",
  "parity-scale-codec",
+ "rstest 0.18.2",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -11262,13 +11264,42 @@ dependencies = [
 
 [[package]]
 name = "rstest"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97eeab2f3c0a199bc4be135c36c924b6590b88c377d416494288c14f2db30199"
+dependencies = [
+ "futures 0.3.31",
+ "futures-timer",
+ "rstest_macros 0.18.2",
+ "rustc_version 0.4.1",
+]
+
+[[package]]
+name = "rstest"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5a3193c063baaa2a95a33f03035c8a72b83d97a54916055ba22d35ed3839d49"
 dependencies = [
  "futures-timer",
  "futures-util",
- "rstest_macros",
+ "rstest_macros 0.26.1",
+]
+
+[[package]]
+name = "rstest_macros"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d428f8247852f894ee1be110b375111b586d4fa431f6c46e64ba5a0dcccbe605"
+dependencies = [
+ "cfg-if",
+ "glob",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "relative-path",
+ "rustc_version 0.4.1",
+ "syn 2.0.111",
+ "unicode-ident",
 ]
 
 [[package]]

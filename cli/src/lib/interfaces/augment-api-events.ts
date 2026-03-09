@@ -983,14 +983,6 @@ declare module '@polkadot/api-base/types/events' {
                 }
             >;
             /**
-             * The maturity strategy for a chain has been set
-             **/
-            MaturityStrategySet: AugmentedEvent<
-                ApiType,
-                [chainKey: u64, chainId: u64, chainName: Bytes, maturityStrategy: Text],
-                { chainKey: u64; chainId: u64; chainName: Bytes; maturityStrategy: Text }
-            >;
-            /**
              * Generic event
              **/
             [key: string]: AugmentedEvent<ApiType>;

@@ -9,6 +9,12 @@ pub enum Error {
     MissingAttestationInterval(attestor_primitives::ChainKey),
     MissingCheckpointInterval(attestor_primitives::ChainKey),
     MissingTargetSampleSize(attestor_primitives::ChainKey),
+    ChainKeyNotSupported(attestor_primitives::ChainKey),
+    InvalidMaturityStrategy(
+        attestor_primitives::ChainKey,
+        supported_chains_primitives::Error,
+    ),
+    NoMaturityDelayForStrategy(supported_chains_primitives::MaturityStrategy),
 }
 
 impl std::fmt::Display for Error {
@@ -32,6 +38,18 @@ impl std::fmt::Display for Error {
                 f,
                 "Failed to retrieve target sample size for chain {chain_key}"
             ),
+            Error::ChainKeyNotSupported(chain_key) => write!(
+                f,
+                "Chain key not found in supported chains: {chain_key}"
+            ),
+            Error::InvalidMaturityStrategy(chain_key, e) => write!(
+                f,
+                "Initial maturity strategy for chain is invalid ChainKey: {chain_key}, MaturityStrategy: {e:?}"
+            ),
+            Error::NoMaturityDelayForStrategy(strategy) => write!(
+                f,
+                "The maturity strategy provided does not have an associated maturity delay. Our EVM implementation requires strategies to have delays. Strategy: {strategy:?}"
+            )
         }
     }
 }

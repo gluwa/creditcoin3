@@ -50,6 +50,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
                     null,
                     null,
                     encoding,
+                    null,
                 ),
             )
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });

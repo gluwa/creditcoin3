@@ -109,6 +109,8 @@ pub struct Config {
     bls_key: bls_signatures::PrivateKey,
 
     interval_attestation: std::num::NonZero<common::types::Height>,
+    // The delay in blocks before a source chain block is considered mature enough to attest to.
+    maturity_delay: common::types::Height,
 
     chain_key: attestor_primitives::ChainKey,
     start_height: common::types::Height,
@@ -131,6 +133,7 @@ pub struct StreamAttestation {
 
     chain_key: attestor_primitives::ChainKey,
     interval_attestation: std::num::NonZero<common::types::Height>,
+    maturity_delay: common::types::Height,
 
     waker: Option<std::task::Waker>,
     stop: bool,
@@ -188,7 +191,7 @@ impl StreamAttestation {
             .await
             .context("Unexpected end of stream")?
             .number
-            .saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
+            .saturating_sub(config.maturity_delay);
 
         let interval_attestation = config.interval_attestation.get();
 
@@ -215,6 +218,7 @@ impl StreamAttestation {
 
             chain_key: config.chain_key,
             interval_attestation: config.interval_attestation,
+            maturity_delay: config.maturity_delay,
 
             waker: None,
             stop: false,
@@ -523,8 +527,7 @@ impl futures::Stream for StreamAttestation {
                     Err(err) => return std::task::Poll::Ready(Some(Err(err))),
                 };
 
-                self.block_head =
-                    block_n.saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
+                self.block_head = block_n.saturating_sub(self.maturity_delay);
                 self.block_head -= self.block_head % self.interval_attestation.get();
             }
 

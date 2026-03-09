@@ -3207,6 +3207,7 @@ declare module '@polkadot/api-base/types/submittable' {
                     maxInvulnerables: Option<u32> | null | Uint8Array | u32 | AnyNumber,
                     attestationChainGenesisBlockNumber: Option<u64> | null | Uint8Array | u64 | AnyNumber,
                     encoding: AttestorPrimitivesChainEncodingVersion | 'V1' | number | Uint8Array,
+                    maturityStrategy: Option<Text> | null | Uint8Array | Text | string,
                 ) => SubmittableExtrinsic<ApiType>,
                 [
                     u64,
@@ -3218,6 +3219,7 @@ declare module '@polkadot/api-base/types/submittable' {
                     Option<u32>,
                     Option<u64>,
                     AttestorPrimitivesChainEncodingVersion,
+                    Option<Text>,
                 ]
             >;
             /**
@@ -3229,22 +3231,6 @@ declare module '@polkadot/api-base/types/submittable' {
                     removeCheckpoints: bool | boolean | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, bool]
-            >;
-            /**
-             * Sets the maturity strategy for a supported chain
-             * Options
-             * - "EvmFinalized" Gets blocks once they are finalized
-             * - "EvmSafe" Gets blocks once they are confirmed
-             * - "EvmLatest" Gets blocks as soon as available
-             * - "FixedDelay: X" Gets blocks after they are X blocks old
-             * Only accounts in the Operators membership can call this extrinsic.
-             **/
-            setMaturityStrategy: AugmentedSubmittable<
-                (
-                    chainKey: u64 | AnyNumber | Uint8Array,
-                    maturityStrategy: Text | string,
-                ) => SubmittableExtrinsic<ApiType>,
-                [u64, Text]
             >;
             /**
              * Generic tx

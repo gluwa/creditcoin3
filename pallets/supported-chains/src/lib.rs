@@ -68,7 +68,6 @@ pub mod pallet {
     pub trait WeightInfo {
         fn register_chain() -> Weight;
         fn remove_chain() -> Weight;
-        fn set_maturity_strategy() -> Weight;
     }
 
     #[pallet::storage]
@@ -153,14 +152,6 @@ pub mod pallet {
             chain_encoding: ChainEncodingVersion,
             maturity_strategy: String,
         },
-
-        /// The maturity strategy for a chain has been set
-        MaturityStrategySet {
-            chain_key: ChainKey,
-            chain_id: ChainId,
-            chain_name: Vec<u8>,
-            maturity_strategy: String,
-        },
     }
 
     #[pallet::error]
@@ -195,6 +186,7 @@ pub mod pallet {
             max_invulnerables: Option<u32>,
             attestation_chain_genesis_block_number: Option<u64>,
             encoding: ChainEncodingVersion,
+            maturity_strategy: Option<String>,
         ) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
 
@@ -203,6 +195,16 @@ pub mod pallet {
                 Error::<T>::ChainAlreadyRegistered
             );
 
+            let maturity_strategy = if let Some(strategy) = maturity_strategy {
+                ensure!(
+                    is_valid_maturity_strategy(&strategy),
+                    Error::<T>::InvalidMaturityStrategy
+                );
+                strategy
+            } else {
+                T::DefaultMaturityStrategy::get()
+            };
+
             let chain_key = ChainKeyValue::<T>::get();
             SupportedChains::<T>::insert(
                 chain_key,
@@ -210,7 +212,7 @@ pub mod pallet {
                     chain_id,
                     chain_name: chain_name.as_bytes().to_vec(),
                     chain_encoding: encoding,
-                    maturity_strategy: T::DefaultMaturityStrategy::get(),
+                    maturity_strategy: maturity_strategy.clone(),
                 },
             );
             ChainIdAndNameToUniqKey::<T>::insert(
@@ -239,7 +241,7 @@ pub mod pallet {
                 chain_id,
                 chain_name: chain_name.as_bytes().to_vec(),
                 chain_encoding: encoding,
-                maturity_strategy: T::DefaultMaturityStrategy::get(),
+                maturity_strategy,
             });
 
             Ok(())
@@ -274,43 +276,6 @@ pub mod pallet {
 
             Ok(())
         }
-
-        /// Sets the maturity strategy for a supported chain
-        /// Options
-        /// - "EvmFinalized" Gets blocks once they are finalized
-        /// - "EvmSafe" Gets blocks once they are confirmed
-        /// - "EvmLatest" Gets blocks as soon as available
-        /// - "FixedDelay: X" Gets blocks after they are X blocks old
-        /// Only accounts in the Operators membership can call this extrinsic.
-        #[pallet::call_index(2)]
-        #[pallet::weight(T::WeightInfo::set_maturity_strategy())]
-        pub fn set_maturity_strategy(
-            origin: OriginFor<T>,
-            chain_key: ChainId,
-            maturity_strategy: String,
-        ) -> DispatchResult {
-            T::OperatorsOrigin::ensure_origin(origin)?;
-
-            ensure!(
-                is_valid_maturity_strategy(&maturity_strategy),
-                Error::<T>::InvalidMaturityStrategy
-            );
-
-            let mut item =
-                SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
-            item.maturity_strategy = maturity_strategy;
-
-            Self::deposit_event(Event::MaturityStrategySet {
-                chain_key,
-                chain_id: item.chain_id,
-                chain_name: item.chain_name.clone(),
-                maturity_strategy: item.maturity_strategy.clone(),
-            });
-
-            SupportedChains::<T>::insert(chain_key, item);
-
-            Ok(())
-        }
     }
 
     impl<T: Config> SupportedChainsProvider for Pallet<T> {
@@ -342,9 +307,11 @@ fn is_valid_maturity_strategy(strategy: &str) -> bool {
         MATURITY_EVM_FINALIZED | MATURITY_EVM_SAFE | MATURITY_EVM_LATEST => true,
         s if s.starts_with(MATURITY_FIXED_DELAY) => {
             // Split off the number part and trim whitespace
-            let num_str = s.trim_start_matches(MATURITY_FIXED_DELAY).trim();
-            // Try parsing as u64
-            num_str.parse::<u64>().is_ok()
+            if let Some(num_str) = s.strip_prefix(MATURITY_FIXED_DELAY) {
+                num_str.trim().parse::<u64>().is_ok()
+            } else {
+                false
+            }
         }
         _ => false,
     }

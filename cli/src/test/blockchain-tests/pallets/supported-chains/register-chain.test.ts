@@ -37,6 +37,7 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'RegisterChain', (): void 
                         null,
                         null,
                         encoding,
+                        null,
                     ),
                 )
                 .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {

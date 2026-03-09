@@ -4,8 +4,8 @@
 //!
 //! The production worker keeps track of source chain finality via the [attestation stream], which
 //! abstracts away a of lot the complexity associated with the generation of new attestations. When
-//! a new source chain block is noticed and if it is past the [`ATTESTATION_FINALIZATION_LAG`], this
-//! triggers the production of a new [`Attestation`].
+//! a new source chain block is noticed and if it is past the `maturity_delay`, this triggers the
+//! production of a new [`Attestation`].
 //!
 //! Attestations produced this way are then sent to the [p2p worker] for dissemination and the
 //! [validation worker] for validation and submission once quorum has been reached.
@@ -80,7 +80,6 @@
 //! [`Worker`]: crate::worker::Worker
 //! [attestation stream]: crate::stream::attestation
 //! [attestation pool]: crate::worker::validation::pool
-//! [`ATTESTATION_FINALIZATION_LAG`]: crate::common::constants::ATTESTATION_FINALIZATION_LAG
 //! [`Attestation`]: crate::common::types::Attestation
 //! [p2p worker]: crate::worker::p2p
 //! [validation worker]: crate::worker::validation

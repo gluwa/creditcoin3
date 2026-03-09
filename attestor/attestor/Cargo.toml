@@ -28,6 +28,7 @@ bip39 = { version = "2.2.0", features = ["rand", "serde", "zeroize"] }
 bls-signatures = { workspace = true }
 cc-client = { workspace = true }
 ccnext-abi-encoding = { workspace = true }
+supported-chains-primitives = { workspace = true }
 
 # Substrate
 parity-scale-codec = { workspace = true }

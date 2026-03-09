@@ -1,6 +1,7 @@
 use crate::{self as pallet, mock, mock::SupportedChain, mock::*, Error, SupportedChains};
 use attestor_primitives::ChainEncodingVersion;
 use frame_support::{assert_noop, assert_ok};
+use rstest::rstest;
 use sp_runtime::traits::BadOrigin;
 use supported_chains_primitives::{
     provider::SupportedChainsProvider, MATURITY_EVM_FINALIZED, MATURITY_EVM_LATEST,
@@ -29,6 +30,7 @@ fn register_chain_works() {
             None,
             None,
             ChainEncodingVersion::V1,
+            None,
         ));
         assert_eq!(SupportedChain::chain_key_value(), 2);
 
@@ -82,6 +84,7 @@ fn register_chain_should_error_when_not_signed() {
                 None,
                 None,
                 ChainEncodingVersion::V1,
+                None,
             ),
             BadOrigin
         );
@@ -105,6 +108,7 @@ fn register_chain_should_error_when_not_signed_by_alice() {
                 None,
                 None,
                 ChainEncodingVersion::V1,
+                None,
             ),
             BadOrigin
         );
@@ -121,6 +125,7 @@ fn register_chain_should_error_when_not_signed_by_alice() {
             None,
             None,
             ChainEncodingVersion::V1,
+            None,
         ));
     });
 }
@@ -145,6 +150,7 @@ fn register_chain_should_error_when_not_signed_by_root() {
                 None,
                 None,
                 ChainEncodingVersion::V1,
+                None,
             ),
             BadOrigin
         );
@@ -170,6 +176,7 @@ fn register_chain_should_error_when_registering_duplicate_chain() {
                 None,
                 None,
                 ChainEncodingVersion::V1,
+                None,
             ),
             Error::<Test>::ChainAlreadyRegistered
         );
@@ -194,6 +201,7 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_id_but_diffe
             None,
             None,
             ChainEncodingVersion::V1,
+            None,
         ),);
 
         let chain_key = SupportedChain::chain_key_by_chain_id_and_name(
@@ -232,6 +240,7 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_name_but_dif
             None,
             None,
             ChainEncodingVersion::V1,
+            None,
         ),);
 
         let chain_key = SupportedChain::chain_key_by_chain_id_and_name(
@@ -275,6 +284,7 @@ fn register_chain_should_error_when_chain_key_index_exceeded() {
                 None,
                 None,
                 ChainEncodingVersion::V1,
+                None,
             ),
             Error::<Test>::Arithmetic
         );
@@ -395,6 +405,7 @@ fn test_method_supported_chains() {
             None,
             None,
             ChainEncodingVersion::V1,
+            None,
         ));
 
         let chain_key = SupportedChain::chain_key_by_chain_id_and_name(
@@ -459,277 +470,82 @@ fn build_should_panic_with_duplicate_chains_in_genesis() {
     );
 }
 
-#[test]
-fn set_maturity_strategy_works_when_setting_strategy_evm_finalized() {
-    ExtBuilder.build_and_execute(|| {
+#[rstest]
+#[case(MATURITY_EVM_FINALIZED.to_string())]
+#[case(MATURITY_EVM_SAFE.to_string())]
+#[case(MATURITY_EVM_LATEST.to_string())]
+#[case(format!("{MATURITY_FIXED_DELAY}10"))]
+#[case(format!("{MATURITY_FIXED_DELAY} 10"))]
+fn register_chain_accepts_valid_maturity_strategy_and_stores_it(#[case] strategy: String) {
+    new_test_ext().execute_with(|| {
         System::set_block_number(1);
+        let chain_id = 200u64;
+        let chain_name = "ethereum".to_string();
 
-        let chain_key = 1;
-        let new_strategy = MATURITY_EVM_FINALIZED;
-
-        let supported_chain =
-            SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
-        assert!(supported_chain.maturity_strategy == MATURITY_FIXED_DELAY_10);
-
-        assert_ok!(SupportedChain::set_maturity_strategy(
+        assert_ok!(SupportedChain::register_chain(
             RuntimeOrigin::root(),
-            chain_key,
-            new_strategy.to_string()
+            chain_id,
+            chain_name.clone(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            Some(strategy.clone()),
         ));
 
-        let supported_chain =
-            SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
-        assert!(supported_chain.maturity_strategy == new_strategy);
-
-        // assert on emited event
-        System::assert_last_event(
-            crate::Event::MaturityStrategySet {
-                chain_key,
-                chain_id: supported_chain.chain_id,
-                chain_name: supported_chain.chain_name,
-                maturity_strategy: new_strategy.to_string(),
-            }
-            .into(),
+        let chain_key = SupportedChain::chain_key_by_chain_id_and_name(
+            chain_id,
+            chain_name.as_bytes().to_vec(),
+        );
+        assert!(chain_key.is_some());
+        assert_eq!(
+            SupportedChains::<Test>::get(chain_key.expect("Should have a chain key")),
+            Some(supported_chains_primitives::SupportedChain {
+                chain_id,
+                chain_name: chain_name.as_bytes().to_vec(),
+                chain_encoding: ChainEncodingVersion::V1,
+                maturity_strategy: strategy,
+            })
         );
     });
 }
 
-#[test]
-fn set_maturity_strategy_works_when_setting_strategy_evm_safe() {
-    ExtBuilder.build_and_execute(|| {
+#[rstest]
+#[case("".to_string())]
+#[case("invalid".to_string())]
+#[case(format!("{MATURITY_FIXED_DELAY}"))]
+#[case(format!("{MATURITY_FIXED_DELAY}abc"))]
+#[case(format!("{MATURITY_FIXED_DELAY}{MATURITY_FIXED_DELAY}10"))]
+fn register_chain_rejects_invalid_maturity_strategy(#[case] strategy: String) {
+    new_test_ext().execute_with(|| {
         System::set_block_number(1);
-
-        let chain_key = 1;
-        let new_strategy = MATURITY_EVM_SAFE;
-
-        let supported_chain =
-            SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
-        assert!(supported_chain.maturity_strategy == MATURITY_FIXED_DELAY_10);
-
-        assert_ok!(SupportedChain::set_maturity_strategy(
-            RuntimeOrigin::root(),
-            chain_key,
-            new_strategy.to_string()
-        ));
-
-        let supported_chain =
-            SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
-        assert!(supported_chain.maturity_strategy == new_strategy);
-
-        // assert on emited event
-        System::assert_last_event(
-            crate::Event::MaturityStrategySet {
-                chain_key,
-                chain_id: supported_chain.chain_id,
-                chain_name: supported_chain.chain_name,
-                maturity_strategy: new_strategy.to_string(),
-            }
-            .into(),
-        );
-    });
-}
-
-#[test]
-fn set_maturity_strategy_works_when_setting_strategy_evm_latest() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
-        let chain_key = 1;
-        let new_strategy = MATURITY_EVM_LATEST;
-
-        let supported_chain =
-            SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
-        assert!(supported_chain.maturity_strategy == MATURITY_FIXED_DELAY_10);
-
-        assert_ok!(SupportedChain::set_maturity_strategy(
-            RuntimeOrigin::root(),
-            chain_key,
-            new_strategy.to_string()
-        ));
-
-        let supported_chain =
-            SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
-        assert!(supported_chain.maturity_strategy == new_strategy);
-
-        // assert on emited event
-        System::assert_last_event(
-            crate::Event::MaturityStrategySet {
-                chain_key,
-                chain_id: supported_chain.chain_id,
-                chain_name: supported_chain.chain_name,
-                maturity_strategy: new_strategy.to_string(),
-            }
-            .into(),
-        );
-    });
-}
-
-#[test]
-fn set_maturity_strategy_works_when_setting_strategy_fixed_delay() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
-        let chain_key = 1;
-        let new_strategy = format!("{MATURITY_FIXED_DELAY} 5");
-
-        let supported_chain =
-            SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
-        assert!(supported_chain.maturity_strategy == MATURITY_FIXED_DELAY_10);
-
-        assert_ok!(SupportedChain::set_maturity_strategy(
-            RuntimeOrigin::root(),
-            chain_key,
-            new_strategy.to_string()
-        ));
-
-        let supported_chain =
-            SupportedChain::supported_chain(chain_key).expect("Chain added in genesis config");
-        assert!(supported_chain.maturity_strategy == new_strategy);
-
-        // assert on emited event
-        System::assert_last_event(
-            crate::Event::MaturityStrategySet {
-                chain_key,
-                chain_id: supported_chain.chain_id,
-                chain_name: supported_chain.chain_name,
-                maturity_strategy: new_strategy.to_string(),
-            }
-            .into(),
-        );
-    });
-}
-
-#[test]
-fn set_maturity_strategy_fails_when_not_signed() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
-        let chain_key = 1;
-
-        // Verify the chain is supported
-        assert!(SupportedChain::supported_chain(chain_key).is_some());
+        let chain_id = 200u64;
+        let chain_name = "ethereum".to_string();
 
         assert_noop!(
-            SupportedChain::set_maturity_strategy(
-                RuntimeOrigin::none(),
-                chain_key,
-                MATURITY_EVM_FINALIZED.to_string()
-            ),
-            BadOrigin
-        );
-    });
-}
-
-#[test]
-fn set_maturity_strategy_fails_when_not_signed_by_alice() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
-        let chain_key = 1;
-
-        // Verify the chain is supported
-        assert!(SupportedChain::supported_chain(chain_key).is_some());
-
-        // This should fail because acct 4 is not ALICE (1)
-        assert_noop!(
-            SupportedChain::set_maturity_strategy(
-                RuntimeOrigin::signed(4),
-                chain_key,
-                MATURITY_EVM_FINALIZED.to_string()
-            ),
-            BadOrigin
-        );
-
-        // This should succeed because ALICE is allowed in our MockOperators EnsureOrigin
-        assert_ok!(SupportedChain::set_maturity_strategy(
-            RuntimeOrigin::signed(ALICE),
-            chain_key,
-            MATURITY_EVM_FINALIZED.to_string()
-        ));
-    });
-}
-
-#[test]
-fn set_maturity_strategy_fails_when_signed_by_non_root() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
-        let chain_key = 1;
-        let acct: AccountId = 4;
-
-        // Verify the chain is supported
-        assert!(SupportedChain::supported_chain(chain_key).is_some());
-
-        assert_noop!(
-            SupportedChain::set_maturity_strategy(
-                RuntimeOrigin::signed(acct),
-                chain_key,
-                MATURITY_EVM_FINALIZED.to_string()
-            ),
-            BadOrigin
-        );
-    });
-}
-
-#[test]
-fn set_maturity_strategy_fails_when_chain_is_not_supported() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
-        let chain_key = 2;
-
-        // Verify the chain is not supported
-        assert!(SupportedChain::supported_chain(chain_key).is_none());
-
-        assert_noop!(
-            SupportedChain::set_maturity_strategy(
+            SupportedChain::register_chain(
                 RuntimeOrigin::root(),
-                chain_key,
-                MATURITY_EVM_FINALIZED.to_string()
-            ),
-            Error::<Test>::ChainNotSupported
-        );
-    });
-}
-
-#[test]
-fn set_maturity_strategy_fails_with_invalid_strategy() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
-        let chain_key = 1;
-
-        // Verify the chain is supported
-        assert!(SupportedChain::supported_chain(chain_key).is_some());
-
-        assert_noop!(
-            SupportedChain::set_maturity_strategy(
-                RuntimeOrigin::root(),
-                chain_key,
-                "BadStrategy".to_string()
+                chain_id,
+                chain_name.clone(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                ChainEncodingVersion::V1,
+                Some(strategy),
             ),
             Error::<Test>::InvalidMaturityStrategy
         );
-    });
-}
 
-#[test]
-fn set_maturity_strategy_fails_with_invalid_fixed_delay() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
-        let chain_key = 1;
-
-        // Verify the chain is supported
-        assert!(SupportedChain::supported_chain(chain_key).is_some());
-
-        assert_noop!(
-            SupportedChain::set_maturity_strategy(
-                RuntimeOrigin::root(),
-                chain_key,
-                "FixedDelay: the".to_string()
-            ),
-            Error::<Test>::InvalidMaturityStrategy
+        let chain_key = SupportedChain::chain_key_by_chain_id_and_name(
+            chain_id,
+            chain_name.as_bytes().to_vec(),
         );
+        assert!(chain_key.is_none());
     });
 }
