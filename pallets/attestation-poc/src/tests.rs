@@ -2983,7 +2983,6 @@ fn validate_attestation_should_error_when_it_cannot_validate_the_attestation() {
         // note: not calling register_attestor() will cause the validation to fail
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
         assert_err!(result, Error::<Test>::MajorityNotReached);
-        //        assert_err!(result, Error::<Test>::AttestorNotActive);
     })
 }
 
@@ -4290,7 +4289,6 @@ fn chilled_attestor_cannot_commit_attestation() {
 
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
         assert_err!(result, Error::<Test>::MajorityNotReached);
-        //        assert_err!(result, Error::<Test>::AttestorNotActive);
     });
 }
 
