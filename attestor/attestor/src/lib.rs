@@ -46,19 +46,21 @@ impl Attestor {
 
     #[tracing::instrument(name = "attestor", skip_all)]
     pub async fn run(self) -> Result<(), Error> {
+        use bls_signatures::Serialize as _;
         use std::str::FromStr as _;
 
         // --------------------------------------* Identity *--------------------------------------
 
-        let secret = self.config.stream.secret.to_string();
-        let secret_uri =
-            subxt_signer::SecretUri::from_str(&secret).expect("Failed to create secret uri");
+        let secret_str = self.config.stream.secret.to_secret_uri_string();
+        let secret_uri = subxt_signer::SecretUri::from_str(secret_str.as_str())
+            .expect("Failed to create secret uri");
         let keypair_cc3 = subxt_signer::sr25519::Keypair::from_uri(&secret_uri)
             .expect("Failed to create secret keypair");
         let account_id = cc_client::AccountId32(keypair_cc3.public_key().0);
 
-        let mut seed = self.config.stream.secret.to_seed_normalized("");
-        let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed[..32]).unwrap();
+        let mut seed = self.config.stream.secret.to_seed_bytes_32();
+        let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut *seed)
+            .expect("Failed to create ed25519 keypair");
         let peer_id = libp2p::PeerId::from_public_key(&keypair_p2p.public());
 
         tracing::info!(name = self.config.name, %account_id, chain_key = self.config.chain_key, "🙋‍♀️ Starting attestor");
@@ -81,9 +83,10 @@ impl Attestor {
             }
         }
 
-        let client_cc3 = cc_client::Client::new(self.config.stream.url_cc3.as_ref(), &secret)
-            .await
-            .map_err(Error::InitError)?;
+        let client_cc3 =
+            cc_client::Client::new(self.config.stream.url_cc3.as_ref(), secret_str.as_str())
+                .await
+                .map_err(Error::InitError)?;
 
         let client_eth = eth::Client::new(self.config.stream.url_eth.as_ref(), None)
             .await
@@ -117,19 +120,15 @@ impl Attestor {
 
         // ------------------------------------* Registration *------------------------------------
 
-        tracing::info!("🔑 Making sure attestor bls key is registered...");
+        let bls_seed = self.config.stream.secret.to_bls_seed_bytes();
+        let bls_key = bls_signatures::PrivateKey::new(bls_seed.as_slice());
 
-        let bls_key = match self.register_bls(&client_cc3).await {
-            Ok(bls_key) => bls_key,
-            Err(Interrupt::Stop) => {
-                tracing::info!("🔌 Received shutdown signal");
-                return Ok(());
-            }
-            Err(Interrupt::Cont(err)) => {
-                tracing::error!(%err, "⛔ Failed to register attestor bls public key");
-                return Err(err);
-            }
-        };
+        let bls_public_key_bytes = bls_key.public_key().as_bytes();
+        let bls_pubkey_hex = format!("0x{}", hex::encode(bls_public_key_bytes));
+        tracing::info!(
+            bls_public_key_hex = %bls_pubkey_hex,
+            "🔑 BLS public key (set this in fork genesis Attestors if needed)"
+        );
 
         // -----------------------------------* Eligibility *----------------------------------- //
 
@@ -417,51 +416,6 @@ impl Attestor {
         }
 
         res
-    }
-
-    async fn register_bls(
-        &self,
-        client_cc3: &cc_client::Client,
-    ) -> Result<bls_signatures::PrivateKey, Interrupt<Error>> {
-        use anyhow::Context as _;
-        use bls_signatures::Serialize as _;
-
-        let bls_key =
-            bls_signatures::PrivateKey::new(self.config.stream.secret.to_string().as_bytes());
-
-        let is_bls_key_registered = client_cc3
-            .check_attestor_key_is_registered(self.config.chain_key)
-            .await
-            .context("Failed to check attestor bls registration")
-            .map_interrupt(Error::InitError)?;
-
-        if !is_bls_key_registered {
-            tracing::info!("🔑  registering attestor bls pubkey...");
-
-            let mut bls_public_key = [0; 48];
-            let bytes = &bls_key.public_key().as_bytes();
-            bls_public_key.copy_from_slice(bytes);
-
-            let mut proof_of_possession = [0; 96];
-            let bytes = &bls_key.sign(bls_public_key).as_bytes()[..96];
-            proof_of_possession.copy_from_slice(bytes);
-
-            tokio::select! {
-                res = client_cc3.start_attesting(
-                    self.config.chain_key,
-                    bls_public_key,
-                    proof_of_possession,
-                ) => {
-                    res.context("Failed to start attesting")
-                        .map_interrupt(Error::InitError)?;
-                }
-                _ = tokio::signal::ctrl_c() => {
-                    return Err(Interrupt::Stop);
-                }
-            }
-        }
-
-        Ok(bls_key)
     }
 
     async fn wait_for_endpoints(

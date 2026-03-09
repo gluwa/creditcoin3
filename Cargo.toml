@@ -88,6 +88,7 @@ tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2.4.0" }
 wasm-timer = { version = "0.2" }
+zeroize = { version = "1.8", features = ["derive"] }
 # Alloy
 alloy = { version = "0.11", features = [
     "node-bindings",

@@ -1525,6 +1525,7 @@ dependencies = [
  "clap",
  "eth",
  "futures 0.3.31",
+ "hex",
  "libp2p 0.56.0",
  "parity-scale-codec",
  "parking_lot 0.12.3",
@@ -1546,6 +1547,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "url",
+ "zeroize",
 ]
 
 [[package]]
@@ -1805,6 +1807,7 @@ dependencies = [
  "rand_core 0.6.4",
  "serde",
  "unicode-normalization",
+ "zeroize",
 ]
 
 [[package]]

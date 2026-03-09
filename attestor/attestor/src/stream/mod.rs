@@ -18,10 +18,13 @@
 
 pub mod attestation;
 pub mod cc3;
+pub mod secret;
+
+pub use secret::AttestorSecret;
 
 #[derive(Debug, attestor_macro::Builder)]
 pub struct Config {
     pub(crate) url_eth: url::Url,
     pub(crate) url_cc3: url::Url,
-    pub(crate) secret: bip39::Mnemonic,
+    pub(crate) secret: AttestorSecret,
 }

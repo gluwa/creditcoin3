@@ -24,7 +24,7 @@ eth = { workspace = true, default-features = true }
 # Creditcoin
 attestor-primitives = { workspace = true }
 attestor_macro = { path = "../attestor_macro" }
-bip39 = { version = "2.2.0", features = ["rand", "serde"] }
+bip39 = { version = "2.2.0", features = ["rand", "serde", "zeroize"] }
 bls-signatures = { workspace = true }
 cc-client = { workspace = true }
 ccnext-abi-encoding = { workspace = true }
@@ -61,6 +61,7 @@ libp2p = { workspace = true, features = [
 
 # Parsing
 clap = { workspace = true, features = ["cargo"] }
+hex = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 url = { workspace = true, features = ["serde"] }
@@ -81,6 +82,7 @@ anyhow = { workspace = true }
 # other
 parking_lot = { workspace = true }
 rand = { workspace = true, features = ["std_rng"] }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

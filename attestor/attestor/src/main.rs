@@ -1,4 +1,5 @@
 use attestor::prelude::*;
+use std::str::FromStr;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
@@ -10,7 +11,7 @@ use attestor::prelude::*;
 struct Config {
     name: String,
     logs: std::path::PathBuf,
-    secret: bip39::Mnemonic,
+    secret: attestor::stream::AttestorSecret,
     chain_key: attestor_primitives::ChainKey,
     public_addr: Option<String>,
     api_port: u16,
@@ -45,7 +46,8 @@ struct ConfigFile {
 struct ConfigFileAttestor {
     name: Option<String>,
     chain_key: Option<attestor_primitives::ChainKey>,
-    secret: Option<bip39::Mnemonic>,
+    /// BIP39 mnemonic or raw 32-byte seed as hex (e.g. 0x398f...)
+    secret: Option<String>,
     public_addr: Option<String>,
     #[serde(default = "default_logs")]
     logs: std::path::PathBuf,
@@ -168,15 +170,16 @@ impl Config {
                     .value_parser(clap::value_parser!(attestor_primitives::ChainKey))
             )
             .arg(
-                clap::arg!(-s --secret <BIP39>)
-                    .help("Secret key used to sign attestation votes")
+                clap::arg!(-s --secret <SECRET>)
+                    .help("Secret key: BIP39 mnemonic or 0x-prefixed 32-byte hex seed")
                     .long_help(
                         "Secret key used to sign attestation votes. \
+                        Either a BIP39 mnemonic phrase or a raw 32-byte seed as hex (e.g. 0x398f...). \
                         If no key is provided a random mnemonic will be used instead",
                     )
                     .env("ATTESTOR_SECRET")
                     .required(false)
-                    .value_parser(clap::value_parser!(bip39::Mnemonic)),
+                    .value_parser(clap::value_parser!(attestor::stream::AttestorSecret)),
             )
             .arg(
                 clap::arg!(--"public-addr" <PORT>)
@@ -331,11 +334,14 @@ impl Config {
                 .expect("Chain key is set either in config or by clap"),
         };
 
-        let secret = match matches.get_one::<bip39::Mnemonic>("secret") {
+        let secret = match matches.get_one::<attestor::stream::AttestorSecret>("secret") {
             Some(secret) => secret.clone(),
-            None => match config_file.attestor.secret {
-                Some(secret) => secret,
-                None => bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret"),
+            None => match &config_file.attestor.secret {
+                Some(s) => attestor::stream::AttestorSecret::from_str(s)
+                    .map_err(|e| anyhow::anyhow!("invalid attestor secret in config file: {e}"))?,
+                None => attestor::stream::AttestorSecret::Mnemonic(
+                    bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret"),
+                ),
             },
         };
 
