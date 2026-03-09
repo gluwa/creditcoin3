@@ -135,6 +135,19 @@ impl Client {
         })
     }
 
+    pub async fn regenerate(&mut self) -> Result<&mut Self, Error> {
+        self.rpc = ReconnectionRpcClient::builder()
+            .retry_policy(
+                ExponentialBackoff::from_millis(100)
+                    .max_delay(Duration::from_secs(10))
+                    .take(3),
+            )
+            .build(self.url.clone())
+            .await
+            .map_err(|err| Error::RpcError(RpcError::ClientError(Box::new(err))))?;
+        Ok(self)
+    }
+
     /// Create a new read-only instance of cc3 client that doesn't require a keypair.
     /// This is useful for read-only operations where signing is not needed.
     /// Uses a dummy keypair internally (which won't be used for read operations).
