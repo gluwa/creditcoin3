@@ -105,7 +105,7 @@ impl Client {
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
         // Clone the api and send it on the tokio task
-        let api = self.api().await?.clone();
+        let api = self.api().clone();
 
         let handle = tokio::spawn(async move {
             let mut blocks_sub = api.blocks().subscribe_finalized().await?;

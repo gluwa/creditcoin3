@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::str::FromStr;
 
 use sc_service::GenericChainSpec;
 use serde::Serialize;
@@ -8,10 +8,7 @@ use sp_core::{
 };
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
-    backend::rpc::{
-        reconnecting_rpc_client::{ExponentialBackoff, RpcClient as ReconnectionRpcClient},
-        RpcParams,
-    },
+    backend::rpc::{RpcClient, RpcParams},
     config::DefaultExtrinsicParamsBuilder,
     error::RpcError,
     utils::fetch_chainspec_from_rpc_node,
@@ -92,7 +89,8 @@ pub enum Error {
 pub struct Client {
     pair: sr25519::Pair,
     signing_keypair: Keypair,
-    rpc: ReconnectionRpcClient,
+    rpc: RpcClient,
+    api: OnlineClient<SubstrateConfig>,
     url: String,
 }
 
@@ -112,39 +110,22 @@ impl Client {
         let signing_keypair = Keypair::from_uri(&secret_uri)?;
 
         let pair = sr25519::Pair::from_string(key, None)?;
-
-        // Create a new client with with a reconnecting RPC client.
-        let rpc = ReconnectionRpcClient::builder()
-            // Reconnect with exponential backoff
-            //
-            // This API is "iterator-like" and we use `take` to limit the number of retries.
-            .retry_policy(
-                ExponentialBackoff::from_millis(100)
-                    .max_delay(Duration::from_secs(10))
-                    .take(3),
-            )
-            // There are other configurations as well that can be found at [`reconnecting_rpc_client::ClientBuilder`].
-            .build(url.clone().into().clone())
-            .await?;
+        let rpc = RpcClient::from_url(url.clone().into()).await?;
+        let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
 
         Ok(Self {
             pair,
             signing_keypair,
             rpc,
+            api,
             url: url.into(),
         })
     }
 
-    pub async fn regenerate(&mut self) -> Result<&mut Self, Error> {
-        self.rpc = ReconnectionRpcClient::builder()
-            .retry_policy(
-                ExponentialBackoff::from_millis(100)
-                    .max_delay(Duration::from_secs(10))
-                    .take(3),
-            )
-            .build(self.url.clone())
-            .await
-            .map_err(|err| Error::RpcError(RpcError::ClientError(Box::new(err))))?;
+    pub async fn reconnect(&mut self) -> Result<&mut Self, Error> {
+        self.rpc = RpcClient::from_url(self.url.clone()).await?;
+        self.api = OnlineClient::<SubstrateConfig>::from_rpc_client(self.rpc.clone()).await?;
+
         Ok(self)
     }
 
@@ -158,8 +139,8 @@ impl Client {
         Self::new(url, DUMMY_KEY).await
     }
 
-    pub async fn api(&self) -> Result<OnlineClient<SubstrateConfig>, Error> {
-        Ok(OnlineClient::<SubstrateConfig>::from_rpc_client(self.rpc.clone()).await?)
+    pub fn api(&self) -> &OnlineClient<SubstrateConfig> {
+        &self.api
     }
 
     #[must_use]
@@ -179,7 +160,6 @@ impl Client {
     ) -> Result<Option<ChainKey>, Error> {
         let chain_key = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -218,7 +198,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -234,7 +213,6 @@ impl Client {
 
         let mut iter = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -253,7 +231,6 @@ impl Client {
     pub async fn fetch_babe_randomness_two_epoch_ego(&self) -> Result<(Randomness, u64), Error> {
         let epoch_index = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -274,7 +251,6 @@ impl Client {
 
         let randomness = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -292,7 +268,6 @@ impl Client {
     pub async fn get_current_epoch(&self) -> Result<u64, Error> {
         let epoch_index = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -307,7 +282,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -323,7 +297,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -339,7 +312,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -361,7 +333,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -385,7 +356,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -428,7 +398,6 @@ impl Client {
 
         let ext = self
             .api()
-            .await?
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
@@ -461,7 +430,6 @@ impl Client {
 
         let ext = self
             .api()
-            .await?
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
@@ -496,7 +464,6 @@ impl Client {
 
         let ext = self
             .api()
-            .await?
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
@@ -523,7 +490,6 @@ impl Client {
 
         let ext = self
             .api()
-            .await?
             .tx()
             .sign_and_submit_then_watch_default(&tx, &self.signing_keypair)
             .await?
@@ -609,7 +575,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -629,7 +594,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -651,7 +615,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -672,7 +635,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -690,7 +652,6 @@ impl Client {
 
         Ok(self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -713,7 +674,6 @@ impl Client {
 
         Ok(self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -738,7 +698,6 @@ impl Client {
 
         let mut iter = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -775,7 +734,6 @@ impl Client {
 
         let mut iter = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -867,7 +825,6 @@ impl Client {
 
         let ext = self
             .api()
-            .await?
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
@@ -905,7 +862,6 @@ impl Client {
 
         let ext = self
             .api()
-            .await?
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
@@ -923,7 +879,6 @@ impl Client {
     pub async fn get_account_nonce(&self) -> Result<u64, Error> {
         let nonce = self
             .api()
-            .await?
             .tx()
             .account_nonce(&AccountId32(self.signing_keypair.public_key().0))
             .await?;
@@ -936,7 +891,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?
@@ -972,7 +926,6 @@ impl Client {
 
         let ext = self
             .api()
-            .await?
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
@@ -998,7 +951,6 @@ impl Client {
 
         let result = self
             .api()
-            .await?
             .storage()
             .at_latest()
             .await?

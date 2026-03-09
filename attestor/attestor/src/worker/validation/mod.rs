@@ -102,7 +102,6 @@ pub struct Config {
     validation_receiver: pool::AttestationPoolReceiver,
 
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
-    api: subxt::OnlineClient<subxt::SubstrateConfig>,
     start_height: common::types::Height,
     genesis: common::types::Height,
 
@@ -124,7 +123,6 @@ pub(crate) struct WorkerAttestationValidation {
 
     // CHAIN DATA
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
-    api: subxt::OnlineClient<subxt::SubstrateConfig>,
     start_height: common::types::Height,
     genesis: common::types::Height,
 
@@ -144,7 +142,6 @@ impl WorkerAttestationValidation {
             validation_sender: config.validation_sender,
 
             api_calls: config.api_calls,
-            api: config.api,
             start_height: config.start_height,
             genesis: config.genesis,
 
@@ -497,7 +494,6 @@ impl WorkerAttestationValidation {
         chain_key: attestor_primitives::ChainKey,
     ) -> Result<common::types::AttestationSigned, Interrupt<Error>> {
         use bls_signatures::Serialize as _;
-        use futures::TryFutureExt as _;
         use rand::seq::SliceRandom as _;
         use rand::SeedableRng as _;
 
@@ -509,49 +505,28 @@ impl WorkerAttestationValidation {
         let mut delay = DELAY_BASE;
 
         let runtime_api = loop {
-            match self.api.runtime_api().at_latest().await {
+            match self.cc3.api().runtime_api().at_latest().await {
                 Ok(runtime_api) => break runtime_api,
-                Err(subxt::Error::Rpc(subxt::error::RpcError::ClientError(err)))
-                    if matches!(
-                        err.downcast_ref::<subxt::backend::rpc::reconnecting_rpc_client::Error>(),
-                        Some(subxt::backend::rpc::reconnecting_rpc_client::Error::Dropped)
-                    ) =>
-                {
-                    let err = match self.cc3.regenerate().and_then(|cc3| cc3.api()).await {
-                        Ok(api) => {
-                            self.api = api;
-                            continue;
-                        }
-                        Err(err) => err,
+                Err(err) => {
+                    let Err(err) = self
+                        .handle_rpc_error(cc_client::Error::SubxtError(err))
+                        .await
+                    else {
+                        continue;
                     };
 
                     attempt += 1;
 
-                    tracing::debug!(
+                    tracing::warn!(
                         attempt,
                         MAX_ATTEMPTS,
                         height,
-                        "Failed to regenerate connection, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(%err, "⛔ Failed to regenerate connection");
-                        return Err(Interrupt::Cont(Error::ClientError(err)));
-                    }
-                }
-                Err(err) => {
-                    attempt += 1;
-
-                    tracing::debug!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        height,
-                        "Failed to fetch runtiem api, retrying..."
+                        "🛜 Failed to fetch runtime api, retrying..."
                     );
 
                     if attempt >= MAX_ATTEMPTS {
                         tracing::error!(%err, "⛔ Failed to fetch babe randomness");
-                        return Err(Interrupt::Cont(Error::SubxtError(err)));
+                        return Err(err);
                     }
                 }
             }
@@ -571,16 +546,24 @@ impl WorkerAttestationValidation {
             match runtime_api.call(call).await {
                 Ok(is_chain_supported) => break is_chain_supported,
                 Err(err) => {
+                    let Err(err) = self
+                        .handle_rpc_error(cc_client::Error::SubxtError(err))
+                        .await
+                    else {
+                        continue;
+                    };
+
                     attempt += 1;
 
-                    tracing::debug!(
+                    tracing::warn!(
                         attempt,
                         MAX_ATTEMPTS,
-                        "Failed to retrieve supported chain, retrying..."
+                        "🛜 Failed to retrieve supported chain, retrying..."
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(error = %err, "⛔ Failed to retrieve supported chain");
+                        tracing::error!(%err, "⛔ Failed to retrieve supported chain");
+                        return Err(err);
                     }
                 }
             };
@@ -614,16 +597,24 @@ impl WorkerAttestationValidation {
             match runtime_api.call(call).await {
                 Ok(is_duplicate) => break is_duplicate,
                 Err(err) => {
+                    let Err(err) = self
+                        .handle_rpc_error(cc_client::Error::SubxtError(err))
+                        .await
+                    else {
+                        continue;
+                    };
+
                     attempt += 1;
 
-                    tracing::debug!(
+                    tracing::warn!(
                         attempt,
                         MAX_ATTEMPTS,
-                        "Failed to retrieve attestation digest, retrying..."
+                        "🛜 Failed to retrieve attestation digest, retrying..."
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(error = %err, "⛔ Failed to retrieve attestation digest");
+                        tracing::error!(%err, "⛔ Failed to retrieve attestation digest");
+                        return Err(err);
                     }
                 }
             };
@@ -698,16 +689,24 @@ impl WorkerAttestationValidation {
                         break pubkey.map(|pubkey| bls_signatures::PublicKey::from_bytes(&pubkey))
                     }
                     Err(err) => {
+                        let Err(err) = self
+                            .handle_rpc_error(cc_client::Error::SubxtError(err))
+                            .await
+                        else {
+                            continue;
+                        };
+
                         attempt += 1;
 
-                        tracing::debug!(
+                        tracing::warn!(
                             attempt,
                             MAX_ATTEMPTS,
-                            "Failed to retrieve attestor bls pubkey, retrying..."
+                            "🛜 Failed to retrieve attestor bls pubkey, retrying..."
                         );
 
                         if attempt >= MAX_ATTEMPTS {
-                            tracing::error!(error = %err, "⛔ Failed to retreve attestor bls pubkey");
+                            tracing::error!(%err, "⛔ Failed to retreve attestor bls pubkey");
+                            return Err(err);
                         }
                     }
                 }
@@ -802,16 +801,24 @@ impl WorkerAttestationValidation {
             match runtime_api.call(call).await {
                 Ok(digest_last_finalized) => break digest_last_finalized,
                 Err(err) => {
+                    let Err(err) = self
+                        .handle_rpc_error(cc_client::Error::SubxtError(err))
+                        .await
+                    else {
+                        continue;
+                    };
+
                     attempt += 1;
 
-                    tracing::debug!(
+                    tracing::warn!(
                         attempt,
                         MAX_ATTEMPTS,
-                        "Failed to retrieve last finalized digest, retrying..."
+                        "🛜 Failed to retrieve last finalized digest, retrying..."
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(error = %err, "⛔ Failed to retrieve last finalized digest");
+                        tracing::error!(%err, "⛔ Failed to retrieve last finalized digest");
+                        return Err(err);
                     }
                 }
             };
@@ -1073,7 +1080,6 @@ impl WorkerAttestationValidation {
     ) -> Result<(), Interrupt<Error>> {
         use futures::FutureExt as _;
         use futures::StreamExt as _;
-        use futures::TryFutureExt as _;
 
         const MAX_ATTEMPTS: usize = 5;
         const DELAY_BASE: u64 = 10;
@@ -1085,48 +1091,23 @@ impl WorkerAttestationValidation {
         let (randomness, epoch_index) = loop {
             match self.cc3.fetch_babe_randomness_two_epoch_ego().await {
                 Ok(babe) => break babe,
-                Err(cc_client::Error::SubxtError(subxt::Error::Rpc(
-                    subxt::error::RpcError::ClientError(err),
-                ))) if matches!(
-                    err.downcast_ref::<subxt::backend::rpc::reconnecting_rpc_client::Error>(),
-                    Some(subxt::backend::rpc::reconnecting_rpc_client::Error::Dropped)
-                ) =>
-                {
-                    let err = match self.cc3.regenerate().and_then(|cc3| cc3.api()).await {
-                        Ok(api) => {
-                            self.api = api;
-                            continue;
-                        }
-                        Err(err) => err,
+                Err(err) => {
+                    let Err(err) = self.handle_rpc_error(err).await else {
+                        continue;
                     };
 
                     attempt += 1;
 
-                    tracing::debug!(
+                    tracing::warn!(
                         attempt,
                         MAX_ATTEMPTS,
                         height,
-                        "Failed to regenerate connection, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(%err, "⛔ Failed to regenerate connection");
-                        return Err(Interrupt::Cont(Error::ClientError(err)));
-                    }
-                }
-                Err(err) => {
-                    attempt += 1;
-
-                    tracing::debug!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        height,
-                        "Failed to fetch babe randomness, retrying..."
+                        "🛜 Failed to fetch babe randomness, retrying..."
                     );
 
                     if attempt >= MAX_ATTEMPTS {
                         tracing::error!(%err, "⛔ Failed to fetch babe randomness");
-                        return Err(Interrupt::Cont(Error::ClientError(err)));
+                        return Err(err);
                     }
                 }
             }
@@ -1157,35 +1138,6 @@ impl WorkerAttestationValidation {
                     .await
                 {
                     Ok(vrf) => break vrf,
-                    Err(cc_client::Error::SubxtError(subxt::Error::Rpc(
-                        subxt::error::RpcError::ClientError(err),
-                    ))) if matches!(
-                        err.downcast_ref::<subxt::backend::rpc::reconnecting_rpc_client::Error>(),
-                        Some(subxt::backend::rpc::reconnecting_rpc_client::Error::Dropped)
-                    ) =>
-                    {
-                        let err = match self.cc3.regenerate().and_then(|cc3| cc3.api()).await {
-                            Ok(api) => {
-                                self.api = api;
-                                continue;
-                            }
-                            Err(err) => err,
-                        };
-
-                        attempt += 1;
-
-                        tracing::debug!(
-                            attempt,
-                            MAX_ATTEMPTS,
-                            height,
-                            "Failed to regenerate connection, retrying..."
-                        );
-
-                        if attempt >= MAX_ATTEMPTS {
-                            tracing::error!(%err, "⛔ Failed to regenerate connection");
-                            return Err(Interrupt::Cont(Error::ClientError(err)));
-                        }
-                    }
                     Err(cc_client::Error::FailedToCreateProofOfInclusion(_)) => {
                         tracing::info!(
                             height,
@@ -1200,7 +1152,25 @@ impl WorkerAttestationValidation {
 
                         return Ok(());
                     }
-                    Err(err) => return Err(Interrupt::Cont(Error::ClientError(err))),
+                    Err(err) => {
+                        let Err(err) = self.handle_rpc_error(err).await else {
+                            continue;
+                        };
+
+                        attempt += 1;
+
+                        tracing::warn!(
+                            attempt,
+                            MAX_ATTEMPTS,
+                            height,
+                            "🛜 Failed to sign vrf submission, retrying..."
+                        );
+
+                        if attempt >= MAX_ATTEMPTS {
+                            tracing::error!(%err, "⛔ Failed to sign vrf submission");
+                            return Err(err);
+                        }
+                    }
                 }
             };
 
@@ -1336,53 +1306,33 @@ impl WorkerAttestationValidation {
 
         let submit = loop {
             match self
-                .api
+                .cc3
+                .api()
                 .tx()
                 .sign_and_submit_then_watch_default(&call, &self.keypair)
                 .await
             {
                 Ok(submit) => break submit,
-
-                Err(subxt::Error::Rpc(subxt::error::RpcError::ClientError(err)))
-                    if matches!(
-                        err.downcast_ref::<subxt::backend::rpc::reconnecting_rpc_client::Error>(),
-                        Some(subxt::backend::rpc::reconnecting_rpc_client::Error::Dropped)
-                    ) =>
-                {
-                    let err = match self.cc3.regenerate().and_then(|cc3| cc3.api()).await {
-                        Ok(api) => {
-                            self.api = api;
-                            continue;
-                        }
-                        Err(err) => err,
+                Err(err) => {
+                    let Err(err) = self
+                        .handle_rpc_error(cc_client::Error::SubxtError(err))
+                        .await
+                    else {
+                        continue;
                     };
 
                     attempt += 1;
 
-                    tracing::debug!(
+                    tracing::warn!(
                         attempt,
                         MAX_ATTEMPTS,
                         height,
-                        "Failed to regenerate connection, retrying..."
+                        "🛜 Failed to submit attestation, retrying..."
                     );
 
                     if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(%err, "⛔ Failed to regenerate connection");
-                        return Err(Interrupt::Cont(Error::ClientError(err)));
-                    }
-                }
-                Err(err) => {
-                    attempt += 1;
-
-                    tracing::debug!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        height,
-                        "Failed to submit attestation, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(error = %err, "⛔ Failed to submit attestation");
+                        tracing::error!(%err, "⛔ Failed to submit attestation");
+                        return Err(err);
                     }
                 }
             }
@@ -1415,5 +1365,35 @@ impl WorkerAttestationValidation {
         self.watch_submission = Some(watch).into();
 
         Ok(())
+    }
+
+    async fn handle_rpc_error(&mut self, err: cc_client::Error) -> Result<(), Interrupt<Error>> {
+        match err {
+            cc_client::Error::SubxtError(subxt::Error::Rpc(
+                subxt::error::RpcError::SubscriptionDropped,
+            )) => {
+                self.cc3
+                    .reconnect()
+                    .await
+                    .map_interrupt(Error::ClientError)?;
+                tracing::info!("🛜 Reconnected!");
+                Ok(())
+            }
+            cc_client::Error::SubxtError(subxt::Error::Rpc(
+                subxt::error::RpcError::ClientError(err),
+            )) if matches!(
+                err.downcast_ref::<subxt::ext::jsonrpsee::core::ClientError>(),
+                Some(subxt::ext::jsonrpsee::core::ClientError::RestartNeeded(_))
+            ) =>
+            {
+                self.cc3
+                    .reconnect()
+                    .await
+                    .map_interrupt(Error::ClientError)?;
+                tracing::info!("🛜 Reconnected!");
+                Ok(())
+            }
+            err => Err(Interrupt::Cont(Error::ClientError(err))),
+        }
     }
 }

@@ -19,11 +19,11 @@ struct Args {
     chain_key: attestor_primitives::ChainKey,
 
     /// Ethereum WS RPC url
-    #[arg(long)]
+    #[arg(long, default_value_t = url::Url::parse("ws://localhost:8545").unwrap())]
     eth_url: url::Url,
 
     /// Creditcoin WS RPC url
-    #[arg(long)]
+    #[arg(long, default_value_t = url::Url::parse("ws://localhost:9944").unwrap())]
     cc3_url: url::Url,
 
     /// If true, the program will fetch the current block number of the source chain and configure
@@ -238,14 +238,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("👷 Registering attestors");
 
-    let blocks = cc3
-        .api()
-        .await
-        .unwrap()
-        .blocks()
-        .subscribe_finalized()
-        .await
-        .unwrap();
+    let blocks = cc3.api().blocks().subscribe_finalized().await.unwrap();
 
     let mut futures_register = tokio::task::JoinSet::new();
     for (name, _secret, account_id) in attestor_info.iter() {
@@ -263,8 +256,6 @@ async fn main() -> anyhow::Result<()> {
                 .attestors(args.chain_key, &account_id);
             let attestor = cc3
                 .api()
-                .await
-                .unwrap()
                 .storage()
                 .at_latest()
                 .await
@@ -393,14 +384,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("❄️ Chilling attestors");
 
-    let blocks = cc3
-        .api()
-        .await
-        .unwrap()
-        .blocks()
-        .subscribe_finalized()
-        .await
-        .unwrap();
+    let blocks = cc3.api().blocks().subscribe_finalized().await.unwrap();
 
     let mut futures_chill = tokio::task::JoinSet::new();
     for (name, _secret, account_id) in attestor_info.iter() {

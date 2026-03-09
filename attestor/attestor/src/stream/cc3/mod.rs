@@ -29,13 +29,7 @@ type NextEventsFut =
     dyn std::future::Future<Output = (State, Result<CC3Events, Interrupt<Error>>)> + Send;
 
 enum State {
-    Idle(
-        Option<(
-            subxt::OnlineClient<subxt::SubstrateConfig>,
-            common::types::SubxtBlockStream,
-            cc_client::Client,
-        )>,
-    ),
+    Idle(Option<(common::types::SubxtBlockStream, cc_client::Client)>),
     Polling(std::pin::Pin<Box<NextEventsFut>>),
 }
 
@@ -43,12 +37,9 @@ impl StreamCC3 {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
         use anyhow::Context as _;
 
-        let api = config
+        let stream = config
             .cc3
             .api()
-            .await
-            .context("Failed to initialize CC3 client api")?;
-        let stream = api
             .blocks()
             .subscribe_finalized()
             .await
@@ -56,12 +47,11 @@ impl StreamCC3 {
 
         anyhow::Ok(Self {
             chain_key: config.chain_key,
-            state: State::Idle(Some((api, stream, config.cc3))),
+            state: State::Idle(Some((stream, config.cc3))),
         })
     }
 
     async fn events_next(
-        mut api: subxt::OnlineClient<subxt::SubstrateConfig>,
         mut stream: common::types::SubxtBlockStream,
         mut cc3: cc_client::Client,
         chain_key: attestor_primitives::ChainKey,
@@ -79,7 +69,7 @@ impl StreamCC3 {
             match stream.next().await {
                 Some(Ok(block)) => {
                     break (
-                        State::Idle(Some((api, stream, cc3))),
+                        State::Idle(Some((stream, cc3))),
                         Ok(CC3Events { block, chain_key }),
                     )
                 }
@@ -96,27 +86,24 @@ impl StreamCC3 {
                     if attempt >= MAX_ATTEMPTS {
                         tracing::error!(%err, "⛔ Failed to retrieve cc3 block");
                         break (
-                            State::Idle(Some((api, stream, cc3))),
+                            State::Idle(Some((stream, cc3))),
                             Err(Interrupt::Cont(Error::SubxtError(err))),
                         );
                     }
                 }
                 None => {
                     match cc3
-                        .regenerate()
+                        .reconnect()
                         .map_err(Error::Client)
                         .and_then(|cc3| {
-                            cc3.api().map_err(Error::Client).and_then(|api| {
-                                api.blocks()
-                                    .subscribe_finalized()
-                                    .map_err(Error::SubxtError)
-                                    .map_ok(|stream| (api, stream))
-                            })
+                            cc3.api()
+                                .blocks()
+                                .subscribe_finalized()
+                                .map_err(Error::SubxtError)
                         })
                         .await
                     {
-                        Ok((api_new, stream_new)) => {
-                            api = api_new;
+                        Ok(stream_new) => {
                             stream = stream_new;
 
                             tracing::info!("🛜 Reconnected!");
@@ -134,7 +121,7 @@ impl StreamCC3 {
                             if attempt >= MAX_ATTEMPTS {
                                 tracing::error!(%err, "⛔ Failed to reconnect to cc3");
                                 break (
-                                    State::Idle(Some((api, stream, cc3))),
+                                    State::Idle(Some((stream, cc3))),
                                     Err(Interrupt::Cont(err)),
                                 );
                             }
@@ -147,7 +134,7 @@ impl StreamCC3 {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
                 _ = tokio::signal::ctrl_c() => {
                     break (
-                        State::Idle(Some((api, stream, cc3))),
+                        State::Idle(Some((stream, cc3))),
                         Err(Interrupt::Stop)
                     )
                 }
@@ -177,8 +164,8 @@ impl futures::Stream for StreamCC3 {
                 std::task::Poll::Ready(Some(events))
             }
             State::Idle(inner) => {
-                let (api, stream, cc3) = inner.take().unwrap();
-                let mut fut = Box::pin(Self::events_next(api, stream, cc3, chain_key));
+                let (stream, cc3) = inner.take().unwrap();
+                let mut fut = Box::pin(Self::events_next(stream, cc3, chain_key));
 
                 match fut.as_mut().poll(cx) {
                     std::task::Poll::Ready((state, events)) => {
