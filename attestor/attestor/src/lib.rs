@@ -132,42 +132,24 @@ impl Attestor {
 
         // ------------------------------------* Start Attesting *------------------------------------
 
-        let status = client_cc3
-            .get_attestor_status(self.config.chain_key)
-            .await
-            .map_err(Error::RpcError)?;
-
-        if status == Some(attestor_primitives::AttestorStatus::Idle) {
-            tracing::info!(
-                attestor = %account_id,
-                "📝 Submitting attest() extrinsic to transition from Idle to Waiting"
-            );
-
-            let bls_public_key = bls_public_key_bytes[..].try_into().map_err(|_| {
-                Error::InitError(anyhow::anyhow!("BLS public key has unexpected length"))
-            })?;
-
-            let proof_of_possession = bls_key.sign(bls_public_key).as_bytes()[..]
-                .try_into()
-                .map_err(|_| {
-                    Error::InitError(anyhow::anyhow!("BLS signature has unexpected length"))
-                })?;
-
-            client_cc3
-                .start_attesting(self.config.chain_key, bls_public_key, proof_of_possession)
-                .await
-                .map_err(Error::RpcError)?;
-
-            tracing::info!(
-                attestor = %account_id,
-                "✅ Successfully submitted attest() - now Waiting for election"
-            );
-        } else {
-            tracing::info!(
-                attestor = %account_id,
-                ?status,
-                "ℹ️ Attestor status is already {:?}, skipping attest()", status
-            );
+        match Self::register_bls(
+            self.config.chain_key,
+            &client_cc3,
+            &account_id,
+            &bls_key,
+            &bls_public_key_bytes,
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(Interrupt::Stop) => {
+                tracing::info!("🔌 Received shutdown signal");
+                return Ok(());
+            }
+            Err(Interrupt::Cont(err)) => {
+                tracing::error!(%err, "⛔ Failed to register attestor BLS public key");
+                return Err(err);
+            }
         }
 
         // -----------------------------------* Eligibility *----------------------------------- //
@@ -506,6 +488,57 @@ impl Attestor {
             tracing::info!(
                 url = %url_cc3,
                 "🛜 waiting for CC3 WS connection to be made available..."
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn register_bls(
+        chain_key: attestor_primitives::ChainKey,
+        client_cc3: &cc_client::Client,
+        account_id: &cc_client::AccountId32,
+        bls_key: &bls_signatures::PrivateKey,
+        bls_public_key_bytes: &[u8],
+    ) -> Result<(), Interrupt<Error>> {
+        use anyhow::Context as _;
+        use bls_signatures::Serialize as _;
+
+        let status = client_cc3
+            .get_attestor_status(chain_key)
+            .await
+            .map_interrupt(Error::RpcError)?;
+
+        if status == Some(attestor_primitives::AttestorStatus::Idle) {
+            tracing::info!(
+                attestor = %account_id,
+                "📝 Submitting attest() extrinsic to transition from Idle to Waiting"
+            );
+
+            let bls_public_key = bls_public_key_bytes[..]
+                .try_into()
+                .context("BLS public key has unexpected length")
+                .map_interrupt(Error::InitError)?;
+
+            let proof_of_possession = bls_key.sign(bls_public_key).as_bytes()[..]
+                .try_into()
+                .context("BLS signature has unexpected length")
+                .map_interrupt(Error::InitError)?;
+
+            client_cc3
+                .start_attesting(chain_key, bls_public_key, proof_of_possession)
+                .await
+                .map_interrupt(Error::RpcError)?;
+
+            tracing::info!(
+                attestor = %account_id,
+                "✅ Successfully submitted attest() - now Waiting for election"
+            );
+        } else {
+            tracing::info!(
+                attestor = %account_id,
+                ?status,
+                "ℹ️ Attestor status is already {:?}, skipping attest()", status
             );
         }
 
