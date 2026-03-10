@@ -55,73 +55,72 @@ impl StreamCC3 {
                     err => {
                         tracing::warn!(?err, "🛜 CC3 connection lost");
 
-                        events = 'retry: loop {
-                            let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-                                .max_delay(std::time::Duration::from_millis(5_000))
-                                .map(tokio_retry::strategy::jitter);
-                            let reconnect = || {
-                                tracing::warn!("🛜 Reconnecting...");
+                        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+                            .max_delay(std::time::Duration::from_millis(5_000))
+                            .map(tokio_retry::strategy::jitter);
 
-                                let mut cc3 = config.cc3.clone();
-                                async move {
-                                    // Regenerate connection endpoints
-                                    let mut finalized = cc3.reconnect()
-                                        .await
-                                        .map_err(Error::Client)?
-                                        .api()
-                                        .blocks()
-                                        .subscribe_finalized()
-                                        .await
-                                        .map_err(Error::Subxt)?;
+                        let reconnect = || {
+                            tracing::warn!("🛜 Reconnecting...");
 
-                                    // Find out how many blocks were dropped during disconnect
-                                    let next = finalized.try_next()
-                                        .await
-                                        .map_err(Error::Subxt)?
-                                        .ok_or(Error::EndOfStream)?;
+                            let mut cc3 = config.cc3.clone();
+                            async move {
+                                // Regenerate connection endpoints
+                                let mut finalized = cc3.reconnect()
+                                    .await
+                                    .map_err(Error::Client)?
+                                    .api()
+                                    .blocks()
+                                    .subscribe_finalized()
+                                    .await
+                                    .map_err(Error::Subxt)?;
 
-                                    // Bakfilling
-                                    let stream = futures::stream::iter(latest + 1..next.number() as u64)
-                                        .then(move |n| {
-                                            let legacy = cc3.legacy().clone();
-                                            let api = cc3.api().clone();
-                                            let number = subxt::backend::legacy::rpc_methods::NumberOrHex::Number(n);
+                                // Find out how many blocks were dropped during disconnect
+                                let next = finalized.try_next()
+                                    .await
+                                    .map_err(Error::Subxt)?
+                                    .ok_or(Error::EndOfStream)?;
 
-                                            async move {
-                                                tracing::debug!(n, "Backfilling");
+                                // Bakfilling
+                                let stream = futures::stream::iter(latest + 1..next.number() as u64)
+                                    .then(move |n| {
+                                        let legacy = cc3.legacy().clone();
+                                        let api = cc3.api().clone();
+                                        let number = subxt::backend::legacy::rpc_methods::NumberOrHex::Number(n);
 
-                                                match legacy.chain_get_block_hash(Some(number)).await {
-                                                    Ok(Some(hash)) => api.blocks().at(hash).await.map_err(Error::Subxt),
-                                                    Ok(None) => Err(Error::BlockHash(n)),
-                                                    Err(err) => {
-                                                        tracing::error!(?err, "Failed to retrieve block hash");
-                                                        Err(Error::Subxt(err))
-                                                    },
-                                                }
+                                        async move {
+                                            tracing::debug!(n, "Backfilling");
+
+                                            match legacy.chain_get_block_hash(Some(number)).await {
+                                                Ok(Some(hash)) => api.blocks().at(hash).await.map_err(Error::Subxt),
+                                                Ok(None) => Err(Error::BlockHash(n)),
+                                                Err(err) => {
+                                                    tracing::error!(?err, "Failed to retrieve block hash");
+                                                    Err(Error::Subxt(err))
+                                                },
                                             }
-                                        })
-                                        .chain(futures::stream::once(futures::future::ok(next)))
-                                        .chain(finalized.map_err(Error::Subxt))
-                                        .and_then(move |block| {
-                                            let block_number = block.number() as common::types::Height;
-                                            let chain_key = config.chain_key;
+                                        }
+                                    })
+                                    .chain(futures::stream::once(futures::future::ok(next)))
+                                    .chain(finalized.map_err(Error::Subxt))
+                                    .and_then(move |block| {
+                                        let block_number = block.number() as common::types::Height;
+                                        let chain_key = config.chain_key;
 
-                                            async move {
-                                                match block.events().await {
-                                                    Ok(events) => Ok(StreamEvents::new(block_number, events, chain_key)),
-                                                    Err(err) => Err(Error::Subxt(err)),
-                                                }
+                                        async move {
+                                            match block.events().await {
+                                                Ok(events) => Ok(StreamEvents::new(block_number, events, chain_key)),
+                                                Err(err) => Err(Error::Subxt(err)),
                                             }
-                                        })
-                                        .boxed();
+                                        }
+                                    })
+                                    .boxed();
 
-                                    Ok::<_, Error>(stream)
-                                }
-                            };
+                                Ok::<_, Error>(stream)
+                            }
+                        };
 
-                            let retry = tokio_retry::Retry::spawn(strategy, reconnect);
-                            break 'retry retry.await.expect("Unbounded retry cannot error");
-                        }
+                        let retry = tokio_retry::Retry::spawn(strategy, reconnect);
+                        events = retry.await.expect("Unbounded retry cannot error");
                     },
                 }
             }

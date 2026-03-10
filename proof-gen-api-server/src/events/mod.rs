@@ -57,7 +57,7 @@ pub async fn start_cc3_event_subscription(
     loop {
         info!("Starting CC3 event subscription for chain_key: {chain_key}");
 
-        match cc3_client.subscribe_events(chain_key).await {
+        match cc3_client.subscribe_events(chain_key) {
             Ok(mut subscription) => {
                 info!("Successfully subscribed to CC3 events for chain_key: {chain_key}");
                 let mut received_event = false;

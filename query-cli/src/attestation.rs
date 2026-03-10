@@ -161,7 +161,6 @@ impl AttestationMonitor {
         let mut subscription = self
             .cc3_client
             .subscribe_events(chain_key)
-            .await
             .context("Failed to subscribe to attestation events")?;
 
         info!(
@@ -195,7 +194,6 @@ impl AttestationMonitor {
                     subscription = self
                         .cc3_client
                         .subscribe_events(chain_key)
-                        .await
                         .context("Failed to resubscribe to attestation events")?;
                 }
                 Err(_) => {
