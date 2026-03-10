@@ -124,11 +124,51 @@ impl Attestor {
         let bls_key = bls_signatures::PrivateKey::new(bls_seed.as_slice());
 
         let bls_public_key_bytes = bls_key.public_key().as_bytes();
-        let bls_pubkey_hex = format!("0x{}", hex::encode(bls_public_key_bytes));
+        let bls_pubkey_hex = format!("0x{}", hex::encode(&bls_public_key_bytes));
         tracing::info!(
             bls_public_key_hex = %bls_pubkey_hex,
             "🔑 BLS public key (set this in fork genesis Attestors if needed)"
         );
+
+        // ------------------------------------* Start Attesting *------------------------------------
+
+        let status = client_cc3
+            .get_attestor_status(self.config.chain_key)
+            .await
+            .map_err(Error::RpcError)?;
+
+        if status == Some(attestor_primitives::AttestorStatus::Idle) {
+            tracing::info!(
+                attestor = %account_id,
+                "📝 Submitting attest() extrinsic to transition from Idle to Waiting"
+            );
+
+            let bls_public_key = bls_public_key_bytes[..].try_into().map_err(|_| {
+                Error::InitError(anyhow::anyhow!("BLS public key has unexpected length"))
+            })?;
+
+            let proof_of_possession = bls_key.sign(bls_public_key).as_bytes()[..]
+                .try_into()
+                .map_err(|_| {
+                    Error::InitError(anyhow::anyhow!("BLS signature has unexpected length"))
+                })?;
+
+            client_cc3
+                .start_attesting(self.config.chain_key, bls_public_key, proof_of_possession)
+                .await
+                .map_err(Error::RpcError)?;
+
+            tracing::info!(
+                attestor = %account_id,
+                "✅ Successfully submitted attest() - now Waiting for election"
+            );
+        } else {
+            tracing::info!(
+                attestor = %account_id,
+                ?status,
+                "ℹ️ Attestor status is already {:?}, skipping attest()", status
+            );
+        }
 
         // -----------------------------------* Eligibility *----------------------------------- //
 
