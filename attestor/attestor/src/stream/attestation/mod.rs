@@ -981,4 +981,3 @@ impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
         Ok(())
     }
 }
-impl crate::events::EventRevertedAttestationChainTo for StreamAttestation {}
