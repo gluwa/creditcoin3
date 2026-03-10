@@ -26,11 +26,16 @@ import { queryAttestation } from "./graphql.ts";
 import { createSlackPayload, sendSlackMessage } from "./slack.ts";
 
 const MAX_BLOCK_DIFF = 40;
+const BSC_MAX_BLOCK_DIFF = 400;
 /** Extra blocks allowed beyond (checkpointInterval × attestationInterval) for checkpoint lag. */
 const CHECKPOINT_BUFFER = 150;
 
 function formatNum(n: number): string {
   return n.toLocaleString("en-US");
+}
+
+function getMaxBlockDiff(chainName: string): number {
+  return chainName.includes("BSC") ? BSC_MAX_BLOCK_DIFF : MAX_BLOCK_DIFF;
 }
 
 function buildReport(
@@ -181,7 +186,8 @@ async function runChecksForChain(
   }
 
   const blockDiff = ethBlock - attBlock;
-  const blockDiffOk = blockDiff >= 0 && blockDiff <= MAX_BLOCK_DIFF;
+  const maxBlockDiff = getMaxBlockDiff(chainName);
+  const blockDiffOk = blockDiff >= 0 && blockDiff <= maxBlockDiff;
 
   const graphqlResult = await queryAttestation(
     config.graphqlUrl,
