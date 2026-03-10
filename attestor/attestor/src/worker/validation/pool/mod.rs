@@ -1562,6 +1562,8 @@ impl crate::events::EventRevertedAttestationChainToAsync for AttestationPoolSend
         use crate::events::EventRevertedAttestationChainTo as _;
 
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
+            // Clear digest local, as it no longer tracks a valid new attestation
+            inner.digest_local = None;
             // Updating the inner pool
             inner
                 .forks
