@@ -1429,6 +1429,7 @@ impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolSende
         use crate::events::EventAttestationIntervalChange as _;
 
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
+            inner.digest_local = None;
             // Updating the inner pool
             inner
                 .forks
