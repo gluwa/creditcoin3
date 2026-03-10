@@ -86,7 +86,6 @@
 //! #       .with_peer_id(libp2p::PeerId::random())
 //! #       .with_chain_key(2u64)
 //! #       .with_start_height(common::types::Height::MIN)
-//! #       .with_start_info(Some(common::types::AttestationInfo::default()))
 //! #       .with_genesis(common::types::Height::MIN)
 //! #       .with_attestation_latest_eth(common::types::Height::MIN)
 //! #       .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
@@ -106,7 +105,6 @@
 //!         .with_quorum(std::num::NonZeroUsize::new(3).unwrap())
 //!         .with_attestation_interval(std::num::NonZeroU64::new(1).unwrap())
 //!         .with_start_height(0u64)
-//!         .with_start_info(None)
 //!         .with_metrics(metrics)
 //!         .build(),
 //! );
