@@ -64,6 +64,7 @@ impl StreamCC3 {
 
                                 let mut cc3 = config.cc3.clone();
                                 async move {
+                                    // Regenerate connection endpoints
                                     let mut finalized = cc3.reconnect()
                                         .await
                                         .map_err(Error::Client)?
@@ -73,11 +74,13 @@ impl StreamCC3 {
                                         .await
                                         .map_err(Error::Subxt)?;
 
+                                    // Find out how many blocks were dropped during disconnect
                                     let next = finalized.try_next()
                                         .await
                                         .map_err(Error::Subxt)?
                                         .ok_or(Error::EndOfStream)?;
 
+                                    // Bakfilling
                                     let stream = futures::stream::iter(latest + 1..next.number() as u64)
                                         .then(move |n| {
                                             let legacy = cc3.legacy().clone();
@@ -85,6 +88,8 @@ impl StreamCC3 {
                                             let number = subxt::backend::legacy::rpc_methods::NumberOrHex::Number(n);
 
                                             async move {
+                                                tracing::debug!(n, "Backfilling");
+
                                                 match legacy.chain_get_block_hash(Some(number)).await {
                                                     Ok(Some(hash)) => api.blocks().at(hash).await.map_err(Error::Subxt),
                                                     Ok(None) => Err(Error::BlockHash(n)),

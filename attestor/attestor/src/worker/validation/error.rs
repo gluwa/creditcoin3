@@ -1,10 +1,10 @@
 #[derive(Debug)]
 pub enum Error {
-    CC3Error(crate::stream::cc3::Error),
-    PoolError(super::pool::Error),
-    ClientError(cc_client::Error),
-    SubxtError(subxt::Error),
-    BlsError(bls_signatures::Error),
+    CC3(crate::stream::cc3::Error),
+    Pool(super::pool::Error),
+    Client(cc_client::Error),
+    Subxt(subxt::Error),
+    Bls(bls_signatures::Error),
     InvalidAttestation(InvalidCause),
     InvalidBls(Vec<u8>),
     InvalidAttestationEvent,
@@ -13,11 +13,11 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::CC3Error(err) => write!(f, "{err}"),
-            Self::PoolError(err) => write!(f, "{err}"),
-            Self::ClientError(err) => write!(f, "{err}"),
-            Self::SubxtError(err) => write!(f, "{err}"),
-            Self::BlsError(err) => write!(f, "{err}"),
+            Self::CC3(err) => write!(f, "{err}"),
+            Self::Pool(err) => write!(f, "{err}"),
+            Self::Client(err) => write!(f, "{err}"),
+            Self::Subxt(err) => write!(f, "{err}"),
+            Self::Bls(err) => write!(f, "{err}"),
             Self::InvalidAttestation(cause) => write!(f, "Invalid attestation: {cause}"),
             Self::InvalidBls(bls) => {
                 write!(f, "Invalid BLS signature: {}", alloy::hex::encode(bls))

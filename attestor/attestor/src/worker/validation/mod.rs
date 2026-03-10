@@ -293,7 +293,7 @@ impl WorkerAttestationValidation {
                     Err(subxt::Error::Runtime(subxt::error::DispatchError::Module(err))) => {
                         match err
                             .as_root_error::<cc_client::cc3::Error>()
-                            .map_interrupt(Error::SubxtError)?
+                            .map_interrupt(Error::Subxt)?
                         {
                             cc_client::cc3::Error::Attestation(
                                 cc_client::cc3::attestation::Error::AttestationExists,
@@ -344,7 +344,7 @@ impl WorkerAttestationValidation {
                     // CASE 1.B] WON THE ATTESTATION SUBMISSION RACE
                     res => {
                         match res
-                            .map_interrupt(Error::SubxtError)?
+                            .map_interrupt(Error::Subxt)?
                             .all_events_in_block()
                             .find_last::<cc_client::cc3::attestation::events::BlockAttested>()
                         {
@@ -376,7 +376,7 @@ impl WorkerAttestationValidation {
                     tokio::select! {
                         Some(mut events) = self.stream_cc3.next() => {
                             while let Some(event) =
-                                events.try_next().await.map_interrupt(Error::CC3Error)?
+                                events.try_next().await.map_interrupt(Error::CC3)?
                             {
                                 if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
                                     event
@@ -414,7 +414,7 @@ impl WorkerAttestationValidation {
                     tokio::select! {
                         Some(mut events) = self.stream_cc3.next() => {
                             while let Some(event) =
-                                events.try_next().await.map_interrupt(Error::CC3Error)?
+                                events.try_next().await.map_interrupt(Error::CC3)?
                             {
                                 if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
                                     event
@@ -490,38 +490,10 @@ impl WorkerAttestationValidation {
         use rand::seq::SliceRandom as _;
         use rand::SeedableRng as _;
 
-        const MAX_ATTEMPTS: usize = 10;
-        const DELAY_BASE: u64 = 10;
-        const DELAY_MAX: u64 = 90;
-
-        let mut attempt = 0;
-        let mut delay = DELAY_BASE;
-
         let runtime_api = loop {
             match self.cc3.api().runtime_api().at_latest().await {
                 Ok(runtime_api) => break runtime_api,
-                Err(err) => {
-                    let Err(err) = self
-                        .handle_rpc_error(cc_client::Error::SubxtError(err))
-                        .await
-                    else {
-                        continue;
-                    };
-
-                    attempt += 1;
-
-                    tracing::warn!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        height,
-                        "🛜 Failed to fetch runtime api, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(%err, "⛔ Failed to fetch babe randomness");
-                        return Err(err);
-                    }
-                }
+                Err(err) => self.reconnect(Error::Subxt(err)).await,
             }
         };
 
@@ -538,35 +510,8 @@ impl WorkerAttestationValidation {
                 .is_chain_supported(chain_key);
             match runtime_api.call(call).await {
                 Ok(is_chain_supported) => break is_chain_supported,
-                Err(err) => {
-                    let Err(err) = self
-                        .handle_rpc_error(cc_client::Error::SubxtError(err))
-                        .await
-                    else {
-                        continue;
-                    };
-
-                    attempt += 1;
-
-                    tracing::warn!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        "🛜 Failed to retrieve supported chain, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(%err, "⛔ Failed to retrieve supported chain");
-                        return Err(err);
-                    }
-                }
+                Err(err) => self.reconnect(Error::Subxt(err)).await,
             };
-
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
-            }
-
-            delay = (delay * 2).min(DELAY_MAX);
         };
 
         if !is_chain_supported {
@@ -589,35 +534,8 @@ impl WorkerAttestationValidation {
             );
             match runtime_api.call(call).await {
                 Ok(is_duplicate) => break is_duplicate,
-                Err(err) => {
-                    let Err(err) = self
-                        .handle_rpc_error(cc_client::Error::SubxtError(err))
-                        .await
-                    else {
-                        continue;
-                    };
-
-                    attempt += 1;
-
-                    tracing::warn!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        "🛜 Failed to retrieve attestation digest, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(%err, "⛔ Failed to retrieve attestation digest");
-                        return Err(err);
-                    }
-                }
+                Err(err) => self.reconnect(Error::Subxt(err)).await,
             };
-
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
-            }
-
-            delay = (delay * 2).min(DELAY_MAX);
         };
 
         if is_duplicate {
@@ -679,37 +597,10 @@ impl WorkerAttestationValidation {
                     .attestor_bls_pubkey(attestation.chain_key(), (*attestor).into());
                 match runtime_api.call(call).await {
                     Ok(pubkey) => {
-                        break pubkey.map(|pubkey| bls_signatures::PublicKey::from_bytes(&pubkey))
+                        break pubkey.map(|bytes| bls_signatures::PublicKey::from_bytes(&bytes))
                     }
-                    Err(err) => {
-                        let Err(err) = self
-                            .handle_rpc_error(cc_client::Error::SubxtError(err))
-                            .await
-                        else {
-                            continue;
-                        };
-
-                        attempt += 1;
-
-                        tracing::warn!(
-                            attempt,
-                            MAX_ATTEMPTS,
-                            "🛜 Failed to retrieve attestor bls pubkey, retrying..."
-                        );
-
-                        if attempt >= MAX_ATTEMPTS {
-                            tracing::error!(%err, "⛔ Failed to retreve attestor bls pubkey");
-                            return Err(err);
-                        }
-                    }
+                    Err(err) => self.reconnect(Error::Subxt(err)).await,
                 }
-
-                tokio::select! {
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                    _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
-                }
-
-                delay = (delay * 2).min(DELAY_MAX);
             };
 
             match pubkey {
@@ -793,35 +684,8 @@ impl WorkerAttestationValidation {
             let call = self.api_calls.attestor_api().last_digest(chain_key);
             match runtime_api.call(call).await {
                 Ok(digest_last_finalized) => break digest_last_finalized,
-                Err(err) => {
-                    let Err(err) = self
-                        .handle_rpc_error(cc_client::Error::SubxtError(err))
-                        .await
-                    else {
-                        continue;
-                    };
-
-                    attempt += 1;
-
-                    tracing::warn!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        "🛜 Failed to retrieve last finalized digest, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(%err, "⛔ Failed to retrieve last finalized digest");
-                        return Err(err);
-                    }
-                }
+                Err(err) => self.reconnect(Error::Subxt(err)).await,
             };
-
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
-            }
-
-            delay = (delay * 2).min(DELAY_MAX);
         };
 
         let digest_last_finalized = digest_last_finalized.unwrap_or_else(|| {
@@ -1021,7 +885,7 @@ impl WorkerAttestationValidation {
             .map(|att| att.signature_bls.0)
             .collect::<Vec<_>>();
         let bls_signature = bls_signatures::aggregate(&sigs)
-            .map_interrupt(Error::BlsError)?
+            .map_interrupt(Error::Bls)?
             .as_bytes();
         let bls_aggregate = bls_signature
             .first_chunk::<96>()
@@ -1075,46 +939,11 @@ impl WorkerAttestationValidation {
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
-        const MAX_ATTEMPTS: usize = 5;
-        const DELAY_BASE: u64 = 10;
-        const DELAY_MAX: u64 = 60;
-
-        let mut attempt = 0;
-        let mut delay = DELAY_BASE;
-
         let (randomness, epoch_index) = loop {
             match self.cc3.fetch_babe_randomness_two_epoch_ego().await {
                 Ok(babe) => break babe,
-                Err(err) => {
-                    let Err(err) = self.handle_rpc_error(err).await else {
-                        continue;
-                    };
-
-                    attempt += 1;
-
-                    tracing::warn!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        height,
-                        "🛜 Failed to fetch babe randomness, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(%err, "⛔ Failed to fetch babe randomness");
-                        return Err(err);
-                    }
-                }
+                Err(err) => self.reconnect(Error::Client(err)).await,
             }
-
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => {
-                    self.watch_submission = future::OptionFuture::default();
-                    return Err(Interrupt::Stop);
-                }
-            }
-
-            delay = (delay * 2).min(DELAY_MAX);
         };
 
         if height == self.genesis {
@@ -1146,25 +975,7 @@ impl WorkerAttestationValidation {
 
                         return Ok(());
                     }
-                    Err(err) => {
-                        let Err(err) = self.handle_rpc_error(err).await else {
-                            continue;
-                        };
-
-                        attempt += 1;
-
-                        tracing::warn!(
-                            attempt,
-                            MAX_ATTEMPTS,
-                            height,
-                            "🛜 Failed to sign vrf submission, retrying..."
-                        );
-
-                        if attempt >= MAX_ATTEMPTS {
-                            tracing::error!(%err, "⛔ Failed to sign vrf submission");
-                            return Err(err);
-                        }
-                    }
+                    Err(err) => self.reconnect(Error::Client(err)).await,
                 }
             };
 
@@ -1252,7 +1063,7 @@ impl WorkerAttestationValidation {
                 tokio::select! {
                     Some(mut events) = self.stream_cc3.next() => {
                         while let Some(event) =
-                            events.try_next().await.map_interrupt(Error::CC3Error)?
+                            events.try_next().await.map_interrupt(Error::CC3)?
                         {
                             if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
                                 if attestation.header_number >= height {
@@ -1290,9 +1101,6 @@ impl WorkerAttestationValidation {
             .attestation()
             .commit_attestation(attestation);
 
-        let mut attempt = 0;
-        let mut delay = DELAY_BASE;
-
         let submit = loop {
             match self
                 .cc3
@@ -1302,39 +1110,8 @@ impl WorkerAttestationValidation {
                 .await
             {
                 Ok(submit) => break submit,
-                Err(err) => {
-                    let Err(err) = self
-                        .handle_rpc_error(cc_client::Error::SubxtError(err))
-                        .await
-                    else {
-                        continue;
-                    };
-
-                    attempt += 1;
-
-                    tracing::warn!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        height,
-                        "🛜 Failed to submit attestation, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(%err, "⛔ Failed to submit attestation");
-                        return Err(err);
-                    }
-                }
+                Err(err) => self.reconnect(Error::Subxt(err)).await,
             }
-
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => {
-                    self.watch_submission = future::OptionFuture::default();
-                    return Err(Interrupt::Stop);
-                }
-            }
-
-            delay = (delay * 2).min(DELAY_MAX);
         };
 
         // --------------------------------* Finalization *--------------------------------
@@ -1356,33 +1133,23 @@ impl WorkerAttestationValidation {
         Ok(())
     }
 
-    async fn handle_rpc_error(&mut self, err: cc_client::Error) -> Result<(), Interrupt<Error>> {
-        match err {
-            cc_client::Error::SubxtError(subxt::Error::Rpc(
-                subxt::error::RpcError::SubscriptionDropped,
-            )) => {
-                self.cc3
-                    .reconnect()
-                    .await
-                    .map_interrupt(Error::ClientError)?;
-                tracing::info!("🛜 Reconnected!");
-                Ok(())
+    async fn reconnect(&mut self, err: Error) {
+        tracing::warn!(?err, "🛜 CC3 connection lost");
+
+        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+            .max_delay(std::time::Duration::from_millis(5_000))
+            .map(tokio_retry::strategy::jitter);
+        let reconnect = || {
+            tracing::warn!("🛜 Reconnecting...");
+
+            let mut cc3 = self.cc3.clone();
+            async move {
+                cc3.reconnect().await?;
+                Ok::<_, cc_client::Error>(cc3)
             }
-            cc_client::Error::SubxtError(subxt::Error::Rpc(
-                subxt::error::RpcError::ClientError(err),
-            )) if matches!(
-                err.downcast_ref::<subxt::ext::jsonrpsee::core::ClientError>(),
-                Some(subxt::ext::jsonrpsee::core::ClientError::RestartNeeded(_))
-            ) =>
-            {
-                self.cc3
-                    .reconnect()
-                    .await
-                    .map_interrupt(Error::ClientError)?;
-                tracing::info!("🛜 Reconnected!");
-                Ok(())
-            }
-            err => Err(Interrupt::Cont(Error::ClientError(err))),
-        }
+        };
+        let retry = tokio_retry::Retry::spawn(strategy, reconnect);
+
+        self.cc3 = retry.await.expect("Unbounded retry cannot error");
     }
 }

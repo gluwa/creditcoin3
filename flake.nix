@@ -217,8 +217,6 @@
         cargo run --release --bin attestor_zombienet -- \
           -n 3                                          \
           --bin=${script_attestor}/bin/attestor         \
-          --eth-url=ws://localhost:8545                 \
-          --cc3-url=ws://localhost:9944                 \
           --funding-address='//Alice'                   \
           --config=./attestor/config.yaml               \
           "$@"
