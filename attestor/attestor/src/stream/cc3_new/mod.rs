@@ -27,7 +27,17 @@ impl StreamCC3 {
             .await
             .map_err(Error::Subxt)?
             .map_err(Error::Subxt)
-            .and_then(move |block| StreamEvents::new(block, config.chain_key))
+            .and_then(move |block| {
+                let block_number = block.number() as common::types::Height;
+                let chain_key = config.chain_key;
+
+                async move {
+                    match block.events().await {
+                        Ok(events) => StreamEvents::new(block_number, events, chain_key),
+                        Err(err) => Err(Error::Subxt(err)),
+                    }
+                }
+            })
             .boxed();
         let next = events.try_next().await?.ok_or(Error::EndOfStream)?;
 
@@ -88,7 +98,17 @@ impl StreamCC3 {
                                 })
                                 .chain(futures::stream::once(futures::future::ok(next)))
                                 .chain(finalized.map_err(Error::Subxt))
-                                .and_then(move |block| StreamEvents::new(block, config.chain_key))
+                                .and_then(|block| {
+                                    let block_number = block.number() as common::types::Height;
+                                    let chain_key = config.chain_key;
+
+                                    async move {
+                                        match block.events().await {
+                                            Ok(events) => StreamEvents::new(block_number, events, chain_key),
+                                            Err(err) => Err(Error::Subxt(err)),
+                                        }
+                                    }
+                                })
                                 .boxed();
                         }
                     },
@@ -125,23 +145,22 @@ pub struct StreamEvents {
 }
 
 impl StreamEvents {
-    pub async fn new(
-        block: common::types::SubxtBlock,
+    pub fn new(
+        block_number: common::types::Height,
+        events: subxt::events::Events<subxt::SubstrateConfig>,
         chain_key: attestor_primitives::ChainKey,
-    ) -> Result<Self, Error> {
+    ) -> Self {
         use futures::TryStreamExt as _;
 
-        let block_number = block.number() as common::types::Height;
-        let events = block.events().await.map_err(Error::Subxt)?;
         let stream = Box::pin(
             futures::stream::iter(cc_client::Client::extract_events(chain_key, &events))
                 .map_err(|err| Error::Subxt(err.into())),
         );
 
-        Ok(Self {
+        Self {
             block_number,
             stream,
-        })
+        }
     }
 
     pub fn block_number(&self) -> common::types::Height {
