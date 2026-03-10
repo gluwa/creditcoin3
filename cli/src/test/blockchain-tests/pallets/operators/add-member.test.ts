@@ -1,7 +1,6 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { describeIf, extractFee, forElapsedBlocks } from '../../../utils';
 import { randomFundedAccount } from '../../../integration-tests/helpers';
-import { chain_Anvil1_Key } from '../supported-chains/consts';
 
 describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'addMember', (): void => {
     let root: KeyringPair;
@@ -46,11 +45,14 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'addMember', (): void => {
         // will fail even when the address is actually contained in result
         expect(members.toJSON()).toContain(operator.address);
 
+        // unique integer to serve as chain id during testing
+        const chainId = Date.now();
+
         // operator can exercise privileged extrinsic
         const nonce = await api.rpc.system.accountNextIndex(operator.address);
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.supportedChains
-                .setMaturityStrategy(chain_Anvil1_Key, 'EvmFinalized')
+                .registerChain(chainId, `Test Chain ${chainId}`, null, null, null, null, null, null, 'V1', null)
                 .signAndSend(operator, { nonce }, async ({ dispatchError, events, status }) => {
                     // note: also checks for dispatch error(s)
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);

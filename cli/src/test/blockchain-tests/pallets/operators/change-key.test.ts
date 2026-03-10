@@ -1,7 +1,6 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { describeIf, extractFee, forElapsedBlocks } from '../../../utils';
 import { randomFundedAccount } from '../../../integration-tests/helpers';
-import { chain_Anvil1_Key } from '../supported-chains/consts';
 
 describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'changeKey', (): void => {
     let root: KeyringPair;
@@ -65,11 +64,14 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'changeKey', (): void => {
         // and so cannot setup operator1 as the prime member in beforeAll()!
         // Therefore don't actually assert that prime membership has been transfered!
 
+        // unique integer to serve as chain id during testing
+        const chainId = Date.now();
+
         // operator2 can exercise privileged extrinsic
         const nonce = await api.rpc.system.accountNextIndex(operator2.address);
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.supportedChains
-                .setMaturityStrategy(chain_Anvil1_Key, 'EvmFinalized')
+                .registerChain(chainId, `Test Chain ${chainId}`, null, null, null, null, null, null, 'V1', null)
                 .signAndSend(operator2, { nonce }, async ({ dispatchError, events, status }) => {
                     // note: also checks for dispatch error(s)
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
