@@ -756,14 +756,12 @@ impl<T: Config> Pallet<T> {
             .into_iter()
             .collect::<BTreeSet<_>>(); // or HashSet if std is available
 
-        let (eligible_attestors, _ineligible_attestors): (
-            BTreeSet<T::AccountId>,
-            BTreeSet<T::AccountId>,
-        ) = attestation
+        let eligible_attestors: BTreeSet<T::AccountId> = attestation
             .attestors
             .iter()
+            .filter(|attestor| active_attestors.contains(attestor))
             .cloned()
-            .partition(|attestor| active_attestors.contains(attestor));
+            .collect();
 
         // Threshold validation
         let target_sample_size = Self::target_sample_size(chain_key);
