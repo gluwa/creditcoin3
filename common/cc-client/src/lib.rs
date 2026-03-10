@@ -8,7 +8,10 @@ use sp_core::{
 };
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
-    backend::rpc::{RpcClient, RpcParams},
+    backend::{
+        legacy::LegacyRpcMethods,
+        rpc::{RpcClient, RpcParams},
+    },
     config::DefaultExtrinsicParamsBuilder,
     error::RpcError,
     utils::fetch_chainspec_from_rpc_node,
@@ -91,6 +94,7 @@ pub struct Client {
     signing_keypair: Keypair,
     rpc: RpcClient,
     api: OnlineClient<SubstrateConfig>,
+    legacy: LegacyRpcMethods<SubstrateConfig>,
     url: String,
 }
 
@@ -112,12 +116,14 @@ impl Client {
         let pair = sr25519::Pair::from_string(key, None)?;
         let rpc = RpcClient::from_url(url.clone().into()).await?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
+        let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
 
         Ok(Self {
             pair,
             signing_keypair,
             rpc,
             api,
+            legacy,
             url: url.into(),
         })
     }
@@ -139,8 +145,14 @@ impl Client {
         Self::new(url, DUMMY_KEY).await
     }
 
+    #[must_use]
     pub fn api(&self) -> &OnlineClient<SubstrateConfig> {
         &self.api
+    }
+
+    #[must_use]
+    pub fn legacy(&self) -> &LegacyRpcMethods<SubstrateConfig> {
+        &self.legacy
     }
 
     #[must_use]
@@ -786,9 +798,11 @@ impl Client {
             .push(attestation)
             .map_err(|_| Error::FailedToSubmit)?;
 
-        let r = subxt::backend::rpc::RpcClient::from(self.rpc.clone());
-
-        match r.request::<()>("attestor_submitAttestation", params).await {
+        match self
+            .rpc
+            .request::<()>("attestor_submitAttestation", params)
+            .await
+        {
             Ok(()) => {
                 info!("Attestation submitted");
                 Ok(())

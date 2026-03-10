@@ -279,6 +279,7 @@ impl WorkerAttestationValidation {
         submission: (AttestationSubmission, common::types::Height),
     ) -> Result<(), Interrupt<Error>> {
         use futures::StreamExt as _;
+        use futures::TryStreamExt as _;
 
         let (submission, height) = submission;
 
@@ -373,14 +374,10 @@ impl WorkerAttestationValidation {
                 // past finalization.
                 'outer: loop {
                     tokio::select! {
-                        Some(block) = self.stream_cc3.next() => {
-                            for event in block
-                                .map_interrupt(Error::CC3Error)?
-                                .events()
-                                .await
-                                .map_interrupt(Error::CC3Error)?
+                        Some(mut events) = self.stream_cc3.next() => {
+                            while let Some(event) =
+                                events.try_next().await.map_interrupt(Error::CC3Error)?
                             {
-                                let event = event.map_interrupt(Error::CC3Error)?;
                                 if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
                                     event
                                 {
@@ -415,14 +412,10 @@ impl WorkerAttestationValidation {
                 // past finalization.
                 'outer: loop {
                     tokio::select! {
-                        Some(block) = self.stream_cc3.next() => {
-                            for event in block
-                                .map_interrupt(Error::CC3Error)?
-                                .events()
-                                .await
-                                .map_interrupt(Error::CC3Error)?
+                        Some(mut events) = self.stream_cc3.next() => {
+                            while let Some(event) =
+                                events.try_next().await.map_interrupt(Error::CC3Error)?
                             {
-                                let event = event.map_interrupt(Error::CC3Error)?;
                                 if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
                                     event
                                 {
@@ -1080,6 +1073,7 @@ impl WorkerAttestationValidation {
     ) -> Result<(), Interrupt<Error>> {
         use futures::FutureExt as _;
         use futures::StreamExt as _;
+        use futures::TryStreamExt as _;
 
         const MAX_ATTEMPTS: usize = 5;
         const DELAY_BASE: u64 = 10;
@@ -1256,15 +1250,10 @@ impl WorkerAttestationValidation {
             // attestor is most likely down.
             loop {
                 tokio::select! {
-                    Some(block) = self.stream_cc3.next() => {
-                        for event in block
-                            .map_interrupt(Error::CC3Error)?
-                            .events()
-                            .await
-                            .map_interrupt(Error::CC3Error)?
+                    Some(mut events) = self.stream_cc3.next() => {
+                        while let Some(event) =
+                            events.try_next().await.map_interrupt(Error::CC3Error)?
                         {
-                            let event = event.map_interrupt(Error::CC3Error)?;
-
                             if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
                                 if attestation.header_number >= height {
                                     self.watch_submission = Some(std::future::ready((

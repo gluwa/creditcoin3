@@ -559,6 +559,7 @@ impl Attestor {
     ) -> Result<Vec<cc_client::AccountId32>, Interrupt<Error>> {
         use anyhow::Context as _;
         use futures::StreamExt as _;
+        use futures::TryStreamExt as _;
 
         let mut attestors = client_cc3
             .get_attestor_active_set(chain_key)
@@ -577,12 +578,8 @@ impl Attestor {
         if !attestors.contains(account_id) {
             attestors = 'outer: loop {
                 tokio::select! {
-                    Some(block) = stream_cc3.next() => {
-                        let block = block.map_interrupt(Error::CC3Error)?;
-                        let events = block.events().await.map_interrupt(Error::CC3Error)?;
-
-                        for event in events {
-                            let event = event.map_interrupt(Error::CC3Error)?;
+                    Some(mut events) = stream_cc3.next() => {
+                        while let Some(event) =  events.try_next().await.map_interrupt(Error::CC3Error)? {
                             if let cc_client::attestation::CcEvent::AttestorsElected(attestors) = event {
                                 if attestors.contains(account_id) {
                                     break 'outer attestors;
@@ -633,6 +630,7 @@ impl Attestor {
         use anyhow::Context as _;
         use events::EventAttestationFinalization as _;
         use futures::StreamExt as _;
+        use futures::TryStreamExt as _;
 
         let attestation_genesis = stream_attestation
             .generate_attestation_genesis()
@@ -668,12 +666,8 @@ impl Attestor {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         let attestation_latest_cc3 = 'outer: loop {
             tokio::select! {
-                Some(block) = stream_cc3.next() => {
-                    let block = block.map_interrupt(Error::CC3Error)?;
-                    let events = block.events().await.map_interrupt(Error::CC3Error)?;
-
-                    for event in events  {
-                        let event = event.map_interrupt(Error::CC3Error)?;
+                Some(mut events) = stream_cc3.next() => {
+                    while let Some(event) = events.try_next().await.map_interrupt(Error::CC3Error)? {
                         if let cc_client::attestation::CcEvent::BlockAttested(attestation_new) = event {
                             if attestation_new.header_number >= height {
                                 break 'outer common::types::AttestationInfo {

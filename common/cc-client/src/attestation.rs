@@ -100,7 +100,7 @@ pub enum Error {
 
 impl Client {
     #[allow(clippy::too_many_lines)]
-    pub async fn subscribe_events(&self, filter: ChainKey) -> Result<Subscription, Error> {
+    pub fn subscribe_events(&self, filter: ChainKey) -> Result<Subscription, Error> {
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 

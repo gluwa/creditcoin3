@@ -1,16 +1,7 @@
-//! # CC3 events
-//!
-//! A simple [`Stream`] of [`CC3Events`] which follows the state of the execution chain.
-//!
-//! [`Stream`]: futures::Stream
-
 use crate::prelude::*;
 
 mod error;
-
 pub use error::Error;
-
-// -------------------------------------- [ Configuration ] ------------------------------------ //
 
 #[derive(Debug, attestor_macro::Builder)]
 pub struct Config {
@@ -18,196 +9,172 @@ pub struct Config {
     chain_key: attestor_primitives::ChainKey,
 }
 
-// ----------------------------------------- [ Stream ] ---------------------------------------- //
-
 pub struct StreamCC3 {
-    chain_key: attestor_primitives::ChainKey,
-    state: State,
-}
-
-type NextEventsFut =
-    dyn std::future::Future<Output = (State, Result<CC3Events, Interrupt<Error>>)> + Send;
-
-enum State {
-    Idle(Option<(common::types::SubxtBlockStream, cc_client::Client)>),
-    Polling(std::pin::Pin<Box<NextEventsFut>>),
+    stream: std::pin::Pin<Box<dyn futures::Stream<Item = StreamEvents> + Send>>,
 }
 
 impl StreamCC3 {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
-        use anyhow::Context as _;
+        use futures::StreamExt as _;
+        use futures::TryFutureExt as _;
+        use futures::TryStreamExt as _;
 
-        let stream = config
+        let mut events = config
             .cc3
             .api()
             .blocks()
             .subscribe_finalized()
             .await
-            .context("Failed to initialize CC3 finalized block subscription")?;
+            .map_err(Error::Subxt)?
+            .map_err(Error::Subxt)
+            .and_then(move |block| {
+                let block_number = block.number() as common::types::Height;
+                let chain_key = config.chain_key;
 
-        anyhow::Ok(Self {
-            chain_key: config.chain_key,
-            state: State::Idle(Some((stream, config.cc3))),
-        })
-    }
-
-    async fn events_next(
-        mut stream: common::types::SubxtBlockStream,
-        mut cc3: cc_client::Client,
-        chain_key: attestor_primitives::ChainKey,
-    ) -> (State, Result<CC3Events, Interrupt<Error>>) {
-        use futures::TryFutureExt as _;
-
-        const MAX_ATTEMPTS: usize = 5;
-        const DELAY_BASE: u64 = 10;
-        const DELAY_MAX: u64 = 60;
-
-        let mut attempt = 0;
-        let mut delay = DELAY_BASE;
-
-        loop {
-            match stream.next().await {
-                Some(Ok(block)) => {
-                    break (
-                        State::Idle(Some((stream, cc3))),
-                        Ok(CC3Events { block, chain_key }),
-                    )
-                }
-                Some(Err(err)) => {
-                    attempt += 1;
-
-                    tracing::warn!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        %err,
-                        "🛜 Failed to retrieve cc3 block, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(%err, "⛔ Failed to retrieve cc3 block");
-                        break (
-                            State::Idle(Some((stream, cc3))),
-                            Err(Interrupt::Cont(Error::SubxtError(err))),
-                        );
+                async move {
+                    match block.events().await {
+                        Ok(events) => Ok(StreamEvents::new(block_number, events, chain_key)),
+                        Err(err) => Err(Error::Subxt(err)),
                     }
                 }
-                None => {
-                    match cc3
-                        .reconnect()
-                        .map_err(Error::Client)
-                        .and_then(|cc3| {
-                            cc3.api()
-                                .blocks()
-                                .subscribe_finalized()
-                                .map_err(Error::SubxtError)
-                        })
-                        .await
-                    {
-                        Ok(stream_new) => {
-                            stream = stream_new;
+            })
+            .boxed();
+        let next = events.try_next().await?.ok_or(Error::EndOfStream)?;
 
-                            tracing::info!("🛜 Reconnected!");
+        let stream = async_stream::stream! {
+            let mut events = events;
+            let mut latest = next.block_number();
+
+            yield next;
+
+            loop {
+                match events.try_next().await {
+                    Ok(Some(event)) => {
+                        latest = event.block_number();
+                        yield event
+                    },
+                    Ok(None) | Err(_) => {
+                        events = 'retry: loop {
+                            let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+                                .max_delay(std::time::Duration::from_millis(5_000))
+                                .map(tokio_retry::strategy::jitter);
+                            let reconnect = || {
+                                let mut cc3 = config.cc3.clone();
+                                async move {
+                                    cc3.reconnect()
+                                        .map_err(Error::Client)
+                                        .and_then(|cc3| {
+                                            cc3.api()
+                                                .blocks()
+                                                .subscribe_finalized()
+                                                .map_err(Error::Subxt)
+                                        })
+                                        .await
+                                }
+                            };
+
+                            let retry = tokio_retry::Retry::spawn(strategy, reconnect);
+                            let Ok(mut finalized) = retry.await else {
+                                continue 'retry;
+                            };
+
+                            let Ok(Some(next)) = finalized.try_next().await else {
+                                continue 'retry;
+                            };
+
+                            break futures::stream::iter(latest + 1..next.number() as u64)
+                                .then(|n| {
+                                    let legacy = config.cc3.legacy().clone();
+                                    let api = config.cc3.api().clone();
+                                    let number = subxt::backend::legacy::rpc_methods::NumberOrHex::Number(n);
+
+                                    async move {
+                                        match legacy.chain_get_block_hash(Some(number)).await {
+                                            Ok(Some(hash)) => api.blocks().at(hash).await.map_err(Error::Subxt),
+                                            Ok(None) => Err(Error::BlockHash(n)),
+                                            Err(err) => Err(Error::Subxt(err)),
+                                        }
+                                    }
+                                })
+                                .chain(futures::stream::once(futures::future::ok(next)))
+                                .chain(finalized.map_err(Error::Subxt))
+                                .and_then(|block| {
+                                    let block_number = block.number() as common::types::Height;
+                                    let chain_key = config.chain_key;
+
+                                    async move {
+                                        match block.events().await {
+                                            Ok(events) => Ok(StreamEvents::new(block_number, events, chain_key)),
+                                            Err(err) => Err(Error::Subxt(err)),
+                                        }
+                                    }
+                                })
+                                .boxed();
                         }
-                        Err(err) => {
-                            attempt += 1;
-
-                            tracing::warn!(
-                                attempt,
-                                MAX_ATTEMPTS,
-                                %err,
-                                "🛜 Failed to reconnect to cc3, retrying..."
-                            );
-
-                            if attempt >= MAX_ATTEMPTS {
-                                tracing::error!(%err, "⛔ Failed to reconnect to cc3");
-                                break (
-                                    State::Idle(Some((stream, cc3))),
-                                    Err(Interrupt::Cont(err)),
-                                );
-                            }
-                        }
-                    }
+                    },
                 }
             }
-
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=> {},
-                _ = tokio::signal::ctrl_c() => {
-                    break (
-                        State::Idle(Some((stream, cc3))),
-                        Err(Interrupt::Stop)
-                    )
-                }
-            }
-
-            delay = (delay * 2).min(DELAY_MAX);
         }
+        .boxed();
+
+        Ok(Self { stream })
     }
 }
 
 impl futures::Stream for StreamCC3 {
-    type Item = Result<CC3Events, Interrupt<Error>>;
+    type Item = StreamEvents;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        use std::future::Future as _;
-
-        let chain_key = self.chain_key;
-
-        match &mut self.state {
-            State::Polling(fut) => {
-                let (state, events) = std::task::ready!(fut.as_mut().poll(cx));
-
-                self.state = state;
-                std::task::Poll::Ready(Some(events))
-            }
-            State::Idle(inner) => {
-                let (stream, cc3) = inner.take().unwrap();
-                let mut fut = Box::pin(Self::events_next(stream, cc3, chain_key));
-
-                match fut.as_mut().poll(cx) {
-                    std::task::Poll::Ready((state, events)) => {
-                        self.state = state;
-                        std::task::Poll::Ready(Some(events))
-                    }
-                    std::task::Poll::Pending => {
-                        self.state = State::Polling(fut);
-                        std::task::Poll::Pending
-                    }
-                }
-            }
-        }
+        use futures::StreamExt as _;
+        self.stream.poll_next_unpin(cx)
     }
 }
 
-pub struct CC3Events {
-    block: common::types::SubxtBlock,
-    chain_key: attestor_primitives::ChainKey,
+pub struct StreamEvents {
+    stream: std::pin::Pin<
+        Box<
+            dyn futures::Stream<Item = Result<cc_client::attestation::CcEvent, Error>>
+                + Send
+                + Sync,
+        >,
+    >,
+    block_number: common::types::Height,
 }
 
-// ----------------------------------------- [ Events ] ---------------------------------------- //
+impl StreamEvents {
+    pub fn new(
+        block_number: common::types::Height,
+        events: subxt::events::Events<subxt::SubstrateConfig>,
+        chain_key: attestor_primitives::ChainKey,
+    ) -> Self {
+        use futures::TryStreamExt as _;
 
-impl CC3Events {
-    pub async fn events(
-        &self,
-    ) -> Result<
-        impl Iterator<Item = Result<cc_client::attestation::CcEvent, Error>>,
-        Interrupt<Error>,
-    > {
-        let events = tokio::select! {
-            res = self.block.events() => {
-                res.map_interrupt(Error::SubxtError)?
-            }
-            _ = tokio::signal::ctrl_c() => {
-                return Err(Interrupt::Stop);
-            }
-        };
+        let stream = Box::pin(
+            futures::stream::iter(cc_client::Client::extract_events(chain_key, &events))
+                .map_err(|err| Error::Subxt(err.into())),
+        );
 
-        let iter = cc_client::Client::extract_events(self.chain_key, &events)
-            .map(|event| event.map_err(|err| Error::SubxtError(err.into())));
+        Self {
+            block_number,
+            stream,
+        }
+    }
 
-        Ok(iter)
+    pub fn block_number(&self) -> common::types::Height {
+        self.block_number
+    }
+}
+
+impl futures::Stream for StreamEvents {
+    type Item = Result<cc_client::attestation::CcEvent, Error>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.stream.as_mut().poll_next(cx)
     }
 }

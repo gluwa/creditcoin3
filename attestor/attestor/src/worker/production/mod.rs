@@ -175,8 +175,8 @@ impl super::Worker for WorkerAttestationProduction {
                 _ = &mut shutdown => {
                     break Err(Interrupt::Stop);
                 }
-                Some(event) = self.stream_cc3.next() => {
-                    self.handle_event_cc3(event).await?;
+                Some(events) = self.stream_cc3.next() => {
+                    self.handle_event_cc3(events).await?;
                 }
                 Some(event) = self.stream_attestation.next(), if self.can_attest => {
                     self.handle_event_attestation(event).await?;
@@ -266,19 +266,15 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_cc3(
         &mut self,
-        res: Result<crate::stream::cc3::CC3Events, Interrupt<crate::stream::cc3::Error>>,
+        mut events: crate::stream::cc3::StreamEvents,
     ) -> Result<(), Interrupt<Error>> {
         use crate::events::EventAttestationFinalization as _;
         use crate::events::EventAttestationIntervalChange as _;
         use crate::events::EventAttestorsElected as _;
+        use futures::TryStreamExt as _;
 
-        for event in res
-            .map_interrupt(Error::CC3)?
-            .events()
-            .await
-            .map_interrupt(Error::CC3)?
-        {
-            match event.map_interrupt(Error::CC3)? {
+        while let Some(event) = events.try_next().await.map_interrupt(Error::CC3)? {
+            match event {
                 // CASE 1] NEW ATTESTATION
                 cc_client::attestation::CcEvent::BlockAttested(attestation) => {
                     let digest = attestation.digest;
