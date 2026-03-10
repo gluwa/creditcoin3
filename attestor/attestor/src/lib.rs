@@ -525,10 +525,18 @@ impl Attestor {
                 .context("BLS signature has unexpected length")
                 .map_interrupt(Error::InitError)?;
 
-            client_cc3
-                .start_attesting(chain_key, bls_public_key, proof_of_possession)
-                .await
-                .map_interrupt(Error::RpcError)?;
+            tokio::select! {
+                res = client_cc3.start_attesting(
+                    chain_key,
+                    bls_public_key,
+                    proof_of_possession,
+                ) => {
+                    res.map_interrupt(Error::RpcError)?;
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    return Err(Interrupt::Stop);
+                }
+            }
 
             tracing::info!(
                 attestor = %account_id,
