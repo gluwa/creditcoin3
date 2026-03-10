@@ -38,9 +38,11 @@ subxt = { workspace = true }
 subxt-signer = { workspace = true }
 
 # Async & Parallelism
+async-stream = { workspace = true }
 futures = { workspace = true }
 rayon = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }
+tokio-retry = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["url"] }
 
 # P2P

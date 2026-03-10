@@ -18,6 +18,7 @@
 
 pub mod attestation;
 pub mod cc3;
+pub mod cc3_new;
 pub mod secret;
 
 pub use secret::AttestorSecret;
