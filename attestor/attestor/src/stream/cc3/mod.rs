@@ -16,7 +16,6 @@ pub struct StreamCC3 {
 impl StreamCC3 {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
         use futures::StreamExt as _;
-        use futures::TryFutureExt as _;
         use futures::TryStreamExt as _;
 
         let mut events = config
@@ -53,63 +52,70 @@ impl StreamCC3 {
                         latest = event.block_number();
                         yield event
                     },
-                    Ok(None) | Err(_) => {
+                    err => {
+                        tracing::warn!(?err, "🛜 CC3 connection lost");
+
                         events = 'retry: loop {
                             let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
                                 .max_delay(std::time::Duration::from_millis(5_000))
                                 .map(tokio_retry::strategy::jitter);
                             let reconnect = || {
+                                tracing::warn!("🛜 Reconnecting...");
+
                                 let mut cc3 = config.cc3.clone();
                                 async move {
-                                    cc3.reconnect()
-                                        .map_err(Error::Client)
-                                        .and_then(|cc3| {
-                                            cc3.api()
-                                                .blocks()
-                                                .subscribe_finalized()
-                                                .map_err(Error::Subxt)
-                                        })
+                                    let mut finalized = cc3.reconnect()
                                         .await
+                                        .map_err(Error::Client)?
+                                        .api()
+                                        .blocks()
+                                        .subscribe_finalized()
+                                        .await
+                                        .map_err(Error::Subxt)?;
+
+                                    let next = finalized.try_next()
+                                        .await
+                                        .map_err(Error::Subxt)?
+                                        .ok_or(Error::EndOfStream)?;
+
+                                    let stream = futures::stream::iter(latest + 1..next.number() as u64)
+                                        .then(move |n| {
+                                            let legacy = cc3.legacy().clone();
+                                            let api = cc3.api().clone();
+                                            let number = subxt::backend::legacy::rpc_methods::NumberOrHex::Number(n);
+
+                                            async move {
+                                                match legacy.chain_get_block_hash(Some(number)).await {
+                                                    Ok(Some(hash)) => api.blocks().at(hash).await.map_err(Error::Subxt),
+                                                    Ok(None) => Err(Error::BlockHash(n)),
+                                                    Err(err) => {
+                                                        tracing::error!(?err, "Failed to retrieve block hash");
+                                                        Err(Error::Subxt(err))
+                                                    },
+                                                }
+                                            }
+                                        })
+                                        .chain(futures::stream::once(futures::future::ok(next)))
+                                        .chain(finalized.map_err(Error::Subxt))
+                                        .and_then(move |block| {
+                                            let block_number = block.number() as common::types::Height;
+                                            let chain_key = config.chain_key;
+
+                                            async move {
+                                                match block.events().await {
+                                                    Ok(events) => Ok(StreamEvents::new(block_number, events, chain_key)),
+                                                    Err(err) => Err(Error::Subxt(err)),
+                                                }
+                                            }
+                                        })
+                                        .boxed();
+
+                                    Ok::<_, Error>(stream)
                                 }
                             };
 
                             let retry = tokio_retry::Retry::spawn(strategy, reconnect);
-                            let Ok(mut finalized) = retry.await else {
-                                continue 'retry;
-                            };
-
-                            let Ok(Some(next)) = finalized.try_next().await else {
-                                continue 'retry;
-                            };
-
-                            break futures::stream::iter(latest + 1..next.number() as u64)
-                                .then(|n| {
-                                    let legacy = config.cc3.legacy().clone();
-                                    let api = config.cc3.api().clone();
-                                    let number = subxt::backend::legacy::rpc_methods::NumberOrHex::Number(n);
-
-                                    async move {
-                                        match legacy.chain_get_block_hash(Some(number)).await {
-                                            Ok(Some(hash)) => api.blocks().at(hash).await.map_err(Error::Subxt),
-                                            Ok(None) => Err(Error::BlockHash(n)),
-                                            Err(err) => Err(Error::Subxt(err)),
-                                        }
-                                    }
-                                })
-                                .chain(futures::stream::once(futures::future::ok(next)))
-                                .chain(finalized.map_err(Error::Subxt))
-                                .and_then(|block| {
-                                    let block_number = block.number() as common::types::Height;
-                                    let chain_key = config.chain_key;
-
-                                    async move {
-                                        match block.events().await {
-                                            Ok(events) => Ok(StreamEvents::new(block_number, events, chain_key)),
-                                            Err(err) => Err(Error::Subxt(err)),
-                                        }
-                                    }
-                                })
-                                .boxed();
+                            break 'retry retry.await.expect("Unbounded retry cannot error");
                         }
                     },
                 }
@@ -142,6 +148,14 @@ pub struct StreamEvents {
         >,
     >,
     block_number: common::types::Height,
+}
+
+impl std::fmt::Debug for StreamEvents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamEvents")
+            .field("block_number", &self.block_number)
+            .finish()
+    }
 }
 
 impl StreamEvents {
