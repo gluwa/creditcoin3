@@ -623,3 +623,20 @@ type ForcedElection @entity {
 
     epoch: BigInt!
 }
+
+type RevertedAttestationChainTo @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: BigInt!
+
+    date: Date
+
+    chainKey: BigInt!
+
+    checkpointHeight: BigInt!
+
+    digest: String!
+}

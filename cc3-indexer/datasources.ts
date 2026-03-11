@@ -247,6 +247,14 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
                     method: 'ForcedElection',
                 },
             },
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleEventRevertedAttestationChainTo',
+                filter: {
+                    module: 'attestation',
+                    method: 'RevertedAttestationChainTo',
+                },
+            },
         ],
     },
 };

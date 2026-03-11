@@ -34,6 +34,7 @@ import {
     AuthorizedAttestorRemoved,
     ContinuityProof,
     ForcedElection,
+    RevertedAttestationChainTo,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData } from './initStore';
@@ -1291,4 +1292,135 @@ export async function handleForcedElection(event: SubstrateEvent): Promise<void>
     });
 
     await forcedElection.save();
+}
+
+export async function handleEventRevertedAttestationChainTo(event: SubstrateEvent): Promise<void> {
+    logger.info(`New RevertedAttestationChainTo event found at block ${event.block.block.header.number.toString()}`);
+
+    try {
+        const blockNumber = event.block.block.header.number.toBigInt();
+
+        const {
+            event: {
+                data: [chainKey, checkpointHeight, checkpointDigest],
+            },
+        } = event;
+
+        const chainKeyNumber = BigInt(chainKey.toString());
+        const checkpointHeightNumber = BigInt(checkpointHeight.toString());
+        const digestStr = checkpointDigest.toString();
+
+        const revertedAttestationChainTo = RevertedAttestationChainTo.create({
+            id: `${blockNumber}-${event.idx}`,
+            blockNumber,
+            date: event.block.timestamp,
+            chainKey: chainKeyNumber,
+            checkpointHeight: checkpointHeightNumber,
+            digest: digestStr,
+        });
+
+        await revertedAttestationChainTo.save();
+
+        await remove_attestations_above_height(chainKeyNumber, checkpointHeightNumber);
+        await remove_checkpoints_above_height(chainKeyNumber, checkpointHeightNumber);
+
+        // Update chain data
+        const [chainData] = await AttestationChainData.getByFields([['chainKey', '=', chainKeyNumber]], { limit: 1 });
+        if (chainData) {
+            chainData.lastCheckpointHeaderNumber = checkpointHeightNumber;
+            chainData.lastAttestedHeaderNumber = checkpointHeightNumber;
+            chainData.lastAttestedDigest = digestStr;
+            await chainData.save();
+        } else {
+            logger.warn(`AttestationChainData not found for chainKey=${chainKeyNumber.toString()} during reversion`);
+        }
+    } catch (error) {
+        logger.error(error, 'Failed during reversion cleanup');
+        throw error; // rethrow so the indexer knows the handler failed
+    } finally {
+        logger.info('Reversion handler finished (success or failure)');
+    }
+}
+
+async function remove_attestations_above_height(chainKey: bigint, revertHeight: bigint) {
+    const PAGE_SIZE = 5000;
+    const DELETE_BATCH_SIZE = 100;
+    let offset = 0;
+    const attestationIdsToDelete: string[] = [];
+
+    while (true) {
+        const page = await Attestations.getByFields([['chainKey', '=', chainKey]], {
+            limit: PAGE_SIZE,
+            offset,
+            orderBy: 'id',
+            orderDirection: 'ASC',
+        });
+
+        if (page.length === 0) {
+            break;
+        }
+
+        for (const attestation of page) {
+            if (BigInt(attestation.headerNumber.toString()) > revertHeight) {
+                attestationIdsToDelete.push(attestation.id);
+            }
+        }
+
+        offset += page.length;
+    }
+
+    for (const batch of chunk(attestationIdsToDelete, DELETE_BATCH_SIZE)) {
+        await Promise.all(
+            batch.map(async (attestationId) => {
+                const mappings = await MapAttestationAttestor.getByFields([['attestationId', '=', attestationId]], {
+                    limit: PAGE_SIZE,
+                });
+
+                // Small count of mappings per attestation so no batching
+                await Promise.all(mappings.map((mapping) => MapAttestationAttestor.remove(mapping.id)));
+
+                await Attestations.remove(attestationId);
+            }),
+        );
+    }
+}
+
+async function remove_checkpoints_above_height(chainKey: bigint, revertHeight: bigint) {
+    const PAGE_SIZE = 5000;
+    const DELETE_BATCH_SIZE = 100;
+    let offset = 0;
+    const checkpointIdsToDelete: string[] = [];
+
+    while (true) {
+        const page = await Checkpoints.getByFields([['chainKey', '=', chainKey]], {
+            limit: PAGE_SIZE,
+            offset,
+            orderBy: 'id',
+            orderDirection: 'ASC',
+        });
+
+        if (page.length === 0) {
+            break;
+        }
+
+        for (const checkpoint of page) {
+            if (BigInt(checkpoint.blockNumber.toString()) > revertHeight) {
+                checkpointIdsToDelete.push(checkpoint.id);
+            }
+        }
+
+        offset += page.length;
+    }
+
+    for (const batch of chunk(checkpointIdsToDelete, DELETE_BATCH_SIZE)) {
+        await Promise.all(batch.map((checkpointId) => Checkpoints.remove(checkpointId)));
+    }
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+        chunks.push(items.slice(i, i + size));
+    }
+    return chunks;
 }
