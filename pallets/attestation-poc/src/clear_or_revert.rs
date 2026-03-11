@@ -28,8 +28,7 @@ impl<T: Config> Pallet<T> {
         let checkpoint_interval = AttestationCheckpointInterval::<T>::get(chain_key);
 
         // Clearing attestations. We should never have more than 2 checkpoints - 1 + retention_duration worth of attestations.
-        // However, in case we happen to be adding a new attestation this block we allow for the clearing of 1 additional attestation.
-        let max_attestations_to_remove = checkpoint_interval * 2 + retention_duration;
+        let max_attestations_to_remove = checkpoint_interval * 2 - 1 + retention_duration;
 
         let maybe_cursor =
             Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None)
