@@ -129,9 +129,13 @@ impl Client {
     }
 
     pub async fn reconnect(&mut self) -> Result<&mut Self, Error> {
-        self.rpc = RpcClient::from_url(self.url.clone()).await?;
-        self.api = OnlineClient::<SubstrateConfig>::from_rpc_client(self.rpc.clone()).await?;
-        self.legacy = LegacyRpcMethods::<SubstrateConfig>::new(self.rpc.clone());
+        let rpc = RpcClient::from_url(self.url.clone()).await?;
+        let api = OnlineClient::<SubstrateConfig>::from_rpc_client(self.rpc.clone()).await?;
+        let legacy = LegacyRpcMethods::<SubstrateConfig>::new(self.rpc.clone());
+
+        self.rpc = rpc;
+        self.api = api;
+        self.legacy = legacy;
 
         Ok(self)
     }
