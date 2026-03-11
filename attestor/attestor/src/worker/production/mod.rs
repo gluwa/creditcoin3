@@ -467,7 +467,14 @@ impl WorkerAttestationProduction {
 
                     self.attestation_latest_cc3 = attestation_latest_cc3;
 
-                    // 1. Chain Listener - Eth
+                    // 1. Update the attestation pool
+                    //
+                    // Upon chain reversion, we clear all pending attestations in the attestation pool.
+                    self.sender_validation
+                        .note_attestation_chain_reversion(attestation_latest_cc3)
+                        .expect("Infallible");
+
+                    // 2. Chain Listener - Eth
                     //
                     // This ensures that we keep producing new attestations starting from the
                     // revert height.
@@ -475,13 +482,6 @@ impl WorkerAttestationProduction {
                         .note_attestation_chain_reversion_async(attestation_latest_cc3)
                         .await
                         .map_interrupt(Error::Attestation)?;
-
-                    // 2. Update the attestation pool
-                    //
-                    // Upon chain reversion, we clear all pending attestations in the attestation pool.
-                    self.sender_validation
-                        .note_attestation_chain_reversion(attestation_latest_cc3)
-                        .expect("Infallible");
                 }
             }
         }
