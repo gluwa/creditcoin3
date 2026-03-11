@@ -490,11 +490,9 @@ impl WorkerAttestationValidation {
         use rand::seq::SliceRandom as _;
         use rand::SeedableRng as _;
 
-        let runtime_api = loop {
-            match self.cc3.api().runtime_api().at_latest().await {
-                Ok(runtime_api) => break runtime_api,
-                Err(err) => self.reconnect(Error::Subxt(err)).await,
-            }
+        let mut runtime_api = match self.cc3.api().runtime_api().at_latest().await {
+            Ok(runtime_api) => runtime_api,
+            Err(err) => self.reconnect(Error::Subxt(err)).await,
         };
 
         // -----------------------------------* Pre-validation *-----------------------------------
@@ -510,7 +508,7 @@ impl WorkerAttestationValidation {
                 .is_chain_supported(chain_key);
             match runtime_api.call(call).await {
                 Ok(is_chain_supported) => break is_chain_supported,
-                Err(err) => self.reconnect(Error::Subxt(err)).await,
+                Err(err) => runtime_api = self.reconnect(Error::Subxt(err)).await,
             };
         };
 
@@ -534,7 +532,7 @@ impl WorkerAttestationValidation {
             );
             match runtime_api.call(call).await {
                 Ok(is_duplicate) => break is_duplicate,
-                Err(err) => self.reconnect(Error::Subxt(err)).await,
+                Err(err) => runtime_api = self.reconnect(Error::Subxt(err)).await,
             };
         };
 
@@ -599,7 +597,9 @@ impl WorkerAttestationValidation {
                     Ok(pubkey) => {
                         break pubkey.map(|bytes| bls_signatures::PublicKey::from_bytes(&bytes))
                     }
-                    Err(err) => self.reconnect(Error::Subxt(err)).await,
+                    Err(err) => {
+                        runtime_api = self.reconnect(Error::Subxt(err)).await;
+                    }
                 }
             };
 
@@ -684,7 +684,7 @@ impl WorkerAttestationValidation {
             let call = self.api_calls.attestor_api().last_digest(chain_key);
             match runtime_api.call(call).await {
                 Ok(digest_last_finalized) => break digest_last_finalized,
-                Err(err) => self.reconnect(Error::Subxt(err)).await,
+                Err(err) => runtime_api = self.reconnect(Error::Subxt(err)).await,
             };
         };
 
@@ -942,7 +942,9 @@ impl WorkerAttestationValidation {
         let (randomness, epoch_index) = loop {
             match self.cc3.fetch_babe_randomness_two_epoch_ego().await {
                 Ok(babe) => break babe,
-                Err(err) => self.reconnect(Error::Client(err)).await,
+                Err(err) => {
+                    self.reconnect(Error::Client(err)).await;
+                }
             }
         };
 
@@ -975,7 +977,9 @@ impl WorkerAttestationValidation {
 
                         return Ok(());
                     }
-                    Err(err) => self.reconnect(Error::Client(err)).await,
+                    Err(err) => {
+                        self.reconnect(Error::Client(err)).await;
+                    }
                 }
             };
 
@@ -1110,7 +1114,9 @@ impl WorkerAttestationValidation {
                 .await
             {
                 Ok(submit) => break submit,
-                Err(err) => self.reconnect(Error::Subxt(err)).await,
+                Err(err) => {
+                    self.reconnect(Error::Subxt(err)).await;
+                }
             }
         };
 
@@ -1133,7 +1139,13 @@ impl WorkerAttestationValidation {
         Ok(())
     }
 
-    async fn reconnect(&mut self, err: Error) {
+    async fn reconnect(
+        &mut self,
+        err: Error,
+    ) -> subxt::runtime_api::RuntimeApi<
+        subxt::SubstrateConfig,
+        subxt::OnlineClient<subxt::SubstrateConfig>,
+    > {
         tracing::warn!(?err, "🛜 CC3 connection lost");
 
         let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
@@ -1144,12 +1156,23 @@ impl WorkerAttestationValidation {
 
             let mut cc3 = self.cc3.clone();
             async move {
-                cc3.reconnect().await?;
-                Ok::<_, cc_client::Error>(cc3)
+                cc3.reconnect().await.map_err(Error::Client)?;
+
+                let runtime_api = cc3
+                    .api()
+                    .runtime_api()
+                    .at_latest()
+                    .await
+                    .map_err(Error::Subxt)?;
+
+                Ok::<_, Error>((cc3, runtime_api))
             }
         };
         let retry = tokio_retry::Retry::spawn(strategy, reconnect);
 
-        self.cc3 = retry.await.expect("Unbounded retry cannot error");
+        let (cc3, runtime_api) = retry.await.expect("Unbounded retry cannot error");
+        self.cc3 = cc3;
+
+        runtime_api
     }
 }
