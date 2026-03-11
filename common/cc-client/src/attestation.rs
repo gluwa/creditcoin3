@@ -13,7 +13,7 @@ use crate::cc3::{
     attestation::events::{
         AttestationChainGenesisBlockNumberSet, AttestationIntervalChanged, AttestorActivated,
         AttestorChilled, AttestorsElected, BlockAttested, CheckpointIntervalChanged,
-        CheckpointReached, TargetSampleSizeChanged,
+        CheckpointReached, RevertedAttestationChainTo, TargetSampleSizeChanged,
     },
     randomness::events::StoreRandomnessForEpoch,
     staking::events::Kicked,
@@ -58,6 +58,7 @@ pub enum CcEvent {
     AttestorChilled(AccountId32),
     AttestorKicked(AccountId32),
     AttestationChainGenesisBlockNumberSet(u64),
+    RevertedAttestationChainTo(u64, Digest),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -324,6 +325,27 @@ impl Client {
 
                         Some(Ok(CcEvent::AttestationChainGenesisBlockNumberSet(
                             block_number,
+                        )))
+                    }
+                    (RevertedAttestationChainTo::PALLET, RevertedAttestationChainTo::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<RevertedAttestationChainTo>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        let RevertedAttestationChainTo {
+                            chain_key,
+                            checkpoint_height,
+                            checkpoint_digest,
+                        } = event;
+
+                        if chain_key != filter {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::RevertedAttestationChainTo(
+                            checkpoint_height,
+                            Digest::from(checkpoint_digest.0),
                         )))
                     }
                     (_module, _event) => None,

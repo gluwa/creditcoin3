@@ -940,12 +940,12 @@ impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
             .await
             .ok_or(Interrupt::Cont(Error::StreamError))?
             .number
-            .saturating_sub(common::constants::ATTESTATION_FINALIZATION_LAG);
+            .saturating_sub(self.maturity_delay);
 
         self.state = State::Idle(Some((client_eth, stream)));
 
         // Resetting cache. We can't trust stored blocks or roots after a reversion.
-        self.continuity = CacheContinuity::new(info.height, Some(info.digest));
+        self.continuity = CacheContinuity::new(info.height, Some(info));
 
         // Resetting key markers
         let interval_attestation = self.interval_attestation.get();

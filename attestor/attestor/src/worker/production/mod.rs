@@ -464,6 +464,17 @@ impl WorkerAttestationProduction {
                         genesis_block,
                         "🎬 Attestation chain genesis block number set"
                     );
+                }
+
+                // CASE 11] ATTESTATION CHAIN REVERSION
+                cc_client::attestation::CcEvent::RevertedAttestationChainTo(height, digest) => {
+                    let attestation_latest_cc3 = common::types::AttestationInfo { digest, height };
+
+                    tracing::info!(
+                        height,
+                        %digest,
+                        "💾 Attestation chain reversion detected!"
+                    );
 
                     self.attestation_latest_cc3 = attestation_latest_cc3;
 
@@ -474,7 +485,7 @@ impl WorkerAttestationProduction {
                         .note_attestation_chain_reversion(attestation_latest_cc3)
                         .expect("Infallible");
 
-                    // 2. Chain Listener - Eth
+                    // 2. Update the attestation production stream
                     //
                     // This ensures that we keep producing new attestations starting from the
                     // revert height.
