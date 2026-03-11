@@ -80,7 +80,7 @@ impl StreamCC3 {
                                     .map_err(Error::Subxt)?
                                     .ok_or(Error::EndOfStream)?;
 
-                                // Bakfilling
+                                // Backfilling
                                 let stream = futures::stream::iter(latest + 1..next.number() as u64)
                                     .then(move |n| {
                                         let legacy = cc3.legacy().clone();
