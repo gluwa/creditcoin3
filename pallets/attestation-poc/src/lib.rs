@@ -1169,7 +1169,7 @@ pub mod pallet {
         #[pallet::call_index(25)]
         #[pallet::weight(<T as Config>::WeightInfo::force_election())]
         pub fn force_election(origin: OriginFor<T>, epoch: u64) -> DispatchResult {
-            ensure_root(origin)?;
+            T::OperatorsOrigin::ensure_origin(origin)?;
 
             Self::do_start_election(epoch, [0; 32])?;
 
