@@ -31,6 +31,7 @@ pub struct StreamAttestation {
 impl StreamAttestation {
     pub async fn new(mut config: Config) -> Result<Self, Error> {
         use futures::StreamExt as _;
+        use futures::TryStreamExt as _;
 
         config.eth.start_height =
             config.eth.start_height - (config.eth.start_height % config.interval_attestation.get());
@@ -52,11 +53,20 @@ impl StreamAttestation {
             .min(tip - (tip % config.interval_attestation.get()));
         let missing = start..=stop;
 
-        let stream_roots = stream_eth::StreamRoots::new(config.eth)
+        let mut stream_roots = stream_eth::StreamRoots::new(config.eth)
             .await
             .map_err(Error::Eth)?;
 
-        let cache = Vec::with_capacity(config.max_catchup.get() as usize);
+        let mut cache = Vec::with_capacity(config.max_catchup.get() as usize);
+
+        while let Some(info) = stream_roots.try_next().await.map_err(Error::Eth)? {
+            let height = info.height;
+            cache.push(info);
+
+            if height >= stop {
+                break;
+            }
+        }
 
         Ok(Self {
             stream_roots,
@@ -85,12 +95,6 @@ impl futures::Stream for StreamAttestation {
         use futures::StreamExt as _;
 
         loop {
-            tracing::info!(
-                cursor = self.cursor,
-                start = self.missing.start(),
-                "Polling for permit"
-            );
-
             if &self.cursor > self.missing.start() {
                 let permit = Permit(self.cursor);
                 self.cursor = self.cursor.saturating_sub(self.interval_attestation.get());
@@ -98,7 +102,6 @@ impl futures::Stream for StreamAttestation {
             }
 
             if self.cache.len() >= self.max_catchup.get() as usize {
-                tracing::error!("Max size reached");
                 self.waker = Some(cx.waker().clone());
                 return std::task::Poll::Pending;
             }
@@ -109,10 +112,7 @@ impl futures::Stream for StreamAttestation {
                 .to_owned()
                 .saturating_add(self.interval_attestation.get());
 
-            tracing::info!(start, missing = ?self.missing, "Updating tip");
-
             while self.tip < start {
-                tracing::info!(tip = self.tip, "New tip");
                 self.tip = match std::task::ready!(self.stream_tip.poll_next_unpin(cx)) {
                     Some(tip) => tip - (tip % self.interval_attestation.get()),
                     None => return std::task::Poll::Ready(None),
@@ -122,12 +122,10 @@ impl futures::Stream for StreamAttestation {
             while let Some(info) = std::task::ready!(self.stream_roots.poll_next_unpin(cx)) {
                 match info {
                     Ok(info) => {
-                        tracing::info!(?info, "Computed root info");
+                        let height = info.height;
+                        self.cache.push(info);
 
-                        self.cache.push(info.clone());
-
-                        if info.height == self.tip
-                            || self.cache.len() >= self.max_catchup.get() as usize
+                        if height >= self.tip || self.cache.len() >= self.max_catchup.get() as usize
                         {
                             break;
                         }
@@ -144,8 +142,6 @@ impl futures::Stream for StreamAttestation {
 
             self.missing = *self.missing.end()..=stop;
             self.cursor = stop;
-
-            tracing::info!(cursor = self.cursor, missing = ?self.missing, "Reached tip");
         }
     }
 }
