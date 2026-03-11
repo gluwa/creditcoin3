@@ -38,7 +38,7 @@ export async function fetchBlocks(
     count = Math.min(count, endBlock - startBlock + 1);
   } else {
     const head = await provider.getBlockNumber();
-    endBlock = head - HEAD_OFFSET;
+    endBlock = Math.max(0, head - HEAD_OFFSET);
     startBlock = Math.max(0, endBlock - count + 1);
     console.log(
       `Source chain head: ${head}, fetching ${HEAD_OFFSET} blocks behind head to avoid BlockNotOnSourceChain errors`,
