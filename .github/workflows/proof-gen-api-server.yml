@@ -266,7 +266,6 @@ jobs:
         run: |
           chmod a+x ./target/release/proof-gen-api-server
 
-          POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres POSTGRES_PASSWORD=password POSTGRES_DB=proofs_db \
           ./target/release/proof-gen-api-server \
             --cc3-key "//Alice" \
             --cc3-rpc-url ws://localhost:9944 \
@@ -361,5 +360,139 @@ jobs:
           name: exercise-scripts-logs
           path: |
             /var/tmp/exercise-scripts/
+            ./logs/
+          include-hidden-files: true
+
+  # NOTE: not using a self-hosted runner here b/c this job is intended to run
+  # in under 10 minutes, probably even 5
+  stress-test-sanity:
+    needs:
+      - build-everything
+    runs-on: ubuntu-24.04
+    steps:
+      # start this early so it has time to produce more blocks to be used by stress-test
+      - name: Start Ethereum simulation with Anvil
+        run: |
+          export FOUNDRY_DIR="$HOME/.foundry"
+          # first install it
+          curl -L https://foundry.paradigm.xyz | bash
+          ~/.foundry/bin/foundryup
+
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+
+      - uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Simulate a native token transfer on Anvil 1
+        working-directory: attestor/scripts
+        run: |
+          npm install
+
+          for _i in $(seq 5); do
+              ETH_RPC_URL=http://127.0.0.1:8141 node Transfer.js
+          done
+
+      - name: Download binaries
+        uses: actions/download-artifact@v7
+        with:
+          name: binary-for-testing-proof-gen
+          path: target/release
+
+      - name: Start creditcoin3-node - Alice
+        run: |
+          mkdir -p /var/tmp/stress-test-sanity/
+          chmod a+x ./target/release/creditcoin3-node
+
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data >/var/tmp/stress-test-sanity/creditcoin3-node-alice.log 2>&1 &
+
+      - name: Check that creditcoin-node and anvil are running
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+
+      - name: Start Attestation Zombienet
+        run: |
+          chmod a+x ./target/release/attestor*
+
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --chain-key=2 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8141 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                >/var/tmp/stress-test-sanity/zombienet-alice.log &
+
+      - name: Wait for 3 attestors to be registered
+        run: |
+          # wait for Anvil_1 attestors (chain 2)
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+
+      - name: Wait for attestations
+        working-directory: scripts
+        run: |
+          npm install
+
+          # Uses Anvil Account #0 on source chain
+          node TransferAndWait.js \
+            --chain-key 2 \
+            --source-rpc-url http://127.0.0.1:8141 \
+            --cc3-rpc-url ws://localhost:9944
+
+      - name: Start proof-gen-api-server
+        run: |
+          chmod a+x ./target/release/proof-gen-api-server
+
+          ./target/release/proof-gen-api-server \
+            --cc3-key "//Alice" \
+            --cc3-rpc-url ws://localhost:9944 \
+            --eth-rpc-url http://localhost:8141 \
+            >/var/tmp/stress-test-sanity/proof-gen-api-server.log &
+
+          sleep 30
+
+      - name: Extract Deno version from Dockerfile
+        id: deno_version
+        working-directory: scripts/stress-test/
+        run: |
+          # Extract version from "FROM denoland/deno:X.Y.Z" line
+          VERSION=$(grep "^FROM denoland/deno:" Dockerfile | sed 's/.*denoland\/deno://' | tr -d '[:space:]')
+          if [ -z "$VERSION" ]; then
+            echo "Error: Could not extract Deno version from Dockerfile"
+            exit 1
+          fi
+          echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Extracted Deno version: v${VERSION}"
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ steps.deno_version.outputs.version }}
+
+      - name: Start stress-test
+        working-directory: scripts/stress-test/
+        run: |
+          deno task start --mode mixed --api-url http://localhost:3100 \
+            --chain-key 2 --source-rpc http://localhost:8141 \
+            --mix-ratio 0.5 --rps 10 --duration 60
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stress-test-logs
+          path: |
+            /var/tmp/stress-test-sanity/
             ./logs/
           include-hidden-files: true
