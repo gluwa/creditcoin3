@@ -512,11 +512,18 @@ jobs:
           # unreliable
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
-  deploy-runner-integration-test-cli:
+  trigger-integration-test-cli:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_cli == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+  deploy-runner-integration-test-cli:
+    needs:
+      - trigger-integration-test-cli
     strategy:
       fail-fast: false
       matrix:
