@@ -8,13 +8,12 @@ struct Args {
 
     #[arg(long, default_value_t = std::num::NonZeroUsize::new(1000).unwrap())]
     blocks: std::num::NonZeroUsize,
-
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
-    _extra: Vec<String>,
 }
 
 const FINALIZATION_LAG: attestor_primitives::Height = 10;
+const INTERVAL_ATTESTATION: std::num::NonZeroU64 = std::num::NonZero::new(10).unwrap();
 const MAX_CONCURRENT_REQUESTS: std::num::NonZeroUsize = std::num::NonZeroUsize::new(10).unwrap();
+const MAX_CATCHUP: std::num::NonZeroU64 = std::num::NonZeroU64::new(500).unwrap();
 
 fn main() {
     use clap::Parser as _;
@@ -47,31 +46,31 @@ fn main() {
             .await
             .expect("Failed to create eth client");
 
-        let config = stream_eth::roots::ConfigBuilder::new()
-            .with_client(client)
-            .with_start_height(args.start_height)
-            .with_finalization_lag(FINALIZATION_LAG)
-            .with_max_concurrency(MAX_CONCURRENT_REQUESTS)
-            .with_max_parallelism(parallelism)
+        let config = stream_attestation::ConfigBuilder::new()
+            .with_eth(
+                stream_eth::roots::ConfigBuilder::new()
+                    .with_client(client)
+                    .with_start_height(args.start_height)
+                    .with_finalization_lag(FINALIZATION_LAG)
+                    .with_max_concurrency(MAX_CONCURRENT_REQUESTS)
+                    .with_max_parallelism(parallelism)
+                    .build(),
+            )
+            .with_interval_attestation(INTERVAL_ATTESTATION)
+            .with_max_catchup(MAX_CATCHUP)
             .build();
-        let stream_roots = stream_eth::StreamRoots::new(config)
+
+        let mut attestations = stream_attestation::StreamAttestation::new(config)
             .await
-            .expect("Failed to create roots stream")
+            .expect("Failed to create attestation stream")
             .take(args.blocks.get());
-        let mut stream_roots = std::pin::pin!(stream_roots);
 
-        tracing::warn!("Starting benchmark...");
-
-        let now = std::time::Instant::now();
-
-        while let Some(_root) = stream_roots
+        while let Some(permit) = attestations
             .try_next()
             .await
-            .expect("Failed to retrieve block root")
-        {}
-
-        let elapsed = now.elapsed().as_millis();
-
-        tracing::warn!(elapsed, "Benchmark complete!");
+            .expect("Failed to fetch permit")
+        {
+            tracing::warn!(?permit, "Generating attestation...");
+        }
     })
 }

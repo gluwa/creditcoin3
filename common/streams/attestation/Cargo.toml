@@ -22,10 +22,6 @@ stream_eth = { workspace = true }
 # Async & Parallelism
 tokio = { workspace = true, features = ["full"] }
 
-# Util
-builder = { workspace = true }
-
-[dev-dependencies]
 # Parsing 
 clap = { workspace = true, features = ["cargo"] }
 url = { workspace = true, features = ["serde"] }
@@ -33,3 +29,6 @@ url = { workspace = true, features = ["serde"] }
 # Logging
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
+
+# Util
+builder = { workspace = true }
