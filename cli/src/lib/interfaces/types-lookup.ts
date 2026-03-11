@@ -3643,13 +3643,13 @@ declare module '@polkadot/types/lookup' {
         readonly era: Compact<u32>;
     }
 
-    /** @name PalletAttestationPocClearOrRevertCheckpointPruningState (416) */
+    /** @name PalletAttestationPocClearOrRevertCheckpointPruningState (417) */
     interface PalletAttestationPocClearOrRevertCheckpointPruningState extends Struct {
         readonly stopHeight: u64;
         readonly nextPivot: u64;
     }
 
-    /** @name PalletAttestationPocError (417) */
+    /** @name PalletAttestationPocError (418) */
     interface PalletAttestationPocError extends Enum {
         readonly isAlreadyAttestor: boolean;
         readonly isAttestorListFull: boolean;
@@ -3760,7 +3760,7 @@ declare module '@polkadot/types/lookup' {
             | 'TriedToRevertDuringOngoingReversion';
     }
 
-    /** @name SupportedChainsPrimitivesSupportedChain (418) */
+    /** @name SupportedChainsPrimitivesSupportedChain (419) */
     interface SupportedChainsPrimitivesSupportedChain extends Struct {
         readonly chainId: u64;
         readonly chainName: Bytes;
@@ -3768,7 +3768,7 @@ declare module '@polkadot/types/lookup' {
         readonly maturityStrategy: Text;
     }
 
-    /** @name PalletSupportedChainsError (420) */
+    /** @name PalletSupportedChainsError (421) */
     interface PalletSupportedChainsError extends Enum {
         readonly isChainAlreadyRegistered: boolean;
         readonly isChainNotSupported: boolean;
@@ -3777,10 +3777,10 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported' | 'Arithmetic' | 'InvalidMaturityStrategy';
     }
 
-    /** @name PalletRandomnessError (421) */
+    /** @name PalletRandomnessError (422) */
     type PalletRandomnessError = Null;
 
-    /** @name PalletMembershipError (423) */
+    /** @name PalletMembershipError (424) */
     interface PalletMembershipError extends Enum {
         readonly isAlreadyMember: boolean;
         readonly isNotMember: boolean;
@@ -3788,27 +3788,27 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'AlreadyMember' | 'NotMember' | 'TooManyMembers';
     }
 
-    /** @name FrameSystemExtensionsCheckNonZeroSender (426) */
+    /** @name FrameSystemExtensionsCheckNonZeroSender (427) */
     type FrameSystemExtensionsCheckNonZeroSender = Null;
 
-    /** @name FrameSystemExtensionsCheckSpecVersion (427) */
+    /** @name FrameSystemExtensionsCheckSpecVersion (428) */
     type FrameSystemExtensionsCheckSpecVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckTxVersion (428) */
+    /** @name FrameSystemExtensionsCheckTxVersion (429) */
     type FrameSystemExtensionsCheckTxVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckGenesis (429) */
+    /** @name FrameSystemExtensionsCheckGenesis (430) */
     type FrameSystemExtensionsCheckGenesis = Null;
 
-    /** @name FrameSystemExtensionsCheckNonce (432) */
+    /** @name FrameSystemExtensionsCheckNonce (433) */
     interface FrameSystemExtensionsCheckNonce extends Compact<u32> {}
 
-    /** @name FrameSystemExtensionsCheckWeight (433) */
+    /** @name FrameSystemExtensionsCheckWeight (434) */
     type FrameSystemExtensionsCheckWeight = Null;
 
-    /** @name PalletTransactionPaymentChargeTransactionPayment (434) */
+    /** @name PalletTransactionPaymentChargeTransactionPayment (435) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name Creditcoin3RuntimeRuntime (436) */
+    /** @name Creditcoin3RuntimeRuntime (437) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module
