@@ -595,8 +595,6 @@ jobs:
         "secret-${{ matrix.secret }}",
         "type-${{ matrix.proxy_type }}",
       ]
-    # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
-    permissions: write-all
     steps:
       - uses: actions/checkout@v6
         with:
