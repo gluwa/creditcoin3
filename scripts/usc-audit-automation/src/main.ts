@@ -27,8 +27,6 @@ import { createSlackPayload, sendSlackMessage } from "./slack.ts";
 
 const MAX_BLOCK_DIFF = 40;
 const BSC_MAX_BLOCK_DIFF = 499;
-/** Extra blocks allowed beyond (checkpointInterval × attestationInterval) for checkpoint lag. */
-const CHECKPOINT_BUFFER = 150;
 
 function formatNum(n: number): string {
   return n.toLocaleString("en-US");
@@ -55,31 +53,26 @@ function buildReport(
   lines.push(`[${chainLabel} - ${chainId}] ⬛ ${chainLabel}`);
   lines.push(
     (blockDiffOk ? "✅" : "❌") +
-      ` Attestation block heights diff: ${formatNum(ethBlock - attBlock)} (${
-        formatNum(ethBlock)
-      }|${formatNum(attBlock)})`,
+    ` Attestation block heights diff: ${formatNum(ethBlock - attBlock)} (${formatNum(ethBlock)
+    }|${formatNum(attBlock)})`,
   );
   const headerHashMatch = headerHashOk && blockByHash != null &&
     blockByHash === attBlock;
   lines.push(
     (headerHashOk ? "✅" : "❌") +
-      ` Attestation header hash matches correct Ethereum block${
-        headerHashMatch
-          ? ""
-          : `: (${blockByHash != null ? formatNum(blockByHash) : "null"}|${
-            formatNum(attBlock)
-          })`
-      }`,
+    ` Attestation header hash matches correct Ethereum block${headerHashMatch
+      ? ""
+      : `: (${blockByHash != null ? formatNum(blockByHash) : "null"}|${formatNum(attBlock)
+      })`
+    }`,
   );
   lines.push(
     (checkpointRangeOk ? "✅" : "❌") +
-      ` Last checkpoint creation is ${
-        checkpointRangeOk ? "within" : "outside"
-      } checkpoint range${
-        checkpointRangeOk
-          ? ""
-          : `: (${formatNum(ethBlock)}|${formatNum(checkpointBlock)})`
-      }`,
+    ` Last checkpoint creation is ${checkpointRangeOk ? "within" : "outside"
+    } checkpoint range${checkpointRangeOk
+      ? ""
+      : `: (${formatNum(ethBlock)}|${formatNum(checkpointBlock)})`
+    }`,
   );
   if (graphqlAtt && graphqlCp) {
     const fmt = (s: string) => formatNum(Number(s) || 0);
@@ -91,33 +84,28 @@ function buildReport(
       /^0x[0-9a-fA-F]+$/.test(graphqlAtt.digest);
     lines.push(
       (cpMatch ? "✅" : "❌") +
-        ` Last checkpoint number found in GraphQL${
-          cpMatch
-            ? ""
-            : `: (${fmt(graphqlCp.lastCheckpointHeaderNumber)}|${
-              formatNum(checkpointBlock)
-            })`
-        }`,
+      ` Last checkpoint number found in GraphQL${cpMatch
+        ? ""
+        : `: (${fmt(graphqlCp.lastCheckpointHeaderNumber)}|${formatNum(checkpointBlock)
+        })`
+      }`,
     );
     lines.push(
       (attMatch ? "✅" : "❌") +
-        ` Last attestation header number found in GraphQL${
-          attMatch
-            ? ""
-            : `: (${fmt(graphqlAtt.headerNumber)}|${formatNum(attBlock)})`
-        }`,
+      ` Last attestation header number found in GraphQL${attMatch
+        ? ""
+        : `: (${fmt(graphqlAtt.headerNumber)}|${formatNum(attBlock)})`
+      }`,
     );
     lines.push(
       (hasRoot ? "✅" : "❌") +
-        ` Last attestation root found in GraphQL${
-          hasRoot ? "" : `: (${graphqlAtt.root || "empty"})`
-        }`,
+      ` Last attestation root found in GraphQL${hasRoot ? "" : `: (${graphqlAtt.root || "empty"})`
+      }`,
     );
     lines.push(
       (hasDigest ? "✅" : "❌") +
-        ` Last attestation digest found in GraphQL${
-          hasDigest ? "" : `: (${graphqlAtt.digest || "empty"})`
-        }`,
+      ` Last attestation digest found in GraphQL${hasDigest ? "" : `: (${graphqlAtt.digest || "empty"})`
+      }`,
     );
   } else {
     lines.push("❌ GraphQL data not found for attestation/checkpoint");
@@ -174,14 +162,16 @@ async function runChecksForChain(
 
   const checkpointInterval = await getCheckpointInterval(chainKey);
   const attestationInterval = await getAttestationInterval(chainKey);
-  const maxAllowed = checkpointInterval * attestationInterval +
-    CHECKPOINT_BUFFER;
+  const checkpointWidth = checkpointInterval * attestationInterval;
+  // Pallet creates checkpoint when attestation_block_span >= (checkpoint_width * 2) + 1
+  // Add one attestation interval as buffer for submission/timing variance
+  const maxAllowed = checkpointWidth * 2 + 1 + attestationInterval;
   const diff = ethBlock - lastCheckpoint.blockNumber;
   const checkpointRangeOk = diff >= 0 && diff <= maxAllowed;
 
   if (config.verbose && !checkpointRangeOk) {
     console.log(
-      `[${chainLabel}] Checkpoint range: diff=${diff}, maxAllowed=${maxAllowed} (interval=${checkpointInterval}*${attestationInterval}+${CHECKPOINT_BUFFER})`,
+      `[${chainLabel}] Checkpoint range: diff=${diff}, maxAllowed=${maxAllowed} (checkpointWidth*2+1+attestationInterval=${checkpointWidth}*2+1+${attestationInterval})`,
     );
   }
 
