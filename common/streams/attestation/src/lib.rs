@@ -30,9 +30,6 @@ pub struct StreamAttestation {
 
 impl StreamAttestation {
     pub async fn new(mut config: Config) -> Result<Self, Error> {
-        use futures::StreamExt as _;
-        use futures::TryStreamExt as _;
-
         config.eth.start_height =
             config.eth.start_height - (config.eth.start_height % config.interval_attestation.get());
 
@@ -40,33 +37,15 @@ impl StreamAttestation {
             .with_client(config.eth.client.clone())
             .with_finalization_lag(config.eth.finalization_lag)
             .build();
-        let mut stream_tip = stream_eth::tip::StreamTip::new(config_tip)
+        let stream_tip = stream_eth::tip::StreamTip::new(config_tip)
             .await
             .map_err(Error::Eth)?;
 
-        let tip = stream_tip.next().await.ok_or(Error::EndOfStream)?;
-        let tip = tip - (tip % config.interval_attestation.get());
-
-        let start = config.eth.start_height;
-        let stop = start
-            .saturating_add(config.max_catchup.get())
-            .min(tip - (tip % config.interval_attestation.get()));
-        let missing = start..=stop;
-
-        let mut stream_roots = stream_eth::StreamRoots::new(config.eth)
+        let stream_roots = stream_eth::StreamRoots::new(config.eth)
             .await
             .map_err(Error::Eth)?;
 
-        let mut cache = Vec::with_capacity(config.max_catchup.get() as usize);
-
-        while let Some(info) = stream_roots.try_next().await.map_err(Error::Eth)? {
-            let height = info.height;
-            cache.push(info);
-
-            if height >= stop {
-                break;
-            }
-        }
+        let cache = Vec::with_capacity(config.max_catchup.get() as usize);
 
         Ok(Self {
             stream_roots,
@@ -76,12 +55,24 @@ impl StreamAttestation {
             max_catchup: config.max_catchup,
             interval_attestation: config.interval_attestation,
 
-            missing,
-            tip,
-            cursor: stop,
+            missing: 0..=0,
+            tip: 0,
+            cursor: 0,
 
             waker: None,
         })
+    }
+
+    fn missing_roots(&self) -> bool {
+        self.cache
+            .last()
+            .map(|info| info.height)
+            .unwrap_or_default()
+            < self.tip
+    }
+
+    fn has_space_left(&self) -> bool {
+        self.cache.len() < self.max_catchup.get() as usize
     }
 }
 
@@ -96,7 +87,16 @@ impl futures::Stream for StreamAttestation {
         use futures::TryStreamExt as _;
 
         loop {
-            if &self.cursor > self.missing.start() {
+            if self.cursor > *self.missing.start() {
+                assert!(
+                    self.cache
+                        .last()
+                        .is_some_and(|info| info.height >= self.cursor),
+                    "Missing block root ({}) in cache ({:?})",
+                    self.cursor,
+                    self.cache.last()
+                );
+
                 let permit = Permit(self.cursor);
                 self.cursor = self.cursor.saturating_sub(self.interval_attestation.get());
                 return std::task::Poll::Ready(Some(Ok(permit)));
@@ -113,15 +113,7 @@ impl futures::Stream for StreamAttestation {
                 .to_owned()
                 .saturating_add(self.interval_attestation.get());
 
-            while (self.tip < next
-                || self
-                    .cache
-                    .last()
-                    .map(|info| info.height)
-                    .unwrap_or_default()
-                    < self.tip)
-                && self.cache.len() < self.max_catchup.get() as usize
-            {
+            while (self.tip < next || self.missing_roots()) && self.has_space_left() {
                 let mut progress = false;
 
                 match self.stream_roots.try_poll_next_unpin(cx) {
@@ -132,16 +124,20 @@ impl futures::Stream for StreamAttestation {
                     std::task::Poll::Ready(Some(Err(err))) => {
                         return std::task::Poll::Ready(Some(Err(Error::Eth(err))))
                     }
-                    std::task::Poll::Ready(None) => {}
+                    std::task::Poll::Ready(None) => {
+                        return std::task::Poll::Ready(None);
+                    }
                     std::task::Poll::Pending => {}
                 }
 
                 match self.stream_tip.poll_next_unpin(cx) {
                     std::task::Poll::Ready(Some(tip)) => {
-                        self.tip = tip;
+                        self.tip = tip - (tip % self.interval_attestation.get());
                         progress = true;
                     }
-                    std::task::Poll::Ready(None) => {}
+                    std::task::Poll::Ready(None) => {
+                        return std::task::Poll::Ready(None);
+                    }
                     std::task::Poll::Pending => {}
                 }
 
@@ -149,6 +145,13 @@ impl futures::Stream for StreamAttestation {
                     return std::task::Poll::Pending;
                 }
             }
+
+            assert!(
+                self.cache.len() < self.max_catchup.get() as usize,
+                "Cache length ({}) exceeds max_catchup ({})",
+                self.cache.len(),
+                self.max_catchup
+            );
 
             let stop = self
                 .missing
