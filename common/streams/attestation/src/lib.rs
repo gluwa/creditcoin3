@@ -87,6 +87,7 @@ impl futures::Stream for StreamAttestation {
         use futures::TryStreamExt as _;
 
         loop {
+            // Yield cached roots
             if self.cursor > *self.missing.start() {
                 assert!(
                     self.cache
@@ -102,6 +103,8 @@ impl futures::Stream for StreamAttestation {
                 return std::task::Poll::Ready(Some(Ok(permit)));
             }
 
+            // Backpressure, limit the max number of roots which can be processed into a single
+            // attestation
             if self.cache.len() >= self.max_catchup.get() as usize {
                 self.waker = Some(cx.waker().clone());
                 return std::task::Poll::Pending;
@@ -113,6 +116,7 @@ impl futures::Stream for StreamAttestation {
                 .to_owned()
                 .saturating_add(self.interval_attestation.get());
 
+            // Chain tip and roots are polled concurrently until a new attestation can be produced
             while (self.tip < next || self.missing_roots()) && self.has_space_left() {
                 let mut progress = false;
 
