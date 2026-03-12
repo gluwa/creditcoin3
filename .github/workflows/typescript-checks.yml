@@ -15,6 +15,7 @@ name: typescript-checks
       - '**deno.json'
       - '**deno.lock'
       # controls the version of deno we test with
+      - 'scripts/stress-test/Dockerfile'
       - 'scripts/traffic-simulator/Dockerfile'
       - 'scripts/usc-audit-automation/Dockerfile'
       - '.github/workflows/typescript-checks.yml'
