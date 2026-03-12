@@ -3,6 +3,9 @@ struct Args {
     #[arg(long, default_value_t = url::Url::parse("ws://localhost:8545").unwrap())]
     eth_url: url::Url,
 
+    #[arg(long, default_value_t = url::Url::parse("ws://localhost:9944").unwrap())]
+    cc3_url: url::Url,
+
     #[arg(long, default_value_t = 0)]
     start_height: attestor_primitives::Height,
 
@@ -42,21 +45,31 @@ fn main() {
         .expect("Failed to build tokio runtime");
 
     rt.block_on(async move {
-        let client = eth::Client::new(args.eth_url.as_ref(), None)
+        let secret = bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret");
+        let bls_key = bls_signatures::PrivateKey::new(secret.to_string().as_bytes());
+
+        let client_eth = eth::Client::new(args.eth_url.as_ref(), None)
             .await
             .expect("Failed to create eth client");
+        let client_cc3 = cc_client::Client::new(args.cc3_url, &secret.to_string())
+            .await
+            .expect("Failed to create cc3 client");
 
         let config = stream_attestation::ConfigBuilder::new()
             .with_eth(
                 stream_eth::roots::ConfigBuilder::new()
-                    .with_client(client)
+                    .with_client(client_eth)
                     .with_start_height(args.start_height)
                     .with_finalization_lag(FINALIZATION_LAG)
                     .with_max_concurrency(MAX_CONCURRENT_REQUESTS)
                     .with_max_parallelism(parallelism)
                     .build(),
             )
+            .with_client(client_cc3)
+            .with_chain_key(2u64)
+            .with_bls_key(bls_key)
             .with_interval_attestation(INTERVAL_ATTESTATION)
+            .with_digest_prev(attestor_primitives::Digest::default())
             .with_max_catchup(MAX_CATCHUP)
             .build();
 

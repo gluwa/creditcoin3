@@ -13,7 +13,8 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RootInfo {
     pub height: attestor_primitives::Height,
-    pub digest: attestor_primitives::Digest,
+    pub root: attestor_primitives::Digest,
+    pub hash: attestor_primitives::Digest,
 }
 
 pub struct StreamRoots {
@@ -81,7 +82,8 @@ impl StreamRoots {
                                 roots.spawn_blocking(move || {
                                     RootInfo {
                                         height: block.number(),
-                                        digest: eth::simple_merkle_tree(&block).root()
+                                        root: eth::simple_merkle_tree(&block).root(),
+                                        hash: attestor_primitives::Digest::from(*block.hash()),
                                     }
                                 });
                             },
@@ -96,7 +98,10 @@ impl StreamRoots {
 
                                 // Drain as many roots as possible to deal with sporadic bursts in
                                 // ordering.
-                                while heap.peek().is_some_and(|info| info.0.height == next) {
+                                while heap
+                                    .peek()
+                                    .is_some_and(|info| info.0.height == next)
+                                {
                                     next += 1;
                                     yield Ok(heap.pop().expect("Checked above").0);
                                 }

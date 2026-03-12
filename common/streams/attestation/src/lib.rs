@@ -5,8 +5,13 @@ pub use error::Error;
 #[derive(builder::Builder)]
 pub struct Config {
     eth: stream_eth::roots::Config,
+
+    client: cc_client::Client,
+    chain_key: attestor_primitives::ChainKey,
+    bls_key: bls_signatures::PrivateKey,
+
     interval_attestation: std::num::NonZero<attestor_primitives::Height>,
-    digest_prev: Option<attestor_primitives::Digest>,
+    digest_prev: attestor_primitives::Digest,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
 }
 
@@ -20,12 +25,17 @@ impl Permit {
 }
 
 pub struct StreamAttestation {
+    client: cc_client::Client,
+    chain_key: attestor_primitives::ChainKey,
+    bls_key: bls_signatures::PrivateKey,
+
     stream_roots: stream_eth::StreamRoots,
     stream_tip: stream_eth::StreamTip,
 
     cache: Vec<stream_eth::RootInfo>,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
     interval_attestation: std::num::NonZero<attestor_primitives::Height>,
+    digest_prev: attestor_primitives::Digest,
 
     missing: std::ops::RangeInclusive<attestor_primitives::Height>,
     tip: attestor_primitives::Height,
@@ -54,12 +64,17 @@ impl StreamAttestation {
         let cache = Vec::with_capacity(config.max_catchup.get() as usize);
 
         Ok(Self {
+            client: config.client,
+            chain_key: config.chain_key,
+            bls_key: config.bls_key,
+
             stream_roots,
             stream_tip,
 
             cache,
             max_catchup: config.max_catchup,
             interval_attestation: config.interval_attestation,
+            digest_prev: config.digest_prev,
 
             missing: 0..=0,
             tip: 0,
@@ -67,6 +82,58 @@ impl StreamAttestation {
 
             waker: None,
         })
+    }
+
+    pub fn generate_attestation(
+        &self,
+        Permit(target): Permit,
+    ) -> attestor_primitives::Attestation<
+        attestor_primitives::Digest,
+        attestor_primitives::AttestorId,
+    > {
+        assert!(!self.cache.is_empty(), "Empty root cache");
+
+        let block_first = self.cache.first().unwrap().height;
+        assert!(target >= block_first, "{target} >= {block_first}");
+
+        let block_last = self.cache.last().unwrap().height;
+        assert!(target <= block_last, "{target} <= {block_last}");
+
+        let index = target as usize - block_first as usize;
+        let stream_eth::RootInfo { height, root, hash } = self.cache[index];
+
+        assert_eq!(height, target, "Attestation height mismatch");
+
+        let blocks = self.cache[0..index].iter().fold(
+            Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(index),
+            |mut acc, stream_eth::RootInfo { height, root, .. }| {
+                let digest_prev = acc
+                    .last()
+                    .map(|block| block.digest)
+                    .unwrap_or(self.digest_prev);
+                let block = attestor_primitives::block::Block::new_from_prev_digest(
+                    *height,
+                    *root,
+                    digest_prev,
+                );
+
+                acc.push(block.into());
+                acc
+            },
+        );
+
+        let continuity_proof =
+            attestor_primitives::attestation_fragment::AttestationFragmentSerializable { blocks };
+
+        let attestation_data = attestor_primitives::AttestationData::new(
+            self.chain_key,
+            target,
+            hash,
+            root,
+            continuity_proof.head().map(|head| head.digest),
+        );
+
+        self.sign_attestation(attestation_data, continuity_proof)
     }
 
     pub fn note_attestation_finalization(&mut self, height: attestor_primitives::Height) {
@@ -85,6 +152,28 @@ impl StreamAttestation {
 
         if let Some(waker) = self.waker.take() {
             waker.wake()
+        }
+    }
+
+    fn sign_attestation(
+        &self,
+        attestation_data: attestor_primitives::AttestationData<attestor_primitives::Digest>,
+        continuity_proof: attestor_primitives::attestation_fragment::AttestationFragmentSerializable,
+    ) -> attestor_primitives::Attestation<
+        attestor_primitives::Digest,
+        attestor_primitives::AttestorId,
+    > {
+        let attestor = self.client.get_attestor_id();
+        let message = attestation_data.serialize();
+        let signature = sp_core::sr25519::Signature::from_raw(self.client.sign(&message).0);
+        let signature_bls = attestor_primitives::bls::WrapEncode(self.bls_key.sign(message));
+
+        attestor_primitives::Attestation {
+            attestation_data,
+            attestor,
+            signature,
+            signature_bls,
+            continuity_proof,
         }
     }
 
