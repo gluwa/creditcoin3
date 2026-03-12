@@ -53,26 +53,31 @@ function buildReport(
   lines.push(`[${chainLabel} - ${chainId}] ⬛ ${chainLabel}`);
   lines.push(
     (blockDiffOk ? "✅" : "❌") +
-    ` Attestation block heights diff: ${formatNum(ethBlock - attBlock)} (${formatNum(ethBlock)
-    }|${formatNum(attBlock)})`,
+      ` Attestation block heights diff: ${formatNum(ethBlock - attBlock)} (${
+        formatNum(ethBlock)
+      }|${formatNum(attBlock)})`,
   );
   const headerHashMatch = headerHashOk && blockByHash != null &&
     blockByHash === attBlock;
   lines.push(
     (headerHashOk ? "✅" : "❌") +
-    ` Attestation header hash matches correct Ethereum block${headerHashMatch
-      ? ""
-      : `: (${blockByHash != null ? formatNum(blockByHash) : "null"}|${formatNum(attBlock)
-      })`
-    }`,
+      ` Attestation header hash matches correct Ethereum block${
+        headerHashMatch
+          ? ""
+          : `: (${blockByHash != null ? formatNum(blockByHash) : "null"}|${
+            formatNum(attBlock)
+          })`
+      }`,
   );
   lines.push(
     (checkpointRangeOk ? "✅" : "❌") +
-    ` Last checkpoint creation is ${checkpointRangeOk ? "within" : "outside"
-    } checkpoint range${checkpointRangeOk
-      ? ""
-      : `: (${formatNum(ethBlock)}|${formatNum(checkpointBlock)})`
-    }`,
+      ` Last checkpoint creation is ${
+        checkpointRangeOk ? "within" : "outside"
+      } checkpoint range${
+        checkpointRangeOk
+          ? ""
+          : `: (${formatNum(ethBlock)}|${formatNum(checkpointBlock)})`
+      }`,
   );
   if (graphqlAtt && graphqlCp) {
     const fmt = (s: string) => formatNum(Number(s) || 0);
@@ -84,28 +89,33 @@ function buildReport(
       /^0x[0-9a-fA-F]+$/.test(graphqlAtt.digest);
     lines.push(
       (cpMatch ? "✅" : "❌") +
-      ` Last checkpoint number found in GraphQL${cpMatch
-        ? ""
-        : `: (${fmt(graphqlCp.lastCheckpointHeaderNumber)}|${formatNum(checkpointBlock)
-        })`
-      }`,
+        ` Last checkpoint number found in GraphQL${
+          cpMatch
+            ? ""
+            : `: (${fmt(graphqlCp.lastCheckpointHeaderNumber)}|${
+              formatNum(checkpointBlock)
+            })`
+        }`,
     );
     lines.push(
       (attMatch ? "✅" : "❌") +
-      ` Last attestation header number found in GraphQL${attMatch
-        ? ""
-        : `: (${fmt(graphqlAtt.headerNumber)}|${formatNum(attBlock)})`
-      }`,
+        ` Last attestation header number found in GraphQL${
+          attMatch
+            ? ""
+            : `: (${fmt(graphqlAtt.headerNumber)}|${formatNum(attBlock)})`
+        }`,
     );
     lines.push(
       (hasRoot ? "✅" : "❌") +
-      ` Last attestation root found in GraphQL${hasRoot ? "" : `: (${graphqlAtt.root || "empty"})`
-      }`,
+        ` Last attestation root found in GraphQL${
+          hasRoot ? "" : `: (${graphqlAtt.root || "empty"})`
+        }`,
     );
     lines.push(
       (hasDigest ? "✅" : "❌") +
-      ` Last attestation digest found in GraphQL${hasDigest ? "" : `: (${graphqlAtt.digest || "empty"})`
-      }`,
+        ` Last attestation digest found in GraphQL${
+          hasDigest ? "" : `: (${graphqlAtt.digest || "empty"})`
+        }`,
     );
   } else {
     lines.push("❌ GraphQL data not found for attestation/checkpoint");
