@@ -93,6 +93,7 @@ impl futures::Stream for StreamAttestation {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use futures::StreamExt as _;
+        use futures::TryStreamExt as _;
 
         loop {
             if &self.cursor > self.missing.start() {
@@ -106,31 +107,46 @@ impl futures::Stream for StreamAttestation {
                 return std::task::Poll::Pending;
             }
 
-            let start = self
+            let next = self
                 .missing
                 .end()
                 .to_owned()
                 .saturating_add(self.interval_attestation.get());
 
-            while self.tip < start {
-                self.tip = match std::task::ready!(self.stream_tip.poll_next_unpin(cx)) {
-                    Some(tip) => tip - (tip % self.interval_attestation.get()),
-                    None => return std::task::Poll::Ready(None),
-                };
-            }
+            while (self.tip < next
+                || self
+                    .cache
+                    .last()
+                    .map(|info| info.height)
+                    .unwrap_or_default()
+                    < self.tip)
+                && self.cache.len() < self.max_catchup.get() as usize
+            {
+                let mut progress = false;
 
-            while let Some(info) = std::task::ready!(self.stream_roots.poll_next_unpin(cx)) {
-                match info {
-                    Ok(info) => {
-                        let height = info.height;
+                match self.stream_roots.try_poll_next_unpin(cx) {
+                    std::task::Poll::Ready(Some(Ok(info))) => {
                         self.cache.push(info);
-
-                        if height >= self.tip || self.cache.len() >= self.max_catchup.get() as usize
-                        {
-                            break;
-                        }
+                        progress = true;
                     }
-                    Err(err) => return std::task::Poll::Ready(Some(Err(Error::Eth(err)))),
+                    std::task::Poll::Ready(Some(Err(err))) => {
+                        return std::task::Poll::Ready(Some(Err(Error::Eth(err))))
+                    }
+                    std::task::Poll::Ready(None) => {}
+                    std::task::Poll::Pending => {}
+                }
+
+                match self.stream_tip.poll_next_unpin(cx) {
+                    std::task::Poll::Ready(Some(tip)) => {
+                        self.tip = tip;
+                        progress = true;
+                    }
+                    std::task::Poll::Ready(None) => {}
+                    std::task::Poll::Pending => {}
+                }
+
+                if !progress {
+                    return std::task::Poll::Pending;
                 }
             }
 
