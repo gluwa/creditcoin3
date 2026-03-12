@@ -38,11 +38,19 @@ export async function fetchBlocks(
     count = Math.min(count, endBlock - startBlock + 1);
   } else {
     const head = await provider.getBlockNumber();
-    endBlock = Math.max(0, head - HEAD_OFFSET);
+    if (head > HEAD_OFFSET) {
+      endBlock = head - HEAD_OFFSET;
+      console.log(
+        `Source chain head: ${head}, fetching ${HEAD_OFFSET} blocks behind head to avoid BlockNotOnSourceChain errors`,
+      );
+    } else {
+      endBlock = head;
+      console.log(
+        `Source chain head: ${head}, chain too short for offset — fetching up to head`,
+      );
+    }
     startBlock = Math.max(0, endBlock - count + 1);
-    console.log(
-      `Source chain head: ${head}, fetching ${HEAD_OFFSET} blocks behind head to avoid BlockNotOnSourceChain errors`,
-    );
+    count = endBlock - startBlock + 1;
   }
 
   console.log(
@@ -83,40 +91,40 @@ export async function fetchBlocks(
   return blocks;
 }
 
-function fetchOneBlock(
+async function fetchOneBlock(
   provider: JsonRpcProvider,
   blockNumber: number,
 ): Promise<BlockData | null> {
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(
-      () => reject(new Error(`Timeout fetching block ${blockNumber}`)),
-      FETCH_TIMEOUT_MS,
-    )
-  );
+  let timeoutId: ReturnType<typeof setTimeout>;
 
-  const fetcher = (async () => {
-    const block = await provider.getBlock(blockNumber, true);
-    if (!block) return null;
+  const block = await Promise.race([
+    provider.getBlock(blockNumber, true),
+    new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error(`Timeout fetching block ${blockNumber}`)),
+        FETCH_TIMEOUT_MS,
+      );
+    }),
+  ]).finally(() => clearTimeout(timeoutId));
 
-    const txHashes: string[] = [];
-    if (block.prefetchedTransactions?.length > 0) {
-      for (const tx of block.prefetchedTransactions) {
-        txHashes.push(tx.hash);
-      }
-    } else if (Array.isArray(block.transactions)) {
-      for (const tx of block.transactions) {
-        if (typeof tx === "string") {
-          txHashes.push(tx);
-        }
+  if (!block) return null;
+
+  const txHashes: string[] = [];
+  if (block.prefetchedTransactions?.length > 0) {
+    for (const tx of block.prefetchedTransactions) {
+      txHashes.push(tx.hash);
+    }
+  } else if (Array.isArray(block.transactions)) {
+    for (const tx of block.transactions) {
+      if (typeof tx === "string") {
+        txHashes.push(tx);
       }
     }
+  }
 
-    return {
-      blockNumber: block.number,
-      txCount: txHashes.length,
-      txHashes,
-    };
-  })();
-
-  return Promise.race([fetcher, timeout]);
+  return {
+    blockNumber: block.number,
+    txCount: txHashes.length,
+    txHashes,
+  };
 }
