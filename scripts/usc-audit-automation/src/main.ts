@@ -174,8 +174,8 @@ async function runChecksForChain(
   const attestationInterval = await getAttestationInterval(chainKey);
   const checkpointWidth = checkpointInterval * attestationInterval;
   // Pallet creates checkpoint when attestation_block_span >= (checkpoint_width * 2) + 1
-  // Add one attestation interval as buffer for submission/timing variance
-  const maxAllowed = checkpointWidth * 2 + 1 + attestationInterval;
+  // Adds two attestation intervals as buffer for submission/timing variance
+  const maxAllowed = checkpointWidth * 2 + 1 + (attestationInterval * 2);
   const diff = ethBlock - lastCheckpoint.blockNumber;
   const checkpointRangeOk = diff >= 0 && diff <= maxAllowed;
 
