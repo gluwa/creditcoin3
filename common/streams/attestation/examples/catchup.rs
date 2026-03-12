@@ -63,6 +63,7 @@ fn main() {
         let mut attestations = stream_attestation::StreamAttestation::new(config)
             .await
             .expect("Failed to create attestation stream");
+        let mut n = 0;
 
         while let Some(permit) = attestations
             .by_ref()
@@ -72,10 +73,10 @@ fn main() {
         {
             tracing::info!(?permit, "Generating attestation...");
 
-            let height = permit.height();
-            if height % MAX_CATCHUP.get() == INTERVAL_ATTESTATION.get() {
-                let finalized = MAX_CATCHUP.get() * (height / MAX_CATCHUP.get() + 1);
+            n += 1;
+            let finalized = INTERVAL_ATTESTATION.get() * n;
 
+            if finalized % MAX_CATCHUP.get() == 0 {
                 tracing::warn!(finalized, "New finalized attestation");
                 attestations.note_attestation_finalization(finalized);
             }

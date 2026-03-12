@@ -97,7 +97,7 @@ impl StreamAttestation {
     }
 
     fn has_space_left(&self) -> bool {
-        self.cache.len() < self.max_catchup.get() as usize + 1
+        self.cache.len() <= self.max_catchup.get() as usize
     }
 }
 
@@ -131,7 +131,7 @@ impl futures::Stream for StreamAttestation {
 
             // Backpressure, limit the max number of roots which can be processed into a single
             // attestation
-            if self.cache.len() >= self.max_catchup.get() as usize + 1 {
+            if self.cache.len() > self.max_catchup.get() as usize {
                 self.waker = Some(cx.waker().clone());
                 return std::task::Poll::Pending;
             }
