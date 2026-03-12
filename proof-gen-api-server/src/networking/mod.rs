@@ -90,11 +90,14 @@ pub fn build_app(
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
+                    let request_id = uuid::Uuid::new_v4();
+
                     tracing::span!(
                         Level::INFO,
                         "http_request",
                         method = %request.method(),
                         uri = %request.uri(),
+                        request_id = %request_id,
                     )
                 })
                 .on_request(|_request: &axum::http::Request<_>, _span: &tracing::Span| {

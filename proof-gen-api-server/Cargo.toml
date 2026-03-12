@@ -35,6 +35,7 @@ clap = { version = "4.4", features = ["derive", "deprecated", "env"] }
 dotenvy = "0.15"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.22", features = ["v4"] }
 
 ## OpenAPI / Swagger
 utoipa = { version = "5.4", features = ["chrono", "non_strict_integers"] }
