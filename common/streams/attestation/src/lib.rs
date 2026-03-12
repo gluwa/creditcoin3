@@ -13,6 +13,12 @@ pub struct Config {
 #[derive(Debug)]
 pub struct Permit(attestor_primitives::Height);
 
+impl Permit {
+    pub fn height(&self) -> attestor_primitives::Height {
+        self.0
+    }
+}
+
 pub struct StreamAttestation {
     stream_roots: stream_eth::StreamRoots,
     stream_tip: stream_eth::StreamTip,
@@ -63,6 +69,25 @@ impl StreamAttestation {
         })
     }
 
+    pub fn note_attestation_finalization(&mut self, height: attestor_primitives::Height) {
+        if !self.cache.is_empty() {
+            let first = self.cache.first().expect("Checked above").height as usize;
+            let last = self.cache.last().expect("Checked above").height as usize;
+            let height = height as usize;
+
+            if height >= first && height <= last {
+                let index = height - first;
+                self.cache.drain(0..=index);
+            }
+        }
+
+        self.missing = *self.missing.start().max(&height)..=*self.missing.end();
+
+        if let Some(waker) = self.waker.take() {
+            waker.wake()
+        }
+    }
+
     fn missing_roots(&self) -> bool {
         self.cache
             .last()
@@ -72,7 +97,7 @@ impl StreamAttestation {
     }
 
     fn has_space_left(&self) -> bool {
-        self.cache.len() < self.max_catchup.get() as usize
+        self.cache.len() < self.max_catchup.get() as usize + 1
     }
 }
 
@@ -93,8 +118,9 @@ impl futures::Stream for StreamAttestation {
                     self.cache
                         .last()
                         .is_some_and(|info| info.height >= self.cursor),
-                    "Missing block root ({}) in cache ({:?})",
+                    "Missing block root ({}) in cache ([{:?}; {:?}])",
                     self.cursor,
+                    self.cache.first(),
                     self.cache.last()
                 );
 
@@ -105,7 +131,7 @@ impl futures::Stream for StreamAttestation {
 
             // Backpressure, limit the max number of roots which can be processed into a single
             // attestation
-            if self.cache.len() >= self.max_catchup.get() as usize {
+            if self.cache.len() >= self.max_catchup.get() as usize + 1 {
                 self.waker = Some(cx.waker().clone());
                 return std::task::Poll::Pending;
             }
@@ -151,7 +177,7 @@ impl futures::Stream for StreamAttestation {
             }
 
             assert!(
-                self.cache.len() < self.max_catchup.get() as usize,
+                self.cache.len() <= self.max_catchup.get() as usize + 1,
                 "Cache length ({}) exceeds max_catchup ({})",
                 self.cache.len(),
                 self.max_catchup
@@ -159,7 +185,7 @@ impl futures::Stream for StreamAttestation {
 
             let stop = self
                 .missing
-                .end()
+                .start()
                 .saturating_add(self.max_catchup.get())
                 .min(self.tip);
 

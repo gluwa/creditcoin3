@@ -13,7 +13,7 @@ struct Args {
 const FINALIZATION_LAG: attestor_primitives::Height = 10;
 const INTERVAL_ATTESTATION: std::num::NonZeroU64 = std::num::NonZero::new(10).unwrap();
 const MAX_CONCURRENT_REQUESTS: std::num::NonZeroUsize = std::num::NonZeroUsize::new(10).unwrap();
-const MAX_CATCHUP: std::num::NonZeroU64 = std::num::NonZeroU64::new(500).unwrap();
+const MAX_CATCHUP: std::num::NonZeroU64 = std::num::NonZeroU64::new(50).unwrap();
 
 fn main() {
     use clap::Parser as _;
@@ -62,15 +62,23 @@ fn main() {
 
         let mut attestations = stream_attestation::StreamAttestation::new(config)
             .await
-            .expect("Failed to create attestation stream")
-            .take(args.blocks.get());
+            .expect("Failed to create attestation stream");
 
         while let Some(permit) = attestations
+            .by_ref()
             .try_next()
             .await
             .expect("Failed to fetch permit")
         {
-            tracing::warn!(?permit, "Generating attestation...");
+            tracing::info!(?permit, "Generating attestation...");
+
+            let height = permit.height();
+            if height % MAX_CATCHUP.get() == INTERVAL_ATTESTATION.get() {
+                let finalized = MAX_CATCHUP.get() * (height / MAX_CATCHUP.get() + 1);
+
+                tracing::warn!(finalized, "New finalized attestation");
+                attestations.note_attestation_finalization(finalized);
+            }
         }
     })
 }
