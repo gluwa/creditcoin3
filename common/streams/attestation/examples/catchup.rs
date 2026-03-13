@@ -79,7 +79,6 @@ fn main() {
             .boxed();
 
         let config = stream_attestation::ConfigBuilder::new()
-            .with_eth(client_eth)
             .with_cc3(client_cc3)
             .with_chain_key(2u64)
             .with_bls_key(bls_key)
@@ -95,8 +94,20 @@ fn main() {
 
         tracing::info!(height = 0, "Generating genesis attestation...");
 
+        let block = client_eth
+            .get_block(
+                args.start_height,
+                ccnext_abi_encoding::common::EncodingVersion::V1,
+            )
+            .await
+            .expect("Failed to retrieve genesis block");
+
+        let height = args.start_height;
+        let root = eth::simple_merkle_tree(&block).root();
+        let hash = attestor_primitives::Digest::from(*block.hash());
+
         let genesis = attestations
-            .generate_attestation_genesis(0)
+            .generate_attestation_genesis(stream_util::RootInfo { height, root, hash })
             .await
             .expect("Failed to generate genesis attestation");
         let digest = genesis.digest();

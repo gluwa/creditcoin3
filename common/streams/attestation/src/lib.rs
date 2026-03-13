@@ -1,6 +1,7 @@
 mod error;
 
 pub use error::Error;
+
 use user::*;
 
 pub type Attestation =
@@ -8,7 +9,6 @@ pub type Attestation =
 
 #[derive(builder::Builder)]
 pub struct Config {
-    eth: eth::Client,
     cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
@@ -31,7 +31,6 @@ impl Permit {
 }
 
 pub struct StreamAttestation {
-    eth: eth::Client,
     cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
@@ -56,7 +55,6 @@ impl StreamAttestation {
         let cache = Vec::with_capacity(config.max_catchup.get() as usize);
 
         Self {
-            eth: config.eth,
             cc3: config.cc3,
             chain_key: config.chain_key,
             bls_key: config.bls_key,
@@ -125,23 +123,12 @@ impl StreamAttestation {
 
     pub async fn generate_attestation_genesis(
         &self,
-        height: attestor_primitives::Height,
+        stream_util::RootInfo { height, root, hash }: stream_util::RootInfo,
     ) -> Result<Attestation, Interrupt<Error>> {
-        let block = self
-            .eth
-            .get_block(height, ccnext_abi_encoding::common::EncodingVersion::V1)
-            .await
-            .map_interrupt(Error::Client)?;
-
-        let attestation_data = attestor_primitives::AttestationData::new(
-            self.chain_key,
-            height,
-            attestor_primitives::Digest::from(*block.hash()),
-            eth::simple_merkle_tree(&block).root(),
-            None,
-        );
-
-        Ok(self.sign_attestation(attestation_data, Default::default()))
+        Ok(self.sign_attestation(
+            attestor_primitives::AttestationData::new(self.chain_key, height, hash, root, None),
+            Default::default(),
+        ))
     }
 
     pub fn note_attestation_finalization(&mut self, height: attestor_primitives::Height) {
