@@ -30,14 +30,14 @@ impl StreamTip {
                         }
                     },
                     None => {
-                        tracing::error!("🛜 Eth connection lost");
+                        tracing::error!("Eth connection lost");
 
                         let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
                             .max_delay(std::time::Duration::from_millis(5_000))
                             .map(tokio_retry::strategy::jitter);
 
                         let reconnect = || {
-                            tracing::warn!("🛜 Reconnecting to Eth...");
+                            tracing::warn!("Reconnecting to Eth...");
 
                             let mut client = config.client.clone();
                             async move {

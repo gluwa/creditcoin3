@@ -79,7 +79,7 @@ impl StreamRoots {
                             Some(Err(err)) => {
                                 // Failed to retrieve source chain block, try and regenerate the
                                 // stream (this can only be an RPC error)
-                                tracing::error!(%err, "🛜 Eth connection error");
+                                tracing::error!(%err, "Eth connection error");
                                 heap.clear();
 
                                 let (client, stream) = Self::reconnect(&config, next).await;
@@ -90,7 +90,7 @@ impl StreamRoots {
                             None => {
                                 // Eth block stream should never end. If it does this indicates an
                                 // RPC error in which case we need to reconnect.
-                                tracing::error!("🛜 Eth connection lost");
+                                tracing::error!("Eth connection lost");
                                 heap.clear();
 
                                 let (client, stream) = Self::reconnect(&config, next).await;
@@ -139,7 +139,7 @@ impl StreamRoots {
             .map(tokio_retry::strategy::jitter);
 
         let reconnect = || {
-            tracing::warn!("🛜 Reconnecting to Eth...");
+            tracing::warn!("Reconnecting to Eth...");
 
             let mut config = config.clone();
             config.start_height = next;
