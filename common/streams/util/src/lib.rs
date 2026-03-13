@@ -6,4 +6,3 @@ pub struct RootInfo {
 }
 
 pub type BoxedStream<T> = std::pin::Pin<Box<dyn futures::Stream<Item = T> + Send>>;
-pub type BoxedResult<T> = Result<T, Box<dyn std::error::Error>>;

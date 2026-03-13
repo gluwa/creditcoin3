@@ -19,7 +19,6 @@ const MAX_CONCURRENT_REQUESTS: std::num::NonZeroUsize = std::num::NonZeroUsize::
 fn main() {
     use clap::Parser as _;
     use futures::StreamExt as _;
-    use futures::TryStreamExt as _;
 
     let args = Args::parse();
 
@@ -64,11 +63,7 @@ fn main() {
 
         let now = std::time::Instant::now();
 
-        while let Some(_root) = stream_roots
-            .try_next()
-            .await
-            .expect("Failed to retrieve block root")
-        {}
+        while let Some(_root) = stream_roots.next().await {}
 
         let elapsed = now.elapsed().as_millis();
 

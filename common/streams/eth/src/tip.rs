@@ -11,7 +11,7 @@ pub struct StreamTip {
 }
 
 impl StreamTip {
-    pub async fn new(config: Config) -> Result<Self, Error> {
+    pub async fn new(mut config: Config) -> Result<Self, Error> {
         use futures::StreamExt as _;
 
         let mut stream_headers = config.client.subscribe().await.map_err(Error::Client)?;
@@ -19,12 +19,41 @@ impl StreamTip {
         let stream = async_stream::stream! {
             let mut tip = None;
 
-            while let Some(header) = stream_headers.next().await {
-                if tip.is_none_or(|tip| header.number > tip) {
-                    if let Some(tip_new) = header.number.checked_sub(config.finalization_lag) {
-                        tip = Some(tip_new);
-                        yield tip_new
-                    }
+            loop {
+                match stream_headers.next().await {
+                    Some(header) => {
+                        if tip.is_none_or(|tip| header.number > tip) {
+                            if let Some(tip_new) = header.number.checked_sub(config.finalization_lag) {
+                                tip = Some(tip_new);
+                                yield tip_new
+                            }
+                        }
+                    },
+                    None => {
+                        tracing::error!("🛜 Eth connection lost");
+
+                        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+                            .max_delay(std::time::Duration::from_millis(5_000))
+                            .map(tokio_retry::strategy::jitter);
+
+                        let reconnect = || {
+                            tracing::warn!("🛜 Reconnecting to Eth...");
+
+                            let mut client = config.client.clone();
+                            async move {
+                                client.reconnect().await?;
+                                let stream = client.subscribe().await?;
+
+                                Ok::<_, eth::Error>((client, stream))
+                            }
+                        };
+
+                        let retry = tokio_retry::Retry::spawn(strategy, reconnect);
+                        let (client, stream) = retry.await.expect("Unbounded retry cannot error");
+
+                        config.client = client;
+                        stream_headers = stream;
+                    },
                 }
             }
         }

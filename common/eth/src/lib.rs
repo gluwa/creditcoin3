@@ -77,6 +77,8 @@ pub enum Error {
     #[cfg(feature = "block_cache")]
     #[error("Redis error {0}")]
     RedisError(#[from] redis::RedisError),
+    #[error("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {0}")]
+    UnsupportedUrl(String),
 }
 
 #[derive(Debug, Clone)]
@@ -241,7 +243,7 @@ pub struct Client {
 }
 
 impl Client {
-    async fn init_rpc(url: &str) -> anyhow::Result<(Url, AlloyProvider, u64)> {
+    async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
         let url = Url::parse(url)?;
         let url_scheme = url.scheme();
 
@@ -259,7 +261,7 @@ impl Client {
             }
 
             _ => {
-                anyhow::bail!("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {url_scheme}");
+                return Err(Error::UnsupportedUrl(url.to_string()));
             }
         };
 
@@ -270,7 +272,7 @@ impl Client {
             .await
             .context("Failed to get chain_id")?;
 
-        anyhow::Ok((url, rpc_provider, chain_id))
+        Ok((url, rpc_provider, chain_id))
     }
 
     pub async fn new(url: &str, private_key: Option<&str>) -> anyhow::Result<Self> {
@@ -284,6 +286,16 @@ impl Client {
             #[cfg(feature = "block_cache")]
             cache: None,
         })
+    }
+
+    pub async fn reconnect(&mut self) -> Result<(), Error> {
+        let (url, rpc_provider, chain_id) = Self::init_rpc(self.url.as_ref()).await?;
+
+        self.url = url;
+        self.rpc_provider = rpc_provider;
+        self.chain_id = chain_id;
+
+        Ok(())
     }
 
     pub fn chain_id(&self) -> u64 {

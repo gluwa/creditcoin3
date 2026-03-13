@@ -67,7 +67,6 @@ fn main() {
         let stream_roots = stream_eth::StreamRoots::new(config)
             .await
             .expect("Failed to create root stream")
-            .err_into::<Box<dyn std::error::Error>>()
             .boxed();
 
         let config = stream_eth::tip::ConfigBuilder::new()

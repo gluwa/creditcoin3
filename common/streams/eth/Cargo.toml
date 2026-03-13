@@ -23,6 +23,10 @@ usc-abi-encoding = { workspace = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+tokio-retry = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
 
 # Util
 builder = { workspace = true }
@@ -35,5 +39,4 @@ clap = { workspace = true, features = ["cargo"] }
 url = { workspace = true, features = ["serde"] }
 
 # Logging
-tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }

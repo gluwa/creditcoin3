@@ -60,7 +60,7 @@ impl StreamCC3 {
                             .map(tokio_retry::strategy::jitter);
 
                         let reconnect = || {
-                            tracing::warn!("🛜 Reconnecting...");
+                            tracing::warn!("🛜 Reconnecting to CC3...");
 
                             let mut cc3 = config.cc3.clone();
                             async move {

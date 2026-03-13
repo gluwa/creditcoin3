@@ -13,7 +13,7 @@ pub struct Config {
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
-    stream_roots: stream_util::BoxedStream<stream_util::BoxedResult<stream_util::RootInfo>>,
+    stream_roots: stream_util::BoxedStream<stream_util::RootInfo>,
     stream_tip: stream_util::BoxedStream<attestor_primitives::Height>,
 
     interval_attestation: std::num::NonZero<attestor_primitives::Height>,
@@ -36,7 +36,7 @@ pub struct StreamAttestation {
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
-    stream_roots: stream_util::BoxedStream<stream_util::BoxedResult<stream_util::RootInfo>>,
+    stream_roots: stream_util::BoxedStream<stream_util::RootInfo>,
     stream_tip: stream_util::BoxedStream<attestor_primitives::Height>,
 
     cache: Vec<stream_util::RootInfo>,
@@ -206,7 +206,6 @@ impl futures::Stream for StreamAttestation {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use futures::StreamExt as _;
-        use futures::TryStreamExt as _;
 
         loop {
             // Yield cached roots
@@ -243,13 +242,10 @@ impl futures::Stream for StreamAttestation {
             while (self.tip < next || self.missing_roots()) && self.has_space_left() {
                 let mut progress = false;
 
-                match self.stream_roots.try_poll_next_unpin(cx) {
-                    std::task::Poll::Ready(Some(Ok(info))) => {
+                match self.stream_roots.poll_next_unpin(cx) {
+                    std::task::Poll::Ready(Some(info)) => {
                         self.cache.push(info);
                         progress = true;
-                    }
-                    std::task::Poll::Ready(Some(Err(err))) => {
-                        return std::task::Poll::Ready(Some(Err(Error::Roots(err))))
                     }
                     std::task::Poll::Ready(None) => {
                         return std::task::Poll::Ready(None);

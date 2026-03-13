@@ -14682,6 +14682,7 @@ dependencies = [
  "futures 0.3.31",
  "stream_util",
  "tokio",
+ "tokio-retry",
  "tracing",
  "tracing-subscriber",
  "url",
