@@ -37,7 +37,7 @@ pub struct StreamAttestation {
     stream_roots: stream_eth::StreamRoots,
     stream_tip: stream_eth::StreamTip,
 
-    cache: Vec<stream_eth::RootInfo>,
+    cache: Vec<attestor_primitives::RootInfo>,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
     interval_attestation: std::num::NonZero<attestor_primitives::Height>,
     digest_prev: attestor_primitives::Digest,
@@ -102,13 +102,13 @@ impl StreamAttestation {
         assert!(target <= block_last, "{target} <= {block_last}");
 
         let index = target as usize - block_first as usize;
-        let stream_eth::RootInfo { height, root, hash } = self.cache[index];
+        let attestor_primitives::RootInfo { height, root, hash } = self.cache[index];
 
         assert_eq!(height, target, "Attestation height mismatch");
 
         let blocks = self.cache[0..index].iter().fold(
             Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(index),
-            |mut acc, stream_eth::RootInfo { height, root, .. }| {
+            |mut acc, attestor_primitives::RootInfo { height, root, .. }| {
                 let digest_prev = acc
                     .last()
                     .map(|block| block.digest)
