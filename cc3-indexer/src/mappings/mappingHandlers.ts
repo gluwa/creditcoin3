@@ -1297,8 +1297,17 @@ export async function handleForcedElection(event: SubstrateEvent): Promise<void>
 export async function handleEventRevertedAttestationChainTo(event: SubstrateEvent): Promise<void> {
     logger.info(`New RevertedAttestationChainTo event found at block ${event.block.block.header.number.toString()}`);
 
+    // Declare these outside our try blocks so that they can
+    // be used in all of them.
+    let blockNumber: bigint;
+    let chainKeyNumber: bigint;
+    let checkpointHeightNumber: bigint;
+    let digestStr: string;
+    let reversion: RevertedAttestationChainTo;
+
+    // Interpreting event and creating initial reversion record
     try {
-        const blockNumber = event.block.block.header.number.toBigInt();
+        blockNumber = event.block.block.header.number.toBigInt();
 
         const {
             event: {
@@ -1306,39 +1315,64 @@ export async function handleEventRevertedAttestationChainTo(event: SubstrateEven
             },
         } = event;
 
-        const chainKeyNumber = BigInt(chainKey.toString());
-        const checkpointHeightNumber = BigInt(checkpointHeight.toString());
-        const digestStr = checkpointDigest.toString();
+        chainKeyNumber = BigInt(chainKey.toString());
+        checkpointHeightNumber = BigInt(checkpointHeight.toString());
+        digestStr = checkpointDigest.toString();
+        const reversion_id = `${blockNumber}-${event.idx}`;
 
-        const revertedAttestationChainTo = RevertedAttestationChainTo.create({
-            id: `${blockNumber}-${event.idx}`,
+        reversion = RevertedAttestationChainTo.create({
+            id: reversion_id,
             blockNumber,
             date: event.block.timestamp,
             chainKey: chainKeyNumber,
             checkpointHeight: checkpointHeightNumber,
             digest: digestStr,
+            status: 'started',
+            errorMessage: '',
         });
 
-        await revertedAttestationChainTo.save();
+        await reversion.save();
+    } catch (error) {
+        logger.error(error, 'Failed to parse RevertedAttestationChainTo event');
+        throw error; // rethrow so the indexer knows the handler failed
+    }
 
+    // Enacting attestation and checkpoint removals
+    try {
         await remove_attestations_above_height(chainKeyNumber, checkpointHeightNumber);
         await remove_checkpoints_above_height(chainKeyNumber, checkpointHeightNumber);
+    } catch (error) {
+        logger.error(error, 'Failed to cleanup attestations and checkpoints for reversion');
+        reversion.status = 'failed';
+        reversion.errorMessage = `${error}`;
+        await reversion.save();
+        throw error; // rethrow so the indexer knows the handler failed
+    }
 
-        // Update chain data
+    // We only update chain data in the case that all attestation and checkpoint cleanup
+    // operations succeeded.
+    try {
         const [chainData] = await AttestationChainData.getByFields([['chainKey', '=', chainKeyNumber]], { limit: 1 });
         if (chainData) {
             chainData.lastCheckpointHeaderNumber = checkpointHeightNumber;
             chainData.lastAttestedHeaderNumber = checkpointHeightNumber;
             chainData.lastAttestedDigest = digestStr;
             await chainData.save();
+            // Now we can mark the reversion as successfully completed
+            logger.info('Success: completed indexer handling of chain reversion');
+            reversion.status = 'complete';
+            await reversion.save();
         } else {
-            logger.warn(`AttestationChainData not found for chainKey=${chainKeyNumber.toString()} during reversion`);
+            const message = `AttestationChainData not found for chainKey=${chainKeyNumber.toString()} during reversion`;
+            logger.error(message);
+            throw new Error(message);
         }
     } catch (error) {
-        logger.error(error, 'Failed during reversion cleanup');
+        logger.error(error, 'Failed to set AttestationChainData during reversion');
+        reversion.status = 'failed';
+        reversion.errorMessage = `${error}`;
+        await reversion.save();
         throw error; // rethrow so the indexer knows the handler failed
-    } finally {
-        logger.info('Reversion handler finished (success or failure)');
     }
 }
 

@@ -639,4 +639,8 @@ type RevertedAttestationChainTo @entity {
     checkpointHeight: BigInt!
 
     digest: String!
+
+    status: String!
+
+    errorMessage: String!
 }
