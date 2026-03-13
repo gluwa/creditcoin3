@@ -14691,7 +14691,7 @@ dependencies = [
 
 [[package]]
 name = "stream_util"
-version = "3.98.0"
+version = "3.100.0"
 dependencies = [
  "attestor-primitives",
  "futures 0.3.31",
