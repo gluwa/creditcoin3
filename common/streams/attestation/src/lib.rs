@@ -30,6 +30,10 @@ impl Permit {
     }
 }
 
+/// A generic attestation stream. Different source chains can be configured by passing in different
+/// data streams for retrieving the chain tip ([`Config::stream_tip`]) and chain roots
+/// ([`Config::stream_roots`]). Just make sure that the streams you are using have the same
+/// finalization lag, if any.
 pub struct StreamAttestation {
     cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,

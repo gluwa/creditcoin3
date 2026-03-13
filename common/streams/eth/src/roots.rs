@@ -6,7 +6,11 @@ pub struct Config {
     pub client: eth::Client,
     pub start_height: attestor_primitives::Height,
     pub finalization_lag: attestor_primitives::Height,
+
+    /// Maximum number of concurrent block fetch tasks (IO-bound).
     pub max_concurrency: std::num::NonZeroUsize,
+
+    /// Maximum number of parallel block root merkleization (CPU-bound).
     pub max_parallelism: std::num::NonZeroUsize,
 }
 
@@ -14,6 +18,17 @@ pub struct StreamRoots {
     stream: stream_util::BoxedStream<stream_util::RootInfo>,
 }
 
+/// Ordered Eth root stream, backed by [`eth::Client`] under the hood.
+///
+/// This stream is optimized to make fast concurrent progress in chain tip polling, block fetching
+/// and merkleization. Performance characteristics and backpressure can be tweaked via
+/// [`Config::max_concurrency`] and [`Config::max_parallelism`].
+///
+/// It is generally beneficial for the async runtime being used to configure a number of worker
+/// threads greater than or equal to the max concurrency + 1 for optimal throughput.
+///
+/// Implements capped exponential retry without unbounded attempts in order to handle RPC
+/// disconnections. This stream can be considered infinite and will never return [`None`].
 impl StreamRoots {
     pub async fn new(mut config: Config) -> Result<Self, Error> {
         use futures::StreamExt as _;

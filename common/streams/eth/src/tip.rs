@@ -6,6 +6,10 @@ pub struct Config {
     pub finalization_lag: attestor_primitives::Height,
 }
 
+/// Follows the latest Eth chain tip, backed by [`eth::Client`] under the hood.
+///
+/// Implements capped exponential retry without unbounded attempts in order to handle RPC
+/// disconnections. This stream can be considered infinite and will never return [`None`].
 pub struct StreamTip {
     stream: stream_util::BoxedStream<attestor_primitives::Height>,
 }
