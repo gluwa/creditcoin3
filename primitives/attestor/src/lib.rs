@@ -94,13 +94,6 @@ pub type BlsPublicKey = [u8; 48];
 /// BLS signatures as bytes
 pub type BlsSignature = [u8; 96];
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RootInfo {
-    pub height: Height,
-    pub root: Digest,
-    pub hash: Digest,
-}
-
 #[derive(Serialize, Deserialize, Debug, Encode, Decode, PartialEq, Eq)]
 pub struct BlsPublicKeyWrapper(#[serde(with = "serde_bytes")] pub BlsPublicKey);
 

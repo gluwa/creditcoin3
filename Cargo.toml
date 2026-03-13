@@ -24,6 +24,7 @@ members = [
     "common/builder",
     "common/streams/eth",
     "common/streams/attestation",
+    "common/streams/util",
     "query-cli",
     "proof-gen-api-server",
     "attestor/attestor",
@@ -307,6 +308,7 @@ merkle = { path = "common/merkle", default-features = false }
 prometheus-client = { version = "0.24.0" }
 stream_attestion = { path = "common/stream/attestation" }
 stream_eth = { path = "common/streams/eth" }
+stream_util = { path = "common/streams/util" }
 sysinfo = { version = "0.37.2" }
 utils = { path = "common/utils", default-features = false }
 vrf = { path = "common/vrf", default-features = false }

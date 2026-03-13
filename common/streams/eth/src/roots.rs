@@ -11,9 +11,7 @@ pub struct Config {
 }
 
 pub struct StreamRoots {
-    stream: std::pin::Pin<
-        Box<dyn futures::Stream<Item = Result<attestor_primitives::RootInfo, Error>> + Send>,
-    >,
+    stream: stream_util::BoxedStream<Result<stream_util::RootInfo, Error>>,
 }
 
 impl StreamRoots {
@@ -25,7 +23,7 @@ impl StreamRoots {
         let stream_blocks = stream_rpc(config).await?;
 
         let mut next = start_height;
-        let mut roots = tokio::task::JoinSet::<attestor_primitives::RootInfo>::new();
+        let mut roots = tokio::task::JoinSet::<stream_util::RootInfo>::new();
         let mut heap = std::collections::BinaryHeap::with_capacity(max_parallelism);
 
         let stream = async_stream::stream! {
@@ -75,7 +73,7 @@ impl StreamRoots {
                                 // Actual root computation. No more than `max_parallelism` roots
                                 // may be computed at once.
                                 roots.spawn_blocking(move || {
-                                    attestor_primitives::RootInfo {
+                                    stream_util::RootInfo {
                                         height: block.number(),
                                         root: eth::simple_merkle_tree(&block).root(),
                                         hash: attestor_primitives::Digest::from(*block.hash()),
@@ -120,7 +118,7 @@ impl StreamRoots {
 }
 
 impl futures::Stream for StreamRoots {
-    type Item = Result<attestor_primitives::RootInfo, Error>;
+    type Item = Result<stream_util::RootInfo, Error>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,

@@ -14662,6 +14662,7 @@ dependencies = [
  "futures 0.3.31",
  "sp-core",
  "stream_eth",
+ "stream_util",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -14679,12 +14680,21 @@ dependencies = [
  "clap",
  "eth",
  "futures 0.3.31",
+ "stream_util",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "url",
  "usc-abi-encoding",
  "user",
+]
+
+[[package]]
+name = "stream_util"
+version = "3.98.0"
+dependencies = [
+ "attestor-primitives",
+ "futures 0.3.31",
 ]
 
 [[package]]

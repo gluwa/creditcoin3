@@ -37,4 +37,5 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 bip39 = { version = "2.2.0", features = ["rand", "serde"] }
 builder = { workspace = true }
 sp-core = { workspace = true }
+stream_util = { workspace = true }
 user = { workspace = true }

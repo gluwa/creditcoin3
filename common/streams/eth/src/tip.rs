@@ -7,7 +7,7 @@ pub struct Config {
 }
 
 pub struct StreamTip {
-    stream: std::pin::Pin<Box<dyn futures::Stream<Item = attestor_primitives::Height> + Send>>,
+    stream: stream_util::BoxedStream<attestor_primitives::Height>,
 }
 
 impl StreamTip {

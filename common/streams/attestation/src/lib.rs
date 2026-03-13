@@ -13,14 +13,8 @@ pub struct Config {
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
-    stream_roots: std::pin::Pin<
-        Box<
-            dyn futures::Stream<
-                    Item = Result<attestor_primitives::RootInfo, Box<dyn std::error::Error>>,
-                > + Send,
-        >,
-    >,
-    stream_tip: std::pin::Pin<Box<dyn futures::Stream<Item = attestor_primitives::Height> + Send>>,
+    stream_roots: stream_util::BoxedStream<stream_util::BoxedResult<stream_util::RootInfo>>,
+    stream_tip: stream_util::BoxedStream<attestor_primitives::Height>,
 
     interval_attestation: std::num::NonZero<attestor_primitives::Height>,
     digest_prev: attestor_primitives::Digest,
@@ -42,16 +36,10 @@ pub struct StreamAttestation {
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
-    stream_roots: std::pin::Pin<
-        Box<
-            dyn futures::Stream<
-                    Item = Result<attestor_primitives::RootInfo, Box<dyn std::error::Error>>,
-                > + Send,
-        >,
-    >,
-    stream_tip: std::pin::Pin<Box<dyn futures::Stream<Item = attestor_primitives::Height>>>,
+    stream_roots: stream_util::BoxedStream<stream_util::BoxedResult<stream_util::RootInfo>>,
+    stream_tip: stream_util::BoxedStream<attestor_primitives::Height>,
 
-    cache: Vec<attestor_primitives::RootInfo>,
+    cache: Vec<stream_util::RootInfo>,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
     interval_attestation: std::num::NonZero<attestor_primitives::Height>,
     digest_prev: attestor_primitives::Digest,
@@ -99,13 +87,13 @@ impl StreamAttestation {
         assert!(target <= block_last, "{target} <= {block_last}");
 
         let index = target as usize - block_first as usize;
-        let attestor_primitives::RootInfo { height, root, hash } = self.cache[index];
+        let stream_util::RootInfo { height, root, hash } = self.cache[index];
 
         assert_eq!(height, target, "Attestation height mismatch");
 
         let blocks = self.cache[0..index].iter().fold(
             Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(index),
-            |mut acc, attestor_primitives::RootInfo { height, root, .. }| {
+            |mut acc, stream_util::RootInfo { height, root, .. }| {
                 let digest_prev = acc
                     .last()
                     .map(|block| block.digest)
