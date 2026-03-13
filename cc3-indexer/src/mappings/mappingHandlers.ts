@@ -1352,7 +1352,7 @@ export async function handleEventRevertedAttestationChainTo(event: SubstrateEven
     // We only update chain data in the case that all attestation and checkpoint cleanup
     // operations succeeded.
     try {
-        const [chainData] = await AttestationChainData.getByFields([['chainKey', '=', chainKeyNumber]], { limit: 1 });
+        const chainData = await getChainData(chainKeyNumber);
         if (chainData) {
             chainData.lastCheckpointHeaderNumber = checkpointHeightNumber;
             chainData.lastAttestedHeaderNumber = checkpointHeightNumber;
