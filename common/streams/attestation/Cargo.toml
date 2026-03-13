@@ -15,6 +15,7 @@ eth = { workspace = true, default-features = true }
 attestor-primitives = { workspace = true, default-features = true }
 bls-signatures = { workspace = true }
 cc-client = { workspace = true }
+ccnext-abi-encoding = { workspace = true }
 
 # Streams
 async-stream = { workspace = true }
@@ -36,3 +37,4 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 bip39 = { version = "2.2.0", features = ["rand", "serde"] }
 builder = { workspace = true }
 sp-core = { workspace = true }
+user = { workspace = true }

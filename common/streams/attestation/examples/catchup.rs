@@ -65,7 +65,7 @@ fn main() {
                     .with_max_parallelism(parallelism)
                     .build(),
             )
-            .with_client(client_cc3)
+            .with_cc3(client_cc3)
             .with_chain_key(2u64)
             .with_bls_key(bls_key)
             .with_interval_attestation(INTERVAL_ATTESTATION)
@@ -78,6 +78,16 @@ fn main() {
             .expect("Failed to create attestation stream");
         let mut n = 0;
 
+        tracing::info!(height = 0, "Generating genesis attestation...");
+
+        let genesis = attestations
+            .generate_attestation_genesis(0)
+            .await
+            .expect("Failed to generate genesis attestation");
+        let digest = genesis.digest();
+
+        tracing::info!(%digest, "New genesis attestation");
+
         while let Some(permit) = attestations
             .by_ref()
             .try_next()
@@ -85,6 +95,11 @@ fn main() {
             .expect("Failed to fetch permit")
         {
             tracing::info!(?permit, "Generating attestation...");
+
+            let attestation = attestations.generate_attestation(permit);
+            let digest = attestation.digest();
+
+            tracing::info!(%digest, "New attestation");
 
             n += 1;
             let finalized = INTERVAL_ATTESTATION.get() * n;

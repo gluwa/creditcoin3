@@ -1,12 +1,16 @@
 mod error;
 
 pub use error::Error;
+use user::*;
+
+pub type Attestation =
+    attestor_primitives::Attestation<attestor_primitives::Digest, attestor_primitives::AttestorId>;
 
 #[derive(builder::Builder)]
 pub struct Config {
     eth: stream_eth::roots::Config,
 
-    client: cc_client::Client,
+    cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
@@ -25,7 +29,8 @@ impl Permit {
 }
 
 pub struct StreamAttestation {
-    client: cc_client::Client,
+    eth: eth::Client,
+    cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
@@ -49,6 +54,8 @@ impl StreamAttestation {
         config.eth.start_height =
             config.eth.start_height - (config.eth.start_height % config.interval_attestation.get());
 
+        let eth = config.eth.client.clone();
+
         let config_tip = stream_eth::tip::ConfigBuilder::new()
             .with_client(config.eth.client.clone())
             .with_finalization_lag(config.eth.finalization_lag)
@@ -64,7 +71,8 @@ impl StreamAttestation {
         let cache = Vec::with_capacity(config.max_catchup.get() as usize);
 
         Ok(Self {
-            client: config.client,
+            eth,
+            cc3: config.cc3,
             chain_key: config.chain_key,
             bls_key: config.bls_key,
 
@@ -84,13 +92,7 @@ impl StreamAttestation {
         })
     }
 
-    pub fn generate_attestation(
-        &self,
-        Permit(target): Permit,
-    ) -> attestor_primitives::Attestation<
-        attestor_primitives::Digest,
-        attestor_primitives::AttestorId,
-    > {
+    pub fn generate_attestation(&self, Permit(target): Permit) -> Attestation {
         assert!(!self.cache.is_empty(), "Empty root cache");
 
         let block_first = self.cache.first().unwrap().height;
@@ -136,6 +138,27 @@ impl StreamAttestation {
         self.sign_attestation(attestation_data, continuity_proof)
     }
 
+    pub async fn generate_attestation_genesis(
+        &self,
+        height: attestor_primitives::Height,
+    ) -> Result<Attestation, Interrupt<Error>> {
+        let block = self
+            .eth
+            .get_block(height, ccnext_abi_encoding::common::EncodingVersion::V1)
+            .await
+            .map_interrupt(Error::Client)?;
+
+        let attestation_data = attestor_primitives::AttestationData::new(
+            self.chain_key,
+            height,
+            attestor_primitives::Digest::from(*block.hash()),
+            eth::simple_merkle_tree(&block).root(),
+            None,
+        );
+
+        Ok(self.sign_attestation(attestation_data, Default::default()))
+    }
+
     pub fn note_attestation_finalization(&mut self, height: attestor_primitives::Height) {
         if !self.cache.is_empty() {
             let first = self.cache.first().expect("Checked above").height as usize;
@@ -163,9 +186,9 @@ impl StreamAttestation {
         attestor_primitives::Digest,
         attestor_primitives::AttestorId,
     > {
-        let attestor = self.client.get_attestor_id();
+        let attestor = self.cc3.get_attestor_id();
         let message = attestation_data.serialize();
-        let signature = sp_core::sr25519::Signature::from_raw(self.client.sign(&message).0);
+        let signature = sp_core::sr25519::Signature::from_raw(self.cc3.sign(&message).0);
         let signature_bls = attestor_primitives::bls::WrapEncode(self.bls_key.sign(message));
 
         attestor_primitives::Attestation {
