@@ -8,11 +8,19 @@ pub type Attestation =
 
 #[derive(builder::Builder)]
 pub struct Config {
-    eth: stream_eth::roots::Config,
-
+    eth: eth::Client,
     cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
+
+    stream_roots: std::pin::Pin<
+        Box<
+            dyn futures::Stream<
+                    Item = Result<attestor_primitives::RootInfo, Box<dyn std::error::Error>>,
+                > + Send,
+        >,
+    >,
+    stream_tip: std::pin::Pin<Box<dyn futures::Stream<Item = attestor_primitives::Height> + Send>>,
 
     interval_attestation: std::num::NonZero<attestor_primitives::Height>,
     digest_prev: attestor_primitives::Digest,
@@ -34,8 +42,14 @@ pub struct StreamAttestation {
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
-    stream_roots: stream_eth::StreamRoots,
-    stream_tip: stream_eth::StreamTip,
+    stream_roots: std::pin::Pin<
+        Box<
+            dyn futures::Stream<
+                    Item = Result<attestor_primitives::RootInfo, Box<dyn std::error::Error>>,
+                > + Send,
+        >,
+    >,
+    stream_tip: std::pin::Pin<Box<dyn futures::Stream<Item = attestor_primitives::Height>>>,
 
     cache: Vec<attestor_primitives::RootInfo>,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
@@ -50,34 +64,17 @@ pub struct StreamAttestation {
 }
 
 impl StreamAttestation {
-    pub async fn new(mut config: Config) -> Result<Self, Error> {
-        config.eth.start_height =
-            config.eth.start_height - (config.eth.start_height % config.interval_attestation.get());
-
-        let eth = config.eth.client.clone();
-
-        let config_tip = stream_eth::tip::ConfigBuilder::new()
-            .with_client(config.eth.client.clone())
-            .with_finalization_lag(config.eth.finalization_lag)
-            .build();
-        let stream_tip = stream_eth::tip::StreamTip::new(config_tip)
-            .await
-            .map_err(Error::Eth)?;
-
-        let stream_roots = stream_eth::StreamRoots::new(config.eth)
-            .await
-            .map_err(Error::Eth)?;
-
+    pub fn new(config: Config) -> Self {
         let cache = Vec::with_capacity(config.max_catchup.get() as usize);
 
-        Ok(Self {
-            eth,
+        Self {
+            eth: config.eth,
             cc3: config.cc3,
             chain_key: config.chain_key,
             bls_key: config.bls_key,
 
-            stream_roots,
-            stream_tip,
+            stream_roots: config.stream_roots,
+            stream_tip: config.stream_tip,
 
             cache,
             max_catchup: config.max_catchup,
@@ -89,7 +86,7 @@ impl StreamAttestation {
             cursor: 0,
 
             waker: None,
-        })
+        }
     }
 
     pub fn generate_attestation(&self, Permit(target): Permit) -> Attestation {
@@ -264,7 +261,7 @@ impl futures::Stream for StreamAttestation {
                         progress = true;
                     }
                     std::task::Poll::Ready(Some(Err(err))) => {
-                        return std::task::Poll::Ready(Some(Err(Error::Eth(err))))
+                        return std::task::Poll::Ready(Some(Err(Error::Roots(err))))
                     }
                     std::task::Poll::Ready(None) => {
                         return std::task::Poll::Ready(None);

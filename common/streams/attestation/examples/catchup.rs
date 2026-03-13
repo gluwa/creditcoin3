@@ -55,27 +55,43 @@ fn main() {
             .await
             .expect("Failed to create cc3 client");
 
+        let start_height = args.start_height - (args.start_height % INTERVAL_ATTESTATION.get());
+
+        let config = stream_eth::roots::ConfigBuilder::new()
+            .with_client(client_eth.clone())
+            .with_start_height(start_height)
+            .with_finalization_lag(FINALIZATION_LAG)
+            .with_max_concurrency(MAX_CONCURRENT_REQUESTS)
+            .with_max_parallelism(parallelism)
+            .build();
+        let stream_roots = stream_eth::StreamRoots::new(config)
+            .await
+            .expect("Failed to create root stream")
+            .err_into::<Box<dyn std::error::Error>>()
+            .boxed();
+
+        let config = stream_eth::tip::ConfigBuilder::new()
+            .with_client(client_eth.clone())
+            .with_finalization_lag(FINALIZATION_LAG)
+            .build();
+        let stream_tip = stream_eth::StreamTip::new(config)
+            .await
+            .expect("Failed to create tip stream")
+            .boxed();
+
         let config = stream_attestation::ConfigBuilder::new()
-            .with_eth(
-                stream_eth::roots::ConfigBuilder::new()
-                    .with_client(client_eth)
-                    .with_start_height(args.start_height)
-                    .with_finalization_lag(FINALIZATION_LAG)
-                    .with_max_concurrency(MAX_CONCURRENT_REQUESTS)
-                    .with_max_parallelism(parallelism)
-                    .build(),
-            )
+            .with_eth(client_eth)
             .with_cc3(client_cc3)
             .with_chain_key(2u64)
             .with_bls_key(bls_key)
+            .with_stream_roots(stream_roots)
+            .with_stream_tip(stream_tip)
             .with_interval_attestation(INTERVAL_ATTESTATION)
             .with_digest_prev(attestor_primitives::Digest::default())
             .with_max_catchup(MAX_CATCHUP)
             .build();
 
-        let mut attestations = stream_attestation::StreamAttestation::new(config)
-            .await
-            .expect("Failed to create attestation stream");
+        let mut attestations = stream_attestation::StreamAttestation::new(config);
         let mut n = 0;
 
         tracing::info!(height = 0, "Generating genesis attestation...");
