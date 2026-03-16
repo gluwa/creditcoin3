@@ -71,6 +71,65 @@ async fn main() -> Result<()> {
         }
     }
 
+    // ── Backfill gaps ────────────────────────────────────────────────────
+    if cfg.backfill {
+        let gaps = store.find_gaps()?;
+        if gaps.is_empty() {
+            tracing::info!("backfill: no gaps found");
+        } else {
+            let total_missing: u64 = gaps.iter().map(|(s, e)| e - s + 1).sum();
+            tracing::info!(
+                gaps = gaps.len(),
+                total_missing,
+                "backfill: found gaps, filling..."
+            );
+
+            for (gap_start, gap_end) in &gaps {
+                tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
+
+                let ws_client = eth::Client::new(&cfg.rpc_ws, None).await?;
+                let gap_config = stream_eth::roots::ConfigBuilder::new()
+                    .with_client(ws_client)
+                    .with_start_height(*gap_start)
+                    .with_finalization_lag(0u64) // gaps are already finalized
+                    .with_max_concurrency(cfg.max_fetch_tasks)
+                    .with_max_parallelism(cfg.max_compute_tasks)
+                    .build();
+
+                let mut gap_stream = stream_eth::StreamRoots::new(gap_config).await?;
+                let mut filled = 0u64;
+
+                while let Some(info) = gap_stream.next().await {
+                    store.put_root(info.height, info.root)?;
+                    filled += 1;
+
+                    if filled % 1000 == 0 {
+                        tracing::info!(
+                            height = info.height,
+                            filled,
+                            remaining = gap_end - info.height,
+                            "backfill progress"
+                        );
+                    }
+
+                    if info.height >= *gap_end {
+                        break;
+                    }
+                }
+
+                store.flush().await?;
+                tracing::info!(
+                    from = gap_start,
+                    to = gap_end,
+                    filled,
+                    "backfill: gap filled"
+                );
+            }
+
+            tracing::info!("backfill complete");
+        }
+    }
+
     // ── Connect to chain ────────────────────────────────────────────────
     // WS client for StreamRoots (subscriptions + block fetching).
     let ws_client = eth::Client::new(&cfg.rpc_ws, None).await?;

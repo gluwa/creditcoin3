@@ -63,4 +63,8 @@ pub struct Config {
     /// How often to flush the sled database to disk (every N blocks).
     #[arg(long, env = "FLUSH_EVERY", default_value = "10000")]
     pub flush_every: NonZeroU64,
+
+    /// Scan the database for gaps and fill them before resuming normal operation.
+    #[arg(long, default_value_t = false)]
+    pub backfill: bool,
 }

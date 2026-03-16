@@ -98,6 +98,36 @@ impl RootStore {
         }
     }
 
+    /// Find gaps in the stored block range.
+    /// Returns a list of `(start, end)` inclusive ranges that are missing.
+    pub fn find_gaps(&self) -> Result<Vec<(u64, u64)>> {
+        let first = match self.first_height()? {
+            Some(f) => f,
+            None => return Ok(vec![]),
+        };
+        let last = match self.latest_height()? {
+            Some(l) => l,
+            None => return Ok(vec![]),
+        };
+
+        let mut gaps = Vec::new();
+        let mut expected = first;
+
+        for item in self.db.iter() {
+            let (key, _) = item.context("failed to read from sled")?;
+            let height = parse_height(&key)?;
+
+            if height > expected {
+                gaps.push((expected, height - 1));
+            }
+            expected = height + 1;
+        }
+
+        // No trailing gap needed — we only care about gaps within [first, last].
+        let _ = last;
+        Ok(gaps)
+    }
+
     /// Flush database to disk.
     pub async fn flush(&self) -> Result<()> {
         self.db.flush_async().await?;
