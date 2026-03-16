@@ -4,8 +4,9 @@
 //! Uses `stream_eth::StreamRoots` for block fetching with automatic RPC reconnection
 //! and exponential backoff retries, ensuring gap-free data archival.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use clap::Parser;
@@ -88,10 +89,28 @@ async fn main() -> Result<()> {
 
     let mut root_stream = stream_eth::StreamRoots::new(stream_config).await?;
 
+    // ── Chain head tracker (for ETA) ───────────────────────────────────
+    let current_head = http_client.get_last_block().await.unwrap_or(0);
+    let chain_head = Arc::new(AtomicU64::new(current_head));
+    let finalization_lag = cfg.finalization_lag;
+    {
+        let head = chain_head.clone();
+        let client = http_client.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(12)).await;
+                if let Ok(h) = client.get_last_block().await {
+                    head.store(h, Ordering::Release);
+                }
+            }
+        });
+    }
+
     tracing::info!(
         start = start_height,
         end_height = ?cfg.end_height,
         lag = cfg.finalization_lag,
+        head = current_head,
         fetch_tasks = ?cfg.max_fetch_tasks,
         compute_tasks = ?cfg.max_compute_tasks,
         api = %cfg.api_bind,
@@ -183,11 +202,19 @@ async fn main() -> Result<()> {
             } else {
                 0.0
             };
+            let target = cfg.end_height.unwrap_or_else(|| {
+                chain_head
+                    .load(Ordering::Acquire)
+                    .saturating_sub(finalization_lag)
+            });
+            let remaining = target.saturating_sub(height);
             let label = if is_flush { "flushed" } else { "✓" };
             tracing::info!(
                 height,
                 total = count,
                 rate = format!("{rate:.1} blocks/s"),
+                eta = format_eta(remaining, rate),
+                behind = remaining,
                 "{label}"
             );
         }
@@ -205,4 +232,18 @@ async fn main() -> Result<()> {
     );
 
     Ok(())
+}
+
+fn format_eta(remaining: u64, rate: f64) -> String {
+    if rate <= 0.0 || remaining == 0 {
+        return "synced".to_string();
+    }
+    let secs = (remaining as f64 / rate) as u64;
+    let h = secs / 3600;
+    let m = (secs % 3600) / 60;
+    if h > 0 {
+        format!("{h}h{m:02}m")
+    } else {
+        format!("{m}m")
+    }
 }
