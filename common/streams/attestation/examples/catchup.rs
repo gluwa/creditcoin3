@@ -113,18 +113,15 @@ fn main() {
 
         tracing::info!(%digest, "New genesis attestation");
 
-        while let Some(permit) = attestations
+        while let Some(attestation) = attestations
             .by_ref()
             .try_next()
             .await
             .expect("Failed to fetch permit")
         {
-            tracing::info!(?permit, "Generating attestation...");
-
-            let attestation = attestations.generate_attestation(permit);
             let digest = attestation.digest();
-
-            tracing::info!(%digest, "New attestation");
+            let height = attestation.header_number();
+            tracing::info!(height, %digest, "New attestation");
 
             n += 1;
             let finalized = INTERVAL_ATTESTATION.get() * n;

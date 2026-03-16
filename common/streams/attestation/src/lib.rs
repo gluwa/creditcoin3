@@ -57,6 +57,7 @@ pub struct StreamAttestation {
 
     stream_roots: stream_util::BoxedStream<stream_util::RootInfo>,
     stream_tip: stream_util::BoxedStream<attestor_primitives::Height>,
+    fetching: bool,
 
     cache: Vec<stream_util::RootInfo>,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
@@ -87,6 +88,7 @@ impl StreamAttestation {
 
             stream_roots: config.stream_roots,
             stream_tip: config.stream_tip,
+            fetching: false,
 
             cache,
             max_catchup: config.max_catchup,
@@ -101,7 +103,41 @@ impl StreamAttestation {
         }
     }
 
-    pub fn generate_attestation(&self, Permit(target): Permit) -> Attestation {
+    pub fn note_attestation_finalization(
+        &mut self,
+        height: attestor_primitives::Height,
+        digest: attestor_primitives::Digest,
+    ) {
+        if !self.cache.is_empty() {
+            let first = self.cache.first().expect("Checked above").height as usize;
+            let last = self.cache.last().expect("Checked above").height as usize;
+            let height = height as usize;
+
+            if height >= first && height <= last {
+                let index = height - first;
+                self.cache.drain(0..=index);
+            }
+        }
+
+        self.missing = *self.missing.start().max(&height)..=*self.missing.end();
+        self.digest_prev = digest;
+
+        if let Some(waker) = self.waker.take() {
+            waker.wake()
+        }
+    }
+
+    pub fn generate_attestation_genesis(
+        &self,
+        stream_util::RootInfo { height, root, hash }: stream_util::RootInfo,
+    ) -> Result<Attestation, Interrupt<Error>> {
+        Ok(self.sign_attestation(
+            attestor_primitives::AttestationData::new(self.chain_key, height, hash, root, None),
+            Default::default(),
+        ))
+    }
+
+    fn generate_attestation(&self, target: attestor_primitives::Height) -> Attestation {
         assert!(!self.cache.is_empty(), "Empty root cache");
 
         let block_first = self.cache.first().unwrap().height;
@@ -147,40 +183,6 @@ impl StreamAttestation {
         self.sign_attestation(attestation_data, continuity_proof)
     }
 
-    pub fn generate_attestation_genesis(
-        &self,
-        stream_util::RootInfo { height, root, hash }: stream_util::RootInfo,
-    ) -> Result<Attestation, Interrupt<Error>> {
-        Ok(self.sign_attestation(
-            attestor_primitives::AttestationData::new(self.chain_key, height, hash, root, None),
-            Default::default(),
-        ))
-    }
-
-    pub fn note_attestation_finalization(
-        &mut self,
-        height: attestor_primitives::Height,
-        digest: attestor_primitives::Digest,
-    ) {
-        if !self.cache.is_empty() {
-            let first = self.cache.first().expect("Checked above").height as usize;
-            let last = self.cache.last().expect("Checked above").height as usize;
-            let height = height as usize;
-
-            if height >= first && height <= last {
-                let index = height - first;
-                self.cache.drain(0..=index);
-            }
-        }
-
-        self.missing = *self.missing.start().max(&height)..=*self.missing.end();
-        self.digest_prev = digest;
-
-        if let Some(waker) = self.waker.take() {
-            waker.wake()
-        }
-    }
-
     fn sign_attestation(
         &self,
         attestation_data: attestor_primitives::AttestationData<attestor_primitives::Digest>,
@@ -208,7 +210,11 @@ impl StreamAttestation {
             .last()
             .map(|info| info.height)
             .unwrap_or_default()
-            < self.tip
+            < self
+                .missing
+                .end()
+                .saturating_add(self.max_catchup.get())
+                .min(self.tip)
     }
 
     fn has_space_left(&self) -> bool {
@@ -217,7 +223,7 @@ impl StreamAttestation {
 }
 
 impl futures::Stream for StreamAttestation {
-    type Item = Result<Permit, Error>;
+    type Item = Result<Attestation, Error>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -238,17 +244,19 @@ impl futures::Stream for StreamAttestation {
                     self.cache.last()
                 );
 
-                let permit = Permit(self.cursor);
+                let attestation = self.generate_attestation(self.cursor);
                 self.cursor = self.cursor.saturating_sub(self.interval_attestation.get());
-                return std::task::Poll::Ready(Some(Ok(permit)));
+                return std::task::Poll::Ready(Some(Ok(attestation)));
             }
 
             // Backpressure, limit the max number of roots which can be processed into a single
             // attestation
-            if self.cache.len() > self.max_catchup.get() as usize {
+            if !self.fetching && self.cache.len() > self.max_catchup.get() as usize {
                 self.waker = Some(cx.waker().clone());
                 return std::task::Poll::Pending;
             }
+
+            self.fetching = true;
 
             let next = self
                 .missing
@@ -257,18 +265,20 @@ impl futures::Stream for StreamAttestation {
                 .saturating_add(self.interval_attestation.get());
 
             // Chain tip and roots are polled concurrently until a new attestation can be produced
-            while (self.tip < next || self.missing_roots()) && self.has_space_left() {
+            while self.tip < next || self.missing_roots() {
                 let mut progress = false;
 
-                match self.stream_roots.poll_next_unpin(cx) {
-                    std::task::Poll::Ready(Some(info)) => {
-                        self.cache.push(info);
-                        progress = true;
+                if self.has_space_left() {
+                    match self.stream_roots.poll_next_unpin(cx) {
+                        std::task::Poll::Ready(Some(info)) => {
+                            self.cache.push(info);
+                            progress = true;
+                        }
+                        std::task::Poll::Ready(None) => {
+                            return std::task::Poll::Ready(None);
+                        }
+                        std::task::Poll::Pending => {}
                     }
-                    std::task::Poll::Ready(None) => {
-                        return std::task::Poll::Ready(None);
-                    }
-                    std::task::Poll::Pending => {}
                 }
 
                 match self.stream_tip.poll_next_unpin(cx) {
@@ -286,6 +296,8 @@ impl futures::Stream for StreamAttestation {
                     return std::task::Poll::Pending;
                 }
             }
+
+            self.fetching = false;
 
             assert!(
                 self.cache.len() <= self.max_catchup.get() as usize + 1,
