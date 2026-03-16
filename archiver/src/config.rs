@@ -12,9 +12,14 @@ use clap::Parser;
     about = "Source chain archiver — fetches blocks, computes merkle roots, serves data over HTTP"
 )]
 pub struct Config {
-    /// RPC endpoint (WebSocket) for block fetching and subscriptions.
-    #[arg(long, env = "RPC_URL", required = true)]
-    pub rpc_url: String,
+    /// HTTP RPC endpoint for block fetching.
+    #[arg(long, env = "RPC_HTTP", alias = "rpc-url", required = true)]
+    pub rpc_http: String,
+
+    /// WebSocket RPC endpoint for new-head subscriptions.
+    /// Required for the root stream to follow the chain tip.
+    #[arg(long, env = "RPC_WS", required = true)]
+    pub rpc_ws: String,
 
     /// Block height to start from (ignored if the database already has progress).
     #[arg(long, env = "START_HEIGHT", default_value = "0")]
@@ -30,12 +35,22 @@ pub struct Config {
     pub finalization_lag: u64,
 
     /// Maximum concurrent block fetch tasks (IO-bound).
-    #[arg(long, env = "MAX_CONCURRENCY", default_value = "8")]
-    pub max_concurrency: NonZeroUsize,
+    #[arg(
+        long,
+        env = "MAX_FETCH_TASKS",
+        alias = "max-concurrency",
+        default_value = "8"
+    )]
+    pub max_fetch_tasks: NonZeroUsize,
 
     /// Maximum parallel merkle root computations (CPU-bound).
-    #[arg(long, env = "MAX_PARALLELISM", default_value = "4")]
-    pub max_parallelism: NonZeroUsize,
+    #[arg(
+        long,
+        env = "MAX_COMPUTE_TASKS",
+        alias = "max-parallelism",
+        default_value = "4"
+    )]
+    pub max_compute_tasks: NonZeroUsize,
 
     /// Path to the sled database directory for root storage.
     #[arg(long, env = "SLED_DB_PATH", default_value = "./data/roots.sled")]

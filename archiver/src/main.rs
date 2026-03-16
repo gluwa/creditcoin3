@@ -69,17 +69,21 @@ async fn main() -> Result<()> {
     }
 
     // ── Connect to chain ────────────────────────────────────────────────
-    let client = eth::Client::new(&cfg.rpc_url, None).await?;
-    let chain_id = client.chain_id();
-    tracing::info!(chain_id, rpc = %cfg.rpc_url, "connected to chain");
+    // WS client for StreamRoots (subscriptions + block fetching).
+    let ws_client = eth::Client::new(&cfg.rpc_ws, None).await?;
+    let chain_id = ws_client.chain_id();
+    tracing::info!(chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
+
+    // HTTP client for the API (proof-input endpoint needs block fetching).
+    let http_client = eth::Client::new(&cfg.rpc_http, None).await?;
 
     // ── Root stream (with automatic reconnection) ───────────────────────
     let stream_config = stream_eth::roots::ConfigBuilder::new()
-        .with_client(client.clone())
+        .with_client(ws_client)
         .with_start_height(start_height)
         .with_finalization_lag(cfg.finalization_lag)
-        .with_max_concurrency(cfg.max_concurrency)
-        .with_max_parallelism(cfg.max_parallelism)
+        .with_max_concurrency(cfg.max_fetch_tasks)
+        .with_max_parallelism(cfg.max_compute_tasks)
         .build();
 
     let mut root_stream = stream_eth::StreamRoots::new(stream_config).await?;
@@ -88,8 +92,8 @@ async fn main() -> Result<()> {
         start = start_height,
         end_height = ?cfg.end_height,
         lag = cfg.finalization_lag,
-        concurrency = ?cfg.max_concurrency,
-        parallelism = ?cfg.max_parallelism,
+        fetch_tasks = ?cfg.max_fetch_tasks,
+        compute_tasks = ?cfg.max_compute_tasks,
         api = %cfg.api_bind,
         "starting archiver"
     );
@@ -97,7 +101,7 @@ async fn main() -> Result<()> {
     // ── HTTP API ────────────────────────────────────────────────────────
     let api_state = Arc::new(api::AppState {
         store: store.clone(),
-        eth_client: client,
+        eth_client: http_client,
     });
 
     let api_router = api::router(api_state);
