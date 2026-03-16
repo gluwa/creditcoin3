@@ -27,6 +27,52 @@ impl ContinuityService {
         header_numbers: &[u64],
         current_block: u64,
     ) -> Result<ContinuityProof, ServiceError> {
+        // Try the normal attestation-based flow first.
+        match self
+            .build_continuity_via_attestations(header_numbers, current_block)
+            .await
+        {
+            Ok(proof) => Ok(proof),
+            Err(e) => {
+                // If we have an archiver client, fall back to building the proof directly
+                // from archiver roots. This handles the case where no attestations exist yet.
+                if let Some(ref archiver) = self.archiver_client {
+                    let (&min_query, &max_query) = header_numbers
+                        .iter()
+                        .min()
+                        .zip(header_numbers.iter().max())
+                        .ok_or(ServiceError::Internal {
+                            message: "cannot build continuity proof: header_numbers is empty"
+                                .into(),
+                        })?;
+                    tracing::warn!(
+                        min_query,
+                        max_query,
+                        error = %e,
+                        "attestation-based proof failed, falling back to archiver"
+                    );
+                    let checkpoint_block_interval = self.builder.config.checkpoint_block_interval();
+                    archiver
+                        .build_continuity_proof(min_query, max_query, checkpoint_block_interval)
+                        .await
+                        .map_err(|archiver_err| ServiceError::Internal {
+                            message: format!(
+                                "archiver fallback also failed: {archiver_err} (original error: {e})"
+                            ),
+                        })
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    /// Build continuity proof using the normal attestation-based flow.
+    async fn build_continuity_via_attestations(
+        &self,
+        header_numbers: &[u64],
+        current_block: u64,
+    ) -> Result<ContinuityProof, ServiceError> {
         // Pass current_block to get_endpoints so it can validate predicted blocks immediately and fail fast
         let (lower_attestation, upper_attestation) = self
             .builder

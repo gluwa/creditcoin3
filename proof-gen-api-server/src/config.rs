@@ -21,6 +21,10 @@ pub struct Config {
     pub redis_cluster_mode: bool,
     pub indexer_url: Option<String>,
     pub max_batch_size: usize,
+    /// Optional archiver HTTP URL. When set, continuity proofs are built from
+    /// pre-computed merkle roots served by the archiver instead of fetching
+    /// full blocks from Ethereum RPC.
+    pub archiver_url: Option<String>,
 }
 
 impl Config {
@@ -40,6 +44,7 @@ impl Config {
             redis_cluster_mode: false,
             indexer_url: None,
             max_batch_size: 10,
+            archiver_url: None,
         }
     }
 }

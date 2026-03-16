@@ -152,6 +152,8 @@ pub struct ContinuityService {
     metrics: Metrics,
     /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
     max_batch_size: usize,
+    /// Optional archiver client for direct proof building when attestations are unavailable.
+    archiver_client: Option<continuity::archiver::ArchiverClient>,
 }
 
 impl ContinuityService {
@@ -182,7 +184,14 @@ impl ContinuityService {
             attestation_genesis_block: AtomicU64::new(attestation_genesis_block),
             metrics,
             max_batch_size,
+            archiver_client: None,
         })
+    }
+
+    /// Set an archiver client for fallback proof building when attestations are unavailable.
+    pub fn with_archiver(mut self, archiver_client: continuity::archiver::ArchiverClient) -> Self {
+        self.archiver_client = Some(archiver_client);
+        self
     }
 
     /// Validate that the requested blocks can be processed:

@@ -39,15 +39,18 @@ async fn main() -> Result<()> {
     let latest_stored = store.latest_height()?;
 
     let start_height = match latest_stored {
-        Some(latest) if cfg.start_height <= latest => {
+        Some(latest) => {
+            // Always resume from latest + 1 to prevent gaps.
+            // cfg.start_height is only used when the database is empty.
+            let resume = latest + 1;
             tracing::info!(
                 stored = latest,
-                resuming_from = latest + 1,
+                resuming_from = resume,
                 "resuming from database"
             );
-            latest + 1
+            resume
         }
-        _ => {
+        None => {
             tracing::info!(from = cfg.start_height, "starting fresh");
             cfg.start_height
         }

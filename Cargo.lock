@@ -940,6 +940,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
 
 [[package]]
+name = "archiver"
+version = "3.100.0"
+dependencies = [
+ "anyhow",
+ "attestor-primitives",
+ "axum",
+ "ccnext-abi-encoding",
+ "clap",
+ "dotenvy",
+ "eth",
+ "futures 0.3.31",
+ "serde",
+ "serde_json",
+ "sled",
+ "sp-core",
+ "stream_eth",
+ "stream_util",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
+]
+
+[[package]]
 name = "arcstr"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2549,7 +2574,9 @@ dependencies = [
  "attestor-primitives",
  "cc-client",
  "eth",
+ "hex",
  "indexer-client",
+ "reqwest",
  "serde",
  "sp-core",
  "thiserror 1.0.69",
@@ -13511,6 +13538,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f92a496fb766b417c996b9c5e57daf2f7ad3b0bebe1ccfca4856390e3d3bb67"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "sled"
+version = "0.34.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f96b4737c2ce5987354855aed3797279def4ebf734436c6aa4552cf8e169935"
+dependencies = [
+ "crc32fast",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "fs2",
+ "fxhash",
+ "libc",
+ "log",
+ "parking_lot 0.11.2",
 ]
 
 [[package]]

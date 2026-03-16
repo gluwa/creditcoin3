@@ -75,6 +75,14 @@ pub struct ProofGenApiServer {
         help = "Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes. Adjust based on expected load and RPC rate limits."
     )]
     max_batch_size: usize,
+
+    #[arg(
+        long,
+        required = false,
+        env = "ARCHIVER_URL",
+        help = "Archiver HTTP URL (e.g. http://localhost:8080). When set, continuity proofs are built from pre-computed merkle roots instead of fetching full blocks from Ethereum RPC."
+    )]
+    archiver_url: Option<String>,
 }
 
 #[tokio::main]
@@ -128,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         redis_cluster_mode: resolved_redis_cluster_mode,
         indexer_url: args.indexer_url,
         max_batch_size: args.max_batch_size,
+        archiver_url: args.archiver_url,
     };
 
     let server = Server::new(config).await?;

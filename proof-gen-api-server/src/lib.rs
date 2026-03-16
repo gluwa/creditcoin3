@@ -149,10 +149,22 @@ impl Server {
             None
         };
 
+        // If archiver URL is configured, wrap the eth client in an archiver-backed provider.
+        let eth_provider: continuity::rpc::SharedEthProvider =
+            if let Some(ref archiver_url) = config.archiver_url {
+                info!("🗄️  Archiver configured at: {}", archiver_url);
+                Arc::new(continuity::archiver::ArchiverEthProvider::new(
+                    archiver_url.clone(),
+                    eth_client,
+                ))
+            } else {
+                eth_client
+            };
+
         let builder = Arc::new(ContinuityBuilder::new_with_indexer(
             continuity_config,
             cc3_client.clone(),
-            eth_client,
+            eth_provider,
             indexer_provider,
         ));
 
@@ -176,14 +188,22 @@ impl Server {
     pub async fn run(&self) -> Result<()> {
         let metrics: Metrics = self.prom_metrics.clone() as Metrics;
 
-        let service = Arc::new(
-            services::continuity_service::ContinuityService::new(
-                self.builder.clone(),
-                metrics.clone(),
-                self.config.max_batch_size,
-            )
-            .await?,
-        );
+        let mut service = services::continuity_service::ContinuityService::new(
+            self.builder.clone(),
+            metrics.clone(),
+            self.config.max_batch_size,
+        )
+        .await?;
+
+        // If archiver URL is configured, set up direct proof building fallback
+        if let Some(ref archiver_url) = self.config.archiver_url {
+            info!("🗄️  Archiver fallback enabled for direct proof building");
+            service = service.with_archiver(continuity::archiver::ArchiverClient::new(
+                archiver_url.clone(),
+            ));
+        }
+
+        let service = Arc::new(service);
 
         // Spawn background task to refresh hardware metrics (CPU, memory, threads)
         // so /metrics responds instantly without blocking on sysinfo
