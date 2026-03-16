@@ -93,6 +93,8 @@ async function waitForAttestation(api, chainKey, blockNumber, maxWaitTime = 3000
                 for (const record of events) {
                     const { event } = record;
 
+                    console.log(`\n DEBUG: detected event ${event.section}.${event.method}: ${event}`);
+
                     // Check for BlockAttested event
                     if (event.section === 'attestation' && event.method === 'BlockAttested') {
                         const [eventChainKey, headerNumber, _digest] = event.data;
