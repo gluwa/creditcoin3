@@ -39,20 +39,22 @@ async fn main() -> Result<()> {
     // ── Determine resume height ─────────────────────────────────────────
     let latest_stored = store.latest_height()?;
 
+    let first_stored = store.first_height()?;
     let start_height = match latest_stored {
         Some(latest) => {
-            // Always resume from latest + 1 to prevent gaps.
-            // cfg.start_height is only used when the database is empty.
+            let total = first_stored.map(|f| latest - f + 1).unwrap_or(0);
             let resume = latest + 1;
             tracing::info!(
                 stored = latest,
+                first = ?first_stored,
+                total_entries = total,
                 resuming_from = resume,
                 "resuming from database"
             );
             resume
         }
         None => {
-            tracing::info!(from = cfg.start_height, "starting fresh");
+            tracing::info!(from = cfg.start_height, "starting fresh (empty database)");
             cfg.start_height
         }
     };
