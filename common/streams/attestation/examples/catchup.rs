@@ -14,7 +14,7 @@ struct Args {
 }
 
 const FINALIZATION_LAG: attestor_primitives::Height = 10;
-const INTERVAL_ATTESTATION: std::num::NonZeroU64 = std::num::NonZero::new(10).unwrap();
+const INTERVAL_ATTESTATION: std::num::NonZeroU64 = std::num::NonZero::new(7).unwrap();
 const MAX_CONCURRENT_REQUESTS: std::num::NonZeroUsize = std::num::NonZeroUsize::new(10).unwrap();
 const MAX_CATCHUP: std::num::NonZeroU64 = std::num::NonZeroU64::new(50).unwrap();
 
@@ -90,7 +90,6 @@ fn main() {
             .build();
 
         let mut attestations = stream_attestation::StreamAttestation::new(config);
-        let mut n = 0;
 
         tracing::info!(height = 0, "Generating genesis attestation...");
 
@@ -113,6 +112,7 @@ fn main() {
 
         tracing::info!(%digest, "New genesis attestation");
 
+        let mut n = 0;
         while let Some(attestation) = attestations
             .by_ref()
             .try_next()
@@ -126,7 +126,7 @@ fn main() {
             n += 1;
             let finalized = INTERVAL_ATTESTATION.get() * n;
 
-            if finalized % MAX_CATCHUP.get() == 0 {
+            if finalized % attestations.max_catchup() == 0 {
                 tracing::warn!(finalized, "New finalized attestation");
                 attestations.note_attestation_finalization(finalized, attestation.digest());
             }

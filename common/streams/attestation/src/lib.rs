@@ -79,7 +79,13 @@ pub struct StreamAttestation {
 
 impl StreamAttestation {
     pub fn new(config: Config) -> Self {
-        let cache = Vec::with_capacity(config.max_catchup.get() as usize);
+        let div = config.max_catchup.get() / config.interval_attestation.get();
+        let max_catchup = config.interval_attestation.saturating_mul(
+            std::num::NonZero::new(div)
+                .unwrap_or(std::num::NonZero::<attestor_primitives::Height>::MIN),
+        );
+
+        let cache = Vec::with_capacity(max_catchup.get() as usize);
 
         Self {
             cc3: config.cc3,
@@ -91,7 +97,7 @@ impl StreamAttestation {
             fetching: false,
 
             cache,
-            max_catchup: config.max_catchup,
+            max_catchup,
             interval_attestation: config.interval_attestation,
             digest_prev: config.digest_prev,
 
@@ -101,6 +107,10 @@ impl StreamAttestation {
 
             waker: None,
         }
+    }
+
+    pub fn max_catchup(&self) -> std::num::NonZero<attestor_primitives::Height> {
+        self.max_catchup
     }
 
     pub fn note_attestation_finalization(
@@ -212,7 +222,7 @@ impl StreamAttestation {
             .unwrap_or_default()
             < self
                 .missing
-                .end()
+                .start()
                 .saturating_add(self.max_catchup.get())
                 .min(self.tip)
     }
