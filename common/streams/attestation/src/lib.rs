@@ -34,6 +34,22 @@ impl Permit {
 /// data streams for retrieving the chain tip ([`Config::stream_tip`]) and chain roots
 /// ([`Config::stream_roots`]). Just make sure that the streams you are using have the same
 /// finalization lag, if any.
+///
+/// ## Generation
+///
+/// The stream works by backfilling attestations up to [`Config::max_catchup`]: attestations are
+/// generated backwards from the tip of the chain, or the point closest to the tip of the chain
+/// given the max catchup. For example, if the max catchup is 500 and the tip of the chain is block
+/// 600, the stream will start backfilling from block 500. As new attestations are marked as
+/// finalized via [`note_attestation_finalization`], block roots stored inside of the stream are
+/// progressively cleaned and new roots are fetched to keep making progress in attestation
+/// generation.
+///
+/// This mode of reverse generation via backfilling is used to always promote the latest
+/// attestation, while other attestations are used as backup in case consensus cannot be reached at
+/// the target height.
+///
+/// [`note_attestation_finalization`]: Self::note_attestation_finalization
 pub struct StreamAttestation {
     cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,
@@ -47,8 +63,14 @@ pub struct StreamAttestation {
     interval_attestation: std::num::NonZero<attestor_primitives::Height>,
     digest_prev: attestor_primitives::Digest,
 
+    /// Range of roots which have been generated and for which we can return a permit. We need to
+    /// keep track of this to know how many blocks to fetch next
     missing: std::ops::RangeInclusive<attestor_primitives::Height>,
+
+    /// Source chain tip, updated as we need to fetch more blocks
     tip: attestor_primitives::Height,
+
+    /// Latest attestation to have been produced
     cursor: attestor_primitives::Height,
 
     waker: Option<std::task::Waker>,
@@ -135,7 +157,11 @@ impl StreamAttestation {
         ))
     }
 
-    pub fn note_attestation_finalization(&mut self, height: attestor_primitives::Height) {
+    pub fn note_attestation_finalization(
+        &mut self,
+        height: attestor_primitives::Height,
+        digest: attestor_primitives::Digest,
+    ) {
         if !self.cache.is_empty() {
             let first = self.cache.first().expect("Checked above").height as usize;
             let last = self.cache.last().expect("Checked above").height as usize;
@@ -148,6 +174,7 @@ impl StreamAttestation {
         }
 
         self.missing = *self.missing.start().max(&height)..=*self.missing.end();
+        self.digest_prev = digest;
 
         if let Some(waker) = self.waker.take() {
             waker.wake()

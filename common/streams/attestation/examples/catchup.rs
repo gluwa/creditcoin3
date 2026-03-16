@@ -131,7 +131,7 @@ fn main() {
 
             if finalized % MAX_CATCHUP.get() == 0 {
                 tracing::warn!(finalized, "New finalized attestation");
-                attestations.note_attestation_finalization(finalized);
+                attestations.note_attestation_finalization(finalized, attestation.digest());
             }
         }
     })
