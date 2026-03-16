@@ -241,6 +241,16 @@
         cargo clippy --tests --release "$@"
       '';
 
+      script_fmt = pkgs.writeScriptBin "cargo_fmt" ''
+        ${shebang}
+        cargo fmt "$@"
+      '';
+
+      script_taplo = pkgs.writeScriptBin "taplo" ''
+        ${shebang}
+        taplo "$@"
+      '';
+
       script_test = pkgs.writeScriptBin "cargo_test" ''
         ${shebang}
         cargo test --release "$@"
@@ -289,6 +299,14 @@
           type = "app";
           program = "${script_clippy}/bin/cargo_clippy";
         };
+        fmt = {
+          type = "app";
+          program = "${script_fmt}/bin/cargo_fmt";
+        };
+        taplo = {
+          type = "app";
+          program = "${script_taplo}/bin/taplo";
+        };
         test = {
           type = "app";
           program = "${script_test}/bin/cargo_test";
@@ -316,6 +334,7 @@
           jq
           foundry
           nodejs
+          taplo
         ];
 
         LIBCLANG_PATH = buildEnv.LIBCLANG_PATH;
