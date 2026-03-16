@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "archiver",
     "node",
     "runtime",
     "runtime/generate-bags",

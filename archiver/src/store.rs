@@ -1,0 +1,159 @@
+//! Sled-backed root store.
+//!
+//! Schema: key = block height (u64 big-endian, 8 bytes), value = merkle root (H256, 32 bytes).
+//! Big-endian keys ensure sled's sorted iteration yields blocks in height order.
+
+use std::path::Path;
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use sp_core::H256;
+
+/// Thread-safe handle to the root store. Cheap to clone (wraps Arc<sled::Db>).
+#[derive(Clone)]
+pub struct RootStore {
+    db: Arc<sled::Db>,
+    /// Cached digests at specific heights (separate sled tree).
+    digest_cache: sled::Tree,
+}
+
+impl RootStore {
+    /// Open (or create) the sled database at the given path.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let db = sled::open(path.as_ref())
+            .with_context(|| format!("failed to open sled database at {:?}", path.as_ref()))?;
+        let digest_cache = db
+            .open_tree("digest_cache")
+            .context("failed to open digest_cache tree")?;
+        Ok(Self {
+            db: Arc::new(db),
+            digest_cache,
+        })
+    }
+
+    /// Cache a computed digest at a specific height.
+    pub fn cache_digest(&self, height: u64, digest: H256) -> Result<()> {
+        self.digest_cache
+            .insert(height.to_be_bytes(), digest.as_bytes())?;
+        Ok(())
+    }
+
+    /// Get the highest cached digest at or below the given height.
+    pub fn get_cached_digest_at_or_below(&self, height: u64) -> Result<Option<(u64, H256)>> {
+        let item = if height == u64::MAX {
+            self.digest_cache.iter().next_back()
+        } else {
+            let key = (height + 1).to_be_bytes();
+            self.digest_cache.range(..key).next_back()
+        };
+        if let Some(item) = item {
+            let (k, v) = item.context("failed to read digest cache")?;
+            let h = u64::from_be_bytes(
+                k.as_ref()
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("invalid key length in digest cache"))?,
+            );
+            let digest = parse_h256(&v)?;
+            Ok(Some((h, digest)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Insert a merkle root for a given block height.
+    pub fn put_root(&self, height: u64, root: H256) -> Result<()> {
+        self.db.insert(height.to_be_bytes(), root.as_bytes())?;
+        Ok(())
+    }
+
+    /// Get roots for an inclusive block range [from, to].
+    /// Returns (block_number, merkle_root) pairs in ascending order.
+    pub fn get_range(&self, from: u64, to: u64) -> Result<Vec<(u64, H256)>> {
+        let start = from.to_be_bytes();
+        let mut results = Vec::new();
+
+        for item in self.db.range(start..=to.to_be_bytes()) {
+            let (key, value) = item.context("failed to read from sled")?;
+            let height = parse_height(&key)?;
+            let root = parse_h256(&value)?;
+            results.push((height, root));
+        }
+
+        Ok(results)
+    }
+
+    /// Get the latest (highest) stored block height, or None if empty.
+    pub fn latest_height(&self) -> Result<Option<u64>> {
+        match self.db.last()? {
+            Some((key, _)) => Ok(Some(parse_height(&key)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the first (lowest) stored block height, or None if empty.
+    pub fn first_height(&self) -> Result<Option<u64>> {
+        match self.db.first()? {
+            Some((key, _)) => Ok(Some(parse_height(&key)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Flush database to disk.
+    pub async fn flush(&self) -> Result<()> {
+        self.db.flush_async().await?;
+        Ok(())
+    }
+}
+
+fn parse_height(key: &sled::IVec) -> Result<u64> {
+    let bytes: [u8; 8] = key
+        .as_ref()
+        .try_into()
+        .with_context(|| format!("invalid key length: expected 8, got {}", key.len()))?;
+    Ok(u64::from_be_bytes(bytes))
+}
+
+fn parse_h256(value: &sled::IVec) -> Result<H256> {
+    anyhow::ensure!(
+        value.len() == 32,
+        "invalid digest length: expected 32, got {}",
+        value.len()
+    );
+    Ok(H256::from_slice(value.as_ref()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_put_get() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        let root = H256::random();
+        store.put_root(42, root).unwrap();
+
+        let range = store.get_range(42, 42).unwrap();
+        assert_eq!(range.len(), 1);
+        assert_eq!(range[0], (42, root));
+        assert_eq!(store.get_range(43, 43).unwrap().len(), 0);
+        assert_eq!(store.latest_height().unwrap(), Some(42));
+    }
+
+    #[test]
+    fn range_query() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        let roots: Vec<H256> = (0..10).map(|_| H256::random()).collect();
+        for (i, root) in roots.iter().enumerate() {
+            store.put_root(i as u64, *root).unwrap();
+        }
+
+        let range = store.get_range(3, 6).unwrap();
+        assert_eq!(range.len(), 4);
+        assert_eq!(range[0], (3, roots[3]));
+        assert_eq!(range[3], (6, roots[6]));
+    }
+}
