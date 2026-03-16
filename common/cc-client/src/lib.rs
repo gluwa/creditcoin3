@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use sc_service::GenericChainSpec;
 use serde::Serialize;
 use sp_core::{
     sr25519::{self},
@@ -14,7 +13,6 @@ use subxt::{
     },
     config::DefaultExtrinsicParamsBuilder,
     error::RpcError,
-    utils::fetch_chainspec_from_rpc_node,
     OnlineClient, SubstrateConfig,
 };
 use subxt_signer::{
@@ -76,8 +74,6 @@ pub enum Error {
     InvalidUrl,
     #[error("Failed to create proof of inclusion: {0}")]
     FailedToCreateProofOfInclusion(#[from] VrfError),
-    #[error("Failed to get chain name")]
-    FailedToGetChainName,
     #[error("Failed to get STARK metadata: {0}")]
     FailedToGetStarkMetadata(String),
     #[error("Attestor not found in storage, register the attestor first and retry later")]
@@ -188,21 +184,6 @@ impl Client {
             .await?;
 
         Ok(chain_key)
-    }
-
-    pub async fn get_chain_name(&self) -> Result<String, Error> {
-        let chain_spec = fetch_chainspec_from_rpc_node(self.url.as_str())
-            .await
-            .map_err(|e| {
-                error!("Error fetching chain spec from node: {:?}", e);
-                Error::FailedToGetChainName
-            })?;
-        let json_bytes: Vec<u8> = chain_spec.get().as_bytes().to_vec();
-
-        let spec: GenericChainSpec = GenericChainSpec::from_json_bytes(json_bytes)
-            .map_err(|_| Error::FailedToGetChainName)?;
-
-        Ok(spec.id().to_string())
     }
 
     pub async fn get_supported_chain(

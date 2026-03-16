@@ -31,7 +31,6 @@ vrf = { workspace = true }
 
 # workspace deps
 ccnext-abi-encoding = { workspace = true, optional = true }
-sc-service = { workspace = true }
 serde = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }

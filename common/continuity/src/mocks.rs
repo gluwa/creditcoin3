@@ -132,11 +132,6 @@ impl CcRpcProvider for MockCcRpcProvider {
         Ok(self.genesis_block)
     }
 
-    async fn get_chain_name(&self) -> Result<String> {
-        // Mock returns a test chain name
-        Ok("Mock CC3 Chain".to_string())
-    }
-
     async fn fetch_last_digest(&self, _chain_key: u64) -> Result<Option<H256>> {
         // Mock returns digest for block 30 (highest attestation)
         Ok(Some(H256::from_low_u64_be(30)))

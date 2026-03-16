@@ -63,11 +63,6 @@ pub trait CcRpcProvider: Send + Sync {
     /// Blocks before this cannot have proofs generated.
     async fn get_attestation_chain_genesis_block_number(&self, chain_key: u64) -> Result<u64>;
 
-    /// Get the CC3 chain name.
-    ///
-    /// Useful for validation and health checks.
-    async fn get_chain_name(&self) -> Result<String>;
-
     /// Get the last attestation digest for a chain.
     ///
     /// This is a lightweight query that only fetches the digest without
@@ -211,12 +206,6 @@ impl CcRpcProvider for CcClient {
         self.get_attestation_chain_genesis_block_number(chain_key)
             .await
             .map_err(|e| anyhow!("Failed to fetch genesis block number: {e}"))
-    }
-
-    async fn get_chain_name(&self) -> Result<String> {
-        self.get_chain_name()
-            .await
-            .map_err(|e| anyhow!("Failed to fetch chain name: {e}"))
     }
 
     async fn fetch_last_digest(&self, chain_key: u64) -> Result<Option<H256>> {

@@ -2200,7 +2200,6 @@ dependencies = [
  "anyhow",
  "attestor-primitives",
  "ccnext-abi-encoding",
- "sc-service",
  "serde",
  "sp-core",
  "subxt",

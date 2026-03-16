@@ -244,8 +244,8 @@ impl ContinuityService {
 
     /// Health check for CC3 RPC connectivity
     pub async fn check_cc3_connectivity(&self) -> anyhow::Result<()> {
-        // Try to get the chain name as a basic connectivity check
-        let _chain_name = self.builder.get_chain_name().await?;
+        // Use a lightweight storage query as a connectivity check
+        let _genesis = self.builder.get_attestation_genesis_block().await?;
         Ok(())
     }
 

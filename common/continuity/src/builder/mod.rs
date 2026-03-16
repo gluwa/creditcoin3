@@ -584,16 +584,6 @@ impl ContinuityBuilder {
         self.eth_provider.get_last_block().await
     }
 
-    /// Get the CC3 chain name.
-    ///
-    /// Useful for health checks and validation.
-    pub async fn get_chain_name(&self) -> Result<String> {
-        self.cc_provider
-            .get_chain_name()
-            .await
-            .context("Failed to get CC3 chain name")
-    }
-
     /// Get the source chain ID.
     ///
     /// Useful for health checks and chain validation.
