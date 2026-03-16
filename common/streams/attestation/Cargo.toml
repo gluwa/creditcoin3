@@ -18,7 +18,6 @@ cc-client = { workspace = true }
 ccnext-abi-encoding = { workspace = true }
 
 # Streams
-async-stream = { workspace = true }
 futures = { workspace = true }
 stream_eth = { workspace = true }
 

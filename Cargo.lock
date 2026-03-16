@@ -14650,7 +14650,6 @@ dependencies = [
 name = "stream_attestation"
 version = "3.100.0"
 dependencies = [
- "async-stream",
  "attestor-primitives",
  "bip39",
  "bls-signatures",
