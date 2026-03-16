@@ -84,8 +84,8 @@ fn main() {
             .with_bls_key(bls_key)
             .with_stream_roots(stream_roots)
             .with_stream_tip(stream_tip)
-            .with_interval_attestation(INTERVAL_ATTESTATION)
-            .with_digest_prev(attestor_primitives::Digest::default())
+            .with_attestation_interval(INTERVAL_ATTESTATION)
+            .with_attestation_prev(stream_util::AttestationInfo::default())
             .with_max_catchup(MAX_CATCHUP)
             .build();
 
@@ -121,6 +121,7 @@ fn main() {
         {
             let digest = attestation.digest();
             let height = attestation.header_number();
+
             tracing::info!(height, %digest, "New attestation");
 
             n += 1;
@@ -128,7 +129,13 @@ fn main() {
 
             if finalized % attestations.max_catchup() == 0 {
                 tracing::warn!(finalized, "New finalized attestation");
-                attestations.note_attestation_finalization(finalized, attestation.digest());
+
+                let info = stream_util::AttestationInfo {
+                    digest,
+                    height: finalized,
+                };
+
+                attestations.note_attestation_finalization(info);
             }
         }
     })

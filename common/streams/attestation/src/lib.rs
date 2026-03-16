@@ -16,8 +16,8 @@ pub struct Config {
     stream_roots: stream_util::BoxedStream<stream_util::RootInfo>,
     stream_tip: stream_util::BoxedStream<attestor_primitives::Height>,
 
-    interval_attestation: std::num::NonZero<attestor_primitives::Height>,
-    digest_prev: attestor_primitives::Digest,
+    attestation_interval: std::num::NonZero<attestor_primitives::Height>,
+    attestation_prev: stream_util::AttestationInfo,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
 }
 
@@ -49,7 +49,20 @@ impl Permit {
 /// attestation, while other attestations are used as backup in case consensus cannot be reached at
 /// the target height.
 ///
+/// ## Cancellation Safety
+///
+/// [`StreamAttestation`] is [cancellation-safe]. The stream makes progress in two steps:
+///
+/// 1. Attestations are backfilled from the latest possible point.
+/// 2. Once backfilling has completed, new block roots are fetched and stored in a local cache.
+///
+/// Crucially, no new attestations may be returned until the fetching process has completed. This
+/// separates storage mutations from stream yielding, so that we cannot enter an invalid state
+/// midway during attestations generation. If the stream is interrupted during polling, then
+/// restarted, it will either return the next attestation or resume its fetching process.
+///
 /// [`note_attestation_finalization`]: Self::note_attestation_finalization
+/// [cancellation-safe]: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
 pub struct StreamAttestation {
     cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,
@@ -61,17 +74,17 @@ pub struct StreamAttestation {
 
     cache: Vec<stream_util::RootInfo>,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
-    interval_attestation: std::num::NonZero<attestor_primitives::Height>,
-    digest_prev: attestor_primitives::Digest,
+    attestation_interval: std::num::NonZero<attestor_primitives::Height>,
+    attestation_prev: stream_util::AttestationInfo,
 
-    /// Range of roots which have been generated and for which we can return a permit. We need to
-    /// keep track of this to know how many blocks to fetch next
-    missing: std::ops::RangeInclusive<attestor_primitives::Height>,
-
-    /// Source chain tip, updated as we need to fetch more blocks
+    /// Range of roots which have been computed and can be used to generate an attestation. We keep
+    /// track of this to know how many blocks to fetch even if the cache is empty.
+    computed: std::ops::RangeInclusive<attestor_primitives::Height>,
+    /// Source chain tip, keeps track of advancement during root computation.
     tip: attestor_primitives::Height,
-
-    /// Latest attestation to have been produced
+    /// The next attestation to produce in the [`computed`] range.
+    ///
+    /// [`computed`]: Self::computed
     cursor: attestor_primitives::Height,
 
     waker: Option<std::task::Waker>,
@@ -79,8 +92,10 @@ pub struct StreamAttestation {
 
 impl StreamAttestation {
     pub fn new(config: Config) -> Self {
-        let div = config.max_catchup.get() / config.interval_attestation.get();
-        let max_catchup = config.interval_attestation.saturating_mul(
+        // max catchup is aligned to the attestation interval to simplify attestation generation
+        // logic, otherwise several edge cases can occur around the alignment of new block roots.
+        let div = config.max_catchup.get() / config.attestation_interval.get();
+        let max_catchup = config.attestation_interval.saturating_mul(
             std::num::NonZero::new(div)
                 .unwrap_or(std::num::NonZero::<attestor_primitives::Height>::MIN),
         );
@@ -98,10 +113,10 @@ impl StreamAttestation {
 
             cache,
             max_catchup,
-            interval_attestation: config.interval_attestation,
-            digest_prev: config.digest_prev,
+            attestation_interval: config.attestation_interval,
+            attestation_prev: config.attestation_prev,
 
-            missing: 0..=0,
+            computed: 0..=0,
             tip: 0,
             cursor: 0,
 
@@ -113,15 +128,24 @@ impl StreamAttestation {
         self.max_catchup
     }
 
-    pub fn note_attestation_finalization(
-        &mut self,
-        height: attestor_primitives::Height,
-        digest: attestor_primitives::Digest,
-    ) {
+    /// Lets the [`StreamAttestation`] know that a new attestation has finalized on-chain.
+    ///
+    /// This is a no-op if the stream was already notified of a higher attestation finalizing, or
+    /// if the finalized attestation is not at a multiple of the configured attestation interval.
+    /// Note that in the latter case this indicates that the stream should be re-generated with
+    /// the new interval.
+    pub fn note_attestation_finalization(&mut self, info: stream_util::AttestationInfo) {
+        if self.attestation_prev.height >= info.height
+            || info.height % self.attestation_interval.get() != 0
+        {
+            return;
+        }
+
+        // The root cache is drained of past roots which are no longer needed to reach consensus.
         if !self.cache.is_empty() {
             let first = self.cache.first().expect("Checked above").height as usize;
             let last = self.cache.last().expect("Checked above").height as usize;
-            let height = height as usize;
+            let height = info.height as usize;
 
             if height >= first && height <= last {
                 let index = height - first;
@@ -129,14 +153,18 @@ impl StreamAttestation {
             }
         }
 
-        self.missing = *self.missing.start().max(&height)..=*self.missing.end();
-        self.digest_prev = digest;
+        self.computed = *self.computed.start().max(&info.height)..=*self.computed.end();
+        self.attestation_prev = info;
 
+        // It is possible that by draining past roots the attestation stream is now able to
+        // synchronize new blocks. This wakes any pending stream polls so they can make progress
+        // again.
         if let Some(waker) = self.waker.take() {
             waker.wake()
         }
     }
 
+    /// Generates an attestation with no previous digest.
     pub fn generate_attestation_genesis(
         &self,
         stream_util::RootInfo { height, root, hash }: stream_util::RootInfo,
@@ -167,7 +195,7 @@ impl StreamAttestation {
                 let digest_prev = acc
                     .last()
                     .map(|block| block.digest)
-                    .unwrap_or(self.digest_prev);
+                    .unwrap_or(self.attestation_prev.digest);
                 let block = attestor_primitives::block::Block::new_from_prev_digest(
                     *height,
                     *root,
@@ -215,18 +243,27 @@ impl StreamAttestation {
         }
     }
 
+    /// Checks if the root cache contains all blocks up to the chain tip or the max catchup. If
+    /// this is not the case we should keep processing new roots.
     fn missing_roots(&self) -> bool {
         self.cache
             .last()
             .map(|info| info.height)
             .unwrap_or_default()
             < self
-                .missing
+                .computed
                 .start()
                 .saturating_add(self.max_catchup.get())
                 .min(self.tip)
     }
 
+    /// Makes sure the max catchup bound is respected.
+    ///
+    /// Note that if [`max_catchup`] is 500 for example then up to 501 roots may be stored in
+    /// cache. This is because the attestation stream may start at block 0 and to ensure the
+    /// highest cached root can always be a multiple of the max catchup.
+    ///
+    /// [`max_catchup`]: Self::max_catchup
     fn has_space_left(&self) -> bool {
         self.cache.len() <= self.max_catchup.get() as usize
     }
@@ -243,7 +280,7 @@ impl futures::Stream for StreamAttestation {
 
         loop {
             // Yield cached roots
-            if self.cursor > *self.missing.start() {
+            if self.cursor > *self.computed.start() {
                 assert!(
                     self.cache
                         .last()
@@ -255,7 +292,7 @@ impl futures::Stream for StreamAttestation {
                 );
 
                 let attestation = self.generate_attestation(self.cursor);
-                self.cursor = self.cursor.saturating_sub(self.interval_attestation.get());
+                self.cursor = self.cursor.saturating_sub(self.attestation_interval.get());
                 return std::task::Poll::Ready(Some(Ok(attestation)));
             }
 
@@ -266,13 +303,15 @@ impl futures::Stream for StreamAttestation {
                 return std::task::Poll::Pending;
             }
 
+            // We don't want the check above to be returning pending before we have finished
+            // fetching roots.
             self.fetching = true;
 
             let next = self
-                .missing
+                .computed
                 .end()
                 .to_owned()
-                .saturating_add(self.interval_attestation.get());
+                .saturating_add(self.attestation_interval.get());
 
             // Chain tip and roots are polled concurrently until a new attestation can be produced
             while self.tip < next || self.missing_roots() {
@@ -293,7 +332,7 @@ impl futures::Stream for StreamAttestation {
 
                 match self.stream_tip.poll_next_unpin(cx) {
                     std::task::Poll::Ready(Some(tip)) => {
-                        self.tip = tip - (tip % self.interval_attestation.get());
+                        self.tip = tip - (tip % self.attestation_interval.get());
                         progress = true;
                     }
                     std::task::Poll::Ready(None) => {
@@ -317,12 +356,14 @@ impl futures::Stream for StreamAttestation {
             );
 
             let stop = self
-                .missing
+                .computed
                 .start()
                 .saturating_add(self.max_catchup.get())
                 .min(self.tip);
 
-            self.missing = *self.missing.end()..=stop;
+            // We only update the state of attestation production after all roots have been cached
+            // to avoid new attestations being generated mid-catchup.
+            self.computed = *self.computed.end()..=stop;
             self.cursor = stop;
         }
     }
