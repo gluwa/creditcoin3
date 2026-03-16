@@ -35,7 +35,7 @@ fn main() {
         .get()
         .saturating_sub(MAX_CONCURRENT_REQUESTS.get() + 1);
     let parallelism = std::num::NonZeroUsize::new(parallelism)
-        .expect("Root computation requires at least 2 threads to run");
+        .expect("Root computation requires more than MAX_CONCURRENT_REQUESTS threads to run");
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(MAX_CONCURRENT_REQUESTS.get() + 1)
@@ -108,7 +108,6 @@ fn main() {
 
         let genesis = attestations
             .generate_attestation_genesis(stream_util::RootInfo { height, root, hash })
-            .await
             .expect("Failed to generate genesis attestation");
         let digest = genesis.digest();
 

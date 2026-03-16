@@ -125,7 +125,7 @@ impl StreamAttestation {
         self.sign_attestation(attestation_data, continuity_proof)
     }
 
-    pub async fn generate_attestation_genesis(
+    pub fn generate_attestation_genesis(
         &self,
         stream_util::RootInfo { height, root, hash }: stream_util::RootInfo,
     ) -> Result<Attestation, Interrupt<Error>> {

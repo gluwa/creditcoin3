@@ -195,10 +195,7 @@ async fn stream_rpc(
     let mut stream_n = futures::stream::iter(config.start_height..=next)
         .chain(stream_headers.map(|header| header.number))
         .skip_while(move |number| {
-            futures::future::ready(
-                *number < config.finalization_lag
-                    || *number < config.start_height + config.finalization_lag,
-            )
+            futures::future::ready(*number < config.start_height + config.finalization_lag)
         });
 
     let mut blocks = tokio::task::JoinSet::new();
