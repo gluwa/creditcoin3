@@ -79,16 +79,6 @@ impl Server {
             bail!("Wrong chain. Source chain endpoint chain id: {chain_id}, Supported chain id: {supported_chain_id}");
         }
 
-        // Log CC3 connection
-        let chain_name = cc3_client
-            .get_chain_name()
-            .await
-            .context("cc3_client failed to get chain_name")?;
-        info!(
-            "✅ Connected to Creditcoin chain: {} with id: {}",
-            chain_name, config.chain_key
-        );
-
         // Fetch intervals from CC3 chain at startup
         let attestation_interval = cc3_client
             .chain_attestation_interval(config.chain_key)
