@@ -477,6 +477,7 @@ impl WorkerAttestationProduction {
                     );
 
                     self.attestation_latest_cc3 = attestation_latest_cc3;
+                    self.attestation_local = height;
 
                     // 1. Update the attestation pool
                     //

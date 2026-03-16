@@ -2746,4 +2746,195 @@ mod test {
             Err(Error::Unauthorized(ATTESTOR_INVALID, 0))
         );
     }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    #[allow(clippy::too_many_arguments)]
+    async fn chain_reversion_resets_validation_pool(
+        _logs: (),
+        // Attestations that will be marked valid via mark_for_later
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 0, DIGEST_0)]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1], 0, DIGEST_0)]
+        attestation_1: AttestationVote,
+        // Attestations that will be marked invalid
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 1, DIGEST_0)]
+        attestation_2: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1], 1, DIGEST_0)]
+        attestation_3: AttestationVote,
+        // Attestations that will remain in forks after removals
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_2], 2, DIGEST_0)]
+        attestation_4: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_3], 2, DIGEST_0)]
+        attestation_5: AttestationVote,
+        // Attestation that will be entered into pending
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_2], 1, DIGEST_1)]
+        attestation_pending: AttestationVote,
+        #[from(validate_quorum)]
+        #[with(2)]
+        _quorum_validate: ValidateQuorum,
+        #[from(config)]
+        #[with(_quorum_validate.clone(), 5)]
+        config: Config,
+    ) {
+        use crate::events::EventRevertedAttestationChainTo as _;
+        use futures::stream::StreamExt as _;
+
+        let (mut sx, mut rx) = attestation_pool(config);
+
+        // ------------------------------------------------------------------------
+        // 1) Create a quorum and mark it for later.
+        //    This populates:
+        //      - valid.quorums_valid
+        //      - digest_local
+        // ------------------------------------------------------------------------
+        assert!(sx
+            .send(attestation_0.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+        assert!(sx
+            .send(attestation_1.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+
+        let (_quorum_high, permit_0, _digest_local) = rx.next().await.unwrap();
+
+        let attestation_signed_0 = common::types::AttestationSigned {
+            attestation: attestation_0.attestation.attestation_data.clone(),
+            signature: [0u8; 96],
+            attestors: vec![
+                attestation_0.attestation.attestor.clone(),
+                attestation_1.attestation.attestor.clone(),
+            ],
+            continuity_proof: attestation_0.attestation.continuity_proof.clone(),
+        };
+
+        rx.mark_for_later(
+            permit_0,
+            attestation_signed_0,
+            vec![
+                attestation_0.attestation.clone(),
+                attestation_1.attestation.clone(),
+            ],
+        );
+
+        // ------------------------------------------------------------------------
+        // 2) Create another quorum and mark it invalid.
+        //    This populates votes_invalid.
+        // ------------------------------------------------------------------------
+        assert!(sx
+            .send(attestation_2.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+        assert!(sx
+            .send(attestation_3.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+
+        let (_quorum_low, permit_1, _digest_local) = rx.next().await.unwrap();
+        rx.mark_invalid(permit_1);
+
+        // ------------------------------------------------------------------------
+        // 3) Create another quorum and leave it in forks.
+        // This populates forks_by_digest / forks_by_height / forks_by_size / quorums_by_height / votes
+        // ------------------------------------------------------------------------
+        assert!(sx
+            .send(attestation_4.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+        assert!(sx
+            .send(attestation_5.attestation.clone())
+            .unwrap()
+            .as_ref()
+            .is_ok_and(Vec::is_empty));
+
+        // ------------------------------------------------------------------------
+        // 4) Add a pending attestation.
+        //    This populates:
+        //      - pending_by_digest / pending_by_prev_digest_tail / pending_by_height
+        //      - attestation_delay.time
+        // ------------------------------------------------------------------------
+        assert!(sx
+            .send(attestation_pending.attestation.clone())
+            .unwrap()
+            .is_ok());
+
+        // Sanity-check that we actually populated the structures before reversion.
+        {
+            let mut pool = rx.common.pool.lock();
+            let inner = pool.expect_open();
+
+            assert!(inner.digest_local.is_some());
+
+            assert!(!inner.forks.forks_by_digest.is_empty());
+            assert!(!inner.forks.forks_by_height.is_empty());
+            assert!(!inner.forks.forks_by_size.is_empty());
+            assert!(inner.forks.forks_best.is_some());
+
+            assert!(!inner.forks.pending_by_digest.is_empty());
+            assert!(!inner.forks.pending_by_prev_digest_tail.is_empty());
+            assert!(!inner.forks.pending_by_height.is_empty());
+
+            assert!(!inner.forks.votes.is_empty());
+            assert!(!inner.forks.votes_invalid.is_empty());
+            assert!(!inner.forks.quorums_by_height.is_empty());
+
+            assert!(!inner.valid.quorums_valid.is_empty());
+            assert!(!inner.attestation_delay.time.is_empty());
+        }
+
+        // ------------------------------------------------------------------------
+        // 5) Revert the chain and verify everything is cleared/reset.
+        // ------------------------------------------------------------------------
+        let reversion_info = common::types::AttestationInfo {
+            height: 50,
+            digest: DIGEST_1,
+        };
+
+        sx.note_attestation_chain_reversion(reversion_info).unwrap();
+
+        {
+            let mut pool = rx.common.pool.lock();
+            let inner = pool.expect_open();
+
+            // Digest local reset
+            assert_eq!(inner.digest_local, None);
+
+            // Forks reset
+            assert!(inner.forks.forks_by_digest.is_empty());
+            assert!(inner.forks.forks_by_height.is_empty());
+            assert!(inner.forks.forks_by_size.is_empty());
+            assert_eq!(inner.forks.forks_best, None);
+
+            assert!(inner.forks.pending_by_digest.is_empty());
+            assert!(inner.forks.pending_by_prev_digest_tail.is_empty());
+            assert!(inner.forks.pending_by_height.is_empty());
+
+            assert!(inner.forks.votes.is_empty());
+            assert!(inner.forks.votes_invalid.is_empty());
+            assert!(inner.forks.quorums_by_height.is_empty());
+
+            // Reversion should set the new finalized digest
+            assert_eq!(inner.forks.last_finalized_digest, Some(DIGEST_1));
+
+            // Valid queue reset
+            assert!(inner.valid.quorums_valid.is_empty());
+
+            // Delay tracking reset
+            assert!(inner.attestation_delay.time.is_empty());
+        }
+    }
 }
