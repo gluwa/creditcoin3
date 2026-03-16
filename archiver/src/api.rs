@@ -18,6 +18,7 @@ use axum::{
 };
 use ccnext_abi_encoding::common::EncodingVersion;
 use serde::{Deserialize, Serialize};
+use tower_http::trace::TraceLayer;
 
 use crate::store::RootStore;
 
@@ -34,6 +35,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/roots/latest", get(roots_latest))
         .route("/roots", get(roots))
         .route("/proof-input", get(proof_input))
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
