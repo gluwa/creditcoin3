@@ -1128,14 +1128,14 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn check_duplicate(attestation: &SignedAttestation<T::Hash, T::AccountId>) -> bool {
         let digest = attestation.digest();
         if Attestations::<T>::get(attestation.attestation.chain_key, digest).is_some() {
-            log::error!("Attestation with digest: {digest:?} is duplicate");
+            log::debug!("Attestation with digest: {digest:?} is duplicate");
             return true;
         }
 
         // Get last checkpoint
         if let Some(checkpoint) = LastCheckpoint::<T>::get(attestation.attestation.chain_key) {
             if attestation.header_number() <= checkpoint.block_number {
-                log::error!(
+                log::debug!(
                     "Attestation with block number: {:?} is duplicate",
                     attestation.header_number()
                 );

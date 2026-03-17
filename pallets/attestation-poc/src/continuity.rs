@@ -9,12 +9,12 @@ impl<T: Config> Pallet<T> {
     pub fn validate_attestation_continuity(
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
     ) -> DispatchResult {
-        info!("🔍 Validating attestation continuity...");
+        debug!("🔍 Validating attestation continuity...");
         let chain_key = attestation.chain_key();
         let attestation_header_number = attestation.header_number();
         let attestation_genesis = AttestationChainGenesisBlockNumber::<T>::get(chain_key);
 
-        info!(
+        debug!(
             "📝 Validating attestation continuity for attestation: chain_key: {chain_key:?}, attestation_header_number: {attestation_header_number}, digest: {:?}, prev_digest: {:?}, continuity_proof length: {}",
             attestation.digest(),
             attestation.prev_digest(),
