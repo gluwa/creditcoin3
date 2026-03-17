@@ -127,7 +127,7 @@ jobs:
     secrets: inherit
 
   integration-test-check-extrinsics:
-    if: github.base_ref == 'dev'
+    if: github.base_ref == 'dev'|| github.base_ref == 'poc_external_attestation_network'
     needs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
