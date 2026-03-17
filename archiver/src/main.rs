@@ -226,7 +226,13 @@ async fn main() -> Result<()> {
     loop {
         let info = tokio::select! {
             _ = &mut cancel_rx => break,
-            Some(info) = root_stream.next() => info,
+            item = root_stream.next() => match item {
+                Some(info) => info,
+                None => {
+                    tracing::error!("root stream ended unexpectedly");
+                    break;
+                }
+            },
         };
 
         let height = info.height;

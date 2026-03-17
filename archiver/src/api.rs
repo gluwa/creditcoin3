@@ -153,10 +153,17 @@ async fn proof_input(
         .get_range(params.from, params.to)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if range.is_empty() {
+    let expected_count = (params.to - params.from + 1) as usize;
+    if range.len() != expected_count {
         return Err((
             StatusCode::NOT_FOUND,
-            "no roots found for the requested range".to_string(),
+            format!(
+                "incomplete data: expected {} roots for range {}..={}, found {}",
+                expected_count,
+                params.from,
+                params.to,
+                range.len()
+            ),
         ));
     }
 
