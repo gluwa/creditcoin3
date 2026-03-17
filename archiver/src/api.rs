@@ -211,8 +211,9 @@ async fn compute_digest_at(
     };
 
     // Phase 1: if we need blocks before the store, fetch from chain.
-    // Cap at 10,000 blocks to avoid unbounded RPC fetching on API requests.
-    const MAX_CHAIN_FETCH: u64 = 10_000;
+    // Cap to avoid unbounded RPC fetching on API requests.
+    // Use DIGEST_CACHE_INTERVAL + 1 so that the first cache boundary (inclusive range) succeeds.
+    const MAX_CHAIN_FETCH: u64 = DIGEST_CACHE_INTERVAL + 1;
     if replay_from < first {
         let fetch_to = target_height.min(first.saturating_sub(1));
         if fetch_to >= replay_from {
@@ -249,7 +250,8 @@ async fn compute_digest_at(
     }
 
     // Phase 2: replay from store (capped to avoid unbounded memory usage).
-    const MAX_STORE_REPLAY: u64 = 10_000;
+    // Use DIGEST_CACHE_INTERVAL + 1 so that the first cache boundary (inclusive range) succeeds.
+    const MAX_STORE_REPLAY: u64 = DIGEST_CACHE_INTERVAL + 1;
     let store_from = replay_from.max(first);
     let store_count = if store_from <= target_height {
         target_height - store_from + 1
