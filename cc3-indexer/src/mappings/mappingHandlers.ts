@@ -1344,7 +1344,7 @@ export async function handleEventRevertedAttestationChainTo(event: SubstrateEven
     } catch (error) {
         logger.error(error, 'Failed to cleanup attestations and checkpoints for reversion');
         reversion.status = 'failed';
-        reversion.errorMessage = `${error}`;
+        reversion.errorMessage = error instanceof Error ? error.message : String(error);
         await reversion.save();
         throw error; // rethrow so the indexer knows the handler failed
     }
@@ -1370,7 +1370,7 @@ export async function handleEventRevertedAttestationChainTo(event: SubstrateEven
     } catch (error) {
         logger.error(error, 'Failed to set AttestationChainData during reversion');
         reversion.status = 'failed';
-        reversion.errorMessage = `${error}`;
+        reversion.errorMessage = error instanceof Error ? error.message : String(error);
         await reversion.save();
         throw error; // rethrow so the indexer knows the handler failed
     }
