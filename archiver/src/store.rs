@@ -66,8 +66,6 @@ impl RootStore {
         Ok(())
     }
 
-    /// Get roots for an inclusive block range [from, to].
-    /// Returns (block_number, merkle_root) pairs in ascending order.
     /// Insert a batch of roots atomically.
     pub fn put_roots(&self, roots: &[(u64, H256)]) -> Result<()> {
         let mut batch = sled::Batch::default();
