@@ -211,9 +211,19 @@ async fn compute_digest_at(
     };
 
     // Phase 1: if we need blocks before the store, fetch from chain.
+    // Cap at 10,000 blocks to avoid unbounded RPC fetching on API requests.
+    const MAX_CHAIN_FETCH: u64 = 10_000;
     if replay_from < first {
         let fetch_to = target_height.min(first.saturating_sub(1));
         if fetch_to >= replay_from {
+            let fetch_count = fetch_to - replay_from + 1;
+            anyhow::ensure!(
+                fetch_count <= MAX_CHAIN_FETCH,
+                "digest computation requires fetching {} blocks from chain (max {}). \
+                 Consider starting the archiver from a lower block height.",
+                fetch_count,
+                MAX_CHAIN_FETCH,
+            );
             tracing::info!(
                 from = replay_from,
                 to = fetch_to,

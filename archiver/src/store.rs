@@ -61,6 +61,7 @@ impl RootStore {
     }
 
     /// Insert a merkle root for a given block height.
+    #[allow(dead_code)]
     pub fn put_root(&self, height: u64, root: H256) -> Result<()> {
         self.db.insert(height.to_be_bytes(), root.as_bytes())?;
         Ok(())

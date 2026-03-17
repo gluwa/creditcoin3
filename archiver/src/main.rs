@@ -98,10 +98,17 @@ async fn main() -> Result<()> {
 
                 let mut gap_stream = stream_eth::StreamRoots::new(gap_config).await?;
                 let mut filled = 0u64;
+                let mut batch_buf = Vec::with_capacity(1000);
 
                 while let Some(info) = gap_stream.next().await {
-                    store.put_root(info.height, info.root)?;
+                    let done = info.height >= *gap_end;
+                    batch_buf.push((info.height, info.root));
                     filled += 1;
+
+                    if batch_buf.len() >= 1000 || done {
+                        store.put_roots(&batch_buf)?;
+                        batch_buf.clear();
+                    }
 
                     if filled % 1000 == 0 {
                         tracing::info!(
@@ -112,7 +119,7 @@ async fn main() -> Result<()> {
                         );
                     }
 
-                    if info.height >= *gap_end {
+                    if done {
                         break;
                     }
                 }
