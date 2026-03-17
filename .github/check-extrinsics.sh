@@ -66,10 +66,8 @@ for RUNTIME in "${runtimes[@]}"; do
   #Wait for RELEASE BINARY
   ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
 
-  changed_extrinsics=$(
-    polkadot-js-metadata-cmp "$RELEASE_WS" "$HEAD_WS" \
-      | sed 's/^ \+//g' | grep -e 'idx: [0-9]\+ -> [0-9]\+' || true
-  )
+  CMP_OUTPUT=$(polkadot-js-metadata-cmp "$RELEASE_WS" "$HEAD_WS")
+  changed_extrinsics=$(echo "$CMP_OUTPUT" | sed 's/^ \+//g' | grep -e 'idx: [0-9]\+ -> [0-9]\+' || true)
 
   # compare to mainnet and testnet explicitly b/c latest release could be any of them
   # for now this comparison is only used to provide more info in CI
@@ -83,10 +81,23 @@ for RUNTIME in "${runtimes[@]}"; do
     if [ "$release_transaction_version" == "$current_transaction_version" ]; then
         exit 1
     else
-        echo "[+] Transaction version for ${RUNTIME} has been bumped since last release. Exiting."
+        echo "[+] Transaction version for ${RUNTIME} has been bumped since last release. All good."
     fi
   fi
 
   echo "[+] No change in extrinsics ordering for the ${RUNTIME} runtime"
+
+  removed_items=$(echo "$CMP_OUTPUT" | sed 's/^ \+//g' | grep '\[-] ' || true)
+  if [ -n "$removed_items" ]; then
+    echo "[!] Removed items:"
+    echo "$removed_items"
+
+    if [ "$release_transaction_version" == "$current_transaction_version" ]; then
+        exit 2
+    else
+        echo "[+] Transaction version for ${RUNTIME} has been bumped since last release. All good."
+    fi
+  fi
+
   jobs -p | xargs kill -9
 done
