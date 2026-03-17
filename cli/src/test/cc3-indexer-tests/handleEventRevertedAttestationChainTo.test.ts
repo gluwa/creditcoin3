@@ -18,7 +18,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
-        let checkpoints: Array<{ blockNumber: string; digest: string }> = [];
+        let checkpoints: { blockNumber: string; digest: string }[] = [];
 
         while (checkpoints.length < 3) {
             await forElapsedBlocks(api, { minBlocks: 2 });
