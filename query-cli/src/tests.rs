@@ -1,6 +1,6 @@
 use super::Network;
 use crate::query_builder::BlockscoutAbiProvider;
-use ccnext_query_builder::abi::query_builder::AbiProvider;
+use usc_query_builder::abi::query_builder::AbiProvider;
 
 #[tokio::test]
 // Ignoring this test in CI because it depends on Blockscout stability, which is flaky

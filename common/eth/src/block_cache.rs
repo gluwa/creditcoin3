@@ -9,7 +9,7 @@ use std::time::Instant;
 use tracing::{debug, error, trace};
 
 use alloy::eips::{BlockId, BlockNumberOrTag};
-use ccnext_abi_encoding::common::EncodingVersion;
+use usc_abi_encoding::common::EncodingVersion;
 
 use redis::{
     aio::MultiplexedConnection, cluster_async::ClusterConnection, AsyncCommands,

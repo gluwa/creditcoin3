@@ -26,7 +26,7 @@ merkle = { workspace = true }
 sp-core = { workspace = true }
 
 anyhow.workspace = true
-ccnext-abi-encoding = { workspace = true }
-ccnext-query-builder = { workspace = true }
 continuity = { path = "../common/continuity" }
+usc-abi-encoding = { workspace = true }
+usc-query-builder = { workspace = true }
 utils = { path = "../common/utils" }

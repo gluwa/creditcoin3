@@ -26,9 +26,9 @@ sp-core = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
 
-ccnext-abi-encoding = { workspace = true, optional = true }
 serde = { workspace = true, default-features = false, features = ["derive"] }
 serde_bytes = { version = "0.11.14", default-features = false }
+usc-abi-encoding = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true, default-features = false }
@@ -46,6 +46,6 @@ std = [
     "scale-info/std",
     "sp-api/std",
     "bls-signatures/std",
-    "ccnext-abi-encoding",
+    "usc-abi-encoding",
     "precompile-utils/std",
 ]

@@ -7,8 +7,8 @@
 use anyhow::{anyhow, Result};
 use attestor_primitives::block::{Block, ContinuityProof};
 
-use ccnext_abi_encoding::common::EncodingVersion;
 use eth::Client;
+use usc_abi_encoding::common::EncodingVersion;
 use utils::block_item_traits::BlockItem;
 
 use crate::merkle;

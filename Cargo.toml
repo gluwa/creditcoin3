@@ -232,11 +232,11 @@ subxt-signer = "0.40"
 precompile-utils = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 
 # Gluwa
-ccnext-abi-encoding = { version = "0.5" }
-ccnext-query-builder = { version = "0.7" }
 creditcoin3-runtime = { path = "runtime", default-features = false }
 pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
+usc-abi-encoding = { version = "0.5" }
+usc-query-builder = { version = "0.7" }
 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }

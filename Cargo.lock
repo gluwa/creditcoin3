@@ -1522,7 +1522,6 @@ dependencies = [
  "bip39",
  "bls-signatures",
  "cc-client",
- "ccnext-abi-encoding",
  "clap",
  "eth",
  "futures 0.3.31",
@@ -1550,6 +1549,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "url",
+ "usc-abi-encoding",
  "zeroize",
 ]
 
@@ -1558,7 +1558,6 @@ name = "attestor-primitives"
 version = "3.100.0"
 dependencies = [
  "bls-signatures",
- "ccnext-abi-encoding",
  "parity-scale-codec",
  "precompile-utils",
  "scale-info",
@@ -1570,6 +1569,7 @@ dependencies = [
  "sp-core",
  "sp-runtime",
  "sp-std",
+ "usc-abi-encoding",
 ]
 
 [[package]]
@@ -2199,7 +2199,6 @@ version = "3.100.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
- "ccnext-abi-encoding",
  "serde",
  "sp-core",
  "subxt",
@@ -2208,32 +2207,8 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "usc-abi-encoding",
  "vrf",
-]
-
-[[package]]
-name = "ccnext-abi-encoding"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c1270b7f234d783c32bc018bf4b3a826207b5db65df23857b3358a3fbcf07c8"
-dependencies = [
- "alloy",
- "serde",
-]
-
-[[package]]
-name = "ccnext-query-builder"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f536e16a44b2ac8bb44018c0a65c37148d62574c88aff18b533912b3b60b5c2"
-dependencies = [
- "alloy",
- "alloy-json-abi",
- "async-trait",
- "ccnext-abi-encoding",
- "hex",
- "serde",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2572,7 +2547,6 @@ dependencies = [
  "async-trait",
  "attestor-primitives",
  "cc-client",
- "ccnext-abi-encoding",
  "eth",
  "indexer-client",
  "serde",
@@ -2580,6 +2554,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "usc-abi-encoding",
  "utils",
 ]
 
@@ -3807,7 +3782,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "attestor-primitives",
- "ccnext-abi-encoding",
  "futures 0.3.31",
  "futures-util",
  "hex",
@@ -3822,6 +3796,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "usc-abi-encoding",
  "utils",
 ]
 
@@ -10570,8 +10545,6 @@ dependencies = [
  "async-trait",
  "attestor-primitives",
  "cc-client",
- "ccnext-abi-encoding",
- "ccnext-query-builder",
  "clap",
  "continuity",
  "eth",
@@ -10583,6 +10556,8 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "usc-abi-encoding",
+ "usc-query-builder",
  "utils",
 ]
 
@@ -16007,6 +15982,29 @@ name = "urlencoding"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
+
+[[package]]
+name = "usc-abi-encoding"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0947967a842b75d2861508af8dd3e634f2c93c94da50acd2495276425811e96d"
+dependencies = [
+ "alloy",
+ "serde",
+]
+
+[[package]]
+name = "usc-query-builder"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26a82d2eaaa6eae18f9cf5172386ab930996b41b4d1f2a92de97d6d075126d25"
+dependencies = [
+ "alloy",
+ "alloy-json-abi",
+ "async-trait",
+ "hex",
+ "usc-abi-encoding",
+]
 
 [[package]]
 name = "utf-8"

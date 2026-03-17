@@ -1,6 +1,6 @@
 use anyhow::Result;
-use ccnext_abi_encoding::common::EncodingVersion;
 use std::io::{self, Write};
+use usc_abi_encoding::common::EncodingVersion;
 
 use crate::{Network, PromptArgs};
 

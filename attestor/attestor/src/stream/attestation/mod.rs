@@ -735,7 +735,7 @@ impl CacheRoots {
             "🎯 Cache miss"
         );
 
-        let encoding = ccnext_abi_encoding::common::EncodingVersion::V1;
+        let encoding = usc_abi_encoding::common::EncodingVersion::V1;
         let iter = (height_next..=height_stop).map(|h| {
             eth.get_block(h, encoding).map(|opt| {
                 opt.ok_or(Interrupt::Stop)

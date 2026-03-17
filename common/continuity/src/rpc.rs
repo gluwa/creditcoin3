@@ -13,7 +13,7 @@ use sp_core::H256;
 use std::sync::Arc;
 
 use attestor_primitives::block::Block;
-use ccnext_abi_encoding::common::EncodingVersion;
+use usc_abi_encoding::common::EncodingVersion;
 use utils::block_item_traits::BlockItem;
 
 /// Abstraction over Creditcoin3 RPC operations.

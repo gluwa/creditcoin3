@@ -1,11 +1,11 @@
 use anyhow::Result;
-use ccnext_abi_encoding::common::EncodingVersion;
 use futures::{
     stream::{self, StreamExt},
     FutureExt,
 };
 use sp_core::H256;
 use tracing::{debug, trace};
+use usc_abi_encoding::common::EncodingVersion;
 
 use super::{Client, Error as EthError};
 use attestor_primitives::{

@@ -1086,10 +1086,10 @@ impl From<CcChainEncodingVersion> for ChainEncodingVersion {
 }
 
 #[cfg(feature = "std")]
-impl From<CcChainEncodingVersion> for ccnext_abi_encoding::common::EncodingVersion {
+impl From<CcChainEncodingVersion> for usc_abi_encoding::common::EncodingVersion {
     fn from(version: CcChainEncodingVersion) -> Self {
         match version {
-            CcChainEncodingVersion::V1 => ccnext_abi_encoding::common::EncodingVersion::V1,
+            CcChainEncodingVersion::V1 => usc_abi_encoding::common::EncodingVersion::V1,
         }
     }
 }

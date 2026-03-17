@@ -27,8 +27,8 @@ attestor_macro = { path = "../attestor_macro" }
 bip39 = { version = "2.2.0", features = ["rand", "serde", "zeroize"] }
 bls-signatures = { workspace = true }
 cc-client = { workspace = true }
-ccnext-abi-encoding = { workspace = true }
 supported-chains-primitives = { workspace = true }
+usc-abi-encoding = { workspace = true }
 
 # Substrate
 parity-scale-codec = { workspace = true }
