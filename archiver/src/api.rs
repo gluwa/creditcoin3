@@ -248,8 +248,21 @@ async fn compute_digest_at(
         }
     }
 
-    // Phase 2: replay from store.
+    // Phase 2: replay from store (capped to avoid unbounded memory usage).
+    const MAX_STORE_REPLAY: u64 = 10_000;
     let store_from = replay_from.max(first);
+    let store_count = if store_from <= target_height {
+        target_height - store_from + 1
+    } else {
+        0
+    };
+    anyhow::ensure!(
+        store_count <= MAX_STORE_REPLAY,
+        "digest computation requires replaying {} stored roots (max {}). \
+         Consider requesting a lower block height or waiting for digest caches to populate.",
+        store_count,
+        MAX_STORE_REPLAY,
+    );
     let roots = store.get_range(store_from, target_height)?;
 
     let expected_count = if store_from <= target_height {
