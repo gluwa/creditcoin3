@@ -40,7 +40,7 @@ impl ContinuityService {
                 let should_fallback = matches!(
                     &e,
                     ServiceError::Internal { .. } | ServiceError::AttestationsMissing { .. }
-                ) && !matches!(&e, ServiceError::RpcUnavailable { .. });
+                );
 
                 if should_fallback {
                     if let Some(ref archiver) = self.archiver_client {
