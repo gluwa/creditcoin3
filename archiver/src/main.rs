@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
             for (gap_start, gap_end) in &gaps {
                 tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
 
-                let ws_client = eth::Client::new(&cfg.rpc_ws, None).await?;
+                let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
@@ -132,12 +132,12 @@ async fn main() -> Result<()> {
 
     // ── Connect to chain ────────────────────────────────────────────────
     // WS client for StreamRoots (subscriptions + block fetching).
-    let ws_client = eth::Client::new(&cfg.rpc_ws, None).await?;
+    let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
     let chain_id = ws_client.chain_id();
     tracing::info!(chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
 
     // HTTP client for the API (proof-input endpoint needs block fetching).
-    let http_client = eth::Client::new(&cfg.rpc_http, None).await?;
+    let http_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
 
     // ── Root stream (with automatic reconnection) ───────────────────────
     let stream_config = stream_eth::roots::ConfigBuilder::new()
@@ -220,36 +220,37 @@ async fn main() -> Result<()> {
     // ── Main loop ───────────────────────────────────────────────────────
     let mut count = 0u64;
     let start = Instant::now();
+    let batch_size = 1000usize;
+    let mut batch_buf = Vec::with_capacity(batch_size);
 
     loop {
         let info = tokio::select! {
             _ = &mut cancel_rx => break,
-            item = root_stream.next() => {
-                match item {
-                    Some(info) => info,
-                    None => {
-                        // StreamRoots is infinite (reconnects), so this shouldn't happen.
-                        tracing::error!("root stream ended unexpectedly");
-                        break;
-                    }
-                }
-            }
+            Some(info) = root_stream.next() => info,
         };
 
         let height = info.height;
         let root = info.root;
 
-        store.put_root(height, root)?;
+        batch_buf.push((height, root));
         count += 1;
 
+        let end_reached = cfg.end_height.is_some_and(|end| height >= end);
+
+        // Flush batch when full or at end.
+        if batch_buf.len() >= batch_size || end_reached {
+            store.put_roots(&batch_buf)?;
+            batch_buf.clear();
+        }
+
         // Stop if we've reached the end height.
-        if cfg.end_height.is_some_and(|end| height >= end) {
+        if end_reached {
             tracing::info!(height, total = count, "reached end height, stopping");
             break;
         }
 
         // Periodic flush + logging
-        let is_flush = count % cfg.flush_every.get() == 0;
+        let is_flush = height % cfg.flush_every.get() == 0;
         let is_log = is_flush || count % 1000 == 0;
 
         if is_flush {
@@ -279,6 +280,11 @@ async fn main() -> Result<()> {
                 "{label}"
             );
         }
+    }
+
+    // Flush any remaining batch entries.
+    if !batch_buf.is_empty() {
+        store.put_roots(&batch_buf)?;
     }
 
     // ── Shutdown ────────────────────────────────────────────────────────

@@ -68,9 +68,24 @@ impl RootStore {
 
     /// Get roots for an inclusive block range [from, to].
     /// Returns (block_number, merkle_root) pairs in ascending order.
+    /// Insert a batch of roots atomically.
+    pub fn put_roots(&self, roots: &[(u64, H256)]) -> Result<()> {
+        let mut batch = sled::Batch::default();
+        for (height, root) in roots {
+            batch.insert(&height.to_be_bytes(), root.as_bytes());
+        }
+        self.db
+            .apply_batch(batch)
+            .context("failed to apply batch insert")?;
+        Ok(())
+    }
+
+    /// Get roots for an inclusive block range [from, to].
+    /// Returns (block_number, merkle_root) pairs in ascending order.
     pub fn get_range(&self, from: u64, to: u64) -> Result<Vec<(u64, H256)>> {
         let start = from.to_be_bytes();
-        let mut results = Vec::new();
+        let capacity = (to.saturating_sub(from) + 1) as usize;
+        let mut results = Vec::with_capacity(capacity);
 
         for item in self.db.range(start..=to.to_be_bytes()) {
             let (key, value) = item.context("failed to read from sled")?;

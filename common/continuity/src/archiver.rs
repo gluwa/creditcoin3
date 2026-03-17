@@ -203,6 +203,14 @@ impl EthRpcProvider for ArchiverEthProvider {
             anyhow::bail!("archiver returned no roots for range {start}..{end}");
         }
 
+        let expected_count = (end - start + 1) as usize;
+        anyhow::ensure!(
+            roots.len() == expected_count,
+            "archiver returned {} roots but expected {} for range {start}..={end}",
+            roots.len(),
+            expected_count,
+        );
+
         let mut blocks = Vec::with_capacity(roots.len());
         let mut prev_digest = lower_digest;
 
@@ -237,13 +245,9 @@ impl EthRpcProvider for ArchiverEthProvider {
     }
 
     async fn get_last_block(&self) -> Result<u64> {
-        match self.archiver.get_latest_block().await {
-            Ok(Some(height)) => Ok(height),
-            _ => {
-                debug!("archiver latest block unavailable, falling back to eth client");
-                self.eth_fallback.get_last_block().await
-            }
-        }
+        // Always query the real chain tip — the archiver is always behind the actual chain head,
+        // so using archiver's tip would incorrectly reject valid blocks.
+        self.eth_fallback.get_last_block().await
     }
 
     async fn get_chain_id(&self) -> Result<u64> {

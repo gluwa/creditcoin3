@@ -34,35 +34,48 @@ impl ContinuityService {
         {
             Ok(proof) => Ok(proof),
             Err(e) => {
-                // If we have an archiver client, fall back to building the proof directly
-                // from archiver roots. This handles the case where no attestations exist yet.
-                if let Some(ref archiver) = self.archiver_client {
-                    let (&min_query, &max_query) = header_numbers
-                        .iter()
-                        .min()
-                        .zip(header_numbers.iter().max())
-                        .ok_or(ServiceError::Internal {
-                            message: "cannot build continuity proof: header_numbers is empty"
-                                .into(),
-                        })?;
-                    tracing::warn!(
-                        min_query,
-                        max_query,
-                        error = %e,
-                        "attestation-based proof failed, falling back to archiver"
-                    );
-                    let checkpoint_block_interval = self.builder.config.checkpoint_block_interval();
-                    archiver
-                        .build_continuity_proof(min_query, max_query, checkpoint_block_interval)
-                        .await
-                        .map_err(|archiver_err| ServiceError::Internal {
-                            message: format!(
-                                "archiver fallback also failed: {archiver_err} (original error: {e})"
-                            ),
-                        })
-                } else {
-                    Err(e)
+                // Only fall back to the archiver for attestation-related failures
+                // (e.g. no attestations exist yet). Transient RPC errors should propagate
+                // so the caller can retry, rather than masking with an archiver fallback.
+                let should_fallback = matches!(
+                    &e,
+                    ServiceError::Internal { .. } | ServiceError::AttestationsMissing { .. }
+                ) && !matches!(&e, ServiceError::RpcUnavailable { .. });
+
+                if should_fallback {
+                    if let Some(ref archiver) = self.archiver_client {
+                        let (&min_query, &max_query) = header_numbers
+                            .iter()
+                            .min()
+                            .zip(header_numbers.iter().max())
+                            .ok_or(ServiceError::Internal {
+                                message: "cannot build continuity proof: header_numbers is empty"
+                                    .into(),
+                            })?;
+                        tracing::warn!(
+                            min_query,
+                            max_query,
+                            error = %e,
+                            "attestation-based proof failed, falling back to archiver"
+                        );
+                        let checkpoint_block_interval =
+                            self.builder.config.checkpoint_block_interval();
+                        return archiver
+                            .build_continuity_proof(
+                                min_query,
+                                max_query,
+                                checkpoint_block_interval,
+                            )
+                            .await
+                            .map_err(|archiver_err| ServiceError::Internal {
+                                message: format!(
+                                    "archiver fallback also failed: {archiver_err} (original error: {e})"
+                                ),
+                            });
+                    }
                 }
+
+                Err(e)
             }
         }
     }

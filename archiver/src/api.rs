@@ -215,10 +215,9 @@ async fn compute_digest_at(
             );
             for height in replay_from..=fetch_to {
                 let root = fetch_root_from_chain(eth_client, height).await?;
-                let prev = if height == 0 { None } else { Some(&digest) };
-                digest = attestor_primitives::compute_digest_for(height, &root, prev);
+                digest = attestor_primitives::compute_digest_for(height, &root, Some(&digest));
 
-                if height > 0 && height % DIGEST_CACHE_INTERVAL == 0 {
+                if height % DIGEST_CACHE_INTERVAL == 0 {
                     store.cache_digest(height, digest)?;
                 }
             }
@@ -251,10 +250,9 @@ async fn compute_digest_at(
     );
 
     for (height, root) in &roots {
-        let prev = if *height == 0 { None } else { Some(&digest) };
-        digest = attestor_primitives::compute_digest_for(*height, root, prev);
+        digest = attestor_primitives::compute_digest_for(*height, root, Some(&digest));
 
-        if *height > 0 && *height % DIGEST_CACHE_INTERVAL == 0 {
+        if *height % DIGEST_CACHE_INTERVAL == 0 {
             store.cache_digest(*height, digest)?;
         }
     }

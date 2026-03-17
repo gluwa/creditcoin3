@@ -5,6 +5,7 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::path::PathBuf;
 
 use clap::Parser;
+use url::Url;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -14,12 +15,12 @@ use clap::Parser;
 pub struct Config {
     /// HTTP RPC endpoint for block fetching.
     #[arg(long, env = "RPC_HTTP", alias = "rpc-url", required = true)]
-    pub rpc_http: String,
+    pub rpc_http: Url,
 
     /// WebSocket RPC endpoint for new-head subscriptions.
     /// Required for the root stream to follow the chain tip.
     #[arg(long, env = "RPC_WS", required = true)]
-    pub rpc_ws: String,
+    pub rpc_ws: Url,
 
     /// Block height to start from (ignored if the database already has progress).
     #[arg(long, env = "START_HEIGHT", default_value = "0")]
