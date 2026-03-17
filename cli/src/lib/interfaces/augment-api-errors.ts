@@ -46,7 +46,6 @@ declare module '@polkadot/api-base/types/errors' {
             CheckpointingQueueDrained: AugmentedError<ApiType>;
             CheckpointTargetNotFound: AugmentedError<ApiType>;
             CheckpointWidthIsZero: AugmentedError<ApiType>;
-            DuplicateAttestor: AugmentedError<ApiType>;
             EmptyContinuityProof: AugmentedError<ApiType>;
             InsufficientBalance: AugmentedError<ApiType>;
             /**

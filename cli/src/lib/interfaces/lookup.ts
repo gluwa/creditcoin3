@@ -3152,7 +3152,6 @@ export default {
             'AttestorNotActive',
             'AttestorWithInvalidPublicKey',
             'MajorityNotReached',
-            'DuplicateAttestor',
             'AttestorAlreadyAuthorized',
             'AttestorNotAuthorized',
             'NoFinalizedAttestation',

@@ -687,8 +687,6 @@ pub mod pallet {
         AttestorWithInvalidPublicKey,
         // Majority of signatures not reached
         MajorityNotReached,
-        // Duplicate attestor in signatures
-        DuplicateAttestor,
         // Attestor is already authorized for the chain.
         AttestorAlreadyAuthorized,
         // Attestor is not authorized for the chain.
