@@ -14666,7 +14666,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "usc-abi-encoding",
- "user",
 ]
 
 [[package]]

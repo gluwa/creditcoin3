@@ -77,7 +77,11 @@ impl StreamRoots {
                                                     .0;
                                             }
                                         },
-                                        Err(err) => std::panic::resume_unwind(err.into_panic()),
+                                        Err(err) => {
+                                            if err.is_panic() {
+                                                std::panic::resume_unwind(err.into_panic());
+                                            }
+                                        },
                                     }
                                 }
 
@@ -101,7 +105,9 @@ impl StreamRoots {
                                 roots.abort_all();
                                 while !roots.is_empty() {
                                     if let Some(Err(err)) = roots.join_next().await {
-                                        std::panic::resume_unwind(err.into_panic());
+                                        if err.is_panic() {
+                                            std::panic::resume_unwind(err.into_panic());
+                                        }
                                     }
                                 }
 
@@ -120,7 +126,9 @@ impl StreamRoots {
                                 roots.abort_all();
                                 while !roots.is_empty() {
                                     if let Some(Err(err)) = roots.join_next().await {
-                                        std::panic::resume_unwind(err.into_panic());
+                                        if err.is_panic() {
+                                            std::panic::resume_unwind(err.into_panic());
+                                        }
                                     }
                                 }
 
@@ -147,7 +155,11 @@ impl StreamRoots {
                                     yield heap.pop().expect("Checked above").0;
                                 }
                             },
-                            Err(err) => std::panic::resume_unwind(err.into_panic()),
+                            Err(err) => {
+                                if err.is_panic() {
+                                    std::panic::resume_unwind(err.into_panic())
+                                }
+                            }
                         }
                     }
                 }
@@ -233,7 +245,11 @@ async fn stream_rpc(
                                 Ok(Ok(block)) => yield Ok(block),
                                 Ok(Err(Interrupt::Cont(err))) => yield Err(err),
                                 Ok(Err(Interrupt::Stop)) => break,
-                                Err(err) => std::panic::resume_unwind(err.into_panic()),
+                                Err(err) => {
+                                    if err.is_panic() {
+                                        std::panic::resume_unwind(err.into_panic());
+                                    }
+                                }
                             }
                         }
                     }
@@ -259,7 +275,11 @@ async fn stream_rpc(
                         Ok(Ok(block)) => yield Ok(block),
                         Ok(Err(Interrupt::Cont(err))) => yield Err(err),
                         Ok(Err(Interrupt::Stop)) => break,
-                        Err(err) => std::panic::resume_unwind(err.into_panic()),
+                        Err(err) => {
+                            if err.is_panic() {
+                                std::panic::resume_unwind(err.into_panic());
+                            }
+                        }
                     }
                 }
                 else => {

@@ -26,8 +26,8 @@ impl StreamTip {
             loop {
                 match stream_headers.next().await {
                     Some(header) => {
-                        if tip.is_none_or(|tip| header.number > tip) {
-                            if let Some(tip_new) = header.number.checked_sub(config.finalization_lag) {
+                        if let Some(tip_new) = header.number.checked_sub(config.finalization_lag) {
+                            if tip.is_none_or(|tip| tip_new > tip) {
                                 tip = Some(tip_new);
                                 yield tip_new
                             }
