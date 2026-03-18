@@ -19,15 +19,6 @@ pub struct Config {
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
 }
 
-#[derive(Debug)]
-pub struct Permit(attestor_primitives::Height);
-
-impl Permit {
-    pub fn height(&self) -> attestor_primitives::Height {
-        self.0
-    }
-}
-
 /// A generic attestation stream. Different source chains can be configured by passing in different
 /// data streams for retrieving the chain tip ([`Config::stream_tip`]) and chain roots
 /// ([`Config::stream_roots`]). Just make sure that the streams you are using have the same

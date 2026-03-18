@@ -97,6 +97,14 @@ impl StreamRoots {
                                 tracing::error!(%err, "Eth connection error");
                                 heap.clear();
 
+                                // Removes pending root calls
+                                roots.abort_all();
+                                while !roots.is_empty() {
+                                    if let Some(Err(err)) = roots.join_next().await {
+                                        std::panic::resume_unwind(err.into_panic());
+                                    }
+                                }
+
                                 let (client, stream) = Self::reconnect(&config, next).await;
 
                                 config.client = client;
@@ -107,6 +115,14 @@ impl StreamRoots {
                                 // RPC error in which case we need to reconnect.
                                 tracing::error!("Eth connection lost");
                                 heap.clear();
+
+                                // Removes pending root calls
+                                roots.abort_all();
+                                while !roots.is_empty() {
+                                    if let Some(Err(err)) = roots.join_next().await {
+                                        std::panic::resume_unwind(err.into_panic());
+                                    }
+                                }
 
                                 let (client, stream) = Self::reconnect(&config, next).await;
 
