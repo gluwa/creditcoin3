@@ -1,6 +1,6 @@
 # Archiver
 
-Continuously archives source-chain blocks, computes merkle roots, and serves the data over HTTP. Designed for gap-free archival with automatic reconnection and retry on RPC failures.
+Continuously archives source chain blocks, computes merkle roots, and serves the data over HTTP. Designed for gap-free archival with automatic reconnection and retry on RPC failures.
 
 ## Features
 
