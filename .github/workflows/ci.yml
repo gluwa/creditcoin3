@@ -1671,3 +1671,73 @@ jobs:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy: "rebuild-new-metadata"
     secrets: inherit
+
+  hello-bridge:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    uses: gluwa/usc-testnet-bridge-examples/.github/workflows/hello-bridge.yml@main
+    with:
+      source_chain_kind: "anvil"
+      usc_kind: "local"
+      checkout_repo: "gluwa/usc-testnet-bridge-examples"
+      checkout_ref: "main"
+
+  custom-contracts-bridging:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    uses: gluwa/usc-testnet-bridge-examples/.github/workflows/custom-contracts-bridging.yml@main
+    with:
+      source_chain_kind: "anvil"
+      usc_kind: "local"
+      checkout_repo: "gluwa/usc-testnet-bridge-examples"
+      checkout_ref: "main"
+
+  bridge-offchain-worker:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    uses: gluwa/usc-testnet-bridge-examples/.github/workflows/bridge-offchain-worker.yml@main
+    with:
+      source_chain_kind: "anvil"
+      usc_kind: "local"
+      checkout_repo: "gluwa/usc-testnet-bridge-examples"
+      checkout_ref: "main"
+
+  deploy-runner-loan-flow-example:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy_type: "loan-flow-example"
+    secrets: inherit
+
+  loan-flow:
+    needs:
+      - deploy-runner-loan-flow-example
+    uses: gluwa/usc-testnet-bridge-examples/.github/workflows/loan-flow.yml@main
+    with:
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-loan-flow-example']"
+      source_chain_kind: "anvil"
+      usc_kind: "local"
+      checkout_repo: "gluwa/usc-testnet-bridge-examples"
+      checkout_ref: "main"
+
+  rm-runner-loan-flow-example:
+    needs:
+      - loan-flow
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy_type: "loan-flow-example"
+    secrets: inherit

@@ -18,6 +18,7 @@ self-hosted-runner:
     - proxy-submit-proof
     - type-devnet
     - type-docker
+    - type-loan-flow-example
     - type-mainnet
     - type-native
     - type-testnet
