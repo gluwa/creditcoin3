@@ -79,6 +79,8 @@ export interface HealthStatus {
   proofErrors: number;
   /** Last error message if any */
   lastError: string | null;
+  /** Unique errors with occurrence counts */
+  uniqueErrors: Record<string, number>;
   /** Uptime in seconds */
   uptimeSeconds: number;
 }
@@ -107,6 +109,44 @@ export interface ProofResponse {
       isLeft: boolean;
     }>;
   };
+  generatedAt?: string;
+}
+
+/**
+ * Batch proof query for the proof-gen-api batch endpoint
+ */
+export interface ProofQuery {
+  headerNumber: number;
+  txIndexes: number[];
+}
+
+/**
+ * Merkle proof entry in a batch response
+ */
+export interface BatchMerkleProofEntry {
+  txHash?: string;
+  txBytes?: string;
+  merkleProof: {
+    root: string;
+    siblings: Array<{ hash: string; isLeft: boolean }>;
+  };
+}
+
+/**
+ * Response from the proof-gen-api batch endpoint
+ * POST /api/v1/proof-batch/{chain_key}
+ */
+export interface BatchProofResponse {
+  chainKey: number;
+  fromHeader: number;
+  toHeader: number;
+  continuityProof: {
+    lowerEndpointDigest: string;
+    roots: string[];
+  };
+  /** Nested map: blockNumber -> txIndex -> proof entry */
+  merkleProofs: Record<string, Record<string, BatchMerkleProofEntry>>;
+  cached: boolean;
   generatedAt?: string;
 }
 
