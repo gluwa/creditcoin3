@@ -428,34 +428,43 @@ async fn main() -> anyhow::Result<()> {
     use tracing_subscriber::util::SubscriberInitExt as _;
     use tracing_subscriber::Layer as _;
 
-    let args = Config::parse()?;
-
     // ------------------------------------* User-facing logs *------------------------------------
 
-    let filter_env = tracing_subscriber::EnvFilter::builder()
-        .with_default_directive("attestor=info".parse().unwrap())
-        .from_env_lossy();
+    // If the user has set a RUST_LOG env variable, we use that as the default filter.
+    // Otherwise, we default to info for our own crate and warnings for alloy and subxt.
+    let filter_env = std::env::var("RUST_LOG")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(|_| tracing_subscriber::EnvFilter::from_default_env())
+        .unwrap_or_else(|| {
+            tracing_subscriber::EnvFilter::new("attestor=info,alloy=warn,subxt=warn")
+        });
 
-    let debug = filter_env.max_level_hint().unwrap() == tracing::level_filters::LevelFilter::DEBUG;
+    let is_max_level_debug =
+        filter_env.max_level_hint().unwrap() == tracing::level_filters::LevelFilter::DEBUG;
     let fmt = tracing_subscriber::fmt::layer()
-        .with_target(debug)
-        .with_file(debug)
-        .with_line_number(debug)
+        .with_target(true)
+        .with_file(is_max_level_debug)
+        .with_line_number(is_max_level_debug)
         .with_thread_ids(true)
         .with_filter(filter_env);
+
+    let args = Config::parse()?;
 
     // -------------------------------------* Dev-facing logs *------------------------------------
 
     let filter_logs = tracing_subscriber::filter::Targets::new()
         .with_default(tracing_subscriber::filter::LevelFilter::OFF)
-        .with_target("attestor", tracing::Level::TRACE);
+        .with_target("attestor", tracing::Level::TRACE)
+        .with_target("alloy", tracing::Level::WARN)
+        .with_target("subxt", tracing::Level::DEBUG);
     let (appender, _guard) = tracing_appender::non_blocking(tracing_appender::rolling::hourly(
         args.logs,
         format!("attestor-{}.json", args.name),
     ));
     let logfile = tracing_subscriber::fmt::layer()
         .json()
-        .with_target(false)
+        .with_target(true)
         .with_file(true)
         .with_line_number(true)
         .with_writer(appender)

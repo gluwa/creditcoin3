@@ -340,7 +340,7 @@ async fn main() -> anyhow::Result<()> {
             let month = time.month();
             let day = time.day();
             let hour = time.hour();
-            let logs = format!("logs/attestor-{name}.json.{year}-{month}-{day}-{hour}");
+            let logs = format!("logs/attestor-{name}.json.{year:04}-{month:02}-{day:02}-{hour:02}");
 
             tracing::info!(name, %account_id, "🏁 Starting attestor");
             tracing::info!(logs, "🏁   with");
