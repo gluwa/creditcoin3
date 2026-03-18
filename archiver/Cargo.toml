@@ -12,11 +12,11 @@ path = "src/main.rs"
 
 [dependencies]
 attestor-primitives = { workspace = true, features = ["std"] }
-ccnext-abi-encoding = { workspace = true }
 eth = { path = "../common/eth" }
 sp-core = { workspace = true, features = ["std"] }
 stream_eth = { workspace = true }
 stream_util = { workspace = true }
+usc-abi-encoding = { workspace = true }
 
 anyhow = { workspace = true }
 axum = { workspace = true }

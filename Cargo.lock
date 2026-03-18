@@ -946,7 +946,6 @@ dependencies = [
  "anyhow",
  "attestor-primitives",
  "axum",
- "ccnext-abi-encoding",
  "clap",
  "dotenvy",
  "eth",
@@ -963,6 +962,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "usc-abi-encoding",
  "user",
 ]
 

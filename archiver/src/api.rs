@@ -16,9 +16,9 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use ccnext_abi_encoding::common::EncodingVersion;
 use serde::{Deserialize, Serialize};
 use tower_http::trace::TraceLayer;
+use usc_abi_encoding::common::EncodingVersion;
 
 use crate::store::RootStore;
 
