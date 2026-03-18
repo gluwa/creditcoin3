@@ -59,6 +59,7 @@ async function fetchMetrics(
     cc3WsUrl: data.cc3WsUrl ?? "",
     uptimeSeconds: data.uptimeSeconds ?? 0,
     lastError: data.lastError ?? null,
+    uniqueErrors: data.uniqueErrors ?? {},
   };
 }
 
@@ -162,6 +163,8 @@ async function main(): Promise<void> {
     "http://traffic-simulator:8080";
   const slackWebhookUrl = Deno.env.get("SLACK_WEBHOOK_URL");
   const slackAlertGroup = Deno.env.get("SLACK_ALERT_GROUP");
+  const slackBotToken = Deno.env.get("SLACK_BOT_TOKEN");
+  const slackChannelId = Deno.env.get("SLACK_CHANNEL_ID");
   const snapshotPath = Deno.env.get("SNAPSHOT_PATH") ||
     "/tmp/metrics-snapshot.json";
   const reportIntervalHours = parseFloat(
@@ -171,8 +174,17 @@ async function main(): Promise<void> {
     Deno.env.get("ALERT_SUCCESS_THRESHOLD_PCT") || "75",
   );
 
-  if (!slackWebhookUrl) {
-    console.error("❌ SLACK_WEBHOOK_URL environment variable is required");
+  if (!slackWebhookUrl && !slackBotToken) {
+    console.error(
+      "❌ Either SLACK_WEBHOOK_URL or SLACK_BOT_TOKEN environment variable is required",
+    );
+    Deno.exit(1);
+  }
+
+  if (slackBotToken && !slackChannelId) {
+    console.error(
+      "❌ SLACK_CHANNEL_ID is required when using SLACK_BOT_TOKEN",
+    );
     Deno.exit(1);
   }
 
@@ -196,10 +208,12 @@ async function main(): Promise<void> {
   }
 
   const slackConfig: SlackConfig = {
-    webhookUrl: slackWebhookUrl,
+    webhookUrl: slackWebhookUrl ?? "",
     alertGroup: slackAlertGroup,
     username: "traffic-simulator-reporter",
     alertSuccessThresholdPct,
+    botToken: slackBotToken,
+    channelId: slackChannelId,
   };
 
   try {

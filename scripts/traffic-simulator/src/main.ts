@@ -57,6 +57,41 @@ const metrics = {
 };
 
 let lastError: string | null = null;
+const uniqueErrors: Map<string, number> = new Map();
+
+/**
+ * Normalize an error message by stripping variable parts (URLs, block/tx numbers)
+ * so that errors differing only in parameters are grouped together.
+ */
+function normalizeError(error: string): string {
+  return error
+    // Replace full URLs with just the domain + "..."
+    .replace(
+      /https?:\/\/[^\s:)]+/g,
+      (url) => {
+        try {
+          const parsed = new URL(url);
+          return `${parsed.origin}/...`;
+        } catch {
+          return url;
+        }
+      },
+    )
+    // Replace standalone hex strings (tx hashes, addresses)
+    .replace(/\b0x[0-9a-fA-F]{8,}\b/g, "0x...")
+    // Replace standalone numbers that look like block/tx numbers (4+ digits)
+    .replace(/\b\d{4,}\b/g, "N");
+}
+
+/**
+ * Record an error, tracking unique error messages and their occurrence count.
+ * Errors are normalized to group messages that differ only in variable parts.
+ */
+function recordError(error: string): void {
+  lastError = error;
+  const key = normalizeError(error);
+  uniqueErrors.set(key, (uniqueErrors.get(key) ?? 0) + 1);
+}
 
 /**
  * Get current health status
@@ -74,6 +109,7 @@ function getHealthStatus(): HealthStatus {
     batchSubmissions: metrics.batchSubmissions,
     proofErrors: metrics.proofErrors,
     lastError,
+    uniqueErrors: Object.fromEntries(uniqueErrors),
     uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
   };
 }
@@ -167,8 +203,9 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
       metrics.proofErrors += result.failed;
     } catch (error) {
       metrics.proofErrors++;
-      lastError = error instanceof Error ? error.message : String(error);
-      console.error("❌ Error processing batch submissions:", lastError);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      recordError(errorMsg);
+      console.error("❌ Error processing batch submissions:", errorMsg);
     }
   }
 
@@ -180,7 +217,7 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
       metrics.proofsSubmitted++;
     } else {
       metrics.proofErrors++;
-      lastError = result.error ?? "Unknown error";
+      recordError(result.error ?? "Unknown error");
     }
 
     // Small delay between single submissions
