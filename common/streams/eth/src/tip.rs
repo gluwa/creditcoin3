@@ -1,5 +1,11 @@
 use crate::Error;
 
+/// Default timeout for receiving a new block header before treating the
+/// connection as stale and forcing a reconnect.  Two minutes is generous
+/// enough for any chain with ≤30 s block times while still catching silent
+/// drops reasonably fast.
+const HEADER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 #[derive(builder::Builder)]
 pub struct Config {
     pub client: eth::Client,
@@ -24,41 +30,49 @@ impl StreamTip {
             let mut tip = None;
 
             loop {
-                match stream_headers.next().await {
-                    Some(header) => {
+                match tokio::time::timeout(HEADER_TIMEOUT, stream_headers.next()).await {
+                    Ok(Some(header)) => {
                         if let Some(tip_new) = header.number.checked_sub(config.finalization_lag) {
                             if tip.is_none_or(|tip| tip_new > tip) {
                                 tip = Some(tip_new);
                                 yield tip_new
                             }
                         }
+                        continue;
                     },
-                    None => {
+                    Ok(None) => {
                         tracing::error!("Eth connection lost");
-
-                        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-                            .max_delay(std::time::Duration::from_millis(5_000))
-                            .map(tokio_retry::strategy::jitter);
-
-                        let reconnect = || {
-                            tracing::warn!("Reconnecting to Eth...");
-
-                            let mut client = config.client.clone();
-                            async move {
-                                client.reconnect().await?;
-                                let stream = client.subscribe().await?;
-
-                                Ok::<_, eth::Error>((client, stream))
-                            }
-                        };
-
-                        let retry = tokio_retry::Retry::spawn(strategy, reconnect);
-                        let (client, stream) = retry.await.expect("Unbounded retry cannot error");
-
-                        config.client = client;
-                        stream_headers = stream;
-                    },
+                    }
+                    Err(_timeout) => {
+                        tracing::error!(
+                            timeout_secs = HEADER_TIMEOUT.as_secs(),
+                            "Eth connection stale (no headers received within timeout)"
+                        );
+                    }
                 }
+
+                // Only reached on disconnect or timeout — reconnect.
+                let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+                    .max_delay(std::time::Duration::from_millis(5_000))
+                    .map(tokio_retry::strategy::jitter);
+
+                let reconnect = || {
+                    tracing::warn!("Reconnecting to Eth...");
+
+                    let mut client = config.client.clone();
+                    async move {
+                        client.reconnect().await?;
+                        let stream = client.subscribe().await?;
+
+                        Ok::<_, eth::Error>((client, stream))
+                    }
+                };
+
+                let retry = tokio_retry::Retry::spawn(strategy, reconnect);
+                let (client, stream) = retry.await.expect("Unbounded retry cannot error");
+
+                config.client = client;
+                stream_headers = stream;
             }
         }
         .boxed();

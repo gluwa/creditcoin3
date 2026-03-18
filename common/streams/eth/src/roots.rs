@@ -1,6 +1,10 @@
 use crate::Error;
 use user::prelude::*;
 
+/// Timeout for the block stream to produce a new item before we treat the
+/// underlying WS connection as stale and force a reconnect.
+const BLOCK_STREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 #[derive(builder::Builder, Clone)]
 pub struct Config {
     pub client: eth::Client,
@@ -44,10 +48,10 @@ impl StreamRoots {
         let stream = async_stream::stream! {
             loop {
                 tokio::select! {
-                    // TASK 1] Poll source chain blocks
-                    block = stream_blocks.next() => {
+                    // TASK 1] Poll source chain blocks (with stale-connection timeout)
+                    block = tokio::time::timeout(BLOCK_STREAM_TIMEOUT, stream_blocks.next()) => {
                         match block {
-                            Some(Ok(block)) => {
+                            Ok(Some(Ok(block))) => {
                                 // Backpressure: limit the number of blocks being processed
                                 // in parallel to `max_parallelism`
                                 while roots.len() >= max_parallelism {
@@ -95,7 +99,7 @@ impl StreamRoots {
                                     }
                                 });
                             },
-                            Some(Err(err)) => {
+                            Ok(Some(Err(err))) => {
                                 // Failed to retrieve source chain block, try and regenerate the
                                 // stream (this can only be an RPC error)
                                 tracing::error!(%err, "Eth connection error");
@@ -116,7 +120,7 @@ impl StreamRoots {
                                 config.client = client;
                                 stream_blocks = stream;
                             },
-                            None => {
+                            Ok(None) => {
                                 // Eth block stream should never end. If it does this indicates an
                                 // RPC error in which case we need to reconnect.
                                 tracing::error!("Eth connection lost");
@@ -131,6 +135,21 @@ impl StreamRoots {
                                         }
                                     }
                                 }
+
+                                let (client, stream) = Self::reconnect(&config, next).await;
+
+                                config.client = client;
+                                stream_blocks = stream;
+                            },
+                            Err(_timeout) => {
+                                // No blocks received within the timeout window — the WS
+                                // connection is likely stale (server stopped pushing headers
+                                // without closing the socket).
+                                tracing::error!(
+                                    timeout_secs = BLOCK_STREAM_TIMEOUT.as_secs(),
+                                    "Eth connection stale (no blocks received within timeout)"
+                                );
+                                heap.clear();
 
                                 let (client, stream) = Self::reconnect(&config, next).await;
 
