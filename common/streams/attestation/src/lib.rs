@@ -2,8 +2,6 @@ mod error;
 
 pub use error::Error;
 
-use user::*;
-
 pub type Attestation =
     attestor_primitives::Attestation<attestor_primitives::Digest, attestor_primitives::AttestorId>;
 
@@ -116,7 +114,7 @@ impl StreamAttestation {
             attestation_interval: config.attestation_interval,
             attestation_prev: config.attestation_prev,
 
-            computed: 0..=0,
+            computed: config.attestation_prev.height..=config.attestation_prev.height,
             tip: 0,
             cursor: 0,
 
@@ -135,20 +133,13 @@ impl StreamAttestation {
     /// Note that in the latter case this indicates that the stream should be re-generated with
     /// the new interval.
     pub fn note_attestation_finalization(&mut self, info: stream_util::AttestationInfo) {
-        if self.attestation_prev.height >= info.height
-            || info.height % self.attestation_interval.get() != 0
-        {
-            return;
-        }
-
         // The root cache is drained of past roots which are no longer needed to reach consensus.
         if !self.cache.is_empty() {
             let first = self.cache.first().expect("Checked above").height as usize;
-            let last = self.cache.last().expect("Checked above").height as usize;
             let height = info.height as usize;
 
-            if height >= first && height <= last {
-                let index = height - first;
+            if height >= first {
+                let index = (height - first).min(self.cache.len() - 1);
                 self.cache.drain(0..=index);
             }
         }
@@ -168,11 +159,11 @@ impl StreamAttestation {
     pub fn generate_attestation_genesis(
         &self,
         stream_util::RootInfo { height, root, hash }: stream_util::RootInfo,
-    ) -> Result<Attestation, Interrupt<Error>> {
-        Ok(self.sign_attestation(
+    ) -> Attestation {
+        self.sign_attestation(
             attestor_primitives::AttestationData::new(self.chain_key, height, hash, root, None),
             Default::default(),
-        ))
+        )
     }
 
     fn generate_attestation(&self, target: attestor_primitives::Height) -> Attestation {

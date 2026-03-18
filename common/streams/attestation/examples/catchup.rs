@@ -105,9 +105,8 @@ fn main() {
         let root = eth::simple_merkle_tree(&block).root();
         let hash = attestor_primitives::Digest::from(*block.hash());
 
-        let genesis = attestations
-            .generate_attestation_genesis(stream_util::RootInfo { height, root, hash })
-            .expect("Failed to generate genesis attestation");
+        let genesis =
+            attestations.generate_attestation_genesis(stream_util::RootInfo { height, root, hash });
         let digest = genesis.digest();
 
         tracing::info!(%digest, "New genesis attestation");
