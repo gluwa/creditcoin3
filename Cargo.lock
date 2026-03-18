@@ -14655,7 +14655,6 @@ dependencies = [
  "bls-signatures",
  "builder",
  "cc-client",
- "ccnext-abi-encoding",
  "clap",
  "eth",
  "futures 0.3.31",
@@ -14666,6 +14665,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "usc-abi-encoding",
  "user",
 ]
 

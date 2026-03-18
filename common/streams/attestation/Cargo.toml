@@ -15,7 +15,7 @@ eth = { workspace = true, default-features = true }
 attestor-primitives = { workspace = true, default-features = true }
 bls-signatures = { workspace = true }
 cc-client = { workspace = true }
-ccnext-abi-encoding = { workspace = true }
+usc-abi-encoding = { workspace = true }
 
 # Streams
 futures = { workspace = true }
