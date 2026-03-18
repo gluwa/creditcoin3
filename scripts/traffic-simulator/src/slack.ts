@@ -5,7 +5,7 @@
  */
 
 export interface SlackConfig {
-  /** Slack webhook URL */
+  /** Slack webhook URL (used when botToken/channelId are not set) */
   webhookUrl: string;
   /** Optional Slack user/group ID to mention in alerts (e.g., "U123456" or "S123456") */
   alertGroup?: string;
@@ -13,6 +13,10 @@ export interface SlackConfig {
   username?: string;
   /** Success rate threshold percentage below which alerts are triggered (default: 75) */
   alertSuccessThresholdPct?: number;
+  /** Slack Bot Token for API-based messaging (enables thread replies) */
+  botToken?: string;
+  /** Slack Channel ID for API-based messaging (required with botToken) */
+  channelId?: string;
 }
 
 export interface MetricsSnapshot {
@@ -40,6 +44,8 @@ export interface MetricsSnapshot {
   uptimeSeconds: number;
   /** Last error message if any */
   lastError: string | null;
+  /** Unique errors with occurrence counts */
+  uniqueErrors: Record<string, number>;
 }
 
 export interface HourlyReport {
@@ -334,12 +340,47 @@ export function createHourlyReportPayload(
 }
 
 /**
- * Send message to Slack via webhook
+ * Send message to Slack via API (chat.postMessage) or webhook fallback.
+ * Returns the message timestamp when using the API (needed for thread replies).
  */
 export async function sendSlackMessage(
   config: SlackConfig,
   payload: unknown,
-): Promise<void> {
+  threadTs?: string,
+): Promise<string | undefined> {
+  // Use Slack API when bot token and channel are configured
+  if (config.botToken && config.channelId) {
+    const apiPayload = {
+      channel: config.channelId,
+      ...(payload as Record<string, unknown>),
+      ...(threadTs ? { thread_ts: threadTs } : {}),
+    };
+
+    const response = await fetch("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Authorization": `Bearer ${config.botToken}`,
+      },
+      body: JSON.stringify(apiPayload),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(
+        `Slack API request failed: ${response.status} ${response.statusText} - ${text}`,
+      );
+    }
+
+    const result = await response.json();
+    if (!result.ok) {
+      throw new Error(`Slack API error: ${result.error}`);
+    }
+
+    return result.ts as string;
+  }
+
+  // Fallback to webhook (no thread support)
   const response = await fetch(config.webhookUrl, {
     method: "POST",
     headers: {
@@ -354,15 +395,62 @@ export async function sendSlackMessage(
       `Slack webhook failed: ${response.status} ${response.statusText} - ${text}`,
     );
   }
+
+  return undefined;
 }
 
 /**
- * Send hourly report to Slack
+ * Send hourly report to Slack, with the latest error as a thread reply
+ * when using the Slack API (botToken + channelId configured).
  */
 export async function sendHourlyReport(
   report: HourlyReport,
   config: SlackConfig,
 ): Promise<void> {
   const payload = createHourlyReportPayload(report, config);
-  await sendSlackMessage(config, payload);
+  const messageTs = await sendSlackMessage(config, payload);
+
+  // Send errors as a thread reply when using the Slack API
+  const errors = report.endMetrics.uniqueErrors;
+  const errorEntries = Object.entries(errors);
+  const hasUniqueErrors = errorEntries.length > 0;
+  const hasLastError = Boolean(report.endMetrics.lastError);
+
+  if (messageTs && (hasUniqueErrors || hasLastError)) {
+    let errorText: string;
+    let errorSummary: string;
+
+    if (hasUniqueErrors) {
+      const errorLines = errorEntries.map(
+        ([msg, count]) => `• (x${count}) ${msg}`,
+      );
+      errorText = errorLines.join("\n");
+      errorSummary = `${errorEntries.length} Unique Error(s)`;
+    } else {
+      errorText = `• ${report.endMetrics.lastError}`;
+      errorSummary = "Latest Error";
+    }
+
+    const errorPayload = {
+      username: config.username || "traffic-simulator",
+      icon_emoji: ":rotating_light:",
+      text: errorSummary,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text:
+              `:rotating_light: *${errorSummary}*\n\`\`\`${errorText}\`\`\``,
+          },
+        },
+      ],
+    };
+
+    try {
+      await sendSlackMessage(config, errorPayload, messageTs);
+    } catch (error) {
+      console.warn(`Failed to send error thread reply: ${error}`);
+    }
+  }
 }

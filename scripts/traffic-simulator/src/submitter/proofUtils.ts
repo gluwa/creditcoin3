@@ -3,7 +3,13 @@
  */
 
 import { ethers, JsonRpcProvider } from "ethers";
-import type { FormattedProof, ProofResponse, TxInfo } from "../types.ts";
+import type {
+  BatchProofResponse,
+  FormattedProof,
+  ProofQuery,
+  ProofResponse,
+  TxInfo,
+} from "../types.ts";
 import { debug } from "../logger.ts";
 import {
   BATCH_PROOF_GAS_LIMIT,
@@ -632,6 +638,91 @@ export async function fetchProofForTx(
     }
     throw error;
   }
+}
+
+// ============================================================================
+// Batch Proof API Client
+// ============================================================================
+
+async function fetchBatchProof(
+  url: string,
+  queries: ProofQuery[],
+): Promise<BatchProofResponse> {
+  debug("Batch Proof API request", { url, queries: queries.length });
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PROOF_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(queries),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      return (await response.json()) as BatchProofResponse;
+    }
+
+    const text = await response.text();
+    let parsed: { code?: string; message?: string; retriable?: boolean } = {};
+    try {
+      parsed = JSON.parse(text);
+    } catch { /* ignore */ }
+
+    throw new ProofApiError(
+      parsed.message ?? text ?? response.statusText,
+      response.status,
+      parsed.code,
+      parsed.retriable,
+    );
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(
+        `Batch Proof API timed out after ${PROOF_API_TIMEOUT_MS}ms`,
+      );
+    }
+    throw error;
+  }
+}
+
+export async function fetchBatchProofs(
+  apiUrl: string,
+  chainKey: number,
+  queries: ProofQuery[],
+  maxRetries = PROOF_API_MAX_RETRIES,
+): Promise<BatchProofResponse> {
+  const url = `${apiUrl}/api/v1/proof-batch/${chainKey}`;
+  const context: FetchProofContext = {
+    blockNumber: queries[0]?.headerNumber ?? 0,
+    txIdentifier: `batch(${queries.length} queries)`,
+  };
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fetchBatchProof(url, queries);
+    } catch (error) {
+      if (attempt < maxRetries - 1 && isProofFetchRetriable(error)) {
+        const delayMs = PROOF_API_BASE_DELAY_MS * Math.pow(2, attempt) +
+          Math.random() * 250;
+
+        console.log(
+          `⚠️  Batch Proof API retry (${
+            attempt + 1
+          }/${maxRetries})... ${context.txIdentifier}`,
+        );
+        await sleep(delayMs);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(
+    `Failed to fetch batch proof after ${maxRetries} attempts`,
+  );
 }
 
 // ============================================================================
