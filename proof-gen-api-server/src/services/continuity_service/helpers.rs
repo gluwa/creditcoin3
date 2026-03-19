@@ -48,7 +48,7 @@ impl ContinuityService {
             .await;
 
         match boundaries {
-            Ok((lower, upper)) => {
+            Ok((lower, lower_digest, upper)) => {
                 // Step 2: Try building proof from GraphQL attestation data.
                 match self
                     .build_proof_from_graphql(header_numbers, current_block)
@@ -61,7 +61,9 @@ impl ContinuityService {
                             error = %e,
                             "GraphQL proof failed, falling back to eth provider"
                         );
-                        return self.build_proof_from_roots(min_query, lower, upper).await;
+                        return self
+                            .build_proof_from_roots(min_query, lower, lower_digest, upper)
+                            .await;
                     }
                 }
             }
@@ -71,11 +73,13 @@ impl ContinuityService {
                     error = %indexer_err,
                     "indexer unavailable, falling back to CC3 for boundaries"
                 );
-                let (lower, upper) = self
+                let (lower, lower_digest, upper) = self
                     .resolve_checkpoint_boundaries_from_cc3(min_query, max_query)
                     .await?;
 
-                return self.build_proof_from_roots(min_query, lower, upper).await;
+                return self
+                    .build_proof_from_roots(min_query, lower, lower_digest, upper)
+                    .await;
             }
         }
     }
@@ -110,24 +114,32 @@ impl ContinuityService {
     }
 
     /// Build a proof from eth provider roots (archiver or chain) using
-    /// pre-resolved checkpoint boundaries.
+    /// pre-resolved checkpoint boundaries. The `lower_checkpoint_digest` is
+    /// the on-chain digest at the lower checkpoint block — this anchors the
+    /// proof's digest chain to a known on-chain value.
     async fn build_proof_from_roots(
         &self,
         min_query: u64,
         lower_checkpoint: u64,
+        lower_checkpoint_digest: sp_core::H256,
         upper_checkpoint: u64,
     ) -> Result<ContinuityProof, ServiceError> {
         tracing::info!(
             lower_checkpoint,
+            ?lower_checkpoint_digest,
             upper_checkpoint,
             min_query,
             "building proof from eth provider roots"
         );
 
+        // Start the digest chain from the lower checkpoint's known on-chain digest.
+        // Blocks are built from lower_checkpoint + 1 since the checkpoint block itself
+        // is already accounted for by its digest.
+        let build_from = lower_checkpoint + 1;
         let blocks = self
             .builder
             .eth_provider
-            .build_continuity_blocks(sp_core::H256::zero(), lower_checkpoint, upper_checkpoint)
+            .build_continuity_blocks(lower_checkpoint_digest, build_from, upper_checkpoint)
             .await
             .map_err(|err| ServiceError::Internal {
                 message: format!("failed to build continuity blocks: {err}"),
@@ -138,7 +150,7 @@ impl ContinuityService {
             .take_while(|b| b.n() < min_query)
             .last()
             .map(|b| b.digest())
-            .unwrap_or(sp_core::H256::zero());
+            .unwrap_or(lower_checkpoint_digest);
 
         let proof_roots: Vec<sp_core::H256> = blocks
             .iter()
@@ -150,11 +162,12 @@ impl ContinuityService {
     }
 
     /// Fetch checkpoint boundaries from the indexer (GraphQL).
+    /// Returns `(lower_block, lower_digest, upper_block)`.
     async fn resolve_checkpoint_boundaries_from_indexer(
         &self,
         min_query: u64,
         max_query: u64,
-    ) -> Result<(u64, u64), ServiceError> {
+    ) -> Result<(u64, sp_core::H256, u64), ServiceError> {
         let indexer =
             self.builder
                 .indexer_provider
@@ -177,11 +190,12 @@ impl ContinuityService {
     }
 
     /// Fetch checkpoint boundaries from CC3 (on-chain).
+    /// Returns `(lower_block, lower_digest, upper_block)`.
     async fn resolve_checkpoint_boundaries_from_cc3(
         &self,
         min_query: u64,
         max_query: u64,
-    ) -> Result<(u64, u64), ServiceError> {
+    ) -> Result<(u64, sp_core::H256, u64), ServiceError> {
         let chain_key = self.builder.config.chain_key;
 
         let checkpoints = self
@@ -197,11 +211,12 @@ impl ContinuityService {
     }
 
     /// Find the nearest lower and upper checkpoint boundaries around a query range.
+    /// Returns `(lower_block, lower_digest, upper_block)`.
     fn extract_boundaries(
         checkpoints: &[attestor_primitives::AttestationCheckpoint],
         min_query: u64,
         max_query: u64,
-    ) -> Result<(u64, u64), ServiceError> {
+    ) -> Result<(u64, sp_core::H256, u64), ServiceError> {
         let lower = checkpoints
             .iter()
             .filter(|cp| cp.block_number <= min_query)
@@ -212,7 +227,7 @@ impl ContinuityService {
             .min_by_key(|cp| cp.block_number);
 
         match (lower, upper) {
-            (Some(l), Some(u)) => Ok((l.block_number, u.block_number)),
+            (Some(l), Some(u)) => Ok((l.block_number, l.digest, u.block_number)),
             _ => Err(ServiceError::Internal {
                 message: format!(
                     "no checkpoints found around query range {min_query}..{max_query}"
