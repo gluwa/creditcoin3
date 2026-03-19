@@ -6,6 +6,12 @@ mod simulation;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod prelude {
+    pub use crate::nonzero;
+    pub use crate::poll;
+}
+
 pub use error::Error;
 
 pub type Attestation =
@@ -167,10 +173,16 @@ impl StreamAttestation {
         assert!(!self.cache.is_empty(), "Empty root cache");
 
         let block_first = self.cache.first().unwrap().height;
-        assert!(target >= block_first, "{target} >= {block_first}");
+        assert!(
+            target >= block_first,
+            "Invalid root cache start: {target} >= {block_first}"
+        );
 
         let block_last = self.cache.last().unwrap().height;
-        assert!(target <= block_last, "{target} <= {block_last}");
+        assert!(
+            target <= block_last,
+            "Invalid root cache stop: {target} <= {block_last}"
+        );
 
         let index = target as usize - block_first as usize;
         let stream_util::RootInfo { height, root, hash } = self.cache[index];
