@@ -11,12 +11,10 @@ name = "archiver"
 path = "src/main.rs"
 
 [dependencies]
-attestor-primitives = { workspace = true, features = ["std"] }
 eth = { path = "../common/eth" }
 sp-core = { workspace = true, features = ["std"] }
 stream_eth = { workspace = true }
 stream_util = { workspace = true }
-usc-abi-encoding = { workspace = true }
 
 anyhow = { workspace = true }
 axum = { workspace = true }
@@ -31,7 +29,6 @@ tower-http = { workspace = true, features = ["trace"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
-user = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

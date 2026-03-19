@@ -60,18 +60,45 @@ impl ContinuityService {
                         );
                         let checkpoint_block_interval =
                             self.builder.config.checkpoint_block_interval();
-                        return archiver
-                            .build_continuity_proof(
-                                min_query,
-                                max_query,
-                                checkpoint_block_interval,
-                            )
+                        let upper_checkpoint = max_query.div_ceil(checkpoint_block_interval)
+                            * checkpoint_block_interval;
+
+                        // Fetch all roots from the lower checkpoint boundary through upper_checkpoint.
+                        // We need roots before min_query to compute the lower_endpoint_digest.
+                        let lower_checkpoint =
+                            (min_query / checkpoint_block_interval) * checkpoint_block_interval;
+                        let fetch_from = lower_checkpoint;
+                        let all_roots = archiver
+                            .get_roots(fetch_from, upper_checkpoint)
                             .await
                             .map_err(|archiver_err| ServiceError::Internal {
                                 message: format!(
-                                    "archiver fallback also failed: {archiver_err} (original error: {e})"
+                                    "archiver fallback failed to fetch roots: {archiver_err} (original error: {e})"
                                 ),
-                            });
+                            })?;
+
+                        // Compute lower_endpoint_digest by chaining digests from the
+                        // lower checkpoint boundary up to min_query - 1.
+                        let mut lower_endpoint_digest = sp_core::H256::zero();
+                        let mut proof_roots = Vec::new();
+
+                        for (height, root) in &all_roots {
+                            if *height < min_query {
+                                // Chain the digest for blocks before the query range.
+                                lower_endpoint_digest = attestor_primitives::compute_digest_for(
+                                    *height,
+                                    root,
+                                    Some(&lower_endpoint_digest),
+                                );
+                            } else {
+                                proof_roots.push(*root);
+                            }
+                        }
+
+                        return Ok(attestor_primitives::block::ContinuityProof::new(
+                            lower_endpoint_digest,
+                            proof_roots,
+                        ));
                     }
                 }
 

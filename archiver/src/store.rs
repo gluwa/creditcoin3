@@ -13,8 +13,6 @@ use sp_core::H256;
 #[derive(Clone)]
 pub struct RootStore {
     db: Arc<sled::Db>,
-    /// Cached digests at specific heights (separate sled tree).
-    digest_cache: sled::Tree,
 }
 
 impl RootStore {
@@ -22,42 +20,7 @@ impl RootStore {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let db = sled::open(path.as_ref())
             .with_context(|| format!("failed to open sled database at {:?}", path.as_ref()))?;
-        let digest_cache = db
-            .open_tree("digest_cache")
-            .context("failed to open digest_cache tree")?;
-        Ok(Self {
-            db: Arc::new(db),
-            digest_cache,
-        })
-    }
-
-    /// Cache a computed digest at a specific height.
-    pub fn cache_digest(&self, height: u64, digest: H256) -> Result<()> {
-        self.digest_cache
-            .insert(height.to_be_bytes(), digest.as_bytes())?;
-        Ok(())
-    }
-
-    /// Get the highest cached digest at or below the given height.
-    pub fn get_cached_digest_at_or_below(&self, height: u64) -> Result<Option<(u64, H256)>> {
-        let item = if height == u64::MAX {
-            self.digest_cache.iter().next_back()
-        } else {
-            let key = (height + 1).to_be_bytes();
-            self.digest_cache.range(..key).next_back()
-        };
-        if let Some(item) = item {
-            let (k, v) = item.context("failed to read digest cache")?;
-            let h = u64::from_be_bytes(
-                k.as_ref()
-                    .try_into()
-                    .map_err(|_| anyhow::anyhow!("invalid key length in digest cache"))?,
-            );
-            let digest = parse_h256(&v)?;
-            Ok(Some((h, digest)))
-        } else {
-            Ok(None)
-        }
+        Ok(Self { db: Arc::new(db) })
     }
 
     /// Insert a merkle root for a given block height.

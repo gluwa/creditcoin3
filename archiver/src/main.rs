@@ -143,7 +143,7 @@ async fn main() -> Result<()> {
     let chain_id = ws_client.chain_id();
     tracing::info!(chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
 
-    // HTTP client for the API (proof-input endpoint needs block fetching).
+    // HTTP client for chain head tracking.
     let http_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
 
     // ── Root stream (with automatic reconnection) ───────────────────────
@@ -188,7 +188,6 @@ async fn main() -> Result<()> {
     // ── HTTP API ────────────────────────────────────────────────────────
     let api_state = Arc::new(api::AppState {
         store: store.clone(),
-        eth_client: http_client,
     });
 
     let api_router = api::router(api_state);

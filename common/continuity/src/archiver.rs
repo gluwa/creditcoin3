@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use attestor_primitives::block::{Block, ContinuityProof};
+use attestor_primitives::block::Block;
 use sp_core::H256;
 use tracing::{debug, info};
 
@@ -30,13 +30,6 @@ struct RootEntry {
 #[derive(serde::Deserialize)]
 struct LatestResponse {
     latest_block: Option<u64>,
-}
-
-/// Response from `GET /proof-input?from=X&to=Y`.
-#[derive(serde::Deserialize)]
-struct ProofInputResponse {
-    lower_endpoint_digest: String,
-    roots: Vec<RootEntry>,
 }
 
 impl ArchiverClient {
@@ -72,83 +65,6 @@ impl ArchiverClient {
                 Ok((e.block_number, root))
             })
             .collect()
-    }
-
-    /// Build a `ContinuityProof` directly from the archiver for the given query blocks.
-    ///
-    /// The proof spans from `min_query` to `upper_checkpoint`:
-    /// - `upper_checkpoint = ceil(max_query / checkpoint_interval) * checkpoint_interval`
-    /// - `lower_endpoint_digest` = chained digest at `min_query - 1` (computed by archiver)
-    /// - `roots` = merkle roots from `min_query` to `upper_checkpoint`
-    pub async fn build_continuity_proof(
-        &self,
-        min_query: u64,
-        max_query: u64,
-        checkpoint_interval: u64,
-    ) -> Result<ContinuityProof> {
-        anyhow::ensure!(checkpoint_interval > 0, "checkpoint_interval must be > 0");
-
-        let upper_checkpoint = max_query.div_ceil(checkpoint_interval) * checkpoint_interval;
-        let proof_from = min_query;
-        let proof_to = upper_checkpoint;
-
-        info!(
-            min_query,
-            max_query,
-            upper_checkpoint,
-            proof_from,
-            proof_to,
-            roots_count = proof_to - proof_from + 1,
-            "building continuity proof from archiver"
-        );
-
-        let url = format!(
-            "{}/proof-input?from={}&to={}",
-            self.base_url, proof_from, proof_to
-        );
-        let resp: ProofInputResponse = self
-            .http
-            .get(&url)
-            .send()
-            .await
-            .context("archiver /proof-input request failed")?
-            .error_for_status()
-            .context("archiver /proof-input returned error status")?
-            .json()
-            .await
-            .context("failed to parse archiver /proof-input response")?;
-
-        let lower_endpoint_digest = parse_h256(&resp.lower_endpoint_digest)
-            .context("bad lower_endpoint_digest from archiver")?;
-
-        let roots: Vec<H256> = resp
-            .roots
-            .into_iter()
-            .map(|e| {
-                parse_h256(&e.merkle_root)
-                    .with_context(|| format!("bad root for block {}", e.block_number))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        let expected_count = (proof_to - proof_from + 1) as usize;
-        anyhow::ensure!(
-            roots.len() == expected_count,
-            "archiver returned {} roots but expected {} (from={}, to={})",
-            roots.len(),
-            expected_count,
-            proof_from,
-            proof_to,
-        );
-
-        info!(
-            proof_from,
-            proof_to,
-            roots_count = roots.len(),
-            lower_endpoint_digest = ?lower_endpoint_digest,
-            "built continuity proof from archiver"
-        );
-
-        Ok(ContinuityProof::new(lower_endpoint_digest, roots))
     }
 
     /// Get the latest archived block number.
