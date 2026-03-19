@@ -179,7 +179,12 @@ impl ContinuityService {
         );
 
         // Populate checkpoint cache from CC3 on startup.
+        // This iterates all on-chain checkpoints and may take a while for long-running chains.
         let chain_key = builder.config.chain_key;
+        tracing::info!(
+            chain_key,
+            "⏳ Populating checkpoint cache from CC3 (this may take a while)..."
+        );
         let checkpoints = builder
             .cc_provider
             .get_checkpoints_for_chain(chain_key)

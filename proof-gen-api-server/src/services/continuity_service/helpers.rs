@@ -25,10 +25,9 @@ impl ContinuityService {
     /// Build a continuity proof.
     ///
     /// Flow:
-    /// 1. Fetch checkpoint boundaries from indexer (GraphQL)
-    /// 2. Try building proof from GraphQL attestation data
-    /// 3. If GraphQL proof fails → fall back to eth provider (archiver/chain) for roots
-    /// 4. If indexer unavailable → fall back to CC3 for boundaries + eth provider for roots
+    /// 1. Resolve checkpoint boundaries from local cache
+    /// 2. If indexer configured → try GraphQL attestation data, fall back to eth provider
+    /// 3. If no indexer → go straight to eth provider (archiver/chain) for roots
     pub(crate) async fn build_continuity(
         &self,
         header_numbers: &[u64],
@@ -52,22 +51,25 @@ impl ContinuityService {
                 ),
             })?;
 
-        // Step 2: Try building proof from GraphQL attestation data.
-        match self
-            .build_proof_from_graphql(header_numbers, current_block)
-            .await
-        {
-            Ok(proof) => Ok(proof),
-            Err(e) => {
-                // Step 3: GraphQL proof failed → fall back to eth provider for roots.
-                tracing::warn!(
-                    error = %e,
-                    "GraphQL proof failed, falling back to eth provider"
-                );
-                self.build_proof_from_roots(min_query, lower, lower_digest, upper)
-                    .await
+        // Step 2: If indexer is configured, try building from GraphQL first.
+        if self.builder.indexer_provider.is_some() {
+            match self
+                .build_proof_from_graphql(header_numbers, current_block)
+                .await
+            {
+                Ok(proof) => return Ok(proof),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "GraphQL proof failed, falling back to eth provider"
+                    );
+                }
             }
         }
+
+        // Step 3: Build directly from eth provider (archiver or chain).
+        self.build_proof_from_roots(min_query, lower, lower_digest, upper)
+            .await
     }
 
     /// Try building a proof from GraphQL attestation data.
