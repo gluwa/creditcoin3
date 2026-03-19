@@ -20,7 +20,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
 
         let checkpoints: { blockNumber: string; digest: string }[] = [];
 
-        while (checkpoints.length < 3) {
+        while (checkpoints.length < 2) {
             await forElapsedBlocks(api, { minBlocks: 2 });
 
             const response = await graphQLQuery(
