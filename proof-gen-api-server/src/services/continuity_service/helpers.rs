@@ -56,19 +56,86 @@ impl ContinuityService {
                             min_query,
                             max_query,
                             error = %e,
-                            "attestation-based proof failed, falling back to archiver"
+                            "attestation-based proof failed, falling back to eth provider"
                         );
+
+                        // Resolve checkpoint boundaries from the indexer (not manual math).
+                        let chain_key = self.builder.config.chain_key;
                         let checkpoint_block_interval =
                             self.builder.config.checkpoint_block_interval();
-                        let upper_checkpoint = max_query.div_ceil(checkpoint_block_interval)
-                            * checkpoint_block_interval;
+                        let max_range = checkpoint_block_interval * 2;
 
-                        // Reuse the builder's eth_provider (ArchiverEthProvider) which
-                        // already fetches roots from the archiver and builds Block objects.
-                        // Fetch from the lower checkpoint boundary to compute lower_endpoint_digest.
-                        let lower_checkpoint =
-                            (min_query / checkpoint_block_interval) * checkpoint_block_interval;
+                        let (lower_checkpoint, upper_checkpoint) = if let Some(ref indexer) =
+                            self.builder.indexer_provider
+                        {
+                            let checkpoints = indexer
+                                .get_checkpoints_around_height(chain_key, min_query, max_range)
+                                .await
+                                .map_err(|err| ServiceError::Internal {
+                                    message: format!(
+                                        "failed to fetch checkpoints from indexer: {err}"
+                                    ),
+                                })?;
 
+                            let lower = checkpoints
+                                .iter()
+                                .filter(|cp| cp.block_number <= min_query)
+                                .max_by_key(|cp| cp.block_number);
+                            let upper = checkpoints
+                                .iter()
+                                .filter(|cp| cp.block_number >= max_query)
+                                .min_by_key(|cp| cp.block_number);
+
+                            match (lower, upper) {
+                                (Some(l), Some(u)) => (l.block_number, u.block_number),
+                                _ => {
+                                    return Err(ServiceError::Internal {
+                                        message: format!(
+                                            "no checkpoints found around query range {min_query}..{max_query}"
+                                        ),
+                                    });
+                                }
+                            }
+                        } else {
+                            // No indexer — use CC3 checkpoints.
+                            let checkpoints = self
+                                .builder
+                                .cc_provider
+                                .get_checkpoints_for_chain(chain_key)
+                                .await
+                                .map_err(|err| ServiceError::Internal {
+                                    message: format!("failed to fetch checkpoints from CC3: {err}"),
+                                })?;
+
+                            let lower = checkpoints
+                                .iter()
+                                .filter(|cp| cp.block_number <= min_query)
+                                .max_by_key(|cp| cp.block_number);
+                            let upper = checkpoints
+                                .iter()
+                                .filter(|cp| cp.block_number >= max_query)
+                                .min_by_key(|cp| cp.block_number);
+
+                            match (lower, upper) {
+                                (Some(l), Some(u)) => (l.block_number, u.block_number),
+                                _ => {
+                                    return Err(ServiceError::Internal {
+                                        message: format!(
+                                            "no checkpoints found around query range {min_query}..{max_query}"
+                                        ),
+                                    });
+                                }
+                            }
+                        };
+
+                        tracing::info!(
+                            lower_checkpoint,
+                            upper_checkpoint,
+                            "resolved checkpoint boundaries from indexer/CC3"
+                        );
+
+                        // Use the lower checkpoint's digest as the starting point,
+                        // then build blocks from lower_checkpoint to upper_checkpoint.
                         let blocks = self
                             .builder
                             .eth_provider
@@ -78,9 +145,9 @@ impl ContinuityService {
                                 upper_checkpoint,
                             )
                             .await
-                            .map_err(|archiver_err| ServiceError::Internal {
+                            .map_err(|err| ServiceError::Internal {
                                 message: format!(
-                                    "archiver fallback failed: {archiver_err} (original error: {e})"
+                                    "eth provider fallback failed: {err} (original error: {e})"
                                 ),
                             })?;
 

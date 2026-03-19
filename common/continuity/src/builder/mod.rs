@@ -124,13 +124,13 @@ pub struct ContinuityBuilder {
     pub(crate) last_checkpoint_block: Arc<tokio::sync::RwLock<Option<u64>>>,
 
     /// Creditcoin3 RPC provider (abstracted for testing)
-    pub(crate) cc_provider: SharedCcProvider,
+    pub cc_provider: SharedCcProvider,
 
     /// Source chain (ETH/EVM) RPC provider (abstracted for testing)
     pub eth_provider: SharedEthProvider,
 
     /// Optional indexer provider for fast proof fetching
-    pub(crate) indexer_provider: Option<Arc<IndexerClient>>,
+    pub indexer_provider: Option<Arc<IndexerClient>>,
 }
 
 impl ContinuityBuilder {
