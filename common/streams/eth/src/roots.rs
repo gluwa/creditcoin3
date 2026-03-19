@@ -9,13 +9,29 @@ const BLOCK_STREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 pub struct Config {
     pub client: eth::Client,
     pub start_height: attestor_primitives::Height,
+    #[default(0)]
     pub finalization_lag: attestor_primitives::Height,
 
     /// Maximum number of concurrent block fetch tasks (IO-bound).
+    /// Defaults to 2× available CPU cores (capped at 16).
+    #[default(default_concurrency())]
     pub max_concurrency: std::num::NonZeroUsize,
 
     /// Maximum number of parallel block root merkleization (CPU-bound).
+    /// Defaults to available CPU cores.
+    #[default(default_parallelism())]
     pub max_parallelism: std::num::NonZeroUsize,
+}
+
+fn default_concurrency() -> std::num::NonZeroUsize {
+    let cpus = std::thread::available_parallelism()
+        .unwrap_or(std::num::NonZeroUsize::new(4).unwrap())
+        .get();
+    std::num::NonZeroUsize::new((cpus * 2).min(16)).unwrap()
+}
+
+fn default_parallelism() -> std::num::NonZeroUsize {
+    std::thread::available_parallelism().unwrap_or(std::num::NonZeroUsize::new(4).unwrap())
 }
 
 pub struct StreamRoots {

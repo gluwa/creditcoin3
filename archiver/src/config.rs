@@ -31,27 +31,9 @@ pub struct Config {
     #[arg(long, env = "END_HEIGHT")]
     pub end_height: Option<u64>,
 
-    /// Finalization lag — number of blocks behind the tip to consider finalized.
-    #[arg(long, env = "FINALIZATION_LAG", default_value = "64")]
-    pub finalization_lag: u64,
-
     /// Maximum concurrent block fetch tasks (IO-bound).
-    #[arg(
-        long,
-        env = "MAX_FETCH_TASKS",
-        alias = "max-concurrency",
-        default_value = "8"
-    )]
+    #[arg(long, env = "MAX_FETCH_TASKS", default_value = "8")]
     pub max_fetch_tasks: NonZeroUsize,
-
-    /// Maximum parallel merkle root computations (CPU-bound).
-    #[arg(
-        long,
-        env = "MAX_COMPUTE_TASKS",
-        alias = "max-parallelism",
-        default_value = "4"
-    )]
-    pub max_compute_tasks: NonZeroUsize,
 
     /// Path to the sled database directory for root storage.
     #[arg(long, env = "SLED_DB_PATH", default_value = "./data/roots.sled")]

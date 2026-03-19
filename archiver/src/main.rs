@@ -91,9 +91,7 @@ async fn main() -> Result<()> {
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
-                    .with_finalization_lag(0u64) // gaps are already finalized
                     .with_max_concurrency(cfg.max_fetch_tasks)
-                    .with_max_parallelism(cfg.max_compute_tasks)
                     .build();
 
                 let mut gap_stream = stream_eth::StreamRoots::new(gap_config).await?;
@@ -150,9 +148,7 @@ async fn main() -> Result<()> {
     let stream_config = stream_eth::roots::ConfigBuilder::new()
         .with_client(ws_client)
         .with_start_height(start_height)
-        .with_finalization_lag(cfg.finalization_lag)
         .with_max_concurrency(cfg.max_fetch_tasks)
-        .with_max_parallelism(cfg.max_compute_tasks)
         .build();
 
     let mut root_stream = stream_eth::StreamRoots::new(stream_config).await?;
@@ -160,7 +156,6 @@ async fn main() -> Result<()> {
     // ── Chain head tracker (for ETA) ───────────────────────────────────
     let current_head = http_client.get_last_block().await.unwrap_or(0);
     let chain_head = Arc::new(AtomicU64::new(current_head));
-    let finalization_lag = cfg.finalization_lag;
     {
         let head = chain_head.clone();
         let client = http_client.clone();
@@ -177,10 +172,8 @@ async fn main() -> Result<()> {
     tracing::info!(
         start = start_height,
         end_height = ?cfg.end_height,
-        lag = cfg.finalization_lag,
         head = current_head,
         fetch_tasks = ?cfg.max_fetch_tasks,
-        compute_tasks = ?cfg.max_compute_tasks,
         api = %cfg.api_bind,
         "starting archiver"
     );
@@ -270,9 +263,7 @@ async fn main() -> Result<()> {
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)
-                                .with_finalization_lag(cfg.finalization_lag)
                                 .with_max_concurrency(cfg.max_fetch_tasks)
-                                .with_max_parallelism(cfg.max_compute_tasks)
                                 .build();
 
                             match stream_eth::StreamRoots::new(new_config).await {
@@ -333,11 +324,9 @@ async fn main() -> Result<()> {
             } else {
                 0.0
             };
-            let target = cfg.end_height.unwrap_or_else(|| {
-                chain_head
-                    .load(Ordering::Acquire)
-                    .saturating_sub(finalization_lag)
-            });
+            let target = cfg
+                .end_height
+                .unwrap_or_else(|| chain_head.load(Ordering::Acquire));
             let remaining = target.saturating_sub(height);
             let label = if is_flush { "flushed" } else { "✓" };
             tracing::info!(
