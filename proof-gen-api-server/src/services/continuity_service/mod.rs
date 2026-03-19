@@ -152,6 +152,9 @@ pub struct ContinuityService {
     metrics: Metrics,
     /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
     max_batch_size: usize,
+    /// In-memory cache of checkpoint (block_number → digest) populated from CC3
+    /// on startup and kept up-to-date via `CheckpointReached` events.
+    checkpoint_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
 }
 
 impl ContinuityService {
@@ -175,6 +178,29 @@ impl ContinuityService {
             "ContinuityService initialized with attestation genesis block"
         );
 
+        // Populate checkpoint cache from CC3 on startup.
+        let chain_key = builder.config.chain_key;
+        let checkpoints = builder
+            .cc_provider
+            .get_checkpoints_for_chain(chain_key)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to fetch checkpoints on startup: {e}, starting with empty cache"
+                );
+                Vec::new()
+            });
+        let checkpoint_cache: BTreeMap<u64, H256> = checkpoints
+            .into_iter()
+            .map(|cp| (cp.block_number, cp.digest))
+            .collect();
+        tracing::info!(
+            chain_key,
+            count = checkpoint_cache.len(),
+            latest = ?checkpoint_cache.keys().next_back(),
+            "Checkpoint cache populated from CC3"
+        );
+
         Ok(Self {
             builder,
             start_time: Instant::now(),
@@ -182,6 +208,7 @@ impl ContinuityService {
             attestation_genesis_block: AtomicU64::new(attestation_genesis_block),
             metrics,
             max_batch_size,
+            checkpoint_cache: tokio::sync::RwLock::new(checkpoint_cache),
         })
     }
 
@@ -259,6 +286,38 @@ impl ContinuityService {
     /// Updates the attestation genesis block number.
     /// This will be called when we receive an AttestationChainGenesisBlockNumberSet event from CC3,
     /// allowing the service to adapt if the attestation genesis block changes (e.g. due to a chain reset or reconfiguration).
+    /// Insert a checkpoint into the in-memory cache (called from event handler).
+    pub async fn insert_checkpoint(&self, block_number: u64, digest: H256) {
+        self.checkpoint_cache
+            .write()
+            .await
+            .insert(block_number, digest);
+        tracing::debug!(block_number, ?digest, "checkpoint cached");
+    }
+
+    /// Look up checkpoint boundaries around a query range from the local cache.
+    /// Returns `(lower_block, lower_digest, upper_block)` or `None` if not found.
+    pub async fn get_checkpoint_boundaries(
+        &self,
+        min_query: u64,
+        max_query: u64,
+    ) -> Option<(u64, H256, u64)> {
+        let cache = self.checkpoint_cache.read().await;
+
+        // Lower: greatest checkpoint ≤ min_query
+        let lower = cache.range(..=min_query).next_back().map(|(&k, &v)| (k, v));
+
+        // Upper: smallest checkpoint ≥ max_query
+        let upper = cache.range(max_query..).next().map(|(&k, _)| k);
+
+        match (lower, upper) {
+            (Some((lower_block, lower_digest)), Some(upper_block)) => {
+                Some((lower_block, lower_digest, upper_block))
+            }
+            _ => None,
+        }
+    }
+
     pub async fn update_genesis_block(&self, new_genesis_block: u64) {
         self.attestation_genesis_block
             .store(new_genesis_block, Ordering::Relaxed);

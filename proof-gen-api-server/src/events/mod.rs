@@ -170,6 +170,9 @@ async fn process_cc_event(
                 builder.update_last_checkpoint_block(block_number).await;
             }
 
+            // Insert into checkpoint cache for fast boundary lookups.
+            service.insert_checkpoint(block_number, digest).await;
+
             Ok(())
         }
         CcEvent::CheckpointIntervalChanged(new_interval) => {

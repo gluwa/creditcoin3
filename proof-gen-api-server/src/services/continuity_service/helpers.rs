@@ -42,23 +42,15 @@ impl ContinuityService {
                 message: "header_numbers is empty".into(),
             })?;
 
-        // Step 1: Fetch boundaries from indexer (GraphQL).
-        let boundaries = self
-            .resolve_checkpoint_boundaries_from_indexer(min_query, max_query)
-            .await;
-
-        let (lower, lower_digest, upper) = match boundaries {
-            Ok(b) => b,
-            Err(indexer_err) => {
-                // Step 4: Indexer unavailable → fall back to CC3 for boundaries.
-                tracing::warn!(
-                    error = %indexer_err,
-                    "indexer unavailable, falling back to CC3 for boundaries"
-                );
-                self.resolve_checkpoint_boundaries_from_cc3(min_query, max_query)
-                    .await?
-            }
-        };
+        // Step 1: Resolve checkpoint boundaries from local cache.
+        let (lower, lower_digest, upper) = self
+            .get_checkpoint_boundaries(min_query, max_query)
+            .await
+            .ok_or_else(|| ServiceError::Internal {
+                message: format!(
+                    "no checkpoint boundaries found in cache for range {min_query}..{max_query}"
+                ),
+            })?;
 
         // Step 2: Try building proof from GraphQL attestation data.
         match self
@@ -153,81 +145,6 @@ impl ContinuityService {
             .collect();
 
         Ok(ContinuityProof::new(lower_endpoint_digest, proof_roots))
-    }
-
-    /// Fetch checkpoint boundaries from the indexer (GraphQL).
-    /// Returns `(lower_block, lower_digest, upper_block)`.
-    async fn resolve_checkpoint_boundaries_from_indexer(
-        &self,
-        min_query: u64,
-        max_query: u64,
-    ) -> Result<(u64, sp_core::H256, u64), ServiceError> {
-        let indexer =
-            self.builder
-                .indexer_provider
-                .as_ref()
-                .ok_or_else(|| ServiceError::Internal {
-                    message: "no indexer configured".into(),
-                })?;
-
-        let chain_key = self.builder.config.chain_key;
-        let max_range = self.builder.config.checkpoint_block_interval() * 2;
-
-        let checkpoints = indexer
-            .get_checkpoints_around_height(chain_key, min_query, max_range)
-            .await
-            .map_err(|err| ServiceError::Internal {
-                message: format!("failed to fetch checkpoints from indexer: {err}"),
-            })?;
-
-        Self::extract_boundaries(&checkpoints, min_query, max_query)
-    }
-
-    /// Fetch checkpoint boundaries from CC3 (on-chain).
-    /// Returns `(lower_block, lower_digest, upper_block)`.
-    async fn resolve_checkpoint_boundaries_from_cc3(
-        &self,
-        min_query: u64,
-        max_query: u64,
-    ) -> Result<(u64, sp_core::H256, u64), ServiceError> {
-        let chain_key = self.builder.config.chain_key;
-
-        let checkpoints = self
-            .builder
-            .cc_provider
-            .get_checkpoints_for_chain(chain_key)
-            .await
-            .map_err(|err| ServiceError::Internal {
-                message: format!("failed to fetch checkpoints from CC3: {err}"),
-            })?;
-
-        Self::extract_boundaries(&checkpoints, min_query, max_query)
-    }
-
-    /// Find the nearest lower and upper checkpoint boundaries around a query range.
-    /// Returns `(lower_block, lower_digest, upper_block)`.
-    fn extract_boundaries(
-        checkpoints: &[attestor_primitives::AttestationCheckpoint],
-        min_query: u64,
-        max_query: u64,
-    ) -> Result<(u64, sp_core::H256, u64), ServiceError> {
-        let lower = checkpoints
-            .iter()
-            .filter(|cp| cp.block_number <= min_query)
-            .max_by_key(|cp| cp.block_number);
-        let upper = checkpoints
-            .iter()
-            .filter(|cp| cp.block_number >= max_query)
-            .min_by_key(|cp| cp.block_number);
-
-        match (lower, upper) {
-            (Some(l), Some(u)) => Ok((l.block_number, l.digest, u.block_number)),
-            _ => Err(ServiceError::Internal {
-                message: format!(
-                    "no checkpoints found around query range {min_query}..{max_query}"
-                ),
-            }),
-        }
     }
 
     pub(crate) async fn get_height_and_index_for_tx_hash(
