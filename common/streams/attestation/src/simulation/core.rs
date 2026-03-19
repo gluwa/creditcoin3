@@ -7,16 +7,22 @@ pub struct Simulation {
     permit_roots: futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
     permit_tip: futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
 
+    start_height: attestor_primitives::Height,
+    attestation_prev: attestor_primitives::Height,
     attestation_interval: std::num::NonZero<attestor_primitives::Height>,
     attestation_next: attestor_primitives::Height,
+    max_catchup: std::num::NonZero<attestor_primitives::Height>,
 }
 
 impl std::fmt::Debug for Simulation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Simulation")
             .field("steps", &self.steps)
+            .field("start_height", &self.start_height)
+            .field("attestation_prev", &self.attestation_prev)
             .field("attestation_interval", &self.attestation_interval)
             .field("attestation_next", &self.attestation_next)
+            .field("max_catchup", &self.max_catchup)
             .finish()
     }
 }
@@ -106,8 +112,12 @@ prop_compose! {
             steps,
             permit_roots,
             permit_tip,
+
+            start_height,
+            attestation_prev: attestation_prev.height,
             attestation_interval,
-            attestation_next
+            attestation_next,
+            max_catchup,
         }
     }
 }
