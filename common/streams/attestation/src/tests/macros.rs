@@ -4,3 +4,11 @@ macro_rules! nonzero {
         std::num::NonZero::new($n).unwrap()
     };
 }
+
+#[macro_export]
+macro_rules! poll {
+    ($stream:expr) => {{
+        use futures::StreamExt as _;
+        let _ = tokio_test::task::spawn($stream.next()).poll();
+    }};
+}
