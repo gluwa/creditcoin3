@@ -149,6 +149,8 @@ impl StreamRoots {
                                     timeout_secs = BLOCK_STREAM_TIMEOUT.as_secs(),
                                     "Eth connection stale (no blocks received within timeout)"
                                 );
+                                roots.abort_all();
+                                while roots.join_next().await.is_some() {}
                                 heap.clear();
 
                                 let (client, stream) = Self::reconnect(&config, next).await;

@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
                         tracing::info!(
                             height = info.height,
                             filled,
-                            remaining = gap_end - info.height,
+                            remaining = gap_end.saturating_sub(info.height),
                             "backfill progress"
                         );
                     }
@@ -236,7 +236,7 @@ async fn main() -> Result<()> {
     const RECONNECT_BASE_DELAY: Duration = Duration::from_secs(2);
     const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
 
-    let mut last_height = start_height.saturating_sub(1);
+    let mut last_height: Option<u64> = None;
 
     loop {
         let next_item = tokio::select! {
@@ -251,7 +251,7 @@ async fn main() -> Result<()> {
                     Err(_) => "stalled (timeout)",
                     _ => "ended unexpectedly",
                 };
-                tracing::warn!(last_height, reason = msg, "stream died, reconnecting...");
+                tracing::warn!(?last_height, reason = msg, "stream died, reconnecting...");
 
                 // Flush any pending batch before reconnecting.
                 if !batch_buf.is_empty() {
@@ -260,7 +260,7 @@ async fn main() -> Result<()> {
                 }
 
                 // Reconnect with exponential backoff.
-                let resume_from = last_height + 1;
+                let resume_from = last_height.map(|h| h + 1).unwrap_or(start_height);
                 let mut delay = RECONNECT_BASE_DELAY;
                 loop {
                     tokio::time::sleep(delay).await;
@@ -300,7 +300,7 @@ async fn main() -> Result<()> {
 
         let height = info.height;
         let root = info.root;
-        last_height = height;
+        last_height = Some(height);
 
         batch_buf.push((height, root));
         count += 1;
