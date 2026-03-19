@@ -40,6 +40,7 @@ stream_util = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+rstest = { workspace = true }
 tokio-test = { workspace = true }
 
 [features]
