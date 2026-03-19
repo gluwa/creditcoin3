@@ -12,9 +12,18 @@ use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
 
-/// Auto-detect CPU parallelism for merkle root computation.
-fn default_parallelism() -> std::num::NonZeroUsize {
-    std::thread::available_parallelism().unwrap_or(std::num::NonZeroUsize::new(4).unwrap())
+/// Compute parallelism for merkle root computation based on available CPUs
+/// and how many threads are reserved for block fetching.
+fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::NonZeroUsize {
+    let available = std::thread::available_parallelism()
+        .unwrap_or(std::num::NonZeroUsize::new(4).unwrap())
+        .get();
+    // Reserve threads for fetch tasks + 1 for the main loop, use the rest for computation.
+    let parallelism = available.saturating_sub(max_fetch_tasks.get() + 1);
+    std::num::NonZeroUsize::new(parallelism).unwrap_or_else(|| {
+        // Not enough CPUs — use at least 1 for computation.
+        std::num::NonZeroUsize::new(1).unwrap()
+    })
 }
 
 mod api;
@@ -98,7 +107,7 @@ async fn main() -> Result<()> {
                     .with_start_height(*gap_start)
                     .with_finalization_lag(0u64)
                     .with_max_concurrency(cfg.max_fetch_tasks)
-                    .with_max_parallelism(default_parallelism())
+                    .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                     .build();
 
                 let mut gap_stream = stream_eth::StreamRoots::new(gap_config).await?;
@@ -158,7 +167,7 @@ async fn main() -> Result<()> {
         .with_start_height(start_height)
         .with_finalization_lag(0u64)
         .with_max_concurrency(cfg.max_fetch_tasks)
-        .with_max_parallelism(default_parallelism())
+        .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
         .build();
 
     let mut root_stream = stream_eth::StreamRoots::new(stream_config).await?;
@@ -275,7 +284,7 @@ async fn main() -> Result<()> {
                                 .with_start_height(resume_from)
                                 .with_finalization_lag(0u64)
                                 .with_max_concurrency(cfg.max_fetch_tasks)
-                                .with_max_parallelism(default_parallelism())
+                                .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                                 .build();
 
                             match stream_eth::StreamRoots::new(new_config).await {

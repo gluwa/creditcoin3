@@ -132,7 +132,7 @@ mod tests {
         let store = RootStore::open(dir.path().join("test.sled")).unwrap();
 
         let root = H256::random();
-        store.put_root(42, root).unwrap();
+        store.put_roots(&[(42, root)]).unwrap();
 
         let range = store.get_range(42, 42).unwrap();
         assert_eq!(range.len(), 1);
@@ -147,9 +147,12 @@ mod tests {
         let store = RootStore::open(dir.path().join("test.sled")).unwrap();
 
         let roots: Vec<H256> = (0..10).map(|_| H256::random()).collect();
-        for (i, root) in roots.iter().enumerate() {
-            store.put_root(i as u64, *root).unwrap();
-        }
+        let entries: Vec<(u64, H256)> = roots
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i as u64, *r))
+            .collect();
+        store.put_roots(&entries).unwrap();
 
         let range = store.get_range(3, 6).unwrap();
         assert_eq!(range.len(), 4);

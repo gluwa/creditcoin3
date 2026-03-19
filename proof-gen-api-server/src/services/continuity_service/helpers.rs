@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use super::*;
-use attestor_primitives::block::{Block, ContinuityProof};
+use attestor_primitives::block::ContinuityProof;
 
 impl ContinuityService {
     /// Internal helper that always builds a fresh continuity proof directly
@@ -47,39 +47,33 @@ impl ContinuityService {
             .resolve_checkpoint_boundaries_from_indexer(min_query, max_query)
             .await;
 
-        match boundaries {
-            Ok((lower, lower_digest, upper)) => {
-                // Step 2: Try building proof from GraphQL attestation data.
-                match self
-                    .build_proof_from_graphql(header_numbers, current_block)
-                    .await
-                {
-                    Ok(proof) => return Ok(proof),
-                    Err(e) => {
-                        // Step 3: GraphQL proof failed → fall back to eth provider for roots.
-                        tracing::warn!(
-                            error = %e,
-                            "GraphQL proof failed, falling back to eth provider"
-                        );
-                        return self
-                            .build_proof_from_roots(min_query, lower, lower_digest, upper)
-                            .await;
-                    }
-                }
-            }
+        let (lower, lower_digest, upper) = match boundaries {
+            Ok(b) => b,
             Err(indexer_err) => {
                 // Step 4: Indexer unavailable → fall back to CC3 for boundaries.
                 tracing::warn!(
                     error = %indexer_err,
                     "indexer unavailable, falling back to CC3 for boundaries"
                 );
-                let (lower, lower_digest, upper) = self
-                    .resolve_checkpoint_boundaries_from_cc3(min_query, max_query)
-                    .await?;
+                self.resolve_checkpoint_boundaries_from_cc3(min_query, max_query)
+                    .await?
+            }
+        };
 
-                return self
-                    .build_proof_from_roots(min_query, lower, lower_digest, upper)
-                    .await;
+        // Step 2: Try building proof from GraphQL attestation data.
+        match self
+            .build_proof_from_graphql(header_numbers, current_block)
+            .await
+        {
+            Ok(proof) => Ok(proof),
+            Err(e) => {
+                // Step 3: GraphQL proof failed → fall back to eth provider for roots.
+                tracing::warn!(
+                    error = %e,
+                    "GraphQL proof failed, falling back to eth provider"
+                );
+                self.build_proof_from_roots(min_query, lower, lower_digest, upper)
+                    .await
             }
         }
     }
