@@ -37,3 +37,11 @@ bip39 = { version = "2.2.0", features = ["rand", "serde"] }
 builder = { workspace = true }
 sp-core = { workspace = true }
 stream_util = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tokio-test = { workspace = true }
+
+[features]
+default = ["simulation"]
+simulation = []
