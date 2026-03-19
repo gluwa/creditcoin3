@@ -3,6 +3,9 @@ mod error;
 #[cfg(all(test, feature = "simulation"))]
 mod simulation;
 
+#[cfg(test)]
+mod tests;
+
 pub use error::Error;
 
 pub type Attestation =
