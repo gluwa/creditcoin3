@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RootInfo {
     pub height: attestor_primitives::Height,
     pub root: attestor_primitives::Digest,
