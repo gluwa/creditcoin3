@@ -9,7 +9,7 @@ pub fn logs() {
 }
 
 #[rstest::fixture]
-async fn roots(
+pub async fn roots(
     #[default(0)] start_height: attestor_primitives::Height,
 ) -> (
     futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
@@ -19,7 +19,7 @@ async fn roots(
 }
 
 #[rstest::fixture]
-async fn tip(
+pub async fn tip(
     #[default(0)] start_height: attestor_primitives::Height,
 ) -> (
     futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
@@ -29,12 +29,13 @@ async fn tip(
 }
 
 #[rstest::fixture]
-async fn attestations(
-    #[default("ws://localhost:9944".parse().unwrap())] cc3_url: url::Url,
+pub async fn attestations(
     #[default(0)] start_height: attestor_primitives::Height,
     #[default(0)] attestation_prev: attestor_primitives::Height,
     #[default(nonzero!(10))] attestation_interval: std::num::NonZero<attestor_primitives::Height>,
     #[default(nonzero!(50))] max_catchup: std::num::NonZero<attestor_primitives::Height>,
+
+    #[default("ws://localhost:9944".parse().unwrap())] cc3_url: url::Url,
 
     #[future]
     #[with(start_height)]
