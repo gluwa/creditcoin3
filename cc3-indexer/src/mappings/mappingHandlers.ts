@@ -1377,7 +1377,8 @@ export async function handleEventRevertedAttestationChainTo(event: SubstrateEven
 }
 
 async function remove_attestations_above_height(chainKey: bigint, revertHeight: bigint) {
-    const PAGE_SIZE = 5000;
+    // Max allowed reads in one call of getByFields is 100
+    const PAGE_SIZE = 100;
     const DELETE_BATCH_SIZE = 100;
     let offset = 0;
     const attestationIdsToDelete: string[] = [];
@@ -1420,7 +1421,8 @@ async function remove_attestations_above_height(chainKey: bigint, revertHeight: 
 }
 
 async function remove_checkpoints_above_height(chainKey: bigint, revertHeight: bigint) {
-    const PAGE_SIZE = 5000;
+    // Max allowed reads in one call of getByFields is 100
+    const PAGE_SIZE = 100;
     const DELETE_BATCH_SIZE = 100;
     let offset = 0;
     const checkpointIdsToDelete: string[] = [];
