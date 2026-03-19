@@ -23,13 +23,6 @@ impl RootStore {
         Ok(Self { db: Arc::new(db) })
     }
 
-    /// Insert a merkle root for a given block height.
-    #[allow(dead_code)]
-    pub fn put_root(&self, height: u64, root: H256) -> Result<()> {
-        self.db.insert(height.to_be_bytes(), root.as_bytes())?;
-        Ok(())
-    }
-
     /// Insert a batch of roots atomically.
     pub fn put_roots(&self, roots: &[(u64, H256)]) -> Result<()> {
         let mut batch = sled::Batch::default();

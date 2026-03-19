@@ -35,6 +35,14 @@ pub struct Config {
     #[arg(long, env = "MAX_FETCH_TASKS", default_value = "8")]
     pub max_fetch_tasks: NonZeroUsize,
 
+    /// Maximum block range that can be queried via the /roots API endpoint.
+    #[arg(long, env = "MAX_API_RANGE", default_value = "100000")]
+    pub max_api_range: u64,
+
+    /// Timeout in seconds for the stream before treating it as stalled.
+    #[arg(long, env = "STREAM_TIMEOUT_SECS", default_value = "120")]
+    pub stream_timeout_secs: u64,
+
     /// Path to the sled database directory for root storage.
     #[arg(long, env = "SLED_DB_PATH", default_value = "./data/roots.sled")]
     pub sled_db_path: PathBuf,

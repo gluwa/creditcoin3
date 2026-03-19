@@ -22,6 +22,7 @@ use crate::store::RootStore;
 /// Shared application state for the API handlers.
 pub struct AppState {
     pub store: RootStore,
+    pub max_api_range: u64,
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -90,10 +91,11 @@ async fn roots(
             "\"to\" must be >= \"from\"".to_string(),
         ));
     }
-    if params.to - params.from >= 100_000 {
+    let max_range = state.max_api_range;
+    if params.to - params.from >= max_range {
         return Err((
             StatusCode::BAD_REQUEST,
-            "range too large (max 100,000 blocks)".to_string(),
+            format!("range too large (max {max_range} blocks)"),
         ));
     }
 

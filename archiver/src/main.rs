@@ -182,6 +182,7 @@ async fn main() -> Result<()> {
     // ── HTTP API ────────────────────────────────────────────────────────
     let api_state = Arc::new(api::AppState {
         store: store.clone(),
+        max_api_range: cfg.max_api_range,
     });
 
     let api_router = api::router(api_state);
@@ -220,11 +221,10 @@ async fn main() -> Result<()> {
     // ── Main loop ───────────────────────────────────────────────────────
     let mut count = 0u64;
     let start = Instant::now();
-    let batch_size = 1000usize;
-    let mut batch_buf = Vec::with_capacity(batch_size);
+    let flush_size = cfg.flush_every.get() as usize;
+    let mut batch_buf = Vec::with_capacity(flush_size);
 
-    /// How long to wait for the next block before treating the stream as stalled.
-    const STREAM_TIMEOUT: Duration = Duration::from_secs(120);
+    let stream_timeout = Duration::from_secs(cfg.stream_timeout_secs);
     /// Base delay between reconnection attempts (doubles each retry, capped at 60s).
     const RECONNECT_BASE_DELAY: Duration = Duration::from_secs(2);
     const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
@@ -234,7 +234,7 @@ async fn main() -> Result<()> {
     loop {
         let next_item = tokio::select! {
             _ = &mut cancel_rx => break,
-            result = tokio::time::timeout(STREAM_TIMEOUT, root_stream.next()) => result,
+            result = tokio::time::timeout(stream_timeout, root_stream.next()) => result,
         };
 
         let info = match next_item {
@@ -299,7 +299,7 @@ async fn main() -> Result<()> {
         let end_reached = cfg.end_height.is_some_and(|end| height >= end);
 
         // Flush batch when full or at end.
-        if batch_buf.len() >= batch_size || end_reached {
+        if batch_buf.len() >= flush_size || end_reached {
             store.put_roots(&batch_buf)?;
             batch_buf.clear();
         }

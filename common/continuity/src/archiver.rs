@@ -68,7 +68,6 @@ impl ArchiverClient {
     }
 
     /// Get the latest archived block number.
-    #[allow(dead_code)]
     pub async fn get_latest_block(&self) -> Result<Option<u64>> {
         let url = format!("{}/roots/latest", self.base_url);
         let resp: LatestResponse = self
