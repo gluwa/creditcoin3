@@ -127,7 +127,7 @@ pub struct ContinuityBuilder {
     pub(crate) cc_provider: SharedCcProvider,
 
     /// Source chain (ETH/EVM) RPC provider (abstracted for testing)
-    pub(crate) eth_provider: SharedEthProvider,
+    pub eth_provider: SharedEthProvider,
 
     /// Optional indexer provider for fast proof fetching
     pub(crate) indexer_provider: Option<Arc<IndexerClient>>,

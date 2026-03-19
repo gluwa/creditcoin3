@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use super::*;
-use attestor_primitives::block::ContinuityProof;
+use attestor_primitives::block::{Block, ContinuityProof};
 
 impl ContinuityService {
     /// Internal helper that always builds a fresh continuity proof directly
@@ -43,7 +43,7 @@ impl ContinuityService {
                 );
 
                 if should_fallback {
-                    if let Some(ref archiver) = self.archiver_client {
+                    if self.archiver_client.is_some() {
                         let (&min_query, &max_query) = header_numbers
                             .iter()
                             .min()
@@ -63,42 +63,42 @@ impl ContinuityService {
                         let upper_checkpoint = max_query.div_ceil(checkpoint_block_interval)
                             * checkpoint_block_interval;
 
-                        // Fetch all roots from the lower checkpoint boundary through upper_checkpoint.
-                        // We need roots before min_query to compute the lower_endpoint_digest.
+                        // Reuse the builder's eth_provider (ArchiverEthProvider) which
+                        // already fetches roots from the archiver and builds Block objects.
+                        // Fetch from the lower checkpoint boundary to compute lower_endpoint_digest.
                         let lower_checkpoint =
                             (min_query / checkpoint_block_interval) * checkpoint_block_interval;
-                        let fetch_from = lower_checkpoint;
-                        let all_roots = archiver
-                            .get_roots(fetch_from, upper_checkpoint)
+
+                        let blocks = self
+                            .builder
+                            .eth_provider
+                            .build_continuity_blocks(
+                                sp_core::H256::zero(),
+                                lower_checkpoint,
+                                upper_checkpoint,
+                            )
                             .await
                             .map_err(|archiver_err| ServiceError::Internal {
                                 message: format!(
-                                    "archiver fallback failed to fetch roots: {archiver_err} (original error: {e})"
+                                    "archiver fallback failed: {archiver_err} (original error: {e})"
                                 ),
                             })?;
 
-                        // Compute lower_endpoint_digest by chaining digests from the
-                        // lower checkpoint boundary up to min_query - 1.
-                        let mut lower_endpoint_digest = sp_core::H256::zero();
-                        let mut proof_roots = Vec::new();
+                        // Split blocks into prefix (for lower_endpoint_digest) and proof roots.
+                        let lower_endpoint_digest = blocks
+                            .iter()
+                            .take_while(|b| b.n() < min_query)
+                            .last()
+                            .map(|b| b.digest())
+                            .unwrap_or(sp_core::H256::zero());
 
-                        for (height, root) in &all_roots {
-                            if *height < min_query {
-                                // Chain the digest for blocks before the query range.
-                                lower_endpoint_digest = attestor_primitives::compute_digest_for(
-                                    *height,
-                                    root,
-                                    Some(&lower_endpoint_digest),
-                                );
-                            } else {
-                                proof_roots.push(*root);
-                            }
-                        }
+                        let proof_roots: Vec<sp_core::H256> = blocks
+                            .iter()
+                            .filter(|b| b.n() >= min_query)
+                            .map(|b| b.root)
+                            .collect();
 
-                        return Ok(attestor_primitives::block::ContinuityProof::new(
-                            lower_endpoint_digest,
-                            proof_roots,
-                        ));
+                        return Ok(ContinuityProof::new(lower_endpoint_digest, proof_roots));
                     }
                 }
 
