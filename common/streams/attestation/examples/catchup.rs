@@ -51,6 +51,7 @@ fn main() {
         let client_eth = eth::Client::new(args.eth_url.as_ref(), None)
             .await
             .expect("Failed to create eth client");
+
         let client_cc3 = cc_client::Client::new(args.cc3_url, &secret.to_string())
             .await
             .expect("Failed to create cc3 client");
