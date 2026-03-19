@@ -105,12 +105,13 @@ impl CcRpcProvider for MockCcRpcProvider {
         &self,
         _chain_key: u64,
     ) -> Result<Vec<AttestationCheckpoint>> {
-        // For testing, just provide genesis checkpoint
-        // In reality, checkpoints would be at 0, 100, 200, etc.
-        Ok(vec![AttestationCheckpoint {
-            block_number: 0,
-            digest: H256::from_low_u64_be(0),
-        }])
+        // For testing, provide checkpoints at regular intervals (every 100 blocks).
+        Ok((0..=10)
+            .map(|i| AttestationCheckpoint {
+                block_number: i * 100,
+                digest: H256::from_low_u64_be(i),
+            })
+            .collect())
     }
 
     async fn get_checkpoint_by_height(

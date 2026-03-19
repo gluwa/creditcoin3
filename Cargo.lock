@@ -944,26 +944,21 @@ name = "archiver"
 version = "3.100.0"
 dependencies = [
  "anyhow",
- "attestor-primitives",
  "axum",
  "clap",
  "dotenvy",
  "eth",
  "futures 0.3.31",
  "serde",
- "serde_json",
  "sled",
  "sp-core",
  "stream_eth",
- "stream_util",
  "tempfile",
  "tokio",
  "tower-http 0.6.7",
  "tracing",
  "tracing-subscriber",
  "url",
- "usc-abi-encoding",
- "user",
 ]
 
 [[package]]
