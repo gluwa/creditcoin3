@@ -36,9 +36,9 @@ impl Simulation {
                 SimulationStep::Tip(poll) => {
                     tokio_test::block_on(self.permit_tip.send(poll)).unwrap();
                 }
-                SimulationStep::Finalized(delta) => {
+                SimulationStep::Finalized(finalized) => {
                     let info = stream_util::AttestationInfo {
-                        height: delta.height(self.attestation_next),
+                        height: finalized.height(self.attestation_next, self.attestation_interval),
                         ..Default::default()
                     };
 
@@ -46,14 +46,13 @@ impl Simulation {
                 }
             }
 
-            let mut task = tokio_test::task::spawn(self.sut.next());
-            match task.poll() {
+            match tokio_test::task::spawn(self.sut.next()).poll() {
                 std::task::Poll::Ready(Some(Ok(attestation))) => {
                     self.attestation_next = self.attestation_interval.get()
                         * (attestation.header_number() / self.attestation_interval.get());
                 }
                 std::task::Poll::Ready(Some(Err(err))) => panic!("{err}"),
-                std::task::Poll::Ready(None) => panic!("Attestation stream shoudl be infinite"),
+                std::task::Poll::Ready(None) => panic!("Attestation stream should be infinite"),
                 std::task::Poll::Pending => {}
             }
         }
@@ -66,13 +65,10 @@ prop_compose! {
     )(
         cc3_url in Just(cc3_url),
         attestation_interval in 1..750u64,
-    )(
-        cc3_url in Just(cc3_url),
-        attestation_interval in Just(attestation_interval),
         attestation_prev in 0..1_000u64,
         start_height in 0..1_000u64,
         max_catchup in 1..500u64,
-        steps in prop::collection::vec(SimulationStep::step(attestation_interval), 1..1_000)
+        steps in prop::collection::vec(SimulationStep::step(), 1..1_000)
     ) -> Simulation {
         use futures::StreamExt as _;
 
@@ -133,15 +129,15 @@ enum Finalized {
 }
 
 impl SimulationStep {
-    pub fn step(attestation_interval: attestor_primitives::Height) -> BoxedStrategy<Self> {
+    pub fn step() -> impl Strategy<Value = Self> {
         prop_oneof![
             2 => Just(Self::Root(std::task::Poll::Pending)),
             2 => Just(Self::Tip(std::task::Poll::Pending)),
             4 => Just(Self::Root(std::task::Poll::Ready(()))),
             4 => Just(Self::Tip(std::task::Poll::Ready(()))),
-            1 => finalized(attestation_interval)
+            1 => (0..10u64).prop_map(|d| Self::Finalized(Finalized::Before(d))),
+            1 => (0..10u64).prop_map(|d| Self::Finalized(Finalized::After(d))),
         ]
-        .boxed()
     }
 }
 
@@ -149,26 +145,15 @@ impl Finalized {
     pub fn height(
         self,
         attestation_next: attestor_primitives::Height,
+        attestation_interval: std::num::NonZero<attestor_primitives::Height>,
     ) -> attestor_primitives::Height {
         match self {
-            Finalized::Before(delta) => attestation_next.saturating_sub(delta),
-            Finalized::After(delta) => attestation_next.saturating_add(delta),
-        }
-    }
-}
-
-prop_compose! {
-    fn finalized(
-        attestation_interval: attestor_primitives::Height
-    )(
-        delta in 0..10u64,
-        before in any::<bool>(),
-        attestation_interval in Just(attestation_interval)
-    ) -> SimulationStep {
-        if before {
-            SimulationStep::Finalized(Finalized::Before(attestation_interval * delta))
-        } else {
-            SimulationStep::Finalized(Finalized::After(attestation_interval * delta))
+            Finalized::Before(delta) => {
+                attestation_next.saturating_sub(attestation_interval.get() * delta)
+            }
+            Finalized::After(delta) => {
+                attestation_next.saturating_add(attestation_interval.get() * delta)
+            }
         }
     }
 }
