@@ -12,6 +12,11 @@ use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
 
+/// Auto-detect CPU parallelism for merkle root computation.
+fn default_parallelism() -> std::num::NonZeroUsize {
+    std::thread::available_parallelism().unwrap_or(std::num::NonZeroUsize::new(4).unwrap())
+}
+
 mod api;
 mod config;
 mod store;
@@ -91,7 +96,9 @@ async fn main() -> Result<()> {
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
+                    .with_finalization_lag(0u64)
                     .with_max_concurrency(cfg.max_fetch_tasks)
+                    .with_max_parallelism(default_parallelism())
                     .build();
 
                 let mut gap_stream = stream_eth::StreamRoots::new(gap_config).await?;
@@ -149,7 +156,9 @@ async fn main() -> Result<()> {
     let stream_config = stream_eth::roots::ConfigBuilder::new()
         .with_client(ws_client)
         .with_start_height(start_height)
+        .with_finalization_lag(0u64)
         .with_max_concurrency(cfg.max_fetch_tasks)
+        .with_max_parallelism(default_parallelism())
         .build();
 
     let mut root_stream = stream_eth::StreamRoots::new(stream_config).await?;
@@ -264,7 +273,9 @@ async fn main() -> Result<()> {
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)
+                                .with_finalization_lag(0u64)
                                 .with_max_concurrency(cfg.max_fetch_tasks)
+                                .with_max_parallelism(default_parallelism())
                                 .build();
 
                             match stream_eth::StreamRoots::new(new_config).await {
