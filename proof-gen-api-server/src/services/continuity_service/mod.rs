@@ -309,8 +309,10 @@ impl ContinuityService {
     ) -> Option<(u64, H256, u64)> {
         let cache = self.checkpoint_cache.read().await;
 
-        // Lower: greatest checkpoint ≤ min_query
-        let lower = cache.range(..=min_query).next_back().map(|(&k, &v)| (k, v));
+        // Lower: greatest checkpoint strictly before min_query.
+        // Must be strictly less than min_query so that build_proof_from_roots
+        // includes the queried block (it builds from lower_checkpoint + 1).
+        let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
 
         // Upper: smallest checkpoint ≥ max_query
         let upper = cache.range(max_query..).next().map(|(&k, _)| k);
