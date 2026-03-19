@@ -43,7 +43,7 @@ impl ContinuityService {
                 );
 
                 if should_fallback {
-                    if self.archiver_client.is_some() {
+                    {
                         let (&min_query, &max_query) = header_numbers
                             .iter()
                             .min()

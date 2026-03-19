@@ -188,20 +188,12 @@ impl Server {
     pub async fn run(&self) -> Result<()> {
         let metrics: Metrics = self.prom_metrics.clone() as Metrics;
 
-        let mut service = services::continuity_service::ContinuityService::new(
+        let service = services::continuity_service::ContinuityService::new(
             self.builder.clone(),
             metrics.clone(),
             self.config.max_batch_size,
         )
         .await?;
-
-        // If archiver URL is configured, set up direct proof building fallback
-        if let Some(ref archiver_url) = self.config.archiver_url {
-            info!("🗄️  Archiver fallback enabled for direct proof building");
-            service = service.with_archiver(continuity::archiver::ArchiverClient::new(
-                archiver_url.clone(),
-            ));
-        }
 
         let service = Arc::new(service);
 
