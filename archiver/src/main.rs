@@ -312,7 +312,7 @@ async fn main() -> Result<()> {
 
         // Periodic flush + logging
         let is_flush = height % cfg.flush_every.get() == 0;
-        let is_log = is_flush || count % 1000 == 0;
+        let is_log = is_flush || count % cfg.flush_every.get() == 0;
 
         if is_flush {
             let _ = flush_tx.try_send(());
