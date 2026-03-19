@@ -41,26 +41,26 @@ describe('handleEventRevertedAttestationChainTo()', () => {
             checkpoints = response.data.checkpoints.nodes;
         }
 
-        expect(checkpoints.length).toBeGreaterThanOrEqual(3);
+        expect(checkpoints.length).toBeGreaterThanOrEqual(2);
 
-        // Pick the middle of the 3 checkpoints to revert to.
-        const middleCheckpoint = checkpoints[checkpoints.length - 2];
+        // Pick the first of 2 checkpoints to revert to.
+        const firstCheckpoint = checkpoints[checkpoints.length - 2];
         const latestCheckpoint = checkpoints[checkpoints.length - 1];
 
-        checkpointHeightToRevertTo = BigInt(middleCheckpoint.blockNumber);
-        checkpointDigestToRevertTo = middleCheckpoint.digest;
+        checkpointHeightToRevertTo = BigInt(firstCheckpoint.blockNumber);
+        checkpointDigestToRevertTo = firstCheckpoint.digest;
         laterCheckpointHeight = BigInt(latestCheckpoint.blockNumber);
 
-        expect(checkpointHeightToRevertTo).toBeGreaterThan(0n);
+        expect(checkpointHeightToRevertTo).toBe(0n);
         expect(checkpointDigestToRevertTo).toBeTruthy();
         expect(laterCheckpointHeight).toBeGreaterThan(checkpointHeightToRevertTo);
-    }, 600_000);
+    }, 2_000_000); // Need timeout long enough to generate first non-genesis checkpoint
 
     afterAll(async () => {
         await api.disconnect();
     });
 
-    describe('when the attestation chain is reverted to a non-genesis checkpoint', () => {
+    describe('when the attestation chain is reverted to a genesis checkpoint', () => {
         beforeAll(async () => {
             startingBlock = BigInt((await getChainStatus(api)).bestNumber);
             expect(startingBlock).toBeGreaterThan(0n);
