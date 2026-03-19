@@ -14698,6 +14698,7 @@ dependencies = [
  "eth",
  "futures 0.3.31",
  "proptest",
+ "rstest 0.26.1",
  "sp-core",
  "stream_eth",
  "stream_util",

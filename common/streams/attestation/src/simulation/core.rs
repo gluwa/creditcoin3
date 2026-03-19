@@ -1,8 +1,7 @@
-use super::*;
 use proptest::prelude::*;
 
 pub struct Simulation {
-    sut: StreamAttestation,
+    sut: crate::StreamAttestation,
     steps: Vec<SimulationStep>,
 
     permit_roots: futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
@@ -64,7 +63,7 @@ prop_compose! {
     )(
         cc3_url in Just(cc3_url),
         attestation_interval in 1..750u64,
-        attestation_prev in 0..1_000u64,
+        attestation_prev in 0..100u64,
         start_height in 0..1_000u64,
         max_catchup in 1..500u64,
         steps in prop::collection::vec(SimulationStep::step(), 1..1_000)
@@ -77,20 +76,19 @@ prop_compose! {
             tokio_test::block_on(cc_client::Client::new(cc3_url, &secret.to_string()))
                 .expect("Failed to create cc3 client");
 
-        let (permit_roots, stream_roots) = mock::Roots::new(start_height);
-        let (permit_tip, stream_tip) = mock::Tip::new(start_height);
+        let (permit_roots, stream_roots) = crate::simulation::mock::Roots::new(start_height);
+        let (permit_tip, stream_tip) = crate::simulation::mock::Tip::new(start_height);
 
-        let attestation_interval = std::num::NonZero::new(attestation_interval).unwrap();
         let attestation_prev = stream_util::AttestationInfo {
-            height: attestation_prev,
+            height: attestation_prev * attestation_interval,
             ..Default::default()
         };
-        let attestation_next =
-            attestation_interval.get() * (attestation_prev.height / attestation_interval.get() + 1);
+        let attestation_next = attestation_interval * (attestation_prev.height / attestation_interval + 1);
+        let attestation_interval = std::num::NonZero::new(attestation_interval).unwrap();
 
         let max_catchup = std::num::NonZero::new(max_catchup).unwrap();
 
-        let config = ConfigBuilder::new()
+        let config = crate::ConfigBuilder::new()
             .with_cc3(client_cc3)
             .with_chain_key(2u64)
             .with_bls_key(bls_key)
@@ -101,7 +99,7 @@ prop_compose! {
             .with_max_catchup(max_catchup)
             .build();
 
-        let stream_attestation = StreamAttestation::new(config);
+        let stream_attestation = crate::StreamAttestation::new(config);
 
         Simulation {
             sut: stream_attestation,

@@ -1,7 +1,7 @@
 mod core;
 mod mock;
 
-use super::*;
+pub use mock::*;
 use proptest::prelude::*;
 
 proptest! {
