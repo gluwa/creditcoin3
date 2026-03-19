@@ -16,9 +16,8 @@ impl std::fmt::Debug for Simulation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Simulation")
             .field("steps", &self.steps)
-            .field("permit_roots", &self.permit_roots)
-            .field("permit_tip", &self.permit_tip)
             .field("attestation_interval", &self.attestation_interval)
+            .field("attestation_next", &self.attestation_next)
             .finish()
     }
 }
@@ -115,17 +114,38 @@ prop_compose! {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 enum SimulationStep {
     Root(std::task::Poll<()>),
     Tip(std::task::Poll<()>),
     Finalized(Finalized),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 enum Finalized {
     Before(attestor_primitives::Height),
     After(attestor_primitives::Height),
+}
+
+impl std::fmt::Debug for SimulationStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Root(std::task::Poll::Pending) => write!(f, "Root(Pending)"),
+            Self::Root(std::task::Poll::Ready(())) => write!(f, "Root(Ready)"),
+            Self::Tip(std::task::Poll::Pending) => write!(f, "Tip(Pending)"),
+            Self::Tip(std::task::Poll::Ready(())) => write!(f, "Tip(Ready)"),
+            Self::Finalized(finalized) => write!(f, "Finalized({finalized:?})"),
+        }
+    }
+}
+
+impl std::fmt::Debug for Finalized {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Before(delta) => write!(f, "Before({delta})"),
+            Self::After(delta) => write!(f, "After({delta})"),
+        }
+    }
 }
 
 impl SimulationStep {
