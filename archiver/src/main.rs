@@ -230,20 +230,77 @@ async fn main() -> Result<()> {
     let batch_size = 1000usize;
     let mut batch_buf = Vec::with_capacity(batch_size);
 
+    /// How long to wait for the next block before treating the stream as stalled.
+    const STREAM_TIMEOUT: Duration = Duration::from_secs(120);
+    /// Base delay between reconnection attempts (doubles each retry, capped at 60s).
+    const RECONNECT_BASE_DELAY: Duration = Duration::from_secs(2);
+    const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
+
+    let mut last_height = start_height.saturating_sub(1);
+
     loop {
-        let info = tokio::select! {
+        let next_item = tokio::select! {
             _ = &mut cancel_rx => break,
-            item = root_stream.next() => match item {
-                Some(info) => info,
-                None => {
-                    tracing::error!("root stream ended unexpectedly");
-                    break;
+            result = tokio::time::timeout(STREAM_TIMEOUT, root_stream.next()) => result,
+        };
+
+        let info = match next_item {
+            Ok(Some(info)) => info,
+            reason => {
+                let msg = match &reason {
+                    Err(_) => "stalled (timeout)",
+                    _ => "ended unexpectedly",
+                };
+                tracing::warn!(last_height, reason = msg, "stream died, reconnecting...");
+
+                // Flush any pending batch before reconnecting.
+                if !batch_buf.is_empty() {
+                    store.put_roots(&batch_buf)?;
+                    batch_buf.clear();
                 }
-            },
+
+                // Reconnect with exponential backoff.
+                let resume_from = last_height + 1;
+                let mut delay = RECONNECT_BASE_DELAY;
+                loop {
+                    tokio::time::sleep(delay).await;
+                    tracing::info!(resume_from, "attempting stream reconnection...");
+
+                    match eth::Client::new(cfg.rpc_ws.as_str(), None).await {
+                        Ok(new_ws) => {
+                            let new_config = stream_eth::roots::ConfigBuilder::new()
+                                .with_client(new_ws)
+                                .with_start_height(resume_from)
+                                .with_finalization_lag(cfg.finalization_lag)
+                                .with_max_concurrency(cfg.max_fetch_tasks)
+                                .with_max_parallelism(cfg.max_compute_tasks)
+                                .build();
+
+                            match stream_eth::StreamRoots::new(new_config).await {
+                                Ok(new_stream) => {
+                                    root_stream = new_stream;
+                                    tracing::info!(resume_from, "stream reconnected");
+                                    break;
+                                }
+                                Err(e) => {
+                                    tracing::warn!("failed to create stream: {e}");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("failed to connect WS client: {e}");
+                        }
+                    }
+
+                    delay = (delay * 2).min(RECONNECT_MAX_DELAY);
+                }
+                continue;
+            }
         };
 
         let height = info.height;
         let root = info.root;
+        last_height = height;
 
         batch_buf.push((height, root));
         count += 1;
