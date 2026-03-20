@@ -190,9 +190,11 @@ async fn continuity_proofs_should_grow(
     assert_eq!(attestation.continuity_proof.len(), 1);
 }
 
+// If a past attestation finalizes, future attestations have to be regenerated as the prev digest
+// has changed.
 #[rstest::rstest]
 #[tokio::test]
-async fn simulation_failures(
+async fn regenerate_attestations(
     #[future]
     #[with(0, nonzero!(1), nonzero!(2))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
@@ -203,20 +205,56 @@ async fn simulation_failures(
     roots.send_ready().await; // 1
     tip.send_ready().await; // 0
     tip.send_ready().await; // 1
-    let _ = poll!(stream_attestation);
+
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 1);
+    assert!(attestation.continuity_proof.is_empty());
 
     tip.send_ready().await; // 2
     roots.send_ready().await; // 2
-    let _ = poll!(stream_attestation);
+
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 2);
+    assert_eq!(attestation.continuity_proof.len(), 1);
 
     tip.send_ready().await; // 3
     roots.send_ready().await; // 3
-    let _ = poll!(stream_attestation);
+
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 3);
+    assert_eq!(attestation.continuity_proof.len(), 2);
 
     stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
         height: 1,
         ..Default::default()
     });
 
-    let _ = poll!(stream_attestation);
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    // Attestation 3 is re-generated. Notice that the continuity proof is shorter, as it now
+    // attests from block 1 instead of block 0.
+    assert_eq!(attestation.header_number(), 3);
+    assert_eq!(attestation.continuity_proof.len(), 1);
+
+    // Attestation 2 is regenerated as well
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 2);
+    assert!(attestation.continuity_proof.is_empty());
+
+    // Attestation 1 is not regenerated as it has already finalized
+    assert!(poll!(stream_attestation).is_pending());
 }

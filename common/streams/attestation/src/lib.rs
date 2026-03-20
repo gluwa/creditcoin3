@@ -145,7 +145,11 @@ impl StreamAttestation {
                 let index = (height - first).min(self.cache.len() - 1);
                 self.cache.drain(0..=index);
 
-                self.computed = info.height..=info.height;
+                // Regenerate attestations after the finalized height
+                let end = info.height.max(*self.computed.end());
+                self.computed = info.height..=end;
+                self.cursor = end;
+
                 self.attestation_prev = info;
 
                 // It is possible that by draining past roots the attestation stream is now able to
