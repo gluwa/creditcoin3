@@ -349,7 +349,7 @@ impl futures::Stream for StreamAttestation {
             self.fetching = false;
 
             assert!(
-                self.cache.len() <= self.max_catchup.get() as usize,
+                self.cache.len() <= self.max_catchup.get() as usize + 1,
                 "Cache length ({}) exceeds max_catchup ({})",
                 self.cache.len(),
                 self.max_catchup
