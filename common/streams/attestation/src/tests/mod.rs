@@ -6,7 +6,7 @@ use fixtures::*;
 
 #[rstest::rstest]
 #[tokio::test]
-async fn foo(
+async fn attestation_finalize_sets_correct_range(
     #[allow(unused)] logs: (),
 
     #[future]
