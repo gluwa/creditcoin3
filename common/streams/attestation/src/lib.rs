@@ -190,15 +190,14 @@ impl StreamAttestation {
             "Invalid root cache stop: {target} <= {block_last}"
         );
 
-        let index_start = if block_first == start { 1 } else { 0 };
-        let index_stop = target as usize - block_first as usize;
+        let index = target as usize - block_first as usize;
 
-        let stream_util::RootInfo { height, root, hash } = self.cache[index_stop];
+        let stream_util::RootInfo { height, root, hash } = self.cache[index];
 
         assert_eq!(height, target, "Attestation height mismatch");
 
-        let blocks = self.cache[index_start..index_stop].iter().fold(
-            Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(index_stop),
+        let blocks = self.cache[0..index].iter().fold(
+            Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(index),
             |mut acc, stream_util::RootInfo { height, root, .. }| {
                 let digest_prev = acc
                     .last()
@@ -334,7 +333,10 @@ impl futures::Stream for StreamAttestation {
                 if self.has_space_left() {
                     match self.stream_roots.poll_next_unpin(cx) {
                         std::task::Poll::Ready(Some(info)) => {
-                            self.cache.push(info);
+                            // Skip roots which are behind finality
+                            if info.height > *self.computed.start() {
+                                self.cache.push(info);
+                            }
                             progress = true;
                         }
                         std::task::Poll::Ready(None) => {
