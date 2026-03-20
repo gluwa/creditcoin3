@@ -1,5 +1,8 @@
 use alloy::{
-    consensus::TxEnvelope,
+    consensus::{
+        proofs::{calculate_receipt_root, calculate_transaction_root},
+        TxEnvelope,
+    },
     hex::ToHexExt,
     network::{Ethereum, EthereumWallet},
     primitives::{BlockHash, TxHash},
@@ -48,6 +51,10 @@ pub enum Error {
     FailedToGetBlock(u64),
     #[error("Failed to get receipts {0}")]
     FailedToGetReceipts(u64),
+    #[error(
+        "Computed transactions/receipts roots do not match block header for block {0} (possible reorg between RPC calls)"
+    )]
+    BlockHeaderRootsMismatch(u64),
     #[error(
         "Number of fetched transactions doesn't match number of fetched receipts for block {0}"
     )]
@@ -184,6 +191,64 @@ pub struct OrderedRawBlock {
     pub hash: BlockHash,
     pub transactions: Vec<Transaction>,
     pub receipts: Vec<TransactionReceipt>,
+}
+
+/// Recompute [`transactions_root`](alloy::consensus::BlockHeader::transactions_root) and
+/// [`receipts_root`](alloy::consensus::BlockHeader::receipts_root) from the fetched body and ensure
+/// they match the header, so a reorg between `eth_getBlockByNumber` and `eth_getBlockReceipts`
+/// cannot produce a mismatched attestation.
+fn verify_fetched_block_consistency(
+    block: &Block,
+    receipts: &[TransactionReceipt],
+    expected_number: u64,
+) -> Result<(), Error> {
+    if block.header.number != expected_number {
+        return Err(Error::FailedToGetBlock(expected_number));
+    }
+
+    // Empty blocks: many execution clients (incl. Substrate/Frontier dev chains) expose header
+    // tx/receipt roots that do not match standard trie recomputation for an empty body, while the
+    // fetched body and receipts are still consistent (both empty). There is no cross-fetch payload
+    // to mis-associate, so we skip the header root check in this case.
+    if block.transactions.is_empty() && receipts.is_empty() {
+        trace!(
+            block_number = expected_number,
+            "Skipping header root check for empty block"
+        );
+        return Ok(());
+    }
+
+    if block.transactions.len() != receipts.len() {
+        return Err(Error::TransactionsReceiptsMismatch(expected_number));
+    }
+
+    let mut txs: Vec<Transaction> = block.transactions.clone().into_transactions().collect();
+    if txs.iter().any(|t| t.transaction_index.is_none()) {
+        return Err(Error::NotFullTransactionsFetched(expected_number));
+    }
+    if receipts.iter().any(|r| r.transaction_index.is_none()) {
+        return Err(Error::FailedToGetReceipts(expected_number));
+    }
+
+    txs.sort_by_key(|tx| tx.transaction_index);
+    let tx_inners: Vec<_> = txs.iter().map(|t| t.inner.clone()).collect();
+    let computed_tx_root = calculate_transaction_root(&tx_inners);
+
+    let mut receipts_sorted: Vec<TransactionReceipt> = receipts.to_vec();
+    receipts_sorted.sort_by_key(|rx| rx.transaction_index);
+    let inner_receipts: Vec<_> = receipts_sorted
+        .into_iter()
+        .map(|r| r.into_primitives_receipt().inner)
+        .collect();
+    let computed_receipt_root = calculate_receipt_root(&inner_receipts);
+
+    if computed_tx_root != block.header.transactions_root
+        || computed_receipt_root != block.header.receipts_root
+    {
+        return Err(Error::BlockHeaderRootsMismatch(expected_number));
+    }
+
+    Ok(())
 }
 
 impl OrderedRawBlock {
@@ -356,7 +421,8 @@ impl Client {
         const DELAY_BASE: u64 = 10;
         const DELAY_MAX: u64 = 60;
 
-        let mut attempt = 0;
+        let mut rpc_attempt = 0;
+        let mut verify_failures = 0;
         let mut delay = DELAY_BASE;
 
         let (block, receipts) = loop {
@@ -364,17 +430,34 @@ impl Client {
             let get_eth_receipts_fut = self.get_receipts(number);
 
             match futures::future::try_join(get_eth_block_fut, get_eth_receipts_fut).await {
-                Ok((block, receipts)) => break (block, receipts),
+                Ok((block, receipts)) => {
+                    match verify_fetched_block_consistency(&block, &receipts, number) {
+                        Ok(()) => break (block, receipts),
+                        Err(err) => {
+                            verify_failures += 1;
+                            tracing::debug!(
+                                verify_failures,
+                                MAX_ATTEMPTS,
+                                error = %err,
+                                "Block body inconsistent with header roots (likely reorg between RPC calls), retrying..."
+                            );
+                            if verify_failures >= MAX_ATTEMPTS {
+                                tracing::error!(error = %err, "⛔ Failed to verify consistent block data");
+                                return Err(Interrupt::Cont(err));
+                            }
+                        }
+                    }
+                }
                 Err(err) => {
-                    attempt += 1;
+                    rpc_attempt += 1;
 
                     tracing::debug!(
-                        attempt,
+                        rpc_attempt,
                         MAX_ATTEMPTS,
-                        "Failed to retreive eth block, retrying..."
+                        "Failed to retrieve eth block, retrying..."
                     );
 
-                    if attempt >= MAX_ATTEMPTS {
+                    if rpc_attempt >= MAX_ATTEMPTS {
                         tracing::error!(error = %err, "⛔ Failed to retrieve eth block");
                     }
                 }
