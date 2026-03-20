@@ -76,7 +76,7 @@ async fn cache_size(
 /// Attestation continuity proof should not include the block before it
 #[rstest::rstest]
 #[tokio::test]
-async fn continuity_proof_size_simple(
+async fn continuity_proof_size_valid(
     #[future]
     #[with(0, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
@@ -91,38 +91,39 @@ async fn continuity_proof_size_simple(
     poll!(stream_attestation);
 }
 
+/// If the attestor lags behind, it is possible to finalize an attestation beyond its local view of
+/// the chain. Outdated data returned by the root stream needs to be skipped if this is the case.
 #[rstest::rstest]
 #[tokio::test]
-async fn simulation_failure(
+async fn skip_behind_finality(
     #[future]
     #[with(0, nonzero!(1), nonzero!(2))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await;
-    roots.send_ready().await;
-    roots.send_ready().await;
-    roots.send_ready().await;
+    roots.send_ready().await; // 0
+    roots.send_ready().await; // 1
 
-    poll!(stream_attestation);
+    assert!(poll!(stream_attestation).is_pending());
 
     stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
-        height: 4,
+        height: 2,
         ..Default::default()
     });
 
-    tip.send_ready().await;
-    tip.send_ready().await;
-    tip.send_ready().await;
-    tip.send_ready().await;
-    tip.send_ready().await;
-    tip.send_ready().await;
-    tip.send_ready().await;
+    tip.send_ready().await; // 0
+    tip.send_ready().await; // 1
+    tip.send_ready().await; // 2
+    tip.send_ready().await; // 3
 
-    roots.send_ready().await;
-    roots.send_ready().await;
-    roots.send_ready().await;
+    roots.send_ready().await; // 2 - behind finality, will be skipped
+    roots.send_ready().await; // 3
 
-    poll!(stream_attestation);
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 3);
+    assert!(attestation.continuity_proof.is_empty());
 }
