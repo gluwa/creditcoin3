@@ -13,11 +13,11 @@ async fn attestation_finalize_sets_correct_range(
     #[with(0, 0, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
 ) {
-    let (mut permit_roots, mut permit_tip, mut stream_attestation) = attestations.await;
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    permit_roots.send_ready().await;
-    permit_roots.send_ready().await;
-    permit_roots.send_ready().await;
+    roots.send_ready().await;
+    roots.send_ready().await;
+    roots.send_ready().await;
     poll!(stream_attestation);
 
     stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
@@ -25,7 +25,49 @@ async fn attestation_finalize_sets_correct_range(
         ..Default::default()
     });
 
-    permit_tip.send_ready().await;
-    permit_tip.send_ready().await;
+    tip.send_ready().await;
+    tip.send_ready().await;
+    poll!(stream_attestation);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn simulation_failure(
+    #[future]
+    #[with(2, 0, nonzero!(1), nonzero!(1))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+
+    roots.send_ready().await;
+    poll!(stream_attestation);
+    roots.send_ready().await;
+    poll!(stream_attestation);
+
+    stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
+        height: 2,
+        ..Default::default()
+    });
+    poll!(stream_attestation);
+
+    roots.send_ready().await;
+    poll!(stream_attestation);
+
+    roots.send_pending().await;
+    poll!(stream_attestation);
+    roots.send_pending().await;
+    poll!(stream_attestation);
+    roots.send_pending().await;
+    poll!(stream_attestation);
+    roots.send_pending().await;
+    poll!(stream_attestation);
+    roots.send_pending().await;
+    poll!(stream_attestation);
+    roots.send_pending().await;
+    poll!(stream_attestation);
+
+    tip.send_ready().await;
+    poll!(stream_attestation);
+    tip.send_ready().await;
     poll!(stream_attestation);
 }
