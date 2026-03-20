@@ -137,21 +137,29 @@ async fn skip_behind_finality(
     assert!(attestation.continuity_proof.is_empty());
 }
 
+/// If several attestations are produced ahead of finality, the size of their continuity proof
+/// should keep growing to encompass new blocks.
 #[rstest::rstest]
 #[tokio::test]
-async fn simulation_failure(
+async fn continuity_proofs_should_grow(
     #[future]
     #[with(0, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0
+    roots.send_ready().await; // 0 - skipped, 0 is always ignored
     roots.send_ready().await; // 1
 
     tip.send_ready().await; // 0
     tip.send_ready().await; // 1
-    let _ = poll!(stream_attestation);
+
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 1);
+    assert!(attestation.continuity_proof.is_empty());
 
     stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
         height: 1,
@@ -160,10 +168,24 @@ async fn simulation_failure(
 
     roots.send_ready().await; // 2
     tip.send_ready().await; // 2
-    let _ = poll!(stream_attestation);
+
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 2);
+    assert!(attestation.continuity_proof.is_empty());
 
     tip.send_ready().await; // 3
-    let _ = poll!(stream_attestation);
+
+    assert!(poll!(stream_attestation).is_pending());
+
     roots.send_ready().await; // 3
-    let _ = poll!(stream_attestation);
+
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 3);
+    assert_eq!(attestation.continuity_proof.len(), 1);
 }
