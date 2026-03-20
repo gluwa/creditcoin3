@@ -319,9 +319,6 @@ impl ContinuityService {
         Ok(())
     }
 
-    /// Updates the attestation genesis block number.
-    /// This will be called when we receive an AttestationChainGenesisBlockNumberSet event from CC3,
-    /// allowing the service to adapt if the attestation genesis block changes (e.g. due to a chain reset or reconfiguration).
     /// Insert an attestation into the in-memory cache (called from event handler).
     pub async fn insert_attestation(&self, block_number: u64, digest: H256) {
         self.attestation_cache
@@ -389,6 +386,9 @@ impl ContinuityService {
         }
     }
 
+    /// Updates the attestation genesis block number.
+    /// This will be called when we receive an AttestationChainGenesisBlockNumberSet event from CC3,
+    /// allowing the service to adapt if the attestation genesis block changes (e.g. due to a chain reset or reconfiguration).
     pub async fn update_genesis_block(&self, new_genesis_block: u64) {
         self.attestation_genesis_block
             .store(new_genesis_block, Ordering::Relaxed);
