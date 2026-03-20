@@ -172,6 +172,12 @@ impl StreamAttestation {
     fn generate_attestation(&self, target: attestor_primitives::Height) -> Attestation {
         assert!(!self.cache.is_empty(), "Empty root cache");
 
+        let start = *self.computed.start();
+        let end = *self.computed.end();
+
+        assert!(target > start, "{target} > {start}",);
+        assert!(target <= end, "{target} <= {end}",);
+
         let block_first = self.cache.first().unwrap().height;
         assert!(
             target >= block_first,
@@ -184,13 +190,15 @@ impl StreamAttestation {
             "Invalid root cache stop: {target} <= {block_last}"
         );
 
-        let index = target as usize - block_first as usize;
-        let stream_util::RootInfo { height, root, hash } = self.cache[index];
+        let index_start = if block_first == start { 1 } else { 0 };
+        let index_stop = target as usize - block_first as usize;
+
+        let stream_util::RootInfo { height, root, hash } = self.cache[index_stop];
 
         assert_eq!(height, target, "Attestation height mismatch");
 
-        let blocks = self.cache[0..index].iter().fold(
-            Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(index),
+        let blocks = self.cache[index_start..index_stop].iter().fold(
+            Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(index_stop),
             |mut acc, stream_util::RootInfo { height, root, .. }| {
                 let digest_prev = acc
                     .last()
@@ -209,7 +217,7 @@ impl StreamAttestation {
 
         assert_eq!(
             blocks.len(),
-            self.attestation_interval.get().saturating_sub(1) as usize,
+            (target - *self.computed.start() - 1) as usize,
             "Invalid continuity proof length"
         );
 
