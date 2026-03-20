@@ -1,11 +1,12 @@
 use attestor_primitives::block::ContinuityProof;
-use fp_evm::PrecompileHandle;
+use fp_evm::{ExitError, ExitRevert, PrecompileFailure, PrecompileHandle};
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
 use log::debug;
 use pallet_evm::AddressMapping;
+use precompile_utils::prelude::*;
 use sp_core::H256;
 
 use crate::verify::CONTINUITY_BLOCK_HASH_COST;
@@ -20,17 +21,9 @@ pub enum ContinuityVerificationError {
     ChainDoesNotReachQueryHeight,
     /// Continuity chain does not end at a valid attestation or checkpoint
     NoMatchingAttestationOrCheckpoint,
-    /// Continuity chain has broken links between blocks
-    ChainLinkBroken,
 }
 
 impl ContinuityVerificationError {
-    /// Get the status code for this error
-    pub fn status(&self) -> u8 {
-        // All continuity errors use status code 2 (ContinuityChainInvalid)
-        2
-    }
-
     /// Get the error message
     pub fn message(&self) -> &'static str {
         match self {
@@ -39,8 +32,14 @@ impl ContinuityVerificationError {
             Self::NoMatchingAttestationOrCheckpoint => {
                 "Continuity proof does not match attestation or checkpoint"
             }
-            Self::ChainLinkBroken => "Continuity chain has broken links",
         }
+    }
+}
+
+fn continuity_revert(err: ContinuityVerificationError) -> PrecompileFailure {
+    PrecompileFailure::Revert {
+        output: crate::encode_revert_message(err.message()),
+        exit_status: ExitRevert::Reverted,
     }
 }
 
@@ -70,7 +69,8 @@ where
     ///
     /// # Returns
     /// - `Ok(())`: Chain is valid and ends at attestation/checkpoint
-    /// - `Err(ContinuityVerificationError)`: Structured error with status code and message
+    /// - `Err(PrecompileFailure::Revert)`: Logical continuity error (encoded message)
+    /// - `Err(PrecompileFailure::Error { OutOfGas })`: Gas exhaustion (from `record_cost` or storage reads)
     ///
     /// # Gas Costs
     /// - `CONTINUITY_BLOCK_HASH_COST` (48) per block in the chain (charged upfront)
@@ -87,10 +87,12 @@ where
         start_block_number: u64,
         chain_key: u64,
         height: u64,
-    ) -> Result<(), ContinuityVerificationError> {
+    ) -> EvmResult<()> {
         // Require at least 1 root (empty continuity proof is invalid)
         if continuity_proof.roots.is_empty() {
-            return Err(ContinuityVerificationError::InsufficientBlocks);
+            return Err(continuity_revert(
+                ContinuityVerificationError::InsufficientBlocks,
+            ));
         }
 
         // Validate the continuity chain reaches the query height (fail early before digest computation)
@@ -100,26 +102,25 @@ where
             debug!(
                 "❌ Continuity chain ends at block {final_block_number}, but query requires block {height}"
             );
-            return Err(ContinuityVerificationError::ChainDoesNotReachQueryHeight);
+            return Err(continuity_revert(
+                ContinuityVerificationError::ChainDoesNotReachQueryHeight,
+            ));
         }
 
         // Charge gas for continuity block verification upfront
         let total_continuity_gas = CONTINUITY_BLOCK_HASH_COST
             .checked_mul(continuity_proof.roots.len() as u64)
-            .ok_or(ContinuityVerificationError::ChainLinkBroken)?;
-        handle
-            .record_cost(total_continuity_gas)
-            .map_err(|_| ContinuityVerificationError::ChainLinkBroken)?;
+            .ok_or(PrecompileFailure::Error {
+                exit_status: ExitError::OutOfGas,
+            })?;
+        handle.record_cost(total_continuity_gas)?;
 
         // Compute final digest by hashing through all blocks
         let final_digest = continuity_proof.compute_continuity_digest(start_block_number);
 
         // Check if there's an attestation or checkpoint at this exact block height with matching digest
         // Gas is charged inside get_attestation() and get_checkpoint()
-        // These functions return Result<Option<T>, ContinuityVerificationError> to properly propagate
-        // gas recording errors
-        let attestation_matches = Self::get_attestation(handle, chain_key, final_digest)
-            .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?
+        let attestation_matches = Self::get_attestation(handle, chain_key, final_digest)?
             .map(|a| a.attestation.header_number == final_block_number)
             .unwrap_or(false);
 
@@ -127,8 +128,7 @@ where
         let checkpoint_matches = if attestation_matches {
             false // No need to check checkpoint if attestation matches
         } else {
-            Self::get_checkpoint(handle, chain_key, final_block_number)
-                .map_err(|_| ContinuityVerificationError::NoMatchingAttestationOrCheckpoint)?
+            Self::get_checkpoint(handle, chain_key, final_block_number)?
                 .map(|digest| digest == final_digest)
                 .unwrap_or(false)
         };
@@ -148,7 +148,9 @@ where
             debug!(
                 "❌ Continuity chain ends at block {final_block_number} with digest {final_digest:?}, but no matching attestation or checkpoint found at that height"
             );
-            return Err(ContinuityVerificationError::NoMatchingAttestationOrCheckpoint);
+            return Err(continuity_revert(
+                ContinuityVerificationError::NoMatchingAttestationOrCheckpoint,
+            ));
         }
 
         Ok(())

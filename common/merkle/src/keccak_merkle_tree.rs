@@ -23,7 +23,8 @@ pub enum MerkleTreeError {
 }
 
 /// Keccak256-based Merkle tree that matches POC implementation exactly
-/// This duplicates the last node when odd number of nodes at a level
+/// When a level has an odd number of nodes, the missing sibling is taken as a fixed zero hash
+/// ([`Self::PAD_HASH`]) rather than duplicating the last node.
 #[derive(Debug, Clone)]
 pub struct KeccakMerkleTree {
     /// All levels of the tree, from leaves to root

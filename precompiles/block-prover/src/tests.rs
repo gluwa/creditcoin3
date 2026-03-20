@@ -1,5 +1,4 @@
 use super::*;
-use crate::continuity::ContinuityVerificationError as ContinuityContinuityVerificationError;
 use crate::mock::*;
 use crate::test_helpers::*;
 use crate::SELECTOR_LOG_TRANSACTION_VERIFIED;
@@ -7,8 +6,8 @@ use attestor_primitives::{
     block::{Block, ContinuityProof},
     AttestationCheckpoint, AttestationData, SignedAttestation,
 };
-use fp_evm::Context;
-use frame_support::{assert_err, assert_ok};
+use fp_evm::{Context, PrecompileFailure};
+use frame_support::assert_ok;
 use merkle::{KeccakMerkleTree, MerkleProofEntry, TransactionMerkleProof};
 use precompile_utils::{evm::logs::log3, solidity, testing::*};
 use sp_core::{H256, U256};
@@ -403,16 +402,14 @@ fn test_verify_continuity_chain_errors_when_continuity_chain_doesnt_reach_query_
             },
         );
 
-        assert_err!(
-            BlockProverPrecompile::<Runtime>::verify_continuity_chain(
-                &mut handle,
-                &continuity_proof,
-                start_block_number,
-                1,                // chain_key
-                query_height + 1, // height > continuity chain last block height
-            ),
-            ContinuityContinuityVerificationError::ChainDoesNotReachQueryHeight
+        let result = BlockProverPrecompile::<Runtime>::verify_continuity_chain(
+            &mut handle,
+            &continuity_proof,
+            start_block_number,
+            1,                // chain_key
+            query_height + 1, // height > continuity chain last block height
         );
+        assert!(matches!(result, Err(PrecompileFailure::Revert { .. })));
     });
 }
 

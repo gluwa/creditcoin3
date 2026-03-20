@@ -117,6 +117,9 @@ pub struct Config {
     chain_key: attestor_primitives::ChainKey,
     start_height: common::types::Height,
     start_attestation: Option<common::types::AttestationInfo>,
+
+    #[default(usc_abi_encoding::common::EncodingVersion::V1)]
+    encoding_version: usc_abi_encoding::common::EncodingVersion,
 }
 
 // ----------------------------------------- [ Stream ] ---------------------------------------- //
@@ -139,6 +142,8 @@ pub struct StreamAttestation {
 
     waker: Option<std::task::Waker>,
     stop: bool,
+
+    encoding_version: usc_abi_encoding::common::EncodingVersion,
 
     // Stored for recreating eth client and stream in the case of a chain reversion.
     // Why is this necessary? If the chain is reverted while the attestation stream
@@ -163,6 +168,7 @@ pub struct CacheRoots {
     cache: Vec<RootInfo>,
     max_size: std::num::NonZeroUsize,
     boundary: common::types::Height,
+    encoding_version: usc_abi_encoding::common::EncodingVersion,
 }
 
 type NextBlockFut = dyn std::future::Future<Output = (State, Result<common::types::Height, Interrupt<Error>>)>
@@ -190,7 +196,11 @@ impl StreamAttestation {
         use anyhow::Context as _;
         use futures::StreamExt as _;
 
-        let continuity = CacheContinuity::new(config.start_height, config.start_attestation);
+        let continuity = CacheContinuity::new(
+            config.start_height,
+            config.start_attestation,
+            config.encoding_version,
+        );
 
         let mut stream = config
             .eth
@@ -235,6 +245,8 @@ impl StreamAttestation {
 
             waker: None,
             stop: false,
+
+            encoding_version: config.encoding_version,
 
             eth_transport,
         })
@@ -601,6 +613,7 @@ impl CacheContinuity {
     pub fn new(
         start_height: common::types::Height,
         start_info: Option<common::types::AttestationInfo>,
+        encoding_version: usc_abi_encoding::common::EncodingVersion,
     ) -> Self {
         let max_size: std::num::NonZeroUsize = common::constants::MAX_CATCHUP
             .saturating_add(1) // Inclusive
@@ -611,7 +624,7 @@ impl CacheContinuity {
             cache: Vec::with_capacity(max_size.get()),
             prev_digest: start_info.unwrap_or_default().digest,
 
-            roots: CacheRoots::new(max_size, start_height),
+            roots: CacheRoots::new(max_size, start_height, encoding_version),
         }
     }
 
@@ -700,11 +713,16 @@ impl CacheContinuity {
 }
 
 impl CacheRoots {
-    pub fn new(max_size: std::num::NonZeroUsize, start_height: common::types::Height) -> Self {
+    pub fn new(
+        max_size: std::num::NonZeroUsize,
+        start_height: common::types::Height,
+        encoding_version: usc_abi_encoding::common::EncodingVersion,
+    ) -> Self {
         Self {
             cache: Vec::with_capacity(max_size.get()),
             max_size,
             boundary: start_height,
+            encoding_version,
         }
     }
 
@@ -750,7 +768,7 @@ impl CacheRoots {
             "🎯 Cache miss"
         );
 
-        let encoding = usc_abi_encoding::common::EncodingVersion::V1;
+        let encoding = self.encoding_version;
         let iter = (height_next..=height_stop).map(|h| {
             eth.get_block(h, encoding)
                 .map(|res| res.map_interrupt(Error::Eth))
@@ -943,7 +961,7 @@ impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
         self.state = State::Idle(Some((client_eth, stream)));
 
         // Resetting cache. We can't trust stored blocks or roots after a reversion.
-        self.continuity = CacheContinuity::new(info.height, Some(info));
+        self.continuity = CacheContinuity::new(info.height, Some(info), self.encoding_version);
 
         // Resetting key markers
         let interval_attestation = self.interval_attestation.get();

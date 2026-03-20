@@ -219,15 +219,13 @@ where
         // We do this last since it's the most expensive operation, but now we know:
         // - Merkle proof is valid
         // - Continuity proof contains the correct root
-        if let Err(err) = crate::BlockProverPrecompile::<Runtime>::verify_continuity_chain(
+        crate::BlockProverPrecompile::<Runtime>::verify_continuity_chain(
             handle,
             &continuity_proof,
             start_block_number,
             chain_key,
             height,
-        ) {
-            return Self::revert_with_message(err.message());
-        }
+        )?;
 
         // Emit TransactionVerified event on success
         if emit_events {
@@ -335,15 +333,13 @@ where
         // For batch queries, we need to ensure the chain reaches at least max_height
         // and ends at an attestation/checkpoint
         // Note: verify_continuity_chain will check for empty roots internally
-        if let Err(err) = Self::verify_continuity_chain(
+        Self::verify_continuity_chain(
             handle,
             &shared_continuity_proof,
             start_block_number,
             chain_key,
             max_height,
-        ) {
-            return Self::revert_with_message(err.message());
-        }
+        )?;
 
         // Gas costs already account for all computational work - no separate weight tracking needed
 

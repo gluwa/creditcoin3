@@ -337,8 +337,7 @@ where
     /// to the Creditcoin3 consensus. Used to validate continuity chain endpoints.
     /// Charges gas for the storage lookup.
     ///
-    /// Returns `Result<Option<T>, ContinuityVerificationError>` to properly propagate
-    /// gas recording errors instead of swallowing them.
+    /// Returns `Ok(Some(..))` / `Ok(None)` on success; gas recording failures surface as `EvmResult` errors.
     fn get_attestation(
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
@@ -368,8 +367,7 @@ where
     /// None otherwise. Used as a fallback when attestation lookup fails.
     /// Charges gas for the storage lookup.
     ///
-    /// Returns `Result<Option<T>, ContinuityVerificationError>` to properly propagate
-    /// gas recording errors instead of swallowing them.
+    /// Returns `Ok(Some(..))` / `Ok(None)` on success; gas recording failures surface as `EvmResult` errors.
     fn get_checkpoint(
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
