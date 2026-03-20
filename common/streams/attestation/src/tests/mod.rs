@@ -16,9 +16,18 @@ async fn attestation_ready_simple(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    tip.send_ready().await;
-    roots.send_ready().await;
-    poll!(stream_attestation);
+    roots.send_ready().await; // 0 - skipped, 0 is always ignored
+    roots.send_ready().await; // 1
+
+    tip.send_ready().await; // 0
+    tip.send_ready().await; // 1
+
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 1);
+    assert!(attestation.continuity_proof.is_empty());
 }
 
 /// `note_attestation_finalization` should set computed to a valid range. Values like 1..0 are
@@ -32,19 +41,31 @@ async fn attestation_finalize_sets_correct_range(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await;
-    roots.send_ready().await;
-    roots.send_ready().await;
-    poll!(stream_attestation);
+    roots.send_ready().await; // 0 - skipped, 0 is always ignored
+    roots.send_ready().await; // 1
+    roots.send_ready().await; // 2
+
+    assert!(poll!(stream_attestation).is_pending());
 
     stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
         height: 1,
         ..Default::default()
     });
 
-    tip.send_ready().await;
-    tip.send_ready().await;
-    poll!(stream_attestation);
+    assert_eq!(stream_attestation.computed, 1..=1); // not 1..=2!
+
+    tip.send_ready().await; // 0
+    tip.send_ready().await; // 1
+    tip.send_ready().await; // 2
+
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 2);
+    assert!(attestation.continuity_proof.is_empty());
+
+    assert_eq!(stream_attestation.computed, 1..=2);
 }
 
 /// Attestation stream cache size should be equal to `max_catchup` + 1 in order to allow the last
@@ -56,39 +77,27 @@ async fn cache_size(
     #[with(2, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
 ) {
-    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+    let (mut roots, _tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await;
-    roots.send_ready().await;
-    poll!(stream_attestation);
+    roots.send_ready().await; // 2
+    roots.send_ready().await; // 3
+    roots.send_ready().await; // 4 - not polled, max cache size reached
 
-    stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
-        height: 2,
-        ..Default::default()
-    });
+    assert!(poll!(stream_attestation).is_pending());
 
-    roots.send_ready().await;
-    tip.send_ready().await;
-    tip.send_ready().await;
-    poll!(stream_attestation);
-}
-
-/// Attestation continuity proof should not include the block before it
-#[rstest::rstest]
-#[tokio::test]
-async fn continuity_proof_size_valid(
-    #[future]
-    #[with(0, nonzero!(1), nonzero!(1))]
-    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
-) {
-    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
-
-    roots.send_ready().await;
-    roots.send_ready().await;
-    tip.send_ready().await;
-    tip.send_ready().await;
-
-    poll!(stream_attestation);
+    assert_eq!(
+        stream_attestation.cache,
+        vec![
+            stream_util::RootInfo {
+                height: 2,
+                ..Default::default()
+            },
+            stream_util::RootInfo {
+                height: 3,
+                ..Default::default()
+            }
+        ]
+    )
 }
 
 /// If the attestor lags behind, it is possible to finalize an attestation beyond its local view of
@@ -102,7 +111,7 @@ async fn skip_behind_finality(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0
+    roots.send_ready().await; // 0 - skipped, 0 is always ignored
     roots.send_ready().await; // 1
 
     assert!(poll!(stream_attestation).is_pending());
@@ -117,7 +126,7 @@ async fn skip_behind_finality(
     tip.send_ready().await; // 2
     tip.send_ready().await; // 3
 
-    roots.send_ready().await; // 2 - behind finality, will be skipped
+    roots.send_ready().await; // 2 - skipped, behind finality
     roots.send_ready().await; // 3
 
     let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
