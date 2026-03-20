@@ -4,8 +4,8 @@ pub struct Simulation {
     sut: crate::StreamAttestation,
     steps: Vec<SimulationStep>,
 
-    permit_roots: futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
-    permit_tip: futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
+    sender_roots: crate::tests::mock::RootSender,
+    sender_tip: crate::tests::mock::TipSender,
 
     start_height: attestor_primitives::Height,
     attestation_prev: attestor_primitives::Height,
@@ -29,16 +29,15 @@ impl std::fmt::Debug for Simulation {
 
 impl Simulation {
     pub fn run(mut self) {
-        use futures::SinkExt as _;
         use futures::StreamExt as _;
 
         for step in self.steps {
             match step {
                 SimulationStep::Root(poll) => {
-                    tokio_test::block_on(self.permit_roots.send(poll)).unwrap();
+                    tokio_test::block_on(self.sender_roots.send(poll));
                 }
                 SimulationStep::Tip(poll) => {
-                    tokio_test::block_on(self.permit_tip.send(poll)).unwrap();
+                    tokio_test::block_on(self.sender_tip.send(poll));
                 }
                 SimulationStep::Finalized(finalized) => {
                     let info = stream_util::AttestationInfo {
@@ -82,8 +81,8 @@ prop_compose! {
             tokio_test::block_on(cc_client::Client::new(cc3_url, &secret.to_string()))
                 .expect("Failed to create cc3 client");
 
-        let (permit_roots, stream_roots) = crate::simulation::mock::Roots::new(start_height);
-        let (permit_tip, stream_tip) = crate::simulation::mock::Tip::new(start_height);
+        let (tx_roots, rx_roots) = crate::tests::mock::roots(start_height);
+        let (tx_tip, rx_tip) = crate::tests::mock::tip(start_height);
 
         let attestation_prev = stream_util::AttestationInfo {
             height: attestation_prev * attestation_interval,
@@ -98,8 +97,8 @@ prop_compose! {
             .with_cc3(client_cc3)
             .with_chain_key(2u64)
             .with_bls_key(bls_key)
-            .with_stream_roots(stream_roots.boxed())
-            .with_stream_tip(stream_tip.boxed())
+            .with_stream_roots(rx_roots.boxed())
+            .with_stream_tip(rx_tip.boxed())
             .with_attestation_interval(attestation_interval)
             .with_attestation_prev(attestation_prev)
             .with_max_catchup(max_catchup)
@@ -110,8 +109,8 @@ prop_compose! {
         Simulation {
             sut: stream_attestation,
             steps,
-            permit_roots,
-            permit_tip,
+            sender_roots: tx_roots,
+            sender_tip: tx_tip,
 
             start_height,
             attestation_prev: attestation_prev.height,

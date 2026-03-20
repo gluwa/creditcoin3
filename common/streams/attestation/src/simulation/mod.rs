@@ -1,7 +1,5 @@
 mod core;
-mod mock;
 
-pub use mock::*;
 use proptest::prelude::*;
 
 proptest! {
