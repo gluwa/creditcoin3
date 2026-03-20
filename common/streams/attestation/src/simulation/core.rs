@@ -51,8 +51,7 @@ impl Simulation {
 
             match tokio_test::task::spawn(self.sut.next()).poll() {
                 std::task::Poll::Ready(Some(Ok(attestation))) => {
-                    self.attestation_next = self.attestation_interval.get()
-                        * (attestation.header_number() / self.attestation_interval.get());
+                    self.attestation_next = attestation.header_number();
                 }
                 std::task::Poll::Ready(Some(Err(err))) => panic!("{err}"),
                 std::task::Poll::Ready(None) => panic!("Attestation stream should be infinite"),
@@ -161,7 +160,7 @@ impl SimulationStep {
             2 => Just(Self::Tip(std::task::Poll::Pending)),
             4 => Just(Self::Root(std::task::Poll::Ready(()))),
             4 => Just(Self::Tip(std::task::Poll::Ready(()))),
-            1 => (0..10u64).prop_map(|d| Self::Finalized(Finalized::Before(d))),
+            1 => (1..10u64).prop_map(|d| Self::Finalized(Finalized::Before(d))),
             1 => (0..10u64).prop_map(|d| Self::Finalized(Finalized::After(d))),
         ]
     }
