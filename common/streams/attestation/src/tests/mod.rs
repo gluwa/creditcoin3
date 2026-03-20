@@ -73,9 +73,10 @@ async fn cache_size(
     poll!(stream_attestation);
 }
 
+/// Attestation continuity proof should not include the block before it
 #[rstest::rstest]
 #[tokio::test]
-async fn simulation_failure(
+async fn continuity_proof_size_simple(
     #[future]
     #[with(0, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
