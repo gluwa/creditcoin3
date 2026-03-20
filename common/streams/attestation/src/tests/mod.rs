@@ -189,3 +189,34 @@ async fn continuity_proofs_should_grow(
     assert_eq!(attestation.header_number(), 3);
     assert_eq!(attestation.continuity_proof.len(), 1);
 }
+
+#[rstest::rstest]
+#[tokio::test]
+async fn simulation_failures(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(2))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+
+    roots.send_ready().await; // 0 - skipped, 0 is always ignored
+    roots.send_ready().await; // 1
+    tip.send_ready().await; // 0
+    tip.send_ready().await; // 1
+    let _ = poll!(stream_attestation);
+
+    tip.send_ready().await; // 2
+    roots.send_ready().await; // 2
+    let _ = poll!(stream_attestation);
+
+    tip.send_ready().await; // 3
+    roots.send_ready().await; // 3
+    let _ = poll!(stream_attestation);
+
+    stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
+        height: 1,
+        ..Default::default()
+    });
+
+    let _ = poll!(stream_attestation);
+}
