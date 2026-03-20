@@ -227,7 +227,7 @@ impl ContinuityService {
             });
         let attestation_cache: BTreeMap<u64, H256> = attestations
             .into_iter()
-            .map(|att| (att.attestation.header_number, att.attestation.header_hash))
+            .map(|att| (att.attestation.header_number, att.attestation.digest()))
             .collect();
         tracing::info!(
             chain_key,
