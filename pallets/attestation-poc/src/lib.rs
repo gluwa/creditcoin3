@@ -713,7 +713,7 @@ pub mod pallet {
         TooManyAttestations,
         // Tried to revert to a height at which there is no checkpoint
         NoSuchCheckpoint,
-        // Last checkpoint not set when attempting to `revert_to` checkpoint
+        // Last checkpoint not set when attempting to `revert_to` checkpoint or when importing checkpoints, which require referencing the last checkpoint
         LastCheckpointNotSet,
         // Tried to trigger reversion for a chain that is still processing a current reversion.
         TriedToRevertDuringOngoingReversion,

@@ -6271,23 +6271,23 @@ fn import_checkpoints_called_twice_works() {
     ExtBuilder.build_and_execute(|| {
         let checkpoints1: Vec<AttestationCheckpoint> = vec![
             AttestationCheckpoint {
-                block_number: 100,
-                digest: [1u8; 32].into(),
-            },
-            AttestationCheckpoint {
-                block_number: 200,
-                digest: [2u8; 32].into(),
-            },
-        ];
-
-        let checkpoints2: Vec<AttestationCheckpoint> = vec![
-            AttestationCheckpoint {
                 block_number: 300,
                 digest: [3u8; 32].into(),
             },
             AttestationCheckpoint {
                 block_number: 400,
                 digest: [4u8; 32].into(),
+            },
+        ];
+
+        let checkpoints2: Vec<AttestationCheckpoint> = vec![
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: [1u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 200,
+                digest: [2u8; 32].into(),
             },
         ];
 
@@ -6315,6 +6315,234 @@ fn import_checkpoints_called_twice_works() {
                 checkpoint.block_number
             )));
         }
+    });
+}
+
+#[test]
+fn import_checkpoints_fails_when_attestations_exist_but_no_checkpoints() {
+    ExtBuilder.build_and_execute(|| {
+        // Add an attestation without checkpoint
+        LastDigest::<Test>::set(SUPPORTED_CHAIN_KEY, Some((50, [1u8; 32].into())));
+
+        let checkpoints = vec![AttestationCheckpoint {
+            block_number: 100,
+            digest: [2u8; 32].into(),
+        }];
+
+        // Should fail because attestations exist but no checkpoints
+        assert_err!(
+            Attestation::import_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                checkpoints.try_into().unwrap()
+            ),
+            Error::<Test>::LastCheckpointNotSet
+        );
+    });
+}
+
+#[test]
+fn import_checkpoints_only_allows_older_than_existing_checkpoint() {
+    ExtBuilder.build_and_execute(|| {
+        // Initial we should have no checkpoints
+        assert_eq!(Checkpoints::<Test>::iter_keys().count(), 0);
+        assert_eq!(LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY), None);
+
+        // Set up existing checkpoint at block 100
+        let existing_checkpoint = AttestationCheckpoint {
+            block_number: 100,
+            digest: [1u8; 32].into(),
+        };
+        insert_checkpoint_and_bucket_entry::<Test>(SUPPORTED_CHAIN_KEY, 100, [1u8; 32].into());
+        LastCheckpoint::<Test>::insert(SUPPORTED_CHAIN_KEY, &existing_checkpoint);
+
+        // Now we should have 1 checkpoint
+        assert_eq!(Checkpoints::<Test>::iter_keys().count(), 1);
+        assert_eq!(
+            LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some(existing_checkpoint.clone())
+        );
+
+        let checkpoints = vec![
+            AttestationCheckpoint {
+                block_number: 50, // Should be imported (older)
+                digest: [2u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 70, // Should be imported (older)
+                digest: [3u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 150, // Should be skipped (newer)
+                digest: [4u8; 32].into(),
+            },
+        ];
+
+        assert_ok!(Attestation::import_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            checkpoints.try_into().unwrap()
+        ));
+
+        // Now we should have 3 checkpoint
+        assert_eq!(Checkpoints::<Test>::iter_keys().count(), 3);
+
+        // Verify only the older checkpoint was imported
+        assert!(Checkpoints::<Test>::contains_key(SUPPORTED_CHAIN_KEY, 50));
+        assert!(Checkpoints::<Test>::contains_key(SUPPORTED_CHAIN_KEY, 70));
+        assert!(Checkpoints::<Test>::contains_key(SUPPORTED_CHAIN_KEY, 100));
+        // The newer checkpoint should not be imported since it's newer than existing checkpoint at block 100
+        assert!(!Checkpoints::<Test>::contains_key(SUPPORTED_CHAIN_KEY, 150));
+
+        // LastCheckpoint should remain unchanged
+        let last_checkpoint = LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY).unwrap();
+        assert_eq!(last_checkpoint, existing_checkpoint);
+    });
+}
+
+#[test]
+fn import_checkpoints_with_attestations_and_existing_checkpoint_filters_correctly() {
+    ExtBuilder.build_and_execute(|| {
+        // Set up attestations and existing checkpoint
+        LastDigest::<Test>::set(SUPPORTED_CHAIN_KEY, Some((200, [5u8; 32].into())));
+        let existing_checkpoint = AttestationCheckpoint {
+            block_number: 100,
+            digest: [1u8; 32].into(),
+        };
+        insert_checkpoint_and_bucket_entry::<Test>(SUPPORTED_CHAIN_KEY, 100, [1u8; 32].into());
+        LastCheckpoint::<Test>::insert(SUPPORTED_CHAIN_KEY, &existing_checkpoint);
+
+        let checkpoints = vec![
+            AttestationCheckpoint {
+                block_number: 50, // Should be imported (older than existing checkpoint)
+                digest: [2u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 150, // Should be skipped (newer than existing checkpoint)
+                digest: [3u8; 32].into(),
+            },
+        ];
+
+        assert_ok!(Attestation::import_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            checkpoints.try_into().unwrap()
+        ));
+
+        // Verify filtering worked correctly
+        assert!(Checkpoints::<Test>::contains_key(SUPPORTED_CHAIN_KEY, 50));
+        assert!(Checkpoints::<Test>::contains_key(SUPPORTED_CHAIN_KEY, 100)); // existing
+        assert!(!Checkpoints::<Test>::contains_key(SUPPORTED_CHAIN_KEY, 150));
+    });
+}
+
+#[test]
+fn import_checkpoints_updates_last_checkpoint_when_newer_imported() {
+    ExtBuilder.build_and_execute(|| {
+        // Set up existing checkpoint at block 50
+        let existing_checkpoint = AttestationCheckpoint {
+            block_number: 50,
+            digest: [1u8; 32].into(),
+        };
+        insert_checkpoint_and_bucket_entry::<Test>(SUPPORTED_CHAIN_KEY, 50, [1u8; 32].into());
+        LastCheckpoint::<Test>::insert(SUPPORTED_CHAIN_KEY, &existing_checkpoint);
+
+        let checkpoints = vec![AttestationCheckpoint {
+            block_number: 25, // Older, should not update LastCheckpoint
+            digest: [2u8; 32].into(),
+        }];
+
+        assert_ok!(Attestation::import_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            checkpoints.try_into().unwrap()
+        ));
+
+        // LastCheckpoint should remain unchanged since imported checkpoint is older
+        let last_checkpoint = LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY).unwrap();
+        assert_eq!(last_checkpoint.block_number, 50);
+        assert_eq!(last_checkpoint.digest, [1u8; 32].into());
+    });
+}
+
+#[test]
+fn import_checkpoints_allows_all_when_no_attestations_or_checkpoints() {
+    ExtBuilder.build_and_execute(|| {
+        // No attestations or checkpoints exist
+        let checkpoints = vec![
+            AttestationCheckpoint {
+                block_number: 50,
+                digest: [1u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: [2u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 200,
+                digest: [3u8; 32].into(),
+            },
+        ];
+
+        assert_ok!(Attestation::import_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            checkpoints.try_into().unwrap()
+        ));
+
+        // All checkpoints should be imported
+        assert!(Checkpoints::<Test>::contains_key(SUPPORTED_CHAIN_KEY, 50));
+        assert!(Checkpoints::<Test>::contains_key(SUPPORTED_CHAIN_KEY, 100));
+        assert!(Checkpoints::<Test>::contains_key(SUPPORTED_CHAIN_KEY, 200));
+
+        // LastCheckpoint should be set to highest block number
+        let last_checkpoint = LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY).unwrap();
+        assert_eq!(last_checkpoint.block_number, 200);
+    });
+}
+
+#[test]
+fn import_checkpoints_emits_events_for_imported_checkpoints() {
+    ExtBuilder.build_and_execute(|| {
+        let checkpoints = vec![
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: [1u8; 32].into(),
+            },
+            AttestationCheckpoint {
+                block_number: 200,
+                digest: [2u8; 32].into(),
+            },
+        ];
+
+        assert_ok!(Attestation::import_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            checkpoints.clone().try_into().unwrap()
+        ));
+
+        // Verify events were emitted for each imported checkpoint
+        let events = System::events();
+        let checkpoint_events: Vec<_> = events
+            .iter()
+            .filter_map(|record| {
+                if let RuntimeEvent::Attestation(Event::CheckpointReached(chain_key, checkpoint)) =
+                    &record.event
+                {
+                    if *chain_key == SUPPORTED_CHAIN_KEY {
+                        Some(checkpoint.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(checkpoint_events.len(), 2);
+        assert!(checkpoint_events.contains(&checkpoints[0]));
+        assert!(checkpoint_events.contains(&checkpoints[1]));
     });
 }
 

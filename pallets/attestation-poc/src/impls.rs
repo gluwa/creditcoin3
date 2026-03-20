@@ -1073,25 +1073,59 @@ impl<T: Config> Pallet<T> {
         chain_key: ChainKey,
         checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
     ) -> DispatchResult {
-        // Attesting should start after all checkpoints are imported.
-        // Otherwise we introduce poorly defined behavior.
-        ensure!(
-            LastDigest::<T>::get(chain_key).is_none(),
-            Error::<T>::AttestationFoundWhileImporting
-        );
+        let has_attestations = LastDigest::<T>::get(chain_key).is_some();
 
-        let stored_last_checkpoint = LastCheckpoint::<T>::get(chain_key);
-        let mut last_checkpoint = stored_last_checkpoint.clone().unwrap_or_default();
-        let initial_block_number = last_checkpoint.block_number;
+        let maybe_last_checkpoint: Option<AttestationCheckpoint> =
+            LastCheckpoint::<T>::get(chain_key);
+        let initial_block_number = maybe_last_checkpoint
+            .as_ref()
+            .map(|c| c.block_number)
+            .unwrap_or(0);
 
+        let mut maybe_new_last_checkpoint = maybe_last_checkpoint.clone();
+
+        // We go through all checkpoints and we only import the ones that are not already in storage and that are older than the latest checkpoint/attestation,
+        // since newer ones are going to be created by the normal checkpointing flow and we want to avoid conflicts between the two flows.
         for checkpoint in checkpoints {
             if Checkpoints::<T>::contains_key(chain_key, checkpoint.block_number) {
                 continue;
             }
 
-            if checkpoint.block_number >= last_checkpoint.block_number {
-                last_checkpoint = checkpoint.clone();
+            match (has_attestations, &maybe_last_checkpoint) {
+                (_, Some(last_checkpoint))
+                    if checkpoint.block_number >= last_checkpoint.block_number =>
+                {
+                    // If we have both attestations and checkpoints, we only allow the import of checkpoints that are older than the latest checkpoint
+                    log::debug!(
+                        "Skipping import of checkpoint at block number {} for chain {:?} since it's newer than the latest checkpoint at block number {}",
+                        checkpoint.block_number,
+                        chain_key,
+                        last_checkpoint.block_number
+                    );
+                    continue;
+                }
+                (true, None) => {
+                    // If we only have attestations, and no checkpoints, we don't allow the import of checkpoints at all.
+                    // Caller will have to wait until the normal checkpointing flow creates the first checkpoint.
+                    return Err(Error::<T>::LastCheckpointNotSet.into());
+                }
+                (false, None) => {
+                    // If we don't have a last checkpoint, this means it's the first time we are importing checkpoints for the selected chain,
+                    // so we need to make sure to set the last checkpoint to the newest one we import.
+                    if let Some(ref mut last_checkpoint) = maybe_new_last_checkpoint {
+                        if checkpoint.block_number > last_checkpoint.block_number {
+                            maybe_new_last_checkpoint = Some(checkpoint.clone());
+                        }
+                    } else {
+                        maybe_new_last_checkpoint = Some(checkpoint.clone());
+                    }
+                }
+                _ => {
+                    // In all other cases (including when we have neither attestations nor checkpoints),
+                    // we allow the import of the checkpoint since it won't cause any conflict with the normal checkpointing flow
+                }
             }
+
             Checkpoints::<T>::insert(chain_key, checkpoint.block_number, checkpoint.digest);
             CheckpointBuckets::<T>::insert(
                 (
@@ -1104,9 +1138,15 @@ impl<T: Config> Pallet<T> {
             Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint));
         }
 
-        if last_checkpoint.block_number > initial_block_number || stored_last_checkpoint.is_none() {
-            LastCheckpoint::<T>::insert(chain_key, last_checkpoint);
+        // If we updated the checkpoint storage, we also may need to update the last checkpoint.
+        if let Some(checkpoint) = maybe_new_last_checkpoint {
+            if checkpoint.block_number > initial_block_number || maybe_last_checkpoint.is_none() {
+                // If the new checkpoint is higher than the initial checkpoint,
+                // or if we didn't have a checkpoint before, we update the last checkpoint to the new one.
+                LastCheckpoint::<T>::insert(chain_key, checkpoint);
+            }
         }
+
         Ok(())
     }
 
