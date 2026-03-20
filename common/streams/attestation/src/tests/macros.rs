@@ -9,6 +9,6 @@ macro_rules! nonzero {
 macro_rules! poll {
     ($stream:expr) => {{
         use futures::StreamExt as _;
-        let _ = tokio_test::task::spawn($stream.next()).poll();
+        tokio_test::task::spawn($stream.next()).poll()
     }};
 }
