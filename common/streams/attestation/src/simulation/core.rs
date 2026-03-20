@@ -68,7 +68,6 @@ prop_compose! {
     )(
         cc3_url in Just(cc3_url),
         attestation_interval in 1..750u64,
-        attestation_prev in 0..100u64,
         start_height in 0..1_000u64,
         max_catchup in 1..500u64,
         steps in prop::collection::vec(SimulationStep::step(), 1..1_000)
@@ -85,7 +84,7 @@ prop_compose! {
         let (tx_tip, rx_tip) = crate::tests::mock::tip(start_height);
 
         let attestation_prev = stream_util::AttestationInfo {
-            height: attestation_prev * attestation_interval,
+            height: start_height.saturating_sub(1) * attestation_interval,
             ..Default::default()
         };
         let attestation_next = attestation_interval * (attestation_prev.height / attestation_interval + 1);
