@@ -40,7 +40,6 @@ async fn simulation_failure(
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
     roots.send_ready().await;
-    poll!(stream_attestation);
     roots.send_ready().await;
     poll!(stream_attestation);
 
@@ -48,26 +47,9 @@ async fn simulation_failure(
         height: 2,
         ..Default::default()
     });
-    poll!(stream_attestation);
 
     roots.send_ready().await;
-    poll!(stream_attestation);
-
-    roots.send_pending().await;
-    poll!(stream_attestation);
-    roots.send_pending().await;
-    poll!(stream_attestation);
-    roots.send_pending().await;
-    poll!(stream_attestation);
-    roots.send_pending().await;
-    poll!(stream_attestation);
-    roots.send_pending().await;
-    poll!(stream_attestation);
-    roots.send_pending().await;
-    poll!(stream_attestation);
-
     tip.send_ready().await;
-    poll!(stream_attestation);
     tip.send_ready().await;
     poll!(stream_attestation);
 }
