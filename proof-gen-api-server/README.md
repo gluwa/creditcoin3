@@ -10,7 +10,7 @@ cargo b -r --features fast-runtime
 
 ## Runtime Configuration & Startup
 
-All configurable command line arguments are defined in `bin/proof-gen-server.rs` (see the `ProofGenApiServer` clap struct). For environment variables, copy `.env.example` to `.env` and adjust. The binary loads `.env` automatically.
+All configurable command line arguments are defined in `bin/server.rs` (see the `ProofGenApiServer` clap struct). For environment variables, copy `.env.example` to `.env` and adjust. The binary loads `.env` automatically.
 
 Common pattern:
 
@@ -105,6 +105,25 @@ Production notes:
 
 - Provide a non-development mnemonic for production deployments.
 - Configure the indexer URL for optimal performance.
+
+### Archiver URL (optional)
+
+If you run the [archiver](../archiver/README.md) service (HTTP API that stores source-chain blocks and serves pre-computed Merkle roots), you can point the proof gen server at it so **continuity proofs** are built from those roots instead of fetching full blocks over Ethereum RPC.
+
+- **CLI:** `--archiver-url http://<host>:<port>` (example: `http://localhost:8080`)
+- **Environment:** `ARCHIVER_URL` (same semantics; use one or the other)
+
+Ethereum RPC (`--eth-rpc-url` / `ETH_RPC_URL`) remains required: the server still uses it for chain tip and other paths that do not go through the archiver.
+
+Example (local archiver on port 8080):
+
+```bash
+cargo run -p proof-gen-api-server -- \
+  --cc3-key "//Alice" \
+  --cc3-rpc-url ws://localhost:9944 \
+  --eth-rpc-url http://localhost:8545 \
+  --archiver-url http://localhost:8080
+```
 
 Error Response Shape:
 
