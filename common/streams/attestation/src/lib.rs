@@ -216,7 +216,7 @@ impl StreamAttestation {
 
         assert_eq!(
             blocks.len(),
-            (target - *self.computed.start() - 1) as usize,
+            (target - self.attestation_prev.height - 1) as usize,
             "Invalid continuity proof length"
         );
 
