@@ -1,31 +1,17 @@
 use crate::nonzero;
 
 #[rstest::fixture]
-pub fn logs() {
-    let _ = tracing_subscriber::fmt()
-        .with_level(true)
-        .with_test_writer()
-        .try_init();
-}
-
-#[rstest::fixture]
 pub async fn roots(
     #[default(0)] start_height: attestor_primitives::Height,
-) -> (
-    futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
-    crate::simulation::Roots,
-) {
-    crate::simulation::Roots::new(start_height)
+) -> (super::mock::RootSender, super::mock::RootReceiver) {
+    super::mock::roots(start_height)
 }
 
 #[rstest::fixture]
 pub async fn tip(
     #[default(0)] start_height: attestor_primitives::Height,
-) -> (
-    futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
-    crate::simulation::Tip,
-) {
-    crate::simulation::Tip::new(start_height)
+) -> (super::mock::TipSender, super::mock::TipReceiver) {
+    super::mock::tip(start_height)
 }
 
 #[rstest::fixture]
@@ -39,20 +25,14 @@ pub async fn attestations(
 
     #[future]
     #[with(start_height)]
-    roots: (
-        futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
-        crate::simulation::Roots,
-    ),
+    roots: (super::mock::RootSender, super::mock::RootReceiver),
 
     #[future]
     #[with(start_height)]
-    tip: (
-        futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
-        crate::simulation::Tip,
-    ),
+    tip: (super::mock::TipSender, super::mock::TipReceiver),
 ) -> (
-    futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
-    futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
+    super::mock::RootSender,
+    super::mock::TipSender,
     crate::StreamAttestation,
 ) {
     use futures::StreamExt as _;
