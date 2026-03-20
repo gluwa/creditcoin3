@@ -6,13 +6,28 @@ pub(crate) mod mock;
 use crate::prelude::*;
 use fixtures::*;
 
+/// Polling the attestation stream should yield available attestations.
+#[rstest::rstest]
+#[tokio::test]
+async fn attestation_ready_simple(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(1))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+
+    tip.send_ready().await;
+    roots.send_ready().await;
+    poll!(stream_attestation);
+}
+
 /// `note_attestation_finalization` should set computed to a valid range. Values like 1..0 are
 /// invalid as the end of the range is used is assumed to be strictly greater than its start.
 #[rstest::rstest]
 #[tokio::test]
 async fn attestation_finalize_sets_correct_range(
     #[future]
-    #[with(0, 0, nonzero!(1), nonzero!(1))]
+    #[with(0, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
@@ -38,7 +53,7 @@ async fn attestation_finalize_sets_correct_range(
 #[tokio::test]
 async fn cache_size(
     #[future]
-    #[with(2, 0, nonzero!(1), nonzero!(1))]
+    #[with(2, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
@@ -55,19 +70,5 @@ async fn cache_size(
     roots.send_ready().await;
     tip.send_ready().await;
     tip.send_ready().await;
-    poll!(stream_attestation);
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn simulation_failure(
-    #[future]
-    #[with(2, 0, nonzero!(1), nonzero!(1))]
-    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
-) {
-    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
-
-    tip.send_ready().await;
-    roots.send_ready().await;
     poll!(stream_attestation);
 }

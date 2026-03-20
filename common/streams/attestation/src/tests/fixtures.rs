@@ -17,7 +17,6 @@ pub async fn tip(
 #[rstest::fixture]
 pub async fn attestations(
     #[default(0)] start_height: attestor_primitives::Height,
-    #[default(0)] attestation_prev: attestor_primitives::Height,
     #[default(nonzero!(10))] attestation_interval: std::num::NonZero<attestor_primitives::Height>,
     #[default(nonzero!(50))] max_catchup: std::num::NonZero<attestor_primitives::Height>,
 
@@ -37,8 +36,6 @@ pub async fn attestations(
 ) {
     use futures::StreamExt as _;
 
-    let _ = start_height;
-
     let secret = bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret");
     let bls_key = bls_signatures::PrivateKey::new(secret.to_string().as_bytes());
     let client_cc3 = cc_client::Client::new(cc3_url, &secret.to_string())
@@ -49,7 +46,7 @@ pub async fn attestations(
     let (permit_tip, stream_tip) = tip.await;
 
     let attestation_prev = stream_util::AttestationInfo {
-        height: attestation_prev,
+        height: start_height.saturating_sub(attestation_interval.get()),
         ..Default::default()
     };
 
