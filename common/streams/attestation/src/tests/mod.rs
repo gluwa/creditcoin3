@@ -30,7 +30,7 @@ async fn attestation_ready_simple(
     assert!(attestation.continuity_proof.is_empty());
 }
 
-/// `note_attestation_finalization` should set computed to a valid range. Values like 1..0 are
+/// `note_attestation_finalization` should set `computed` to a valid range. Values like 1..0 are
 /// invalid as the end of the range is used is assumed to be strictly greater than its start.
 #[rstest::rstest]
 #[tokio::test]
@@ -68,7 +68,7 @@ async fn attestation_finalize_sets_correct_range(
     assert_eq!(stream_attestation.computed, 1..=2);
 }
 
-/// Attestation stream cache size should be equal to `max_catchup` + 1 in order to allow the last
+/// Attestation stream cache size should grow up to `max_catchup` + 1 in order to allow the last
 /// block in the cache to be a multiple of the `max_catchup`.
 #[rstest::rstest]
 #[tokio::test]
