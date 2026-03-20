@@ -12,6 +12,11 @@ use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
 
+/// Base delay between reconnection attempts (doubles each retry, capped at [`RECONNECT_MAX_DELAY`]).
+const RECONNECT_BASE_DELAY: Duration = Duration::from_secs(2);
+/// Maximum delay between reconnection attempts.
+const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
+
 /// Compute parallelism for merkle root computation based on available CPUs
 /// and how many threads are reserved for block fetching.
 fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::NonZeroUsize {
@@ -243,10 +248,6 @@ async fn main() -> Result<()> {
     let mut batch_buf = Vec::with_capacity(flush_size);
 
     let stream_timeout = Duration::from_secs(cfg.stream_timeout_secs);
-    /// Base delay between reconnection attempts (doubles each retry, capped at 60s).
-    const RECONNECT_BASE_DELAY: Duration = Duration::from_secs(2);
-    const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
-
     let mut last_height: Option<u64> = None;
 
     loop {

@@ -31,9 +31,9 @@ All flags can also be set via environment variables (see below).
 | `--rpc-ws` | `RPC_WS` | *(required)* | WebSocket RPC endpoint for new-head subscriptions |
 | `--start-height` | `START_HEIGHT` | `0` | Block height to start from (ignored if DB has progress) |
 | `--end-height` | `END_HEIGHT` | *(none)* | Stop after this block (inclusive). Omit to follow the tip |
-| `--finalization-lag` | `FINALIZATION_LAG` | `64` | Blocks behind tip to consider finalized |
 | `--max-fetch-tasks` | `MAX_FETCH_TASKS` | `8` | Max concurrent block fetch tasks (IO-bound) |
-| `--max-compute-tasks` | `MAX_COMPUTE_TASKS` | `4` | Max parallel merkle root computations (CPU-bound) |
+| `--max-api-range` | `MAX_API_RANGE` | `1000` | Max block range per `/roots` API request |
+| `--stream-timeout-secs` | `STREAM_TIMEOUT_SECS` | `120` | Seconds before treating a stream as stalled |
 | `--sled-db-path` | `SLED_DB_PATH` | `./data/roots.sled` | Path to the sled database directory |
 | `--api-bind` | `API_BIND` | `0.0.0.0:8080` | HTTP API bind address |
 | `--flush-every` | `FLUSH_EVERY` | `10000` | Flush database to disk every N blocks |
@@ -66,26 +66,13 @@ Returns the latest archived block number.
 
 ### `GET /roots?from=100&to=200`
 
-Returns merkle roots for an inclusive block range (max 100,000 blocks per request).
+Returns merkle roots for an inclusive block range (max `MAX_API_RANGE` blocks per request, default 1,000).
 
 ```json
 [
   { "block_number": 100, "merkle_root": "0x..." },
   { "block_number": 101, "merkle_root": "0x..." }
 ]
-```
-
-### `GET /proof-input?from=100&to=200`
-
-Returns the lower-endpoint digest and roots needed to construct a continuity proof. Requires `from >= 1` (needs block `from-1` for the digest).
-
-```json
-{
-  "lower_endpoint_digest": "0x...",
-  "roots": [
-    { "block_number": 100, "merkle_root": "0x..." }
-  ]
-}
 ```
 
 ## Architecture

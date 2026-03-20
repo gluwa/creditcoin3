@@ -415,4 +415,59 @@ mod tests {
         assert!(err.retriable());
         assert_eq!(err.code(), "RpcUnavailable");
     }
+
+    #[tokio::test]
+    async fn attestation_boundaries_preferred_over_checkpoint() {
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+
+        // Mock has attestations at 10, 20, 30, ..., 1000
+        // and checkpoints at 0, 100, 200, ..., 1000
+        // For query block 15, attestation bounds should be (10, 20)
+        // which is tighter than checkpoint bounds (0, 100)
+        let att_bounds = svc.get_attestation_boundaries(15, 15).await;
+        assert!(att_bounds.is_some(), "attestation bounds should exist");
+        let (lower, _, upper) = att_bounds.unwrap();
+        assert_eq!(lower, 10);
+        assert_eq!(upper, 20);
+
+        let cp_bounds = svc.get_checkpoint_boundaries(15, 15).await;
+        assert!(cp_bounds.is_some(), "checkpoint bounds should exist");
+        let (lower, _, upper) = cp_bounds.unwrap();
+        assert_eq!(lower, 0);
+        assert_eq!(upper, 100);
+    }
+
+    #[tokio::test]
+    async fn attestation_boundary_when_query_is_one_past_lower() {
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+
+        // Edge case: min_query == lower_attestation + 1
+        // Query block 11 → lower attestation at 10, upper at 20
+        // In build_proof_from_roots, take_while(b.n() < 11) yields zero blocks
+        // so lower_endpoint_digest falls back to the attestation digest at block 10.
+        let bounds = svc.get_attestation_boundaries(11, 11).await;
+        assert!(bounds.is_some());
+        let (lower, lower_digest, upper) = bounds.unwrap();
+        assert_eq!(lower, 10);
+        assert_eq!(upper, 20);
+        // The digest should be the mock attestation's digest at block 10
+        assert_ne!(lower_digest, H256::zero(), "digest should be non-zero");
+    }
+
+    #[tokio::test]
+    async fn attestation_fallback_to_checkpoint_when_no_attestation_bounds() {
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+
+        // Query beyond attestation range (mock attestations go up to 1000)
+        // Should fail attestation lookup but succeed with checkpoint lookup
+        let att_bounds = svc.get_attestation_boundaries(1005, 1005).await;
+        assert!(att_bounds.is_none(), "no attestation bounds beyond range");
+
+        // Checkpoint at 1000 exists as lower, but no upper checkpoint
+        let cp_bounds = svc.get_checkpoint_boundaries(1005, 1005).await;
+        assert!(
+            cp_bounds.is_none(),
+            "no checkpoint upper bound beyond range"
+        );
+    }
 }

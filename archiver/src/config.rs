@@ -36,7 +36,9 @@ pub struct Config {
     pub max_fetch_tasks: NonZeroUsize,
 
     /// Maximum block range that can be queried via the /roots API endpoint.
-    #[arg(long, env = "MAX_API_RANGE", default_value = "100000")]
+    /// Default is slightly above one checkpoint interval (attestation_interval × checkpoint_interval)
+    /// to allow a full checkpoint span plus headroom.
+    #[arg(long, env = "MAX_API_RANGE", default_value = "1000")]
     pub max_api_range: u64,
 
     /// Timeout in seconds for the stream before treating it as stalled.

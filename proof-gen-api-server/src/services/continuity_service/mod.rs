@@ -211,6 +211,10 @@ impl ContinuityService {
         );
 
         // Populate attestation cache from CC3 on startup.
+        // NOTE: This loads ALL attestations into memory. For long-running chains this could
+        // be significant (attestations are ~10x more frequent than checkpoints). A future
+        // optimization could load only attestations after the latest checkpoint, since older
+        // ones are redundant when checkpoint bounds cover them.
         tracing::info!(
             chain_key,
             "⏳ Populating attestation cache from CC3 (this may take a while)..."
