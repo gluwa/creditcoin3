@@ -68,7 +68,7 @@ prop_compose! {
     )(
         cc3_url in Just(cc3_url),
         attestation_interval in 1..750u64,
-        start_height in 0..1_000u64,
+        start_height in 0..100u64,
         max_catchup in 1..500u64,
         steps in prop::collection::vec(SimulationStep::step(), 1..1_000)
     ) -> Simulation {

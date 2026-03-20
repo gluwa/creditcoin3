@@ -207,6 +207,12 @@ impl StreamAttestation {
             },
         );
 
+        assert_eq!(
+            blocks.len(),
+            self.attestation_interval.get().saturating_sub(1) as usize,
+            "Invalid continuity proof length"
+        );
+
         let continuity_proof =
             attestor_primitives::attestation_fragment::AttestationFragmentSerializable { blocks };
 
