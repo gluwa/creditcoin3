@@ -60,7 +60,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
         await api.disconnect();
     });
 
-    describe('when the attestation chain is reverted to a genesis checkpoint', () => {
+    describe('when the attestation chain is reverted to a checkpoint', () => {
         beforeAll(async () => {
             startingBlock = BigInt((await getChainStatus(api)).bestNumber);
             expect(startingBlock).toBeGreaterThan(0n);

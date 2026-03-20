@@ -78,7 +78,7 @@ type Account @entity {
 
 type MapAttestationAttestor @entity {
     id: ID!
-    attestation: Attestations!
+    attestation: Attestations! @index
     attestor: Attestors!
 }
 
@@ -232,7 +232,7 @@ type Checkpoints @entity {
 
     atBlockNumber: BigInt!
 
-    chainKey: BigInt!
+    chainKey: BigInt! @index
 
     blockNumber: BigInt!
 
