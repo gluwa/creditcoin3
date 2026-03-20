@@ -85,11 +85,8 @@ impl CcRpcProvider for MockCcRpcProvider {
             continuity_proof: Default::default(),
         };
         // Attestations every 10 blocks (matching DefaultAttestationInterval = 10)
-        Ok(vec![
-            mk_attestation(10),
-            mk_attestation(20),
-            mk_attestation(30),
-        ])
+        // Range covers 10..=1000 to match checkpoint mock coverage
+        Ok((1..=100).map(|i| mk_attestation(i * 10)).collect())
     }
 
     async fn get_last_checkpoint(&self, _chain_key: u64) -> Result<Option<AttestationCheckpoint>> {

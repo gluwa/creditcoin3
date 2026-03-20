@@ -155,6 +155,10 @@ pub struct ContinuityService {
     /// In-memory cache of checkpoint (block_number → digest) populated from CC3
     /// on startup and kept up-to-date via `CheckpointReached` events.
     checkpoint_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
+    /// In-memory cache of attestation (block_number → digest) populated from CC3
+    /// on startup and kept up-to-date via `BlockAttested` events.
+    /// Attestations are more granular than checkpoints (e.g. every 10 blocks vs every 100).
+    attestation_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
 }
 
 impl ContinuityService {
@@ -206,6 +210,32 @@ impl ContinuityService {
             "Checkpoint cache populated from CC3"
         );
 
+        // Populate attestation cache from CC3 on startup.
+        tracing::info!(
+            chain_key,
+            "⏳ Populating attestation cache from CC3 (this may take a while)..."
+        );
+        let attestations = builder
+            .cc_provider
+            .get_attestations_for_chain(chain_key)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to fetch attestations on startup: {e}, starting with empty cache"
+                );
+                Vec::new()
+            });
+        let attestation_cache: BTreeMap<u64, H256> = attestations
+            .into_iter()
+            .map(|att| (att.attestation.header_number, att.attestation.header_hash))
+            .collect();
+        tracing::info!(
+            chain_key,
+            count = attestation_cache.len(),
+            latest = ?attestation_cache.keys().next_back(),
+            "Attestation cache populated from CC3"
+        );
+
         Ok(Self {
             builder,
             start_time: Instant::now(),
@@ -214,6 +244,7 @@ impl ContinuityService {
             metrics,
             max_batch_size,
             checkpoint_cache: tokio::sync::RwLock::new(checkpoint_cache),
+            attestation_cache: tokio::sync::RwLock::new(attestation_cache),
         })
     }
 
@@ -291,6 +322,15 @@ impl ContinuityService {
     /// Updates the attestation genesis block number.
     /// This will be called when we receive an AttestationChainGenesisBlockNumberSet event from CC3,
     /// allowing the service to adapt if the attestation genesis block changes (e.g. due to a chain reset or reconfiguration).
+    /// Insert an attestation into the in-memory cache (called from event handler).
+    pub async fn insert_attestation(&self, block_number: u64, digest: H256) {
+        self.attestation_cache
+            .write()
+            .await
+            .insert(block_number, digest);
+        tracing::debug!(block_number, ?digest, "attestation cached");
+    }
+
     /// Insert a checkpoint into the in-memory cache (called from event handler).
     pub async fn insert_checkpoint(&self, block_number: u64, digest: H256) {
         self.checkpoint_cache
@@ -298,6 +338,30 @@ impl ContinuityService {
             .await
             .insert(block_number, digest);
         tracing::debug!(block_number, ?digest, "checkpoint cached");
+    }
+
+    /// Look up attestation boundaries around a query range from the local cache.
+    /// Attestations are more granular than checkpoints, so these provide tighter bounds.
+    /// Returns `(lower_block, lower_digest, upper_block)` or `None` if not found.
+    pub async fn get_attestation_boundaries(
+        &self,
+        min_query: u64,
+        max_query: u64,
+    ) -> Option<(u64, H256, u64)> {
+        let cache = self.attestation_cache.read().await;
+
+        // Lower: greatest attestation strictly before min_query.
+        let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
+
+        // Upper: smallest attestation ≥ max_query
+        let upper = cache.range(max_query..).next().map(|(&k, _)| k);
+
+        match (lower, upper) {
+            (Some((lower_block, lower_digest)), Some(upper_block)) => {
+                Some((lower_block, lower_digest, upper_block))
+            }
+            _ => None,
+        }
     }
 
     /// Look up checkpoint boundaries around a query range from the local cache.

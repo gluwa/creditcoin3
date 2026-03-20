@@ -145,6 +145,9 @@ async fn process_cc_event(
                 }
             }
 
+            // Insert into attestation cache for fast boundary lookups.
+            service.insert_attestation(header_number, digest).await;
+
             info!("Cached attestation in-memory: chain_key={chain_key}, header_number={header_number}");
 
             Ok(())

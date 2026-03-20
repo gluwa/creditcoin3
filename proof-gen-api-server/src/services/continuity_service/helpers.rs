@@ -41,15 +41,35 @@ impl ContinuityService {
                 message: "header_numbers is empty".into(),
             })?;
 
-        // Step 1: Resolve checkpoint boundaries from local cache.
-        let (lower, lower_digest, upper) = self
-            .get_checkpoint_boundaries(min_query, max_query)
-            .await
-            .ok_or_else(|| ServiceError::Internal {
+        // Step 1: Resolve boundaries from local caches.
+        // Try attestation bounds first (more granular), then fall back to checkpoint bounds.
+        let (lower, lower_digest, upper) = if let Some(bounds) =
+            self.get_attestation_boundaries(min_query, max_query).await
+        {
+            tracing::debug!(
+                min_query,
+                max_query,
+                lower = bounds.0,
+                upper = bounds.2,
+                "resolved boundaries from attestation cache"
+            );
+            bounds
+        } else if let Some(bounds) = self.get_checkpoint_boundaries(min_query, max_query).await {
+            tracing::debug!(
+                min_query,
+                max_query,
+                lower = bounds.0,
+                upper = bounds.2,
+                "resolved boundaries from checkpoint cache"
+            );
+            bounds
+        } else {
+            return Err(ServiceError::Internal {
                 message: format!(
-                    "no checkpoint boundaries found in cache for range {min_query}..{max_query}"
+                    "no boundaries found in attestation or checkpoint cache for range {min_query}..{max_query}"
                 ),
-            })?;
+            });
+        };
 
         // Step 2: If indexer is configured, try building from GraphQL first.
         if self.builder.indexer_provider.is_some() {
