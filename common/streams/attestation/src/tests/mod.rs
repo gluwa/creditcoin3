@@ -136,3 +136,65 @@ async fn skip_behind_finality(
     assert_eq!(attestation.header_number(), 3);
     assert!(attestation.continuity_proof.is_empty());
 }
+
+#[rstest::rstest]
+#[tokio::test]
+async fn simulation_failure(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(1))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+    roots.send_ready().await;
+    let _ = poll!(stream_attestation);
+    roots.send_ready().await;
+    let _ = poll!(stream_attestation);
+    roots.send_ready().await;
+    let _ = poll!(stream_attestation);
+    roots.send_ready().await;
+    let _ = poll!(stream_attestation);
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+    roots.send_ready().await;
+    let _ = poll!(stream_attestation);
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+    roots.send_ready().await;
+    let _ = poll!(stream_attestation);
+    roots.send_ready().await;
+    let _ = poll!(stream_attestation);
+    roots.send_ready().await;
+    let _ = poll!(stream_attestation);
+    roots.send_ready().await;
+    let _ = poll!(stream_attestation);
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+
+    stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
+        height: 7,
+        ..Default::default()
+    });
+
+    let _ = poll!(stream_attestation);
+
+    tip.send_ready().await;
+    let _ = poll!(stream_attestation);
+    roots.send_ready().await;
+
+    let _ = poll!(stream_attestation);
+}
