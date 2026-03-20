@@ -871,6 +871,8 @@ impl StreamAttestation {
         self.state = State::Idle(Some((client_eth, stream)));
 
         // Resetting cache. We can't trust stored blocks or roots after a reversion.
+        // We add 1 to our cache start height here, since we want the tail of our
+        // first continuity proof to be the block above our reverted to checkpoint.
         self.continuity = CacheContinuity::new(info.height, Some(info), self.encoding_version);
 
         // Resetting key markers
