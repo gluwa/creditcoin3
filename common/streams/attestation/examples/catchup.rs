@@ -9,12 +9,14 @@ struct Args {
     #[arg(long, default_value_t = 0)]
     start_height: attestor_primitives::Height,
 
+    #[arg(long, default_value_t = std::num::NonZero::new(10).unwrap())]
+    attestation_interval: std::num::NonZero<attestor_primitives::Height>,
+
     #[arg(long, default_value_t = std::num::NonZeroUsize::new(1000).unwrap())]
     blocks: std::num::NonZeroUsize,
 }
 
 const FINALIZATION_LAG: attestor_primitives::Height = 10;
-const INTERVAL_ATTESTATION: std::num::NonZeroU64 = std::num::NonZero::new(7).unwrap();
 const MAX_CONCURRENT_REQUESTS: std::num::NonZeroUsize = std::num::NonZeroUsize::new(10).unwrap();
 const MAX_CATCHUP: std::num::NonZeroU64 = std::num::NonZeroU64::new(50).unwrap();
 
@@ -56,7 +58,8 @@ fn main() {
             .await
             .expect("Failed to create cc3 client");
 
-        let start_height = args.start_height - (args.start_height % INTERVAL_ATTESTATION.get());
+        let start_height =
+            args.start_height - (args.start_height % args.attestation_interval.get());
 
         let config = stream_eth::roots::ConfigBuilder::new()
             .with_client(client_eth.clone())
@@ -85,7 +88,7 @@ fn main() {
             .with_bls_key(bls_key)
             .with_stream_roots(stream_roots)
             .with_stream_tip(stream_tip)
-            .with_attestation_interval(INTERVAL_ATTESTATION)
+            .with_attestation_interval(args.attestation_interval)
             .with_attestation_prev(stream_util::AttestationInfo::default())
             .with_max_catchup(MAX_CATCHUP)
             .build();
@@ -125,7 +128,7 @@ fn main() {
             tracing::info!(height, %digest, "New attestation");
 
             n += 1;
-            let finalized = INTERVAL_ATTESTATION.get() * n;
+            let finalized = args.attestation_interval.get() * n;
 
             if finalized % attestations.max_catchup() == 0 {
                 tracing::warn!(finalized, "New finalized attestation");
