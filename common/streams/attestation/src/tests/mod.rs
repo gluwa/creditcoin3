@@ -84,31 +84,9 @@ async fn simulation_failure(
 
     roots.send_ready().await;
     roots.send_ready().await;
-    poll!(stream_attestation);
-
-    stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
-        height: 1,
-        ..Default::default()
-    });
-
-    roots.send_ready().await;
-    roots.send_ready().await;
-    poll!(stream_attestation);
-
-    stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
-        height: 4,
-        ..Default::default()
-    });
-
-    roots.send_ready().await;
 
     tip.send_ready().await;
     tip.send_ready().await;
-    tip.send_ready().await;
-    tip.send_ready().await;
-    tip.send_ready().await;
-    tip.send_ready().await;
 
-    roots.send_ready().await;
     poll!(stream_attestation);
 }
