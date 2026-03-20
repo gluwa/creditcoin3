@@ -90,6 +90,7 @@ jobs:
         with:
           name: binary-for-${{ inputs.version-string }}
           path: |
+            target/release/archiver
             target/release/attestor
             target/release/attestor_zombienet
             target/release/creditcoin3-node

@@ -84,6 +84,7 @@ updates:
       - "/query-cli"
       - "/runtime"
       - "/runtime/generate-bags"
+      - "/archiver"
     groups:
       prod-dependencies:
         dependency-type: "production"
