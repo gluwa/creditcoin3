@@ -144,17 +144,17 @@ impl StreamAttestation {
             if height >= first {
                 let index = (height - first).min(self.cache.len() - 1);
                 self.cache.drain(0..=index);
+
+                self.computed = info.height..=info.height;
+                self.attestation_prev = info;
+
+                // It is possible that by draining past roots the attestation stream is now able to
+                // synchronize new blocks. This wakes any pending stream polls so they can make
+                // progress again.
+                if let Some(waker) = self.waker.take() {
+                    waker.wake()
+                }
             }
-        }
-
-        self.computed = *self.computed.start().max(&info.height)..=*self.computed.end();
-        self.attestation_prev = info;
-
-        // It is possible that by draining past roots the attestation stream is now able to
-        // synchronize new blocks. This wakes any pending stream polls so they can make progress
-        // again.
-        if let Some(waker) = self.waker.take() {
-            waker.wake()
         }
     }
 
@@ -349,7 +349,7 @@ impl futures::Stream for StreamAttestation {
             self.fetching = false;
 
             assert!(
-                self.cache.len() <= self.max_catchup.get() as usize + 1,
+                self.cache.len() <= self.max_catchup.get() as usize,
                 "Cache length ({}) exceeds max_catchup ({})",
                 self.cache.len(),
                 self.max_catchup
