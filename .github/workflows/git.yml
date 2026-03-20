@@ -3,7 +3,6 @@ name: git
 
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -213,3 +212,27 @@ jobs:
 
           echo "INFO: long list of commits that may be causing this conflict"
           git log --merge
+
+  target-branch-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check the target branch of this PR
+        run: |
+          TARGET_BRANCH="${{ github.base_ref }}"
+
+          if [ "$TARGET_BRANCH" == "poc_external_attestation_network" ]; then
+            exit 0
+          fi
+
+          if [ "$TARGET_BRANCH" == "testnet" ]; then
+            exit 0
+          fi
+
+          if [ "$TARGET_BRANCH" == "main" ]; then
+            exit 0
+          fi
+
+          # note: GitHub appears to display these in reverse order
+          echo "::warning::Existing CI jobs may not be scheduled! Look out for missing statuses!"
+          echo "::warning::Target branch for this PR is a non-standard one!"
+          exit 1
