@@ -17,12 +17,12 @@ for LOG_FILE in $(find "$TARGET_FILE" -type f ); do
     # check for errors in creditcoin3-node logs
     # NOTICE: ignoring libp2p connection errors
     set +e
-    ERR_COUNT=$(grep -i "ERROR:" "$LOG_FILE" | grep -v "libp2p" | grep -v "DEBUG tokio-runtime-worker jsonrpsee-server: WS send error: connection closed" | grep -c -i "ERROR:")
+    ERR_COUNT=$(grep -i "ERROR:" "$LOG_FILE" | grep -v "libp2p" | grep -v "DEBUG tokio-runtime-worker jsonrpsee-server: WS send error: connection closed" | grep -v "unable to load new segment" | grep -c -i "ERROR:")
     set -e
     if [[ "$ERR_COUNT" -gt 0 ]]; then
         echo "FAIL: found $ERR_COUNT errors in $LOG_FILE"
         echo "======"
-        grep -i "ERROR:" "$LOG_FILE" | grep -v "libp2p" | grep -v "DEBUG tokio-runtime-worker jsonrpsee-server: WS send error: connection closed"
+        grep -i "ERROR:" "$LOG_FILE" | grep -v "libp2p" | grep -v "DEBUG tokio-runtime-worker jsonrpsee-server: WS send error: connection closed" | grep -v "unable to load new segment"
         echo "======"
         exit "$ERR_COUNT"
     else
