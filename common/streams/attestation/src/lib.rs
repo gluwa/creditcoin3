@@ -19,7 +19,7 @@ pub type Attestation =
 
 #[derive(builder::Builder)]
 pub struct Config {
-    cc3: cc_client::Client,
+    signer: cc_client::signer::CC3Signer,
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
@@ -65,7 +65,7 @@ pub struct Config {
 /// [`note_attestation_finalization`]: Self::note_attestation_finalization
 /// [cancellation-safe]: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
 pub struct StreamAttestation {
-    cc3: cc_client::Client,
+    signer: cc_client::signer::CC3Signer,
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
@@ -104,7 +104,7 @@ impl StreamAttestation {
         let cache = Vec::with_capacity(max_catchup.get() as usize);
 
         Self {
-            cc3: config.cc3,
+            signer: config.signer,
             chain_key: config.chain_key,
             bls_key: config.bls_key,
 
@@ -246,9 +246,9 @@ impl StreamAttestation {
         attestor_primitives::Digest,
         attestor_primitives::AttestorId,
     > {
-        let attestor = self.cc3.get_attestor_id();
+        let attestor = self.signer.attestor_id();
         let message = attestation_data.serialize();
-        let signature = sp_core::sr25519::Signature::from_raw(self.cc3.sign(&message).0);
+        let signature = sp_core::sr25519::Signature::from_raw(self.signer.sign(&message).0);
         let signature_bls = attestor_primitives::bls::WrapEncode(self.bls_key.sign(message));
 
         attestor_primitives::Attestation {

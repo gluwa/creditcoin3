@@ -361,7 +361,7 @@ impl StreamAttestation {
         attestation_data: attestor_primitives::AttestationData<attestor_primitives::Digest>,
         continuity_proof: attestor_primitives::attestation_fragment::AttestationFragmentSerializable,
     ) -> common::types::Attestation {
-        let attestor = self.cc3.get_attestor_id();
+        let attestor = self.cc3.attestor_id();
         let message = attestation_data.serialize();
         let signature = sp_core::sr25519::Signature::from_raw(self.cc3.sign(&message).0);
         let signature_bls = attestor_primitives::bls::WrapEncode(self.bls_key.sign(message));
