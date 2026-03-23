@@ -418,8 +418,7 @@ impl Client {
         const DELAY_BASE: u64 = 10;
         const DELAY_MAX: u64 = 60;
 
-        let mut rpc_attempt = 0;
-        let mut verify_failures = 0;
+        let mut attempt = 0;
         let mut delay = DELAY_BASE;
 
         let ordered_block = loop {
@@ -437,14 +436,14 @@ impl Client {
                     ) {
                         Ok(ob) => break ob,
                         Err(err) => {
-                            verify_failures += 1;
+                            attempt += 1;
                             tracing::debug!(
-                                verify_failures,
+                                attempt,
                                 MAX_ATTEMPTS,
                                 error = %err,
                                 "Block body inconsistent with header roots (likely reorg between RPC calls), retrying..."
                             );
-                            if verify_failures >= MAX_ATTEMPTS {
+                            if attempt >= MAX_ATTEMPTS {
                                 tracing::error!(error = %err, "⛔ Failed to verify consistent block data");
                                 return Err(Interrupt::Cont(err));
                             }
@@ -452,15 +451,15 @@ impl Client {
                     }
                 }
                 Err(err) => {
-                    rpc_attempt += 1;
+                    attempt += 1;
 
                     tracing::debug!(
-                        rpc_attempt,
+                        attempt,
                         MAX_ATTEMPTS,
                         "Failed to retrieve eth block, retrying..."
                     );
 
-                    if rpc_attempt >= MAX_ATTEMPTS {
+                    if attempt >= MAX_ATTEMPTS {
                         tracing::error!(error = %err, "⛔ Failed to retrieve eth block");
                         return Err(Interrupt::Cont(err));
                     }
