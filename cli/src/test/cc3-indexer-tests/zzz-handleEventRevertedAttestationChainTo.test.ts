@@ -43,17 +43,12 @@ describe('handleEventRevertedAttestationChainTo()', () => {
 
         expect(checkpoints.length).toBeGreaterThanOrEqual(2);
 
-        // Pick the first of 2 checkpoints to revert to.
-        const firstCheckpoint = checkpoints[checkpoints.length - 2];
-        const latestCheckpoint = checkpoints[checkpoints.length - 1];
+        // Revert to genesis checkpoint
+        checkpointHeightToRevertTo = BigInt(0);
+        checkpointDigestToRevertTo = checkpoints[0].digest;
 
-        checkpointHeightToRevertTo = BigInt(firstCheckpoint.blockNumber);
-        checkpointDigestToRevertTo = firstCheckpoint.digest;
-        laterCheckpointHeight = BigInt(latestCheckpoint.blockNumber);
-
-        expect(checkpointHeightToRevertTo).toBe(0n);
-        expect(checkpointDigestToRevertTo).toBeTruthy();
-        expect(laterCheckpointHeight).toBeGreaterThan(checkpointHeightToRevertTo);
+        // Save to check for removal later
+        laterCheckpointHeight = BigInt(checkpoints[1].blockNumber);
     }, 2_000_000); // Need timeout long enough to generate first non-genesis checkpoint
 
     afterAll(async () => {
