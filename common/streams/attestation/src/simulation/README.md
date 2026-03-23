@@ -231,4 +231,4 @@ proptest! {
 ## Further Resources
 
 - [Proptest Book](https://proptest-rs.github.io/proptest/intro.html)
-- [The FASTEST and SAFEST Database (Tigerbeetle presentation)](https://youtu.be/sC1B3d9C_sI?t=949)
+- [Tigerbeetle presentation](https://youtu.be/sC1B3d9C_sI?t=949)
