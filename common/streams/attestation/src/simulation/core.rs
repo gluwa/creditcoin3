@@ -1,16 +1,28 @@
 use proptest::prelude::*;
 
+/// Simulation configuration, drives the state transitions being applied to the
+/// [attestation stream].
+///
+/// [attestation stream]: crate::StreamAttestation
 pub struct Simulation {
     sut: crate::StreamAttestation,
+    /// Collection of state transitions to be applied to the attestation stream as part of a single
+    /// simulation run.
     steps: Vec<SimulationStep>,
 
+    /// Mocked source chain [roots stream] with control over stream yielding.
+    ///
+    /// [roots stream]: stream_eth::StreamRoots
     sender_roots: crate::tests::mock::RootSender,
+    /// Mocked source chain [tip stream] with control over stream yielding.
+    ///
+    /// [tip stream]: stream_eth::StreamTip
     sender_tip: crate::tests::mock::TipSender,
 
     start_height: attestor_primitives::Height,
     attestation_prev: attestor_primitives::Height,
     attestation_interval: std::num::NonZero<attestor_primitives::Height>,
-    attestation_next: attestor_primitives::Height,
+    attestation: attestor_primitives::Height,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
 }
 
@@ -21,27 +33,37 @@ impl std::fmt::Debug for Simulation {
             .field("start_height", &self.start_height)
             .field("attestation_prev", &self.attestation_prev)
             .field("attestation_interval", &self.attestation_interval)
-            .field("attestation_next", &self.attestation_next)
+            .field("attestation_next", &self.attestation)
             .field("max_catchup", &self.max_catchup)
             .finish()
     }
 }
 
 impl Simulation {
+    /// Runs the simulated [`steps`] on the attestation stream to completion.
+    ///
+    /// No invariants are checked inside this function. Instead, we rely on the assertions inside
+    /// the attestation stream to detect any invalid state.
+    ///
+    /// [`steps`]: Self::steps
     pub fn run(mut self) {
         use futures::StreamExt as _;
 
         for step in self.steps {
             match step {
                 SimulationStep::Root(poll) => {
+                    // Simulates either a pending stream poll or a ready root pool
                     tokio_test::block_on(self.sender_roots.send(poll));
                 }
                 SimulationStep::Tip(poll) => {
+                    // Simulates either a pending stream poll or a ready tip pool
                     tokio_test::block_on(self.sender_tip.send(poll));
                 }
                 SimulationStep::Finalized(finalized) => {
+                    // Simulates an attestation finalizing either before or after the previous
+                    // attestation
                     let info = stream_util::AttestationInfo {
-                        height: finalized.height(self.attestation_next, self.attestation_interval),
+                        height: finalized.height(self.attestation, self.attestation_interval),
                         ..Default::default()
                     };
 
@@ -49,9 +71,10 @@ impl Simulation {
                 }
             }
 
+            // Polls the attestation stream, applying the state transition
             match tokio_test::task::spawn(self.sut.next()).poll() {
                 std::task::Poll::Ready(Some(Ok(attestation))) => {
-                    self.attestation_next = attestation.header_number();
+                    self.attestation = attestation.header_number();
                 }
                 std::task::Poll::Ready(Some(Err(err))) => panic!("{err}"),
                 std::task::Poll::Ready(None) => panic!("Attestation stream should be infinite"),
@@ -86,7 +109,7 @@ prop_compose! {
             height: start_height.saturating_sub(1) * attestation_interval,
             ..Default::default()
         };
-        let attestation_next = attestation_interval * (attestation_prev.height / attestation_interval + 1);
+        let attestation = attestation_interval * (attestation_prev.height / attestation_interval + 1);
         let attestation_interval = std::num::NonZero::new(attestation_interval).unwrap();
 
         let max_catchup = std::num::NonZero::new(max_catchup).unwrap();
@@ -113,16 +136,28 @@ prop_compose! {
             start_height,
             attestation_prev: attestation_prev.height,
             attestation_interval,
-            attestation_next,
+            attestation,
             max_catchup,
         }
     }
 }
 
+/// State transitions to be applied to the attestation stream during a [`Simulation`] run.
 #[derive(Clone)]
 enum SimulationStep {
+    /// Sends data to the [root stream].
+    ///
+    /// [root stream]: stream_eth::StreamRoots
     Root(std::task::Poll<()>),
+    /// Sends data to the [tip stream].
+    ///
+    /// [tip stream]: stream_eth::StreamTip
     Tip(std::task::Poll<()>),
+    /// Notifies the [attestation stream] of a new finalized attestation. This can either be a past
+    /// attestation, in which case it should be ignored, or a future attestation, in which case it
+    /// should update the root cache.
+    ///
+    /// [attestation stream]: crate::StreamAttestation
     Finalized(Finalized),
 }
 
