@@ -25,10 +25,8 @@ fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::Non
         .get();
     // Reserve threads for fetch tasks + 1 for the main loop, use the rest for computation.
     let parallelism = available.saturating_sub(max_fetch_tasks.get() + 1);
-    std::num::NonZeroUsize::new(parallelism).unwrap_or_else(|| {
-        // Not enough CPUs — use at least 1 for computation.
-        std::num::NonZeroUsize::new(1).unwrap()
-    })
+    // Defaults to at least 1 thread for computation.
+    std::num::NonZeroUsize::new(parallelism).unwrap_or(std::num::NonZeroUsize::MIN)
 }
 
 mod api;

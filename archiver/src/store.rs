@@ -4,6 +4,7 @@
 //! Big-endian keys ensure sled's sorted iteration yields blocks in height order.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -13,6 +14,8 @@ use sp_core::H256;
 #[derive(Clone)]
 pub struct RootStore {
     db: Arc<sled::Db>,
+    /// Cached entry count — avoids O(n) scan on every status request.
+    entry_count: Arc<AtomicUsize>,
 }
 
 impl RootStore {
@@ -20,7 +23,12 @@ impl RootStore {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let db = sled::open(path.as_ref())
             .with_context(|| format!("failed to open sled database at {:?}", path.as_ref()))?;
-        Ok(Self { db: Arc::new(db) })
+        // Pay the O(n) cost once at startup to seed the cached count.
+        let initial_count = db.len();
+        Ok(Self {
+            db: Arc::new(db),
+            entry_count: Arc::new(AtomicUsize::new(initial_count)),
+        })
     }
 
     /// Insert a batch of roots atomically.
@@ -32,6 +40,9 @@ impl RootStore {
         self.db
             .apply_batch(batch)
             .context("failed to apply batch insert")?;
+        // Assumes inserts are unique (no overwrites). For backfill over existing
+        // entries this may drift slightly, but that's acceptable for a status counter.
+        self.entry_count.fetch_add(roots.len(), Ordering::Relaxed);
         Ok(())
     }
 
@@ -71,36 +82,26 @@ impl RootStore {
     /// Find gaps in the stored block range.
     /// Returns a list of `(start, end)` inclusive ranges that are missing.
     pub fn find_gaps(&self) -> Result<Vec<(u64, u64)>> {
-        let first = match self.first_height()? {
-            Some(f) => f,
-            None => return Ok(vec![]),
-        };
-        let last = match self.latest_height()? {
-            Some(l) => l,
-            None => return Ok(vec![]),
-        };
-
         let mut gaps = Vec::new();
-        let mut expected = first;
+        let mut expected: Option<u64> = None;
 
         for item in self.db.iter() {
             let (key, _) = item.context("failed to read from sled")?;
             let height = parse_height(&key)?;
 
-            if height > expected {
-                gaps.push((expected, height - 1));
+            match expected {
+                Some(exp) if height > exp => gaps.push((exp, height - 1)),
+                _ => {}
             }
-            expected = height + 1;
+            expected = Some(height + 1);
         }
 
-        // No trailing gap needed — we only care about gaps within [first, last].
-        let _ = last;
         Ok(gaps)
     }
 
-    /// Return the actual number of stored entries (gap-aware).
+    /// Return the cached entry count (O(1), updated on each `put_roots` call).
     pub fn count(&self) -> usize {
-        self.db.len()
+        self.entry_count.load(Ordering::Relaxed)
     }
 
     /// Flush database to disk.
