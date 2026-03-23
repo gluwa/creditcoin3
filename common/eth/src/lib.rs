@@ -147,26 +147,81 @@ pub struct OrderedBlock {
 }
 
 impl OrderedBlock {
-    pub fn try_create(
+    /// Builds an [`OrderedBlock`] from RPC-fetched [`Block`] and receipts. Verifies that
+    /// recomputed transaction and receipt Merkle roots match the header (so a reorg between
+    /// `eth_getBlockByNumber` and `eth_getBlockReceipts` cannot produce a mismatched attestation).
+    /// Sorts transactions and receipts by `transaction_index` once.
+    pub fn try_from_fetched_block(
         chain_id: u64,
-        number: u64,
-        hash: BlockHash,
-        mut transactions: Vec<Transaction>,
+        block: Block,
         mut receipts: Vec<TransactionReceipt>,
+        expected_number: u64,
         encoding: EncodingVersion,
-    ) -> Result<Self, ConversionError> {
-        transactions.sort_by_key(|tx| tx.transaction_index);
+    ) -> Result<Self, Error> {
+        if block.header.number != expected_number {
+            return Err(Error::FailedToGetBlock(expected_number));
+        }
+
+        let hash = block.header.hash;
+
+        // Empty blocks: many execution clients (incl. Substrate/Frontier dev chains) expose header
+        // tx/receipt roots that do not match standard trie recomputation for an empty body, while the
+        // fetched body and receipts are still consistent (both empty). There is no cross-fetch payload
+        // to mis-associate, so we skip the header root check in this case.
+        if block.transactions.is_empty() && receipts.is_empty() {
+            trace!(
+                block_number = expected_number,
+                "Skipping header root check for empty block"
+            );
+            return Ok(Self {
+                chain_id,
+                number: expected_number,
+                hash,
+                items: vec![],
+            });
+        }
+
+        if block.transactions.len() != receipts.len() {
+            return Err(Error::TransactionsReceiptsMismatch(expected_number));
+        }
+
+        let mut txs: Vec<Transaction> = block.transactions.into_transactions().collect();
+
+        if txs.iter().any(|t| t.transaction_index.is_none()) {
+            return Err(Error::NotFullTransactionsFetched(expected_number));
+        }
+        if receipts.iter().any(|r| r.transaction_index.is_none()) {
+            return Err(Error::FailedToGetReceipts(expected_number));
+        }
+
+        txs.sort_by_key(|tx| tx.transaction_index);
         receipts.sort_by_key(|rx| rx.transaction_index);
 
-        let items = transactions
+        let tx_inners: Vec<_> = txs.iter().map(|t| t.inner.clone()).collect();
+        let computed_tx_root = calculate_transaction_root(&tx_inners);
+
+        let inner_receipts: Vec<_> = receipts
+            .iter()
+            .map(|r| r.clone().into_primitives_receipt().inner)
+            .collect();
+        let computed_receipt_root = calculate_receipt_root(&inner_receipts);
+
+        if computed_tx_root != block.header.transactions_root
+            || computed_receipt_root != block.header.receipts_root
+        {
+            return Err(Error::BlockHeaderRootsMismatch(expected_number));
+        }
+
+        let items = txs
             .into_iter()
             .zip(receipts.into_iter())
             .map(|tx_rx| TxRx::try_create(tx_rx.0, tx_rx.1, encoding))
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Error::TransactionConversion)?;
 
         Ok(Self {
             chain_id,
-            number,
+            number: expected_number,
             hash,
             items,
         })
@@ -191,64 +246,6 @@ pub struct OrderedRawBlock {
     pub hash: BlockHash,
     pub transactions: Vec<Transaction>,
     pub receipts: Vec<TransactionReceipt>,
-}
-
-/// Recompute [`transactions_root`](alloy::consensus::BlockHeader::transactions_root) and
-/// [`receipts_root`](alloy::consensus::BlockHeader::receipts_root) from the fetched body and ensure
-/// they match the header, so a reorg between `eth_getBlockByNumber` and `eth_getBlockReceipts`
-/// cannot produce a mismatched attestation.
-fn verify_fetched_block_consistency(
-    block: &Block,
-    receipts: &[TransactionReceipt],
-    expected_number: u64,
-) -> Result<(), Error> {
-    if block.header.number != expected_number {
-        return Err(Error::FailedToGetBlock(expected_number));
-    }
-
-    // Empty blocks: many execution clients (incl. Substrate/Frontier dev chains) expose header
-    // tx/receipt roots that do not match standard trie recomputation for an empty body, while the
-    // fetched body and receipts are still consistent (both empty). There is no cross-fetch payload
-    // to mis-associate, so we skip the header root check in this case.
-    if block.transactions.is_empty() && receipts.is_empty() {
-        trace!(
-            block_number = expected_number,
-            "Skipping header root check for empty block"
-        );
-        return Ok(());
-    }
-
-    if block.transactions.len() != receipts.len() {
-        return Err(Error::TransactionsReceiptsMismatch(expected_number));
-    }
-
-    let mut txs: Vec<Transaction> = block.transactions.clone().into_transactions().collect();
-    if txs.iter().any(|t| t.transaction_index.is_none()) {
-        return Err(Error::NotFullTransactionsFetched(expected_number));
-    }
-    if receipts.iter().any(|r| r.transaction_index.is_none()) {
-        return Err(Error::FailedToGetReceipts(expected_number));
-    }
-
-    txs.sort_by_key(|tx| tx.transaction_index);
-    let tx_inners: Vec<_> = txs.iter().map(|t| t.inner.clone()).collect();
-    let computed_tx_root = calculate_transaction_root(&tx_inners);
-
-    let mut receipts_sorted: Vec<TransactionReceipt> = receipts.to_vec();
-    receipts_sorted.sort_by_key(|rx| rx.transaction_index);
-    let inner_receipts: Vec<_> = receipts_sorted
-        .into_iter()
-        .map(|r| r.into_primitives_receipt().inner)
-        .collect();
-    let computed_receipt_root = calculate_receipt_root(&inner_receipts);
-
-    if computed_tx_root != block.header.transactions_root
-        || computed_receipt_root != block.header.receipts_root
-    {
-        return Err(Error::BlockHeaderRootsMismatch(expected_number));
-    }
-
-    Ok(())
 }
 
 impl OrderedRawBlock {
@@ -425,14 +422,20 @@ impl Client {
         let mut verify_failures = 0;
         let mut delay = DELAY_BASE;
 
-        let (block, receipts) = loop {
+        let ordered_block = loop {
             let get_eth_block_fut = self.get_eth_block(number);
             let get_eth_receipts_fut = self.get_receipts(number);
 
             match futures::future::try_join(get_eth_block_fut, get_eth_receipts_fut).await {
                 Ok((block, receipts)) => {
-                    match verify_fetched_block_consistency(&block, &receipts, number) {
-                        Ok(()) => break (block, receipts),
+                    match OrderedBlock::try_from_fetched_block(
+                        self.chain_id,
+                        block,
+                        receipts,
+                        number,
+                        encoding,
+                    ) {
+                        Ok(ob) => break ob,
                         Err(err) => {
                             verify_failures += 1;
                             tracing::debug!(
@@ -459,6 +462,7 @@ impl Client {
 
                     if rpc_attempt >= MAX_ATTEMPTS {
                         tracing::error!(error = %err, "⛔ Failed to retrieve eth block");
+                        return Err(Interrupt::Cont(err));
                     }
                 }
             }
@@ -471,21 +475,7 @@ impl Client {
             delay = (delay * 2).min(DELAY_MAX);
         };
 
-        if block.transactions.len() != receipts.len() {
-            return Err(Interrupt::Cont(Error::TransactionsReceiptsMismatch(number)));
-        }
-
-        let transactions = block.transactions.into_transactions().collect::<Vec<_>>();
-
-        OrderedBlock::try_create(
-            self.chain_id,
-            number,
-            block.header.hash,
-            transactions,
-            receipts,
-            encoding,
-        )
-        .map_interrupt(Error::TransactionConversion)
+        Ok(ordered_block)
     }
 
     #[cfg(not(feature = "block_cache"))]
