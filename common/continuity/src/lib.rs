@@ -32,7 +32,6 @@
 //! - [`AttestationWithProof`] - Attestation boundary information with optional proof data
 //! - [`ContinuityError`] - Error types with detailed context
 
-#[cfg(feature = "archiver")]
 pub mod archiver;
 pub mod builder;
 pub mod config;
