@@ -1,3 +1,5 @@
+//! Edge cases which were detected with the help of property testing on the attestation stream.
+
 mod fixtures;
 mod macros;
 
