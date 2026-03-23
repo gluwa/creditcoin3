@@ -85,6 +85,9 @@ impl Simulation {
 }
 
 prop_compose! {
+    /// See the [Proptest Book] for more information on input generation and shrinking.
+    ///
+    /// [Proptest Book]: https://proptest-rs.github.io/proptest/intro.html
     pub fn simulation(
         cc3_url: url::Url,
     )(
