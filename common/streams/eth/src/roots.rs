@@ -14,10 +14,6 @@ pub struct Config {
     pub max_parallelism: std::num::NonZeroUsize,
 }
 
-pub struct StreamRoots {
-    stream: stream_util::BoxedStream<stream_util::RootInfo>,
-}
-
 /// Ordered Eth root stream, backed by [`eth::Client`] under the hood.
 ///
 /// This stream is optimized to make fast concurrent progress in chain tip polling, block fetching
@@ -29,6 +25,10 @@ pub struct StreamRoots {
 ///
 /// Implements capped exponential retry without unbounded attempts in order to handle RPC
 /// disconnections. This stream can be considered infinite and will never return [`None`].
+pub struct StreamRoots {
+    stream: stream_util::BoxedStream<stream_util::RootInfo>,
+}
+
 impl StreamRoots {
     pub async fn new(mut config: Config) -> Result<Self, Error> {
         use futures::StreamExt as _;
