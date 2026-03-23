@@ -5,10 +5,10 @@ name: rust
   pull_request:
     branches: [main, testnet, poc_external_attestation_network]
     paths:
-      - '**.rs'
-      - '**.toml'
-      - '**Cargo**'
-      - '.github/workflows/rust.yml'
+      - "**.rs"
+      - "**.toml"
+      - "**Cargo**"
+      - ".github/workflows/rust.yml"
   workflow_dispatch:
 
 concurrency:
@@ -235,6 +235,35 @@ jobs:
               --release \
               --workspace --html --show-missing-lines --hide-instantiations \
               --ignore-filename-regex "(benchmarking.rs|mock.rs|tests(.*).rs|weights.rs)"
+
+      - name: Run simulations
+        id: simulation
+        run: |
+          cargo test \
+            --release \
+            --features simulation \
+            -p stream_attestation \
+            simulate
+        continue-on-error: true
+
+      - name: Check for proptest regressions
+        id: regression-check
+        if: steps.simulation.outcome == 'failure'
+        run: |
+          # Check if proptest-regressions folder has any changes
+          if git diff --name-only | grep -q "proptest-regressions"; then
+            echo "regressions_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "regressions_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit regression files
+        if: steps.simulation.outcome == 'failure' && steps.regression-check.outputs.regressions_found == 'true'
+        run: |
+          git config --global user.name "Propest Bot"
+          git config --global user.email "ci@example.com"
+          git add common/streams/attestation/proptest-regressions/simulation/mod.txt
+          git commit -m "test(simulation) found new bug" || echo "No new files to commit"
 
       - name: Upload coverage report as artifact
         uses: actions/upload-artifact@v7
