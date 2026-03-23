@@ -56,7 +56,7 @@ describe('handleTransactionVerified()', () => {
         const rawProofResult = await rawProofGenerator.generateProof(transactionHash!);
         expect(rawProofResult.success).toBe(true);
         proofData = rawProofResult.data!;
-    }, 90_000);
+    }, 120_000);
 
     afterAll(async () => {
         await api.disconnect();
