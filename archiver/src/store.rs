@@ -42,7 +42,7 @@ impl RootStore {
             .context("failed to apply batch insert")?;
         // Assumes inserts are unique (no overwrites). For backfill over existing
         // entries this may drift slightly, but that's acceptable for a status counter.
-        self.entry_count.fetch_add(roots.len(), Ordering::Relaxed);
+        self.entry_count.fetch_add(roots.len(), Ordering::AcqRel);
         Ok(())
     }
 
@@ -93,7 +93,7 @@ impl RootStore {
 
     /// Return the cached entry count (O(1), updated on each `put_roots` call).
     pub fn count(&self) -> usize {
-        self.entry_count.load(Ordering::Relaxed)
+        self.entry_count.load(Ordering::Acquire)
     }
 
     /// Flush database to disk.
