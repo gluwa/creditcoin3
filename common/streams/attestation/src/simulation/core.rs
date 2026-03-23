@@ -22,7 +22,6 @@ pub struct Simulation {
     start_height: attestor_primitives::Height,
     attestation_prev: attestor_primitives::Height,
     attestation_interval: std::num::NonZero<attestor_primitives::Height>,
-    attestation: attestor_primitives::Height,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
 }
 
@@ -33,7 +32,6 @@ impl std::fmt::Debug for Simulation {
             .field("start_height", &self.start_height)
             .field("attestation_prev", &self.attestation_prev)
             .field("attestation_interval", &self.attestation_interval)
-            .field("attestation_next", &self.attestation)
             .field("max_catchup", &self.max_catchup)
             .finish()
     }
@@ -63,7 +61,7 @@ impl Simulation {
                     // Simulates an attestation finalizing either before or after the previous
                     // attestation
                     let info = stream_util::AttestationInfo {
-                        height: finalized.height(self.attestation, self.attestation_interval),
+                        height: finalized.height(self.attestation_prev, self.attestation_interval),
                         ..Default::default()
                     };
 
@@ -74,7 +72,7 @@ impl Simulation {
             // Polls the attestation stream, applying the state transition
             match tokio_test::task::spawn(self.sut.next()).poll() {
                 std::task::Poll::Ready(Some(Ok(attestation))) => {
-                    self.attestation = attestation.header_number();
+                    self.attestation_prev = attestation.header_number();
                 }
                 std::task::Poll::Ready(Some(Err(err))) => panic!("{err}"),
                 std::task::Poll::Ready(None) => panic!("Attestation stream should be infinite"),
@@ -109,10 +107,9 @@ prop_compose! {
         let (tx_tip, rx_tip) = crate::tests::mock::tip(start_height);
 
         let attestation_prev = stream_util::AttestationInfo {
-            height: start_height.saturating_sub(1) * attestation_interval,
+            height: start_height.saturating_sub(attestation_interval),
             ..Default::default()
         };
-        let attestation = attestation_interval * (attestation_prev.height / attestation_interval + 1);
         let attestation_interval = std::num::NonZero::new(attestation_interval).unwrap();
 
         let max_catchup = std::num::NonZero::new(max_catchup).unwrap();
@@ -139,7 +136,6 @@ prop_compose! {
             start_height,
             attestation_prev: attestation_prev.height,
             attestation_interval,
-            attestation,
             max_catchup,
         }
     }
