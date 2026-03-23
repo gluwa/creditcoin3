@@ -3,9 +3,6 @@ struct Args {
     #[arg(long, default_value_t = url::Url::parse("ws://localhost:8545").unwrap())]
     eth_url: url::Url,
 
-    #[arg(long, default_value_t = url::Url::parse("ws://localhost:9944").unwrap())]
-    cc3_url: url::Url,
-
     #[arg(long, default_value_t = 0)]
     start_height: attestor_primitives::Height,
 
