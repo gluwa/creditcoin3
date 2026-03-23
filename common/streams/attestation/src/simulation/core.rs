@@ -190,8 +190,8 @@ impl SimulationStep {
             2 => Just(Self::Tip(std::task::Poll::Pending)),
             4 => Just(Self::Root(std::task::Poll::Ready(()))),
             4 => Just(Self::Tip(std::task::Poll::Ready(()))),
-            1 => (1..10u64).prop_map(|d| Self::Finalized(Finalized::Before(d))),
-            1 => (0..10u64).prop_map(|d| Self::Finalized(Finalized::After(d))),
+            1 => (0..10u64).prop_map(|d| Self::Finalized(Finalized::Before(d))),
+            1 => (1..10u64).prop_map(|d| Self::Finalized(Finalized::After(d))),
         ]
     }
 }
@@ -199,15 +199,15 @@ impl SimulationStep {
 impl Finalized {
     pub fn height(
         self,
-        attestation_next: attestor_primitives::Height,
+        attestation_prev: attestor_primitives::Height,
         attestation_interval: std::num::NonZero<attestor_primitives::Height>,
     ) -> attestor_primitives::Height {
         match self {
             Finalized::Before(delta) => {
-                attestation_next.saturating_sub(attestation_interval.get() * delta)
+                attestation_prev.saturating_sub(attestation_interval.get() * delta)
             }
             Finalized::After(delta) => {
-                attestation_next.saturating_add(attestation_interval.get() * delta)
+                attestation_prev.saturating_add(attestation_interval.get() * delta)
             }
         }
     }
