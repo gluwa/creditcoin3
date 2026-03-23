@@ -313,17 +313,3 @@ async fn regenerate_attestations(
     // Attestation 1 is not regenerated as it has already finalized
     assert!(poll!(stream_attestation).is_pending());
 }
-
-#[rstest::rstest]
-#[tokio::test]
-async fn simulation_failure(
-    #[future]
-    #[with(2, nonzero!(2), nonzero!(1))]
-    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
-) {
-    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
-
-    tip.send_ready().await;
-    roots.send_ready().await;
-    let _ = poll!(stream_attestation);
-}

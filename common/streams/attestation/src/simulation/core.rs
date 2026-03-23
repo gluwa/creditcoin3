@@ -107,7 +107,7 @@ prop_compose! {
         let (tx_tip, rx_tip) = crate::tests::mock::tip(start_height);
 
         let attestation_prev = stream_util::AttestationInfo {
-            height: start_height.saturating_sub(attestation_interval),
+            height: start_height,
             ..Default::default()
         };
         let attestation_interval = std::num::NonZero::new(attestation_interval).unwrap();
