@@ -7,6 +7,14 @@ import { withTimeout } from "./timeout.ts";
 
 const RPC_TIMEOUT_MS = 30_000;
 
+/** Retries help with transient public-RPC / CI flakes (rate limits, TLS, cold WS). */
+const RPC_HEALTH_MAX_ATTEMPTS = 3;
+const RPC_HEALTH_RETRY_BASE_MS = 1_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function getProvider(rpcUrl: string): JsonRpcProvider | WebSocketProvider {
   if (rpcUrl.startsWith("ws://") || rpcUrl.startsWith("wss://")) {
     return new WebSocketProvider(rpcUrl);
@@ -61,7 +69,7 @@ export async function getBlockNumberByHash(
   }
 }
 
-export async function checkRpcHealthy(rpcUrl: string): Promise<boolean> {
+async function checkRpcHealthyOnce(rpcUrl: string): Promise<boolean> {
   const provider = getProvider(rpcUrl);
   try {
     // Verify connectivity and that the node returns a reasonable block number
@@ -76,4 +84,16 @@ export async function checkRpcHealthy(rpcUrl: string): Promise<boolean> {
   } finally {
     destroyProvider(provider);
   }
+}
+
+/** Returns true if any attempt succeeds. */
+export async function checkRpcHealthy(rpcUrl: string): Promise<boolean> {
+  for (let attempt = 1; attempt <= RPC_HEALTH_MAX_ATTEMPTS; attempt++) {
+    const ok = await checkRpcHealthyOnce(rpcUrl);
+    if (ok) return true;
+    if (attempt < RPC_HEALTH_MAX_ATTEMPTS) {
+      await sleep(RPC_HEALTH_RETRY_BASE_MS * attempt);
+    }
+  }
+  return false;
 }

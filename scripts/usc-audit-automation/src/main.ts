@@ -174,14 +174,18 @@ async function runChecksForChain(
   const attestationInterval = await getAttestationInterval(chainKey);
   const checkpointWidth = checkpointInterval * attestationInterval;
   // Pallet creates checkpoint when attestation_block_span >= (checkpoint_width * 2) + 1
-  // Adds two attestation intervals as buffer for submission/timing variance
-  const maxAllowed = checkpointWidth * 2 + 1 + (attestationInterval * 2);
+  // Extra attestation intervals cover submission/timing variance plus eth RPC vs chain head lag
+  const checkpointLagBufferIntervals = 3;
+  const maxAllowed = checkpointWidth * 2 + 1 +
+    (attestationInterval * checkpointLagBufferIntervals);
   const diff = ethBlock - lastCheckpoint.blockNumber;
   const checkpointRangeOk = diff >= 0 && diff <= maxAllowed;
 
   if (config.verbose && !checkpointRangeOk) {
     console.log(
-      `[${chainLabel}] Checkpoint range: diff=${diff}, maxAllowed=${maxAllowed} (checkpointWidth*2+1+attestationInterval=${checkpointWidth}*2+1+${attestationInterval})`,
+      `[${chainLabel}] Checkpoint range: diff=${diff}, maxAllowed=${maxAllowed} ` +
+        `(checkpointWidth*2+1+attestationInterval*${checkpointLagBufferIntervals}: ` +
+        `${checkpointWidth}*2+1+${attestationInterval}*${checkpointLagBufferIntervals})`,
     );
   }
 
