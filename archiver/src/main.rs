@@ -56,15 +56,12 @@ async fn main() -> Result<()> {
     // ── Determine resume height ─────────────────────────────────────────
     let latest_stored = store.latest_height()?;
 
-    let first_stored = store.first_height()?;
     let start_height = match latest_stored {
         Some(latest) => {
-            let total = first_stored.map(|f| latest - f + 1).unwrap_or(0);
             let resume = latest + 1;
             tracing::info!(
                 stored = latest,
-                first = ?first_stored,
-                total_entries = total,
+                total_entries = store.count(),
                 resuming_from = resume,
                 "resuming from database"
             );
@@ -108,7 +105,7 @@ async fn main() -> Result<()> {
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
-                    .with_finalization_lag(0u64)
+                    .with_finalization_lag(cfg.finalization_lag)
                     .with_max_concurrency(cfg.max_fetch_tasks)
                     .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                     .build();
@@ -168,7 +165,7 @@ async fn main() -> Result<()> {
     let stream_config = stream_eth::roots::ConfigBuilder::new()
         .with_client(ws_client)
         .with_start_height(start_height)
-        .with_finalization_lag(0u64)
+        .with_finalization_lag(cfg.finalization_lag)
         .with_max_concurrency(cfg.max_fetch_tasks)
         .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
         .build();
@@ -281,7 +278,7 @@ async fn main() -> Result<()> {
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)
-                                .with_finalization_lag(0u64)
+                                .with_finalization_lag(cfg.finalization_lag)
                                 .with_max_concurrency(cfg.max_fetch_tasks)
                                 .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                                 .build();

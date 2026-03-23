@@ -57,6 +57,12 @@ pub struct Config {
     #[arg(long, env = "FLUSH_EVERY", default_value = "10000")]
     pub flush_every: NonZeroU64,
 
+    /// Finalization lag: number of blocks behind the chain tip to consider finalized.
+    /// Set to 0 for chains with instant finality. For chains with probabilistic
+    /// finality, set this to the expected number of confirmation blocks.
+    #[arg(long, env = "FINALIZATION_LAG", default_value = "0")]
+    pub finalization_lag: u64,
+
     /// Scan the database for gaps and fill them before resuming normal operation.
     #[arg(long, default_value_t = false)]
     pub backfill: bool,

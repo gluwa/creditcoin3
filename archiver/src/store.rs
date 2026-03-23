@@ -71,14 +71,6 @@ impl RootStore {
         }
     }
 
-    /// Get the first (lowest) stored block height, or None if empty.
-    pub fn first_height(&self) -> Result<Option<u64>> {
-        match self.db.first()? {
-            Some((key, _)) => Ok(Some(parse_height(&key)?)),
-            None => Ok(None),
-        }
-    }
-
     /// Find gaps in the stored block range.
     /// Returns a list of `(start, end)` inclusive ranges that are missing.
     pub fn find_gaps(&self) -> Result<Vec<(u64, u64)>> {
