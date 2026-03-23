@@ -38,6 +38,7 @@ All flags can also be set via environment variables (see below).
 | `--api-bind` | `API_BIND` | `0.0.0.0:8080` | HTTP API bind address |
 | `--flush-every` | `FLUSH_EVERY` | `10000` | Flush database to disk every N blocks |
 | `--backfill` | — | `false` | Scan for gaps and fill them before resuming |
+| `--finalization_lag` | - | 0 | Configurable finalization lag |
 
 A `.env` file in the working directory is loaded automatically.
 
