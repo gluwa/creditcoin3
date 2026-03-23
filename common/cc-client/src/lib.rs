@@ -1,10 +1,5 @@
-use std::str::FromStr;
-
 use serde::Serialize;
-use sp_core::{
-    sr25519::{self},
-    Pair, U256,
-};
+use sp_core::U256;
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
     backend::{
@@ -15,10 +10,7 @@ use subxt::{
     error::RpcError,
     OnlineClient, SubstrateConfig,
 };
-use subxt_signer::{
-    sr25519::{Keypair, Signature},
-    SecretUri,
-};
+use subxt_signer::sr25519::Signature;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
@@ -49,10 +41,10 @@ use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
         with = "::subxt::utils::Static<crate::U256>"
     )
 )]
-
 pub mod cc3 {}
 
 pub mod attestation;
+pub mod signer;
 
 pub type Randomness = [u8; 32];
 
@@ -92,8 +84,7 @@ pub enum Error {
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
 /// - `keypair`: Creditcoin3 keypair
 pub struct Client {
-    pair: sr25519::Pair,
-    signing_keypair: Keypair,
+    signer: signer::CC3Signer,
     rpc: RpcClient,
     api: OnlineClient<SubstrateConfig>,
     legacy: LegacyRpcMethods<SubstrateConfig>,
@@ -112,17 +103,13 @@ impl Client {
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
     pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
-        let secret_uri = SecretUri::from_str(key)?;
-        let signing_keypair = Keypair::from_uri(&secret_uri)?;
-
-        let pair = sr25519::Pair::from_string(key, None)?;
+        let signer = signer::CC3Signer::new(key)?;
         let rpc = RpcClient::from_insecure_url(url.clone().into()).await?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
 
         Ok(Self {
-            pair,
-            signing_keypair,
+            signer,
             rpc,
             api,
             legacy,
@@ -169,7 +156,7 @@ impl Client {
 
     #[must_use]
     pub fn sign(&self, message: &[u8]) -> Signature {
-        self.signing_keypair.sign(message)
+        self.signer.sign(message)
     }
 
     pub async fn get_chain_key(
@@ -323,7 +310,7 @@ impl Client {
             .await?;
 
         match result {
-            Some(result) => Ok(result.contains(&AccountId32(self.signing_keypair.public_key().0))),
+            Some(result) => Ok(result.contains(&self.signer.account_id())),
             None => Ok(false),
         }
     }
@@ -333,7 +320,7 @@ impl Client {
     pub async fn check_attestor_key_is_registered(&self, chain_key: u64) -> Result<bool, Error> {
         let storage_query = cc3::storage()
             .attestation()
-            .attestors(chain_key, AccountId32(self.signing_keypair.public_key().0));
+            .attestors(chain_key, self.signer.account_id());
 
         let result = self
             .api()
@@ -356,7 +343,7 @@ impl Client {
     ) -> Result<Option<AttestorStatus>, Error> {
         let storage_query = cc3::storage()
             .attestation()
-            .attestors(chain_key, AccountId32(self.signing_keypair.public_key().0));
+            .attestors(chain_key, self.signer.account_id());
 
         let result = self
             .api()
@@ -403,7 +390,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
@@ -437,7 +424,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
@@ -473,7 +460,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
@@ -501,7 +488,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .sign_and_submit_then_watch_default(&tx, &self.signing_keypair)
+            .sign_and_submit_then_watch_default(&tx, &self.signer.signing_keypair)
             .await
             .map_err(|e| {
                 if utils::is_fee_error(&e) {
@@ -535,8 +522,8 @@ impl Client {
             committee_set_size as u64,
             u64::from(target_sample_size),
             &randomness,
-            &self.pair,
-            &self.get_attestor_id(),
+            &self.signer.pair,
+            &self.attestor_id(),
             header_number,
             epoch_index,
         )?;
@@ -563,8 +550,8 @@ impl Client {
             committee_set_size as u64,
             target_sample_size,
             &randomness,
-            &self.pair,
-            &self.get_attestor_id(),
+            &self.signer.pair,
+            &self.attestor_id(),
             header_number,
             epoch_index,
         )?;
@@ -573,8 +560,8 @@ impl Client {
     }
 
     #[must_use]
-    pub fn get_attestor_id(&self) -> AttestorId {
-        AttestorId::from_public(self.signing_keypair.public_key().0)
+    pub fn attestor_id(&self) -> AttestorId {
+        self.signer.attestor_id()
     }
 
     pub async fn chain_attestation_interval(
@@ -840,7 +827,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
@@ -879,7 +866,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
@@ -910,7 +897,7 @@ impl Client {
         let nonce = self
             .api()
             .tx()
-            .account_nonce(&AccountId32(self.signing_keypair.public_key().0))
+            .account_nonce(&self.signer.account_id())
             .await?;
 
         Ok(nonce)
@@ -957,7 +944,7 @@ impl Client {
         let ext = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await?;

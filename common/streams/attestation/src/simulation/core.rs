@@ -86,10 +86,7 @@ prop_compose! {
     /// See the [Proptest Book] for more information on input generation and shrinking.
     ///
     /// [Proptest Book]: https://proptest-rs.github.io/proptest/intro.html
-    pub fn simulation(
-        cc3_url: url::Url,
-    )(
-        cc3_url in Just(cc3_url),
+    pub fn simulation()(
         attestation_interval in 1..750u64,
         start_height in 0..100u64,
         max_catchup in 1..500u64,
@@ -99,9 +96,8 @@ prop_compose! {
 
         let secret = bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret");
         let bls_key = bls_signatures::PrivateKey::new(secret.to_string().as_bytes());
-        let client_cc3 =
-            tokio_test::block_on(cc_client::Client::new(cc3_url, &secret.to_string()))
-                .expect("Failed to create cc3 client");
+        let signer = cc_client::signer::CC3Signer::new(&secret.to_string())
+            .expect("Failed to create cc3 signer");
 
         let (tx_roots, rx_roots) = crate::tests::mock::roots(start_height);
         let (tx_tip, rx_tip) = crate::tests::mock::tip(start_height);
@@ -115,7 +111,7 @@ prop_compose! {
         let max_catchup = std::num::NonZero::new(max_catchup).unwrap();
 
         let config = crate::ConfigBuilder::new()
-            .with_cc3(client_cc3)
+            .with_signer(signer)
             .with_chain_key(2u64)
             .with_bls_key(bls_key)
             .with_stream_roots(rx_roots.boxed())
