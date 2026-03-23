@@ -1,3 +1,8 @@
+//! Mock implementations of the [eth root stream] and the [eth tip stream] for use in testing.
+//!
+//! [eth root stream]: stream_eth::StreamRoots
+//! [eth tip stream]: stream_eth::StreamTip
+
 pub struct RootSender {
     tx: futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
 }
@@ -19,6 +24,7 @@ pub fn roots(start_height: attestor_primitives::Height) -> (RootSender, RootRece
 }
 
 impl RootSender {
+    #[cfg(feature = "simulation")]
     pub async fn send(&mut self, poll: std::task::Poll<()>) {
         use futures::SinkExt as _;
         self.tx.send(poll).await.unwrap();
@@ -29,6 +35,7 @@ impl RootSender {
         self.tx.send(std::task::Poll::Ready(())).await.unwrap();
     }
 
+    #[allow(unused)]
     pub async fn send_pending(&mut self) {
         use futures::SinkExt as _;
         self.tx.send(std::task::Poll::Pending).await.unwrap();
@@ -80,6 +87,7 @@ pub fn tip(start_height: attestor_primitives::Height) -> (TipSender, TipReceiver
 }
 
 impl TipSender {
+    #[cfg(feature = "simulation")]
     pub async fn send(&mut self, poll: std::task::Poll<()>) {
         use futures::SinkExt as _;
         self.tx.send(poll).await.unwrap();
@@ -90,6 +98,7 @@ impl TipSender {
         self.tx.send(std::task::Poll::Ready(())).await.unwrap();
     }
 
+    #[allow(unused)]
     pub async fn send_pending(&mut self) {
         use futures::SinkExt as _;
         self.tx.send(std::task::Poll::Pending).await.unwrap();
