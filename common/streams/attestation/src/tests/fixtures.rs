@@ -20,8 +20,6 @@ pub async fn attestations(
     #[default(nonzero!(10))] attestation_interval: std::num::NonZero<attestor_primitives::Height>,
     #[default(nonzero!(50))] max_catchup: std::num::NonZero<attestor_primitives::Height>,
 
-    #[default("ws://localhost:9944".parse().unwrap())] cc3_url: url::Url,
-
     #[future]
     #[with(start_height)]
     roots: (super::mock::RootSender, super::mock::RootReceiver),
@@ -38,8 +36,7 @@ pub async fn attestations(
 
     let secret = bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret");
     let bls_key = bls_signatures::PrivateKey::new(secret.to_string().as_bytes());
-    let client_cc3 = cc_client::Client::new(cc3_url, &secret.to_string())
-        .await
+    let signer = cc_client::signer::CC3Signer::new(&secret.to_string())
         .expect("Failed to create cc3 client");
 
     let (permit_roots, stream_roots) = roots.await;
@@ -51,7 +48,7 @@ pub async fn attestations(
     };
 
     let config = crate::ConfigBuilder::new()
-        .with_cc3(client_cc3)
+        .with_signer(signer)
         .with_chain_key(2u64)
         .with_bls_key(bls_key)
         .with_stream_roots(stream_roots.boxed())

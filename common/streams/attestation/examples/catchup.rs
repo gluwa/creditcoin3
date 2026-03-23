@@ -54,9 +54,8 @@ fn main() {
             .await
             .expect("Failed to create eth client");
 
-        let client_cc3 = cc_client::Client::new(args.cc3_url, &secret.to_string())
-            .await
-            .expect("Failed to create cc3 client");
+        let signer = cc_client::signer::CC3Signer::new(&secret.to_string())
+            .expect("Failed to create cc3 signer");
 
         let start_height =
             args.start_height - (args.start_height % args.attestation_interval.get());
@@ -83,7 +82,7 @@ fn main() {
             .boxed();
 
         let config = stream_attestation::ConfigBuilder::new()
-            .with_cc3(client_cc3)
+            .with_signer(signer)
             .with_chain_key(2u64)
             .with_bls_key(bls_key)
             .with_stream_roots(stream_roots)
