@@ -211,7 +211,8 @@ describe('Precompile: Ed25519Verifier.verify()', (): void => {
 
             // Tamper with the signature (flip a bit)
             const tamperedSignature = new Uint8Array(signature);
-            tamperedSignature[0] = 0x01;
+            // eslint-disable-next-line no-bitwise
+            tamperedSignature[0] ^= 0x01;
 
             // Convert to hex strings
             const messageHex = u8aToHex(messageBytes);
