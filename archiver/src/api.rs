@@ -44,16 +44,10 @@ struct StatusResponse {
 
 async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let latest = state.store.latest_height().ok().flatten();
-    let first = state.store.first_height().ok().flatten();
-
-    let total = match (first, latest) {
-        (Some(f), Some(l)) => (l - f + 1) as usize,
-        _ => 0,
-    };
 
     Json(StatusResponse {
         latest_archived_block: latest,
-        total_blocks: total,
+        total_blocks: state.store.count(),
     })
 }
 

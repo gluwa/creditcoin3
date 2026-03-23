@@ -98,6 +98,11 @@ impl RootStore {
         Ok(gaps)
     }
 
+    /// Return the actual number of stored entries (gap-aware).
+    pub fn count(&self) -> usize {
+        self.db.len()
+    }
+
     /// Flush database to disk.
     pub async fn flush(&self) -> Result<()> {
         self.db.flush_async().await?;
