@@ -5,6 +5,7 @@ const config: Config.InitialOptions = {
     testEnvironment: 'node',
     testTimeout: 30_000,
     globalSetup: './cc3-indexer-tests/globalSetup.ts',
+    testSequencer: './alphabeticalSequencer.js',
 };
 
 export default config;
