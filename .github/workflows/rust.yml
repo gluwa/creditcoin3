@@ -244,7 +244,6 @@ jobs:
             --features simulation \
             -p stream_attestation \
             simulate
-        continue-on-error: true
 
       - name: Check for proptest regressions
         id: regression-check
@@ -264,6 +263,7 @@ jobs:
           git config --global user.email "ci@example.com"
           git add common/streams/attestation/proptest-regressions/simulation/mod.txt
           git commit -m "test(simulation) found new bug" || echo "No new files to commit"
+          git push origin
 
       - name: Upload coverage report as artifact
         uses: actions/upload-artifact@v7
