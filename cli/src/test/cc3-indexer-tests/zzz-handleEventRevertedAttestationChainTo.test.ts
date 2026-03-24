@@ -1,6 +1,6 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
-import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
+import { chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { forElapsedBlocks } from '../utils';
 import { graphQLQuery } from './common';
 
@@ -12,7 +12,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
     let checkpointHeightToRevertTo: bigint;
     let checkpointDigestToRevertTo: string;
     let laterCheckpointHeight: bigint;
-    const chainKey = BigInt(chain_Anvil1_Key);
+    const chainKey = BigInt(chain_Anvil3_Key);
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
