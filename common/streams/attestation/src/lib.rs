@@ -160,6 +160,8 @@ impl StreamAttestation {
                 }
             }
         }
+
+        panic!("Testing simulation failure");
     }
 
     /// Generates an attestation with no previous digest.
