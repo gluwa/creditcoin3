@@ -110,7 +110,7 @@ impl Client {
         let signing_keypair = Keypair::from_uri(&secret_uri)?;
 
         let pair = sr25519::Pair::from_string(key, None)?;
-        let rpc = RpcClient::from_url(url.clone().into()).await?;
+        let rpc = RpcClient::from_insecure_url(url.clone().into()).await?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
 
