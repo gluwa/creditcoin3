@@ -4,7 +4,6 @@ pub mod stream;
 pub mod worker;
 
 mod error;
-mod events;
 
 pub use error::Error;
 
@@ -628,7 +627,6 @@ impl Attestor {
         sender_p2p: &tokio::sync::broadcast::Sender<common::types::Attestation>,
     ) -> Result<common::types::AttestationInfo, Interrupt<Error>> {
         use anyhow::Context as _;
-        use events::EventAttestationFinalization as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
@@ -691,12 +689,11 @@ impl Attestor {
             }
         };
 
-        stream_attestation
-            .note_attestation_finalization(attestation_latest_cc3)
-            .expect("Infallible");
-        sender_validation
-            .note_attestation_finalization(attestation_latest_cc3)
-            .expect("Infallible");
+        stream_attestation.note_attestation_finalization(attestation_latest_cc3);
+
+        if let Err(err) = sender_validation.note_attestation_finalization(attestation_latest_cc3) {
+            err.log_error(attestation_latest_cc3.digest);
+        }
 
         Ok(attestation_latest_cc3)
     }

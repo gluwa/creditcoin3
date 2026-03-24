@@ -268,11 +268,6 @@ impl WorkerAttestationProduction {
         &mut self,
         mut events: crate::stream::cc3::StreamEvents,
     ) -> Result<(), Interrupt<Error>> {
-        use crate::events::EventAttestationFinalization as _;
-        use crate::events::EventAttestationIntervalChange as _;
-        use crate::events::EventAttestorsElected as _;
-        use crate::events::EventRevertedAttestationChainTo as _;
-        use crate::events::EventRevertedAttestationChainToAsync as _;
         use futures::TryStreamExt as _;
 
         while let Some(event) = events.try_next().await.map_interrupt(Error::CC3)? {
@@ -297,8 +292,7 @@ impl WorkerAttestationProduction {
                         // This is ensure that we keep producing new attestation starting from the
                         // latest finalized on-chain attestation.
                         self.stream_attestation
-                            .note_attestation_finalization(attestation_latest_cc3)
-                            .expect("Infallible");
+                            .note_attestation_finalization(attestation_latest_cc3);
 
                         // 2. Update the attestation pool
                         //
@@ -309,9 +303,12 @@ impl WorkerAttestationProduction {
                         // here and also update the target block height (if necessary, it is also
                         // possible that we are in advance of the execution chain in which case we do
                         // not want to update the target height and this a no-op).
-                        self.sender_validation
+                        if let Err(err) = self
+                            .sender_validation
                             .note_attestation_finalization(attestation_latest_cc3)
-                            .expect("Infallible");
+                        {
+                            err.log_error(attestation_latest_cc3.digest);
+                        };
 
                         // 5. Metrics
                         //
@@ -348,16 +345,14 @@ impl WorkerAttestationProduction {
                     //
                     // Catchup to the new target height and update the attestation interval.
                     self.stream_attestation
-                        .note_attestation_interval_change(interval, attestation_latest_cc3)
-                        .expect("Infallible");
+                        .note_attestation_interval_change(interval, attestation_latest_cc3);
 
                     // 2. Attestation pool
                     //
                     // Update quorum validation to expect the new target height and attestation
                     // interval.
                     self.sender_validation
-                        .note_attestation_interval_change(interval, attestation_latest_cc3)
-                        .expect("Infallible");
+                        .note_attestation_interval_change(interval);
 
                     // 3. Production
                     //
@@ -419,9 +414,7 @@ impl WorkerAttestationProduction {
                     // 2. Attestor validation
                     //
                     // Update the set of legal attestors in the attestation pool.
-                    self.sender_validation
-                        .note_attestors_elected(attestors)
-                        .expect("Infallible");
+                    self.sender_validation.note_attestors_elected(attestors);
                 }
 
                 // CASE 7] ATTESTOR ACTIVATION
@@ -483,15 +476,14 @@ impl WorkerAttestationProduction {
                     //
                     // Upon chain reversion, we clear all pending attestations in the attestation pool.
                     self.sender_validation
-                        .note_attestation_chain_reversion(attestation_latest_cc3)
-                        .expect("Infallible");
+                        .note_attestation_chain_reversion(attestation_latest_cc3);
 
                     // 2. Update the attestation production stream
                     //
                     // This ensures that we keep producing new attestations starting from the
                     // revert height.
                     self.stream_attestation
-                        .note_attestation_chain_reversion_async(attestation_latest_cc3)
+                        .note_attestation_chain_reversion(attestation_latest_cc3)
                         .await
                         .map_interrupt(Error::Attestation)?;
                 }

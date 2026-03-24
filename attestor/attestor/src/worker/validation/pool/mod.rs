@@ -1042,15 +1042,11 @@ impl AttestationPoolForks {
         // If no space could be made, we do not insert the new vote.
         Err(())
     }
-}
 
-impl crate::events::EventAttestationFinalizationAsync for AttestationPoolForks {
-    type Error = Error;
-
-    async fn note_attestation_finalization_async(
+    fn note_attestation_finalization(
         &mut self,
         info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), Error> {
         tracing::debug!("Updating forks");
 
         self.split_off(info.height);
@@ -1130,19 +1126,11 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolForks {
 
         Ok(())
     }
-}
-impl crate::events::EventAttestationFinalization for AttestationPoolForks {}
 
-impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolForks {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_interval_change_async(
+    fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: common::types::Height,
-    ) -> Result<(), Self::Error> {
-        use crate::events::EventAttestationIntervalChange as _;
-
+    ) {
         tracing::debug!("Updating forks");
 
         self.forks_by_digest.clear();
@@ -1160,21 +1148,10 @@ impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolForks
         self.quorums_by_height.clear();
 
         self.validate_quorum
-            .note_attestation_interval_change(interval_new, attestation_latest_cc3)
-            .expect("Infallible");
-
-        Ok(())
+            .note_attestation_interval_change(interval_new);
     }
-}
-impl crate::events::EventAttestationIntervalChange for AttestationPoolForks {}
 
-impl crate::events::EventRevertedAttestationChainToAsync for AttestationPoolForks {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_chain_reversion_async(
-        &mut self,
-        info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
+    fn note_attestation_chain_reversion(&mut self, info: common::types::AttestationInfo) {
         tracing::debug!("Clearing forks");
 
         self.forks_by_digest.clear();
@@ -1192,11 +1169,8 @@ impl crate::events::EventRevertedAttestationChainToAsync for AttestationPoolFork
         self.quorums_by_height.clear();
 
         self.last_finalized_digest = Some(info.digest);
-
-        Ok(())
     }
 }
-impl crate::events::EventRevertedAttestationChainTo for AttestationPoolForks {}
 
 struct AttestationPoolValid {
     quorums_valid: std::collections::BTreeMap<
@@ -1243,52 +1217,23 @@ impl AttestationPoolValid {
             .pop_last()
             .map(|(_height, (att, votes))| (att.header_number(), att.digest(), att.into(), votes))
     }
-}
 
-impl crate::events::EventAttestationFinalizationAsync for AttestationPoolValid {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_finalization_async(
-        &mut self,
-        info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
+    fn note_attestation_finalization(&mut self, info: common::types::AttestationInfo) {
         tracing::debug!("Updating known quorums");
 
         let split = info.height.saturating_add(1);
         let after = self.quorums_valid.split_off(&split);
         let _removed = std::mem::replace(&mut self.quorums_valid, after);
-
-        Ok(())
     }
-}
-impl crate::events::EventAttestationFinalization for AttestationPoolValid {}
 
-impl crate::events::EventRevertedAttestationChainToAsync for AttestationPoolValid {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_chain_reversion_async(
-        &mut self,
-        _info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
+    fn note_attestation_chain_reversion(&mut self) {
         self.quorums_valid.clear();
-        Ok(())
     }
-}
-impl crate::events::EventRevertedAttestationChainTo for AttestationPoolValid {}
 
-impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolValid {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_interval_change_async(
-        &mut self,
-        _interval_new: std::num::NonZero<common::types::Height>,
-        _attestation_latest_cc3: common::types::Height,
-    ) -> Result<(), Self::Error> {
+    fn note_attestation_interval_change(&mut self) {
         self.quorums_valid.clear();
-        Ok(())
     }
 }
-impl crate::events::EventAttestationIntervalChange for AttestationPoolValid {}
 
 struct AttestationPoolDelays {
     time: std::collections::BTreeMap<common::types::Height, std::time::Instant>,
@@ -1312,15 +1257,8 @@ impl AttestationPoolDelays {
     fn pop(&mut self, height: common::types::Height) -> Option<std::time::Duration> {
         self.time.remove(&height).map(|then| then.elapsed())
     }
-}
 
-impl crate::events::EventAttestationFinalizationAsync for AttestationPoolDelays {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_finalization_async(
-        &mut self,
-        info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
+    fn note_attestation_finalization(&mut self, info: common::types::AttestationInfo) {
         tracing::debug!("Updating quorum delays");
         let mut removed = self.time.split_off(&(info.height.saturating_add(1)));
         std::mem::swap(&mut removed, &mut self.time);
@@ -1329,40 +1267,18 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolDelays 
             self.metrics
                 .update_attestation_delay_finalization(then.elapsed());
         }
-
-        Ok(())
     }
-}
-impl crate::events::EventAttestationFinalization for AttestationPoolDelays {}
 
-impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolDelays {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_interval_change_async(
-        &mut self,
-        _interval_new: std::num::NonZero<common::types::Height>,
-        _attestation_latest_cc3: common::types::Height,
-    ) -> Result<(), Self::Error> {
+    fn note_attestation_interval_change(&mut self) {
         tracing::debug!("Updating quorum delays");
         self.time.clear();
-        Ok(())
     }
-}
-impl crate::events::EventAttestationIntervalChange for AttestationPoolDelays {}
 
-impl crate::events::EventRevertedAttestationChainToAsync for AttestationPoolDelays {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_chain_reversion_async(
-        &mut self,
-        _info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
+    fn note_attestation_chain_reversion(&mut self) {
         tracing::debug!("Updating quorum delays");
         self.time.clear();
-        Ok(())
     }
 }
-impl crate::events::EventRevertedAttestationChainTo for AttestationPoolDelays {}
 
 // ----------------------------------- [ Attestation Sender ] ---------------------------------- //
 
@@ -1423,9 +1339,7 @@ impl AttestationPoolSender {
 
 // ----------------------------------------- [ Events ] ---------------------------------------- //
 
-impl crate::events::EventAttestationFinalizationAsync for AttestationPoolSender {
-    type Error = std::convert::Infallible;
-
+impl AttestationPoolSender {
     /// A new attestation has reached finality on the execution chain.
     ///
     /// Remove all attestations _up to and including_ that attestation height from the inner
@@ -1435,39 +1349,23 @@ impl crate::events::EventAttestationFinalizationAsync for AttestationPoolSender 
         fields(digest = ?info.digest, height = info.height),
         level = "debug"
     )]
-    async fn note_attestation_finalization_async(
+    pub fn note_attestation_finalization(
         &mut self,
         info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
-        use crate::events::EventAttestationFinalization as _;
-
+    ) -> Result<(), Error> {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             // Updating the inner pool
-            inner
-                .forks
-                .note_attestation_finalization(info)
-                .expect("Infallible");
+            inner.forks.note_attestation_finalization(info)?;
 
             // Remove past quorums
-            inner
-                .valid
-                .note_attestation_finalization(info)
-                .expect("Infallible");
+            inner.valid.note_attestation_finalization(info);
 
             // Update metrics
-            inner
-                .attestation_delay
-                .note_attestation_finalization(info)
-                .expect("Infallible");
+            inner.attestation_delay.note_attestation_finalization(info);
         }
 
         Ok(())
     }
-}
-impl crate::events::EventAttestationFinalization for AttestationPoolSender {}
-
-impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolSender {
-    type Error = std::convert::Infallible;
 
     /// A new attestation interval has been set on-chain.
     //
@@ -1475,45 +1373,25 @@ impl crate::events::EventAttestationIntervalChangeAsync for AttestationPoolSende
     // interval.
     #[tracing::instrument(
         skip_all,
-        fields(interval = interval_new, height = attestation_latest_cc3),
+        fields(interval = interval_new),
         level = "debug"
     )]
-    async fn note_attestation_interval_change_async(
+    pub fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        attestation_latest_cc3: common::types::Height,
-    ) -> Result<(), Self::Error> {
-        use crate::events::EventAttestationIntervalChange as _;
-
+    ) {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             inner.digest_local = None;
             // Updating the inner pool
-            inner
-                .forks
-                .note_attestation_interval_change(interval_new, attestation_latest_cc3)
-                .expect("Infallible");
+            inner.forks.note_attestation_interval_change(interval_new);
 
             // Updating quorums
-            inner
-                .valid
-                .note_attestation_interval_change(interval_new, attestation_latest_cc3)
-                .expect("Infallible");
+            inner.valid.note_attestation_interval_change();
 
             // Update metrics
-            inner
-                .attestation_delay
-                .note_attestation_interval_change(interval_new, attestation_latest_cc3)
-                .expect("Infallible");
+            inner.attestation_delay.note_attestation_interval_change();
         }
-
-        Ok(())
     }
-}
-impl crate::events::EventAttestationIntervalChange for AttestationPoolSender {}
-
-// Handling in response to execution chain events.
-impl crate::events::EventAttestorsElectedAsync for AttestationPoolSender {
-    type Error = std::convert::Infallible;
 
     #[tracing::instrument(
         skip_all,
@@ -1531,22 +1409,12 @@ impl crate::events::EventAttestorsElectedAsync for AttestationPoolSender {
         )
         level = "debug"
     )]
-    async fn note_attestors_elected_async(
-        &mut self,
-        attestors: Vec<cc_client::AccountId32>,
-    ) -> Result<(), Self::Error> {
+    pub fn note_attestors_elected(&mut self, attestors: Vec<cc_client::AccountId32>) {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             tracing::warn!("🗂️ Updating the attestor set");
             inner.validate_attestor = ValidateAttestor::new(attestors);
         }
-
-        Ok(())
     }
-}
-impl crate::events::EventAttestorsElected for AttestationPoolSender {}
-
-impl crate::events::EventRevertedAttestationChainToAsync for AttestationPoolSender {
-    type Error = std::convert::Infallible;
 
     /// An attestation chain reversion has been detected.
     /// We need to clear the structures `forks`, `valid`, and `attestation_delay`
@@ -1555,38 +1423,21 @@ impl crate::events::EventRevertedAttestationChainToAsync for AttestationPoolSend
         fields(digest = ?info.digest, height = info.height),
         level = "debug"
     )]
-    async fn note_attestation_chain_reversion_async(
-        &mut self,
-        info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
-        use crate::events::EventRevertedAttestationChainTo as _;
-
+    pub fn note_attestation_chain_reversion(&mut self, info: common::types::AttestationInfo) {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             // Clear digest local, as it no longer tracks a valid new attestation
             inner.digest_local = None;
             // Updating the inner pool
-            inner
-                .forks
-                .note_attestation_chain_reversion(info)
-                .expect("Infallible");
+            inner.forks.note_attestation_chain_reversion(info);
 
             // Remove past quorums
-            inner
-                .valid
-                .note_attestation_chain_reversion(info)
-                .expect("Infallible");
+            inner.valid.note_attestation_chain_reversion();
 
             // Update metrics
-            inner
-                .attestation_delay
-                .note_attestation_chain_reversion(info)
-                .expect("Infallible");
+            inner.attestation_delay.note_attestation_chain_reversion();
         }
-
-        Ok(())
     }
 }
-impl crate::events::EventRevertedAttestationChainTo for AttestationPoolSender {}
 
 impl Clone for AttestationPoolSender {
     fn clone(&self) -> Self {
@@ -1868,22 +1719,15 @@ impl ValidateQuorum {
 
         attestation.signers.len() >= self.target_quorum.into()
     }
-}
 
-impl crate::events::EventAttestationIntervalChangeAsync for ValidateQuorum {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_interval_change_async(
+    fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        _attestation_latest_cc3: common::types::Height,
-    ) -> Result<(), Self::Error> {
+    ) {
         tracing::debug!("Updating quorum validation");
         self.attestation_interval = interval_new;
-        Ok(())
     }
 }
-impl crate::events::EventAttestationIntervalChange for ValidateQuorum {}
 
 // ----------------------------------- [ Attestor Validation ] --------------------------------- //
 
@@ -2305,8 +2149,6 @@ mod test {
         attestation_pending: AttestationVote,
         config: Config,
     ) {
-        use crate::events::EventAttestationFinalization as _;
-
         let (mut sx, rx) = attestation_pool(config);
 
         assert!(sx
@@ -2785,7 +2627,6 @@ mod test {
         #[with(_quorum_validate.clone(), 5)]
         config: Config,
     ) {
-        use crate::events::EventRevertedAttestationChainTo as _;
         use futures::stream::StreamExt as _;
 
         let (mut sx, mut rx) = attestation_pool(config);
@@ -2904,7 +2745,7 @@ mod test {
             digest: DIGEST_1,
         };
 
-        sx.note_attestation_chain_reversion(reversion_info).unwrap();
+        sx.note_attestation_chain_reversion(reversion_info);
 
         {
             let mut pool = rx.common.pool.lock();

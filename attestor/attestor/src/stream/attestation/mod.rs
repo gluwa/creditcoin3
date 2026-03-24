@@ -803,16 +803,9 @@ impl CacheRoots {
 
 // ----------------------------------------- [ Events ] ---------------------------------------- //
 
-impl crate::events::EventAttestationFinalizationAsync for StreamAttestation {
-    type Error = ();
-
+impl StreamAttestation {
     #[tracing::instrument(skip_all, fields(height = info.height, digest = %info.digest))]
-    async fn note_attestation_finalization_async(
-        &mut self,
-        info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
-        use crate::events::EventAttestationFinalization as _;
-
+    pub fn note_attestation_finalization(&mut self, info: common::types::AttestationInfo) {
         let interval_attestation = self.interval_attestation.get();
         let height = info.height - (info.height % interval_attestation);
 
@@ -830,104 +823,22 @@ impl crate::events::EventAttestationFinalizationAsync for StreamAttestation {
             waker.wake();
         }
 
-        self.continuity
-            .note_attestation_finalization(info)
-            .expect("Infallible");
-
-        Ok(())
+        self.continuity.note_attestation_finalization(info)
     }
-}
-impl crate::events::EventAttestationFinalization for StreamAttestation {}
 
-impl crate::events::EventAttestationFinalizationAsync for CacheContinuity {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_finalization_async(
-        &mut self,
-        info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
-        use crate::events::EventAttestationFinalization as _;
-
-        tracing::debug!("Updating continuity cache");
-
-        self.cache.clear();
-
-        if info.height >= self.roots.boundary {
-            self.prev_digest = info.digest;
-        }
-
-        self.roots
-            .note_attestation_finalization(info)
-            .expect("Infallible");
-
-        Ok(())
-    }
-}
-impl crate::events::EventAttestationFinalization for CacheContinuity {}
-
-impl crate::events::EventAttestationFinalizationAsync for CacheRoots {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_finalization_async(
-        &mut self,
-        info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
-        tracing::debug!("Updating roots cache");
-
-        if !self.cache.is_empty() {
-            let height_first = self.cache.first().unwrap().block.number();
-
-            if info.height >= height_first {
-                let index_stop =
-                    (info.height as usize - height_first as usize + 1).min(self.cache.len());
-
-                let removed_last = self
-                    .cache
-                    .drain(0..index_stop)
-                    .next_back()
-                    .unwrap()
-                    .block
-                    .number();
-
-                assert!(
-                    removed_last <= info.height,
-                    "{removed_last} <= {}",
-                    info.height
-                );
-
-                self.boundary = info.height.saturating_add(1);
-            }
-        } else {
-            self.boundary = info.height.saturating_add(1);
-        }
-
-        Ok(())
-    }
-}
-impl crate::events::EventAttestationFinalization for CacheRoots {}
-
-impl crate::events::EventAttestationIntervalChangeAsync for StreamAttestation {
-    type Error = std::convert::Infallible;
-
-    async fn note_attestation_interval_change_async(
+    pub fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
         _attestation_latest_cc3: common::types::Height,
-    ) -> Result<(), Self::Error> {
+    ) {
         self.interval_attestation = interval_new;
-        Ok(())
     }
-}
-impl crate::events::EventAttestationIntervalChange for StreamAttestation {}
-
-impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
-    type Error = Interrupt<Error>;
 
     #[tracing::instrument(skip_all, fields(height = info.height, digest = %info.digest))]
-    async fn note_attestation_chain_reversion_async(
+    pub async fn note_attestation_chain_reversion(
         &mut self,
         info: common::types::AttestationInfo,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), Interrupt<Error>> {
         use futures::StreamExt as _;
 
         tracing::info!(
@@ -939,22 +850,22 @@ impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
         let client_eth = match &self.eth_transport {
             eth::ConnectionTransport::Http(url) => eth::Client::new(url.as_ref(), None)
                 .await
-                .map_err(|e| Interrupt::Cont(Error::ReInitError(e.to_string())))?,
+                .map_interrupt(|e| Error::ReInitError(e.to_string()))?,
             eth::ConnectionTransport::Ws(ws_connect) => {
                 eth::Client::new(ws_connect.url.as_ref(), None)
                     .await
-                    .map_err(|e| Interrupt::Cont(Error::ReInitError(e.to_string())))?
+                    .map_interrupt(|e| Error::ReInitError(e.to_string()))?
             }
         };
 
         let mut stream = client_eth
             .subscribe()
             .await
-            .map_err(|e| Interrupt::Cont(Error::ReInitError(e.to_string())))?;
+            .map_interrupt(|e| Error::ReInitError(e.to_string()))?;
         let next = stream
             .next()
             .await
-            .ok_or(Interrupt::Cont(Error::StreamError))?
+            .ok_interrupt(Error::StreamError)?
             .number
             .saturating_sub(self.maturity_delay);
 
@@ -995,5 +906,52 @@ impl crate::events::EventRevertedAttestationChainToAsync for StreamAttestation {
         }
 
         Ok(())
+    }
+}
+
+impl CacheContinuity {
+    fn note_attestation_finalization(&mut self, info: common::types::AttestationInfo) {
+        tracing::debug!("Updating continuity cache");
+
+        self.cache.clear();
+
+        if info.height >= self.roots.boundary {
+            self.prev_digest = info.digest;
+        }
+
+        self.roots.note_attestation_finalization(info)
+    }
+}
+
+impl CacheRoots {
+    fn note_attestation_finalization(&mut self, info: common::types::AttestationInfo) {
+        tracing::debug!("Updating roots cache");
+
+        if !self.cache.is_empty() {
+            let height_first = self.cache.first().unwrap().block.number();
+
+            if info.height >= height_first {
+                let index_stop =
+                    (info.height as usize - height_first as usize + 1).min(self.cache.len());
+
+                let removed_last = self
+                    .cache
+                    .drain(0..index_stop)
+                    .next_back()
+                    .unwrap()
+                    .block
+                    .number();
+
+                assert!(
+                    removed_last <= info.height,
+                    "{removed_last} <= {}",
+                    info.height
+                );
+
+                self.boundary = info.height.saturating_add(1);
+            }
+        } else {
+            self.boundary = info.height.saturating_add(1);
+        }
     }
 }
