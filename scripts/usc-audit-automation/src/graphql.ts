@@ -129,7 +129,7 @@ export async function queryAttestation(
         if (!lastResult.checkpoint) missing.push("checkpoint");
         console.warn(
           `⚠️ GraphQL indexer: ${missing.join(" and ")} not found yet ` +
-          `(attempt ${attempt}/${GRAPHQL_RETRY_ATTEMPTS}), retrying in ${GRAPHQL_RETRY_DELAY_MS}ms...`,
+            `(attempt ${attempt}/${GRAPHQL_RETRY_ATTEMPTS}), retrying in ${GRAPHQL_RETRY_DELAY_MS}ms...`,
         );
         await sleep(GRAPHQL_RETRY_DELAY_MS);
       }
