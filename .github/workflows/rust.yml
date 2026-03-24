@@ -203,6 +203,7 @@ jobs:
         "workflow-${{ github.run_id }}",
         "proxy-unit-test-creditcoin",
       ]
+    permissions: write-all
     steps:
       - uses: actions/checkout@v6
 
@@ -247,7 +248,7 @@ jobs:
 
       - name: Check for proptest regressions
         id: regression-check
-        if: steps.simulation.outcome == 'failure'
+        if: always()
         run: |
           # Check if proptest-regressions folder has any changes
           if git diff --name-only | grep -q "proptest-regressions"; then
@@ -257,13 +258,15 @@ jobs:
           fi
 
       - name: Commit regression files
-        if: steps.simulation.outcome == 'failure' && steps.regression-check.outputs.regressions_found == 'true'
-        run: |
-          git config --global user.name "Propest Bot"
-          git config --global user.email "ci@example.com"
-          git add common/streams/attestation/proptest-regressions/simulation/mod.txt
-          git commit -m "test(simulation) found new bug" || echo "No new files to commit"
-          git push origin
+        uses: EndBug/add-and-commit@v10
+        if: steps.regression-check.outputs.regressions_found == 'true'
+        with:
+          push: true
+          add: common/streams/attestation/proptest-regressions/simulation/mod.txt
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "test(simulation): found new bug"
+          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
       - name: Upload coverage report as artifact
         uses: actions/upload-artifact@v7
