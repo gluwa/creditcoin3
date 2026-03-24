@@ -349,6 +349,7 @@ async function main(): Promise<void> {
       config.healthPort,
       getHealthStatus,
       getMetrics,
+      () => uniqueErrors.clear(),
     );
 
     // Create subscribers
