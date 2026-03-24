@@ -17,7 +17,6 @@ updates:
   - package-ecosystem: "docker"
     directories:
       - "/"
-      - "/archiver"
       - "/cc3-indexer"
       - "/cc3-indexer/postgres"
       - "/proof-gen-api-server"
