@@ -240,6 +240,23 @@ async function main(): Promise<void> {
 
       await sendHourlyReport(report, slackConfig);
       console.log("✅ Report sent to Slack");
+
+      // Reset unique errors so the next report only shows new errors
+      try {
+        const resetUrl = new URL("/reset-errors", simulatorUrl);
+        const resetResponse = await fetch(resetUrl.toString(), {
+          method: "POST",
+        });
+        if (resetResponse.ok) {
+          console.log("🔄 Unique errors reset for next reporting period");
+        } else {
+          console.warn(
+            `⚠️  Failed to reset errors: ${resetResponse.status} ${resetResponse.statusText}`,
+          );
+        }
+      } catch (resetError) {
+        console.warn("⚠️  Failed to reset errors:", resetError);
+      }
     } else {
       console.log(
         `ℹ️  No previous snapshot found, skipping report ` +
