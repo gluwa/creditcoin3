@@ -2,6 +2,11 @@
  * Promise timeout helper to prevent indefinite hangs.
  */
 
+/** Resolve after `ms` milliseconds (for retries, backoff, etc.). */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function withTimeout<T>(
   promise: Promise<T>,
   ms: number,

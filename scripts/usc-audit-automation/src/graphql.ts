@@ -6,15 +6,12 @@
  */
 
 import { fetchWithTimeout } from "./fetch.ts";
+import { sleep } from "./timeout.ts";
 
 /** Attempts when data is missing or request fails (HTTP / GraphQL errors). */
 const GRAPHQL_RETRY_ATTEMPTS = 5;
 /** Delay between attempts (indexer catch-up). */
 const GRAPHQL_RETRY_DELAY_MS = 5000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export interface AttestationNode {
   headerNumber: string;

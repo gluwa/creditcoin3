@@ -3,17 +3,13 @@
  */
 
 import { JsonRpcProvider, WebSocketProvider } from "ethers";
-import { withTimeout } from "./timeout.ts";
+import { sleep, withTimeout } from "./timeout.ts";
 
 const RPC_TIMEOUT_MS = 30_000;
 
 /** Retries help with transient public-RPC / CI flakes (rate limits, TLS, cold WS). */
 const RPC_HEALTH_MAX_ATTEMPTS = 3;
 const RPC_HEALTH_RETRY_BASE_MS = 1_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function getProvider(rpcUrl: string): JsonRpcProvider | WebSocketProvider {
   if (rpcUrl.startsWith("ws://") || rpcUrl.startsWith("wss://")) {
