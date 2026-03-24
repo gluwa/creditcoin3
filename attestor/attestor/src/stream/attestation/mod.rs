@@ -829,7 +829,6 @@ impl StreamAttestation {
     pub fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<common::types::Height>,
-        _attestation_latest_cc3: common::types::Height,
     ) {
         self.interval_attestation = interval_new;
     }
