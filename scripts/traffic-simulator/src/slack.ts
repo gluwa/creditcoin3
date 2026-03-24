@@ -280,6 +280,15 @@ export function createHourlyReportPayload(
     "└──────────────────┴──────────────┴──────────────────┴──────────────┘",
   ];
 
+  if (endMetrics.lastError) {
+    const maxErrorLen = 256;
+    const truncated = endMetrics.lastError.length > maxErrorLen
+      ? endMetrics.lastError.slice(0, maxErrorLen) + "…"
+      : endMetrics.lastError;
+    reportLines.push("");
+    reportLines.push(`🚨 Last Error: ${truncated}`);
+  }
+
   const reportText = reportLines.join("\n");
 
   // Build text for notifications (fallback)
