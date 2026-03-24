@@ -233,12 +233,12 @@
 
       script_check = pkgs.writeScriptBin "cargo_check" ''
         ${shebang}
-        cargo check --tests --release "$@"
+        cargo check --release --tests --benches --examples "$@"
       '';
 
       script_clippy = pkgs.writeScriptBin "cargo_clippy" ''
         ${shebang}
-        cargo clippy --tests --release "$@"
+        cargo clippy --release --tests --benches --examples "$@"
       '';
 
       script_fmt = pkgs.writeScriptBin "cargo_fmt" ''
@@ -253,7 +253,7 @@
 
       script_test = pkgs.writeScriptBin "cargo_test" ''
         ${shebang}
-        cargo test --release "$@"
+        cargo test --release --benches --examples "$@"
       '';
 
       script_doc = pkgs.writeScriptBin "cargo_doc" ''
