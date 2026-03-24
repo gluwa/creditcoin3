@@ -509,7 +509,7 @@ async function fetchProof(url: string): Promise<ProofResponse> {
     } catch { /* ignore */ }
 
     throw new ProofApiError(
-      parsed.message ?? text ?? response.statusText,
+      parsed.message || text || `${response.status} ${response.statusText}`,
       response.status,
       parsed.code,
       parsed.retriable,
@@ -673,7 +673,7 @@ async function fetchBatchProof(
     } catch { /* ignore */ }
 
     throw new ProofApiError(
-      parsed.message ?? text ?? response.statusText,
+      parsed.message || text || `${response.status} ${response.statusText}`,
       response.status,
       parsed.code,
       parsed.retriable,
