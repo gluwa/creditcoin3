@@ -114,6 +114,15 @@ function formatNumber(num: number): string {
   return num.toLocaleString("en-US");
 }
 
+/** Slack section block text limit */
+const SLACK_SECTION_TEXT_MAX = 3000;
+
+function truncateForSlack(text: string, max = SLACK_SECTION_TEXT_MAX): string {
+  if (text.length <= max) return text;
+  const suffix = "\n… (truncated)";
+  return text.slice(0, max - suffix.length) + suffix;
+}
+
 /**
  * Format uptime in human-readable format
  */
@@ -271,13 +280,6 @@ export function createHourlyReportPayload(
     "└──────────────────┴──────────────┴──────────────────┴──────────────┘",
   ];
 
-  // Add error section if there's a last error
-  if (endMetrics.lastError) {
-    reportLines.push("");
-    reportLines.push("🚨 Last Error");
-    reportLines.push(endMetrics.lastError);
-  }
-
   const reportText = reportLines.join("\n");
 
   // Build text for notifications (fallback)
@@ -319,7 +321,7 @@ export function createHourlyReportPayload(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `\`\`\`${reportText}\`\`\``,
+          text: truncateForSlack(`\`\`\`${reportText}\`\`\``),
         },
       },
       ...(mentionPrefix
@@ -440,8 +442,9 @@ export async function sendHourlyReport(
           type: "section",
           text: {
             type: "mrkdwn",
-            text:
+            text: truncateForSlack(
               `:rotating_light: *${errorSummary}*\n\`\`\`${errorText}\`\`\``,
+            ),
           },
         },
       ],
