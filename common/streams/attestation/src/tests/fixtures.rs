@@ -43,7 +43,7 @@ pub async fn attestations(
     let (permit_tip, stream_tip) = tip.await;
 
     let attestation_prev = stream_util::AttestationInfo {
-        height: start_height.saturating_sub(attestation_interval.get()),
+        height: start_height,
         ..Default::default()
     };
 
