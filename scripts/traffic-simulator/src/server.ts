@@ -59,6 +59,7 @@ export function startHealthServer(
   port: number,
   getStatus: () => HealthStatus,
   getMetrics: () => Metrics,
+  resetUniqueErrors?: () => void,
 ): { shutdown: () => void } {
   console.log(`🏥 Starting health server on port ${port}...`);
 
@@ -115,6 +116,27 @@ export function startHealthServer(
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
+      }
+
+      // Reset unique errors (called by report sender after each report)
+      if (url.pathname === "/reset-errors" && req.method === "POST") {
+        if (resetUniqueErrors) {
+          resetUniqueErrors();
+          return new Response(
+            JSON.stringify({ ok: true, message: "Unique errors reset" }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        return new Response(
+          JSON.stringify({ ok: false, message: "Reset not available" }),
+          {
+            status: 501,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
 
       return new Response("Not Found", { status: 404 });
