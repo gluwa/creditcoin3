@@ -65,6 +65,7 @@ COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/chainspe
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor /bin/attestor
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor_zombienet /bin/attestor_zombienet
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/proof-gen-api-server /bin/proof-gen-api-server
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/archiver /bin/archiver
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/query-cli /bin/query-cli
 
 USER 0
