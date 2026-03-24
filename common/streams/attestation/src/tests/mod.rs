@@ -19,7 +19,7 @@ async fn attestation_ready_simple(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0 - skipped, 0 is always ignored
+    roots.send_ready().await; // 0 - skipped, start height is always ignored
     roots.send_ready().await; // 1
 
     tip.send_ready().await; // 0
@@ -45,7 +45,7 @@ async fn attestation_finalization_sets_correct_range(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0 - skipped, 0 is always ignored
+    roots.send_ready().await; // 0 - skipped, start height is always ignored
     roots.send_ready().await; // 1
     roots.send_ready().await; // 2
 
@@ -88,7 +88,7 @@ async fn attestation_finalization_ignore_past_attestation(
 
     assert!(poll!(stream_attestation).is_pending());
 
-    roots.send_ready().await; // 0 - skipped, 0 is always ignored
+    roots.send_ready().await; // 0 - skipped, start height is always ignored
     roots.send_ready().await; // 1
     roots.send_ready().await; // 2
 
@@ -138,7 +138,7 @@ async fn max_cache_size(
 ) {
     let (mut roots, _tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 2
+    roots.send_ready().await; // 2 - skipped, start height is always ignored
     roots.send_ready().await; // 3
     roots.send_ready().await; // 4 - not polled, max cache size reached
 
@@ -148,11 +148,11 @@ async fn max_cache_size(
         stream_attestation.cache,
         vec![
             stream_util::RootInfo {
-                height: 2,
+                height: 3,
                 ..Default::default()
             },
             stream_util::RootInfo {
-                height: 3,
+                height: 4,
                 ..Default::default()
             }
         ]
@@ -171,7 +171,7 @@ async fn skip_behind_finality(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0 - skipped, 0 is always ignored
+    roots.send_ready().await; // 0 - skipped, start height is always ignored
     roots.send_ready().await; // 1
 
     assert!(poll!(stream_attestation).is_pending());
@@ -209,7 +209,7 @@ async fn continuity_proofs_should_grow(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0 - skipped, 0 is always ignored
+    roots.send_ready().await; // 0 - skipped, start height is always ignored
     roots.send_ready().await; // 1
 
     tip.send_ready().await; // 0
@@ -263,7 +263,7 @@ async fn regenerate_attestations(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0 - skipped, 0 is always ignored
+    roots.send_ready().await; // 0 - skipped, start height is always ignored
     roots.send_ready().await; // 1
     tip.send_ready().await; // 0
     tip.send_ready().await; // 1
