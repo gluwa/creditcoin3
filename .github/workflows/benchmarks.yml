@@ -174,7 +174,7 @@ jobs:
           git diff
 
       - name: Commit changes to current branch
-        uses: EndBug/add-and-commit@v9
+        uses: EndBug/add-and-commit@v10
         with:
           author_name: gluwa-bot
           author_email: creditcoin@gluwa.com

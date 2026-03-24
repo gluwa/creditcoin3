@@ -133,7 +133,7 @@ jobs:
 
       - name: Commit typedefs and metadata changes after successfull build
         if: ${{ inputs.use-new-metadata }}
-        uses: EndBug/add-and-commit@v9
+        uses: EndBug/add-and-commit@v10
         with:
           add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
           author_name: gluwa-bot
