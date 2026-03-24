@@ -165,6 +165,7 @@ function parseBatchResponse(
 export async function submitBatchProofs(
   config: SimulatorConfig,
   txInfos: TxInfo[],
+  onError?: (error: string) => void,
 ): Promise<{ successful: number; failed: number; batches: number }> {
   const uniqueBlocks = new Set(txInfos.map((tx) => tx.blockNumber)).size;
   console.log(
@@ -202,8 +203,14 @@ export async function submitBatchProofs(
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error(`    ❌ Batch fetch failed: ${errorMsg}`);
+      onError?.(errorMsg);
       console.log(`    ↩️  Falling back to single submissions...`);
-      const fallback = await submitProofsIndividually(config, chunkTxInfos);
+      const fallback = await submitProofsIndividually(
+        config,
+        chunkTxInfos,
+        1000,
+        onError,
+      );
       successful += fallback.successful;
       failed += fallback.failed;
       continue;
@@ -223,9 +230,12 @@ export async function submitBatchProofs(
 
       // If only 1 proof, submit as single instead of batch
       if (batchInputs.length === 1) {
-        const result = await submitProofsIndividually(config, [
-          batchInputs[0].txInfo,
-        ]);
+        const result = await submitProofsIndividually(
+          config,
+          [batchInputs[0].txInfo],
+          1000,
+          onError,
+        );
         successful += result.successful;
         failed += result.failed;
         index += 1;
@@ -338,9 +348,12 @@ export async function submitBatchProofs(
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error(`    ❌ Batch failed (${label}): ${errorMsg}`);
+        onError?.(errorMsg);
         const fallback = await submitProofsIndividually(
           config,
           batchInputs.map((input) => input.txInfo),
+          1000,
+          onError,
         );
         successful += fallback.successful;
         failed += fallback.failed;
