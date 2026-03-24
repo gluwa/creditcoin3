@@ -1860,7 +1860,7 @@ jobs:
         run: |
           yarn install
 
-          sleep 300
+          yarn test:archiver
 
       - name: Check archiver logs for errors
         if: always()

@@ -30,7 +30,8 @@
         "test:validator-cli": "jest --config src/test/integration-tests.config.ts --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts --forceExit src/test/integration-tests/validator/",
         "test:attestation": "jest --config src/test/attestation-tests.config.ts --verbose --runInBand --forceExit src/test/attestation-tests",
         "test:blockchain": "jest --config src/test/blockchain-tests.config.ts --silent --verbose --runInBand --forceExit src/test/blockchain-tests",
-        "test:cc3-indexer": "jest --config src/test/cc3-indexer-tests.config.ts --silent --verbose --runInBand --forceExit src/test/cc3-indexer-tests"
+        "test:cc3-indexer": "jest --config src/test/cc3-indexer-tests.config.ts --silent --verbose --runInBand --forceExit src/test/cc3-indexer-tests",
+        "test:archiver": "jest --config src/test/archiver-tests.config.ts --silent --verbose --runInBand --forceExit src/test/archiver-tests"
     },
     "devDependencies": {
         "@gluwa/usc-sdk": "0.9.0",
@@ -41,6 +42,7 @@
         "@types/validator": "13.15.2",
         "@typescript-eslint/eslint-plugin": "8.40.0",
         "@typescript-eslint/parser": "8.57.0",
+        "axios": "1.13.6",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",
         "esno": "^4.8.0",
