@@ -1354,14 +1354,14 @@ impl AttestationPoolSender {
         info: common::types::AttestationInfo,
     ) -> Result<(), Error> {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
-            // Updating the inner pool
-            inner.forks.note_attestation_finalization(info)?;
-
             // Remove past quorums
             inner.valid.note_attestation_finalization(info);
 
             // Update metrics
             inner.attestation_delay.note_attestation_finalization(info);
+
+            // Updating the inner pool
+            inner.forks.note_attestation_finalization(info)?;
         }
 
         Ok(())
