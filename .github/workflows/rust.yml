@@ -246,26 +246,12 @@ jobs:
             -p stream_attestation \
             simulate
 
-      - name: Check for proptest regressions
-        id: regression-check
-        if: always()
-        run: |
-          # == DEBUG == #
-          git diff --name-only
-          # == DEBUG == #
-
-          # Check if proptest-regressions folder has any changes
-          if git diff --name-only | grep -q "proptest-regressions"; then
-            echo "regressions_found=true" >> $GITHUB_OUTPUT
-          else
-            echo "regressions_found=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Commit regression files
         uses: EndBug/add-and-commit@v10
-        if: always() && steps.regression-check.outputs.regressions_found == 'true'
+        if: always()
         with:
           push: true
+          ref: ${{ github.event.pull_request.head.ref }}
           add: common/streams/attestation/proptest-regressions/simulation/mod.txt
           author_name: gluwa-bot
           author_email: creditcoin@gluwa.com
