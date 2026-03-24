@@ -1,6 +1,6 @@
-import * as proof from '@gluwa/cc-next-query-builder/dist/proof-generator';
-import { chainInfo } from '@gluwa/cc-next-query-builder/dist/';
-import { EncodingVersion } from '@gluwa/cc-next-query-builder/dist/encoding';
+import * as proof from '@gluwa/usc-sdk/dist/proof-generator';
+import { chainInfo } from '@gluwa/usc-sdk/dist/';
+import { EncodingVersion } from '@gluwa/usc-sdk/dist/encoding';
 import { WebSocketProvider, ethers } from 'ethers';
 import { newApi, ApiPromise } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
