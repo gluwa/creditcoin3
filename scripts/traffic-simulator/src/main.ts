@@ -88,8 +88,10 @@ function normalizeError(error: string): string {
  * Errors are normalized to group messages that differ only in variable parts.
  */
 function recordError(error: string): void {
+  if (!error) return;
   lastError = error;
   const key = normalizeError(error);
+  if (!key) return;
   uniqueErrors.set(key, (uniqueErrors.get(key) ?? 0) + 1);
 }
 
@@ -197,7 +199,7 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
   // Batch submissions (can include multiple blocks sharing continuity)
   if (batchTxInfos.length > 0) {
     try {
-      const result = await submitBatchProofs(config, batchTxInfos);
+      const result = await submitBatchProofs(config, batchTxInfos, recordError);
       metrics.batchSubmissions += result.batches;
       metrics.proofsSubmitted += result.successful;
       metrics.proofErrors += result.failed;
