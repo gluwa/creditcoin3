@@ -873,7 +873,11 @@ impl StreamAttestation {
         // Resetting cache. We can't trust stored blocks or roots after a reversion.
         // We add 1 to our cache start height here, since we want the tail of our
         // first continuity proof to be the block above our reverted to checkpoint.
-        self.continuity = CacheContinuity::new(info.height.saturating_add(1), Some(info), self.encoding_version);
+        self.continuity = CacheContinuity::new(
+            info.height.saturating_add(1),
+            Some(info),
+            self.encoding_version,
+        );
 
         // Resetting key markers
         let interval_attestation = self.interval_attestation.get();
