@@ -419,7 +419,14 @@ impl Config {
             .cloned()
             .or(config_file.attestation.interval);
 
-        let no_mdns = matches.get_flag("no-mdns") || config_file.p2p.no_mdns;
+        let no_mdns = if matches.value_source("no-mdns")
+            == Some(clap::parser::ValueSource::CommandLine)
+            || matches.value_source("no-mdns") == Some(clap::parser::ValueSource::EnvVariable)
+        {
+            matches.get_flag("no-mdns")
+        } else {
+            config_file.p2p.no_mdns
+        };
 
         Ok(Config {
             name,
