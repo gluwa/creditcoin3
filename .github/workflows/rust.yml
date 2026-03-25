@@ -260,7 +260,7 @@ jobs:
           add: common/streams/attestation/proptest-regressions/simulation/mod.txt
           author_name: gluwa-bot
           author_email: creditcoin@gluwa.com
-          message: "test(simulation): found new bug"
+          message: "test(simulation): found new bug [skip ci]"
           github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
       - name: Upload coverage report as artifact
