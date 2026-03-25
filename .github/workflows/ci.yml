@@ -1031,6 +1031,14 @@ jobs:
         if: (github.base_ref == 'dev'|| github.base_ref == 'poc_external_attestation_network') && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
+          WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
+          echo "INFO: trying to deploy from $WALLET_ADDRESS"
+
+          NETWORK_URL=$(npx hardhat --config hardhat-creditcoin3.config.ts print-network --network creditcoinDevnet)
+          echo "INFO: available balance on $NETWORK_URL for $WALLET_ADDRESS"
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS" --ether
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS"
+
           for module in ignition/modules/*.ts; do
               npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoinDevnet
           done
@@ -1045,6 +1053,14 @@ jobs:
         if: github.base_ref == 'testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
+          WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
+          echo "INFO: trying to deploy from $WALLET_ADDRESS"
+
+          NETWORK_URL=$(npx hardhat --config hardhat-creditcoin3.config.ts print-network --network creditcoinTestnet)
+          echo "INFO: available balance on $NETWORK_URL for $WALLET_ADDRESS"
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS" --ether
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS"
+
           for module in ignition/modules/*.ts; do
               npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoinTestnet
           done
@@ -1059,6 +1075,14 @@ jobs:
         if: github.base_ref == 'main' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
+          WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
+          echo "INFO: trying to deploy from $WALLET_ADDRESS"
+
+          NETWORK_URL=$(npx hardhat --config hardhat-creditcoin3.config.ts print-network --network creditcoinMainnet)
+          echo "INFO: available balance on $NETWORK_URL for $WALLET_ADDRESS"
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS" --ether
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS"
+
           for module in ignition/modules/*.ts; do
               npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoinMainnet
           done
