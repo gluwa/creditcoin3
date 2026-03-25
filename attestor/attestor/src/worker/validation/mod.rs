@@ -289,7 +289,26 @@ impl WorkerAttestationValidation {
                 // -----------------------* Attestation runtime validation *---------------------------
 
                 match success {
-                    // CASE 1.A] LOST THE ATTESTATION SUBMISSION RACE
+                    // CASE 1.A] WON THE ATTESTATION SUBMISSION RACE
+                    Ok(events) => {
+                        match events
+                            .all_events_in_block()
+                            .find_last::<cc_client::cc3::attestation::events::BlockAttested>()
+                        {
+                            Ok(Some(_attestation)) => {
+                                tracing::info!(height, "✅ Attestation submitted on-chain");
+                            }
+                            _ => {
+                                // WARNING: PANIC
+                                //
+                                // Any early return must reset the `watch_submission` future to
+                                // avoid double polling!
+                                self.watch_submission = future::OptionFuture::default();
+                                return Ok(());
+                            }
+                        }
+                    }
+                    // CASE 1.B] LOST THE ATTESTATION SUBMISSION RACE
                     Err(subxt::Error::Runtime(subxt::error::DispatchError::Module(err))) => {
                         match err
                             .as_root_error::<cc_client::cc3::Error>()
@@ -341,25 +360,15 @@ impl WorkerAttestationValidation {
                             }
                         }
                     }
-                    // CASE 1.B] WON THE ATTESTATION SUBMISSION RACE
-                    res => {
-                        match res
-                            .map_interrupt(Error::Subxt)?
-                            .all_events_in_block()
-                            .find_last::<cc_client::cc3::attestation::events::BlockAttested>()
-                        {
-                            Ok(Some(_attestation)) => {
-                                tracing::info!(height, "✅ Attestation submitted on-chain");
-                            }
-                            _ => {
-                                // WARNING: PANIC
-                                //
-                                // Any early return must reset the `watch_submission` future to
-                                // avoid double polling!
-                                self.watch_submission = future::OptionFuture::default();
-                                return Ok(());
-                            }
-                        }
+                    // CASE 1.C] RUNTIME SUBMISSION FAILURE
+                    Err(err) => {
+                        tracing::error!(height, ?err, "⛔ Submittion failure");
+                        // WARNING: PANIC
+                        //
+                        // Any early return must reset the `watch_submission` future to
+                        // avoid double polling!
+                        self.watch_submission = future::OptionFuture::default();
+                        return Ok(());
                     }
                 }
 
