@@ -10,6 +10,10 @@
       {
         "address": "0x3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0",
         "name": "Testnet v2 query submitter"
+      },
+      {
+        "address": "0x2C317383b8A99537c61042B63C4fB042Df51033a",
+        "name": "NEW_LENDER_ accnt in 1Password. Used for testing"
       }
     ]
   },
