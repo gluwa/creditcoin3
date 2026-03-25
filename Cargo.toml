@@ -45,6 +45,7 @@ version = "3.106.0"
 [workspace.dependencies]
 assert_matches = "1.5.0"
 proptest = "1.10.0"
+proptest-state-machine = "0.7.0"
 rstest = "0.26.1"
 sync_wrapper = "1.0.2"
 tokio-retry = "0.3"
