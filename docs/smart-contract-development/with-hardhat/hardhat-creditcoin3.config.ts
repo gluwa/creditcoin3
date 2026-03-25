@@ -1,4 +1,4 @@
-import { HardhatUserConfig, vars } from 'hardhat/config';
+import { HardhatUserConfig, task, vars } from 'hardhat/config';
 import '@nomicfoundation/hardhat-toolbox';
 
 // Replace this with your Creditcoin3 Testnet account private key
@@ -25,3 +25,8 @@ const config: HardhatUserConfig = {
 };
 
 export default config;
+
+// eslint-disable-next-line @typescript-eslint/require-await
+task('print-network', 'Prints the value of --network', async (taskArgs, hre) => {
+    console.log((hre.network.config as any).url);
+});
