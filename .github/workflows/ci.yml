@@ -1028,7 +1028,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Devnet
-        if: github.base_ref == 'dev' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: (github.base_ref == 'dev'|| github.base_ref == 'poc_external_attestation_network') && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
