@@ -88,10 +88,12 @@ user = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
-proptest = { workspace = true }
-proptest-state-machine = { workspace = true }
 rstest = { workspace = true }
 tokio-test = { workspace = true }
+
+proptest = { workspace = true }
+proptest-derive = { workspace = true }
+proptest-state-machine = { workspace = true }
 
 [features]
 simulation = []
