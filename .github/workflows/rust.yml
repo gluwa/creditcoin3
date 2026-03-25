@@ -203,7 +203,8 @@ jobs:
         "workflow-${{ github.run_id }}",
         "proxy-unit-test-creditcoin",
       ]
-    permissions: write-all
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
