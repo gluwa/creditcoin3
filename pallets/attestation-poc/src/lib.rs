@@ -1361,10 +1361,60 @@ pub mod pallet {
         for CommitAttestationWeight<T>
     {
         fn weigh_data(&self, attestation: (&SignedAttestation<T::Hash, T::AccountId>,)) -> Weight {
-            <T as Config>::WeightInfo::commit_attestation(
-                attestation.0.continuity_proof.len() as u32,
-                T::MaxAttestationNodes::get(),
-            )
+            let chain_key = attestation.0.chain_key();
+            let s = attestation.0.continuity_proof.len() as u32;
+            let m = T::MaxAttestationNodes::get();
+
+            // Base weight from benchmarks (measured with checkpoint_width = 10 * 10 = 100)
+            let mut weight = <T as Config>::WeightInfo::commit_attestation(s, m);
+
+            // The benchmark used attestation_interval=10, checkpoint_interval=10 (width=100).
+            // Production configs may differ, causing more or fewer checkpoints, queue reads,
+            // and attestation removals than the benchmark captured. We compensate below.
+            let attestation_interval = ChainAttestationInterval::<T>::get(chain_key);
+            let checkpoint_interval = AttestationCheckpointInterval::<T>::get(chain_key);
+            let checkpoint_width = attestation_interval.saturating_mul(checkpoint_interval as u64);
+
+            if checkpoint_width > 0 {
+                let proof_len = s as u64;
+
+                // --- Checkpoint creation writes ---
+                // Each checkpoint boundary hit during proof processing incurs 3 storage writes
+                // (Checkpoints, CheckpointBuckets, LastCheckpoint) plus an event deposit.
+                let estimated_checkpoints = proof_len / checkpoint_width;
+                // The benchmark assumed checkpoint_width=100, so it measured:
+                let benchmark_checkpoint_width: u64 = 100;
+                let benchmark_checkpoints = proof_len / benchmark_checkpoint_width;
+
+                if estimated_checkpoints > benchmark_checkpoints {
+                    let extra = estimated_checkpoints.saturating_sub(benchmark_checkpoints);
+                    // 3 writes per checkpoint (Checkpoints + CheckpointBuckets + LastCheckpoint)
+                    weight =
+                        weight.saturating_add(T::DbWeight::get().writes(extra.saturating_mul(3)));
+                }
+
+                // --- Queue processing reads ---
+                // During checkpointing, each queued attestation triggers an Attestations::get
+                // storage read. Queue length is bounded by checkpoint_interval. The benchmark's
+                // fixed base reads (18) don't scale with this.
+                weight =
+                    weight.saturating_add(T::DbWeight::get().reads(checkpoint_interval as u64));
+
+                // --- Attestation removal reads/writes ---
+                // remove_attestations calls Attestations::take (1 read + 1 write) for each
+                // entry exceeding retention_duration. In the worst case, one checkpoint's
+                // worth of attestations is removed per call.
+                let retention_duration = AttestationRetentionDuration::<T>::get(chain_key) as u64;
+                // The max removals per checkpoint call is bounded by the number of attestations
+                // that were queued since the previous checkpoint, i.e. checkpoint_interval.
+                // We use the larger of checkpoint_interval and retention_duration as a
+                // conservative bound.
+                let max_removals = (checkpoint_interval as u64).max(retention_duration);
+                weight = weight
+                    .saturating_add(T::DbWeight::get().reads_writes(max_removals, max_removals));
+            }
+
+            weight
         }
     }
 
