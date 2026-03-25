@@ -99,6 +99,8 @@ pub struct Config {
     boot_nodes: Vec<libp2p::Multiaddr>,
     public_addr: Option<String>,
     port: u16,
+    #[default(false)]
+    no_mdns: bool,
     #[specify_later]
     keypair: libp2p::identity::Keypair,
     #[specify_later]
@@ -130,6 +132,7 @@ pub(crate) struct WorkerP2P {
 
 impl WorkerP2P {
     pub(crate) fn new(config: Config) -> anyhow::Result<Self> {
+        let enable_mdns = !config.no_mdns;
         let mut swarm = libp2p::SwarmBuilder::with_existing_identity(config.keypair)
             .with_tokio()
             // Connection fallback.
@@ -144,7 +147,7 @@ impl WorkerP2P {
             // boot node addresses and it is better for those to be behind a domain than rely on a
             // static IP, as this gives us more flexibility around maintenance and administration.
             .with_dns()?
-            .with_behaviour(behavior::P2PBehavior::new)?
+            .with_behaviour(|key| behavior::P2PBehavior::new(key, enable_mdns))?
             .build();
 
         let topic = libp2p::gossipsub::IdentTopic::new(format!("{}/attest", config.chain_key));

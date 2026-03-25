@@ -24,7 +24,7 @@ pub(crate) struct P2PBehavior {
     ///
     /// [`mDNS`]: libp2p::mdns
     /// [`kademlia`]: libp2p::kad
-    pub mdns: libp2p::mdns::tokio::Behaviour,
+    pub mdns: libp2p::swarm::behaviour::toggle::Toggle<libp2p::mdns::tokio::Behaviour>,
 
     /// [`Kademlia`] is used for _global_ peer discovery. We use kademlia instead of [`rendezvous`]
     /// for its resilience to centralized points of failure as well as its in-build peer discovery.
@@ -44,6 +44,7 @@ pub(crate) struct P2PBehavior {
 impl P2PBehavior {
     pub fn new(
         key: &libp2p::identity::Keypair,
+        enable_mdns: bool,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         tracing::info!(peer_id = %key.public().to_peer_id(), "🔭 Starting new p2p node");
 
@@ -63,10 +64,18 @@ impl P2PBehavior {
             key.public(),
         ));
 
-        let mdns = libp2p::mdns::tokio::Behaviour::new(
-            libp2p::mdns::Config::default(),
-            key.public().to_peer_id(),
-        )?;
+        let mdns = if enable_mdns {
+            tracing::info!("🔍 mDNS local peer discovery enabled");
+            libp2p::swarm::behaviour::toggle::Toggle::from(Some(
+                libp2p::mdns::tokio::Behaviour::new(
+                    libp2p::mdns::Config::default(),
+                    key.public().to_peer_id(),
+                )?,
+            ))
+        } else {
+            tracing::info!("🔇 mDNS local peer discovery disabled");
+            libp2p::swarm::behaviour::toggle::Toggle::from(None)
+        };
 
         let kad = libp2p::kad::Behaviour::with_config(
             key.public().to_peer_id(),

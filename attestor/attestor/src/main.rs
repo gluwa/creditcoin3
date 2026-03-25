@@ -22,6 +22,7 @@ struct Config {
     pool_capacity: std::num::NonZeroUsize,
     start_height: Option<common::types::Height>,
     attestation_interval: Option<std::num::NonZero<common::types::Height>>,
+    no_mdns: bool,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -66,6 +67,8 @@ struct ConfigFileApi {
 struct ConfigFileP2P {
     boot_nodes: Option<Vec<libp2p::Multiaddr>>,
     port: Option<u16>,
+    #[serde(default)]
+    no_mdns: bool,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -228,6 +231,20 @@ impl Config {
                     .env("ATTESTOR_P2P_PORT")
                     .required(false)
                     .value_parser(clap::value_parser!(u16)),
+            )
+            .arg(
+                clap::arg!(--"no-mdns")
+                    .help("Disable mDNS local peer discovery")
+                    .long_help(
+                        "Disable mDNS local peer discovery. \
+                        mDNS is used for discovering peers on the local network. \
+                        Disabling it has no effect on global peer discovery via Kademlia. \
+                        This is useful in environments where mDNS is not supported (e.g. Kubernetes) \
+                        or not desired.",
+                    )
+                    .env("ATTESTOR_NO_MDNS")
+                    .required(false)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::arg!(--"eth-url" <URL>)
@@ -402,6 +419,8 @@ impl Config {
             .cloned()
             .or(config_file.attestation.interval);
 
+        let no_mdns = matches.get_flag("no-mdns") || config_file.p2p.no_mdns;
+
         Ok(Config {
             name,
             logs,
@@ -416,6 +435,7 @@ impl Config {
             pool_capacity,
             start_height,
             attestation_interval,
+            no_mdns,
         })
     }
 }
@@ -491,7 +511,8 @@ async fn main() -> anyhow::Result<()> {
             attestor::worker::p2p::ConfigBuilder::new()
                 .with_boot_nodes(args.boot_nodes)
                 .with_public_addr(args.public_addr)
-                .with_port(args.p2p_port),
+                .with_port(args.p2p_port)
+                .with_no_mdns(args.no_mdns),
         )
         .with_pool(
             attestor::worker::validation::pool::ConfigBuilder::new()
