@@ -14,7 +14,7 @@
     },
     "dependencies": {
         "js-yaml": "^4.1.0",
-        "minimatch": "^9.0.5"
+        "minimatch": "^10.2.4"
     },
     "devDependencies": {
         "@types/js-yaml": "^4.0.9",
