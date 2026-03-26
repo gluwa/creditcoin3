@@ -152,12 +152,11 @@ pub use error::*;
 pub struct Config {
     /// Maximum number of attestations which can be held in the pool before the pool begins
     /// evicting the highest attestations.
-    #[allow(unused)]
     max_size: std::num::NonZeroUsize,
 
     /// Active attestors
     #[specify_later]
-    attestors: Vec<cc_client::AccountId32>,
+    attestors: Vec<attestor_primitives::AttestorId>,
 
     /// Target [`Quorum`] size. Ie: the number of valid attestors which must submit the same
     /// attestation before it reaches quorum.
@@ -166,7 +165,7 @@ pub struct Config {
 
     /// Latest execution chain digest, used to validate the tail prev digest of new attestations.
     #[specify_later]
-    start_attestation: Option<stream::util::AttestationInfo>,
+    attestation_start: Option<stream::util::AttestationInfo>,
 
     #[specify_later]
     #[cfg(not(feature = "simulation"))]
@@ -212,7 +211,7 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
         attestors,
         #[cfg(not(feature = "simulation"))]
         config.metrics,
-        config.start_attestation.map(|info| info.digest),
+        config.attestation_start.map(|info| info.digest),
         config.max_size,
     );
 

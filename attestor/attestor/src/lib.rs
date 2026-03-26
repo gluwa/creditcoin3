@@ -320,7 +320,7 @@ impl Attestor {
             .pool
             .with_attestors(attestors)
             .with_quorum(quorum)
-            .with_start_attestation(start_attestation)
+            .with_attestation_start(start_attestation)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let (mut sender_validation, receiver_validation) =

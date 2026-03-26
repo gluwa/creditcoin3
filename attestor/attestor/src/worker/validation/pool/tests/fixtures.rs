@@ -130,7 +130,7 @@ pub fn config(
         .with_max_size(std::num::NonZeroUsize::new(capacity).unwrap())
         .with_attestors(attestors)
         .with_quorum(validate_quorum.target_quorum)
-        .with_start_attestation(Some(stream::util::AttestationInfo {
+        .with_attestation_start(Some(stream::util::AttestationInfo {
             digest: DIGEST_0,
             height: common::types::Height::MIN,
         }))
