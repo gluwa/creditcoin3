@@ -331,7 +331,10 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 3] NEW ATTESTATION INTERVAL
-                cc_client::attestation::CcEvent::AttestationIntervalChanged(interval) => {
+                cc_client::attestation::CcEvent::AttestationIntervalChanged(
+                    _chain_key,
+                    interval,
+                ) => {
                     tracing::info!(interval, "🔢 New source chain attestation interval");
 
                     let Some(interval) = std::num::NonZero::<common::types::Height>::new(interval)
@@ -372,12 +375,15 @@ impl WorkerAttestationProduction {
                     );
                 }
 
-                cc_client::attestation::CcEvent::CheckpointIntervalChanged(interval) => {
+                cc_client::attestation::CcEvent::CheckpointIntervalChanged(
+                    _chain_key,
+                    interval,
+                ) => {
                     tracing::info!(interval, "🔢 New source chain checkpoint interval");
                 }
 
                 // CASE 4] NEW ATTESTATION CHECKPOINT
-                cc_client::attestation::CcEvent::CheckpointReached(checkpoint) => {
+                cc_client::attestation::CcEvent::CheckpointReached(_chain_key, checkpoint) => {
                     tracing::info!(
                         height = checkpoint.block_number,
                         digest = ?checkpoint.digest,
@@ -451,6 +457,7 @@ impl WorkerAttestationProduction {
 
                 // CASE 10] ATTESTATION GENESIS BLOCK NUMBER SET
                 cc_client::attestation::CcEvent::AttestationChainGenesisBlockNumberSet(
+                    _chain_key,
                     genesis_block,
                 ) => {
                     tracing::info!(
