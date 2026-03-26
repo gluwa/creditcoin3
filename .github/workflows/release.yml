@@ -192,12 +192,20 @@ jobs:
     runs-on: ubuntu-24.04
     needs:
       - sanity-check
+      - setup
       - generate-changelog
       - build-native-runtime
       - build-wasm-runtime
       - docker-build
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
 
       - name: Download binaries
         uses: actions/download-artifact@v8
@@ -210,6 +218,17 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: changelog
+
+      - name: Install changelog-warnings dependencies
+        working-directory: ./scripts/changelog-warnings
+        run: npm install
+
+      - name: Append operator warnings to changelog
+        continue-on-error: true
+        run: |
+          npx tsx scripts/changelog-warnings/src/index.ts \
+            --previous-tag "${{ needs.setup.outputs.previous_release }}" \
+            --changelog changelog.md
 
       - name: Compress native binaries
         shell: bash

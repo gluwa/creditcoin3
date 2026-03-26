@@ -3,14 +3,16 @@ module.exports = {
         node: true,
         es2022: true,
     },
-    extends: ['eslint:recommended', 'prettier'],
+    extends: ['plugin:@typescript-eslint/recommended', 'prettier'],
+    parser: '@typescript-eslint/parser',
     parserOptions: {
-        ecmaVersion: 2022,
+        project: 'tsconfig.json',
         sourceType: 'module',
     },
+    plugins: ['@typescript-eslint'],
     rules: {
-        'no-console': 'off', // Allow console.log in scripts
-        'no-unused-vars': [
+        'no-console': 'off',
+        '@typescript-eslint/no-unused-vars': [
             'warn',
             {
                 argsIgnorePattern: '^_',
@@ -23,5 +25,5 @@ module.exports = {
         'no-throw-literal': 'error',
         'prefer-arrow-callback': 'error',
     },
-    ignorePatterns: ['changelog-warnings/**'], // Ignore the changelog-warnings directory
+    root: true,
 };
