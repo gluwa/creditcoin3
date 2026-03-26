@@ -25,11 +25,11 @@ check_blocks_for_faster_epoch() {
     from=$1
     to=$2
 
-    if git --no-pager diff "${from}...${to}" | grep 'BLOCKS_FOR_FASTER_EPOCH'; then
-        greenprint "FAIL: BLOCKS_FOR_FASTER_EPOCH has been modified! This will brick Devnet!"
+    if git --no-pager diff "${from}...${to}" | grep 'EPOCH_DURATION_IN_BLOCKS'; then
+        greenprint "FAIL: EPOCH_DURATION_IN_BLOCKS has been modified! This MAY brick existing chains!"
         exit 1
     else
-        greenprint "PASS: BLOCKS_FOR_FASTER_EPOCH has not been modified!"
+        greenprint "PASS: EPOCH_DURATION_IN_BLOCKS has not been modified!"
     fi
 }
 
