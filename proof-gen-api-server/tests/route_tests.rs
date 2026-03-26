@@ -46,7 +46,7 @@ async fn test_route_with_tx_index_should_report_failure_with_invalid_chain_key()
     assert!(body["message"]
         .as_str()
         .unwrap()
-        .contains("expected 2, got 99"));
+        .contains("Chain key not configured: 99"));
     assert_eq!(body["retriable"], false);
 }
 
@@ -104,7 +104,7 @@ async fn test_route_with_tx_hash_should_report_failure_with_invalid_chain_key() 
     assert!(body["message"]
         .as_str()
         .unwrap()
-        .contains("expected 2, got 999"));
+        .contains("Chain key not configured: 999"));
     assert_eq!(body["retriable"], false);
 }
 

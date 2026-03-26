@@ -119,7 +119,7 @@ pub struct ProofGenMetrics {
 
 impl ProofGenMetrics {
     /// Create a new metrics instance and register all metrics.
-    pub fn new(chain_key: u64) -> Self {
+    pub fn new(chain_keys: &[u64]) -> Self {
         let mut registry = Registry::default();
 
         // Request metrics
@@ -217,7 +217,13 @@ impl ProofGenMetrics {
         registry.register(
             "proof_gen_server",
             "Server information",
-            Info::new(items::ServerInfo { chain_key }),
+            Info::new(items::ServerInfo {
+                chain_keys: chain_keys
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+            }),
         );
 
         // Block cache metrics (for Redis block cache, registered in the same registry)
@@ -392,7 +398,8 @@ mod items {
     /// Server info for the info metric.
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
     pub struct ServerInfo {
-        pub chain_key: u64,
+        /// Comma-separated configured chain keys (e.g. `"2,3"`).
+        pub chain_keys: String,
     }
 }
 
@@ -445,6 +452,7 @@ mod labels {
     // Error type labels
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
     pub enum ErrorType {
+        UnknownChain,
         BlockNotReady,
         BlockBeforeOrAtGenesis,
         BlockNotOnSourceChain,

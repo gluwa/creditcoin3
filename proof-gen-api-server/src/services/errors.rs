@@ -53,6 +53,8 @@ impl ErrorResponse {
 
 #[derive(Debug, Error)]
 pub enum ServiceError {
+    #[error("unknown or unsupported chain_key {chain_key} for this server")]
+    UnknownChain { chain_key: u64 },
     #[error("attestations missing for chain {chain_key}")]
     AttestationsMissing { chain_key: u64 },
     #[error("query height {height} out of range")]
@@ -113,6 +115,7 @@ impl ServiceError {
     }
     pub fn code(&self) -> &'static str {
         match self {
+            ServiceError::UnknownChain { .. } => "UnknownChain",
             ServiceError::AttestationsMissing { .. } => "AttestationsMissing",
             ServiceError::QueryOutOfRange { .. } => "QueryOutOfRange",
             ServiceError::TxIndexOutOfBounds { .. } => "TxIndexOutOfBounds",
@@ -135,6 +138,7 @@ impl ServiceError {
 
     pub fn status_code(&self) -> StatusCode {
         match self {
+            Self::UnknownChain { .. } => StatusCode::BAD_REQUEST,
             Self::AttestationsMissing { .. } => StatusCode::NOT_FOUND,
             Self::QueryOutOfRange { .. }
             | Self::TxIndexOutOfBounds { .. }
@@ -225,6 +229,7 @@ impl From<serde_json::Error> for ServiceError {
 impl GetErrorType for ServiceError {
     fn error_type(&self) -> ErrorType {
         match self {
+            ServiceError::UnknownChain { .. } => ErrorType::UnknownChain,
             ServiceError::AttestationsMissing { .. } => ErrorType::AttestationsMissing,
             ServiceError::QueryOutOfRange { .. } => ErrorType::QueryOutOfRange,
             ServiceError::TxIndexOutOfBounds { .. } => ErrorType::TxIndexOutOfBounds,

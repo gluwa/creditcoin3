@@ -18,6 +18,7 @@ mod anvil_integration {
         ContinuityService,
     };
     use serde_json::Value;
+    use std::collections::HashSet;
     use std::sync::Arc;
 
     /// Sends a test transaction to Anvil and returns the transaction hash.
@@ -181,14 +182,16 @@ mod anvil_integration {
         let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
         let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider.clone(), eth_provider);
         let service = Arc::new(
-            ContinuityService::new(Arc::new(builder), NoopMetrics::new(), 10)
+            ContinuityService::new(vec![Arc::new(builder)], NoopMetrics::new(), 10)
                 .await
                 .expect("service init"),
         );
+        let mut allowed = HashSet::new();
+        allowed.insert(chain_key);
         build_app(
             service,
-            chain_key,
-            std::sync::Arc::new(ProofGenMetrics::new(chain_key)),
+            allowed,
+            std::sync::Arc::new(ProofGenMetrics::new(&[chain_key])),
         )
     }
 

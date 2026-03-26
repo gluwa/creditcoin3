@@ -6,6 +6,8 @@ use axum::{
     Extension,
 };
 use serde_json::json;
+use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::prom::{Endpoint, Metrics, Status};
@@ -153,12 +155,12 @@ fn extract_endpoint_from_path(uri: &Uri) -> Option<Endpoint> {
     }
 }
 
-/// Middleware that validates chain_key from the request path against the configured chain_key.
-/// Returns 400 Bad Request if the chain_key doesn't match.
+/// Middleware that validates chain_key from the request path against configured chain keys.
+/// Returns 400 Bad Request if the chain_key is not served by this server.
 pub async fn chain_key_validator_middleware(
     request: Request,
     next: Next,
-    configured_chain_key: u64,
+    allowed_chain_keys: Arc<HashSet<u64>>,
 ) -> Response {
     let uri = request.uri().clone();
 
@@ -168,14 +170,17 @@ pub async fn chain_key_validator_middleware(
     // Note: extract_chain_key_from_path returns None for health endpoints, so validation
     // automatically skips them without needing an explicit check.
     if let Some(request_chain_key) = extract_chain_key_from_path(&uri) {
-        if request_chain_key != configured_chain_key {
+        if !allowed_chain_keys.contains(&request_chain_key) {
+            let mut allowed: Vec<u64> = allowed_chain_keys.iter().copied().collect();
+            allowed.sort_unstable();
             return (
                 StatusCode::BAD_REQUEST,
                 axum::Json(json!({
                     "code": "InvalidChainKey",
                     "message": format!(
-                        "Chain key mismatch: expected {}, got {}",
-                        configured_chain_key, request_chain_key
+                        "Chain key not configured: {} (allowed: {:?})",
+                        request_chain_key,
+                        allowed
                     ),
                     "retriable": false
                 })),

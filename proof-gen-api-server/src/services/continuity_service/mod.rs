@@ -3,11 +3,12 @@ use chrono::{DateTime, Utc};
 use hex;
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-use std::{collections::BTreeMap, time::Instant};
+use std::time::Instant;
 
 use crate::prom::Metrics;
 use crate::services::continuity_service::helpers::*;
@@ -16,6 +17,14 @@ use continuity::ContinuityBuilder;
 use merkle::proof::TransactionMerkleProof;
 
 pub mod helpers;
+
+/// Per-source-chain state: ETH-backed builder and CC3-derived caches.
+pub struct ChainState {
+    pub builder: Arc<ContinuityBuilder>,
+    pub checkpoint_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
+    pub attestation_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
+    pub attestation_genesis_block: AtomicU64,
+}
 
 // Single block proof query object, used in batch requests to specify which transactions to include merkle proofs for. If a block is included in the batch but not listed in the tx_indexes, it will be processed with tx_index = None (continuity proof only)
 #[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
@@ -140,25 +149,14 @@ use crate::services::errors::ServiceError;
 pub type ServiceResult<T> = Result<T, ServiceError>;
 
 pub struct ContinuityService {
-    builder: Arc<ContinuityBuilder>,
+    chains: HashMap<u64, Arc<ChainState>>,
     start_time: Instant,
     /// Total number of proof requests processed (for health endpoint statistics)
     total_proof_requests: AtomicU64,
-    /// The genesis block number for the attestation chain.
-    /// Blocks at and before this number cannot be attested to.
-    /// Fetched once at service startup and cached for the lifetime of the service.
-    attestation_genesis_block: AtomicU64,
     /// Prometheus metrics for instrumentation (uses NoopMetrics when disabled).
     metrics: Metrics,
     /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
     max_batch_size: usize,
-    /// In-memory cache of checkpoint (block_number → digest) populated from CC3
-    /// on startup and kept up-to-date via `CheckpointReached` events.
-    checkpoint_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
-    /// In-memory cache of attestation (block_number → digest) populated from CC3
-    /// on startup and kept up-to-date via `BlockAttested` events.
-    /// Attestations are more granular than checkpoints (e.g. every 10 blocks vs every 100).
-    attestation_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
 }
 
 impl ContinuityService {
@@ -167,89 +165,137 @@ impl ContinuityService {
     /// # Errors
     /// Returns an error if the attestation genesis block cannot be fetched from RPC.
     pub async fn new(
-        builder: Arc<ContinuityBuilder>,
+        builders: Vec<Arc<ContinuityBuilder>>,
         metrics: Metrics,
         max_batch_size: usize,
     ) -> anyhow::Result<Self> {
-        // Fetch genesis block at startup - fail fast if RPC is unavailable
-        let attestation_genesis_block = builder
-            .get_attestation_genesis_block()
-            .await
-            .context("Failed to fetch attestation genesis block during service initialization")?;
+        if builders.is_empty() {
+            anyhow::bail!("ContinuityService requires at least one ContinuityBuilder");
+        }
 
-        tracing::info!(
-            attestation_genesis_block,
-            "ContinuityService initialized with attestation genesis block"
-        );
+        let mut chains = HashMap::new();
+        for builder in builders {
+            let chain_key = builder.config.chain_key;
+            if chains.contains_key(&chain_key) {
+                anyhow::bail!("duplicate ContinuityBuilder for chain_key {chain_key}");
+            }
 
-        // Populate checkpoint cache from CC3 on startup.
-        // This iterates all on-chain checkpoints and may take a while for long-running chains.
-        let chain_key = builder.config.chain_key;
-        tracing::info!(
-            chain_key,
-            "⏳ Populating checkpoint cache from CC3 (this may take a while)..."
-        );
-        let checkpoints = builder
-            .cc_provider
-            .get_checkpoints_for_chain(chain_key)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    "Failed to fetch checkpoints on startup: {e}, starting with empty cache"
-                );
-                Vec::new()
-            });
-        let checkpoint_cache: BTreeMap<u64, H256> = checkpoints
-            .into_iter()
-            .map(|cp| (cp.block_number, cp.digest))
-            .collect();
-        tracing::info!(
-            chain_key,
-            count = checkpoint_cache.len(),
-            latest = ?checkpoint_cache.keys().next_back(),
-            "Checkpoint cache populated from CC3"
-        );
+            // Fetch genesis block at startup - fail fast if RPC is unavailable
+            tracing::debug!(
+                chain_key,
+                "[startup] ContinuityService: fetching attestation genesis block from CC3"
+            );
+            let attestation_genesis_block = builder
+                .get_attestation_genesis_block()
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to fetch attestation genesis block during ContinuityService init (chain_key={chain_key}); CC3 RPC used by this builder may be down or misconfigured"
+                    )
+                })?;
 
-        // Populate attestation cache from CC3 on startup.
-        // NOTE: This loads ALL attestations into memory. For long-running chains this could
-        // be significant (attestations are ~10x more frequent than checkpoints). A future
-        // optimization could load only attestations after the latest checkpoint, since older
-        // ones are redundant when checkpoint bounds cover them.
-        tracing::info!(
-            chain_key,
-            "⏳ Populating attestation cache from CC3 (this may take a while)..."
-        );
-        let attestations = builder
-            .cc_provider
-            .get_attestations_for_chain(chain_key)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    "Failed to fetch attestations on startup: {e}, starting with empty cache"
-                );
-                Vec::new()
-            });
-        let attestation_cache: BTreeMap<u64, H256> = attestations
-            .into_iter()
-            .map(|att| (att.attestation.header_number, att.attestation.digest()))
-            .collect();
-        tracing::info!(
-            chain_key,
-            count = attestation_cache.len(),
-            latest = ?attestation_cache.keys().next_back(),
-            "Attestation cache populated from CC3"
-        );
+            tracing::debug!(
+                chain_key,
+                attestation_genesis_block,
+                "ContinuityService chain initialized with attestation genesis block"
+            );
+
+            // Populate checkpoint cache from CC3 on startup.
+            tracing::debug!(
+                chain_key,
+                "⏳ Populating checkpoint cache from CC3 (this may take a while)..."
+            );
+            let checkpoints = builder
+                .cc_provider
+                .get_checkpoints_for_chain(chain_key)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(
+                        chain_key,
+                        "Failed to fetch checkpoints on startup: {e}, starting with empty cache"
+                    );
+                    Vec::new()
+                });
+            let checkpoint_map: BTreeMap<u64, H256> = checkpoints
+                .into_iter()
+                .map(|cp| (cp.block_number, cp.digest))
+                .collect();
+            tracing::debug!(
+                chain_key,
+                count = checkpoint_map.len(),
+                latest = ?checkpoint_map.keys().next_back(),
+                "Checkpoint cache populated from CC3"
+            );
+
+            // Populate attestation cache from CC3 on startup.
+            tracing::debug!(
+                chain_key,
+                "⏳ Populating attestation cache from CC3 (this may take a while)..."
+            );
+            let attestations = builder
+                .cc_provider
+                .get_attestations_for_chain(chain_key)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(
+                        chain_key,
+                        "Failed to fetch attestations on startup: {e}, starting with empty cache"
+                    );
+                    Vec::new()
+                });
+            let attestation_map: BTreeMap<u64, H256> = attestations
+                .into_iter()
+                .map(|att| (att.attestation.header_number, att.attestation.digest()))
+                .collect();
+            tracing::debug!(
+                chain_key,
+                count = attestation_map.len(),
+                latest = ?attestation_map.keys().next_back(),
+                "Attestation cache populated from CC3"
+            );
+
+            chains.insert(
+                chain_key,
+                Arc::new(ChainState {
+                    builder,
+                    checkpoint_cache: tokio::sync::RwLock::new(checkpoint_map),
+                    attestation_cache: tokio::sync::RwLock::new(attestation_map),
+                    attestation_genesis_block: AtomicU64::new(attestation_genesis_block),
+                }),
+            );
+        }
 
         Ok(Self {
-            builder,
+            chains,
             start_time: Instant::now(),
             total_proof_requests: AtomicU64::new(0),
-            attestation_genesis_block: AtomicU64::new(attestation_genesis_block),
             metrics,
             max_batch_size,
-            checkpoint_cache: tokio::sync::RwLock::new(checkpoint_cache),
-            attestation_cache: tokio::sync::RwLock::new(attestation_cache),
         })
+    }
+
+    pub(crate) fn chain_state(&self, chain_key: u64) -> ServiceResult<&Arc<ChainState>> {
+        self.chains
+            .get(&chain_key)
+            .ok_or(ServiceError::UnknownChain { chain_key })
+    }
+
+    pub(crate) fn serves_chain(&self, chain_key: u64) -> bool {
+        self.chains.contains_key(&chain_key)
+    }
+
+    pub(crate) fn configured_chain_keys(&self) -> std::collections::HashSet<u64> {
+        self.chains.keys().copied().collect()
+    }
+
+    /// Update the continuity builder's last-checkpoint hint (from on-chain events).
+    pub async fn update_builder_last_checkpoint(&self, chain_key: u64, block_number: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            chain
+                .builder
+                .update_last_checkpoint_block(block_number)
+                .await;
+        }
     }
 
     /// Validate that the requested blocks can be processed:
@@ -257,14 +303,16 @@ impl ContinuityService {
     /// 2. Exists on source chain (ETH)
     ///
     /// Returns the current block height for reuse in validating predicted attestation bounds.
-    async fn validate_blocks(&self, header_numbers: &[u64]) -> ServiceResult<u64> {
-        let genesis_block = self.attestation_genesis_block.load(Ordering::Relaxed);
+    async fn validate_blocks(&self, chain_key: u64, header_numbers: &[u64]) -> ServiceResult<u64> {
+        let chain = self.chain_state(chain_key)?;
+        let genesis_block = chain.attestation_genesis_block.load(Ordering::Relaxed);
 
         // Check genesis bound
         if let Some(&header_number) = header_numbers.iter().find(|h| **h <= genesis_block) {
             tracing::warn!(
                 requested_block = header_number,
                 genesis_block,
+                chain_key,
                 "Requested block is before or at attestation genesis"
             );
             return Err(ServiceError::BlockBeforeOrAtGenesis {
@@ -275,7 +323,8 @@ impl ContinuityService {
 
         // Check source chain existence
         let current_block =
-            self.builder
+            chain
+                .builder
                 .get_last_block()
                 .await
                 .map_err(|e| ServiceError::RpcUnavailable {
@@ -286,6 +335,7 @@ impl ContinuityService {
             tracing::warn!(
                 requested_block = header_number,
                 current_block,
+                chain_key,
                 "Requested block does not exist on source chain yet"
             );
             return Err(ServiceError::BlockNotOnSourceChain {
@@ -311,34 +361,50 @@ impl ContinuityService {
 
     /// Health check for CC3 RPC connectivity
     pub async fn check_cc3_connectivity(&self) -> anyhow::Result<()> {
-        // Use a lightweight storage query as a connectivity check
-        let _genesis = self.builder.get_attestation_genesis_block().await?;
+        // Use a lightweight storage query as a connectivity check (any configured chain)
+        let (_, chain) = self
+            .chains
+            .iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("no chains configured"))?;
+        let _genesis = chain.builder.get_attestation_genesis_block().await?;
         Ok(())
     }
 
     /// Health check for ETH RPC connectivity
     pub async fn check_eth_connectivity(&self) -> anyhow::Result<()> {
-        // Try to get the ETH chain ID as a basic connectivity check
-        let _chain_id = self.builder.get_eth_chain_id().await?;
+        for (chain_key, chain) in &self.chains {
+            chain
+                .builder
+                .get_eth_chain_id()
+                .await
+                .map_err(|e| anyhow::anyhow!("eth RPC chain {chain_key}: {e}"))?;
+        }
         Ok(())
     }
 
     /// Insert an attestation into the in-memory cache (called from event handler).
-    pub async fn insert_attestation(&self, block_number: u64, digest: H256) {
-        self.attestation_cache
-            .write()
-            .await
-            .insert(block_number, digest);
-        tracing::debug!(block_number, ?digest, "attestation cached");
+    pub async fn insert_attestation(&self, chain_key: u64, block_number: u64, digest: H256) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            chain
+                .attestation_cache
+                .write()
+                .await
+                .insert(block_number, digest);
+            tracing::debug!(chain_key, block_number, ?digest, "attestation cached");
+        }
     }
 
     /// Insert a checkpoint into the in-memory cache (called from event handler).
-    pub async fn insert_checkpoint(&self, block_number: u64, digest: H256) {
-        self.checkpoint_cache
-            .write()
-            .await
-            .insert(block_number, digest);
-        tracing::debug!(block_number, ?digest, "checkpoint cached");
+    pub async fn insert_checkpoint(&self, chain_key: u64, block_number: u64, digest: H256) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            chain
+                .checkpoint_cache
+                .write()
+                .await
+                .insert(block_number, digest);
+            tracing::debug!(chain_key, block_number, ?digest, "checkpoint cached");
+        }
     }
 
     /// Look up attestation boundaries around a query range from the local cache.
@@ -346,10 +412,12 @@ impl ContinuityService {
     /// Returns `(lower_block, lower_digest, upper_block)` or `None` if not found.
     pub async fn get_attestation_boundaries(
         &self,
+        chain_key: u64,
         min_query: u64,
         max_query: u64,
     ) -> Option<(u64, H256, u64)> {
-        let cache = self.attestation_cache.read().await;
+        let chain = self.chains.get(&chain_key)?;
+        let cache = chain.attestation_cache.read().await;
 
         // Lower: greatest attestation strictly before min_query.
         let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
@@ -369,10 +437,12 @@ impl ContinuityService {
     /// Returns `(lower_block, lower_digest, upper_block)` or `None` if not found.
     pub async fn get_checkpoint_boundaries(
         &self,
+        chain_key: u64,
         min_query: u64,
         max_query: u64,
     ) -> Option<(u64, H256, u64)> {
-        let cache = self.checkpoint_cache.read().await;
+        let chain = self.chains.get(&chain_key)?;
+        let cache = chain.checkpoint_cache.read().await;
 
         // Lower: greatest checkpoint strictly before min_query.
         // Must be strictly less than min_query so that build_proof_from_roots
@@ -393,24 +463,29 @@ impl ContinuityService {
     /// Updates the attestation genesis block number.
     /// This will be called when we receive an AttestationChainGenesisBlockNumberSet event from CC3,
     /// allowing the service to adapt if the attestation genesis block changes (e.g. due to a chain reset or reconfiguration).
-    pub async fn update_genesis_block(&self, new_genesis_block: u64) {
-        self.attestation_genesis_block
-            .store(new_genesis_block, Ordering::Relaxed);
+    pub async fn update_genesis_block(&self, chain_key: u64, new_genesis_block: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            chain
+                .attestation_genesis_block
+                .store(new_genesis_block, Ordering::Relaxed);
 
-        tracing::info!(
-            attestation_genesis_block = new_genesis_block,
-            "Updated attestation genesis block"
-        );
+            tracing::info!(
+                chain_key,
+                attestation_genesis_block = new_genesis_block,
+                "Updated attestation genesis block"
+            );
+        }
     }
 
     /// Build continuity proof for the given blocks, validating them first.
     async fn get_continuity_proof_for(
         &self,
+        chain_key: u64,
         headers: &[u64],
         current_block: u64,
     ) -> ServiceResult<ContinuityProof> {
         // ContinuityBuilder will automatically use indexer if available
-        self.build_continuity(headers, current_block)
+        self.build_continuity(chain_key, headers, current_block)
             .await
             .inspect(|proof| {
                 // Increment total proof requests counter
@@ -445,14 +520,14 @@ impl ContinuityService {
         tx_index: u64,
     ) -> ServiceResult<SingleContinuityResponse> {
         // Validate that the requested block can be processed and get current block for validating predicted attestation bounds
-        let current_block = self.validate_blocks(&[header_number]).await?;
+        let current_block = self.validate_blocks(chain_key, &[header_number]).await?;
 
         // Record block range metric
         self.metrics.observe_block_range(header_number);
 
         // ContinuityBuilder will automatically use indexer if available
         let continuity_proof = self
-            .get_continuity_proof_for(&[header_number], current_block)
+            .get_continuity_proof_for(chain_key, &[header_number], current_block)
             .await?;
 
         let merkle = self
@@ -492,7 +567,7 @@ impl ContinuityService {
             .map(|q| q.header_number)
             .collect::<Vec<u64>>();
         // Validate that the requested blocks can be processed and get current block for validating predicted attestation bounds
-        let current_block = self.validate_blocks(&header_numbers).await?;
+        let current_block = self.validate_blocks(chain_key, &header_numbers).await?;
 
         // We can safely unwrap header_numbers here because the API layer guarantees at least one query is present.
         let from_header = *header_numbers.iter().min().unwrap();
@@ -505,7 +580,7 @@ impl ContinuityService {
 
         // ContinuityBuilder will automatically use indexer if available
         let continuity_proof = self
-            .get_continuity_proof_for(&header_numbers, current_block)
+            .get_continuity_proof_for(chain_key, &header_numbers, current_block)
             .await?;
 
         let mut merkle_proofs = BTreeMap::new();
@@ -572,7 +647,9 @@ impl ContinuityService {
         tx_hash: String,
     ) -> ServiceResult<SingleContinuityResponse> {
         let tx_h256 = parse_tx_hash(&tx_hash)?;
-        let (header_number, tx_index) = self.get_height_and_index_for_tx_hash(tx_h256).await?;
+        let (header_number, tx_index) = self
+            .get_height_and_index_for_tx_hash(chain_key, tx_h256)
+            .await?;
 
         let response = self.get_proof(chain_key, header_number, tx_index).await?;
 
@@ -614,7 +691,7 @@ impl ContinuityService {
             let mut futures = Vec::with_capacity(parsed_hashes.len());
 
             for tx_h256 in parsed_hashes {
-                futures.push(self.get_height_and_index_for_tx_hash(tx_h256));
+                futures.push(self.get_height_and_index_for_tx_hash(chain_key, tx_h256));
             }
 
             use futures::StreamExt as _;
