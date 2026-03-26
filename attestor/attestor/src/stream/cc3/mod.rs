@@ -67,18 +67,32 @@ impl StreamCC3 {
                                 // Regenerate connection endpoints
                                 let mut finalized = cc3.reconnect()
                                     .await
-                                    .map_err(Error::Client)?
+                                    .map_err(|err| {
+                                        tracing::error!(?err, "Failed to reconnect to CC3");
+                                        Error::Client(err)
+                                    })?
                                     .api()
                                     .blocks()
                                     .subscribe_finalized()
                                     .await
-                                    .map_err(Error::Subxt)?;
+                                    .map_err(|err| {
+                                        tracing::error!(?err, "Failed to reconnect to CC3");
+                                        Error::Subxt(err)
+                                    })?;
 
                                 // Find out how many blocks were dropped during disconnect
                                 let next = finalized.try_next()
                                     .await
-                                    .map_err(Error::Subxt)?
-                                    .ok_or(Error::EndOfStream)?;
+                                    .map_err(|err| {
+                                        tracing::error!(?err, "Failed to reconnect to CC3");
+                                        Error::Subxt(err)
+                                    })?
+                                    .ok_or(Error::EndOfStream)
+                                    .map_err(|err| {
+                                        tracing::error!(?err, "Failed to reconnect to CC3");
+                                        err
+
+                                    })?;
 
                                 // Backfilling
                                 let stream = futures::stream::iter(latest + 1..next.number() as u64)

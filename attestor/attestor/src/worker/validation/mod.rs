@@ -1164,18 +1164,19 @@ impl WorkerAttestationValidation {
             .max_delay(std::time::Duration::from_millis(5_000))
             .map(tokio_retry::strategy::jitter);
         let reconnect = || {
-            tracing::warn!("🛜 Reconnecting...");
+            tracing::warn!("🛜 Reconnecting to CC3...");
 
             let mut cc3 = self.cc3.clone();
             async move {
-                cc3.reconnect().await.map_err(Error::Client)?;
+                cc3.reconnect().await.map_err(|err| {
+                    tracing::error!(?err, "Failed to reconnect to CC3");
+                    Error::Client(err)
+                })?;
 
-                let runtime_api = cc3
-                    .api()
-                    .runtime_api()
-                    .at_latest()
-                    .await
-                    .map_err(Error::Subxt)?;
+                let runtime_api = cc3.api().runtime_api().at_latest().await.map_err(|err| {
+                    tracing::error!(?err, "Failed to reconnect to CC3");
+                    Error::Subxt(err)
+                })?;
 
                 Ok::<_, Error>((cc3, runtime_api))
             }
