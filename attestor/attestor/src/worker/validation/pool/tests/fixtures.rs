@@ -130,7 +130,7 @@ pub fn config(
         .with_max_size(std::num::NonZeroUsize::new(capacity).unwrap())
         .with_attestors(attestors)
         .with_quorum(validate_quorum.target_quorum)
-        .with_start_attestation(Some(common::types::AttestationInfo {
+        .with_start_attestation(Some(stream::util::AttestationInfo {
             digest: DIGEST_0,
             height: common::types::Height::MIN,
         }))
@@ -146,7 +146,7 @@ pub fn permit(
     #[default(DIGEST_0)] _prev_digest: attestor_primitives::Digest,
     #[with(_attestors.clone(), _header_number, _prev_digest)] attestation: AttestationVote,
 ) -> Permit {
-    Permit(common::types::AttestationInfo {
+    Permit(stream::util::AttestationInfo {
         height: attestation.attestation.header_number(),
         digest: attestation.attestation.digest(),
     })

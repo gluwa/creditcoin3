@@ -188,7 +188,7 @@ async fn attestation_pool_sanity_pending(
             }));
     }
 
-    sx.note_attestation_finalization(common::types::AttestationInfo {
+    sx.note_attestation_finalization(stream::util::AttestationInfo {
         digest: DIGEST_1,
         height: 0,
     })
@@ -755,7 +755,7 @@ async fn chain_reversion_resets_validation_pool(
     // ------------------------------------------------------------------------
     // 5) Revert the chain and verify everything is cleared/reset.
     // ------------------------------------------------------------------------
-    let reversion_info = common::types::AttestationInfo {
+    let reversion_info = stream::util::AttestationInfo {
         height: 50,
         digest: DIGEST_1,
     };
