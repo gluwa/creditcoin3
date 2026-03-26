@@ -78,6 +78,12 @@ pub enum Error {
     FailedToGetStarkMetadata(String),
     #[error("Attestor not found in storage, register the attestor first and retry later")]
     NotRegistered,
+    #[error("Caller cannot pay fees for the transaction")]
+    CallerCannotPayFees,
+    #[error("Caller doesn't have sufficient funds to execute the transaction: {0:?}")]
+    CallerDoesntHaveSufficientFunds(#[from] subxt::error::TokenError),
+    #[error("Transaction timed out waiting for finalization")]
+    TransactionTimeout,
 }
 
 #[derive(Clone)]
@@ -394,20 +400,22 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
             .submit_and_watch()
-            .await?
-            .wait_for_finalized_success()
-            .await?;
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        let hash = ext.extrinsic_hash();
-        debug!("Registration extrinsic submitted with hash: {:?}", hash);
-
-        Ok(())
+        utils::handle_tx(tx_progress, "Register Attestor").await
     }
 
     pub async fn attestor_chill(
@@ -426,20 +434,22 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
             .submit_and_watch()
-            .await?
-            .wait_for_finalized_success()
-            .await?;
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        let hash = ext.extrinsic_hash();
-        debug!("Registration extrinsic submitted with hash: {:?}", hash);
-
-        Ok(())
+        utils::handle_tx(tx_progress, "Chill Attestor").await
     }
 
     pub async fn attestor_unregister(
@@ -460,20 +470,22 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
             .submit_and_watch()
-            .await?
-            .wait_for_finalized_success()
-            .await?;
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        let hash = ext.extrinsic_hash();
-        debug!("Registration extrinsic submitted with hash: {:?}", hash);
-
-        Ok(())
+        utils::handle_tx(tx_progress, "Unregister Attestor").await
     }
 
     pub async fn start_attesting(
@@ -486,18 +498,20 @@ impl Client {
             .attestation()
             .attest(chain_key, bls_public_key, proof_of_possession);
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
             .sign_and_submit_then_watch_default(&tx, &self.signing_keypair)
-            .await?
-            .wait_for_finalized_success()
-            .await?;
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        let hash = ext.extrinsic_hash();
-        debug!("Start Attesting extrinsic submitted with hash: {:?}", hash);
-
-        Ok(())
+        utils::handle_tx(tx_progress, "Start Attesting").await
     }
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
@@ -823,20 +837,22 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
             .submit_and_watch()
-            .await?
-            .wait_for_finalized_success()
-            .await?;
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        // let hash = ext.extrinsic_hash();
-        debug!("Transfer extrinsic submitted with hash: {:?}", ext);
-
-        Ok(())
+        utils::handle_tx(tx_progress, "Transfer").await
     }
 
     pub async fn set_balance(
@@ -860,20 +876,34 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
             .submit_and_watch()
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
+
+        utils::handle_tx(tx_progress, "Set Balance").await
+    }
+
+    pub async fn get_free_balance(&self, account: &AccountId32) -> Result<u128, Error> {
+        let storage_query = cc3::storage().system().account(account);
+        let account_info = self
+            .api()
+            .storage()
+            .at_latest()
             .await?
-            .wait_for_finalized_success()
+            .fetch(&storage_query)
             .await?;
-
-        // let hash = ext.extrinsic_hash();
-        debug!("Transfer extrinsic submitted with hash: {:?}", ext);
-
-        Ok(())
+        Ok(account_info.map_or(0, |info| info.data.free))
     }
 
     pub async fn get_account_nonce(&self) -> Result<u64, Error> {
@@ -958,6 +988,59 @@ impl Client {
             .await?;
 
         Ok(result.unwrap_or_default())
+    }
+}
+
+mod utils {
+    /// Timeout for waiting on extrinsic finalization.
+    /// Set to 120 seconds which is around 8 blocks on a 15 second block time.
+    const FINALIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+    /// This is a fallback error message that we can use to detect insufficient funds errors in the absence of a more structured error from the RPC layer.
+    /// Sourced from: <https://github.com/paritytech/polkadot-sdk/blob/06bded7ab7ac6a50e0aeba48c0f7f5ca548c3573/substrate/primitives/runtime/src/transaction_validity.rs#L116>
+    const INABILITY_TO_PAY_SOME_FEE_MSG: &str = "Inability to pay some fee";
+
+    pub(super) async fn handle_tx(
+        tx: subxt::tx::TxProgress<
+            subxt::SubstrateConfig,
+            subxt::OnlineClient<subxt::SubstrateConfig>,
+        >,
+        msg: &str,
+    ) -> Result<(), crate::Error> {
+        match tokio::time::timeout(FINALIZATION_TIMEOUT, tx.wait_for_finalized_success()).await {
+            Ok(Ok(ext)) => {
+                let hash = ext.extrinsic_hash();
+                tracing::debug!("{} extrinsic succeeded with hash: {:?}", msg, hash);
+                Ok(())
+            }
+            Ok(Err(err)) if is_fee_error(&err) => Err(crate::Error::CallerCannotPayFees),
+            Ok(Err(subxt::Error::Runtime(subxt::error::DispatchError::Token(token_error)))) => {
+                // If we get a token error, it means the transaction was valid but failed to execute due to insufficient funds or similar issues. We can return a specific error for this case.
+                Err(crate::Error::CallerDoesntHaveSufficientFunds(token_error))
+            }
+            Ok(Err(e)) => {
+                // Any other error that occurs while waiting for the transaction to be finalized can be treated as a generic submission failure.
+                Err(e.into())
+            }
+            Err(_) => {
+                // Timeout while waiting for the transaction to be finalized. We treat this as a specific timeout error.
+                Err(crate::Error::TransactionTimeout)
+            }
+        }
+    }
+
+    pub(super) fn is_fee_error(e: &subxt::Error) -> bool {
+        if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(err)) = e {
+            if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(call_err)) =
+                err.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
+            {
+                if let Some(data) = call_err.data() {
+                    return data.get().contains(INABILITY_TO_PAY_SOME_FEE_MSG);
+                }
+            }
+        }
+
+        false
     }
 }
 
