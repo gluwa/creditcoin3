@@ -20,7 +20,7 @@ pub struct ProofGenApiServer {
     #[arg(long, env = "PROOF_GEN_CONFIG_FILE")]
     config: Option<PathBuf>,
 
-    /// Creditcoin3 RPC (WebSocket). Use `CC3_RPC_URL` in `.env` or `--cc3-rpc-url` (not in YAML).
+    /// Creditcoin3 RPC (WebSocket). `CC3_RPC_URL` or `--cc3-rpc-url` (CLI overrides env; not in YAML).
     #[arg(long, default_value = "ws://localhost:9944", env = "CC3_RPC_URL")]
     cc3_rpc_url: String,
 
@@ -113,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
 
-    let mut config = if let Some(path) = args.config.clone() {
+    let config = if let Some(path) = args.config.clone() {
         let mut c = Config::from_yaml_file(&path, args.cc3_rpc_url.clone())?;
         if c.cc3_key.is_none() {
             c.cc3_key = resolved_cc3_key;
@@ -144,14 +144,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_batch_size: args.max_batch_size,
         }
     };
-
-    // CC3_RPC_URL in the environment overrides `--cc3-rpc-url` / default (same pattern as CC3_KEY).
-    if let Ok(url) = env::var("CC3_RPC_URL") {
-        let trimmed = url.trim();
-        if !trimmed.is_empty() {
-            config.cc3_rpc_url = trimmed.to_string();
-        }
-    }
 
     if config.max_batch_size == 0 {
         panic!("max_batch_size must be greater than 0");
