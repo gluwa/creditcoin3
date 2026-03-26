@@ -21,7 +21,7 @@ too_many_arguments = "allow"
 anyhow = "1.0"
 
 # Substrate
-subxt = { workspace = true }
+subxt = { workspace = true, features = ["jsonrpsee"] }
 subxt-signer = { workspace = true }
 
 # Creditcoin deps
