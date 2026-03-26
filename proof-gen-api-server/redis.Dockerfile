@@ -1,4 +1,4 @@
-FROM redis:8.6.1-alpine
+FROM redis:8.6.2-alpine
 # redis user is defined in the base image
 USER redis
 COPY redis.conf /usr/local/etc/redis/redis.conf
