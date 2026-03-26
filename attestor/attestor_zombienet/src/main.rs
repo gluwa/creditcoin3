@@ -1,5 +1,16 @@
 use attestor::prelude::*;
 
+// These seeds where obtained by running `creditcoin3-node key inspect <ACCOUNT_URI>` for each of the first 6 Substrate development accounts
+// (//Alice, //Bob, //Charlie, //Dave, //Eve, //Ferdie).
+const WELL_KNOWN_SEEDS: [&str; 6] = [
+    "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a", // //Alice
+    "0x398f0c28f98885e046333d4a41c19cee4c37368a9832c6502f6cfd182e2aef89", // //Bob
+    "0xbc1ede780f784bb6991a585e4f6e61522c14e1cae6ad0895fb57b9a205a8f938", // //Charlie
+    "0x868020ae0687dda7d57565093a69090211449845a7e11453612800b663307246", // //Dave
+    "0x786ad0e2df456fe43dd1f91ebca22e235bc162e0bb8d53c633e8c85b2af68b7a", // //Eve
+    "0x42438b7883391c05512a938e36c2df0131e088b3756d6aa7a755fbff19d2f842", // //Ferdie
+];
+
 #[derive(Debug, clap::Parser)]
 struct Args {
     /// Number of attestors to spawn
@@ -51,6 +62,21 @@ struct Args {
     #[arg(long, default_value_t = attestor::common::constants::DEFAULT_API_PORT)]
     api_port_base: u16,
 
+    /// If true, the program will use well-known seeds for the attestors instead of generating them randomly.
+    /// The well-known seeds are the secret seeds of the first 6 Substrate development accounts (//Alice, //Bob, //Charlie, //Dave, //Eve, //Ferdie).
+    /// and are used in order for each attestor (first attestor gets the first seed, second attestor gets the second seed, etc.).
+    #[arg(long)]
+    well_known_keys: bool,
+
+    /// Optional path to a file containing well-known mnemonics (one per line).
+    /// If provided, these seeds are used instead of random generation.
+    /// The seeds on the file are used in order, so the first line corresponds to the first attestor, the second line to the second attestor, and so on.
+    /// The seeds from the file are used before the seeds from --seeds (if provided).
+    /// If the combined list of seeds from the file and --seeds contains fewer seeds than the number of attestors to spawn,
+    /// the remaining attestors's seeds will be generated randomly.
+    #[arg(long)]
+    seeds_file: Option<std::path::PathBuf>,
+
     #[arg(last = true)]
     trailing: Vec<String>,
 }
@@ -62,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
     use clap::Parser as _;
     use rand::SeedableRng as _;
     use std::str::FromStr as _;
+    use subxt_signer::ExposeSecret as _;
 
     const MAX_ATTEMPTS: usize = 10;
 
@@ -95,14 +122,67 @@ async fn main() -> anyhow::Result<()> {
         "Failed to find attestor config"
     );
 
-    let attestor_info = (0..args.number.get())
+    // Collect seeds from --seeds-file and --seeds
+    let mut configured_secrets: Vec<(subxt_signer::SecretUri, String)> = Vec::new();
+
+    if args.well_known_keys {
+        for key in WELL_KNOWN_SEEDS.iter() {
+            let secret_uri = subxt_signer::SecretUri::from_str(key).context(format!(
+                "Failed to create secret uri from well-known key: {key}"
+            ))?;
+            let secret = secret_uri.phrase.expose_secret().to_string();
+            configured_secrets.push((secret_uri, secret));
+        }
+    }
+
+    if let Some(ref seeds_file) = args.seeds_file {
+        let contents = std::fs::read_to_string(seeds_file).context(format!(
+            "Failed to read seeds file: {}",
+            seeds_file.display()
+        ))?;
+        for (i, line) in contents.lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mnemonic: bip39::Mnemonic = line
+                .parse()
+                .context(format!("Invalid mnemonic on line {} of seeds file", i + 1))?;
+            let secret_uri = subxt_signer::SecretUri::from_str(&mnemonic.to_string())
+                .context("Failed to create secret uri")?;
+
+            configured_secrets.push((secret_uri, mnemonic.to_string()));
+        }
+    }
+
+    let attestor_count = args.number.get();
+    // If more seeds are provided than attestors, truncate the list of seeds to match the number of attestors.
+    configured_secrets.truncate(attestor_count);
+    // Reverse to pop seeds in the original order
+    configured_secrets.reverse();
+
+    if !configured_secrets.is_empty() {
+        tracing::info!(
+            count = configured_secrets.len(),
+            "🔑 Using configured secrets for attestors"
+        );
+    }
+
+    let attestor_info = (0..attestor_count)
         .map(|mut n| {
             n += args.offset;
             let name = format!("zombie-{n}");
-            let secret = bip39::Mnemonic::generate_in_with(&mut rng, bip39::Language::English, 12)
-                .expect("Failed to generate attestor secret");
-            let secret_uri = subxt_signer::SecretUri::from_str(&secret.to_string())
-                .context("Failed to create secret uri")?;
+
+            let (secret_uri, secret) = if let Some(configured_secret) = configured_secrets.pop() {
+                configured_secret
+            } else {
+                let mnemonic =
+                    bip39::Mnemonic::generate_in_with(&mut rng, bip39::Language::English, 12)
+                        .expect("Failed to generate attestor secret");
+                let secret_uri = subxt_signer::SecretUri::from_str(&mnemonic.to_string())
+                    .context("Failed to create secret uri")?;
+                (secret_uri, mnemonic.to_string())
+            };
             let keypair = subxt_signer::sr25519::Keypair::from_uri(&secret_uri)
                 .context("Failed to create secret keypair")?;
             let account_id = cc_client::AccountId32(keypair.public_key().0);
@@ -431,11 +511,8 @@ async fn main() -> anyhow::Result<()> {
 
     // ------------------------* Attestor chilling (on-chain confirmation) *-----------------------
 
-    wait_for_event::<cc_client::cc3::attestation::events::AttestorChilled>(
-        args.number.get(),
-        blocks,
-    )
-    .await?;
+    wait_for_event::<cc_client::cc3::attestation::events::AttestorChilled>(attestor_count, blocks)
+        .await?;
 
     // --------------------------------* Attestor un-registration *--------------------------------
 
