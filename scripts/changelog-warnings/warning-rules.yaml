@@ -1,0 +1,79 @@
+rules:
+  - id: node-binary-changed
+    label: 'Node binary source changed'
+    description: >
+      The node binary source code has changed. Node operators should
+      rebuild and redeploy their node binary.
+    severity: warning
+    include:
+      - 'node/src/**'
+      - 'node/cli-opt/**'
+    exclude:
+      - 'node/src/chain_spec.rs'
+
+  - id: pallet-precompile-changed
+    label: 'Pallet or precompile code changed'
+    description: >
+      Pallet or precompile source code has changed. A runtime upgrade
+      may be required. Review the changes carefully before upgrading.
+    severity: warning
+    include:
+      - 'pallets/*/src/**'
+      - 'precompiles/*/src/**'
+    exclude:
+      - '**/tests.rs'
+      - '**/tests/**'
+      - '**/mock.rs'
+      - '**/*_test.rs'
+      - '**/mock/**'
+
+  - id: runtime-definition-changed
+    label: 'Runtime definition changed'
+    description: >
+      The runtime source code has changed. A runtime upgrade will
+      likely be required. Ensure the on-chain runtime is updated
+      accordingly.
+    severity: critical
+    include:
+      - 'runtime/src/**'
+    exclude:
+      - 'runtime/src/version.rs'
+
+  - id: attestor-source-changed
+    label: 'Attestor source changed'
+    description: >
+      Attestor-related source code has changed. Attestor operators
+      should rebuild and redeploy their attestor binary.
+    severity: warning
+    include:
+      - 'attestor/attestor/src/**'
+      - 'primitives/attestor/**'
+      - 'common/streams/attestation/**'
+      - 'common/streams/eth/**'
+      - 'common/eth/**'
+      - 'common/merkle/**'
+      - 'common/continuity/**'
+
+  - id: schema-entities-added-removed
+    label: 'Indexer schema entities added or removed'
+    description: >
+      The indexer GraphQL schema has had entities added or removed.
+    severity: warning
+    include:
+      - 'cc3-indexer/schema.graphql'
+    contentCheck:
+      type: graphql-entity-added-removed
+      file: 'cc3-indexer/schema.graphql'
+
+  - id: schema-entities-modified
+    label: 'Indexer schema entities modified — resync from block 0 required'
+    description: >
+      The indexer GraphQL schema has had entity fields modified.
+      Indexer operators must perform a full resync from block 0 to
+      ensure data consistency.
+    severity: critical
+    include:
+      - 'cc3-indexer/schema.graphql'
+    contentCheck:
+      type: graphql-entity-modified
+      file: 'cc3-indexer/schema.graphql'
