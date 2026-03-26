@@ -142,26 +142,26 @@ pub mod opaque {
 mod version;
 pub use version::VERSION;
 
-macro_rules! prod_or_fast {
-    ($prod: expr, $fast: expr) => {
+macro_rules! prod_devnet_fast {
+    ($prod: expr, $devnet: expr, $fast: expr) => {
         if cfg!(feature = "fast-runtime") {
             $fast
+        } else if cfg!(feature = "devnet") {
+            $devnet
         } else {
             $prod
         }
     };
 }
 
-pub const MILLISECS_PER_BLOCK: u64 = prod_or_fast!(15_000, 5_000);
+pub const MILLISECS_PER_BLOCK: u64 = prod_devnet_fast!(15_000, 5_000, 5_000);
 
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 
 // WARNING: the next should be defined on a single line b/c of
 // the assertions made in .github/check-for-changes-in-epoch-duration.sh
 #[rustfmt::skip]
-const BLOCKS_FOR_FASTER_EPOCH: u32 = if cfg!(feature = "devnet") { 2 * HOURS } else { 15 };
-
-pub const EPOCH_DURATION_IN_BLOCKS: u32 = prod_or_fast!(12 * HOURS, BLOCKS_FOR_FASTER_EPOCH);
+pub const EPOCH_DURATION_IN_BLOCKS: u32 = prod_devnet_fast!(12 * HOURS, 2 * HOURS, 15);
 
 parameter_types! {
     pub const EpochDuration: u64 = EPOCH_DURATION_IN_BLOCKS as u64; // Q: how long to make an epoch
