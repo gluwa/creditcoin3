@@ -1124,6 +1124,7 @@ impl WorkerAttestationValidation {
             {
                 Ok(submit) => break submit,
                 Err(err) => {
+                    tracing::error!(height, ?err, "⛔ Failed to submit attestation");
                     self.reconnect(Error::Subxt(err)).await?;
                 }
             }

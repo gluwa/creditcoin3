@@ -91,6 +91,27 @@ impl Attestor {
             .await
             .map_err(Error::InitError)?;
 
+        // -----------------------------------* Verify attestor balances *-----------------------------
+
+        tracing::info!("🔍 Verifying attestor balances");
+
+        let free_balance = client_cc3
+            .get_free_balance(&account_id)
+            .await
+            .map_err(Error::RpcError)?;
+        if free_balance < common::constants::MIN_BALANCE {
+            tracing::error!(name = self.config.name, %account_id, chain_key = self.config.chain_key, balance = %free_balance, "⛔ Attestor has insufficient balance");
+            return Err(Error::InitError(anyhow::anyhow!(
+                "Attestor {} ({}) has insufficient balance: {} < {}",
+                self.config.name,
+                account_id,
+                free_balance,
+                common::constants::MIN_BALANCE
+            )));
+        } else {
+            tracing::info!(name = self.config.name, %account_id, chain_key = self.config.chain_key, balance = %free_balance, "🔍 Attestor has sufficient balance");
+        }
+
         // -----------------------------------------* CC3 *----------------------------------------
 
         let config = stream::cc3::ConfigBuilder::new()
