@@ -837,14 +837,15 @@ impl<T: Config> Pallet<T> {
 
         // Because checkpointing queue storage is written to after this function
         // returns, it isn't covered by the #[transactional] macro and must be manually
-        // rolled back.
+        // rolled back. Rollback replays pops with `push_front`; iterating the rollback
+        // vec in reverse keeps oldest-at-front order (forward iteration would reverse it).
         let mut checkpointing_rollback: Vec<Digest> = Vec::new();
 
         let new_checkpoint = loop {
             let attestation_digest: Digest = match queue.pop_front() {
                 Some(digest) => digest,
                 None => {
-                    for digest in checkpointing_rollback {
+                    for digest in checkpointing_rollback.into_iter().rev() {
                         queue.push_front(digest);
                     }
                     return Err(Error::<T>::CheckpointingQueueDrained.into());
@@ -855,7 +856,7 @@ impl<T: Config> Pallet<T> {
             let attestation = match Attestations::<T>::get(chain_key, attestation_digest) {
                 Some(attestation) => attestation,
                 None => {
-                    for digest in checkpointing_rollback {
+                    for digest in checkpointing_rollback.into_iter().rev() {
                         queue.push_front(digest);
                     }
                     return Err(Error::<T>::AttestationNotFound.into());
@@ -903,7 +904,7 @@ impl<T: Config> Pallet<T> {
                         }
                         None => {
                             // We couldn't find the target block within this attestation's continuity proof
-                            for digest in checkpointing_rollback {
+                            for digest in checkpointing_rollback.into_iter().rev() {
                                 queue.push_front(digest);
                             }
                             return Err(Error::<T>::CheckpointTargetNotFound.into());
