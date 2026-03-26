@@ -35,7 +35,7 @@ jobs:
       matrix:
         directory:
           # note: add also in .github/hooks/pre-commit
-          [cc3-indexer, cli, docs/smart-contract-development/with-hardhat, scripts]
+          [cc3-indexer, cli, docs/smart-contract-development/with-hardhat, scripts, scripts/changelog-warnings]
         command: [lint, typecheck, check-format]
 
     steps:
