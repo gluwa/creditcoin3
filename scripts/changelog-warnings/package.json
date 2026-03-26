@@ -19,7 +19,7 @@
     "devDependencies": {
         "@types/js-yaml": "^4.0.9",
         "@types/minimatch": "^5.1.2",
-        "@types/node": "^20.17.0",
+        "@types/node": "^25.5.0",
         "@typescript-eslint/eslint-plugin": "^8.57.1",
         "@typescript-eslint/parser": "^8.57.1",
         "eslint": "^8.57.0",
