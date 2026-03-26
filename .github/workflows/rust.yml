@@ -245,7 +245,7 @@ jobs:
       - name: Run simulations
         id: simulation
         env:
-          PROPTEST_CASES: 10_000
+          PROPTEST_CASES: 10000
         run: |
           cargo test \
             --release \
