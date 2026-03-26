@@ -136,28 +136,32 @@ impl StreamAttestation {
     /// Note that in the latter case this indicates that the stream should be re-generated with
     /// the new interval.
     pub fn note_attestation_finalization(&mut self, info: stream_util::AttestationInfo) {
-        // The root cache is drained of past roots which are no longer needed to reach consensus.
-        if !self.cache.is_empty() {
-            let first = self.cache.first().expect("Checked above").height as usize;
-            let height = info.height as usize;
+        if self.attestation_prev.height < info.height {
+            // Regenerate attestations after the finalized height
+            let end = info.height.max(*self.computed.end());
+            self.computed = info.height..=end;
+            self.cursor = end;
 
-            if height >= first {
-                let index = (height - first).min(self.cache.len() - 1);
-                self.cache.drain(0..=index);
+            // Updates the previous digest
+            self.attestation_prev = info;
 
-                // Regenerate attestations after the finalized height
-                let end = info.height.max(*self.computed.end());
-                self.computed = info.height..=end;
-                self.cursor = end;
+            // The root cache is drained of past roots which are no longer needed to reach
+            // consensus.
+            if !self.cache.is_empty() {
+                let first = self.cache.first().expect("Checked above").height as usize;
+                let height = info.height as usize;
 
-                self.attestation_prev = info;
-
-                // It is possible that by draining past roots the attestation stream is now able to
-                // synchronize new blocks. This wakes any pending stream polls so they can make
-                // progress again.
-                if let Some(waker) = self.waker.take() {
-                    waker.wake()
+                if height >= first {
+                    let index = (height - first).min(self.cache.len() - 1);
+                    self.cache.drain(0..=index);
                 }
+            }
+
+            // It is possible that after these updates the attestation stream is now able to
+            // synchronize new blocks. This wakes any pending stream polls so they can make
+            // progress again.
+            if let Some(waker) = self.waker.take() {
+                waker.wake()
             }
         }
     }
