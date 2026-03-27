@@ -10391,7 +10391,6 @@ dependencies = [
  "eth",
  "futures 0.3.31",
  "hex",
- "indexer-client",
  "merkle",
  "parameterized",
  "prometheus-client 0.24.0",
