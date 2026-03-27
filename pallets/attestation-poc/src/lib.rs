@@ -165,7 +165,6 @@ pub mod pallet {
         fn register_invulnerable() -> Weight;
         fn unregister_invulnerable() -> Weight;
         fn set_max_invulnerables() -> Weight;
-        fn bootstrap_chain(a: u32) -> Weight;
         fn commit_attestation(a: u32, b: u32) -> Weight;
         fn set_target_sample_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
@@ -734,7 +733,7 @@ pub mod pallet {
         }
     }
 
-    /// Deprecation notice: The extrinsics with indexes 12, 15 and 17 have been removed.
+    /// Deprecation notice: The extrinsics with indexes 8, 12, 15 and 17 have been removed.
     /// The functionality of these extrinsics has been eliminated.
     #[pallet::call]
     impl<T: Config> Pallet<T> {
@@ -882,17 +881,6 @@ pub mod pallet {
 
             MaxInvulnerables::<T>::insert(chain_key, new_max);
             Ok(())
-        }
-
-        #[pallet::call_index(8)]
-        #[pallet::weight(<T as Config>::WeightInfo::bootstrap_chain(attestation.attestors.len() as u32))]
-        pub fn bootstrap_chain(
-            origin: OriginFor<T>,
-            attestation: SignedAttestation<T::Hash, T::AccountId>,
-        ) -> DispatchResult {
-            T::OperatorsOrigin::ensure_origin(origin)?;
-
-            Self::do_bootstrap_chain(attestation)
         }
 
         /// [`CommitAttestationWeight`] makes it so active attestors do not pay fees on this

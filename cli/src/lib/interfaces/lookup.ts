@@ -2569,9 +2569,7 @@ export default {
                 chainKey: 'u64',
                 newMax: 'u32',
             },
-            bootstrap_chain: {
-                attestation: 'AttestorPrimitivesSignedAttestation',
-            },
+            __Unused8: 'Null',
             commit_attestation: {
                 attestation: 'AttestorPrimitivesSignedAttestation',
             },

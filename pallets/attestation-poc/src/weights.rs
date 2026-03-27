@@ -266,46 +266,6 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::LastDigest` (r:1 w:1)
-	/// Proof: `Attestation::LastDigest` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::LastCheckpoint` (r:1 w:1)
-	/// Proof: `Attestation::LastCheckpoint` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::AttestationChainGenesisBlockNumber` (r:1 w:0)
-	/// Proof: `Attestation::AttestationChainGenesisBlockNumber` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::AttestationRemovalQueues` (r:1 w:1)
-	/// Proof: `Attestation::AttestationRemovalQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Checkpoints` (r:0 w:1)
-	/// Proof: `Attestation::Checkpoints` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointBuckets` (r:0 w:1)
-	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Attestations` (r:0 w:1)
-	/// Proof: `Attestation::Attestations` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// The range of component `a` is `[1, 100]`.
-	/// The range of component `a` is `[1, 100]`.
-	fn bootstrap_chain(a: u32, ) -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `608`
-		//  Estimated: `4073`
-		// Minimum execution time: 81_459_000 picoseconds.
-		Weight::from_parts(86_718_525, 0)
-			.saturating_add(Weight::from_parts(0, 4073))
-			// Standard Error: 68_855
-			.saturating_add(Weight::from_parts(550_974, 0).saturating_mul(a.into()))
-			.saturating_add(T::DbWeight::get().reads(9))
-			.saturating_add(T::DbWeight::get().writes(8))
-	}
-	/// Storage: `Attestation::ActiveAttestors` (r:1 w:0)
-	/// Proof: `Attestation::ActiveAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
-	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::Attestations` (r:2 w:1)
 	/// Proof: `Attestation::Attestations` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::LastCheckpoint` (r:1 w:1)

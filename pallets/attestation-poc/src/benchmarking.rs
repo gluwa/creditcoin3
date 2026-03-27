@@ -285,55 +285,6 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn bootstrap_chain(a: Linear<1, MAX_ATTESTORS>) {
-        // Setup
-        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let chain_key: ChainKey = 1;
-
-        // Set max attestors to accomodate benchmark
-        assert_ok!(Attestation::<T>::set_max_attestors(
-            root_origin.clone(),
-            DEV_CHAIN_KEY,
-            MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
-        ));
-
-        // Creating attestor to attest
-        let mut attestors: Vec<Attestor<T>> = Vec::new();
-        for j in 1..=a {
-            let stash_id = create_funded_user_with_balance::<T>("stash", j);
-            let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", j + j);
-
-            let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
-
-            assert_ok!(Attestation::<T>::register_attestor(
-                attestor.stash_origin.clone(),
-                DEV_CHAIN_KEY,
-                attestor_id,
-            ));
-
-            assert_ok!(Attestation::<T>::attest(
-                attestor.attestor_origin.clone(),
-                DEV_CHAIN_KEY,
-                attestor.public_key,
-                attestor.signature,
-            ));
-
-            attestors.push(attestor);
-        }
-
-        let attestation: SignedAttestation<
-            <T as frame_system::Config>::Hash,
-            <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors, chain_key, 1, 0, None);
-
-        #[extrinsic_call]
-        _(
-            root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            attestation,
-        )
-    }
-
-    #[benchmark]
     fn commit_attestation(
         s: Linear<10, MAX_SPAN>,     // continuity length (#headers), 10–500 blocks
         m: Linear<1, MAX_ATTESTORS>, // number of attestors
