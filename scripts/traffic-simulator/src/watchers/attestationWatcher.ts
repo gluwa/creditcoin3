@@ -1,15 +1,15 @@
 /**
- * Attestation subscriber for Creditcoin3
+ * Attestation watcher for Creditcoin3
  *
  * Subscribes to BlockAttested and CheckpointReached events via WebSocket.
  */
 
 import { ApiPromise, WsProvider } from "@polkadot/api";
-import { BaseSubscriber } from "./baseSubscriber.ts";
+import { BaseWatcher } from "./baseWatcher.ts";
 
 export type AttestationCallback = (blockNumber: number) => void | Promise<void>;
 
-export class AttestationSubscriber extends BaseSubscriber {
+export class AttestationWatcher extends BaseWatcher {
   protected readonly name = "CC3";
   private api: ApiPromise | null = null;
   private provider: WsProvider | null = null;

@@ -39,9 +39,9 @@ function formatPrometheusMetrics(metrics: Metrics): string {
     "# TYPE simulator_queue_size gauge",
     `simulator_queue_size ${metrics.queueSize}`,
     "",
-    "# HELP simulator_sepolia_connected Is connected to Sepolia",
-    "# TYPE simulator_sepolia_connected gauge",
-    `simulator_sepolia_connected ${metrics.sepoliaConnected}`,
+    "# HELP simulator_source_chain_connected Is connected to source chain",
+    "# TYPE simulator_source_chain_connected gauge",
+    `simulator_source_chain_connected ${metrics.sourceChainConnected}`,
     "",
     "# HELP simulator_cc3_connected Is connected to Creditcoin3",
     "# TYPE simulator_cc3_connected gauge",
@@ -87,11 +87,11 @@ export function startHealthServer(
 
       // Readiness probe - check connections
       if (url.pathname === "/ready") {
-        const ready = status.sepoliaConnected && status.cc3Connected;
+        const ready = status.sourceChainConnected && status.cc3Connected;
         return new Response(
           JSON.stringify({
             ready,
-            sepoliaConnected: status.sepoliaConnected,
+            sourceChainConnected: status.sourceChainConnected,
             cc3Connected: status.cc3Connected,
           }),
           {

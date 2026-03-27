@@ -6,8 +6,8 @@ import {
   CONTINUITY_RETRY_DELAY_MS,
   MAX_CONTINUITY_RETRIES,
 } from "../constants.ts";
-import { isContinuityMismatchError } from "../submitter/proofUtils.ts";
-import { sleep } from "./reconnect.ts";
+import { isContinuityMismatchError } from "./errors.ts";
+import { sleep } from "./sleep.ts";
 
 /**
  * Wrap a promise with a timeout. Rejects with an error if the timeout is reached.

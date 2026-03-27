@@ -15,26 +15,26 @@
  */
 
 import {
-  type HourlyReport,
-  type MetricsSnapshot,
-  sendHourlyReport,
+  type PeriodicReport,
+  sendPeriodicReport,
   type SlackConfig,
 } from "./slack.ts";
+import type { HealthStatus } from "../types.ts";
 
 /**
  * Snapshot with timestamp for accurate period tracking
  */
 interface TimestampedSnapshot {
   timestamp: number;
-  metrics: MetricsSnapshot;
+  metrics: HealthStatus;
 }
 
 /**
  * Fetch current metrics from simulator
  */
-async function fetchMetrics(
+async function fetchStatus(
   simulatorUrl: string,
-): Promise<MetricsSnapshot> {
+): Promise<HealthStatus> {
   const url = new URL("/status", simulatorUrl);
   const response = await fetch(url.toString());
 
@@ -53,9 +53,9 @@ async function fetchMetrics(
     singleSubmissions: data.singleSubmissions ?? 0,
     batchSubmissions: data.batchSubmissions ?? 0,
     queueSize: data.queueSize ?? 0,
-    sepoliaConnected: data.sepoliaConnected ?? false,
+    sourceChainConnected: data.sourceChainConnected ?? false,
     cc3Connected: data.cc3Connected ?? false,
-    sourceChainKey: data.sourceChainKey ?? 1, // default to sepolia
+    sourceChainKey: data.sourceChainKey ?? 1,
     cc3WsUrl: data.cc3WsUrl ?? "",
     uptimeSeconds: data.uptimeSeconds ?? 0,
     lastError: data.lastError ?? null,
@@ -78,13 +78,12 @@ async function loadPreviousSnapshot(
       return data as TimestampedSnapshot;
     }
 
-    // Legacy format: assume it's a raw MetricsSnapshot
-    // Use file modification time as fallback timestamp
+    // Legacy format: use file modification time as fallback timestamp
     const fileInfo = await Deno.stat(snapshotPath);
     const timestamp = fileInfo.mtime?.getTime() ?? Date.now();
     return {
       timestamp,
-      metrics: data as MetricsSnapshot,
+      metrics: data as HealthStatus,
     };
   } catch {
     return null;
@@ -96,7 +95,7 @@ async function loadPreviousSnapshot(
  */
 async function saveSnapshot(
   snapshotPath: string,
-  metrics: MetricsSnapshot,
+  metrics: HealthStatus,
   timestamp: number,
 ): Promise<void> {
   const snapshot: TimestampedSnapshot = {
@@ -120,36 +119,36 @@ function calculateDelta(previous: number, current: number): number {
  * Calculate hourly report from two snapshots
  */
 function calculateReport(
-  startMetrics: MetricsSnapshot,
-  endMetrics: MetricsSnapshot,
+  startSnapshot: HealthStatus,
+  endSnapshot: HealthStatus,
   periodStart: number,
   periodEnd: number,
-): HourlyReport {
+): PeriodicReport {
   return {
     periodStart,
     periodEnd,
-    startMetrics,
-    endMetrics,
+    startSnapshot,
+    endSnapshot,
     delta: {
       proofsSubmitted: calculateDelta(
-        startMetrics.proofsSubmitted,
-        endMetrics.proofsSubmitted,
+        startSnapshot.proofsSubmitted,
+        endSnapshot.proofsSubmitted,
       ),
       proofErrors: calculateDelta(
-        startMetrics.proofErrors,
-        endMetrics.proofErrors,
+        startSnapshot.proofErrors,
+        endSnapshot.proofErrors,
       ),
       blocksProcessed: calculateDelta(
-        startMetrics.blocksProcessed,
-        endMetrics.blocksProcessed,
+        startSnapshot.blocksProcessed,
+        endSnapshot.blocksProcessed,
       ),
       singleSubmissions: calculateDelta(
-        startMetrics.singleSubmissions,
-        endMetrics.singleSubmissions,
+        startSnapshot.singleSubmissions,
+        endSnapshot.singleSubmissions,
       ),
       batchSubmissions: calculateDelta(
-        startMetrics.batchSubmissions,
-        endMetrics.batchSubmissions,
+        startSnapshot.batchSubmissions,
+        endSnapshot.batchSubmissions,
       ),
     },
   };
@@ -217,9 +216,9 @@ async function main(): Promise<void> {
   };
 
   try {
-    console.log(`📊 Fetching metrics from ${simulatorUrl}...`);
-    const currentMetrics = await fetchMetrics(simulatorUrl);
-    console.log("✅ Metrics fetched successfully");
+    console.log(`📊 Fetching status from ${simulatorUrl}...`);
+    const currentStatus = await fetchStatus(simulatorUrl);
+    console.log("✅ Status fetched successfully");
 
     const now = Date.now();
     const previousSnapshot = await loadPreviousSnapshot(snapshotPath);
@@ -233,12 +232,12 @@ async function main(): Promise<void> {
       );
       const report = calculateReport(
         previousSnapshot.metrics,
-        currentMetrics,
+        currentStatus,
         periodStart,
         now,
       );
 
-      await sendHourlyReport(report, slackConfig);
+      await sendPeriodicReport(report, slackConfig);
       console.log("✅ Report sent to Slack");
 
       // Reset unique errors so the next report only shows new errors
@@ -265,7 +264,7 @@ async function main(): Promise<void> {
     }
 
     // Save current snapshot for next run
-    await saveSnapshot(snapshotPath, currentMetrics, now);
+    await saveSnapshot(snapshotPath, currentStatus, now);
     console.log(`💾 Snapshot saved to ${snapshotPath}`);
   } catch (error) {
     console.error("❌ Error:", error);
