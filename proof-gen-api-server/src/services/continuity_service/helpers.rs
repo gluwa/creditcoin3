@@ -26,14 +26,12 @@ impl ContinuityService {
     /// Build a continuity proof.
     ///
     /// Flow:
-    /// 1. Resolve checkpoint boundaries from local cache
-    /// 2. If indexer configured → try GraphQL attestation data, fall back to eth provider
-    /// 3. If no indexer → go straight to eth provider (archiver/chain) for roots
+    /// 1. Resolve checkpoint boundaries from local cache (attestation first, then checkpoint)
+    /// 2. Build proof from eth provider roots (archiver or chain)
     pub(crate) async fn build_continuity(
         &self,
         chain: &Arc<ChainState>,
         header_numbers: &[u64],
-        current_block: u64,
     ) -> Result<ContinuityProof, ServiceError> {
         let (&min_query, &max_query) = header_numbers
             .iter()
@@ -77,55 +75,9 @@ impl ContinuityService {
             });
         };
 
-        // Step 2: If indexer is configured, try building from GraphQL first.
-        if chain.builder.indexer_provider.is_some() {
-            match self
-                .build_proof_from_graphql(chain, header_numbers, current_block)
-                .await
-            {
-                Ok(proof) => return Ok(proof),
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "GraphQL proof failed, falling back to eth provider"
-                    );
-                }
-            }
-        }
-
-        // Step 3: Build directly from eth provider (archiver or chain).
+        // Step 2: Build directly from eth provider (archiver or chain).
         self.build_proof_from_roots(chain, min_query, lower, lower_digest, upper)
             .await
-    }
-
-    /// Try building a proof from GraphQL attestation data.
-    async fn build_proof_from_graphql(
-        &self,
-        chain: &Arc<ChainState>,
-        header_numbers: &[u64],
-        current_block: u64,
-    ) -> Result<ContinuityProof, ServiceError> {
-        let (lower_attestation, upper_attestation) = chain
-            .builder
-            .get_endpoints(header_numbers, Some(current_block))
-            .await
-            .map_err(ServiceError::from)?;
-
-        let proof = chain
-            .builder
-            .build_for_batch_queries(header_numbers, lower_attestation.clone(), upper_attestation)
-            .await
-            .map_err(ServiceError::from)?;
-
-        proof
-            .to_attestor_proof_with_attestation_context(lower_attestation.digest)
-            .ok_or_else(|| ServiceError::Internal {
-                message: format!(
-                    "Failed to convert proof: {} blocks, lower digest: {:?}",
-                    proof.blocks.len(),
-                    lower_attestation.digest
-                ),
-            })
     }
 
     /// Build a proof from eth provider roots (archiver or chain) using

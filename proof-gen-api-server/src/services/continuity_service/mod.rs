@@ -484,9 +484,8 @@ impl ContinuityService {
         &self,
         chain: &Arc<ChainState>,
         headers: &[u64],
-        current_block: u64,
     ) -> ServiceResult<ContinuityProof> {
-        self.build_continuity(chain, headers, current_block)
+        self.build_continuity(chain, headers)
             .await
             .inspect(|proof| {
                 // Increment total proof requests counter
@@ -522,14 +521,14 @@ impl ContinuityService {
     ) -> ServiceResult<SingleContinuityResponse> {
         let chain_key = chain.builder.config.chain_key;
 
-        // Validate that the requested block can be processed and get current block for validating predicted attestation bounds
-        let current_block = self.validate_blocks(chain, &[header_number]).await?;
+        // Validate that the requested block can be processed
+        let _current_block = self.validate_blocks(chain, &[header_number]).await?;
 
         // Record block range metric
         self.metrics.observe_block_range(header_number);
 
         let continuity_proof = self
-            .get_continuity_proof_for(chain, &[header_number], current_block)
+            .get_continuity_proof_for(chain, &[header_number])
             .await?;
 
         let merkle = self
@@ -570,8 +569,8 @@ impl ContinuityService {
             .iter()
             .map(|q| q.header_number)
             .collect::<Vec<u64>>();
-        // Validate that the requested blocks can be processed and get current block for validating predicted attestation bounds
-        let current_block = self.validate_blocks(chain, &header_numbers).await?;
+        // Validate that the requested blocks can be processed
+        let _current_block = self.validate_blocks(chain, &header_numbers).await?;
 
         // We can safely unwrap header_numbers here because the API layer guarantees at least one query is present.
         let from_header = *header_numbers.iter().min().unwrap();
@@ -583,7 +582,7 @@ impl ContinuityService {
         }
 
         let continuity_proof = self
-            .get_continuity_proof_for(chain, &header_numbers, current_block)
+            .get_continuity_proof_for(chain, &header_numbers)
             .await?;
 
         let mut merkle_proofs = BTreeMap::new();
