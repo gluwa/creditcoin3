@@ -120,6 +120,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if c.cc3_key.is_none() {
             c.cc3_key = resolved_cc3_key;
         }
+        // Env/CLI overrides take precedence over YAML defaults for optional fields,
+        // so users migrating from single-chain mode keep their .env working.
+        if c.redis_url.is_none() {
+            c.redis_url = resolved_redis_url;
+        }
+        if !c.redis_cluster_mode {
+            c.redis_cluster_mode = resolved_redis_cluster_mode;
+        }
+        if c.indexer_url.is_none() {
+            c.indexer_url = args.indexer_url;
+        }
+        // MAX_BATCH_SIZE env/CLI overrides YAML when explicitly set.
+        if let Ok(raw) = env::var("MAX_BATCH_SIZE") {
+            if let Ok(n) = raw.parse::<NonZeroUsize>() {
+                c.max_batch_size = n;
+            }
+        }
         c
     } else {
         // Legacy single-chain mode: chain key from CHAIN_KEY env (default 2).

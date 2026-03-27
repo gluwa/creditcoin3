@@ -187,11 +187,13 @@ jobs:
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8142 &
 
       - name: Check that creditcoin-node and anvil are running
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8142'
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -236,7 +238,23 @@ jobs:
 
           echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
 
-      - name: Start Attestation Zombienet
+      - name: Simulate a native token transfer on Anvil 2
+        id: native-transfer-anvil2-1
+        working-directory: attestor/scripts
+        run: |
+          OUTPUT=$(ETH_RPC_URL=http://127.0.0.1:8142 node Transfer.js)
+          echo "$OUTPUT"
+
+          TXN_HASH=$(echo "$OUTPUT" | grep hash: | cut -f2 -d: | tr -d ' ')
+
+          if [ -z "$TXN_HASH" ]; then
+            echo "ERROR: Could not extract transaction hash from Transfer.js output"
+            exit 2
+          fi
+
+          echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Start Attestation Zombienet (chain 2 — Anvil 1)
         run: |
           chmod a+x ./target/release/attestor*
 
@@ -248,9 +266,21 @@ jobs:
                 --cc3-url=ws://localhost:9944 \
                 --funding-address='//Alice' \
                 --config=./attestor/config.yaml \
-                >/var/tmp/exercise-scripts/zombienet-alice.log &
+                >/var/tmp/exercise-scripts/zombienet-chain2.log &
 
-      - name: Wait for 3 attestors to be registered
+      - name: Start Attestation Zombienet (chain 4 — Anvil 2)
+        run: |
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --chain-key=4 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8142 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                >/var/tmp/exercise-scripts/zombienet-chain4.log &
+
+      - name: Wait for attestors to be registered
         run: |
           # wait for Anvil_1 attestors (chain 2)
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
@@ -262,14 +292,14 @@ jobs:
           docker compose up -d
           sleep 60
 
-      - name: Start proof-gen-api-server
+      - name: Start proof-gen-api-server (multi-chain via YAML config)
         run: |
           chmod a+x ./target/release/proof-gen-api-server
 
           ./target/release/proof-gen-api-server \
             --cc3-key "//Alice" \
             --cc3-rpc-url ws://localhost:9944 \
-            --eth-rpc-url http://localhost:8141 \
+            --config proof-gen-api-server/config.ci.yaml \
             >/var/tmp/exercise-scripts/proof-gen-api-server.log &
 
           sleep 30
@@ -345,7 +375,16 @@ jobs:
             --cc3-rpc-url http://localhost:9944 \
             --verbose
 
-      - name: Exercise TransferAndWait.js
+      - name: Exercise SubmitProof.js against Anvil 2 (chain 4)
+        working-directory: scripts
+        run: |
+          node SubmitProof.js 4 ${{ steps.native-transfer-anvil2-1.outputs.txn_hash }} \
+            --private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
+            --api-url http://localhost:3100 \
+            --cc3-rpc-url http://localhost:9944 \
+            --verbose
+
+      - name: Exercise TransferAndWait.js (chain 2)
         working-directory: scripts
         run: |
           # Using Anvil Account #0 on source chain
