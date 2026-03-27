@@ -18,7 +18,7 @@ pub mod networking;
 pub mod prom;
 pub mod services;
 
-pub use config::{ChainConfig, Config};
+pub use config::{ChainConfig, Config, DEFAULT_MAX_BATCH_SIZE};
 
 // Re-exports for integration tests and external callers
 pub use networking::build_app;
@@ -285,7 +285,7 @@ impl Server {
         let service = services::continuity_service::ContinuityService::new(
             self.builders.clone(),
             metrics.clone(),
-            self.config.max_batch_size,
+            self.config.max_batch_size.get(),
         )
         .await?;
 

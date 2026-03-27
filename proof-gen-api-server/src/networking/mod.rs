@@ -20,6 +20,7 @@ use routes::{continuity, health};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+pub mod extract;
 pub mod middleware;
 pub mod openapi;
 pub mod routes;
