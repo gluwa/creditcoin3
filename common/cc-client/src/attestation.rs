@@ -54,9 +54,10 @@ pub enum CcEvent {
     AttestationIntervalChanged(ChainKey, u64),
     TargetSampleSizeChanged(ChainKey, u32),
     CheckpointIntervalChanged(ChainKey, u64),
-    AttestorsElected(Vec<AccountId32>),
-    AttestorActivated(AccountId32),
-    AttestorChilled(AccountId32),
+    AttestorsElected(ChainKey, Vec<AccountId32>),
+    AttestorActivated(ChainKey, AccountId32),
+    AttestorChilled(ChainKey, AccountId32),
+    /// Staking pallet `Kicked` (nominator/stash); not scoped to a source chain — no `ChainKey` on-chain.
     AttestorKicked(AccountId32),
     AttestationChainGenesisBlockNumberSet(ChainKey, u64),
     RevertedAttestationChainTo(ChainKey, u64, Digest),
@@ -290,7 +291,7 @@ impl Client {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::AttestorsElected(attestors)))
+                        Some(Ok(CcEvent::AttestorsElected(chain_key, attestors)))
                     }
                     (AttestorActivated::PALLET, AttestorActivated::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestorActivated>() else {
@@ -304,7 +305,7 @@ impl Client {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::AttestorActivated(account_id)))
+                        Some(Ok(CcEvent::AttestorActivated(chain_key, account_id)))
                     }
                     (Kicked::PALLET, Kicked::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<Kicked>() else {
@@ -331,7 +332,7 @@ impl Client {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::AttestorChilled(account_id)))
+                        Some(Ok(CcEvent::AttestorChilled(chain_key, account_id)))
                     }
                     (
                         AttestationChainGenesisBlockNumberSet::PALLET,

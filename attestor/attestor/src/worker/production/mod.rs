@@ -400,7 +400,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 6] ATTESTOR ELECTION
-                cc_client::attestation::CcEvent::AttestorsElected(attestors) => {
+                cc_client::attestation::CcEvent::AttestorsElected(_chain_key, attestors) => {
                     tracing::info!("⏰ New attestors elected");
 
                     // 1. Attestor status
@@ -427,7 +427,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 7] ATTESTOR ACTIVATION
-                cc_client::attestation::CcEvent::AttestorActivated(attestor) => {
+                cc_client::attestation::CcEvent::AttestorActivated(_chain_key, attestor) => {
                     if attestor == self.account_id {
                         tracing::info!(
                             attestor_id = %self.account_id,
@@ -437,7 +437,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 8] ATTESTOR DEACTIVATION
-                cc_client::attestation::CcEvent::AttestorChilled(attestor) => {
+                cc_client::attestation::CcEvent::AttestorChilled(_chain_key, attestor) => {
                     if attestor == self.account_id {
                         self.can_attest = false;
                         tracing::info!(
