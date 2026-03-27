@@ -75,7 +75,7 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
             const id = `${blockNumber}-${event.idx}-${index}`;
             const attestorEntity = await checkAndGetAttestor(id, accountStr, chainKeyNumber);
             attestorEntity.lastUpdateBlockNumber = event.block.block.header.number.toBigInt();
-            attestorEntity.status = 3; // 3 - Active
+            attestorEntity.status = 0; // If an attestor is elected, it becomes Active
 
             saveEntityList.push(attestorEntity.save());
         }
@@ -239,7 +239,7 @@ export async function handleEventAttestorRegistered(event: SubstrateEvent): Prom
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     attestorEntity.stashId = from.toString();
-    attestorEntity.status = 1; // 1 - Idle
+    attestorEntity.status = 1; // Registering an attestor sets it to Idle status until it gets activated
 
     logger.info(`New AttestorEntity event created at block ${blockNumber}`);
 
@@ -274,7 +274,8 @@ export async function handleEventAttestorUnregistered(event: SubstrateEvent): Pr
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = 0; // Not registered
+    // Unregistering an attestor removes it from storage on chain, here we just set it to Idle status to keep history of the attestor in the db.
+    attestorEntity.status = 1;
 
     await Promise.all([attestorUnregistered.save(), attestorEntity.save()]);
 }
@@ -460,7 +461,7 @@ async function checkAndGetAttestor(id: string, attestorId: string, chainKey: big
             attestorId,
             chainKey,
             lastUpdateBlockNumber: BigInt(0),
-            status: 0, // 0 - Not registered, 1 - Idle/Chilled, 2 - Waiting, 3 - Active
+            status: 1, // 0 - Active, 1 - Idle, 2 - Waiting (matches runtime AttestorStatus enum)
             stashId: '',
             blsPublicKey: '',
         });
@@ -925,7 +926,7 @@ export async function handleEventAttestorActivated(event: SubstrateEvent): Promi
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = 3; // 3 - Became Active
+    attestorEntity.status = 2; // Activating an attestor sets it to Waiting status (waiting until it gets elected)
     attestorEntity.blsPublicKey = blsPublicKeyStr;
 
     await Promise.all([attestorActivated.save(), attestorEntity.save()]);
@@ -960,7 +961,7 @@ export async function handleEventAttestorChilled(event: SubstrateEvent): Promise
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = 1; // 1 - Chilled/Idle
+    attestorEntity.status = 1; // Chilling an attestor reverts to Idle status
 
     await Promise.all([attestorChilled.save(), attestorEntity.save()]);
 }
