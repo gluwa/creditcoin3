@@ -323,7 +323,10 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 2] NEW TARGET SAMPLE SIZE
-                cc_client::attestation::CcEvent::TargetSampleSizeChanged(target_sample_size) => {
+                cc_client::attestation::CcEvent::TargetSampleSizeChanged(
+                    _chain_key,
+                    target_sample_size,
+                ) => {
                     tracing::info!(target_sample_size, "📏 New target sample size");
 
                     self.sender_validation
@@ -467,7 +470,11 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 11] ATTESTATION CHAIN REVERSION
-                cc_client::attestation::CcEvent::RevertedAttestationChainTo(height, digest) => {
+                cc_client::attestation::CcEvent::RevertedAttestationChainTo(
+                    _chain_key,
+                    height,
+                    digest,
+                ) => {
                     let attestation_latest_cc3 = common::types::AttestationInfo { digest, height };
 
                     tracing::info!(height, ?digest, "💾 Attestation chain reversion detected!");
