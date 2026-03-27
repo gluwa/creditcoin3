@@ -604,8 +604,12 @@ impl Attestor {
                 tokio::select! {
                     Some(mut events) = stream_cc3.next() => {
                         while let Some(event) =  events.try_next().await.map_interrupt(Error::CC3Error)? {
-                            if let cc_client::attestation::CcEvent::AttestorsElected(attestors) = event {
-                                if attestors.contains(account_id) {
+                            if let cc_client::attestation::CcEvent::AttestorsElected(
+                                event_chain_key,
+                                attestors,
+                            ) = event
+                            {
+                                if event_chain_key == chain_key && attestors.contains(account_id) {
                                     break 'outer attestors;
                                 }
                             }
