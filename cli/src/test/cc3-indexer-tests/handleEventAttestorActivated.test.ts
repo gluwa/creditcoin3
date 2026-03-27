@@ -121,8 +121,8 @@ describe('handleEventAttestorActivated()', () => {
             for (const node of response.data.attestors.nodes) {
                 expect(node.attestorId).toEqual(attestor.address);
                 expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(startingBlock);
-                // 2 - Waiting; 3 - Active (if epoch changed meanwhile)
-                expect([2, 3]).toContain(node.status);
+                // 0 - Active; 2 - Waiting; (if epoch changed meanwhile)
+                expect([0, 2]).toContain(node.status);
                 expect(node.blsPublicKey.startsWith('0x')).toEqual(true);
             }
         });
