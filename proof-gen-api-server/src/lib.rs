@@ -228,23 +228,6 @@ impl Server {
             .last_checkpoint_block(last_checkpoint_block)
             .build();
 
-        let indexer_provider = if let Some(url) = global.indexer_url.as_ref() {
-            debug!(
-                chain_key,
-                indexer_url = %redact_url_query(url),
-                "[startup] building indexer GraphQL client"
-            );
-            let client = indexer_client::IndexerClient::new(url.clone()).with_context(|| {
-                format!(
-                    "Indexer client init failed for chain_key={chain_key} (indexer_url={})",
-                    redact_url_query(url)
-                )
-            })?;
-            Some(Arc::new(client))
-        } else {
-            None
-        };
-
         let eth_provider: continuity::rpc::SharedEthProvider =
             if let Some(ref archiver_url) = chain.archiver_url {
                 debug!(
@@ -264,11 +247,10 @@ impl Server {
             chain_key,
             "[startup] building ContinuityBuilder (continuity + CC3 + source chain providers)"
         );
-        let builder = Arc::new(ContinuityBuilder::new_with_indexer(
+        let builder = Arc::new(ContinuityBuilder::new_with_providers(
             continuity_config,
             cc3_client.clone(),
             eth_provider,
-            indexer_provider,
         ));
 
         checkpoint_intervals
