@@ -282,12 +282,29 @@ jobs:
                 --api-port-base=9110 \
                 >/var/tmp/exercise-scripts/zombienet-chain4.log &
 
-      - name: Wait for attestors to be registered
+      - name: Wait for chain 2 attestors to be registered
         run: |
-          # wait for chain 2 attestors
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
-          # wait for chain 4 attestors (different URL triggers chain_key 4 storage key in script)
+
+      - name: Wait for chain 4 attestors to be registered
+        run: |
+          # localhost (vs 127.0.0.1) triggers chain_key 4 storage key in wait script
           .github/wait-for-attestors.sh 'http://localhost:9944'
+
+      - name: Wait for chain 2 attestations
+        working-directory: scripts
+        run: |
+          npm install
+          node TransferAndWait.js --chain-key 2 \
+            --source-rpc-url http://127.0.0.1:8141 \
+            --cc3-rpc-url ws://localhost:9944
+
+      - name: Wait for chain 4 attestations
+        working-directory: scripts
+        run: |
+          node TransferAndWait.js --chain-key 4 \
+            --source-rpc-url http://127.0.0.1:8142 \
+            --cc3-rpc-url ws://localhost:9944
 
       - name: Start Redis
         working-directory: proof-gen-api-server
@@ -387,14 +404,6 @@ jobs:
             --api-url http://localhost:3100 \
             --cc3-rpc-url http://localhost:9944 \
             --verbose
-
-      - name: Exercise TransferAndWait.js (chain 2)
-        working-directory: scripts
-        run: |
-          # Using Anvil Account #0 on source chain
-          node TransferAndWait.js --chain-key 2 \
-            --source-rpc-url http://127.0.0.1:8141 \
-            --cc3-rpc-url ws://localhost:9944
 
       - name: Upload logs
         if: always()
