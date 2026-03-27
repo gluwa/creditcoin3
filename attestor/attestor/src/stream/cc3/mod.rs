@@ -183,19 +183,13 @@ impl StreamEvents {
         chain_key: attestor_primitives::ChainKey,
     ) -> Self {
         use futures::TryStreamExt as _;
-        use std::collections::HashSet;
-        use std::sync::Arc;
 
-        let mut chain_filter = HashSet::new();
-        chain_filter.insert(chain_key);
+        // Collect so the boxed stream is `'static` (extract_events borrows `events`).
+        let extracted: Vec<_> =
+            cc_client::Client::extract_events(std::slice::from_ref(&chain_key), &events).collect();
 
-        let stream = Box::pin(
-            futures::stream::iter(cc_client::Client::extract_events(
-                Arc::new(chain_filter),
-                &events,
-            ))
-            .map_err(|err| Error::Subxt(err.into())),
-        );
+        let stream =
+            Box::pin(futures::stream::iter(extracted).map_err(|err| Error::Subxt(err.into())));
 
         Self {
             block_number,
