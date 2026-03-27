@@ -49,10 +49,13 @@ impl Attestor {
         fields(attestor_name = self.config.name, chain_key = self.config.chain_key)
     )]
     pub async fn run(self) -> Result<(), Error> {
+        use anyhow::Context as _;
         use bls_signatures::Serialize as _;
         use std::str::FromStr as _;
 
         // --------------------------------------* Identity *--------------------------------------
+
+        let chain_key = self.config.chain_key;
 
         let secret_str = self.config.stream.secret.to_secret_uri_string();
         let secret_uri = subxt_signer::SecretUri::from_str(secret_str.as_str())
@@ -66,7 +69,7 @@ impl Attestor {
             .expect("Failed to create ed25519 keypair");
         let peer_id = libp2p::PeerId::from_public_key(&keypair_p2p.public());
 
-        tracing::info!(name = self.config.name, %account_id, chain_key = self.config.chain_key, "🙋‍♀️ Starting attestor");
+        tracing::info!(name = self.config.name, %account_id, chain_key, "🙋‍♀️ Starting attestor");
 
         let monitor = worker::CancellationMonitor::new();
 
@@ -95,6 +98,21 @@ impl Attestor {
             .await
             .map_err(Error::InitError)?;
 
+        let chain_id = client_cc3
+            .get_supported_chain(chain_key)
+            .await
+            .context("Failed to retrieve supported chain")
+            .map_err(Error::InitError)?
+            .ok_or(Error::ChainKeyNotSupported(chain_key))?
+            .chain_id;
+
+        if chain_id != client_eth.chain_id() {
+            return Err(Error::ChainIdMisMatch {
+                runtime: chain_id,
+                rpc: client_eth.chain_id(),
+            });
+        }
+
         // -----------------------------------* Verify attestor balances *-----------------------------
 
         tracing::info!("🔍 Verifying attestor balances");
@@ -104,7 +122,7 @@ impl Attestor {
             .await
             .map_err(Error::RpcError)?;
         if free_balance < common::constants::MIN_BALANCE {
-            tracing::error!(name = self.config.name, %account_id, chain_key = self.config.chain_key, balance = %free_balance, "⛔ Attestor has insufficient balance");
+            tracing::error!(name = self.config.name, %account_id, chain_key, balance = %free_balance, "⛔ Attestor has insufficient balance");
             return Err(Error::InitError(anyhow::anyhow!(
                 "Attestor {} ({}) has insufficient balance: {} < {}",
                 self.config.name,
@@ -113,14 +131,14 @@ impl Attestor {
                 common::constants::MIN_BALANCE
             )));
         } else {
-            tracing::info!(name = self.config.name, %account_id, chain_key = self.config.chain_key, balance = %free_balance, "🔍 Attestor has sufficient balance");
+            tracing::info!(name = self.config.name, %account_id, chain_key, balance = %free_balance, "🔍 Attestor has sufficient balance");
         }
 
         // -----------------------------------------* CC3 *----------------------------------------
 
         let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
-            .with_chain_key(self.config.chain_key)
+            .with_chain_key(chain_key)
             .build();
         let stream_cc3_production = stream::cc3::StreamCC3::new(config)
             .await
@@ -128,7 +146,7 @@ impl Attestor {
 
         let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
-            .with_chain_key(self.config.chain_key)
+            .with_chain_key(chain_key)
             .build();
         let stream_cc3_validation = stream::cc3::StreamCC3::new(config)
             .await
@@ -136,7 +154,7 @@ impl Attestor {
 
         let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
-            .with_chain_key(self.config.chain_key)
+            .with_chain_key(chain_key)
             .build();
         let mut stream_cc3_genesis = stream::cc3::StreamCC3::new(config)
             .await
@@ -157,7 +175,7 @@ impl Attestor {
         // ------------------------------------* Start Attesting *------------------------------------
 
         match Self::register_bls(
-            self.config.chain_key,
+            chain_key,
             &client_cc3,
             &account_id,
             &bls_key,
@@ -184,7 +202,7 @@ impl Attestor {
         );
 
         let attestors = match Self::wait_for_eligible(
-            self.config.chain_key,
+            chain_key,
             &client_cc3,
             &account_id,
             &mut stream_cc3_genesis,
@@ -207,40 +225,40 @@ impl Attestor {
         let interval_attestation = match self.config.attestation.attestation_interval {
             Some(attestation_interval) => attestation_interval,
             None => client_cc3
-                .chain_attestation_interval(self.config.chain_key)
+                .chain_attestation_interval(chain_key)
                 .await
                 .map_err(Error::RpcError)?
                 .map(std::num::NonZero::<common::types::Height>::new)
-                .ok_or(Error::MissingAttestationInterval(self.config.chain_key))?
+                .ok_or(Error::MissingAttestationInterval(chain_key))?
                 .unwrap(),
         };
 
         let strategy_str = client_cc3
-            .get_supported_chain(self.config.chain_key)
+            .get_supported_chain(chain_key)
             .await
             .map_err(Error::RpcError)?
-            .ok_or(Error::ChainKeyNotSupported(self.config.chain_key))?
+            .ok_or(Error::ChainKeyNotSupported(chain_key))?
             .maturity_strategy;
         let strategy_enum: supported_chains_primitives::MaturityStrategy = strategy_str
             .as_str()
             .try_into()
-            .map_err(|e| Error::InvalidMaturityStrategy(self.config.chain_key, e))?;
+            .map_err(|e| Error::InvalidMaturityStrategy(chain_key, e))?;
         let maturity_delay = strategy_enum
             .maturity_delay()
             .ok_or(Error::NoMaturityDelayForStrategy(strategy_enum))?;
 
         let genesis = client_cc3
-            .get_attestation_chain_genesis_block_number(self.config.chain_key)
+            .get_attestation_chain_genesis_block_number(chain_key)
             .await
             .map_err(Error::RpcError)?;
 
         let start_attestation = match client_cc3
-            .fetch_last_digest(self.config.chain_key)
+            .fetch_last_digest(chain_key)
             .await
             .map_err(Error::RpcError)?
         {
             Some(last_digest) => match client_cc3
-                .get_attestation_by_digest(self.config.chain_key, last_digest)
+                .get_attestation_by_digest(chain_key, last_digest)
                 .await
                 .map_err(Error::RpcError)?
             {
@@ -253,7 +271,7 @@ impl Attestor {
                 }
             },
             None => client_cc3
-                .get_last_checkpoint(self.config.chain_key)
+                .get_last_checkpoint(chain_key)
                 .await
                 .map_err(Error::RpcError)?
                 .map(|last_checkpoint| common::types::AttestationInfo {
@@ -270,9 +288,9 @@ impl Attestor {
             .unwrap_or(genesis);
 
         let target = client_cc3
-            .target_sample_size(self.config.chain_key)
+            .target_sample_size(chain_key)
             .await
-            .map_err(|_| Error::MissingTargetSampleSize(self.config.chain_key))?;
+            .map_err(|_| Error::MissingTargetSampleSize(chain_key))?;
         let quorum =
             std::num::NonZeroUsize::new(attestor_primitives::calculate_threshold(target) as usize)
                 .expect("Failed to compute quorum threshold");
@@ -286,7 +304,7 @@ impl Attestor {
             .with_eth(client_eth)
             .with_bls_key(bls_key)
             .with_interval_attestation(interval_attestation)
-            .with_chain_key(self.config.chain_key)
+            .with_chain_key(chain_key)
             .with_start_height(start_height)
             .with_start_attestation(start_attestation)
             .with_maturity_delay(maturity_delay)
@@ -301,7 +319,7 @@ impl Attestor {
             .with_name(self.config.name)
             .with_address(account_id.clone())
             .with_peer_id(peer_id)
-            .with_chain_key(self.config.chain_key)
+            .with_chain_key(chain_key)
             .with_start_height(start_height)
             .with_start_attestation(start_attestation)
             .with_genesis(genesis)
@@ -371,7 +389,7 @@ impl Attestor {
             .with_keypair(keypair_p2p)
             .with_receiver_p2p(receiver_p2p)
             .with_sender_validation(sender_validation.clone())
-            .with_chain_key(self.config.chain_key)
+            .with_chain_key(chain_key)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::InitError)?;

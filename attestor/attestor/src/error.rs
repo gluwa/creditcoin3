@@ -10,6 +10,10 @@ pub enum Error {
     MissingCheckpointInterval(attestor_primitives::ChainKey),
     MissingTargetSampleSize(attestor_primitives::ChainKey),
     ChainKeyNotSupported(attestor_primitives::ChainKey),
+    ChainIdMisMatch {
+        runtime: attestor_primitives::ChainId,
+        rpc: attestor_primitives::ChainId,
+    },
     InvalidMaturityStrategy(
         attestor_primitives::ChainKey,
         supported_chains_primitives::Error,
@@ -41,6 +45,10 @@ impl std::fmt::Display for Error {
             Error::ChainKeyNotSupported(chain_key) => write!(
                 f,
                 "Chain key not found in supported chains: {chain_key}"
+            ),
+            Error::ChainIdMisMatch { runtime, rpc } => write!(
+                f,
+                "Runtime and RPC chain ids do not match: expected {runtime}, got {rpc}"
             ),
             Error::InvalidMaturityStrategy(chain_key, e) => write!(
                 f,
