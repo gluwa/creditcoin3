@@ -112,7 +112,7 @@ describe('handleEventAttestorUnregistered()', () => {
 
                 if (node.attestorId === attestor.address) {
                     foundMatch = true;
-                    expect(node.status).toEqual(0); // was 1 before, now unregistered
+                    expect(node.status).toEqual(1); // State after unregistration is Idle
                 }
             }
             expect(foundMatch).toEqual(true);

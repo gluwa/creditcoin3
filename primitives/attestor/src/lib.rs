@@ -37,9 +37,9 @@ pub struct Attestor<AccountId> {
 /// Idle - Attestor is idle and cannot participate in attestation
 /// Waiting - Attestor is waiting for the next attestation round
 pub enum AttestorStatus {
-    Active,
-    Idle,
-    Waiting,
+    Active = 0,
+    Idle = 1,
+    Waiting = 2,
 }
 
 impl AttestorStatus {

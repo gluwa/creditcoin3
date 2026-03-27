@@ -117,7 +117,7 @@ describe('handleEventAttestorRegistered()', () => {
                     chain_Anvil3_Key.toString(),
                 ]).toContain(node.chainKey);
                 expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(0n);
-                expect(node.status).toBeGreaterThan(0);
+                expect([0, 1, 2]).toContain(node.status);
                 expect(node.attestorId).toBeTruthy();
                 // match what's registered on-chain
                 if (node.chainKey === chain_Anvil1_Key) {
@@ -132,11 +132,10 @@ describe('handleEventAttestorRegistered()', () => {
                     expect(node.status).toEqual(1);
                 }
 
-                // only active attestors have their blsPublicKey set
-                if (node.status === 3) {
+                // only active and waiting attestors will have their blsPublicKey set
+                // idle attestors will not have it until they have been activated at least once
+                if (node.status === 0 || node.status === 2) {
                     expect(node.blsPublicKey).toBeTruthy();
-                } else {
-                    expect(node.blsPublicKey).toBeFalsy();
                 }
 
                 // query each node individually to cover this endpoint too

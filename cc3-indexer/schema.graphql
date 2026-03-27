@@ -132,7 +132,7 @@ type Attestors @entity {
 
     lastUpdateBlockNumber: BigInt!
     """
-    1 - Registred, 2 Unregistered, 3 - Elected, 4 - Activated, 5 - Chilled
+    0 - Active, 1 - Idle, 2 - Waiting (matches runtime AttestorStatus enum)
     """
     status: Int! # this-is-expected
     blsPublicKey: String!
