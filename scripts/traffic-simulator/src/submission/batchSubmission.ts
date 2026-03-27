@@ -13,10 +13,10 @@ import type {
   SimulatorConfig,
   TxInfo,
 } from "../types.ts";
-import { fetchBatchProofs, submitBatchToPrecompile } from "./proofUtils.ts";
-import { submitProofsIndividually } from "./singleSubmitter.ts";
+import { fetchBatchProofWithRetry } from "./proofApi.ts";
+import { submitBatchToPrecompile } from "./precompile.ts";
+import { submitProofsIndividually } from "./singleSubmission.ts";
 import { withContinuityRetry } from "../utils/retry.ts";
-import { randomInt } from "../utils/random.ts";
 
 interface ContinuityProof {
   lowerEndpointDigest: string;
@@ -194,7 +194,7 @@ export async function submitBatchProofs(
     let batchResponse: BatchProofResponse;
     let proofInputs: ProofInput[];
     try {
-      batchResponse = await fetchBatchProofs(
+      batchResponse = await fetchBatchProofWithRetry(
         config.proofApiUrl,
         config.chainKey,
         chunk,
@@ -222,7 +222,9 @@ export async function submitBatchProofs(
     // Split proofInputs into precompile-sized batches
     let index = 0;
     while (index < proofInputs.length) {
-      const targetBatchSize = randomInt(2, maxBatchSize);
+      const targetBatchSize = maxBatchSize <= 2
+        ? 2
+        : Math.floor(Math.random() * (maxBatchSize - 2 + 1)) + 2;
       const batchInputs = proofInputs.slice(
         index,
         index + targetBatchSize,
@@ -255,7 +257,7 @@ export async function submitBatchProofs(
         // Refetch on each continuity retry attempt; stale proofs often fail again.
         const submitFreshBatch = async () => {
           const freshQueries = groupIntoProofQueries(batchTxInfos);
-          const freshResponse = await fetchBatchProofs(
+          const freshResponse = await fetchBatchProofWithRetry(
             config.proofApiUrl,
             config.chainKey,
             freshQueries,
