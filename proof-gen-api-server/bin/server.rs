@@ -66,7 +66,8 @@ pub struct ProofGenApiServer {
     #[arg(
         long,
         required = false,
-        help = "CC3 Indexer GraphQL URL for pre-fetching continuity proofs"
+        hide = true,
+        help = "[DEPRECATED — ignored] CC3 Indexer GraphQL URL. The indexer is no longer used."
     )]
     indexer_url: Option<String>,
 
@@ -128,9 +129,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !c.redis_cluster_mode {
             c.redis_cluster_mode = resolved_redis_cluster_mode;
         }
-        if c.indexer_url.is_none() {
-            c.indexer_url = args.indexer_url;
-        }
         // MAX_BATCH_SIZE env/CLI overrides YAML when explicitly set.
         if let Ok(raw) = env::var("MAX_BATCH_SIZE") {
             if let Ok(n) = raw.parse::<NonZeroUsize>() {
@@ -156,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }],
             redis_url: resolved_redis_url,
             redis_cluster_mode: resolved_redis_cluster_mode,
-            indexer_url: args.indexer_url,
+
             max_batch_size: args.max_batch_size,
         }
     };

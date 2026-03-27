@@ -61,7 +61,6 @@ cc-client = { workspace = true }
 continuity = { workspace = true, features = ["block_cache"] }
 eth = { workspace = true, features = ["block_cache"] }
 hex = { workspace = true }
-indexer-client = { workspace = true }
 merkle = { workspace = true }
 prometheus-client = { workspace = true }
 sysinfo = { workspace = true }
