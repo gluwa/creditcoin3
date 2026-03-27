@@ -29,7 +29,6 @@ pub struct Config {
     pub chains: Vec<ChainConfig>,
     pub redis_url: Option<String>,
     pub redis_cluster_mode: bool,
-    pub indexer_url: Option<String>,
     pub max_batch_size: NonZeroUsize,
 }
 
@@ -48,7 +47,6 @@ impl Config {
             }],
             redis_url: None,
             redis_cluster_mode: false,
-            indexer_url: None,
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
         }
     }
@@ -83,6 +81,7 @@ pub struct ConfigFile {
     pub redis_url: Option<String>,
     #[serde(default)]
     pub redis_cluster_mode: bool,
+    /// Deprecated – accepted for backward compat but ignored at runtime.
     #[serde(default)]
     pub indexer_url: Option<String>,
     #[serde(default = "default_max_batch_size")]
@@ -126,7 +125,6 @@ impl ConfigFile {
             chains,
             redis_url: self.redis_url,
             redis_cluster_mode: self.redis_cluster_mode,
-            indexer_url: self.indexer_url,
             max_batch_size: self.max_batch_size,
         })
     }
