@@ -1,12 +1,12 @@
 /**
- * Block subscriber for source chain (Sepolia)
+ * Block watcher for the source chain
  *
  * Subscribes to new blocks via WebSocket and notifies when blocks are received.
  */
 
 import { WebSocketProvider } from "ethers";
 import type { BlockInfo } from "../types.ts";
-import { BaseSubscriber } from "./baseSubscriber.ts";
+import { BaseWatcher } from "./baseWatcher.ts";
 import { withTimeout } from "../utils/retry.ts";
 
 export type BlockCallback = (block: BlockInfo) => void | Promise<void>;
@@ -15,10 +15,9 @@ export type BlockCallback = (block: BlockInfo) => void | Promise<void>;
 const GET_BLOCK_TIMEOUT_MS = 30_000;
 
 // If no blocks received for this duration, assume connection is stale and reconnect
-// Sepolia produces a block every ~12 seconds, so 90 seconds should be safe
 const BLOCK_WATCHDOG_TIMEOUT_MS = 90_000;
 
-export class BlockSubscriber extends BaseSubscriber {
+export class BlockWatcher extends BaseWatcher {
   protected readonly name = "source chain";
   private provider: WebSocketProvider | null = null;
   private onBlock: BlockCallback;

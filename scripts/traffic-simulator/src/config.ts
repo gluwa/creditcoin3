@@ -12,7 +12,7 @@ import type { SimulatorConfig } from "./types.ts";
  * Default configuration values
  */
 const DEFAULTS = {
-  chainKey: 1, // Sepolia
+  chainKey: 1,
   cc3WsUrl: "ws://localhost:9944",
   cc3HttpUrl: "http://localhost:9944",
   proofApiUrl: "http://localhost:3100",
@@ -20,7 +20,6 @@ const DEFAULTS = {
   batchSize: 10,
   batchProbability: 0.5,
   singleEveryBlocks: 1,
-  logVerbose: false,
   healthPort: 8080,
 };
 
@@ -52,7 +51,6 @@ function parseCliArgs(): ParsedArgs {
     ],
     boolean: [
       "help",
-      "verbose",
     ],
     default: {},
     alias: {
@@ -61,7 +59,6 @@ function parseCliArgs(): ParsedArgs {
       k: "private-key",
       a: "api-url",
       h: "help",
-      v: "verbose",
     },
   });
 
@@ -115,7 +112,7 @@ OPTIONS:
                             Env: PROOF_API_URL
                             Default: http://localhost:3100
 
-      --chain-key <NUM>     Source chain key (Sepolia: 1)
+      --chain-key <NUM>     Source chain key (e.g., 1, 2)
                             Env: CHAIN_KEY
                             Default: 1
   
@@ -139,22 +136,17 @@ OPTIONS:
                             Env: HEALTH_PORT
                             Default: 8080
 
-  -v, --verbose             Enable verbose debug logging
-                               Env: LOG_VERBOSE
-                               Default: false
-
 ENVIRONMENT VARIABLES:
-  CHAIN_KEY              Source chain key (default: 1 for Sepolia)
+  CHAIN_KEY              Source chain key (default: 1)
   MAX_QUEUE_SIZE         Max blocks to track (default: 100)
   BATCH_SIZE             Max txs per batch (random 1..N, default: 10)
   BATCH_PROBABILITY      Probability of batch mode, 0.0-1.0 (default: 0.5)
   SINGLE_EVERY_BLOCKS    Submit a single proof once every N blocks (default: 1)
-  LOG_VERBOSE            Enable verbose debug logging (default: false)
   HEALTH_PORT            Health check server port (default: 8080)
 
 EXAMPLES:
   # Development with local services
-  deno task dev -- -s wss://sepolia.infura.io/ws/v3/YOUR_KEY -k 0x...
+  deno task dev -- -s wss://your-source-chain-rpc -k 0x...
 
   # Production with environment variables
   SOURCE_RPC_URL=wss://... CC3_PRIVATE_KEY=0x... deno task start
@@ -226,20 +218,6 @@ function getNumber(
 }
 
 /**
- * Parse boolean environment/argument values
- */
-function parseBoolean(value: string): boolean | undefined {
-  const normalized = value.trim().toLowerCase();
-  if (["true", "1", "yes", "y", "on"].includes(normalized)) {
-    return true;
-  }
-  if (["false", "0", "no", "n", "off"].includes(normalized)) {
-    return false;
-  }
-  return undefined;
-}
-
-/**
  * Load and validate simulator configuration
  */
 export function loadConfig(): SimulatorConfig {
@@ -252,25 +230,6 @@ export function loadConfig(): SimulatorConfig {
   let cc3HttpUrl = getString(args, "cc3-http", "CC3_HTTP_URL", "");
   if (!cc3HttpUrl) {
     cc3HttpUrl = cc3WsUrl.replace(/^ws/, "http");
-  }
-
-  // Verbose logging flag
-  let logVerbose = DEFAULTS.logVerbose;
-  if (args.verbose === true) {
-    logVerbose = true;
-  } else if (typeof args.verbose === "string") {
-    const parsed = parseBoolean(args.verbose);
-    if (parsed !== undefined) {
-      logVerbose = parsed;
-    }
-  } else {
-    const envValue = Deno.env.get("LOG_VERBOSE");
-    if (envValue !== undefined) {
-      const parsed = parseBoolean(envValue);
-      if (parsed !== undefined) {
-        logVerbose = parsed;
-      }
-    }
   }
 
   const config: SimulatorConfig = {
@@ -311,8 +270,6 @@ export function loadConfig(): SimulatorConfig {
       "SINGLE_EVERY_BLOCKS",
       DEFAULTS.singleEveryBlocks,
     ),
-    logVerbose,
-
     // Server
     healthPort: getNumber(
       args,
@@ -404,9 +361,6 @@ export function logConfig(config: SimulatorConfig): void {
   console.log(`    Max batch size: ${masked.batchSize}`);
   console.log(`    Batch probability: ${masked.batchProbability}`);
   console.log(`    Single every blocks: ${masked.singleEveryBlocks}`);
-  console.log(
-    `    Verbose logging: ${masked.logVerbose ? "enabled" : "disabled"}`,
-  );
   console.log("  Server:");
   console.log(`    Health port: ${masked.healthPort}`);
   console.log("");
