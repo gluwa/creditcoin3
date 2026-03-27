@@ -4,7 +4,7 @@ use proptest::prelude::*;
 #[derive(Clone, Debug)]
 struct SimulationState {
     votes: Vec<common::types::Attestation>,
-    attestors: std::collections::BTreeSet<super::mock::Attestor>,
+    attestors: Vec<super::mock::Attestor>,
     attestor_next: usize,
 
     attestation_next: common::types::Height,
@@ -21,7 +21,7 @@ impl proptest_state_machine::ReferenceStateMachine for SimulationState {
     fn init_state() -> BoxedStrategy<Self::State> {
         (
             (0..100usize),
-            (0..100u8),
+            (0..100u64),
             (1..100usize),
             proptest::option::of(0..100u64),
             (1..100u64),
@@ -36,7 +36,11 @@ impl proptest_state_machine::ReferenceStateMachine for SimulationState {
                     attestation_interval: std::num::NonZero::new(attestation_interval).unwrap(),
                     config: crate::worker::validation::pool::ConfigBuilder::new()
                         .with_max_size(std::num::NonZero::new(max_size).unwrap())
-                        .with_attestors(Self::attestors(attestors).collect::<Vec<_>>())
+                        .with_attestors(
+                            Self::attestors(attestors)
+                                .map(|att| att.id())
+                                .collect::<Vec<_>>(),
+                        )
                         .with_quorum(std::num::NonZero::new(quorum).unwrap())
                         .with_attestation_start(Self::attestation_start(attestation_start))
                         .build(),
@@ -59,8 +63,8 @@ impl proptest_state_machine::ReferenceStateMachine for SimulationState {
 }
 
 impl SimulationState {
-    fn attestors(n: u8) -> impl Iterator<Item = attestor_primitives::AttestorId> {
-        (0..n).map(|n| attestor_primitives::AttestorId::from_public([n; 32]))
+    fn attestors(n: attestor_primitives::Height) -> impl Iterator<Item = super::mock::Attestor> {
+        (0..n).map(super::mock::Attestor::new)
     }
 
     fn attestation_start(
@@ -87,7 +91,7 @@ impl SimulationState {
 
                 let block = attestor_primitives::block::Block::new_from_prev_digest(
                     h,
-                    sp_core::H256(std::array::from_fn(|n| u8::MAX << n & h as u8)),
+                    sp_core::H256(std::array::from_fn(|n| ((u8::MAX << n) as u64 & h) as u8)),
                     digest_prev,
                 );
 
@@ -102,8 +106,12 @@ impl SimulationState {
         let attestation_data = attestor_primitives::AttestationData::new(
             2,
             height,
-            sp_core::H256(std::array::from_fn(|n| u8::MAX << n & height as u8)),
-            sp_core::H256(std::array::from_fn(|n| u8::MAX << n & height as u8)),
+            sp_core::H256(std::array::from_fn(|n| {
+                ((u8::MAX << n) as u64 & height) as u8
+            })),
+            sp_core::H256(std::array::from_fn(|n| {
+                ((u8::MAX << n) as u64 & height) as u8
+            })),
             continuity_proof.head().map(|head| head.digest),
         );
 

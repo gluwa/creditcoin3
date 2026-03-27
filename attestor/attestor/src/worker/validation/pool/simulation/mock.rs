@@ -6,8 +6,10 @@ pub struct Attestor {
 }
 
 impl Attestor {
-    pub fn new(index: u8) -> Self {
+    pub fn new(index: attestor_primitives::Height) -> Self {
         use std::str::FromStr as _;
+
+        let seed: [u8; 32] = std::array::from_fn(|n| ((u8::MAX << n) as u64 & index) as u8);
 
         let key = bip39::Mnemonic::from_entropy(&[index; 32])
             .unwrap()
@@ -44,5 +46,9 @@ impl Attestor {
             signature_bls,
             continuity_proof,
         }
+    }
+
+    pub fn id(&self) -> attestor_primitives::AttestorId {
+        self.id.clone()
     }
 }
