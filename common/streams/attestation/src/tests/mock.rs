@@ -174,3 +174,9 @@ impl<T> PollQueue<T> {
         }
     }
 }
+
+impl stream_util::ChainData<attestor_primitives::Height> for TipReceiver {
+    async fn reset(&self, n: u64) -> Self {
+        todo!()
+    }
+}
