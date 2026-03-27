@@ -5,9 +5,9 @@
  */
 
 import type { SimulatorConfig, TxInfo } from "../types.ts";
-import { fetchAndSubmitProof } from "./proofUtils.ts";
+import { fetchAndSubmitProof } from "./proofApi.ts";
 import { withContinuityRetry } from "../utils/retry.ts";
-import { sleep } from "../utils/reconnect.ts";
+import { sleep } from "../utils/sleep.ts";
 
 /**
  * Submit a single proof for a transaction
