@@ -278,12 +278,16 @@ jobs:
                 --cc3-url=ws://localhost:9944 \
                 --funding-address='//Alice' \
                 --config=./attestor/config.yaml \
+                --p2p-port-base=9010 \
+                --api-port-base=9110 \
                 >/var/tmp/exercise-scripts/zombienet-chain4.log &
 
       - name: Wait for attestors to be registered
         run: |
-          # wait for Anvil_1 attestors (chain 2)
+          # wait for chain 2 attestors
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+          # wait for chain 4 attestors (different URL triggers chain_key 4 storage key in script)
+          .github/wait-for-attestors.sh 'http://localhost:9944'
 
       - name: Start Redis
         working-directory: proof-gen-api-server
