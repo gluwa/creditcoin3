@@ -27,23 +27,26 @@ impl proptest_state_machine::ReferenceStateMachine for SimulationState {
             (1..100u64),
         )
             .prop_map(
-                |(max_size, attestors, quorum, attestation_start, attestation_interval)| Self {
-                    votes: vec![],
-                    attestors: Self::attestors(attestors).collect(),
-                    attestor_next: 0,
-                    attestation_next: attestation_start.unwrap_or_default(),
-                    attestation_prev: Self::attestation_start(attestation_start),
-                    attestation_interval: std::num::NonZero::new(attestation_interval).unwrap(),
-                    config: crate::worker::validation::pool::ConfigBuilder::new()
-                        .with_max_size(std::num::NonZero::new(max_size).unwrap())
-                        .with_attestors(
-                            Self::attestors(attestors)
-                                .map(|att| att.id())
-                                .collect::<Vec<_>>(),
-                        )
-                        .with_quorum(std::num::NonZero::new(quorum).unwrap())
-                        .with_attestation_start(Self::attestation_start(attestation_start))
-                        .build(),
+                |(max_size, attestors, quorum, attestation_start, attestation_interval)| {
+                    // Self {
+                    //     votes: vec![],
+                    //     attestors: Self::attestors(attestors).collect(),
+                    //     attestor_next: 0,
+                    //     attestation_next: attestation_start.unwrap_or_default(),
+                    //     attestation_prev: Self::attestation_start(attestation_start),
+                    //     attestation_interval: std::num::NonZero::new(attestation_interval).unwrap(),
+                    //     config: crate::worker::validation::pool::ConfigBuilder::new()
+                    //         .with_max_size(std::num::NonZero::new(max_size).unwrap())
+                    //         .with_attestors(
+                    //             Self::attestors(attestors)
+                    //                 .map(|att| att.id())
+                    //                 .collect::<Vec<_>>(),
+                    //         )
+                    //         .with_quorum(std::num::NonZero::new(quorum).unwrap())
+                    //         .with_attestation_start(Self::attestation_start(attestation_start))
+                    //         .build(),
+                    // };
+                    todo!()
                 },
             )
             .boxed()

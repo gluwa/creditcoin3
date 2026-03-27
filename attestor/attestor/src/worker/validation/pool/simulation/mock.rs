@@ -11,19 +11,21 @@ impl Attestor {
 
         let seed: [u8; 32] = std::array::from_fn(|n| ((u8::MAX << n) as u64 & index) as u8);
 
-        let key = bip39::Mnemonic::from_entropy(&[index; 32])
-            .unwrap()
-            .to_string();
+        // let key = bip39::Mnemonic::from_entropy(&[index; 32])
+        //     .unwrap()
+        //     .to_string();
+        //
+        // let secret_uri = subxt_signer::SecretUri::from_str(&key).unwrap();
+        // let keypair = subxt_signer::sr25519::Keypair::from_uri(&secret_uri).unwrap();
+        // let bls = bls_signatures::PrivateKey::new([index; 32]);
+        //
+        // Self {
+        //     id: attestor_primitives::AttestorId::from_public([index; 32]),
+        //     keypair,
+        //     bls_key: bls,
+        // }
 
-        let secret_uri = subxt_signer::SecretUri::from_str(&key).unwrap();
-        let keypair = subxt_signer::sr25519::Keypair::from_uri(&secret_uri).unwrap();
-        let bls = bls_signatures::PrivateKey::new([index; 32]);
-
-        Self {
-            id: attestor_primitives::AttestorId::from_public([index; 32]),
-            keypair,
-            bls_key: bls,
-        }
+        todo!()
     }
 
     pub fn sign_attestation(

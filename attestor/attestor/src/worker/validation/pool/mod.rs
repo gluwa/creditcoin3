@@ -168,7 +168,6 @@ pub struct Config {
     attestation_start: Option<stream::util::AttestationInfo>,
 
     #[specify_later]
-    #[cfg(not(feature = "simulation"))]
     metrics: common::types::Metrics,
 }
 
@@ -209,7 +208,6 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
     let pool = AttestationPool::new(
         quorum,
         attestors,
-        #[cfg(not(feature = "simulation"))]
         config.metrics,
         config.attestation_start.map(|info| info.digest),
         config.max_size,
@@ -335,9 +333,7 @@ struct AttestationPoolInner {
 
     validate_attestor: ValidateAttestor,
 
-    #[cfg(not(feature = "simulation"))]
     metrics: common::types::Metrics,
-    #[cfg(not(feature = "simulation"))]
     attestation_delay: AttestationPoolDelays,
 
     wakers: std::collections::VecDeque<std::task::Waker>,
@@ -347,7 +343,7 @@ impl AttestationPool {
     fn new(
         validate_quorum: ValidateQuorum,
         validate_attestor: ValidateAttestor,
-        #[cfg(not(feature = "simulation"))] metrics: common::types::Metrics,
+        metrics: common::types::Metrics,
         prev_digest: Option<attestor_primitives::Digest>,
         max_size: std::num::NonZeroUsize,
     ) -> Self {
@@ -358,9 +354,7 @@ impl AttestationPool {
 
             validate_attestor,
 
-            #[cfg(not(feature = "simulation"))]
             attestation_delay: AttestationPoolDelays::new(metrics.clone()),
-            #[cfg(not(feature = "simulation"))]
             metrics,
 
             wakers: std::collections::VecDeque::new(),
@@ -381,7 +375,6 @@ impl AttestationPoolInner {
         &mut self,
         attestation: common::types::Attestation,
     ) -> Result<Vec<common::types::Attestation>, Error> {
-        #[cfg(not(feature = "simulation"))]
         let height = attestation.header_number();
 
         tracing::debug!("Validating sender");
@@ -390,7 +383,6 @@ impl AttestationPoolInner {
         tracing::debug!("Adding attestation to pool");
         let removed = self.forks.push(attestation)?;
 
-        #[cfg(not(feature = "simulation"))]
         {
             tracing::trace!("Updating metrics");
             self.attestation_delay.push(height);
@@ -411,7 +403,6 @@ impl AttestationPoolInner {
             let digest = fork.attestation.digest();
             let permit = Permit(stream::util::AttestationInfo { height, digest });
 
-            #[cfg(not(feature = "simulation"))]
             {
                 // Only update metrics the first time quorum is reached at that height
                 if let Some(elapsed) = self.attestation_delay.pop(height) {
@@ -1350,7 +1341,6 @@ impl AttestationPoolSender {
             inner.valid.note_attestation_finalization(info);
 
             // Update metrics
-            #[cfg(not(feature = "simulation"))]
             inner.attestation_delay.note_attestation_finalization(info);
 
             // Updating the inner pool
@@ -1375,7 +1365,6 @@ impl AttestationPoolSender {
             inner.valid.note_attestation_interval_change();
 
             // Update metrics
-            #[cfg(not(feature = "simulation"))]
             inner.attestation_delay.note_attestation_interval_change();
         }
     }
@@ -1421,7 +1410,6 @@ impl AttestationPoolSender {
             inner.valid.note_attestation_chain_reversion();
 
             // Update metrics
-            #[cfg(not(feature = "simulation"))]
             inner.attestation_delay.note_attestation_chain_reversion();
         }
     }

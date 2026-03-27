@@ -319,7 +319,6 @@ impl Attestor {
             tokio::sync::broadcast::channel(common::constants::CAPACITY_CHANNEL);
 
         // attestation production / p2p sync -> attestation validation
-        #[cfg(not(feature = "simulation"))]
         let config = self
             .config
             .pool
@@ -327,14 +326,6 @@ impl Attestor {
             .with_quorum(quorum)
             .with_attestation_start(start_attestation)
             .with_metrics(std::sync::Arc::clone(&metrics))
-            .build();
-        #[cfg(feature = "simulation")]
-        let config = self
-            .config
-            .pool
-            .with_attestors(attestors)
-            .with_quorum(quorum)
-            .with_attestation_start(start_attestation)
             .build();
         let (mut sender_validation, receiver_validation) =
             worker::validation::pool::attestation_pool(config);
