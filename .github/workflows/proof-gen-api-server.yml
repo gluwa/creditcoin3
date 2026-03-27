@@ -384,6 +384,7 @@ jobs:
         working-directory: scripts
         run: |
           node TransferWaitAndSubmit.js \
+            --chain-key 4 \
             --source-rpc-url http://127.0.0.1:8142 \
             --cc3-rpc-url ws://localhost:9944 \
             --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
