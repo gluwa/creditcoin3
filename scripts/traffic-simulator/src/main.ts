@@ -2,7 +2,7 @@
  * Proof Traffic Simulator
  *
  * A Deno-based tool that simulates proof query traffic by:
- * 1. Streaming blocks from source chain (Sepolia)
+ * 1. Streaming blocks from the source chain
  * 2. Queueing blocks until they are attested on Creditcoin3
  * 3. Submitting proofs for random transactions once blocks are attested
  */
@@ -19,15 +19,14 @@ console.warn = (...args: unknown[]) => {
 };
 
 import { loadConfig, logConfig } from "./config.ts";
-import { BlockSubscriber } from "./subscribers/blockSubscriber.ts";
-import { AttestationSubscriber } from "./subscribers/attestationSubscriber.ts";
+import { BlockWatcher } from "./watchers/blockWatcher.ts";
+import { AttestationWatcher } from "./watchers/attestationWatcher.ts";
 import { PendingBlockQueue } from "./queue/pendingQueue.ts";
-import { submitSingleProof } from "./submitter/singleSubmitter.ts";
-import { submitBatchProofs } from "./submitter/batchSubmitter.ts";
+import { submitSingleProof } from "./submission/singleSubmission.ts";
+import { submitBatchProofs } from "./submission/batchSubmission.ts";
 import { startHealthServer } from "./server.ts";
-import { setVerbose } from "./logger.ts";
 import { SINGLE_SUBMISSION_DELAY_MS } from "./constants.ts";
-import { sleep } from "./utils/reconnect.ts";
+import { sleep } from "./utils/sleep.ts";
 import type {
   BlockInfo,
   HealthStatus,
@@ -38,8 +37,8 @@ import type {
 
 // Global state
 let config: SimulatorConfig;
-let blockSubscriber: BlockSubscriber;
-let attestationSubscriber: AttestationSubscriber;
+let blockWatcher: BlockWatcher;
+let attestationWatcher: AttestationWatcher;
 let pendingQueue: PendingBlockQueue;
 let healthServer: { shutdown: () => void };
 let isShuttingDown = false;
@@ -100,9 +99,9 @@ function recordError(error: string): void {
  */
 function getHealthStatus(): HealthStatus {
   return {
-    sepoliaConnected: blockSubscriber?.isConnected ?? false,
-    cc3Connected: attestationSubscriber?.isConnected ?? false,
-    sourceChainKey: config?.chainKey ?? 1, // default to sepolia
+    sourceChainConnected: blockWatcher?.isConnected ?? false,
+    cc3Connected: attestationWatcher?.isConnected ?? false,
+    sourceChainKey: config?.chainKey ?? 1,
     cc3WsUrl: config?.cc3WsUrl ?? "",
     queueSize: pendingQueue?.size ?? 0,
     blocksProcessed: metrics.blocksProcessed,
@@ -123,8 +122,8 @@ function getMetrics(): Metrics {
   return {
     ...metrics,
     queueSize: pendingQueue?.size ?? 0,
-    sepoliaConnected: blockSubscriber?.isConnected ? 1 : 0,
-    cc3Connected: attestationSubscriber?.isConnected ? 1 : 0,
+    sourceChainConnected: blockWatcher?.isConnected ? 1 : 0,
+    cc3Connected: attestationWatcher?.isConnected ? 1 : 0,
   };
 }
 
@@ -309,10 +308,10 @@ async function shutdown(): Promise<void> {
     // Ignore
   }
 
-  // Stop subscribers
+  // Stop watchers
   await Promise.allSettled([
-    blockSubscriber?.stop(),
-    attestationSubscriber?.stop(),
+    blockWatcher?.stop(),
+    attestationWatcher?.stop(),
   ]);
 
   console.log("\n📊 Final statistics:");
@@ -339,7 +338,6 @@ async function main(): Promise<void> {
     // Load configuration
     config = loadConfig();
     logConfig(config);
-    setVerbose(config.logVerbose);
 
     // Initialize components
     pendingQueue = new PendingBlockQueue(config.maxQueueSize);
@@ -352,9 +350,9 @@ async function main(): Promise<void> {
       () => uniqueErrors.clear(),
     );
 
-    // Create subscribers
-    blockSubscriber = new BlockSubscriber(config.sourceRpcUrl, handleNewBlock);
-    attestationSubscriber = new AttestationSubscriber(
+    // Create watchers
+    blockWatcher = new BlockWatcher(config.sourceRpcUrl, handleNewBlock);
+    attestationWatcher = new AttestationWatcher(
       config.cc3WsUrl,
       config.chainKey,
       handleAttestation,
@@ -371,11 +369,11 @@ async function main(): Promise<void> {
       shutdown();
     });
 
-    // Start subscribers
-    console.log("\n🔄 Starting subscribers...\n");
+    // Start watchers
+    console.log("\n🔄 Starting watchers...\n");
     await Promise.all([
-      blockSubscriber.start(),
-      attestationSubscriber.start(),
+      blockWatcher.start(),
+      attestationWatcher.start(),
     ]);
 
     console.log("\n✅ Simulator running. Press Ctrl+C to stop.\n");
