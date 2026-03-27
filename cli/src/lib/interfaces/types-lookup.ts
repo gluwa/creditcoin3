@@ -3000,10 +3000,6 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly newMax: u32;
         } & Struct;
-        readonly isBootstrapChain: boolean;
-        readonly asBootstrapChain: {
-            readonly attestation: AttestorPrimitivesSignedAttestation;
-        } & Struct;
         readonly isCommitAttestation: boolean;
         readonly asCommitAttestation: {
             readonly attestation: AttestorPrimitivesSignedAttestation;
@@ -3085,7 +3081,6 @@ declare module '@polkadot/types/lookup' {
             | 'RegisterInvulnerable'
             | 'UnregisterInvulnerable'
             | 'SetMaxInvulnerables'
-            | 'BootstrapChain'
             | 'CommitAttestation'
             | 'SetAttestationsPerCheckpoint'
             | 'SetMinBondRequirement'
