@@ -98,17 +98,16 @@ impl Attestor {
             .await
             .map_err(Error::InitError)?;
 
-        let chain_id = client_cc3
+        let supported_chain = client_cc3
             .get_supported_chain(chain_key)
             .await
             .context("Failed to retrieve supported chain")
             .map_err(Error::InitError)?
-            .ok_or(Error::ChainKeyNotSupported(chain_key))?
-            .chain_id;
+            .ok_or(Error::ChainKeyNotSupported(chain_key))?;
 
-        if chain_id != client_eth.chain_id() {
+        if supported_chain.chain_id != client_eth.chain_id() {
             return Err(Error::ChainIdMisMatch {
-                runtime: chain_id,
+                runtime: supported_chain.chain_id,
                 rpc: client_eth.chain_id(),
             });
         }
@@ -233,13 +232,8 @@ impl Attestor {
                 .unwrap(),
         };
 
-        let strategy_str = client_cc3
-            .get_supported_chain(chain_key)
-            .await
-            .map_err(Error::RpcError)?
-            .ok_or(Error::ChainKeyNotSupported(chain_key))?
-            .maturity_strategy;
-        let strategy_enum: supported_chains_primitives::MaturityStrategy = strategy_str
+        let strategy_enum: supported_chains_primitives::MaturityStrategy = supported_chain
+            .maturity_strategy
             .as_str()
             .try_into()
             .map_err(|e| Error::InvalidMaturityStrategy(chain_key, e))?;
