@@ -238,22 +238,6 @@ jobs:
 
           echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
 
-      - name: Simulate a native token transfer on Anvil 2
-        id: native-transfer-anvil2-1
-        working-directory: attestor/scripts
-        run: |
-          OUTPUT=$(ETH_RPC_URL=http://127.0.0.1:8142 node Transfer.js)
-          echo "$OUTPUT"
-
-          TXN_HASH=$(echo "$OUTPUT" | grep hash: | cut -f2 -d: | tr -d ' ')
-
-          if [ -z "$TXN_HASH" ]; then
-            echo "ERROR: Could not extract transaction hash from Transfer.js output"
-            exit 2
-          fi
-
-          echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
-
       - name: Start Attestation Zombienet (chain 2 — Anvil 1)
         run: |
           chmod a+x ./target/release/attestor*
@@ -396,14 +380,14 @@ jobs:
             --cc3-rpc-url http://localhost:9944 \
             --verbose
 
-      - name: Exercise SubmitProof.js against Anvil 2 (chain 4)
+      - name: Exercise TransferWaitAndSubmit.js against Anvil 2 (chain 4)
         working-directory: scripts
         run: |
-          node SubmitProof.js 4 ${{ steps.native-transfer-anvil2-1.outputs.txn_hash }} \
-            --private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
-            --api-url http://localhost:3100 \
-            --cc3-rpc-url http://localhost:9944 \
-            --verbose
+          node TransferWaitAndSubmit.js \
+            --source-rpc-url http://127.0.0.1:8142 \
+            --cc3-rpc-url ws://localhost:9944 \
+            --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
+            --api-url http://localhost:3100
 
       - name: Upload logs
         if: always()
