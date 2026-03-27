@@ -71,7 +71,12 @@ describe('handleEventAttestationIntervalChanged()', () => {
 
         it('graphQL returns known AttestationIntervalChanged entity', async () => {
             const response = await graphQLQuery(
-                `query { attestationIntervalChangeds(orderBy: BLOCK_NUMBER_ASC, last: 1) { nodes { id, blockNumber, date, chainKey, interval }}}`,
+                `query {
+                    attestationIntervalChangeds(
+                        filter: { chainKey: { equalTo: "${newChainKey}" }},
+                        orderBy: BLOCK_NUMBER_ASC,
+                        last: 1
+                    ) { nodes { id, blockNumber, date, chainKey, interval }}}`,
             );
             expect(response.data.attestationIntervalChangeds.nodes).toBeTruthy();
             expect(response.data.attestationIntervalChangeds.nodes.length).toEqual(1);
@@ -91,7 +96,6 @@ describe('handleEventAttestationIntervalChanged()', () => {
             const response = await graphQLQuery(
                 `query {
                     attestationChainData(
-                        orderBy: CHAIN_KEY_ASC,
                         last: 1,
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                     ) {
