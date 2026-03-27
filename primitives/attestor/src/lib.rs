@@ -140,9 +140,39 @@ impl core::fmt::Display for AttestorId {
     }
 }
 
+impl From<[u8; 32]> for AttestorId {
+    fn from(id: [u8; 32]) -> Self {
+        Self(AccountId32::from(id))
+    }
+}
+
+impl From<AccountId32> for AttestorId {
+    fn from(id: AccountId32) -> Self {
+        Self(id)
+    }
+}
+
+impl From<subxt::utils::AccountId32> for AttestorId {
+    fn from(id: subxt::utils::AccountId32) -> Self {
+        id.0.into()
+    }
+}
+
 impl From<AttestorId> for [u8; 32] {
-    fn from(attestor_id: AttestorId) -> [u8; 32] {
-        attestor_id.0.into()
+    fn from(id: AttestorId) -> [u8; 32] {
+        id.0.into()
+    }
+}
+
+impl From<AttestorId> for AccountId32 {
+    fn from(id: AttestorId) -> Self {
+        id.0
+    }
+}
+
+impl From<AttestorId> for subxt::utils::AccountId32 {
+    fn from(id: AttestorId) -> Self {
+        Self(id.public_key())
     }
 }
 

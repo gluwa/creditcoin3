@@ -1711,16 +1711,11 @@ pub struct ValidateAttestor {
 }
 
 impl ValidateAttestor {
-    pub fn new(attestors: Vec<cc_client::AccountId32>) -> Self {
+    pub fn new(
+        attestors: impl IntoIterator<Item = impl Into<attestor_primitives::AttestorId>>,
+    ) -> Self {
         Self {
-            attestor_set: attestors
-                .into_iter()
-                .map(|attestor| {
-                    attestor_primitives::AttestorId::new(sp_core::crypto::AccountId32::new(
-                        attestor.0,
-                    ))
-                })
-                .collect(),
+            attestor_set: attestors.into_iter().map(Into::into).collect(),
         }
     }
 

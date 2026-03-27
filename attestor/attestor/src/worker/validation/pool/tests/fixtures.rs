@@ -123,19 +123,34 @@ pub fn metrics() -> common::types::Metrics {
 pub fn config(
     validate_quorum: ValidateQuorum,
     #[default(100)] capacity: usize,
-    attestors: Vec<cc_client::AccountId32>,
+    #[default([ATTESTOR_VALID_0, ATTESTOR_VALID_1, ATTESTOR_VALID_2, ATTESTOR_VALID_3])]
+    attestors: impl IntoIterator<Item = attestor_primitives::AttestorId>,
     metrics: common::types::Metrics,
 ) -> Config {
-    ConfigBuilder::new()
+    #[cfg(not(feature = "simulation"))]
+    let config = ConfigBuilder::new()
         .with_max_size(std::num::NonZeroUsize::new(capacity).unwrap())
-        .with_attestors(attestors)
+        .with_attestors(attestors.into_iter().collect::<Vec<_>>())
         .with_quorum(validate_quorum.target_quorum)
         .with_attestation_start(Some(stream::util::AttestationInfo {
             digest: DIGEST_0,
             height: common::types::Height::MIN,
         }))
         .with_metrics(metrics)
-        .build()
+        .build();
+
+    #[cfg(feature = "simulation")]
+    let config = ConfigBuilder::new()
+        .with_max_size(std::num::NonZeroUsize::new(capacity).unwrap())
+        .with_attestors(attestors.into_iter().collect::<Vec<_>>())
+        .with_quorum(validate_quorum.target_quorum)
+        .with_attestation_start(Some(common::types::AttestationInfo {
+            digest: DIGEST_0,
+            height: common::types::Height::MIN,
+        }))
+        .build();
+
+    config
 }
 
 #[rstest::fixture]

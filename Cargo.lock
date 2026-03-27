@@ -1593,6 +1593,7 @@ dependencies = [
  "sp-core",
  "sp-runtime",
  "sp-std",
+ "subxt",
  "usc-abi-encoding",
 ]
 
