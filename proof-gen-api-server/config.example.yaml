@@ -2,6 +2,10 @@
 # Run: proof-gen-api-server --config /path/to/config.yaml
 # Or:  PROOF_GEN_CONFIG_FILE=/path/to/config.yaml proof-gen-api-server
 # Creditcoin3 WebSocket URL: set CC3_RPC_URL in .env (or pass --cc3-rpc-url), not in this file.
+#
+# Without --config / PROOF_GEN_CONFIG_FILE: legacy single-chain mode (CLI/env only).
+# Supported chain key defaults to CHAIN_KEY (default 2); ETH RPC from --eth-rpc-url / ETH_RPC_URL.
+# Multi-chain allowlists and per-chain eth_rpc_url require this YAML (or equivalent env wiring).
 
 bind_host: "0.0.0.0"
 bind_port: 3100
@@ -11,8 +15,9 @@ chains:
   - chain_key: 2
     eth_rpc_url: "http://localhost:8545"
     # archiver_url: "http://localhost:8080"  # optional per chain
-  # - chain_key: 3
-  #   eth_rpc_url: "http://localhost:8546"
+  # Second local chain (e.g. second Anvil on another port) — uncomment for multi-chain dev/CI:
+  - chain_key: 3
+    eth_rpc_url: "http://localhost:8546"
 
 # redis_url: "redis://127.0.0.1:6379"
 redis_cluster_mode: false

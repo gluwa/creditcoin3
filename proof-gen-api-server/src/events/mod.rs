@@ -48,6 +48,8 @@ pub async fn start_cc3_event_subscription(
         anyhow::bail!("no chains configured for event subscription");
     }
 
+    let chain_keys_vec: Vec<u64> = chain_keys.iter().copied().collect();
+
     let mut backoff = INITIAL_BACKOFF;
 
     loop {
@@ -56,7 +58,7 @@ pub async fn start_cc3_event_subscription(
             "Starting CC3 event subscription (single task, multi-chain filter)"
         );
 
-        match cc3_client.subscribe_events_chains(chain_keys.clone()) {
+        match cc3_client.subscribe_events_chains(&chain_keys_vec) {
             Ok(mut subscription) => {
                 info!(
                     "Successfully subscribed to CC3 events for chain keys: {:?}",

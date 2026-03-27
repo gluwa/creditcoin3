@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use crate::networking::extract::Chain;
 use crate::prom::{GetErrorType, Metrics};
 use crate::services::continuity_service::{
     BatchedContinuityResponse, ContinuityResponse, ContinuityService, ProofQuery,
@@ -33,16 +34,17 @@ type TxHashes = Vec<String>;
     )
 )]
 pub async fn get_proof_with_tx(
-    Path((chain_key, header_number, tx_index)): Path<(u64, u64, u64)>,
+    Path((_, header_number, tx_index)): Path<(u64, u64, u64)>,
+    chain: Chain,
     Extension(service): Extension<Arc<ContinuityService>>,
     Extension(metrics): Extension<Metrics>,
 ) -> ApiResult {
     service
-        .get_proof(chain_key, header_number, tx_index)
+        .get_proof(&chain.state, header_number, tx_index)
         .await
         .inspect(|r| {
             tracing::info!(
-                chain_key = chain_key,
+                chain_key = chain.key,
                 header_number = r.header_number,
                 tx_index = r.tx_index,
                 cached = r.cached,
@@ -73,14 +75,15 @@ pub async fn get_proof_with_tx(
     )
 )]
 pub async fn get_proof_by_tx_hash(
-    Path((chain_key, tx_hash)): Path<(u64, String)>,
+    Path((_, tx_hash)): Path<(u64, String)>,
+    chain: Chain,
     Extension(service): Extension<Arc<ContinuityService>>,
     Extension(metrics): Extension<Metrics>,
 ) -> ApiResult {
     service
-        .get_proof_by_tx_hash(chain_key, tx_hash.clone())
+        .get_proof_by_tx_hash(&chain.state, tx_hash.clone())
         .await
-        .inspect(|r| tracing::info!(chain_key = chain_key, %tx_hash, header_number = r.header_number, cached = r.cached, "Request served"))
+        .inspect(|r| tracing::info!(chain_key = chain.key, %tx_hash, header_number = r.header_number, cached = r.cached, "Request served"))
         .map(ContinuityResponse::from)
         .map(Json)
         .map_err(|e| {
@@ -104,7 +107,8 @@ pub async fn get_proof_by_tx_hash(
     )
 )]
 pub async fn get_proof_batch(
-    Path(chain_key): Path<u64>,
+    Path(_path_chain_key): Path<u64>,
+    chain: Chain,
     Extension(service): Extension<Arc<ContinuityService>>,
     Extension(metrics): Extension<Metrics>,
     Json(proof_queries): Json<ProofQueries>,
@@ -151,11 +155,11 @@ pub async fn get_proof_batch(
     };
 
     service
-        .get_proof_batch(chain_key, &unique_proof_queries)
+        .get_proof_batch(&chain.state, &unique_proof_queries)
         .await
         .inspect(|r| {
             tracing::info!(
-                chain_key = chain_key,
+                chain_key = chain.key,
                 from_header = r.from_header,
                 to_header = r.to_header,
                 cached = r.cached,
@@ -185,7 +189,8 @@ pub async fn get_proof_batch(
     )
 )]
 pub async fn get_proof_batch_by_tx_hash(
-    Path(chain_key): Path<u64>,
+    Path(_path_chain_key): Path<u64>,
+    chain: Chain,
     Extension(service): Extension<Arc<ContinuityService>>,
     Extension(metrics): Extension<Metrics>,
     Json(tx_hashes): Json<TxHashes>,
@@ -210,11 +215,11 @@ pub async fn get_proof_batch_by_tx_hash(
         .collect::<Vec<_>>();
 
     service
-        .get_proof_batch_by_tx_hashes(chain_key, unique_tx_hashes.as_slice())
+        .get_proof_batch_by_tx_hashes(&chain.state, unique_tx_hashes.as_slice())
         .await
         .inspect(|r| {
             tracing::info!(
-                chain_key = chain_key,
+                chain_key = chain.key,
                 from_header = r.from_header,
                 to_header = r.to_header,
                 cached = r.cached,

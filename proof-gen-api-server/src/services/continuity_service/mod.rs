@@ -303,9 +303,13 @@ impl ContinuityService {
     /// 2. Exists on source chain (ETH)
     ///
     /// Returns the current block height for reuse in validating predicted attestation bounds.
-    async fn validate_blocks(&self, chain_key: u64, header_numbers: &[u64]) -> ServiceResult<u64> {
-        let chain = self.chain_state(chain_key)?;
-        let genesis_block = chain.attestation_genesis_block.load(Ordering::Relaxed);
+    async fn validate_blocks(
+        &self,
+        chain: &Arc<ChainState>,
+        header_numbers: &[u64],
+    ) -> ServiceResult<u64> {
+        let chain_key = chain.builder.config.chain_key;
+        let genesis_block = chain.attestation_genesis_block.load(Ordering::Acquire);
 
         // Check genesis bound
         if let Some(&header_number) = header_numbers.iter().find(|h| **h <= genesis_block) {
@@ -412,11 +416,10 @@ impl ContinuityService {
     /// Returns `(lower_block, lower_digest, upper_block)` or `None` if not found.
     pub async fn get_attestation_boundaries(
         &self,
-        chain_key: u64,
+        chain: &Arc<ChainState>,
         min_query: u64,
         max_query: u64,
     ) -> Option<(u64, H256, u64)> {
-        let chain = self.chains.get(&chain_key)?;
         let cache = chain.attestation_cache.read().await;
 
         // Lower: greatest attestation strictly before min_query.
@@ -437,11 +440,10 @@ impl ContinuityService {
     /// Returns `(lower_block, lower_digest, upper_block)` or `None` if not found.
     pub async fn get_checkpoint_boundaries(
         &self,
-        chain_key: u64,
+        chain: &Arc<ChainState>,
         min_query: u64,
         max_query: u64,
     ) -> Option<(u64, H256, u64)> {
-        let chain = self.chains.get(&chain_key)?;
         let cache = chain.checkpoint_cache.read().await;
 
         // Lower: greatest checkpoint strictly before min_query.
@@ -467,7 +469,7 @@ impl ContinuityService {
         if let Some(chain) = self.chains.get(&chain_key) {
             chain
                 .attestation_genesis_block
-                .store(new_genesis_block, Ordering::Relaxed);
+                .store(new_genesis_block, Ordering::Release);
 
             tracing::info!(
                 chain_key,
@@ -480,12 +482,11 @@ impl ContinuityService {
     /// Build continuity proof for the given blocks, validating them first.
     async fn get_continuity_proof_for(
         &self,
-        chain_key: u64,
+        chain: &Arc<ChainState>,
         headers: &[u64],
         current_block: u64,
     ) -> ServiceResult<ContinuityProof> {
-        // ContinuityBuilder will automatically use indexer if available
-        self.build_continuity(chain_key, headers, current_block)
+        self.build_continuity(chain, headers, current_block)
             .await
             .inspect(|proof| {
                 // Increment total proof requests counter
@@ -515,23 +516,24 @@ impl ContinuityService {
     /// - `/api/v1/proof-by-tx/{chain_key}/{tx_hash}` (resolves tx_hash to block/index first)
     pub async fn get_proof(
         &self,
-        chain_key: u64,
+        chain: &Arc<ChainState>,
         header_number: u64,
         tx_index: u64,
     ) -> ServiceResult<SingleContinuityResponse> {
+        let chain_key = chain.builder.config.chain_key;
+
         // Validate that the requested block can be processed and get current block for validating predicted attestation bounds
-        let current_block = self.validate_blocks(chain_key, &[header_number]).await?;
+        let current_block = self.validate_blocks(chain, &[header_number]).await?;
 
         // Record block range metric
         self.metrics.observe_block_range(header_number);
 
-        // ContinuityBuilder will automatically use indexer if available
         let continuity_proof = self
-            .get_continuity_proof_for(chain_key, &[header_number], current_block)
+            .get_continuity_proof_for(chain, &[header_number], current_block)
             .await?;
 
         let merkle = self
-            .generate_merkle_proof(chain_key, header_number, tx_index)
+            .generate_merkle_proof(chain, header_number, tx_index)
             .await?;
 
         let tx_hash = merkle.tx_hash.map(|h| format!("0x{h:x}"));
@@ -558,16 +560,18 @@ impl ContinuityService {
     /// - `/api/v1/proof-batch/{chain_key}`
     pub async fn get_proof_batch(
         &self,
-        chain_key: u64,
+        chain: &Arc<ChainState>,
         queries: &[ProofQuery],
     ) -> ServiceResult<BatchedContinuityResponse> {
+        let chain_key = chain.builder.config.chain_key;
+
         // Extract unique header numbers for validation and proof building
         let header_numbers = queries
             .iter()
             .map(|q| q.header_number)
             .collect::<Vec<u64>>();
         // Validate that the requested blocks can be processed and get current block for validating predicted attestation bounds
-        let current_block = self.validate_blocks(chain_key, &header_numbers).await?;
+        let current_block = self.validate_blocks(chain, &header_numbers).await?;
 
         // We can safely unwrap header_numbers here because the API layer guarantees at least one query is present.
         let from_header = *header_numbers.iter().min().unwrap();
@@ -578,15 +582,15 @@ impl ContinuityService {
             self.metrics.observe_block_range(header_number);
         }
 
-        // ContinuityBuilder will automatically use indexer if available
         let continuity_proof = self
-            .get_continuity_proof_for(chain_key, &header_numbers, current_block)
+            .get_continuity_proof_for(chain, &header_numbers, current_block)
             .await?;
 
         let mut merkle_proofs = BTreeMap::new();
 
         // We flatten the list of queries into a list of (header_number, tx_index) pairs to generate merkle proofs for,
         // then regroup them into the desired response structure after generating the proofs.
+        let chain_for_merkle = chain.clone();
         let merkle_futures = queries
             .iter()
             .cloned()
@@ -596,22 +600,25 @@ impl ContinuityService {
                     .into_iter()
                     .map(move |tx_index| (query.header_number, tx_index))
             })
-            .map(|(header_number, tx_index)| async move {
-                let merkle = self
-                    .generate_merkle_proof(chain_key, header_number, tx_index)
-                    .await?;
+            .map(move |(header_number, tx_index)| {
+                let chain = chain_for_merkle.clone();
+                async move {
+                    let merkle = self
+                        .generate_merkle_proof(&chain, header_number, tx_index)
+                        .await?;
 
-                let entry = BatchedMerkleProofEntry {
-                    tx_hash: merkle.tx_hash.map(|h| format!("0x{h:x}")),
-                    tx_bytes: merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b))),
-                    merkle_proof: merkle.merkle_proof,
-                };
+                    let entry = BatchedMerkleProofEntry {
+                        tx_hash: merkle.tx_hash.map(|h| format!("0x{h:x}")),
+                        tx_bytes: merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b))),
+                        merkle_proof: merkle.merkle_proof,
+                    };
 
-                Ok::<(u64, u64, BatchedMerkleProofEntry), ServiceError>((
-                    header_number,
-                    tx_index,
-                    entry,
-                ))
+                    Ok::<(u64, u64, BatchedMerkleProofEntry), ServiceError>((
+                        header_number,
+                        tx_index,
+                        entry,
+                    ))
+                }
             });
 
         use futures::StreamExt as _;
@@ -643,15 +650,15 @@ impl ContinuityService {
     /// Used by: `/api/v1/proof-by-tx/{chain_key}/{tx_hash}`
     pub async fn get_proof_by_tx_hash(
         &self,
-        chain_key: u64,
+        chain: &Arc<ChainState>,
         tx_hash: String,
     ) -> ServiceResult<SingleContinuityResponse> {
         let tx_h256 = parse_tx_hash(&tx_hash)?;
         let (header_number, tx_index) = self
-            .get_height_and_index_for_tx_hash(chain_key, tx_h256)
+            .get_height_and_index_for_tx_hash(chain, tx_h256)
             .await?;
 
-        let response = self.get_proof(chain_key, header_number, tx_index).await?;
+        let response = self.get_proof(chain, header_number, tx_index).await?;
 
         // Verify tx_hash matches
         match &response.tx_hash {
@@ -675,7 +682,7 @@ impl ContinuityService {
     /// Used by: `/api/v1/proof-batch-by-tx/{chain_key}/{tx_hash}`
     pub async fn get_proof_batch_by_tx_hashes(
         &self,
-        chain_key: u64,
+        chain: &Arc<ChainState>,
         tx_hashes: &[String],
     ) -> ServiceResult<BatchedContinuityResponse> {
         // First we parsed all string hashes into H256, returning an error if any are invalid.
@@ -691,7 +698,7 @@ impl ContinuityService {
             let mut futures = Vec::with_capacity(parsed_hashes.len());
 
             for tx_h256 in parsed_hashes {
-                futures.push(self.get_height_and_index_for_tx_hash(chain_key, tx_h256));
+                futures.push(self.get_height_and_index_for_tx_hash(chain, tx_h256));
             }
 
             use futures::StreamExt as _;
@@ -725,6 +732,6 @@ impl ContinuityService {
         };
 
         // Build the continuity proof for all requested blocks and transactions
-        self.get_proof_batch(chain_key, &proof_queries).await
+        self.get_proof_batch(chain, &proof_queries).await
     }
 }

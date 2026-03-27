@@ -2,7 +2,14 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::Path;
+
+/// Default `max_batch_size` (10) for CLI, YAML, and [`Config::new_mock_config`].
+pub const DEFAULT_MAX_BATCH_SIZE: NonZeroUsize = match NonZeroUsize::new(10) {
+    Some(n) => n,
+    None => panic!("10 is non-zero"),
+};
 
 /// One source chain (EVM) served by this process, keyed on Creditcoin3.
 #[derive(Debug, Clone)]
@@ -23,7 +30,7 @@ pub struct Config {
     pub redis_url: Option<String>,
     pub redis_cluster_mode: bool,
     pub indexer_url: Option<String>,
-    pub max_batch_size: usize,
+    pub max_batch_size: NonZeroUsize,
 }
 
 impl Config {
@@ -42,7 +49,7 @@ impl Config {
             redis_url: None,
             redis_cluster_mode: false,
             indexer_url: None,
-            max_batch_size: 10,
+            max_batch_size: DEFAULT_MAX_BATCH_SIZE,
         }
     }
 
@@ -79,7 +86,7 @@ pub struct ConfigFile {
     #[serde(default)]
     pub indexer_url: Option<String>,
     #[serde(default = "default_max_batch_size")]
-    pub max_batch_size: usize,
+    pub max_batch_size: NonZeroUsize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,17 +97,14 @@ pub struct ChainConfigFile {
     pub archiver_url: Option<String>,
 }
 
-fn default_max_batch_size() -> usize {
-    10
+fn default_max_batch_size() -> NonZeroUsize {
+    DEFAULT_MAX_BATCH_SIZE
 }
 
 impl ConfigFile {
     fn into_config(self, cc3_rpc_url: String) -> Result<Config> {
         if self.chains.is_empty() {
             bail!("config must include at least one entry in `chains`");
-        }
-        if self.max_batch_size == 0 {
-            bail!("max_batch_size must be greater than 0");
         }
         let mut seen = HashSet::new();
         let mut chains = Vec::with_capacity(self.chains.len());

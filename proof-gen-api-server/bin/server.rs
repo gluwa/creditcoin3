@@ -1,5 +1,6 @@
 use clap::Parser;
 use std::env;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
@@ -71,11 +72,12 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
-        default_value_t = 10,
+        default_value = "10",
+        value_parser = clap::value_parser!(NonZeroUsize),
         env = "MAX_BATCH_SIZE",
-        help = "Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes. Adjust based on expected load and RPC rate limits."
+        help = "Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes. Adjust based on expected load and RPC rate limits. Must be greater than 0."
     )]
-    max_batch_size: usize,
+    max_batch_size: NonZeroUsize,
 
     #[arg(
         long,
@@ -120,9 +122,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         c
     } else {
-        if args.max_batch_size == 0 {
-            panic!("max_batch_size must be greater than 0");
-        }
         // Legacy single-chain mode: chain key from CHAIN_KEY env (default 2).
         let chain_key = env::var("CHAIN_KEY")
             .ok()
@@ -144,10 +143,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_batch_size: args.max_batch_size,
         }
     };
-
-    if config.max_batch_size == 0 {
-        panic!("max_batch_size must be greater than 0");
-    }
 
     let server = Server::new(config).await?;
     server.run().await?;

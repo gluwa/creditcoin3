@@ -1,6 +1,4 @@
 use anyhow::Result;
-use std::collections::HashSet;
-use std::sync::Arc;
 use subxt::{error::Error as SubxtError, events::StaticEvent};
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -54,14 +52,14 @@ pub enum CcEvent {
     /// Source chain key is included so multi-chain subscribers can route events.
     CheckpointReached(ChainKey, AttestationCheckpoint),
     AttestationIntervalChanged(ChainKey, u64),
-    TargetSampleSizeChanged(u32),
+    TargetSampleSizeChanged(ChainKey, u32),
     CheckpointIntervalChanged(ChainKey, u64),
     AttestorsElected(Vec<AccountId32>),
     AttestorActivated(AccountId32),
     AttestorChilled(AccountId32),
     AttestorKicked(AccountId32),
     AttestationChainGenesisBlockNumberSet(ChainKey, u64),
-    RevertedAttestationChainTo(u64, Digest),
+    RevertedAttestationChainTo(ChainKey, u64, Digest),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -107,18 +105,16 @@ impl Client {
     #[allow(clippy::too_many_lines)]
     #[allow(clippy::result_large_err)]
     pub fn subscribe_events(&self, filter: ChainKey) -> Result<Subscription, Error> {
-        let mut keys = HashSet::new();
-        keys.insert(filter);
-        self.subscribe_events_chains(keys)
+        self.subscribe_events_chains(std::slice::from_ref(&filter))
     }
 
     /// Subscribe to CC3 events for one or more source chains (single finalized block stream).
+    ///
+    /// `chain_keys` is copied once into the subscription task; filtering uses `[ChainKey]::contains`
+    /// (few keys, no `HashSet` / `Arc`).
     #[allow(clippy::too_many_lines)]
     #[allow(clippy::result_large_err)]
-    pub fn subscribe_events_chains(
-        &self,
-        chain_keys: HashSet<ChainKey>,
-    ) -> Result<Subscription, Error> {
+    pub fn subscribe_events_chains(&self, chain_keys: &[ChainKey]) -> Result<Subscription, Error> {
         if chain_keys.is_empty() {
             return Err(anyhow::anyhow!(
                 "subscribe_events_chains: at least one chain key required"
@@ -129,9 +125,9 @@ impl Client {
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
-        // Clone the api and send it on the tokio task
+        // Copy filter keys once into the task (small N; slice lookup per event).
         let api = self.api().clone();
-        let chain_filter = Arc::new(chain_keys);
+        let chain_filter: Vec<ChainKey> = chain_keys.to_vec();
 
         let handle = tokio::spawn(async move {
             let mut blocks_sub = api.blocks().subscribe_finalized().await?;
@@ -141,7 +137,7 @@ impl Client {
                 match blocks_sub.next().await {
                     Some(Ok(block)) => {
                         let events = block.events().await?;
-                        for event in Self::extract_events(chain_filter.clone(), &events) {
+                        for event in Self::extract_events(&chain_filter, &events) {
                             // FIXME: remove this `unwrap`
                             if sender.send(event.unwrap()).await.is_err() {
                                 break;
@@ -170,10 +166,10 @@ impl Client {
 
     #[tracing::instrument(skip(events))]
     #[allow(clippy::too_many_lines)]
-    pub fn extract_events(
-        chain_filter: Arc<HashSet<ChainKey>>,
-        events: &subxt::events::Events<subxt::SubstrateConfig>,
-    ) -> impl Iterator<Item = Result<CcEvent, subxt::ext::subxt_core::Error>> {
+    pub fn extract_events<'a>(
+        chain_filter: &'a [ChainKey],
+        events: &'a subxt::events::Events<subxt::SubstrateConfig>,
+    ) -> impl Iterator<Item = Result<CcEvent, subxt::ext::subxt_core::Error>> + 'a {
         events.iter().filter_map(move |event| match event {
             Ok(event) => {
                 let span = tracing::debug_span!(
@@ -239,7 +235,10 @@ impl Client {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::TargetSampleSizeChanged(new_sample_size)))
+                        Some(Ok(CcEvent::TargetSampleSizeChanged(
+                            chain_key,
+                            new_sample_size,
+                        )))
                     }
                     (AttestationIntervalChanged::PALLET, AttestationIntervalChanged::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestationIntervalChanged>() else {
@@ -373,6 +372,7 @@ impl Client {
                         }
 
                         Some(Ok(CcEvent::RevertedAttestationChainTo(
+                            chain_key,
                             checkpoint_height,
                             Digest::from(checkpoint_digest.0),
                         )))
