@@ -97,16 +97,6 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
             >;
-            bootstrapChain: AugmentedSubmittable<
-                (
-                    attestation:
-                        | AttestorPrimitivesSignedAttestation
-                        | { attestation?: any; signature?: any; attestors?: any; continuityProof?: any }
-                        | string
-                        | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [AttestorPrimitivesSignedAttestation]
-            >;
             chill: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,

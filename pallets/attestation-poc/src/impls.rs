@@ -194,78 +194,6 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub(crate) fn do_bootstrap_chain(
-        attestation: SignedAttestation<T::Hash, T::AccountId>,
-    ) -> DispatchResult {
-        let chain_key = attestation.chain_key();
-        ensure!(
-            T::SupportedChains::is_chain_supported(chain_key),
-            Error::<T>::ChainNotSupported
-        );
-
-        let previous_digest = Self::last_digest(chain_key);
-
-        // Store the attestation
-        let digest = attestation.digest();
-        let header_number = attestation.header_number();
-        Attestations::<T>::insert(chain_key, digest, &attestation);
-
-        // Update last digest
-        LastDigest::<T>::set(chain_key, Some((header_number, digest)));
-
-        Self::deposit_event(Event::<T>::BlockAttested(chain_key, header_number, digest));
-
-        match previous_digest {
-            None => {
-                let genesis_block_number = AttestationChainGenesisBlockNumber::<T>::get(chain_key);
-                ensure!(
-                    genesis_block_number == header_number,
-                    Error::<T>::InvalidAttestationBlockNumber
-                );
-
-                // Very first attestation should have a corresponding checkpoint
-                // even though it doesn't condense any prior attestations.
-                let checkpoint = AttestationCheckpoint {
-                    block_number: header_number,
-                    digest,
-                };
-
-                Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
-
-                Checkpoints::<T>::insert(chain_key, header_number, checkpoint.digest);
-                CheckpointBuckets::<T>::insert(
-                    (
-                        chain_key,
-                        Self::compute_block_index_for(header_number),
-                        header_number,
-                    ),
-                    (),
-                );
-                LastCheckpoint::<T>::insert(chain_key, &checkpoint);
-                // Add first attestation to removal queue, since first checkpoint was already created
-                AttestationRemovalQueues::<T>::mutate(chain_key, |queue| {
-                    queue.push_back(digest);
-                });
-            }
-            Some(_prev_digest) => {
-                // Add to checkpointing queue
-                let mut queue = CheckpointingQueues::<T>::get(chain_key);
-                queue.push_back(digest);
-
-                // Make checkpoint if necessary.
-                // The extrinsic didn't fail even if checkpointing failed. We want
-                // to keep the new attestation rather than removing it from storage
-                // via extrinsic rollback in the case of checkpointing failure.
-                if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key, header_number) {
-                    log::error!("Error: {e:?}");
-                }
-                CheckpointingQueues::<T>::insert(chain_key, queue);
-            }
-        }
-
-        Ok(())
-    }
-
     pub(crate) fn do_commit_attestation(
         attestation: SignedAttestation<T::Hash, T::AccountId>,
     ) -> DispatchResult {
@@ -1009,7 +937,14 @@ impl<T: Config> Pallet<T> {
         // Create checkpoints for each boundary block in the continuity proof.
         // Target calculation mirrors the legacy path: round down to nearest global
         // multiple of checkpoint_width to keep checkpoint placement consistent.
+        //
+        // Also match `try_make_checkpoint`: only advance when the attestation head is at least
+        // `2 * checkpoint_width + 1` blocks past the last checkpoint (same span rule).
         loop {
+            if head_block.saturating_sub(last_checkpoint_block) < (checkpoint_width * 2) + 1 {
+                break;
+            }
+
             let next = last_checkpoint_block.saturating_add(checkpoint_width);
             let target_block = next.saturating_sub(next % checkpoint_width);
             if target_block > head_block {
@@ -1074,6 +1009,11 @@ impl<T: Config> Pallet<T> {
         chain_key: ChainKey,
         checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
     ) -> DispatchResult {
+        ensure!(
+            T::SupportedChains::is_chain_supported(chain_key),
+            Error::<T>::ChainNotSupported
+        );
+
         let has_attestations = LastDigest::<T>::get(chain_key).is_some();
 
         let maybe_last_checkpoint: Option<AttestationCheckpoint> =
