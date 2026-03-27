@@ -194,7 +194,7 @@ pub async fn chain_key_validator_middleware(
 
 /// Extracts chain_key from API paths.
 /// Returns None if the path doesn't match expected patterns or chain_key can't be parsed.
-fn extract_chain_key_from_path(uri: &Uri) -> Option<u64> {
+pub(crate) fn extract_chain_key_from_path(uri: &Uri) -> Option<u64> {
     let path = uri.path();
     let (endpoint_type, chain_key, _parts_count) = parse_api_path(path);
 
