@@ -13,7 +13,7 @@ THRESHOLD_CTC = 10
 THRESHOLD_WEI = THRESHOLD_CTC * (10**TOKEN_DECIMALS)
 
 
-def fetch_balance(base_url, address):
+def fetch_balance_blockscout(base_url, address):
     params = urllib.parse.urlencode(
         {"module": "account", "action": "balance", "address": address}
     )
@@ -35,6 +35,62 @@ def fetch_balance(base_url, address):
                 time.sleep(RETRY_DELAY_SECONDS)
 
     return None, f"request failed after {MAX_RETRIES} attempts: {last_error}"
+
+
+def fetch_balance_rpc(rpc_url, address):
+    payload = json.dumps({
+        "jsonrpc": "2.0",
+        "method": "eth_getBalance",
+        "params": [address, "latest"],
+        "id": 1,
+    }).encode("utf-8")
+
+    last_error = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            req = urllib.request.Request(
+                rpc_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            if "error" in data:
+                return None, f"RPC error: {data['error']}"
+            result = data.get("result")
+            if isinstance(result, str) and result.startswith("0x"):
+                return int(result, 16), None
+            return None, f"unexpected RPC response: {data}"
+        except Exception as exc:
+            last_error = exc
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY_SECONDS)
+
+    return None, f"RPC request failed after {MAX_RETRIES} attempts: {last_error}"
+
+
+def fetch_balance(base_url, address, rpc_url=None):
+    bal, err = fetch_balance_blockscout(base_url, address)
+    if err:
+        if not rpc_url:
+            return bal, err
+        print(f"Blockscout failed for {address}, falling back to RPC: {err}")
+        return fetch_balance_rpc(rpc_url, address)
+
+    if bal == 0 and rpc_url:
+        rpc_bal, rpc_err = fetch_balance_rpc(rpc_url, address)
+        if rpc_err:
+            print(f"RPC fallback failed for {address}: {rpc_err}")
+            return bal, None
+        if rpc_bal > 0:
+            print(
+                f"Blockscout returned 0 for {address} but RPC reports "
+                f"{rpc_bal / 10**TOKEN_DECIMALS:.6f} {TOKEN_SYMBOL}, using RPC value"
+            )
+            return rpc_bal, None
+
+    return bal, None
 
 
 def main():
@@ -72,6 +128,7 @@ def main():
     for net in networks:
         name = net.get("name", "unknown")
         base_url = net.get("base_url")
+        rpc_url = net.get("rpc_url")
         accounts = net.get("accounts", [])
         if not base_url:
             network_reports.append((name, "missing base_url"))
@@ -95,7 +152,7 @@ def main():
                 continue
 
             display = f"{addr} ({label})" if label else addr
-            bal, err = fetch_balance(base_url, addr)
+            bal, err = fetch_balance(base_url, addr, rpc_url=rpc_url)
             if err:
                 rows.append({"display": display, "token": None, "err": err})
                 continue

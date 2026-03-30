@@ -2,6 +2,7 @@
   {
     "name": "USC Testnet 2",
     "base_url": "https://blockscout.usc-testnet2.creditcoin.network/",
+    "rpc_url": "https://rpc.usc-testnet2.creditcoin.network",
     "accounts": [
       {
         "address": "0x44919C4B087B30d1afd7e58359604dE6fe986d8a",
@@ -20,6 +21,7 @@
   {
     "name": "USC Testnet 1",
     "base_url": "https://blockscout.usc-testnet.creditcoin.network/",
+    "rpc_url": "https://rpc.usc-testnet.creditcoin.network",
     "accounts": [
       {
         "address": "0x0dfa236F82eB264183E568280609df16c6901D2D",
@@ -34,6 +36,7 @@
   {
     "name": "USC Devnet",
     "base_url": "https://blockscout.usc-devnet.creditcoin.network/",
+    "rpc_url": "https://rpc.usc-devnet.creditcoin.network",
     "accounts": [
       {
         "address": "0x053e6100c1C9A31e5c8a56156649f0972dCC815e",
