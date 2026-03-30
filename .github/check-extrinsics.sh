@@ -87,7 +87,7 @@ for RUNTIME in "${runtimes[@]}"; do
 
   echo "[+] No change in extrinsics ordering for the ${RUNTIME} runtime"
 
-  removed_items=$(echo "$CMP_OUTPUT" | sed 's/^ \+//g' | grep '\[-] ' || true)
+  removed_items=$(echo "$CMP_OUTPUT" | sed 's/^ \+//g' | grep '\[-] ' | grep -v 'calls:' || true)
   if [ -n "$removed_items" ]; then
     echo "[!] Removed items:"
     echo "$removed_items"
