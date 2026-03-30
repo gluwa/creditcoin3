@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use subxt::{error::Error as SubxtError, events::StaticEvent};
 use thiserror::Error;
@@ -126,9 +128,9 @@ impl Client {
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
-        // Copy filter keys once into the task (small N; slice lookup per event).
+        // Wrap filter keys in Arc for shared immutable access in the spawned task.
         let api = self.api().clone();
-        let chain_filter: Vec<ChainKey> = chain_keys.to_vec();
+        let chain_filter: Arc<[ChainKey]> = chain_keys.into();
 
         let handle = tokio::spawn(async move {
             let mut blocks_sub = api.blocks().subscribe_finalized().await?;
