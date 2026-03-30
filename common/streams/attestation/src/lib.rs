@@ -23,8 +23,8 @@ pub struct Config {
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
-    stream_roots: stream_util::BoxedStream<stream_util::RootInfo>,
-    stream_tip: stream_util::BoxedStream<attestor_primitives::Height>,
+    stream_roots: stream_util::BoxedData<stream_util::RootInfo>,
+    stream_tip: stream_util::BoxedData<attestor_primitives::Height>,
 
     attestation_interval: std::num::NonZero<attestor_primitives::Height>,
     attestation_prev: stream_util::AttestationInfo,
@@ -69,8 +69,8 @@ pub struct StreamAttestation {
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
-    stream_roots: stream_util::BoxedStream<stream_util::RootInfo>,
-    stream_tip: stream_util::BoxedStream<attestor_primitives::Height>,
+    stream_roots: stream_util::BoxedData<stream_util::RootInfo>,
+    stream_tip: stream_util::BoxedData<attestor_primitives::Height>,
     fetching: bool,
 
     cache: Vec<stream_util::RootInfo>,
@@ -390,5 +390,24 @@ impl futures::Stream for StreamAttestation {
             self.computed = *self.computed.end()..=stop;
             self.cursor = stop;
         }
+    }
+}
+
+impl stream_util::ChainData<Result<Attestation, Error>> for StreamAttestation {
+    async fn reset(&self, n: u64) -> Self {
+        use stream_util::ChainExt as _;
+
+        let config = ConfigBuilder::new()
+            .with_signer(self.signer.clone())
+            .with_chain_key(self.chain_key)
+            .with_bls_key(self.bls_key.clone())
+            .with_stream_roots(self.stream_roots.reset(n).await.boxed_data())
+            .with_stream_tip(self.stream_tip.reset(n).await.boxed_data())
+            .with_attestation_interval(self.attestation_interval)
+            .with_attestation_prev(self.attestation_prev)
+            .with_max_catchup(self.max_catchup)
+            .build();
+
+        Self::new(config)
     }
 }
