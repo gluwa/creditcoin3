@@ -55,7 +55,6 @@ fn main() {
             .build();
         let stream_roots = stream_eth::StreamRoots::new(config)
             .await
-            .expect("Failed to create roots stream")
             .take(args.blocks.get());
         let mut stream_roots = std::pin::pin!(stream_roots);
 
