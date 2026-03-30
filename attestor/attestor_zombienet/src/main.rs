@@ -311,7 +311,7 @@ async fn main() -> anyhow::Result<()> {
 
     while let Some(res) = futures_funding.join_next().await {
         let (name, account_id) = res??;
-        tracing::info!(name, %account_id, "💵   Successfully set attestor balance to 10 000 dev CTC");
+        tracing::info!(name, attestor_id = %account_id, "💵   Successfully set attestor balance to 10 000 dev CTC");
     }
 
     // -----------------------------------* Attestor registration *--------------------------------
@@ -363,7 +363,7 @@ async fn main() -> anyhow::Result<()> {
                 tracing::debug!(nonce_local, "OK - register");
                 anyhow::Ok(Some((name, account_id)))
             } else {
-                tracing::info!(name, %account_id, "👷   Already registered");
+                tracing::info!(name, attestor_id = %account_id, "👷   Already registered");
                 anyhow::Ok(None)
             }
         });
@@ -372,7 +372,7 @@ async fn main() -> anyhow::Result<()> {
     let mut to_register = 0;
     while let Some(res) = futures_register.join_next().await {
         if let Some((name, account_id)) = res?? {
-            tracing::info!(name, %account_id, "👷   Successfully registered attestor");
+            tracing::info!(name, attestor_id = %account_id, "👷   Successfully registered attestor");
             to_register += 1;
         }
     }
@@ -422,7 +422,7 @@ async fn main() -> anyhow::Result<()> {
             let hour = time.hour();
             let logs = format!("logs/attestor-{name}.json.{year:04}-{month:02}-{day:02}-{hour:02}");
 
-            tracing::info!(name, %account_id, "🏁 Starting attestor");
+            tracing::info!(name, attestor_id = %account_id, "🏁 Starting attestor");
             tracing::info!(logs, "🏁   with");
 
             attestor
@@ -444,7 +444,7 @@ async fn main() -> anyhow::Result<()> {
             Some(res) = futures_attestors.join_next() => {
                 match res {
                     Ok(Ok((name, account_id))) => {
-                        tracing::info!(name, %account_id, "🔌 Attestor has shut down");
+                        tracing::info!(name, attestor_id = %account_id, "🔌 Attestor has shut down");
                     }
                     Ok(Err(err)) => tracing::error!(?err, "⛔ Attestor error"),
                     Err(err) => tracing::error!(?err, "⛔ Join error"),
@@ -501,7 +501,7 @@ async fn main() -> anyhow::Result<()> {
 
             Some(res) = futures_chill.join_next() => {
                 let (name, account_id) = res??;
-                tracing::info!(name, %account_id, "❄️   Successfully chilled attestor");
+                tracing::info!(name, attestor_id = %account_id, "❄️   Successfully chilled attestor");
             }
             _ = tokio::signal::ctrl_c() => {
                 return anyhow::Ok(());
@@ -553,7 +553,7 @@ async fn main() -> anyhow::Result<()> {
 
             Some(res) = futures_unregister.join_next() => {
                 let (name, account_id) = res??;
-                tracing::info!(name, %account_id, "🪦   Successfully un-registered attestor");
+                tracing::info!(name, attestor_id = %account_id, "🪦   Successfully un-registered attestor");
             }
             _ = tokio::signal::ctrl_c() => {
                 return anyhow::Ok(());
