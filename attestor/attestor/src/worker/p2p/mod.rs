@@ -245,10 +245,10 @@ impl WorkerP2P {
             let height = attestation.header_number();
 
             tracing::info!(
-                %digest,
+                ?digest,
                 height,
                 attestor_id = %attestation.attestor,
-                "✉️ Gossiping"
+                "✉️ Gossiping attestation"
             );
 
             self.swarm
@@ -279,10 +279,9 @@ impl WorkerP2P {
                     info: libp2p::identify::Info { listen_addrs, .. },
                 },
             )) => {
-                tracing::info!(connection = %connection_id, "🛰️ Dialing");
-                tracing::info!("🛰️ Discovered new remote peer");
+                tracing::info!(%peer_id, connection = %connection_id, "🛰️ Discovered new remote peer");
                 for address in listen_addrs {
-                    tracing::info!(%address, "🛰️  at");
+                    tracing::info!(%peer_id, %address, "🛰️ Adding remote peer address");
                     self.swarm
                         .behaviour_mut()
                         .kad
@@ -295,8 +294,7 @@ impl WorkerP2P {
                 libp2p::mdns::Event::Discovered(peers),
             )) => {
                 for (peer_id, address) in peers {
-                    tracing::info!("🛰️ Discovered new local peer");
-                    tracing::info!(%address, "🛰️  at");
+                    tracing::info!(%peer_id, %address, "🛰️ Discovered new local peer");
 
                     self.swarm
                         .behaviour_mut()
@@ -309,6 +307,7 @@ impl WorkerP2P {
             // just get to react to the changes summarized in this event.
             libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Kad(
                 libp2p::kad::Event::RoutingUpdated {
+                    peer,
                     is_new_peer,
                     addresses,
                     old_peer,
@@ -316,20 +315,22 @@ impl WorkerP2P {
                 },
             )) => {
                 if is_new_peer {
-                    tracing::info!("📋 Inserted new peer into the routing table");
-                    for address in addresses.iter() {
-                        tracing::info!(%address, "📋 at");
-                    }
+                    tracing::info!(
+                        peer_id = %peer,
+                        addresses = addresses.len(),
+                        "📋 Inserted new peer into the routing table"
+                    );
                     self.metrics.increase_peer_count();
                 } else {
-                    tracing::info!("📋 Updated the addresses of a peer in the routing table");
-                    for address in addresses.iter() {
-                        tracing::info!(%address, "📋 at");
-                    }
+                    tracing::info!(
+                        peer_id = %peer,
+                        addresses = addresses.len(),
+                        "📋 Updated addresses of a peer in the routing table"
+                    );
                 }
 
-                if let Some(peer) = old_peer {
-                    tracing::info!(peer_id = %peer, "📋 Removed peer from the routing table");
+                if let Some(evicted_peer) = old_peer {
+                    tracing::info!(peer_id = %evicted_peer, "📋 Removed peer from the routing table");
                     self.metrics.decrease_peer_count();
                 }
             }
@@ -343,16 +344,20 @@ impl WorkerP2P {
                 },
             )) => match result {
                 Ok(rtt) => {
-                    tracing::info!(%connection, "🔔 Dialing");
                     tracing::info!(
                         peer_id = %peer,
-                        rtt = rtt.as_secs(),
+                        connection = %connection,
+                        rtt_ms = rtt.as_millis(),
                         "🔔 Received ping response from peer"
                     );
                 }
-                Err(_) => {
-                    tracing::info!(%connection, "🔕 Dialing");
-                    tracing::error!(peer_id = %peer, "🔕 Failed to get ping response from peer");
+                Err(err) => {
+                    tracing::error!(
+                        peer_id = %peer,
+                        connection = %connection,
+                        %err,
+                        "🔕 Failed to get ping response from peer"
+                    );
                 }
             },
 
@@ -388,7 +393,7 @@ impl WorkerP2P {
 
                 tracing::info!(
                     peer_id = %propagation_source,
-                    %digest,
+                    ?digest,
                     height = attestation.header_number(),
                     attestor_id = %attestation.attestor,
                     "📩 Received attestation"
@@ -510,8 +515,7 @@ impl WorkerP2P {
                 connection_id,
                 ..
             } => {
-                tracing::info!(connection = %connection_id, "🔗 Dialing");
-                tracing::info!(%peer_id, "🔗 Connection established");
+                tracing::info!(%peer_id, connection = %connection_id, "🔗 Connection established");
             }
 
             // Disconnected from an existing remote peer
@@ -520,8 +524,7 @@ impl WorkerP2P {
                 connection_id,
                 ..
             } => {
-                tracing::info!(connection = %connection_id, "⛓️‍💥 Dialing");
-                tracing::info!(%peer_id, "⛓️‍💥 Connection closed");
+                tracing::info!(%peer_id, connection = %connection_id, "⛓️‍💥 Connection closed");
 
                 let topic_attestation = self.topic.hash();
                 self.can_broadcast = self
@@ -539,8 +542,7 @@ impl WorkerP2P {
                 error,
                 connection_id,
             } => {
-                tracing::error!(connection = %connection_id, "⛔ Dialing");
-                tracing::error!(?peer_id, %error, "⛔  Outgoing connection error");
+                tracing::error!(?peer_id, connection = %connection_id, %error, "⛔ Outgoing connection error");
 
                 // Update metrics
                 self.metrics.increase_connection_failure_count();
@@ -577,7 +579,7 @@ impl WorkerP2P {
                     // verification means it is impersonating another attestor, and should be
                     // considered malicious.
                     libp2p::swarm::DialError::WrongPeerId { obtained, address } => {
-                        tracing::error!(%obtained, expected =  %address, "⛔  Peer ID missmatch");
+                        tracing::error!(%obtained, expected = %address, "⛔  Peer ID mismatch");
 
                         if let Some(peer_id) = peer_id {
                             self.swarm.behaviour_mut().kad.remove_peer(&peer_id);

@@ -209,14 +209,18 @@ impl WorkerAttestationProduction {
 
         let height = attestation.header_number();
         let digest = attestation.digest();
-        let digest_prev = attestation.prev_digest();
-        let attestor_id = attestation.attestor.clone();
+        // No previous digest means we will log `0x000...000` as the previous digest
+        let digest_prev = attestation
+            .prev_digest()
+            .unwrap_or_else(sp_core::H256::zero);
+        let attestor_id = attestation.attestor.account_id();
 
         tracing::info!(
             ?digest,
             ?digest_prev,
             height,
             %attestor_id,
+            elapsed_ms = now.elapsed().as_millis(),
             "📡 Generated attestation"
         );
 
@@ -278,11 +282,7 @@ impl WorkerAttestationProduction {
                     let height = attestation.header_number;
                     let attestation_latest_cc3 = common::types::AttestationInfo { digest, height };
 
-                    tracing::info!(
-                        height,
-                        %digest,
-                        "💾 New execution chain attestation"
-                    );
+                    tracing::info!(height, ?digest, "💾 New execution chain attestation");
 
                     if attestation_latest_cc3.height > self.attestation_latest_cc3.height {
                         self.attestation_latest_cc3 = attestation_latest_cc3;
@@ -400,13 +400,13 @@ impl WorkerAttestationProduction {
                     if attestors.contains(&self.account_id) {
                         self.can_attest = true;
                         tracing::info!(
-                            account_id = %self.account_id,
+                            attestor_id = %self.account_id,
                             "☀️ Attestor is eligible for production"
                         );
                     } else {
                         self.can_attest = false;
                         tracing::info!(
-                            account_id = %self.account_id,
+                            attestor_id = %self.account_id,
                             "🛏️ Waiting for attestor to be elected"
                         );
                     }
@@ -421,7 +421,7 @@ impl WorkerAttestationProduction {
                 cc_client::attestation::CcEvent::AttestorActivated(attestor) => {
                     if attestor == self.account_id {
                         tracing::info!(
-                            account_id = %self.account_id,
+                            attestor_id = %self.account_id,
                             "🔋 Attestor has been activated"
                         );
                     }
@@ -432,7 +432,7 @@ impl WorkerAttestationProduction {
                     if attestor == self.account_id {
                         self.can_attest = false;
                         tracing::info!(
-                            account_id = %self.account_id,
+                            attestor_id = %self.account_id,
                             "🪫 Attestor has been deactivated"
                         );
                     }
@@ -443,7 +443,7 @@ impl WorkerAttestationProduction {
                     if attestor == self.account_id {
                         self.can_attest = false;
                         tracing::info!(
-                            account_id = %self.account_id,
+                            attestor_id = %self.account_id,
                             "💥 Attestor has been kicked"
                         );
                     }
@@ -463,11 +463,7 @@ impl WorkerAttestationProduction {
                 cc_client::attestation::CcEvent::RevertedAttestationChainTo(height, digest) => {
                     let attestation_latest_cc3 = common::types::AttestationInfo { digest, height };
 
-                    tracing::info!(
-                        height,
-                        %digest,
-                        "💾 Attestation chain reversion detected!"
-                    );
+                    tracing::info!(height, ?digest, "💾 Attestation chain reversion detected!");
 
                     self.attestation_latest_cc3 = attestation_latest_cc3;
                     self.attestation_local = height;

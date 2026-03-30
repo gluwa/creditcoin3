@@ -43,7 +43,11 @@ impl Attestor {
         Self { config }
     }
 
-    #[tracing::instrument(name = "attestor", skip_all)]
+    #[tracing::instrument(
+        name = "attestor", 
+        skip_all,
+        fields(attestor_name = self.config.name, chain_key = self.config.chain_key)
+    )]
     pub async fn run(self) -> Result<(), Error> {
         use bls_signatures::Serialize as _;
         use std::str::FromStr as _;
@@ -175,7 +179,7 @@ impl Attestor {
         // -----------------------------------* Eligibility *----------------------------------- //
 
         tracing::info!(
-            attestor = %account_id,
+            attestor_id = %account_id,
             "⏲️ Waiting for attestor to be made eligible"
         );
 
@@ -529,7 +533,7 @@ impl Attestor {
 
         if status == Some(attestor_primitives::AttestorStatus::Idle) {
             tracing::info!(
-                attestor = %account_id,
+                attestor_id = %account_id,
                 "📝 Submitting attest() extrinsic to transition from Idle to Waiting"
             );
 
@@ -557,12 +561,12 @@ impl Attestor {
             }
 
             tracing::info!(
-                attestor = %account_id,
+                attestor_id = %account_id,
                 "✅ Successfully submitted attest() - now Waiting for election"
             );
         } else {
             tracing::info!(
-                attestor = %account_id,
+                attestor_id = %account_id,
                 ?status,
                 "ℹ️ Attestor status is already {:?}, skipping attest()", status
             );
@@ -612,7 +616,7 @@ impl Attestor {
                     }
                     _ = interval.tick() => {
                         tracing::info!(
-                            attestor = %account_id,
+                            attestor_id = %account_id,
                             "⏲️  waiting on attestor..."
                         );
                     }
@@ -620,7 +624,7 @@ impl Attestor {
             }
         }
 
-        tracing::info!(%account_id, "☀️ Attestor is eligible for production");
+        tracing::info!(attestor_id = %account_id, "☀️ Attestor is eligible for production");
 
         // Waiting for 2 blocks so other attestors have time to update the attestor set
         let step = cc3_block_time_ms * 2 / 10;
@@ -658,8 +662,11 @@ impl Attestor {
 
         let height = attestation_genesis.header_number();
         let digest = attestation_genesis.digest();
-        let digest_prev = attestation_genesis.prev_digest();
-        let attestor_id = attestation_genesis.attestor.clone();
+        // No previous digest means we will log `0x000...000` as the previous digest
+        let digest_prev = attestation_genesis
+            .prev_digest()
+            .unwrap_or_else(sp_core::H256::zero);
+        let attestor_id = attestation_genesis.attestor.account_id();
 
         assert_eq!(height, genesis, "Genesis attestation height mismatch");
 
@@ -703,7 +710,7 @@ impl Attestor {
                 _ = interval.tick() => {
                     tracing::info!(
                         height,
-                        attestor = %account_id,
+                        attestor_id = %account_id,
                         "⏲️  waiting on submission..."
                     );
                 }

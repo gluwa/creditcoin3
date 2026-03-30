@@ -804,7 +804,7 @@ impl CacheRoots {
 // ----------------------------------------- [ Events ] ---------------------------------------- //
 
 impl StreamAttestation {
-    #[tracing::instrument(skip_all, fields(height = info.height, digest = %info.digest))]
+    #[tracing::instrument(skip_all, fields(height = info.height, digest = ?info.digest))]
     pub fn note_attestation_finalization(&mut self, info: common::types::AttestationInfo) {
         let interval_attestation = self.interval_attestation.get();
         let height = info.height - (info.height % interval_attestation);
@@ -833,7 +833,7 @@ impl StreamAttestation {
         self.interval_attestation = interval_new;
     }
 
-    #[tracing::instrument(skip_all, fields(height = info.height, digest = %info.digest))]
+    #[tracing::instrument(skip_all, fields(height = info.height, digest = ?info.digest))]
     pub async fn note_attestation_chain_reversion(
         &mut self,
         info: common::types::AttestationInfo,

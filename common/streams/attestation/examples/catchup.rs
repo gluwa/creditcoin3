@@ -109,7 +109,7 @@ fn main() {
             attestations.generate_attestation_genesis(stream_util::RootInfo { height, root, hash });
         let digest = genesis.digest();
 
-        tracing::info!(%digest, "New genesis attestation");
+        tracing::info!(?digest, "New genesis attestation");
 
         let mut n = 0;
         while let Some(attestation) = attestations
@@ -121,7 +121,7 @@ fn main() {
             let digest = attestation.digest();
             let height = attestation.header_number();
 
-            tracing::info!(height, %digest, "New attestation");
+            tracing::info!(height, ?digest, "New attestation");
 
             n += 1;
             let finalized = args.attestation_interval.get() * n;
