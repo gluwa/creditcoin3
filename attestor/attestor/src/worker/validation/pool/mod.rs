@@ -420,6 +420,12 @@ impl AttestationPoolInner {
 
             // Only update metrics the first time quorum is reached at that height
             if let Some(elapsed) = self.attestation_delay.pop(height) {
+                tracing::debug!(
+                    ?digest,
+                    height,
+                    elapsed_ms = elapsed.as_millis(),
+                    "⏱️ Time from first vote to quorum"
+                );
                 self.metrics.update_attestation_delay_quorum(elapsed);
             }
 
