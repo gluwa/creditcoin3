@@ -110,7 +110,7 @@ async fn main() -> Result<()> {
                     .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                     .build();
 
-                let mut gap_stream = stream_eth::StreamRoots::new(gap_config).await?;
+                let mut gap_stream = stream_eth::StreamRoots::new(gap_config).await;
                 let mut filled = 0u64;
                 let flush_size = cfg.flush_every.get() as usize;
                 let mut batch_buf = Vec::with_capacity(flush_size);
@@ -170,7 +170,7 @@ async fn main() -> Result<()> {
         .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
         .build();
 
-    let mut root_stream = stream_eth::StreamRoots::new(stream_config).await?;
+    let mut root_stream = stream_eth::StreamRoots::new(stream_config).await;
 
     // ── Chain head tracker (for ETA) ───────────────────────────────────
     let current_head = http_client.get_last_block().await.unwrap_or(0);
@@ -282,17 +282,8 @@ async fn main() -> Result<()> {
                                 .with_max_concurrency(cfg.max_fetch_tasks)
                                 .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                                 .build();
-
-                            match stream_eth::StreamRoots::new(new_config).await {
-                                Ok(new_stream) => {
-                                    root_stream = new_stream;
-                                    tracing::info!(resume_from, "stream reconnected");
-                                    break;
-                                }
-                                Err(e) => {
-                                    tracing::warn!("failed to create stream: {e}");
-                                }
-                            }
+                            root_stream = stream_eth::StreamRoots::new(new_config).await;
+                            break;
                         }
                         Err(e) => {
                             tracing::warn!("failed to connect WS client: {e}");
