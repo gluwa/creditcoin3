@@ -252,6 +252,13 @@ jobs:
                 --config=./attestor/config.yaml \
                 >/var/tmp/exercise-scripts/zombienet-chain2.log &
 
+      - name: Wait for chain 2 attestors to be registered
+        run: |
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+
+      # Chain 4 zombienet starts AFTER chain 2 attestors are registered to
+      # avoid nonce collisions when both use the same funding account (//Alice).
+      # Using //Bob as a separate funding address adds an extra safety margin.
       - name: Start Attestation Zombienet (chain 4 — Anvil 2)
         run: |
           ./target/release/attestor_zombienet \
@@ -260,15 +267,11 @@ jobs:
                 --bin=./target/release/attestor \
                 --eth-url=ws://localhost:8142 \
                 --cc3-url=ws://localhost:9944 \
-                --funding-address='//Alice' \
+                --funding-address='//Bob' \
                 --config=./attestor/config.yaml \
                 --p2p-port-base=9010 \
                 --api-port-base=9110 \
                 >/var/tmp/exercise-scripts/zombienet-chain4.log &
-
-      - name: Wait for chain 2 attestors to be registered
-        run: |
-          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
 
       - name: Wait for chain 4 attestors to be registered
         run: |
