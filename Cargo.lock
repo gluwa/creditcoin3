@@ -14721,6 +14721,7 @@ dependencies = [
  "eth",
  "futures 0.3.31",
  "stream_util",
+ "sync_wrapper",
  "tokio",
  "tokio-retry",
  "tracing",

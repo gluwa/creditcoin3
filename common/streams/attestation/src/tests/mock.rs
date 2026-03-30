@@ -66,6 +66,12 @@ impl futures::Stream for RootReceiver {
     }
 }
 
+impl stream_util::ChainData<stream_util::RootInfo> for RootReceiver {
+    async fn reset(&self, n: u64) -> Self {
+        todo!()
+    }
+}
+
 pub struct TipSender {
     tx: futures::channel::mpsc::UnboundedSender<std::task::Poll<()>>,
 }
@@ -123,5 +129,11 @@ impl futures::Stream for TipReceiver {
             Some(std::task::Poll::Pending) => std::task::Poll::Pending,
             None => std::task::Poll::Ready(None),
         }
+    }
+}
+
+impl stream_util::ChainData<attestor_primitives::Height> for TipReceiver {
+    async fn reset(&self, n: u64) -> Self {
+        todo!()
     }
 }

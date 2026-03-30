@@ -21,6 +21,7 @@ fn main() {
     use clap::Parser as _;
     use futures::StreamExt as _;
     use futures::TryStreamExt as _;
+    use stream_util::ChainExt as _;
 
     let args = Args::parse();
 
@@ -64,19 +65,14 @@ fn main() {
             .with_max_concurrency(MAX_CONCURRENT_REQUESTS)
             .with_max_parallelism(parallelism)
             .build();
-        let stream_roots = stream_eth::StreamRoots::new(config)
-            .await
-            .expect("Failed to create root stream")
-            .boxed();
+        let stream_roots = stream_eth::StreamRoots::new(config).await.boxed_data();
 
         let config = stream_eth::tip::ConfigBuilder::new()
             .with_client(client_eth.clone())
             .with_finalization_lag(FINALIZATION_LAG)
+            .with_start_height(start_height)
             .build();
-        let stream_tip = stream_eth::StreamTip::new(config)
-            .await
-            .expect("Failed to create tip stream")
-            .boxed();
+        let stream_tip = stream_eth::StreamTip::new(config).await.boxed_data();
 
         let config = stream_attestation::ConfigBuilder::new()
             .with_signer(signer)
@@ -109,7 +105,7 @@ fn main() {
             attestations.generate_attestation_genesis(stream_util::RootInfo { height, root, hash });
         let digest = genesis.digest();
 
-        tracing::info!(?digest, "New genesis attestation");
+        tracing::info!(%digest, "New genesis attestation");
 
         let mut n = 0;
         while let Some(attestation) = attestations
@@ -121,7 +117,7 @@ fn main() {
             let digest = attestation.digest();
             let height = attestation.header_number();
 
-            tracing::info!(height, ?digest, "New attestation");
+            tracing::info!(height, %digest, "New attestation");
 
             n += 1;
             let finalized = args.attestation_interval.get() * n;

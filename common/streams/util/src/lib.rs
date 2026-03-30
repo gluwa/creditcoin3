@@ -11,4 +11,80 @@ pub struct AttestationInfo {
     pub height: attestor_primitives::Height,
 }
 
+/// [`ChainData`] is not dyn-compatible but is easier to implement and more versatile to use.
+pub trait ChainData<T>: futures::Stream<Item = T> + Unpin {
+    fn reset(&self, n: u64) -> impl std::future::Future<Output = Self> + Send;
+}
+
+pub trait ChainExt<T>
+where
+    Self: ChainData<T> + sealed::Sealed<T> + Send + Sync + Sized + 'static,
+    T: 'static,
+{
+    fn boxed_data(self) -> BoxedData<T> {
+        Box::pin(self)
+    }
+}
+
+impl<T, C> ChainExt<T> for C
+where
+    C: ChainData<T> + Send + Sync + Sized + 'static,
+    T: 'static,
+{
+}
+
+pub type BoxedData<T> = std::pin::Pin<Box<dyn sealed::DynData<T> + Send + Sync>>;
 pub type BoxedStream<T> = std::pin::Pin<Box<dyn futures::Stream<Item = T> + Send>>;
+
+mod sealed {
+    use super::*;
+
+    pub trait Sealed<T> {}
+    impl<T, C: ChainData<T>> Sealed<T> for C {}
+
+    /// [`DynData`] **is** a dyn-compatible wrapper which makes it possible to use types which
+    /// implement [`ChainData`] in a dyn-context.
+    pub trait DynData<T>: futures::Stream<Item = T> + Unpin + Sealed<T> {
+        fn reset_boxed(
+            &self,
+            n: u64,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = std::pin::Pin<Box<dyn DynData<T> + Send + Sync>>>
+                    + Send
+                    + '_,
+            >,
+        >;
+    }
+
+    /// Glue which converts non-dyn-compatible [`ChainData`] types into dyn-compatible [`DynData`]
+    /// implementors.
+    impl<C, T> DynData<T> for C
+    where
+        C: ChainData<T> + Send + Sync + 'static,
+        T: 'static,
+    {
+        fn reset_boxed(
+            &self,
+            n: u64,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = std::pin::Pin<Box<dyn DynData<T> + Send + Sync>>>
+                    + Send
+                    + '_,
+            >,
+        > {
+            use futures::FutureExt as _;
+
+            self.reset(n)
+                .map(|s| Box::pin(s) as std::pin::Pin<Box<dyn DynData<T> + Send + Sync>>)
+                .boxed()
+        }
+    }
+
+    impl<T: 'static> ChainData<T> for std::pin::Pin<Box<dyn sealed::DynData<T> + Send + Sync>> {
+        async fn reset(&self, n: u64) -> Self {
+            self.reset_boxed(n).await
+        }
+    }
+}
