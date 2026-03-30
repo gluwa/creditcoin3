@@ -25,7 +25,7 @@ pub mod pallet {
     pub const RANDOMNESS_LENGTH: usize = 32;
 
     /// The in-code storage version.
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
