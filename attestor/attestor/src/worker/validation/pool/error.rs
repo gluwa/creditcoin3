@@ -23,14 +23,44 @@ impl Error {
             Self::InvalidHeight(attestor_id, height, expected) => {
                 tracing::debug!(
                     %attestor_id,
-                    %digest,
+                    ?digest,
                     height,
                     expected,
                     "Ignoring attestation because it attests to a previous height"
                 );
             }
-            err => {
-                tracing::error!(%err, "⛔ Failed to insert vote into the attestation pool");
+            Self::InvalidDigest(attestor_id, height, known_invalid_digest) => {
+                tracing::debug!(
+                    %attestor_id,
+                    ?digest,
+                    height,
+                    ?known_invalid_digest,
+                    "Ignoring attestation with a known invalid digest"
+                );
+            }
+            Self::NoSpaceLeft(attestor_id, height) => {
+                tracing::error!(
+                    %attestor_id,
+                    ?digest,
+                    height,
+                    "⛔ Pool is full, vote dropped"
+                );
+            }
+            Self::Equivocation(attestor_id, height) => {
+                tracing::error!(
+                    %attestor_id,
+                    ?digest,
+                    height,
+                    "⛔ Equivocation detected: attestor already voted at this height with a different digest"
+                );
+            }
+            Self::Unauthorized(attestor_id, height) => {
+                tracing::error!(
+                    %attestor_id,
+                    ?digest,
+                    height,
+                    "⛔ Unauthorized attestor vote rejected"
+                );
             }
         }
     }
