@@ -37,7 +37,7 @@ describe('Precompile: ChainInfo', (): void => {
         // will only work when connected to a chain locally and //Alice is root
         // either during local development or during runtime-upgrade against a fork
         // note: Alith starts with 2mil CTC during local development
-        const result = await fundFromSudo(alith.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
+        const result = await fundFromSudo(api, alith.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
         // note: balances.Transfer is happy to accept Address20 directly too
         expect(result.status).toBe(0);
 
