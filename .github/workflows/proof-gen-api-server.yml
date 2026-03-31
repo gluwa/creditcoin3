@@ -276,7 +276,7 @@ jobs:
         run: |
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944' 4
 
-      - name: Wait for chain 2 attestations
+      - name: Wait for chain 2 transfer and attestation events
         working-directory: scripts
         run: |
           npm install
@@ -284,7 +284,7 @@ jobs:
             --source-rpc-url http://127.0.0.1:8141 \
             --cc3-rpc-url ws://localhost:9944
 
-      - name: Wait for chain 4 attestations
+      - name: Wait for chain 4 transfer and attestation events
         working-directory: scripts
         run: |
           node TransferAndWait.js --chain-key 4 \
