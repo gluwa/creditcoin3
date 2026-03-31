@@ -35,7 +35,7 @@ describe('bond', () => {
 
         proxy = await randomFundedAccount(api, sudoSigner);
         const wrongProxy = await randomFundedAccount(api, sudoSigner);
-        CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
+        CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
     afterEach(async () => {
@@ -205,7 +205,7 @@ describe('bond', () => {
             await setMinBondConfig(api, minValidatorBondRaw);
 
             // Fund account with enough CTC (default is 1000, we need 1100+ for bond + fees)
-            await fundFromSudo(caller.address, parseAmount('2000'));
+            await fundFromSudo(api, caller.address, parseAmount('2000'));
 
             // Verify account starts with zero bonded
             const zero = new BN(0);

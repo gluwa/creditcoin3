@@ -39,7 +39,7 @@ describe('wizard', () => {
 
         proxy = await randomFundedAccount(api, sudoSigner);
         wrongProxy = await randomFundedAccount(api, sudoSigner);
-        CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
+        CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
     afterEach(async () => {
