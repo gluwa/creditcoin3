@@ -511,13 +511,6 @@ jobs:
             ./logs
           include-hidden-files: true
 
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
-
   trigger-integration-test-cli:
     needs:
       - build-creditcoin-node-for-testing-ci
@@ -729,13 +722,6 @@ jobs:
         with:
           name: integration-test-cli-coverage-report
           path: cli/src/test/coverage/
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   deploy-runner-blockchain:
     needs:
@@ -1525,13 +1511,6 @@ jobs:
           path: |
             /tmp/attestor-*.std*
             /tmp/creditcoin3-node-*.std*
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   rm-gh-runner-attestor-cli:
     needs:
