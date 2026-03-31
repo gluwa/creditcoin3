@@ -131,13 +131,6 @@ jobs:
           name: docker-logs
           path: docker-*.log
 
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
-
   deploy-runner-docker-build:
     uses: ./.github/workflows/deploy-runner.yml
     with:
