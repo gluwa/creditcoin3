@@ -51,11 +51,11 @@ impl Simulation {
             match step {
                 SimulationStep::Root(poll) => {
                     // Simulates either a pending stream poll or a ready root pool
-                    tokio_test::block_on(self.sender_roots.send(poll));
+                    self.sender_roots.send(poll);
                 }
                 SimulationStep::Tip(poll) => {
                     // Simulates either a pending stream poll or a ready tip pool
-                    tokio_test::block_on(self.sender_tip.send(poll));
+                    self.sender_tip.send(poll);
                 }
                 SimulationStep::Finalized(finalized) => {
                     // Simulates an attestation finalizing either before or after the previous
@@ -92,7 +92,7 @@ prop_compose! {
         max_catchup in 1..500u64,
         steps in prop::collection::vec(SimulationStep::step(), 1..1_000)
     ) -> Simulation {
-        use futures::StreamExt as _;
+        use stream_util::ChainExt as _;
 
         let secret = bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret");
         let bls_key = bls_signatures::PrivateKey::new(secret.to_string().as_bytes());
@@ -114,8 +114,8 @@ prop_compose! {
             .with_signer(signer)
             .with_chain_key(2u64)
             .with_bls_key(bls_key)
-            .with_stream_roots(rx_roots.boxed())
-            .with_stream_tip(rx_tip.boxed())
+            .with_stream_roots(rx_roots.boxed_data())
+            .with_stream_tip(rx_tip.boxed_data())
             .with_attestation_interval(attestation_interval)
             .with_attestation_prev(attestation_prev)
             .with_max_catchup(max_catchup)
