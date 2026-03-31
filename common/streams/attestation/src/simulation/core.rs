@@ -85,10 +85,9 @@ impl Simulation {
 
             // Polls the attestation stream, applying the state transition
             match tokio_test::task::spawn(self.sut.next()).poll() {
-                std::task::Poll::Ready(Some(Ok(attestation))) => {
+                std::task::Poll::Ready(Some(attestation)) => {
                     self.attestation_prev = attestation.header_number();
                 }
-                std::task::Poll::Ready(Some(Err(err))) => panic!("{err}"),
                 std::task::Poll::Ready(None) => panic!("Attestation stream should be infinite"),
                 std::task::Poll::Pending => {}
             }

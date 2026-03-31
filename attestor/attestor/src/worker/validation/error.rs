@@ -1,6 +1,6 @@
 #[derive(Debug)]
 pub enum Error {
-    CC3(crate::stream::cc3::Error),
+    CC3(crate::stream_legacy::cc3::Error),
     Pool(super::pool::Error),
     Client(cc_client::Error),
     Subxt(subxt::Error),
