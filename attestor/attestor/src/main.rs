@@ -11,7 +11,7 @@ use std::str::FromStr;
 struct Config {
     name: String,
     logs: std::path::PathBuf,
-    secret: attestor::stream::AttestorSecret,
+    secret: attestor::stream_legacy::AttestorSecret,
     chain_key: attestor_primitives::ChainKey,
     public_addr: Option<String>,
     api_port: u16,
@@ -182,7 +182,7 @@ impl Config {
                     )
                     .env("ATTESTOR_SECRET")
                     .required(false)
-                    .value_parser(clap::value_parser!(attestor::stream::AttestorSecret)),
+                    .value_parser(clap::value_parser!(attestor::stream_legacy::AttestorSecret)),
             )
             .arg(
                 clap::arg!(--"public-addr" <PORT>)
@@ -351,12 +351,12 @@ impl Config {
                 .expect("Chain key is set either in config or by clap"),
         };
 
-        let secret = match matches.get_one::<attestor::stream::AttestorSecret>("secret") {
+        let secret = match matches.get_one::<attestor::stream_legacy::AttestorSecret>("secret") {
             Some(secret) => secret.clone(),
             None => match &config_file.attestor.secret {
-                Some(s) => attestor::stream::AttestorSecret::from_str(s)
+                Some(s) => attestor::stream_legacy::AttestorSecret::from_str(s)
                     .map_err(|e| anyhow::anyhow!("invalid attestor secret in config file: {e}"))?,
-                None => attestor::stream::AttestorSecret::Mnemonic(
+                None => attestor::stream_legacy::AttestorSecret::Mnemonic(
                     bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret"),
                 ),
             },
@@ -501,7 +501,7 @@ async fn main() -> anyhow::Result<()> {
         .with_name(args.name)
         .with_chain_key(args.chain_key)
         .with_stream(
-            attestor::stream::ConfigBuilder::new()
+            attestor::stream_legacy::ConfigBuilder::new()
                 .with_url_eth(args.eth_url)
                 .with_url_cc3(args.cc3_url)
                 .with_secret(args.secret)
