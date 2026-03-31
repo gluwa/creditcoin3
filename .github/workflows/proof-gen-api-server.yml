@@ -258,10 +258,13 @@ jobs:
 
       # Chain 4 zombienet starts AFTER chain 2 attestors are registered to
       # avoid nonce collisions when both use the same funding account (//Alice).
+      # --offset=3 gives chain 4 attestors unique keypairs so they don't share
+      # account nonces with chain 2 attestors (which would cause tx failures).
       - name: Start Attestation Zombienet (chain 4 — Anvil 2)
         run: |
           ./target/release/attestor_zombienet \
                 -n 3 \
+                --offset=3 \
                 --chain-key=4 \
                 --bin=./target/release/attestor \
                 --eth-url=ws://localhost:8142 \
