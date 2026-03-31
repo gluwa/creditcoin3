@@ -94,9 +94,9 @@ pub use error::*;
 
 #[derive(builder::Builder)]
 pub struct Config {
-    stream_cc3: crate::stream::cc3::StreamCC3,
+    stream_cc3: crate::stream_legacy::cc3::StreamCC3,
     cc3: cc_client::Client,
-    keypair: subxt_signer::sr25519::Keypair,
+    signer: cc_client::signer::CC3Signer,
 
     validation_sender: pool::AttestationPoolSender,
     validation_receiver: pool::AttestationPoolReceiver,
@@ -112,11 +112,11 @@ pub struct Config {
 
 pub(crate) struct WorkerAttestationValidation {
     // CHAIN LISTENERS
-    stream_cc3: crate::stream::cc3::StreamCC3,
+    stream_cc3: crate::stream_legacy::cc3::StreamCC3,
     cc3: cc_client::Client,
 
     // ATTESTATIONS
-    keypair: subxt_signer::sr25519::Keypair,
+    signer: cc_client::signer::CC3Signer,
     watch_submission: future::OptionFuture<(AttestationSubmission, common::types::Height)>,
     validation_sender: pool::AttestationPoolSender,
     validation_receiver: pool::AttestationPoolReceiver,
@@ -136,7 +136,7 @@ impl WorkerAttestationValidation {
             stream_cc3: config.stream_cc3,
             cc3: config.cc3,
 
-            keypair: config.keypair,
+            signer: config.signer,
             watch_submission: future::OptionFuture::default(),
             validation_receiver: config.validation_receiver,
             validation_sender: config.validation_sender,
@@ -1096,7 +1096,7 @@ impl WorkerAttestationValidation {
                 .cc3
                 .api()
                 .tx()
-                .sign_and_submit_then_watch_default(&call, &self.keypair)
+                .sign_and_submit_then_watch_default(&call, self.signer.keypair())
                 .await
             {
                 Ok(submit) => break submit,
