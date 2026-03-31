@@ -24,7 +24,7 @@ async fn attestation_ready_simple(
     tip.send_ready(); // 0
     tip.send_ready(); // 1
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -60,7 +60,7 @@ async fn attestation_finalization_sets_correct_range(
     tip.send_ready(); // 1
     tip.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -89,7 +89,7 @@ async fn attestation_finalization_ignore_past_attestation(
     roots.send_ready(); // 1
     roots.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -115,7 +115,7 @@ async fn attestation_finalization_ignore_past_attestation(
     tip.send_ready(); // 3
     roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -184,7 +184,7 @@ async fn skip_behind_finality(
     roots.send_ready(); // 2 - skipped, behind finality
     roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -209,7 +209,7 @@ async fn continuity_proofs_should_grow(
     tip.send_ready(); // 0
     tip.send_ready(); // 1
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -224,7 +224,7 @@ async fn continuity_proofs_should_grow(
     roots.send_ready(); // 2
     tip.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -237,7 +237,7 @@ async fn continuity_proofs_should_grow(
 
     roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -261,7 +261,7 @@ async fn regenerate_attestations(
     tip.send_ready(); // 0
     tip.send_ready(); // 1
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -271,7 +271,7 @@ async fn regenerate_attestations(
     tip.send_ready(); // 2
     roots.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -281,7 +281,7 @@ async fn regenerate_attestations(
     tip.send_ready(); // 3
     roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -293,7 +293,7 @@ async fn regenerate_attestations(
         ..Default::default()
     });
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -303,7 +303,7 @@ async fn regenerate_attestations(
     assert_eq!(attestation.continuity_proof.len(), 1);
 
     // Attestation 2 is regenerated as well
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -331,14 +331,14 @@ async fn attestation_chain_reversion(
     tip.send_ready(); // 1
     tip.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
     assert_eq!(attestation.header_number(), 1);
     assert!(attestation.continuity_proof.is_empty());
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -360,7 +360,7 @@ async fn attestation_chain_reversion(
     tip.send_ready(); // 2
 
     // Attestation at height 1 is re-generated since the chain has been reverted to height 0
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
