@@ -219,9 +219,9 @@ impl futures::Stream for StreamRoots {
 }
 
 impl stream_util::ChainData<stream_util::RootInfo> for StreamRoots {
-    async fn reset(&self, n: u64) -> Self {
+    async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
         let mut config = self.config.clone();
-        config.start_height = n;
+        config.start_height = info.height;
 
         Self::new(config).await
     }
