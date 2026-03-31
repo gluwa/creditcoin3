@@ -13,7 +13,7 @@ pub struct AttestationInfo {
 
 /// [`ChainData`] is not dyn-compatible but is easier to implement and more versatile to use.
 pub trait ChainData<T>: futures::Stream<Item = T> + Unpin {
-    fn reset(&self, n: u64) -> impl std::future::Future<Output = Self> + Send;
+    fn reset(&self, info: AttestationInfo) -> impl std::future::Future<Output = Self> + Send;
 }
 
 pub trait ChainExt<T>
@@ -47,7 +47,7 @@ mod sealed {
     pub trait DynData<T>: futures::Stream<Item = T> + Unpin + Sealed<T> {
         fn reset_boxed(
             &self,
-            n: u64,
+            info: AttestationInfo,
         ) -> std::pin::Pin<
             Box<
                 dyn std::future::Future<Output = std::pin::Pin<Box<dyn DynData<T> + Send + Sync>>>
@@ -66,7 +66,7 @@ mod sealed {
     {
         fn reset_boxed(
             &self,
-            n: u64,
+            info: AttestationInfo,
         ) -> std::pin::Pin<
             Box<
                 dyn std::future::Future<Output = std::pin::Pin<Box<dyn DynData<T> + Send + Sync>>>
@@ -76,15 +76,19 @@ mod sealed {
         > {
             use futures::FutureExt as _;
 
-            self.reset(n)
+            self.reset(info)
                 .map(|s| Box::pin(s) as std::pin::Pin<Box<dyn DynData<T> + Send + Sync>>)
                 .boxed()
         }
     }
 
     impl<T: 'static> ChainData<T> for std::pin::Pin<Box<dyn sealed::DynData<T> + Send + Sync>> {
-        async fn reset(&self, n: u64) -> Self {
-            self.reset_boxed(n).await
+        /// Make sure to call [`reset_boxed`] on the inner [`DynData`] to avoid recurring on this
+        /// call site.
+        ///
+        /// [`reset_boxed`]: DynData::reset_boxed
+        async fn reset(&self, info: AttestationInfo) -> Self {
+            (**self).reset_boxed(info).await
         }
     }
 }

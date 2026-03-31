@@ -173,6 +173,11 @@ impl StreamAttestation {
         self.attestation_interval = interval_new;
     }
 
+    pub async fn note_attestation_chain_reversion(&mut self, info: stream_util::AttestationInfo) {
+        use stream_util::ChainData as _;
+        *self = self.reset(info).await;
+    }
+
     /// Generates an attestation with no previous digest.
     pub fn generate_attestation_genesis(
         &self,
@@ -401,17 +406,15 @@ impl futures::Stream for StreamAttestation {
 }
 
 impl stream_util::ChainData<Result<Attestation, Error>> for StreamAttestation {
-    async fn reset(&self, n: u64) -> Self {
-        use stream_util::ChainExt as _;
-
+    async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
         let config = ConfigBuilder::new()
             .with_signer(self.signer.clone())
             .with_chain_key(self.chain_key)
             .with_bls_key(self.bls_key.clone())
-            .with_stream_roots(self.stream_roots.reset(n).await.boxed_data())
-            .with_stream_tip(self.stream_tip.reset(n).await.boxed_data())
+            .with_stream_roots(self.stream_roots.reset(info).await)
+            .with_stream_tip(self.stream_tip.reset(info).await)
             .with_attestation_interval(self.attestation_interval)
-            .with_attestation_prev(self.attestation_prev)
+            .with_attestation_prev(info)
             .with_max_catchup(self.max_catchup)
             .build();
 
