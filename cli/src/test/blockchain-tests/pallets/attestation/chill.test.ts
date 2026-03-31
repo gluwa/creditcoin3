@@ -15,7 +15,7 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Chill', (): void => {
 
         // NOTE: Alice acts as the STASH for a random attestor on the Anvil2 chain
         attestorAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
-        await fundFromSudo(attestorAccount.address, MICROUNITS_PER_CTC.mul(new BN(2000)));
+        await fundFromSudo(api, attestorAccount.address, MICROUNITS_PER_CTC.mul(new BN(2000)));
         const nonce = await api.rpc.system.accountNextIndex(alice.address);
         await api.tx.attestation
             .registerAttestor(chain_Anvil2_Key, attestorAccount.address)
