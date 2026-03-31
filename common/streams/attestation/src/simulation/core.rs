@@ -67,6 +67,10 @@ impl Simulation {
 
                     self.sut.note_attestation_finalization(info);
                 }
+                SimulationStep::IntervalChange(interval_new) => {
+                    // Simulates a change in the attestation interval
+                    self.sut.note_attestation_interval_change(interval_new)
+                }
             }
 
             // Polls the attestation stream, applying the state transition
@@ -154,6 +158,8 @@ enum SimulationStep {
     ///
     /// [attestation stream]: crate::StreamAttestation
     Finalized(Finalized),
+    /// Simulates a change in the attestation interval.
+    IntervalChange(std::num::NonZero<attestor_primitives::Height>),
 }
 
 #[derive(Clone)]
@@ -170,6 +176,7 @@ impl std::fmt::Debug for SimulationStep {
             Self::Tip(std::task::Poll::Pending) => write!(f, "Tip(Pending)"),
             Self::Tip(std::task::Poll::Ready(())) => write!(f, "Tip(Ready)"),
             Self::Finalized(finalized) => write!(f, "Finalized({finalized:?})"),
+            Self::IntervalChange(interval) => write!(f, "IntervalChange({interval})"),
         }
     }
 }
@@ -192,6 +199,7 @@ impl SimulationStep {
             4 => Just(Self::Tip(std::task::Poll::Ready(()))),
             1 => (0..10u64).prop_map(|d| Self::Finalized(Finalized::Before(d))),
             1 => (1..10u64).prop_map(|d| Self::Finalized(Finalized::After(d))),
+            1 => (1..100u64).prop_map(|n| Self::IntervalChange(std::num::NonZero::new(n).unwrap()))
         ]
     }
 }

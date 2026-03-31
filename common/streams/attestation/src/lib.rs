@@ -166,6 +166,13 @@ impl StreamAttestation {
         }
     }
 
+    pub fn note_attestation_interval_change(
+        &mut self,
+        interval_new: std::num::NonZero<attestor_primitives::Height>,
+    ) {
+        self.attestation_interval = interval_new;
+    }
+
     /// Generates an attestation with no previous digest.
     pub fn generate_attestation_genesis(
         &self,
