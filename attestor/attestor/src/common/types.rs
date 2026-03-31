@@ -17,10 +17,4 @@ pub type AttestationSigned = attestor_primitives::SignedAttestation<
     attestor_primitives::AttestorId,
 >;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct AttestationInfo {
-    pub digest: attestor_primitives::Digest,
-    pub height: Height,
-}
-
 pub(crate) type Metrics = std::sync::Arc<crate::worker::api::metrics::Metrics>;
