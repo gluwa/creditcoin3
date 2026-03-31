@@ -313,3 +313,58 @@ async fn regenerate_attestations(
     // Attestation 1 is not regenerated as it has already finalized
     assert!(poll!(stream_attestation).is_pending());
 }
+
+#[rstest::rstest]
+#[tokio::test]
+async fn attestation_chain_reversion(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(2))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
+    roots.send_ready(); // 2
+
+    tip.send_ready(); // 0
+    tip.send_ready(); // 1
+    tip.send_ready(); // 2
+
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 1);
+    assert!(attestation.continuity_proof.is_empty());
+
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 2);
+    assert_eq!(attestation.continuity_proof.len(), 1);
+
+    // Reset the chain at height 1
+    stream_attestation
+        .note_attestation_chain_reversion(stream_util::AttestationInfo {
+            height: 1,
+            ..Default::default()
+        })
+        .await;
+
+    roots.send_ready(); // 1 - skipped, start height is always ignored
+    roots.send_ready(); // 2
+
+    tip.send_ready(); // 1
+    tip.send_ready(); // 2
+
+    // Attestation at height 1 is re-generated since the chain has been reverted to height 0
+    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    // Continuity proof is now empty as we are attesting from height 1
+    assert_eq!(attestation.header_number(), 2);
+    assert!(attestation.continuity_proof.is_empty());
+}

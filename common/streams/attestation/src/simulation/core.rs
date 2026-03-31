@@ -69,7 +69,17 @@ impl Simulation {
                 }
                 SimulationStep::IntervalChange(interval_new) => {
                     // Simulates a change in the attestation interval
-                    self.sut.note_attestation_interval_change(interval_new)
+                    self.sut.note_attestation_interval_change(interval_new);
+                    self.attestation_interval = interval_new;
+                }
+                SimulationStep::ChainReversion(reversion) => {
+                    // Simulates a chain reversion either before or after the previous attestation.
+                    let info = stream_util::AttestationInfo {
+                        height: reversion.height(self.attestation_prev, self.attestation_interval),
+                        ..Default::default()
+                    };
+
+                    tokio_test::block_on(self.sut.note_attestation_chain_reversion(info));
                 }
             }
 
@@ -157,13 +167,23 @@ enum SimulationStep {
     /// should update the root cache.
     ///
     /// [attestation stream]: crate::StreamAttestation
-    Finalized(Finalized),
-    /// Simulates a change in the attestation interval.
+    Finalized(ChainPoint),
+    /// Notifies the [attestation stream] of a change in the attestation interval. This is always
+    /// guaranteed to be non-zero as it is assumed the validation step should take place further up
+    /// in the call stack.
+    ///
+    /// [attestation stream]: crate::StreamAttestation
     IntervalChange(std::num::NonZero<attestor_primitives::Height>),
+    /// Notifies the [attestation stream] of a chain reversion. This can point to either a past or
+    /// future attestation. Contrary to attestation finalization, chain reversions should always
+    /// be applied even if the attestation being reverted to is locally unknown up to that point.
+    ///
+    /// [attestation stream]: crate::StreamAttestation
+    ChainReversion(ChainPoint),
 }
 
 #[derive(Clone)]
-enum Finalized {
+enum ChainPoint {
     Before(attestor_primitives::Height),
     After(attestor_primitives::Height),
 }
@@ -175,13 +195,14 @@ impl std::fmt::Debug for SimulationStep {
             Self::Root(std::task::Poll::Ready(())) => write!(f, "Root(Ready)"),
             Self::Tip(std::task::Poll::Pending) => write!(f, "Tip(Pending)"),
             Self::Tip(std::task::Poll::Ready(())) => write!(f, "Tip(Ready)"),
-            Self::Finalized(finalized) => write!(f, "Finalized({finalized:?})"),
+            Self::Finalized(point) => write!(f, "Finalized({point:?})"),
             Self::IntervalChange(interval) => write!(f, "IntervalChange({interval})"),
+            Self::ChainReversion(point) => write!(f, "ChainReversion({point:?})"),
         }
     }
 }
 
-impl std::fmt::Debug for Finalized {
+impl std::fmt::Debug for ChainPoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Before(delta) => write!(f, "Before({delta})"),
@@ -193,28 +214,30 @@ impl std::fmt::Debug for Finalized {
 impl SimulationStep {
     pub fn step() -> impl Strategy<Value = Self> {
         prop_oneof![
-            2 => Just(Self::Root(std::task::Poll::Pending)),
-            2 => Just(Self::Tip(std::task::Poll::Pending)),
-            4 => Just(Self::Root(std::task::Poll::Ready(()))),
-            4 => Just(Self::Tip(std::task::Poll::Ready(()))),
-            1 => (0..10u64).prop_map(|d| Self::Finalized(Finalized::Before(d))),
-            1 => (1..10u64).prop_map(|d| Self::Finalized(Finalized::After(d))),
-            1 => (1..100u64).prop_map(|n| Self::IntervalChange(std::num::NonZero::new(n).unwrap()))
+            4 => Just(Self::Root(std::task::Poll::Pending)),
+            4 => Just(Self::Tip(std::task::Poll::Pending)),
+            6 => Just(Self::Root(std::task::Poll::Ready(()))),
+            6 => Just(Self::Tip(std::task::Poll::Ready(()))),
+            1 => (0..10u64).prop_map(|d| Self::Finalized(ChainPoint::Before(d))),
+            1 => (1..10u64).prop_map(|d| Self::Finalized(ChainPoint::After(d))),
+            2 => (1..100u64).prop_map(|n| Self::IntervalChange(std::num::NonZero::new(n).unwrap())),
+            1 => (0..10u64).prop_map(|d| Self::ChainReversion(ChainPoint::Before(d))),
+            1 => (1..10u64).prop_map(|d| Self::ChainReversion(ChainPoint::After(d))),
         ]
     }
 }
 
-impl Finalized {
+impl ChainPoint {
     pub fn height(
         self,
         attestation_prev: attestor_primitives::Height,
         attestation_interval: std::num::NonZero<attestor_primitives::Height>,
     ) -> attestor_primitives::Height {
         match self {
-            Finalized::Before(delta) => {
+            ChainPoint::Before(delta) => {
                 attestation_prev.saturating_sub(attestation_interval.get() * delta)
             }
-            Finalized::After(delta) => {
+            ChainPoint::After(delta) => {
                 attestation_prev.saturating_add(attestation_interval.get() * delta)
             }
         }

@@ -56,9 +56,9 @@ impl futures::Stream for RootReceiver {
 }
 
 impl stream_util::ChainData<stream_util::RootInfo> for RootReceiver {
-    async fn reset(&self, n: u64) -> Self {
+    async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
         let mut receiver = self.clone();
-        receiver.next = n;
+        receiver.next = info.height;
         receiver
     }
 }
@@ -113,9 +113,9 @@ impl futures::Stream for TipReceiver {
 }
 
 impl stream_util::ChainData<attestor_primitives::Height> for TipReceiver {
-    async fn reset(&self, n: u64) -> Self {
+    async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
         let mut receiver = self.clone();
-        receiver.next = n;
+        receiver.next = info.height;
         receiver
     }
 }
