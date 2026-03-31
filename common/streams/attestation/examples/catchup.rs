@@ -55,12 +55,9 @@ fn main() {
         let signer = cc_client::signer::CC3Signer::new(&secret.to_string())
             .expect("Failed to create cc3 signer");
 
-        let start_height =
-            args.start_height - (args.start_height % args.attestation_interval.get());
-
         let config = stream_eth::roots::ConfigBuilder::new()
             .with_client(client_eth.clone())
-            .with_start_height(start_height)
+            .with_start_height(args.start_height)
             .with_finalization_lag(FINALIZATION_LAG)
             .with_max_concurrency(MAX_CONCURRENT_REQUESTS)
             .with_max_parallelism(parallelism)
@@ -70,7 +67,7 @@ fn main() {
         let config = stream_eth::tip::ConfigBuilder::new()
             .with_client(client_eth.clone())
             .with_finalization_lag(FINALIZATION_LAG)
-            .with_start_height(start_height)
+            .with_start_height(args.start_height)
             .build();
         let stream_tip = stream_eth::StreamTip::new(config).await.boxed_data();
 
@@ -104,8 +101,11 @@ fn main() {
         let genesis =
             attestations.generate_attestation_genesis(stream_util::RootInfo { height, root, hash });
         let digest = genesis.digest();
+        let info = stream_util::AttestationInfo { digest, height };
 
         tracing::info!(%digest, "New genesis attestation");
+
+        attestations.note_attestation_finalization(info);
 
         let mut n = 0;
         while let Some(attestation) = attestations
