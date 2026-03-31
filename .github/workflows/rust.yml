@@ -132,13 +132,6 @@ jobs:
         run: |
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
-
   cargo-clippy:
     needs:
       - deploy-runner-clippy
@@ -175,13 +168,6 @@ jobs:
         with:
           command: clippy
           args: --all-targets --all-features -- -D warnings
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   cargo-machete:
     runs-on: ubuntu-24.04
@@ -278,13 +264,6 @@ jobs:
         with:
           name: coverage-report
           path: target/llvm-cov/html/
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   deploy-runner-clippy:
     uses: ./.github/workflows/deploy-runner.yml
