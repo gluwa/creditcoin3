@@ -53,7 +53,16 @@ supported-chains-primitives = { workspace = true }
 
 [features]
 default = ["std"]
-runtime-benchmarks = []
+runtime-benchmarks = [
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-attestation-poc/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "pallet-evm/runtime-benchmarks",
+    "pallet-supported-chains/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]
 std = [
     "precompile-utils/std",
     "fp-evm/std",
