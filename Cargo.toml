@@ -26,6 +26,7 @@ members = [
     "common/streams/eth",
     "common/streams/attestation",
     "common/streams/util",
+    "common/streams/stream",
     "query-cli",
     "proof-gen-api-server",
     "attestor/attestor",
@@ -309,6 +310,7 @@ indexer-client = { path = "common/indexer-client" }
 libp2p = { version = "0.56", default-features = false }
 merkle = { path = "common/merkle", default-features = false }
 prometheus-client = { version = "0.24.0" }
+stream = { path = "common/streams/stream" }
 stream_attestation = { path = "common/streams/attestation" }
 stream_eth = { path = "common/streams/eth" }
 stream_util = { path = "common/streams/util" }

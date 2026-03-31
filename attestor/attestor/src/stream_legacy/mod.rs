@@ -16,7 +16,6 @@
 //! [execution chain]: cc3
 //! [`Future`]: std::future::Future
 
-pub mod attestation;
 pub mod cc3;
 pub mod secret;
 

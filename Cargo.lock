@@ -1559,6 +1559,7 @@ dependencies = [
  "serde_yaml",
  "sp-core",
  "sp-io",
+ "stream",
  "subxt",
  "subxt-signer",
  "supported-chains-primitives",
@@ -14683,6 +14684,15 @@ dependencies = [
  "sha-1",
  "thiserror 1.0.69",
  "tracing",
+]
+
+[[package]]
+name = "stream"
+version = "3.104.0"
+dependencies = [
+ "stream_attestation",
+ "stream_eth",
+ "stream_util",
 ]
 
 [[package]]

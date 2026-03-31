@@ -20,7 +20,6 @@ const MAX_CATCHUP: std::num::NonZeroU64 = std::num::NonZeroU64::new(50).unwrap()
 fn main() {
     use clap::Parser as _;
     use futures::StreamExt as _;
-    use futures::TryStreamExt as _;
     use stream_util::ChainExt as _;
 
     let args = Args::parse();
@@ -108,12 +107,7 @@ fn main() {
         attestations.note_attestation_finalization(info);
 
         let mut n = 0;
-        while let Some(attestation) = attestations
-            .by_ref()
-            .try_next()
-            .await
-            .expect("Failed to fetch permit")
-        {
+        while let Some(attestation) = attestations.by_ref().next().await {
             let digest = attestation.digest();
             let height = attestation.header_number();
 

@@ -1,5 +1,3 @@
-mod error;
-
 #[cfg(all(test, feature = "simulation"))]
 mod simulation;
 
@@ -11,8 +9,6 @@ mod prelude {
     pub use crate::nonzero;
     pub use crate::poll;
 }
-
-pub use error::Error;
 
 pub type Attestation =
     attestor_primitives::Attestation<attestor_primitives::Digest, attestor_primitives::AttestorId>;
@@ -127,6 +123,10 @@ impl StreamAttestation {
 
     pub fn max_catchup(&self) -> std::num::NonZero<attestor_primitives::Height> {
         self.max_catchup
+    }
+
+    pub fn latest_tip(&self) -> attestor_primitives::Height {
+        self.tip
     }
 
     /// Lets the [`StreamAttestation`] know that a new attestation has finalized on-chain.
@@ -303,7 +303,7 @@ impl StreamAttestation {
 }
 
 impl futures::Stream for StreamAttestation {
-    type Item = Result<Attestation, Error>;
+    type Item = Attestation;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -326,7 +326,7 @@ impl futures::Stream for StreamAttestation {
 
                 let attestation = self.generate_attestation(self.cursor);
                 self.cursor = self.cursor.saturating_sub(self.attestation_interval.get());
-                return std::task::Poll::Ready(Some(Ok(attestation)));
+                return std::task::Poll::Ready(Some(attestation));
             }
 
             // Backpressure, limit the max number of roots which can be processed into a single
@@ -405,7 +405,7 @@ impl futures::Stream for StreamAttestation {
     }
 }
 
-impl stream_util::ChainData<Result<Attestation, Error>> for StreamAttestation {
+impl stream_util::ChainData<Attestation> for StreamAttestation {
     async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
         let config = ConfigBuilder::new()
             .with_signer(self.signer.clone())

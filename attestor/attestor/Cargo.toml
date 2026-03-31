@@ -27,6 +27,7 @@ bip39 = { version = "2.2.0", features = ["rand", "serde", "zeroize"] }
 bls-signatures = { workspace = true }
 builder = { workspace = true }
 cc-client = { workspace = true }
+stream = { workspace = true }
 supported-chains-primitives = { workspace = true }
 usc-abi-encoding = { workspace = true }
 

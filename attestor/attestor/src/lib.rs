@@ -1,6 +1,6 @@
 pub mod attestation;
 pub mod common;
-pub mod stream;
+pub mod stream_legacy;
 pub mod worker;
 
 mod error;
@@ -23,7 +23,7 @@ pub struct Config {
     name: String,
     chain_key: attestor_primitives::ChainKey,
 
-    stream: stream::Config,
+    stream: stream_legacy::Config,
     attestation: attestation::Config,
 
     p2p: worker::p2p::ConfigIncomplete,
@@ -51,18 +51,16 @@ impl Attestor {
     pub async fn run(self) -> Result<(), Error> {
         use anyhow::Context as _;
         use bls_signatures::Serialize as _;
-        use std::str::FromStr as _;
+        use stream::util::ChainExt as _;
 
         // --------------------------------------* Identity *--------------------------------------
 
         let chain_key = self.config.chain_key;
 
         let secret_str = self.config.stream.secret.to_secret_uri_string();
-        let secret_uri = subxt_signer::SecretUri::from_str(secret_str.as_str())
-            .expect("Failed to create secret uri");
-        let keypair_cc3 = subxt_signer::sr25519::Keypair::from_uri(&secret_uri)
-            .expect("Failed to create secret keypair");
-        let account_id = cc_client::AccountId32(keypair_cc3.public_key().0);
+        let signer =
+            cc_client::signer::CC3Signer::new(secret_str.as_str()).map_err(Error::InitError)?;
+        let account_id = signer.account_id();
 
         let mut seed = self.config.stream.secret.to_seed_bytes_32();
         let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut *seed)
@@ -135,27 +133,27 @@ impl Attestor {
 
         // -----------------------------------------* CC3 *----------------------------------------
 
-        let config = stream::cc3::ConfigBuilder::new()
+        let config = stream_legacy::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
             .with_chain_key(chain_key)
             .build();
-        let stream_cc3_production = stream::cc3::StreamCC3::new(config)
+        let stream_cc3_production = stream_legacy::cc3::StreamCC3::new(config)
             .await
             .map_err(Error::InitError)?;
 
-        let config = stream::cc3::ConfigBuilder::new()
+        let config = stream_legacy::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
             .with_chain_key(chain_key)
             .build();
-        let stream_cc3_validation = stream::cc3::StreamCC3::new(config)
+        let stream_cc3_validation = stream_legacy::cc3::StreamCC3::new(config)
             .await
             .map_err(Error::InitError)?;
 
-        let config = stream::cc3::ConfigBuilder::new()
+        let config = stream_legacy::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
             .with_chain_key(chain_key)
             .build();
-        let mut stream_cc3_genesis = stream::cc3::StreamCC3::new(config)
+        let mut stream_cc3_genesis = stream_legacy::cc3::StreamCC3::new(config)
             .await
             .map_err(Error::InitError)?;
 
@@ -256,7 +254,7 @@ impl Attestor {
                 .await
                 .map_err(Error::RpcError)?
             {
-                Some(last_attestation) => Some(common::types::AttestationInfo {
+                Some(last_attestation) => Some(stream::util::AttestationInfo {
                     digest: last_attestation.digest(),
                     height: last_attestation.header_number(),
                 }),
@@ -268,7 +266,7 @@ impl Attestor {
                 .get_last_checkpoint(chain_key)
                 .await
                 .map_err(Error::RpcError)?
-                .map(|last_checkpoint| common::types::AttestationInfo {
+                .map(|last_checkpoint| stream::util::AttestationInfo {
                     digest: last_checkpoint.digest,
                     height: last_checkpoint.block_number,
                 }),
@@ -293,19 +291,36 @@ impl Attestor {
 
         // -------------------------------------* Attestation *------------------------------------
 
-        let config = stream::attestation::ConfigBuilder::new()
-            .with_cc3(client_cc3.clone())
-            .with_eth(client_eth)
-            .with_bls_key(bls_key)
-            .with_interval_attestation(interval_attestation)
-            .with_chain_key(chain_key)
+        let config = stream::eth::roots::ConfigBuilder::new()
+            .with_client(client_eth.clone())
             .with_start_height(start_height)
-            .with_start_attestation(start_attestation)
-            .with_maturity_delay(maturity_delay)
+            .with_finalization_lag(maturity_delay)
+            .with_max_concurrency(std::num::NonZeroUsize::new(4).unwrap())
+            .with_max_parallelism(std::num::NonZeroUsize::new(4).unwrap())
             .build();
-        let mut stream_attestation = stream::attestation::StreamAttestation::new(config)
-            .await
-            .map_err(Error::InitError)?;
+        let stream_roots = stream::eth::StreamRoots::new(config).await;
+
+        let config = stream::eth::tip::ConfigBuilder::new()
+            .with_client(client_eth.clone())
+            .with_finalization_lag(maturity_delay)
+            .with_start_height(start_height)
+            .build();
+        let stream_tip = stream::eth::StreamTip::new(config).await;
+
+        let config = stream::attestation::ConfigBuilder::new()
+            .with_signer(signer.clone())
+            .with_chain_key(self.config.chain_key)
+            .with_bls_key(bls_key)
+            .with_stream_roots(stream_roots.boxed_data())
+            .with_stream_tip(stream_tip.boxed_data())
+            .with_attestation_interval(interval_attestation)
+            .with_attestation_prev(stream::util::AttestationInfo {
+                digest: todo!(),
+                height: todo!(),
+            })
+            .with_max_catchup(common::constants::MAX_CATCHUP)
+            .build();
+        let mut stream_attestation = stream::attestation::StreamAttestation::new(config);
 
         // ---------------------------------------* Metrics *--------------------------------------
 
@@ -317,7 +332,7 @@ impl Attestor {
             .with_start_height(start_height)
             .with_start_attestation(start_attestation)
             .with_genesis(genesis)
-            .with_attestation_latest_eth(stream_attestation.block_highest())
+            .with_attestation_latest_eth(stream_attestation.latest_tip())
             .with_attestation_interval(interval_attestation)
             .build();
         let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
@@ -362,7 +377,7 @@ impl Attestor {
         let config = worker::validation::ConfigBuilder::new()
             .with_stream_cc3(stream_cc3_validation)
             .with_cc3(client_cc3.clone())
-            .with_keypair(keypair_cc3)
+            .with_signer(signer)
             .with_validation_receiver(receiver_validation)
             .with_validation_sender(sender_validation.clone())
             .with_api_calls(cc_client::Client::runtime_api())
@@ -591,7 +606,7 @@ impl Attestor {
         chain_key: attestor_primitives::ChainKey,
         client_cc3: &cc_client::Client,
         account_id: &cc_client::AccountId32,
-        stream_cc3: &mut stream::cc3::StreamCC3,
+        stream_cc3: &mut stream_legacy::cc3::StreamCC3,
     ) -> Result<Vec<cc_client::AccountId32>, Interrupt<Error>> {
         use anyhow::Context as _;
         use futures::StreamExt as _;
@@ -662,19 +677,16 @@ impl Attestor {
     async fn wait_for_genesis(
         genesis: common::types::Height,
         account_id: &cc_client::AccountId32,
-        stream_cc3: &mut stream::cc3::StreamCC3,
+        stream_cc3: &mut stream_legacy::cc3::StreamCC3,
         stream_attestation: &mut stream::attestation::StreamAttestation,
         sender_validation: &mut worker::validation::pool::AttestationPoolSender,
         sender_p2p: &tokio::sync::broadcast::Sender<common::types::Attestation>,
-    ) -> Result<common::types::AttestationInfo, Interrupt<Error>> {
+    ) -> Result<stream::util::AttestationInfo, Interrupt<Error>> {
         use anyhow::Context as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
-        let attestation_genesis = stream_attestation
-            .generate_attestation_genesis()
-            .await
-            .map_interrupt(Error::AttestationError)?;
+        let attestation_genesis = stream_attestation.generate_attestation_genesis(todo!());
 
         let height = attestation_genesis.header_number();
         let digest = attestation_genesis.digest();
@@ -712,7 +724,7 @@ impl Attestor {
                     while let Some(event) = events.try_next().await.map_interrupt(Error::CC3Error)? {
                         if let cc_client::attestation::CcEvent::BlockAttested(attestation_new) = event {
                             if attestation_new.header_number >= height {
-                                break 'outer common::types::AttestationInfo {
+                                break 'outer stream::util::AttestationInfo {
                                     digest: attestation_new.digest,
                                     height: attestation_new.header_number,
                                 };

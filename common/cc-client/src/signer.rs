@@ -36,4 +36,9 @@ impl CC3Signer {
     pub fn sign(&self, message: &[u8]) -> Signature {
         self.signing_keypair.sign(message)
     }
+
+    #[must_use]
+    pub fn keypair(&self) -> &Keypair {
+        &self.signing_keypair
+    }
 }

@@ -176,7 +176,7 @@ pub struct Config {
 
     /// Latest execution chain digest, used to validate the tail prev digest of new attestations.
     #[specify_later]
-    start_attestation: Option<common::types::AttestationInfo>,
+    start_attestation: Option<stream::util::AttestationInfo>,
 
     #[specify_later]
     metrics: common::types::Metrics,
@@ -416,7 +416,7 @@ impl AttestationPoolInner {
             let quorum = Quorum(fork.votes.clone());
             let height = fork.attestation.header_number();
             let digest = fork.attestation.digest();
-            let permit = Permit(common::types::AttestationInfo { height, digest });
+            let permit = Permit(stream::util::AttestationInfo { height, digest });
 
             // Only update metrics the first time quorum is reached at that height
             if let Some(elapsed) = self.attestation_delay.pop(height) {
@@ -1051,7 +1051,7 @@ impl AttestationPoolForks {
 
     fn note_attestation_finalization(
         &mut self,
-        info: common::types::AttestationInfo,
+        info: stream::util::AttestationInfo,
     ) -> Result<(), Error> {
         tracing::debug!("Updating forks");
 
@@ -1157,7 +1157,7 @@ impl AttestationPoolForks {
             .note_attestation_interval_change(interval_new);
     }
 
-    fn note_attestation_chain_reversion(&mut self, info: common::types::AttestationInfo) {
+    fn note_attestation_chain_reversion(&mut self, info: stream::util::AttestationInfo) {
         tracing::debug!("Clearing forks");
 
         self.forks_by_digest.clear();
@@ -1224,7 +1224,7 @@ impl AttestationPoolValid {
             .map(|(_height, (att, votes))| (att.header_number(), att.digest(), att.into(), votes))
     }
 
-    fn note_attestation_finalization(&mut self, info: common::types::AttestationInfo) {
+    fn note_attestation_finalization(&mut self, info: stream::util::AttestationInfo) {
         tracing::debug!("Updating known quorums");
 
         let split = info.height.saturating_add(1);
@@ -1264,7 +1264,7 @@ impl AttestationPoolDelays {
         self.time.remove(&height).map(|then| then.elapsed())
     }
 
-    fn note_attestation_finalization(&mut self, info: common::types::AttestationInfo) {
+    fn note_attestation_finalization(&mut self, info: stream::util::AttestationInfo) {
         tracing::debug!("Updating quorum delays");
         let mut removed = self.time.split_off(&(info.height.saturating_add(1)));
         std::mem::swap(&mut removed, &mut self.time);
@@ -1357,7 +1357,7 @@ impl AttestationPoolSender {
     )]
     pub fn note_attestation_finalization(
         &mut self,
-        info: common::types::AttestationInfo,
+        info: stream::util::AttestationInfo,
     ) -> Result<(), Error> {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             // Remove past quorums
@@ -1429,7 +1429,7 @@ impl AttestationPoolSender {
         fields(digest = ?info.digest, height = info.height),
         level = "debug"
     )]
-    pub fn note_attestation_chain_reversion(&mut self, info: common::types::AttestationInfo) {
+    pub fn note_attestation_chain_reversion(&mut self, info: stream::util::AttestationInfo) {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             // Clear digest local, as it no longer tracks a valid new attestation
             inner.digest_local = None;
@@ -1687,7 +1687,7 @@ impl Quorum {
 /// [`mark_invalid`]: AttestationPoolReceiver::mark_invalid
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
-pub struct Permit(common::types::AttestationInfo);
+pub struct Permit(stream::util::AttestationInfo);
 
 // ------------------------------------ [ Quorum Validation ] ---------------------------------- //
 
@@ -1963,7 +1963,7 @@ pub mod fixtures {
             .with_attestors(attestors)
             .with_quorum(validate_quorum.target_quorum)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
-            .with_start_attestation(Some(common::types::AttestationInfo {
+            .with_start_attestation(Some(stream::util::AttestationInfo {
                 digest: DIGEST_0,
                 height: common::types::Height::MIN,
             }))
@@ -1980,7 +1980,7 @@ pub mod fixtures {
         #[default(DIGEST_0)] _prev_digest: attestor_primitives::Digest,
         #[with(_attestors.clone(), _header_number, _prev_digest)] attestation: AttestationVote,
     ) -> Permit {
-        Permit(common::types::AttestationInfo {
+        Permit(stream::util::AttestationInfo {
             height: attestation.attestation.header_number(),
             digest: attestation.attestation.digest(),
         })
@@ -2179,7 +2179,7 @@ mod test {
                 }));
         }
 
-        sx.note_attestation_finalization(common::types::AttestationInfo {
+        sx.note_attestation_finalization(stream::util::AttestationInfo {
             digest: DIGEST_1,
             height: 0,
         })
@@ -2746,7 +2746,7 @@ mod test {
         // ------------------------------------------------------------------------
         // 5) Revert the chain and verify everything is cleared/reset.
         // ------------------------------------------------------------------------
-        let reversion_info = common::types::AttestationInfo {
+        let reversion_info = stream::util::AttestationInfo {
             height: 50,
             digest: DIGEST_1,
         };
