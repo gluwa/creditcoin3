@@ -113,9 +113,9 @@ impl futures::Stream for StreamTip {
 }
 
 impl stream_util::ChainData<attestor_primitives::Height> for StreamTip {
-    async fn reset(&self, n: u64) -> Self {
+    async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
         let mut config = self.config.clone();
-        config.start_height = n;
+        config.start_height = info.height;
 
         Self::new(config).await
     }
