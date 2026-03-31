@@ -115,6 +115,15 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
 
+      - name: Check featalign
+        run: |
+          set -o pipefail
+
+          cargo install --locked cargo-featalign@0.7.0
+
+          # produces a human readable output
+          cargo featalign runtime --features std,runtime-benchmarks,fast-runtime,devnet --workspace-only --default-std --depth -1 --mode check | jq
+
       - name: Check Build
         run: |
           SKIP_WASM_BUILD=1 cargo check --release
