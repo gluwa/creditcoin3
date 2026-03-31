@@ -45,7 +45,7 @@ describe('Precompile: block-prover', (): void => {
         alith = new ethers.Wallet(privateKey, provider);
 
         // Fund Alith if needed
-        const result = await fundFromSudo(alith.address, MICROUNITS_PER_CTC.mul(new BN(1_000_000)));
+        const result = await fundFromSudo(api, alith.address, MICROUNITS_PER_CTC.mul(new BN(1_000_000)));
         expect(result.status).toBe(0);
 
         contract = new ethers.Contract(blockProverAddress, contractABI, alith);

@@ -84,7 +84,7 @@ describe('set-keys', () => {
             // create and fund the proxy account
             proxy = await randomFundedAccount(api, sudoSigner);
             const wrongProxy = await randomFundedAccount(api, sudoSigner);
-            CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
+            CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
         }, 90_000);
 
         afterEach(() => {

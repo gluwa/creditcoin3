@@ -35,7 +35,7 @@ describe('register', () => {
 
         proxy = await randomFundedAccount(api, sudoSigner);
         const wrongProxy = await randomFundedAccount(api, sudoSigner);
-        CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
+        CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
     }, 120_000);
 
     afterEach(() => {
