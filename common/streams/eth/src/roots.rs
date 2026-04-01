@@ -245,10 +245,18 @@ async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::Orde
     };
 
     let retry = tokio_retry::Retry::spawn(strategy, reconnect);
-    let (stream_headers, next) = retry.await.expect("Unbounde retry cannot error");
+    let (stream_headers, next) = retry.await.expect("Unbounded retry cannot error");
 
     let mut stream_n = futures::stream::iter(config.start_height..=next)
-        .chain(stream_headers.map(|header| header.number))
+        .chain(
+            stream_headers
+                .scan(next + 1, |next, header| {
+                    let missing = *next..=header.number;
+                    *next = header.number + 1;
+                    futures::future::ready(Some(futures::stream::iter(missing)))
+                })
+                .flatten(),
+        )
         .skip_while(move |number| {
             futures::future::ready(*number < config.start_height + config.finalization_lag)
         });
