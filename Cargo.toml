@@ -260,11 +260,11 @@ pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verif
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 
 # Tracing
-evm = { version = "0.42.0", default-features = false, features = ["tracing"] }
-evm-gasometer = { version = "0.42.0", default-features = false, features = [
+evm = { version = "0.43.2", default-features = false, features = ["tracing"] }
+evm-gasometer = { version = "0.43.2", default-features = false, features = [
     "tracing",
 ] }
-evm-runtime = { version = "0.42.0", default-features = false, features = [
+evm-runtime = { version = "0.43.2", default-features = false, features = [
     "tracing",
 ] }
 
@@ -330,3 +330,10 @@ inherits = "release"
 # https://doc.rust-lang.org/rustc/linker-plugin-lto.html
 codegen-units = 1
 lto = "fat"
+
+# Patch evm crates to use moonbeam-foundation/evm (matches moonbeam fork dependency)
+# evm 0.43.2 is not on crates.io; moonbeam-foundation/evm has it
+[patch.crates-io]
+evm = { git = "https://github.com/moonbeam-foundation/evm", branch = "moonbeam-polkadot-stable2506" }
+evm-gasometer = { git = "https://github.com/moonbeam-foundation/evm", branch = "moonbeam-polkadot-stable2506" }
+evm-runtime = { git = "https://github.com/moonbeam-foundation/evm", branch = "moonbeam-polkadot-stable2506" }
