@@ -215,6 +215,9 @@ impl<H: DecodeWithMemTracking, AccountId: DecodeWithMemTracking> DecodeWithMemTr
 {
 }
 
+// sr25519::Signature (CryptoBytes) and BLS sig (WrapEncode) are fixed-size crypto types.
+impl<H: DecodeWithMemTracking, AccountId: DecodeWithMemTracking> DecodeWithMemTracking for Attestation<H, AccountId> {}
+
 impl<H, AccountId> Attestation<H, AccountId>
 where
     H: AsRef<[u8]>,
