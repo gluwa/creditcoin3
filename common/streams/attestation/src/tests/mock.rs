@@ -44,7 +44,7 @@ impl futures::Stream for RootReceiver {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        self.rx.poll(cx).map(|_| {
+        std::task::ready!(self.rx.poll(cx)).map(|_| {
             let next = self.next;
             self.next += 1;
             Some(stream_util::RootInfo {
@@ -104,7 +104,7 @@ impl futures::Stream for TipReceiver {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        self.rx.poll(cx).map(|_| {
+        std::task::ready!(self.rx.poll(cx)).map(|_| {
             let next = self.next;
             self.next += 1;
             Some(next)
@@ -158,7 +158,7 @@ impl<T> PollQueue<T> {
     }
 
     fn push(&mut self, elem: T) {
-        self.queue.push_back(elem);
+        self.queue.push_front(elem);
     }
 
     fn poll(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<T> {
