@@ -625,7 +625,6 @@ impl AttestationPoolForks {
             std::collections::btree_map::Entry::Occupied(entry) => {
                 let digest_vote = entry.get();
                 if &digest == digest_vote {
-                    tracing::warn!(%attestor, "Attestor already voted at this height");
                     return Ok(Vec::new());
                 } else {
                     return Err(Error::Equivocation(attestor, height));
@@ -1201,10 +1200,7 @@ impl AttestationPoolValid {
         votes: Vec<common::types::Attestation>,
     ) {
         let height = signed.attestation.header_number();
-        assert!(
-            self.quorums_valid.insert(height, (signed, votes)).is_none(),
-            "Duplicate mapping in quorums_valid: {height}"
-        );
+        self.quorums_valid.insert(height, (signed, votes));
     }
 
     #[allow(clippy::type_complexity)]
