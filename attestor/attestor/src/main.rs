@@ -94,39 +94,6 @@ struct ConfigAttestation {
 
 impl Config {
     fn parse() -> anyhow::Result<Self> {
-        // --------------------------------* Configure Parallelism *-------------------------------
-
-        // WARNING: DOS
-        //
-        // For performance reasons, we want to be able to fan out computationally expensive tasks to
-        // multiple threads. We need to be careful when doing this so as NOT TO BLOCK OTHER WORKER
-        // THREADS, since they are responsible for making progress in the production, validation,
-        // dissemination and submission of attestation. Ie: we do not want CPU-intensive tasks
-        // blocking up all available threads and stalling progress, since blocking other threads this
-        // way is a potential DOS vector.
-        //
-        // To avoid this, we configure the rayon thread pool to leave enough threads available for
-        // each worker + the thread monitor (main thread). While it is still possible for each
-        // thread in the rayon thread pool to use up a lot of CPU, this at least helps mitigate the
-        // issue of thread starvation while allowing us to scale CPU-bound computations with the
-        // available hardware.
-        let parallelism = match std::thread::available_parallelism()
-            .expect("Failed to retrieve available parallelism")
-            .get()
-            .checked_sub(common::constants::WORKER_COUNT + 1)
-        {
-            Some(parallelism) => parallelism,
-            None => {
-                tracing::warn!("Running the attestor code with insufficient threads!");
-                1
-            }
-        };
-
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(parallelism)
-            .build_global()
-            .expect("Failed to build rayon thread pool");
-
         // --------------------------------* Read config from file *-------------------------------
 
         let mut args = std::env::args();
