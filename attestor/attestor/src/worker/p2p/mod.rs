@@ -578,8 +578,8 @@ impl WorkerP2P {
                     // is a commitment to an attestor's private key. For an attestor to fail PeerID
                     // verification means it is impersonating another attestor, and should be
                     // considered malicious.
-                    libp2p::swarm::DialError::WrongPeerId { obtained, address } => {
-                        tracing::error!(%obtained, expected = %address, "⛔  Peer ID mismatch");
+                    libp2p::swarm::DialError::WrongPeerId { obtained, endpoint, .. } => {
+                        tracing::error!(%obtained, expected = %endpoint.get_remote_address(), "⛔  Peer ID mismatch");
 
                         if let Some(peer_id) = peer_id {
                             self.swarm.behaviour_mut().kad.remove_peer(&peer_id);

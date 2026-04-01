@@ -260,11 +260,11 @@ pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verif
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 
 # Tracing
-evm = { version = "0.43.2", default-features = false, features = ["tracing"] }
-evm-gasometer = { version = "0.43.2", default-features = false, features = [
+evm = { version = "0.43.0", default-features = false, features = ["tracing"] }
+evm-gasometer = { version = "0.43.0", default-features = false, features = [
     "tracing",
 ] }
-evm-runtime = { version = "0.43.2", default-features = false, features = [
+evm-runtime = { version = "0.43.0", default-features = false, features = [
     "tracing",
 ] }
 
@@ -337,3 +337,4 @@ lto = "fat"
 evm = { git = "https://github.com/moonbeam-foundation/evm", branch = "moonbeam-polkadot-stable2506" }
 evm-gasometer = { git = "https://github.com/moonbeam-foundation/evm", branch = "moonbeam-polkadot-stable2506" }
 evm-runtime = { git = "https://github.com/moonbeam-foundation/evm", branch = "moonbeam-polkadot-stable2506" }
+ethereum = { git = "https://github.com/moonbeam-foundation/ethereum", branch = "moonbeam-polkadot-stable2506" }
