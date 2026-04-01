@@ -159,6 +159,9 @@ impl<T> PollQueue<T> {
 
     fn push(&mut self, elem: T) {
         self.queue.push_front(elem);
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
     }
 
     fn poll(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<T> {
