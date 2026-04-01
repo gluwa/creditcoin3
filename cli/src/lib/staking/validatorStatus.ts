@@ -68,13 +68,69 @@ function extractTotals(
     return [mapped, total, isStalled];
 }
 
+// Pin staking and session queries to the same era snapshot.
+//
+// derive.staking.account computes unlocking.remainingEras using its own
+// internal derive.session.info() subscription, while derive.session.progress()
+// uses a separate one. Both are memoized RxJS observables with a 1750ms
+// refCountDelay replay cache. When an era boundary falls between the two
+// cached emissions they may reflect different activeEra values, causing
+// remainingEras (from era N) and eraProgress (from era N+1, where it resets
+// to ~0) to be inconsistent — producing a computed remaining time that
+// spikes up instead of monotonically decreasing.
+//
+// The fix: after fetching both in parallel, recompute unlocking.remainingEras
+// and redeemable directly from the raw stakingLedger using progress.activeEra
+// and progress.currentEra. This mirrors the calculateUnlocking() /
+// redeemableSum() logic inside @polkadot/api-derive/staking/account, but
+// forces both era-dependent quantities to be sourced from the same progress
+// snapshot — eliminating any cross-subscription era skew.
+async function getStakingAndProgress(stash: string, api: ApiPromise) {
+    const [res, progress] = await Promise.all([api.derive.staking.account(stash), api.derive.session.progress()]);
+
+    // Group raw unlock chunks by era, filtering out already-redeemable ones,
+    // then compute remainingEras relative to progress.activeEra.
+    // Mirrors calculateUnlocking() in @polkadot/api-derive/staking/account.js
+    const groupedByEra = (res.stakingLedger.unlocking ?? [])
+        .filter(({ era }) => era.unwrap().gt(progress.activeEra))
+        .reduce<Record<string, BN>>((acc, { era, value }) => {
+            const key = era.unwrap().toString();
+            acc[key] = (acc[key] ?? BN_ZERO).add(value.unwrap());
+            return acc;
+        }, {});
+
+    const recomputedUnlocking = Object.entries(groupedByEra).map(([eraString, value]) => ({
+        remainingEras: new BN(eraString).isub(new BN(progress.activeEra.toString())),
+        value,
+    }));
+
+    // Recompute redeemable using currentEra from our progress snapshot.
+    // Mirrors redeemableSum() in @polkadot/api-derive/staking/account.js
+    const recomputedRedeemable = api.registry.createType(
+        'Balance',
+        (res.stakingLedger.unlocking ?? []).reduce(
+            (total, { era, value }) => (era.unwrap().gt(progress.currentEra) ? total : total.iadd(value.unwrap())),
+            new BN(0),
+        ),
+    );
+
+    return {
+        res: {
+            ...res,
+            unlocking: recomputedUnlocking.length > 0 ? recomputedUnlocking : undefined,
+            redeemable: recomputedRedeemable,
+        },
+        progress,
+    };
+}
+
 export async function getValidatorStatus(stash: string | undefined, api: ApiPromise) {
     if (!stash) {
         return;
     }
 
-    // Get the staking information for the stash
-    const [res, progress] = await Promise.all([api.derive.staking.account(stash), api.derive.session.progress()]);
+    // Get the staking information for the stash, pinned to a single era snapshot
+    const { res, progress } = await getStakingAndProgress(stash, api);
 
     const [mapped, _total, _isStalled] = extractTotals(res, progress);
     const expectedBlockTime = (api.consts.babe.expectedBlockTime as U64).toNumber();
