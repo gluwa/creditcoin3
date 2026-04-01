@@ -32,7 +32,7 @@ use crate::{
 };
 
 type BasicImportQueue = sc_consensus::DefaultImportQueue<Block>;
-type FullPool<Client> = sc_transaction_pool::FullPool<Block, Client>;
+type FullPool<Client> = sc_transaction_pool::TransactionPoolHandle<Block, Client>;
 type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
 
 type GrandpaBlockImport<Client> =
@@ -182,12 +182,15 @@ where
     let (babe_block_import, babe_link) =
         sc_consensus_babe::block_import(babe_config, grandpa_block_import.clone(), client.clone())?;
 
-    let transaction_pool = sc_transaction_pool::BasicPool::new_full(
-        config.transaction_pool.clone(),
-        config.role.is_authority().into(),
-        config.prometheus_registry(),
-        task_manager.spawn_essential_handle(),
-        client.clone(),
+    let transaction_pool = Arc::from(
+        sc_transaction_pool::Builder::new(
+            task_manager.spawn_essential_handle(),
+            client.clone(),
+            config.role.is_authority().into(),
+        )
+        .with_options(config.transaction_pool.clone())
+        .with_prometheus(config.prometheus_registry())
+        .build(),
     );
 
     let (import_queue, block_import, babe_worker) = build_import_queue(
@@ -418,7 +421,7 @@ where
     };
 
     let metrics = Net::register_notification_metrics(config.prometheus_registry());
-    let (network, system_rpc_tx, tx_handler_controller, network_starter, sync_service) =
+    let (network, system_rpc_tx, tx_handler_controller, sync_service) =
         sc_service::build_network(sc_service::BuildNetworkParams {
             config: &config,
             net_config,
@@ -447,7 +450,7 @@ where
                 network_provider: Arc::new(network.clone()),
                 enable_http_requests: true,
                 custom_extensions: |_| vec![],
-            })
+            })?
             .run(client.clone(), task_manager.spawn_handle())
             .boxed(),
         );
@@ -555,7 +558,7 @@ where
                 let eth_deps = rpc::EthDeps {
                     client: client.clone(),
                     pool: pool.clone(),
-                    graph: pool.pool().clone(),
+                    graph: pool.clone(),
                     converter: Some(TransactionConverter),
                     is_authority,
                     enable_dev_signer,
@@ -658,7 +661,7 @@ where
                 commands_stream,
             )?;
 
-            network_starter.start_network();
+
             return Ok(task_manager);
         }
 
@@ -759,7 +762,7 @@ where
             .spawn_blocking("grandpa-voter", None, grandpa_voter);
     }
 
-    network_starter.start_network();
+
     Ok(task_manager)
 }
 

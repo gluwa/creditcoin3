@@ -19,7 +19,7 @@ use sc_consensus_manual_seal::rpc::EngineCommand;
 use sc_rpc::SubscriptionTaskExecutor;
 use sc_service::TaskManager;
 use sc_service::TransactionPool;
-use sc_transaction_pool::ChainApi;
+
 use sp_api::{CallApiAt, ProvideRuntimeApi};
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 use sp_inherents::CreateInherentDataProviders;
@@ -44,7 +44,7 @@ pub use self::eth::{consensus_data_provider::BabeConsensusDataProvider, create_e
 type HasherFor<Block> = <<Block as BlockT>::Header as HeaderT>::Hashing;
 
 /// Full client dependencies.
-pub struct FullDeps<C, P, SC, BE, A: ChainApi, CT, CIDP> {
+pub struct FullDeps<C, P, SC, BE, CT, CIDP> {
     /// The client instance to use.
     pub client: Arc<C>,
     /// Transaction pool instance.
@@ -52,7 +52,7 @@ pub struct FullDeps<C, P, SC, BE, A: ChainApi, CT, CIDP> {
     /// Manual seal command sink
     pub command_sink: Option<mpsc::Sender<EngineCommand<Hash>>>,
     /// Ethereum-compatibility specific dependencies.
-    pub eth: EthDeps<Block, C, P, A, CT, CIDP>,
+    pub eth: EthDeps<Block, C, P, CT, CIDP>,
 
     pub babe: BabeDeps,
 
@@ -111,8 +111,8 @@ where
 }
 
 /// Instantiate all Full RPC extensions.
-pub fn create_full<C, P, SC, BE, A, CT, CIDP>(
-    deps: FullDeps<C, P, SC, BE, A, CT, CIDP>,
+pub fn create_full<C, P, SC, BE, CT, CIDP>(
+    deps: FullDeps<C, P, SC, BE, CT, CIDP>,
     subscription_task_executor: SubscriptionTaskExecutor,
     maybe_tracing_config: Option<TracingConfig>,
     pubsub_notification_sinks: Arc<
@@ -134,8 +134,7 @@ where
     C: BlockchainEvents<Block> + AuxStore + UsageProvider<Block> + StorageProvider<Block, BE>,
     BE: Backend<Block> + 'static,
     BE::State: StateBackend<HasherFor<Block>>,
-    P: TransactionPool<Block = Block> + 'static,
-    A: ChainApi<Block = Block> + 'static,
+    P: TransactionPool<Block = Block, Hash = H256> + 'static,
     CIDP: CreateInherentDataProviders<Block, ()> + Send + 'static,
     CT: fp_rpc::ConvertTransaction<<Block as BlockT>::Extrinsic> + Send + Sync + 'static,
     SC: sp_consensus::SelectChain<Block> + 'static,
@@ -228,7 +227,7 @@ where
     }
 
     // Ethereum compatibility RPCs
-    let io = create_eth::<_, _, _, _, _, _, _, DefaultEthConfig<C, BE>>(
+    let io = create_eth::<_, _, _, _, _, _, DefaultEthConfig<C, BE>>(
         io,
         eth,
         subscription_task_executor,
