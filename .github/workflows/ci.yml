@@ -601,7 +601,7 @@ jobs:
           yarn install
           yarn test:unit
 
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v6
         with:
           files: cli/coverage/lcov.info
           fail_ci_if_error: false
@@ -885,7 +885,7 @@ jobs:
         if: ${{ env.GITHUB_TOKEN && success() && steps.update_typedefs.outputs.git_diff == 'true' && matrix.proxy == 'no' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        uses: EndBug/add-and-commit@v9
+        uses: EndBug/add-and-commit@v10
         with:
           add: "cli/creditcoin.json cli/src/lib/interfaces/"
           author_name: gluwa-bot
@@ -894,7 +894,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload code coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: cli/coverage/lcov.info
           fail_ci_if_error: false
