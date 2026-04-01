@@ -457,7 +457,9 @@ async fn main() -> anyhow::Result<()> {
         .filter(|v| !v.is_empty())
         .map(|_| tracing_subscriber::EnvFilter::from_default_env())
         .unwrap_or_else(|| {
-            tracing_subscriber::EnvFilter::new("attestor=info,alloy=warn,subxt=warn")
+            tracing_subscriber::EnvFilter::new(
+                "attestor=info,stream_attestation=info,stream_eth=info,alloy=warn,subxt=warn",
+            )
         });
 
     let is_max_level_debug =
@@ -476,6 +478,8 @@ async fn main() -> anyhow::Result<()> {
     let filter_logs = tracing_subscriber::filter::Targets::new()
         .with_default(tracing_subscriber::filter::LevelFilter::OFF)
         .with_target("attestor", tracing::Level::TRACE)
+        .with_target("stream_attestation", tracing::Level::TRACE)
+        .with_target("stream_eth", tracing::Level::TRACE)
         .with_target("alloy", tracing::Level::WARN)
         .with_target("subxt", tracing::Level::DEBUG);
     let (appender, _guard) = tracing_appender::non_blocking(tracing_appender::rolling::hourly(
