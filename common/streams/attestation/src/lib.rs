@@ -411,7 +411,7 @@ impl stream_util::ChainData<Attestation> for StreamAttestation {
         let config = ConfigBuilder::new()
             .with_signer(self.signer.clone())
             .with_chain_key(self.chain_key)
-            .with_bls_key(self.bls_key.clone())
+            .with_bls_key(self.bls_key)
             .with_stream_roots(self.stream_roots.reset(info).await)
             .with_stream_tip(self.stream_tip.reset(info).await)
             .with_attestation_interval(self.attestation_interval)

@@ -48,13 +48,7 @@ mod sealed {
         fn reset_boxed(
             &self,
             info: AttestationInfo,
-        ) -> std::pin::Pin<
-            Box<
-                dyn std::future::Future<Output = std::pin::Pin<Box<dyn DynData<T> + Send + Sync>>>
-                    + Send
-                    + '_,
-            >,
-        >;
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = BoxedData<T>> + Send + '_>>;
     }
 
     /// Glue which converts non-dyn-compatible [`ChainData`] types into dyn-compatible [`DynData`]
@@ -67,17 +61,12 @@ mod sealed {
         fn reset_boxed(
             &self,
             info: AttestationInfo,
-        ) -> std::pin::Pin<
-            Box<
-                dyn std::future::Future<Output = std::pin::Pin<Box<dyn DynData<T> + Send + Sync>>>
-                    + Send
-                    + '_,
-            >,
-        > {
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = BoxedData<T>> + Send + '_>>
+        {
             use futures::FutureExt as _;
 
             self.reset(info)
-                .map(|s| Box::pin(s) as std::pin::Pin<Box<dyn DynData<T> + Send + Sync>>)
+                .map(|s| Box::pin(s) as BoxedData<T>)
                 .boxed()
         }
     }
