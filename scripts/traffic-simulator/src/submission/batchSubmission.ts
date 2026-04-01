@@ -176,7 +176,7 @@ export async function submitBatchProofs(
   let failed = 0;
   let batches = 0;
 
-  const maxBatchSize = Math.min(config.batchSize, 10);
+  const cappedBatchSize = Math.min(config.batchSize, 10);
   const queries = groupIntoProofQueries(txInfos);
   const queryChunks = chunkQueries(queries);
 
@@ -222,9 +222,11 @@ export async function submitBatchProofs(
     // Split proofInputs into precompile-sized batches
     let index = 0;
     while (index < proofInputs.length) {
-      const targetBatchSize = maxBatchSize <= 2
+      // Randomise batch size between 2 and cappedBatchSize to simulate
+      // varied traffic patterns against the precompile.
+      const targetBatchSize = cappedBatchSize <= 2
         ? 2
-        : Math.floor(Math.random() * (maxBatchSize - 2 + 1)) + 2;
+        : Math.floor(Math.random() * (cappedBatchSize - 2 + 1)) + 2;
       const batchInputs = proofInputs.slice(
         index,
         index + targetBatchSize,

@@ -62,34 +62,22 @@ async function fetchProof(url: string): Promise<ProofResponse> {
 // Retry Logic
 // ============================================================================
 
-interface FetchProofContext {
-  blockNumber: number;
-  /** Transaction index (for proof-by-index) or hash (for proof-by-tx) */
-  txIdentifier: number | string;
-}
-
-async function fetchProofWithRetry(
-  url: string,
+/** Generic retry wrapper for proof API calls with exponential backoff. */
+async function fetchWithRetry<T>(
+  fn: () => Promise<T>,
   label: string,
-  context: FetchProofContext,
   maxRetries = PROOF_API_MAX_RETRIES,
-): Promise<ProofResponse> {
+): Promise<T> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      return await fetchProof(url);
+      return await fn();
     } catch (error) {
       if (attempt < maxRetries - 1 && isRetriableFetchError(error)) {
         const delayMs = PROOF_API_BASE_DELAY_MS * Math.pow(2, attempt) +
           Math.random() * 250;
 
-        const txDisplay = typeof context.txIdentifier === "number"
-          ? `txIndex=${context.txIdentifier}`
-          : `txHash=${String(context.txIdentifier).slice(0, 10)}...`;
-
         console.log(
-          `⚠️  Proof API retry (${label}, ${
-            attempt + 1
-          }/${maxRetries})... blockNumber=${context.blockNumber}, ${txDisplay}`,
+          `⚠️  Proof API retry (${label}, ${attempt + 1}/${maxRetries})...`,
         );
         await sleep(delayMs);
         continue;
@@ -97,7 +85,9 @@ async function fetchProofWithRetry(
       throw error;
     }
   }
-  throw new Error(`Failed to fetch proof after ${maxRetries} attempts`);
+  throw new Error(
+    `Failed to fetch proof (${label}) after ${maxRetries} attempts`,
+  );
 }
 
 // ============================================================================
@@ -118,16 +108,11 @@ export async function fetchProofForTx(
 
   const indexUrl =
     `${apiUrl}/api/v1/proof/${chainKey}/${txInfo.blockNumber}/${txInfo.txIndex}`;
-  const context: FetchProofContext = {
-    blockNumber: txInfo.blockNumber,
-    txIdentifier: txInfo.txIndex,
-  };
 
   try {
-    return await fetchProofWithRetry(
-      indexUrl,
-      "proof-by-index",
-      context,
+    return await fetchWithRetry(
+      () => fetchProof(indexUrl),
+      `proof-by-index block=${txInfo.blockNumber} txIndex=${txInfo.txIndex}`,
       maxRetries,
     );
   } catch (error) {
@@ -141,14 +126,11 @@ export async function fetchProofForTx(
       );
       const hashUrl =
         `${apiUrl}/api/v1/proof-by-tx/${chainKey}/${txInfo.txHash}`;
-      const hashContext: FetchProofContext = {
-        blockNumber: txInfo.blockNumber,
-        txIdentifier: txInfo.txHash,
-      };
-      return await fetchProofWithRetry(
-        hashUrl,
-        "proof-by-tx",
-        hashContext,
+      return await fetchWithRetry(
+        () => fetchProof(hashUrl),
+        `proof-by-tx block=${txInfo.blockNumber} tx=${
+          txInfo.txHash.slice(0, 10)
+        }`,
         maxRetries,
       );
     }
@@ -205,39 +187,17 @@ async function fetchBatchProof(
   }
 }
 
-export async function fetchBatchProofWithRetry(
+export function fetchBatchProofWithRetry(
   apiUrl: string,
   chainKey: number,
   queries: ProofQuery[],
   maxRetries = PROOF_API_MAX_RETRIES,
 ): Promise<BatchProofResponse> {
   const url = `${apiUrl}/api/v1/proof-batch/${chainKey}`;
-  const context: FetchProofContext = {
-    blockNumber: queries[0]?.headerNumber ?? 0,
-    txIdentifier: `batch(${queries.length} queries)`,
-  };
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await fetchBatchProof(url, queries);
-    } catch (error) {
-      if (attempt < maxRetries - 1 && isRetriableFetchError(error)) {
-        const delayMs = PROOF_API_BASE_DELAY_MS * Math.pow(2, attempt) +
-          Math.random() * 250;
-
-        console.log(
-          `⚠️  Batch Proof API retry (${
-            attempt + 1
-          }/${maxRetries})... ${context.txIdentifier}`,
-        );
-        await sleep(delayMs);
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw new Error(
-    `Failed to fetch batch proof after ${maxRetries} attempts`,
+  return fetchWithRetry(
+    () => fetchBatchProof(url, queries),
+    `batch(${queries.length} queries)`,
+    maxRetries,
   );
 }
 
