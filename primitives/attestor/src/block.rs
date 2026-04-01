@@ -1,4 +1,4 @@
-use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
+use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use precompile_utils::solidity::Codec;
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
@@ -139,6 +139,7 @@ impl MaybeCreatedFromEmpty for Block {
     Hash,
     Encode,
     Decode,
+   
     MaxEncodedLen,
     TypeInfo,
     Default,
@@ -149,6 +150,9 @@ pub struct BlockSerializable {
     pub block_number: u64,
     pub root: H256,
 }
+
+// H256 is a fixed-size 32-byte array with no heap allocation, so the empty impl is correct.
+impl DecodeWithMemTracking for BlockSerializable {}
 
 /// Optimized continuity block structure for native query verifier
 /// Contains only root and digest (block_number and prev_digest are inferred from continuity proof structure)
@@ -165,6 +169,8 @@ pub struct ContinuityBlockSerializable {
     merkle_root: H256,
     digest: H256,
 }
+
+impl DecodeWithMemTracking for ContinuityBlockSerializable {}
 
 impl From<&ContinuityBlock> for ContinuityBlockSerializable {
     fn from(b: &ContinuityBlock) -> Self {
@@ -215,6 +221,9 @@ pub struct ContinuityProof {
     /// Block number for index i = startBlock + i, where startBlock = queryBlockHeight
     pub roots: Vec<H256>,
 }
+
+// H256 is fixed-size with no heap allocation; Vec<H256> uses tracked allocation via Vec's impl.
+impl DecodeWithMemTracking for ContinuityProof {}
 
 impl ContinuityProof {
     /// Create a new simplified continuity proof from a lower endpoint digest and roots

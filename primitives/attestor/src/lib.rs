@@ -3,7 +3,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
+use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
@@ -19,7 +19,7 @@ pub use block::{Block, ContinuityBlock, ContinuityProof};
 
 use crate::bls::{Bls, CryptoScheme};
 
-#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
+#[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
 /// Attestor struct
 pub struct Attestor<AccountId> {
     pub bls_public_key: Option<BlsPublicKey>,
@@ -27,7 +27,7 @@ pub struct Attestor<AccountId> {
     pub stash: AccountId,
 }
 
-#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
+#[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
 /// Attestor status
 /// Active - Attestor is active and can participate in attestation
 /// Idle - Attestor is idle and cannot participate in attestation
@@ -44,7 +44,7 @@ impl AttestorStatus {
     }
 }
 
-#[derive(Encode, Decode, Default, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[derive(Encode, Decode, DecodeWithMemTracking, Default, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
 /// Genesis configuration for attestation pallet
 pub struct AttestationChainConfiguration {
     pub chain_key: ChainKey,
@@ -54,7 +54,7 @@ pub struct AttestationChainConfiguration {
     pub checkpoints: Vec<AttestationCheckpoint>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 /// Encoding version to use when processing blocks from source chains
 pub enum ChainEncodingVersion {
     V1 = 1,
@@ -90,7 +90,7 @@ pub type BlsPublicKey = [u8; 48];
 /// BLS signatures as bytes
 pub type BlsSignature = [u8; 96];
 
-#[derive(Serialize, Deserialize, Debug, Encode, Decode, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Encode, Decode, DecodeWithMemTracking, PartialEq, Eq)]
 pub struct BlsPublicKeyWrapper(#[serde(with = "serde_bytes")] pub BlsPublicKey);
 
 impl BlsPublicKeyWrapper {
@@ -106,6 +106,9 @@ impl BlsPublicKeyWrapper {
 #[derive(Encode, Decode, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "std", derive(Hash))]
 pub struct AttestorId(AccountId32);
+
+// AccountId32 is [u8; 32] - fixed-size, no heap allocation.
+impl DecodeWithMemTracking for AttestorId {}
 
 impl AttestorId {
     pub const fn new(id: AccountId32) -> Self {
@@ -142,7 +145,7 @@ impl From<AttestorId> for [u8; 32] {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo)]
 pub struct SignedAttestation<H, AccountId> {
     pub attestation: AttestationData<H>,
     pub signature: BlsSignature,
@@ -183,6 +186,9 @@ pub struct Attestation<H, AccountId> {
     pub signature_bls: <Bls as CryptoScheme>::Signature,
     pub continuity_proof: ContinuityProof,
 }
+
+// sr25519::Signature (CryptoBytes) and BLS sig (WrapEncode) are fixed-size crypto types.
+impl<H: DecodeWithMemTracking, AccountId: DecodeWithMemTracking> DecodeWithMemTracking for Attestation<H, AccountId> {}
 
 impl<H, AccountId> Attestation<H, AccountId>
 where
@@ -234,6 +240,9 @@ pub struct AttestationData<H> {
     pub root: H256,
     pub prev_digest: Option<Digest>,
 }
+
+// H256/Digest are fixed-size with no heap allocation.
+impl<H: DecodeWithMemTracking> DecodeWithMemTracking for AttestationData<H> {}
 
 /// Attestation round
 /// Is the chain key and the header number
@@ -326,6 +335,9 @@ pub struct AttestationCheckpoint {
     pub block_number: Height,
     pub digest: Digest,
 }
+
+// Digest = H256 which is fixed-size with no heap allocation.
+impl DecodeWithMemTracking for AttestationCheckpoint {}
 
 impl AttestationCheckpoint {
     pub fn new(block_number: Height, digest: Digest) -> Self {
