@@ -166,6 +166,10 @@ impl StreamAttestation {
         }
     }
 
+    /// Lets the [`StreamAttestation`] know that the attestation interval has changed.
+    ///
+    /// This does not reset local state but might cause the next attestation to be produced with a
+    /// larger than expected continuity proof.
     pub fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<attestor_primitives::Height>,
@@ -173,6 +177,10 @@ impl StreamAttestation {
         self.attestation_interval = interval_new;
     }
 
+    /// Lets the [`StreamAttestation`] know that the chain was reverted to a previous known
+    /// attestation by a privileged operator.
+    ///
+    /// This reset the stream state as if it had been just created.
     pub async fn note_attestation_chain_reversion(&mut self, info: stream_util::AttestationInfo) {
         use stream_util::ChainData as _;
         *self = self.reset(info).await;
