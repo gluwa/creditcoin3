@@ -123,6 +123,26 @@ async fn attestation_finalization_ignore_past_attestation(
     assert!(attestation.continuity_proof.is_empty());
 }
 
+/// Attestations finalization should be allowed to override the previous finalized digest
+#[rstest::rstest]
+#[tokio::test]
+async fn attestation_finalization_affect_genesis(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(3))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (_roots, _tip, mut stream_attestation) = attestations.await;
+
+    let info = stream_util::AttestationInfo {
+        height: 0,
+        digest: attestor_primitives::Digest::from([1; 32]),
+    };
+
+    stream_attestation.note_attestation_finalization(info);
+
+    assert_eq!(stream_attestation.attestation_prev, info);
+}
+
 /// Attestation stream cache size should grow up to `max_catchup` + 1 in order to allow the last
 /// block in the cache to be a multiple of the `max_catchup`.
 #[rstest::rstest]
@@ -314,6 +334,52 @@ async fn regenerate_attestations(
     assert!(poll!(stream_attestation).is_pending());
 }
 
+/// Changes to the attestation interval should be properly handled even if the previous finalized
+/// attestation was not a multiple of the new interval.
+#[rstest::rstest]
+#[tokio::test]
+async fn attestation_interval_change(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(3))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
+
+    tip.send_ready(); // 0
+    tip.send_ready(); // 1
+
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 1);
+    assert!(attestation.continuity_proof.is_empty());
+
+    stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
+        height: 1,
+        ..Default::default()
+    });
+
+    stream_attestation.note_attestation_interval_change(nonzero!(3));
+
+    roots.send_ready(); // 2
+    roots.send_ready(); // 3
+
+    tip.send_ready(); // 2
+    tip.send_ready(); // 3
+
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 3);
+    assert_eq!(attestation.continuity_proof.len(), 1);
+}
+
+/// Attestation chain reversion should reset attestation production to a previous height
 #[rstest::rstest]
 #[tokio::test]
 async fn attestation_chain_reversion(

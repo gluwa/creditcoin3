@@ -941,10 +941,6 @@ impl<T: Config> Pallet<T> {
         // Also match `try_make_checkpoint`: only advance when the attestation head is at least
         // `2 * checkpoint_width + 1` blocks past the last checkpoint (same span rule).
         loop {
-            if head_block.saturating_sub(last_checkpoint_block) < (checkpoint_width * 2) + 1 {
-                break;
-            }
-
             let next = last_checkpoint_block.saturating_add(checkpoint_width);
             let target_block = next.saturating_sub(next % checkpoint_width);
             if target_block > head_block {

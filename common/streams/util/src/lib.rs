@@ -7,8 +7,8 @@ pub struct RootInfo {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AttestationInfo {
-    pub digest: attestor_primitives::Digest,
     pub height: attestor_primitives::Height,
+    pub digest: attestor_primitives::Digest,
 }
 
 /// [`ChainData`] is not dyn-compatible but is easier to implement and more versatile to use.
