@@ -314,10 +314,10 @@ impl Attestor {
             .with_stream_roots(stream_roots.boxed_data())
             .with_stream_tip(stream_tip.boxed_data())
             .with_attestation_interval(interval_attestation)
-            .with_attestation_prev(stream::util::AttestationInfo {
-                digest: todo!(),
-                height: todo!(),
-            })
+            .with_attestation_prev(start_attestation.unwrap_or(stream::util::AttestationInfo {
+                height: genesis,
+                ..Default::default()
+            }))
             .with_max_catchup(common::constants::MAX_CATCHUP)
             .build();
         let mut stream_attestation = stream::attestation::StreamAttestation::new(config);
@@ -413,6 +413,7 @@ impl Attestor {
 
                 match Self::wait_for_genesis(
                     genesis,
+                    &client_eth,
                     &account_id,
                     &mut stream_cc3_genesis,
                     &mut stream_attestation,
@@ -676,6 +677,7 @@ impl Attestor {
 
     async fn wait_for_genesis(
         genesis: common::types::Height,
+        client_eth: &eth::Client,
         account_id: &cc_client::AccountId32,
         stream_cc3: &mut stream_legacy::cc3::StreamCC3,
         stream_attestation: &mut stream::attestation::StreamAttestation,
@@ -686,7 +688,19 @@ impl Attestor {
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
-        let attestation_genesis = stream_attestation.generate_attestation_genesis(todo!());
+        let block = client_eth
+            .get_block(genesis, usc_abi_encoding::common::EncodingVersion::V1)
+            .await
+            .context("Failed to fetch genesis block")
+            .map_interrupt(Error::InitError)?;
+
+        let info = stream::util::RootInfo {
+            height: genesis,
+            root: eth::simple_merkle_tree(&block).root(),
+            hash: attestor_primitives::Digest::from(*block.hash()),
+        };
+
+        let attestation_genesis = stream_attestation.generate_attestation_genesis(info);
 
         let height = attestation_genesis.header_number();
         let digest = attestation_genesis.digest();

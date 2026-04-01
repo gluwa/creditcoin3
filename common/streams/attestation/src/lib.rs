@@ -136,7 +136,7 @@ impl StreamAttestation {
     /// Note that in the latter case this indicates that the stream should be re-generated with
     /// the new interval.
     pub fn note_attestation_finalization(&mut self, info: stream_util::AttestationInfo) {
-        if self.attestation_prev.height < info.height {
+        if self.attestation_prev.height <= info.height {
             // Regenerate attestations after the finalized height
             let end = info.height.max(*self.computed.end());
             self.computed = info.height..=end;
@@ -345,6 +345,7 @@ impl futures::Stream for StreamAttestation {
                 .end()
                 .to_owned()
                 .saturating_add(self.attestation_interval.get());
+            let next = next - next % self.attestation_interval.get();
 
             // Chain tip and roots are polled concurrently until a new attestation can be produced
             while self.tip < next || self.missing_roots() {
