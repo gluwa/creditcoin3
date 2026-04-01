@@ -251,6 +251,7 @@ async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::Orde
         .chain(
             stream_headers
                 .scan(next + 1, |next, header| {
+                    // Backfill missing blocks
                     let missing = *next..=header.number;
                     *next = header.number + 1;
                     futures::future::ready(Some(futures::stream::iter(missing)))

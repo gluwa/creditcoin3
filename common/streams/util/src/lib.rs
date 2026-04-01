@@ -11,11 +11,15 @@ pub struct AttestationInfo {
     pub digest: attestor_primitives::Digest,
 }
 
-/// [`ChainData`] is not dyn-compatible but is easier to implement and more versatile to use.
+/// An extension trait on top of [`Stream`] used to represent asynchronous source chain data
+/// streams which can also be reset in the event of a sudo-triggered chain reversion.
+///
+/// [`Stream`]: futures::Stream
 pub trait ChainData<T>: futures::Stream<Item = T> + Unpin {
     fn reset(&self, info: AttestationInfo) -> impl std::future::Future<Output = Self> + Send;
 }
 
+/// Extension methods for [`ChainData`] types.
 pub trait ChainExt<T>
 where
     Self: ChainData<T> + sealed::Sealed<T> + Send + Sync + Sized + 'static,
@@ -36,14 +40,15 @@ where
 pub type BoxedData<T> = std::pin::Pin<Box<dyn sealed::DynData<T> + Send + Sync>>;
 pub type BoxedStream<T> = std::pin::Pin<Box<dyn futures::Stream<Item = T> + Send>>;
 
+/// Dyn-compatible glue on top of [`ChainData`]
 mod sealed {
     use super::*;
 
     pub trait Sealed<T> {}
     impl<T, C: ChainData<T>> Sealed<T> for C {}
 
-    /// [`DynData`] **is** a dyn-compatible wrapper which makes it possible to use types which
-    /// implement [`ChainData`] in a dyn-context.
+    /// [`DynData`] is a dyn-compatible wrapper which makes it possible to use types which
+    /// implement [`ChainData`] in a dyn context.
     pub trait DynData<T>: futures::Stream<Item = T> + Unpin + Sealed<T> {
         fn reset_boxed(
             &self,
