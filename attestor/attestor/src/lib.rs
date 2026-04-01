@@ -73,9 +73,7 @@ impl Attestor {
 
         // -----------------------------------* Chain endpoints *----------------------------------
 
-        match Self::wait_for_endpoints(&self.config.stream.url_eth, &self.config.stream.url_cc3)
-            .await
-        {
+        match wait_for_endpoints(&self.config.stream.url_eth, &self.config.stream.url_cc3).await {
             Ok(()) => {}
             Err(Interrupt::Stop) => {
                 tracing::info!("🔌 Received shutdown signal");
@@ -171,7 +169,7 @@ impl Attestor {
 
         // ------------------------------------* Start Attesting *------------------------------------
 
-        match Self::register_bls(
+        match register_bls(
             chain_key,
             &client_cc3,
             &account_id,
@@ -198,24 +196,20 @@ impl Attestor {
             "⏲️ Waiting for attestor to be made eligible"
         );
 
-        let attestors = match Self::wait_for_eligible(
-            chain_key,
-            &client_cc3,
-            &account_id,
-            &mut stream_cc3_genesis,
-        )
-        .await
-        {
-            Ok(attestors) => attestors,
-            Err(Interrupt::Stop) => {
-                tracing::info!("🔌 Received shutdown signal");
-                return Ok(());
-            }
-            Err(Interrupt::Cont(err)) => {
-                tracing::error!(%err, "⛔ Failed to wait on attestor eligibility");
-                return Err(err);
-            }
-        };
+        let attestors =
+            match wait_for_eligible(chain_key, &client_cc3, &account_id, &mut stream_cc3_genesis)
+                .await
+            {
+                Ok(attestors) => attestors,
+                Err(Interrupt::Stop) => {
+                    tracing::info!("🔌 Received shutdown signal");
+                    return Ok(());
+                }
+                Err(Interrupt::Cont(err)) => {
+                    tracing::error!(%err, "⛔ Failed to wait on attestor eligibility");
+                    return Err(err);
+                }
+            };
 
         // ---------------------------------* Chain configuration *--------------------------------
 
@@ -295,8 +289,8 @@ impl Attestor {
             .with_client(client_eth.clone())
             .with_start_height(start_height)
             .with_finalization_lag(maturity_delay)
-            .with_max_concurrency(std::num::NonZeroUsize::new(4).unwrap())
-            .with_max_parallelism(std::num::NonZeroUsize::new(4).unwrap())
+            .with_max_concurrency(common::constants::MAX_CONCURRENT_RPC_CALLS)
+            .with_max_parallelism(get_available_parallelism())
             .build();
         let stream_roots = stream::eth::StreamRoots::new(config).await;
 
@@ -411,7 +405,7 @@ impl Attestor {
             None => {
                 tracing::info!(genesis, "👶 Generating genesis attestation");
 
-                match Self::wait_for_genesis(
+                match wait_for_genesis(
                     genesis,
                     &client_eth,
                     &account_id,
@@ -476,7 +470,7 @@ impl Attestor {
                 _ = monitor.failed() => {
                     tracing::error!("⛔ Worker thread error");
                     res = res.and(
-                        Self::wait_for_worker(
+                        wait_for_worker(
                             &mut shutdown,
                             &mut handle_api,
                             &mut handle_production,
@@ -491,7 +485,7 @@ impl Attestor {
         // Wait for remaining workers
         while shutdown < common::constants::WORKER_COUNT {
             res = res.and(
-                Self::wait_for_worker(
+                wait_for_worker(
                     &mut shutdown,
                     &mut handle_api,
                     &mut handle_production,
@@ -504,244 +498,154 @@ impl Attestor {
 
         res
     }
+}
 
-    async fn wait_for_endpoints(
-        url_eth: &url::Url,
-        url_cc3: &url::Url,
-    ) -> Result<(), Interrupt<Error>> {
-        loop {
-            tokio::select! {
-                Ok(_) = tokio_tungstenite::connect_async(url_eth) => {
-                    break;
-                }
-                _ = tokio::time::sleep(common::constants::RETRY_DELAY) => {}
-                _ = tokio::signal::ctrl_c() => {
-                    return Err(Interrupt::Stop);
-                }
+async fn wait_for_endpoints(
+    url_eth: &url::Url,
+    url_cc3: &url::Url,
+) -> Result<(), Interrupt<Error>> {
+    loop {
+        tokio::select! {
+            Ok(_) = tokio_tungstenite::connect_async(url_eth) => {
+                break;
             }
-            tracing::info!(
-                url = %url_eth,
-                "🛜 waiting for Eth WS connection to be made available..."
-            );
-        }
-
-        loop {
-            tokio::select! {
-                Ok(_) = tokio_tungstenite::connect_async(url_cc3) => {
-                    break;
-                }
-                _ = tokio::time::sleep(common::constants::RETRY_DELAY) => {}
-                _ = tokio::signal::ctrl_c() => {
-                    return Err(Interrupt::Stop);
-                }
-            }
-            tracing::info!(
-                url = %url_cc3,
-                "🛜 waiting for CC3 WS connection to be made available..."
-            );
-        }
-
-        Ok(())
-    }
-
-    async fn register_bls(
-        chain_key: attestor_primitives::ChainKey,
-        client_cc3: &cc_client::Client,
-        account_id: &cc_client::AccountId32,
-        bls_key: &bls_signatures::PrivateKey,
-        bls_public_key_bytes: &[u8],
-    ) -> Result<(), Interrupt<Error>> {
-        use anyhow::Context as _;
-        use bls_signatures::Serialize as _;
-
-        let status = client_cc3
-            .get_attestor_status(chain_key)
-            .await
-            .map_interrupt(Error::RpcError)?;
-
-        if status == Some(attestor_primitives::AttestorStatus::Idle) {
-            tracing::info!(
-                attestor_id = %account_id,
-                "📝 Submitting attest() extrinsic to transition from Idle to Waiting"
-            );
-
-            let bls_public_key = bls_public_key_bytes[..]
-                .try_into()
-                .context("BLS public key has unexpected length")
-                .map_interrupt(Error::InitError)?;
-
-            let proof_of_possession = bls_key.sign(bls_public_key).as_bytes()[..]
-                .try_into()
-                .context("BLS signature has unexpected length")
-                .map_interrupt(Error::InitError)?;
-
-            tokio::select! {
-                res = client_cc3.start_attesting(
-                    chain_key,
-                    bls_public_key,
-                    proof_of_possession,
-                ) => {
-                    res.map_interrupt(Error::RpcError)?;
-                }
-                _ = tokio::signal::ctrl_c() => {
-                    return Err(Interrupt::Stop);
-                }
-            }
-
-            tracing::info!(
-                attestor_id = %account_id,
-                "✅ Successfully submitted attest() - now Waiting for election"
-            );
-        } else {
-            tracing::info!(
-                attestor_id = %account_id,
-                ?status,
-                "ℹ️ Attestor status is already {:?}, skipping attest()", status
-            );
-        }
-
-        Ok(())
-    }
-
-    async fn wait_for_eligible(
-        chain_key: attestor_primitives::ChainKey,
-        client_cc3: &cc_client::Client,
-        account_id: &cc_client::AccountId32,
-        stream_cc3: &mut stream_legacy::cc3::StreamCC3,
-    ) -> Result<Vec<cc_client::AccountId32>, Interrupt<Error>> {
-        use anyhow::Context as _;
-        use futures::StreamExt as _;
-        use futures::TryStreamExt as _;
-
-        let mut attestors = client_cc3
-            .get_attestor_active_set(chain_key)
-            .await
-            .map_interrupt(Error::RpcError)?;
-
-        let cc3_block_time_ms = client_cc3
-            .api()
-            .constants()
-            .at(&cc_client::cc3::constants().timestamp().minimum_period())
-            .context("Failed to retrieve cc3 block time")
-            .map_interrupt(Error::InitError)?
-            * 2;
-
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-        if !attestors.contains(account_id) {
-            attestors = 'outer: loop {
-                tokio::select! {
-                    Some(mut events) = stream_cc3.next() => {
-                        while let Some(event) =  events.try_next().await.map_interrupt(Error::CC3Error)? {
-                            if let cc_client::attestation::CcEvent::AttestorsElected(
-                                event_chain_key,
-                                attestors,
-                            ) = event
-                            {
-                                if event_chain_key == chain_key && attestors.contains(account_id) {
-                                    break 'outer attestors;
-                                }
-                            }
-                        }
-                    }
-                    _ = tokio::signal::ctrl_c() => {
-                        return Err(Interrupt::Stop);
-                    }
-                    _ = interval.tick() => {
-                        tracing::info!(
-                            attestor_id = %account_id,
-                            "⏲️  waiting on attestor..."
-                        );
-                    }
-                }
+            _ = tokio::time::sleep(common::constants::RETRY_DELAY) => {}
+            _ = tokio::signal::ctrl_c() => {
+                return Err(Interrupt::Stop);
             }
         }
-
-        tracing::info!(attestor_id = %account_id, "☀️ Attestor is eligible for production");
-
-        // Waiting for 2 blocks so other attestors have time to update the attestor set
-        let step = cc3_block_time_ms * 2 / 10;
-
-        for i in 1..=10 {
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_millis(step)) => {
-                    tracing::info!("⏳ Startup delay {}/{}ms", step * i, cc3_block_time_ms * 2);
-                }
-                _ = tokio::signal::ctrl_c() => {
-                    return Err(Interrupt::Stop);
-                }
-            }
-        }
-
-        Ok(attestors)
-    }
-
-    async fn wait_for_genesis(
-        genesis: common::types::Height,
-        client_eth: &eth::Client,
-        account_id: &cc_client::AccountId32,
-        stream_cc3: &mut stream_legacy::cc3::StreamCC3,
-        stream_attestation: &mut stream::attestation::StreamAttestation,
-        sender_validation: &mut worker::validation::pool::AttestationPoolSender,
-        sender_p2p: &tokio::sync::broadcast::Sender<common::types::Attestation>,
-    ) -> Result<stream::util::AttestationInfo, Interrupt<Error>> {
-        use anyhow::Context as _;
-        use futures::StreamExt as _;
-        use futures::TryStreamExt as _;
-
-        let block = client_eth
-            .get_block(genesis, usc_abi_encoding::common::EncodingVersion::V1)
-            .await
-            .context("Failed to fetch genesis block")
-            .map_interrupt(Error::InitError)?;
-
-        let info = stream::util::RootInfo {
-            height: genesis,
-            root: eth::simple_merkle_tree(&block).root(),
-            hash: attestor_primitives::Digest::from(*block.hash()),
-        };
-
-        let attestation_genesis = stream_attestation.generate_attestation_genesis(info);
-
-        let height = attestation_genesis.header_number();
-        let digest = attestation_genesis.digest();
-        // No previous digest means we will log `0x000...000` as the previous digest
-        let digest_prev = attestation_genesis
-            .prev_digest()
-            .unwrap_or_else(sp_core::H256::zero);
-        let attestor_id = attestation_genesis.attestor.account_id();
-
-        assert_eq!(height, genesis, "Genesis attestation height mismatch");
-
         tracing::info!(
-            ?digest,
-            ?digest_prev,
-            height,
-            %attestor_id,
-            "📡 Generated genesis attestation"
+            url = %url_eth,
+            "🛜 waiting for Eth WS connection to be made available..."
+        );
+    }
+
+    loop {
+        tokio::select! {
+            Ok(_) = tokio_tungstenite::connect_async(url_cc3) => {
+                break;
+            }
+            _ = tokio::time::sleep(common::constants::RETRY_DELAY) => {}
+            _ = tokio::signal::ctrl_c() => {
+                return Err(Interrupt::Stop);
+            }
+        }
+        tracing::info!(
+            url = %url_cc3,
+            "🛜 waiting for CC3 WS connection to be made available..."
+        );
+    }
+
+    Ok(())
+}
+
+fn get_available_parallelism() -> std::num::NonZeroUsize {
+    let parallelism_used =
+        common::constants::WORKER_COUNT + common::constants::MAX_CONCURRENT_RPC_CALLS.get() + 1;
+    match std::thread::available_parallelism()
+        .expect("Failed to retrieve available parallelism")
+        .get()
+        .checked_sub(parallelism_used)
+    {
+        Some(parallelism) if parallelism > 0 => std::num::NonZeroUsize::new(parallelism).unwrap(),
+        _ => {
+            tracing::warn!("Running the attestor code with insufficient threads!");
+            std::num::NonZeroUsize::MIN
+        }
+    }
+}
+
+async fn register_bls(
+    chain_key: attestor_primitives::ChainKey,
+    client_cc3: &cc_client::Client,
+    account_id: &cc_client::AccountId32,
+    bls_key: &bls_signatures::PrivateKey,
+    bls_public_key_bytes: &[u8],
+) -> Result<(), Interrupt<Error>> {
+    use anyhow::Context as _;
+    use bls_signatures::Serialize as _;
+
+    let status = client_cc3
+        .get_attestor_status(chain_key)
+        .await
+        .map_interrupt(Error::RpcError)?;
+
+    if status == Some(attestor_primitives::AttestorStatus::Idle) {
+        tracing::info!(
+            attestor_id = %account_id,
+            "📝 Submitting attest() extrinsic to transition from Idle to Waiting"
         );
 
-        sender_p2p
-            .send(attestation_genesis.clone())
-            .context("Failed to send initial attestation over to p2p worker")
+        let bls_public_key = bls_public_key_bytes[..]
+            .try_into()
+            .context("BLS public key has unexpected length")
             .map_interrupt(Error::InitError)?;
-        sender_validation
-            .send(attestation_genesis)
-            .transpose()
-            .expect("Failed to send initial attestation over for validation");
 
-        tracing::info!(genesis, "⏲️ Waiting for genesis attestation to finalize");
+        let proof_of_possession = bls_key.sign(bls_public_key).as_bytes()[..]
+            .try_into()
+            .context("BLS signature has unexpected length")
+            .map_interrupt(Error::InitError)?;
 
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-        let attestation_latest_cc3 = 'outer: loop {
+        tokio::select! {
+            res = client_cc3.start_attesting(
+                chain_key,
+                bls_public_key,
+                proof_of_possession,
+            ) => {
+                res.map_interrupt(Error::RpcError)?;
+            }
+            _ = tokio::signal::ctrl_c() => {
+                return Err(Interrupt::Stop);
+            }
+        }
+
+        tracing::info!(
+            attestor_id = %account_id,
+            "✅ Successfully submitted attest() - now Waiting for election"
+        );
+    } else {
+        tracing::info!(
+            attestor_id = %account_id,
+            ?status,
+            "ℹ️ Attestor status is already {:?}, skipping attest()", status
+        );
+    }
+
+    Ok(())
+}
+
+async fn wait_for_eligible(
+    chain_key: attestor_primitives::ChainKey,
+    client_cc3: &cc_client::Client,
+    account_id: &cc_client::AccountId32,
+    stream_cc3: &mut stream_legacy::cc3::StreamCC3,
+) -> Result<Vec<cc_client::AccountId32>, Interrupt<Error>> {
+    use anyhow::Context as _;
+    use futures::StreamExt as _;
+    use futures::TryStreamExt as _;
+
+    let mut attestors = client_cc3
+        .get_attestor_active_set(chain_key)
+        .await
+        .map_interrupt(Error::RpcError)?;
+
+    let cc3_block_time_ms = client_cc3
+        .api()
+        .constants()
+        .at(&cc_client::cc3::constants().timestamp().minimum_period())
+        .context("Failed to retrieve cc3 block time")
+        .map_interrupt(Error::InitError)?
+        * 2;
+
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+    if !attestors.contains(account_id) {
+        attestors = 'outer: loop {
             tokio::select! {
                 Some(mut events) = stream_cc3.next() => {
-                    while let Some(event) = events.try_next().await.map_interrupt(Error::CC3Error)? {
-                        if let cc_client::attestation::CcEvent::BlockAttested(attestation_new) = event {
-                            if attestation_new.header_number >= height {
-                                break 'outer stream::util::AttestationInfo {
-                                    digest: attestation_new.digest,
-                                    height: attestation_new.header_number,
-                                };
+                    while let Some(event) =  events.try_next().await.map_interrupt(Error::CC3Error)? {
+                        if let cc_client::attestation::CcEvent::AttestorsElected(key, attestors) = event {
+                            if key == chain_key && attestors.contains(account_id) {
+                                break 'outer attestors;
                             }
                         }
                     }
@@ -751,101 +655,203 @@ impl Attestor {
                 }
                 _ = interval.tick() => {
                     tracing::info!(
-                        height,
                         attestor_id = %account_id,
-                        "⏲️  waiting on submission..."
+                        "⏲️  waiting on attestor..."
                     );
                 }
             }
-        };
-
-        stream_attestation.note_attestation_finalization(attestation_latest_cc3);
-
-        if let Err(err) = sender_validation.note_attestation_finalization(attestation_latest_cc3) {
-            err.log_error(attestation_latest_cc3.digest);
         }
-
-        Ok(attestation_latest_cc3)
     }
 
-    #[allow(clippy::result_large_err)]
-    async fn wait_for_worker(
-        shutdown: &mut usize,
-        handle_api: &mut Option<
-            std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
-        >,
-        handle_production: &mut Option<
-            std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
-        >,
-        handle_validation: &mut Option<
-            std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
-        >,
-        handle_p2p: &mut Option<
-            std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
-        >,
-    ) -> Result<(), Error> {
-        loop {
-            if let Some(handle) = handle_api.take_if(|handle| handle.is_finished()) {
-                *shutdown += 1;
-                match handle.join() {
-                    Ok(Ok(_)) => {
-                        tracing::info!("⏳ [{shutdown}/4] Exited API worker");
-                        break Ok(());
+    tracing::info!(attestor_id = %account_id, "☀️ Attestor is eligible for production");
+
+    // Waiting for 2 blocks so other attestors have time to update the attestor set
+    let step = cc3_block_time_ms * 2 / 10;
+
+    for i in 1..=10 {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(step)) => {
+                tracing::info!("⏳ Startup delay {}/{}ms", step * i, cc3_block_time_ms * 2);
+            }
+            _ = tokio::signal::ctrl_c() => {
+                return Err(Interrupt::Stop);
+            }
+        }
+    }
+
+    Ok(attestors)
+}
+
+async fn wait_for_genesis(
+    genesis: common::types::Height,
+    client_eth: &eth::Client,
+    account_id: &cc_client::AccountId32,
+    stream_cc3: &mut stream_legacy::cc3::StreamCC3,
+    stream_attestation: &mut stream::attestation::StreamAttestation,
+    sender_validation: &mut worker::validation::pool::AttestationPoolSender,
+    sender_p2p: &tokio::sync::broadcast::Sender<common::types::Attestation>,
+) -> Result<stream::util::AttestationInfo, Interrupt<Error>> {
+    use anyhow::Context as _;
+    use futures::StreamExt as _;
+    use futures::TryStreamExt as _;
+
+    let block = client_eth
+        .get_block(genesis, usc_abi_encoding::common::EncodingVersion::V1)
+        .await
+        .context("Failed to fetch genesis block")
+        .map_interrupt(Error::InitError)?;
+
+    let info = stream::util::RootInfo {
+        height: genesis,
+        root: eth::simple_merkle_tree(&block).root(),
+        hash: attestor_primitives::Digest::from(*block.hash()),
+    };
+
+    let attestation_genesis = stream_attestation.generate_attestation_genesis(info);
+
+    let height = attestation_genesis.header_number();
+    let digest = attestation_genesis.digest();
+    // No previous digest means we will log `0x000...000` as the previous digest
+    let digest_prev = attestation_genesis
+        .prev_digest()
+        .unwrap_or_else(sp_core::H256::zero);
+    let attestor_id = attestation_genesis.attestor.account_id();
+
+    assert_eq!(height, genesis, "Genesis attestation height mismatch");
+
+    tracing::info!(
+        ?digest,
+        ?digest_prev,
+        height,
+        %attestor_id,
+        "📡 Generated genesis attestation"
+    );
+
+    sender_p2p
+        .send(attestation_genesis.clone())
+        .context("Failed to send initial attestation over to p2p worker")
+        .map_interrupt(Error::InitError)?;
+    sender_validation
+        .send(attestation_genesis)
+        .transpose()
+        .expect("Failed to send initial attestation over for validation");
+
+    tracing::info!(genesis, "⏲️ Waiting for genesis attestation to finalize");
+
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+    let attestation_latest_cc3 = 'outer: loop {
+        tokio::select! {
+            Some(mut events) = stream_cc3.next() => {
+                while let Some(event) = events.try_next().await.map_interrupt(Error::CC3Error)? {
+                    if let cc_client::attestation::CcEvent::BlockAttested(attestation_new) = event {
+                        if attestation_new.header_number >= height {
+                            break 'outer stream::util::AttestationInfo {
+                                digest: attestation_new.digest,
+                                height: attestation_new.header_number,
+                            };
+                        }
                     }
-                    Ok(Err(err)) => {
-                        tracing::error!(%err, "⛔ [{shutdown}/4] API worker failure");
-                        break Err(Error::WorkerError(err));
-                    }
-                    Err(payload) => std::panic::resume_unwind(payload),
                 }
             }
-
-            if let Some(handle) = handle_production.take_if(|handle| handle.is_finished()) {
-                *shutdown += 1;
-                match handle.join() {
-                    Ok(Ok(_)) => {
-                        tracing::info!("⏳ [{shutdown}/4] Exited production worker");
-                        break Ok(());
-                    }
-                    Ok(Err(err)) => {
-                        tracing::error!(%err, "⛔ [{shutdown}/4] Production worker failure");
-                        break Err(Error::WorkerError(err));
-                    }
-                    Err(payload) => std::panic::resume_unwind(payload),
-                };
+            _ = tokio::signal::ctrl_c() => {
+                return Err(Interrupt::Stop);
             }
-
-            if let Some(handle) = handle_validation.take_if(|handle| handle.is_finished()) {
-                *shutdown += 1;
-                match handle.join() {
-                    Ok(Ok(_)) => {
-                        tracing::info!("⏳ [{shutdown}/4] Exited validation worker");
-                        break Ok(());
-                    }
-                    Ok(Err(err)) => {
-                        tracing::error!(%err, "⛔ [{shutdown}/4] Validation worker failure");
-                        break Err(Error::WorkerError(err));
-                    }
-                    Err(payload) => std::panic::resume_unwind(payload),
-                };
+            _ = interval.tick() => {
+                tracing::info!(
+                    height,
+                    attestor_id = %account_id,
+                    "⏲️  waiting on submission..."
+                );
             }
-
-            if let Some(handle) = handle_p2p.take_if(|handle| handle.is_finished()) {
-                *shutdown += 1;
-                match handle.join() {
-                    Ok(Ok(_)) => {
-                        tracing::info!("⏳ [{shutdown}/4] Exited P2P worker");
-                        break Ok(());
-                    }
-                    Ok(Err(err)) => {
-                        tracing::error!(%err, "⛔ [{shutdown}/4] P2P worker failure");
-                        break Err(Error::WorkerError(err));
-                    }
-                    Err(payload) => std::panic::resume_unwind(payload),
-                };
-            }
-
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
+    };
+
+    stream_attestation.note_attestation_finalization(attestation_latest_cc3);
+
+    if let Err(err) = sender_validation.note_attestation_finalization(attestation_latest_cc3) {
+        err.log_error(attestation_latest_cc3.digest);
+    }
+
+    Ok(attestation_latest_cc3)
+}
+
+#[allow(clippy::result_large_err)]
+async fn wait_for_worker(
+    shutdown: &mut usize,
+    handle_api: &mut Option<
+        std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
+    >,
+    handle_production: &mut Option<
+        std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
+    >,
+    handle_validation: &mut Option<
+        std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
+    >,
+    handle_p2p: &mut Option<
+        std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Sync + Send>>>,
+    >,
+) -> Result<(), Error> {
+    loop {
+        if let Some(handle) = handle_api.take_if(|handle| handle.is_finished()) {
+            *shutdown += 1;
+            match handle.join() {
+                Ok(Ok(_)) => {
+                    tracing::info!("⏳ [{shutdown}/4] Exited API worker");
+                    break Ok(());
+                }
+                Ok(Err(err)) => {
+                    tracing::error!(%err, "⛔ [{shutdown}/4] API worker failure");
+                    break Err(Error::WorkerError(err));
+                }
+                Err(payload) => std::panic::resume_unwind(payload),
+            }
+        }
+
+        if let Some(handle) = handle_production.take_if(|handle| handle.is_finished()) {
+            *shutdown += 1;
+            match handle.join() {
+                Ok(Ok(_)) => {
+                    tracing::info!("⏳ [{shutdown}/4] Exited production worker");
+                    break Ok(());
+                }
+                Ok(Err(err)) => {
+                    tracing::error!(%err, "⛔ [{shutdown}/4] Production worker failure");
+                    break Err(Error::WorkerError(err));
+                }
+                Err(payload) => std::panic::resume_unwind(payload),
+            };
+        }
+
+        if let Some(handle) = handle_validation.take_if(|handle| handle.is_finished()) {
+            *shutdown += 1;
+            match handle.join() {
+                Ok(Ok(_)) => {
+                    tracing::info!("⏳ [{shutdown}/4] Exited validation worker");
+                    break Ok(());
+                }
+                Ok(Err(err)) => {
+                    tracing::error!(%err, "⛔ [{shutdown}/4] Validation worker failure");
+                    break Err(Error::WorkerError(err));
+                }
+                Err(payload) => std::panic::resume_unwind(payload),
+            };
+        }
+
+        if let Some(handle) = handle_p2p.take_if(|handle| handle.is_finished()) {
+            *shutdown += 1;
+            match handle.join() {
+                Ok(Ok(_)) => {
+                    tracing::info!("⏳ [{shutdown}/4] Exited P2P worker");
+                    break Ok(());
+                }
+                Ok(Err(err)) => {
+                    tracing::error!(%err, "⛔ [{shutdown}/4] P2P worker failure");
+                    break Err(Error::WorkerError(err));
+                }
+                Err(payload) => std::panic::resume_unwind(payload),
+            };
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 }
