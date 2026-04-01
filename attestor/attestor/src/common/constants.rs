@@ -43,7 +43,7 @@ pub const MAX_REBROADCAST: common::types::Height = 10;
 pub const MAX_CATCHUP: std::num::NonZero<common::types::Height> =
     std::num::NonZero::new(500).unwrap();
 
-pub const MAX_CONCURRENT_RPC_CALLS: usize = 10;
+pub const MAX_CONCURRENT_RPC_CALLS: std::num::NonZeroUsize = std::num::NonZero::new(10).unwrap();
 
 pub const WORKER_COUNT: usize = 4;
 
