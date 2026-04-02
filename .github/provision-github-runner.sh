@@ -15,7 +15,7 @@ curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
 echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
 sudo apt-get update
 sudo apt install -y build-essential clang curl gcc git-lfs jq \
-    libpq-dev libssl-dev pipx pkg-config protobuf-compiler \
+    libclang-dev llvm-dev libpq-dev libssl-dev pipx pkg-config protobuf-compiler \
     unzip yarn
 
 OWNER_REPO_SLUG="${LC_OWNER_REPO_SLUG}"
