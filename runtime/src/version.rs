@@ -1,10 +1,10 @@
 use crate::RUNTIME_API_VERSIONS;
-use sp_version::RuntimeVersion;
+use sp_version::{create_runtime_str, RuntimeVersion};
 
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-    spec_name: std::borrow::Cow::Borrowed("creditcoin3"),
-    impl_name: std::borrow::Cow::Borrowed("creditcoin3"),
+    spec_name: create_runtime_str!("creditcoin3"),
+    impl_name: create_runtime_str!("creditcoin3"),
     authoring_version: 3,
     spec_version: 106,
     impl_version: 0,
