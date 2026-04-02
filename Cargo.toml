@@ -341,5 +341,4 @@ inherits = "release"
 codegen-units = 1
 lto = "fat"
 
-# No [patch.crates-io] needed — evm comes from rust-ethereum/evm v0.x git source directly,
-# and ethereum 0.18.2 is on crates.io. No moonbeam-foundation forks required.
+
