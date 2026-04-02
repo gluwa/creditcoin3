@@ -363,7 +363,10 @@ async fn attestation_interval_change(
         ..Default::default()
     });
 
-    stream_attestation.note_attestation_interval_change(nonzero!(3));
+    // Applies the interval change and resets the stream
+    stream_attestation
+        .note_attestation_interval_change(nonzero!(3))
+        .await;
 
     roots.send_ready(); // 2
     roots.send_ready(); // 3
@@ -435,30 +438,50 @@ async fn attestation_chain_reversion(
     assert!(attestation.continuity_proof.is_empty());
 }
 
+/// If the attestation interval is shrunk to a lower value, this can cause the max catchup to be
+/// shrunk too as a result of alignment. The root cache needs to be updated accordingly to avoid
+/// exceeding the max allowed size.
 #[rstest::rstest]
 #[tokio::test]
-async fn simulation_failure(
+async fn root_cache_must_shrink_with_attestation_interval(
     #[future]
     #[with(0, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready();
-    roots.send_ready();
-    roots.send_ready();
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
+    roots.send_ready(); // 2
     let _ = poll!(stream_attestation);
 
-    stream_attestation.note_attestation_interval_change(nonzero!(3));
+    // root cache contains 2 blocks, must grow to accommodate up to 3 blocks
+    stream_attestation
+        .note_attestation_interval_change(nonzero!(3))
+        .await;
 
-    roots.send_ready();
-    roots.send_ready();
+    roots.send_ready(); // 1
+    roots.send_ready(); // 2
+    roots.send_ready(); // 3
     let _ = poll!(stream_attestation);
 
-    stream_attestation.note_attestation_interval_change(nonzero!(2));
+    // root cache contains 3 blocks, must shrink to accommodate at most 2 blocks
+    stream_attestation
+        .note_attestation_interval_change(nonzero!(2))
+        .await;
 
-    tip.send_ready();
-    tip.send_ready();
-    tip.send_ready();
+    roots.send_ready(); // 1
+    roots.send_ready(); // 2
+    roots.send_ready(); // 3 - never received by the stream, as the max catchup is now 2
     let _ = poll!(stream_attestation);
+
+    tip.send_ready(); // 1
+    tip.send_ready(); // 2
+
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 2);
+    assert_eq!(attestation.continuity_proof.len(), 1);
 }
