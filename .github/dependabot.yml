@@ -86,6 +86,16 @@ updates:
       - "/runtime"
       - "/runtime/generate-bags"
       - "/archiver"
+      - "/tracing/client/evm-tracing"
+      - "/tracing/client/rpc-core/debug"
+      - "/tracing/client/rpc-core/trace"
+      - "/tracing/client/rpc-core/types"
+      - "/tracing/client/rpc/debug"
+      - "/tracing/client/rpc/trace"
+      - "/tracing/primitives/ext"
+      - "/tracing/primitives/rpc/debug"
+      - "/tracing/primitives/rpc/evm-tracing-events"
+      - "/tracing/runtime/evm_tracer"
     groups:
       prod-dependencies:
         dependency-type: "production"
