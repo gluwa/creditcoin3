@@ -1,9 +1,9 @@
 [package]
-name = "moonbeam-primitives-ext"
-version = "0.1.0"
+description = "Moonbeam primitives ext (vendored from Moonbeam, maintained by Gluwa)"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Moonbeam primitives ext (vendored from Moonbeam, maintained by Gluwa)"
+name = "moonbeam-primitives-ext"
+version = "0.1.0"
 
 [dependencies]
 # Local tracing crates

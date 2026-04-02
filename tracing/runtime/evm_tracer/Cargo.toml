@@ -1,15 +1,17 @@
 [package]
-name = "moonbeam-evm-tracer"
-version = "0.1.0"
+description = "Moonbeam EVM tracer (vendored from Moonbeam, maintained by Gluwa)"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Moonbeam EVM tracer (vendored from Moonbeam, maintained by Gluwa)"
+name = "moonbeam-evm-tracer"
+version = "0.1.0"
 
 [dependencies]
 environmental = { version = "1.1.2", default-features = false }
 
 # Local tracing crates
-evm-tracing-events = { path = "../../primitives/rpc/evm-tracing-events", features = ["evm-tracing"], default-features = false }
+evm-tracing-events = { path = "../../primitives/rpc/evm-tracing-events", features = [
+    "evm-tracing",
+], default-features = false }
 moonbeam-primitives-ext = { path = "../../primitives/ext", default-features = false }
 
 # Substrate

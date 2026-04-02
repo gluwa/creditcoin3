@@ -1,9 +1,9 @@
 [package]
-name = "moonbeam-rpc-primitives-debug"
-version = "0.1.0"
+description = "Moonbeam RPC primitives debug (vendored from Moonbeam, maintained by Gluwa)"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Moonbeam RPC primitives debug (vendored from Moonbeam, maintained by Gluwa)"
+name = "moonbeam-rpc-primitives-debug"
+version = "0.1.0"
 
 [dependencies]
 ethereum = { version = "0.18.2", default-features = false }
@@ -20,6 +20,7 @@ too_many_arguments = "allow"
 
 [features]
 default = ["std"]
+runtime-3900 = []
 std = [
     "ethereum-types/std",
     "ethereum/std",
@@ -28,4 +29,3 @@ std = [
     "sp-runtime/std",
     "sp-std/std",
 ]
-runtime-3900 = []

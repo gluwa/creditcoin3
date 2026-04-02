@@ -1,9 +1,9 @@
 [package]
-name = "moonbeam-rpc-trace"
-version = "0.6.0"
+description = "Moonbeam RPC trace (vendored from Moonbeam, maintained by Gluwa)"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Moonbeam RPC trace (vendored from Moonbeam, maintained by Gluwa)"
+name = "moonbeam-rpc-trace"
+version = "0.6.0"
 
 [lints.clippy]
 uninlined_format_args = "allow"
@@ -32,6 +32,8 @@ sp-blockchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "
 sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
 
 # Frontier
-fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", features = ["rpc-binary-search-estimate"] }
+fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", features = [
+    "rpc-binary-search-estimate",
+] }
 fc-storage = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }
 fp-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }

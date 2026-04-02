@@ -1,52 +1,70 @@
 [package]
-name = "moonbeam-rpc-debug"
-version = "0.1.0"
+description = "Moonbeam RPC debug (vendored from Moonbeam, maintained by Gluwa)"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Moonbeam RPC debug (vendored from Moonbeam, maintained by Gluwa)"
+name = "moonbeam-rpc-debug"
+version = "0.1.0"
 
 [lints.rust]
 redundant_imports = "allow"
 
 [lints.clippy]
-uninlined_format_args = "allow"
-needless_return = "allow"
-needless_borrow = "allow"
 large_enum_variant = "allow"
-map_unit_fn = "allow"
-single_match = "allow"
-unnecessary_map_or = "allow"
-option_map_unit_fn = "allow"
 let_unit_value = "allow"
+map_unit_fn = "allow"
+needless_borrow = "allow"
+needless_return = "allow"
+option_map_unit_fn = "allow"
+single_match = "allow"
+uninlined_format_args = "allow"
+unnecessary_map_or = "allow"
 
 [dependencies]
-log = { version = "0.4" }
 futures = { version = "0.3", features = ["compat"] }
 hex-literal = { version = "0.4" }
 jsonrpsee = { version = "0.24", features = ["macros", "server"] }
+log = { version = "0.4" }
 tokio = { version = "1", features = ["sync", "time"] }
 
 # Local tracing crates
 moonbeam-client-evm-tracing = { path = "../../evm-tracing" }
 moonbeam-rpc-core-debug = { path = "../../rpc-core/debug" }
 moonbeam-rpc-core-types = { path = "../../rpc-core/types" }
-moonbeam-rpc-primitives-debug = { path = "../../../primitives/rpc/debug", features = ["std"] }
+moonbeam-rpc-primitives-debug = { path = "../../../primitives/rpc/debug", features = [
+    "std",
+] }
 
 # Substrate
 sc-client-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
 sc-utils = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
-sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = ["std"] }
-sp-block-builder = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = ["std"] }
+sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = [
+    "std",
+] }
+sp-block-builder = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = [
+    "std",
+] }
 sp-blockchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
-sp-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = ["std"] }
-sp-io = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = ["std"] }
-sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = ["std"] }
-sp-trie = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = ["std"] }
+sp-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = [
+    "std",
+] }
+sp-io = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = [
+    "std",
+] }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = [
+    "std",
+] }
+sp-trie = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = [
+    "std",
+] }
 
 # Frontier
 ethereum = { version = "0.18.2", features = ["std", "with-scale"] }
 ethereum-types = { version = "0.15", features = ["std"] }
 fc-api = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }
-fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", features = ["rpc-binary-search-estimate"] }
+fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", features = [
+    "rpc-binary-search-estimate",
+] }
 fc-storage = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }
-fp-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", features = ["std"] }
+fp-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", features = [
+    "std",
+] }

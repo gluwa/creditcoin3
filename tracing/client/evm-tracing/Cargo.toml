@@ -1,33 +1,39 @@
 [package]
-name = "moonbeam-client-evm-tracing"
-version = "0.1.0"
+description = "Moonbeam client EVM tracing (vendored from Moonbeam, maintained by Gluwa)"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Moonbeam client EVM tracing (vendored from Moonbeam, maintained by Gluwa)"
+name = "moonbeam-client-evm-tracing"
+version = "0.1.0"
 
 [lints.clippy]
-iter_kv_map = "allow"
-uninlined_format_args = "allow"
-needless_borrow = "allow"
-large_enum_variant = "allow"
+clone_on_copy = "allow"
 derivable_impls = "allow"
+into_iter_on_ref = "allow"
+iter_kv_map = "allow"
+large_enum_variant = "allow"
 let_unit_value = "allow"
+needless_borrow = "allow"
+needless_return = "allow"
 new_without_default = "allow"
 redundant_field_names = "allow"
-needless_return = "allow"
-into_iter_on_ref = "allow"
-clone_on_copy = "allow"
+uninlined_format_args = "allow"
 
 [dependencies]
 ethereum-types = { version = "0.15", features = ["std"] }
 hex = { version = "0.4", features = ["serde"] }
-serde = { version = "1", features = ["derive", "std"] }
 log = { version = "0.4" }
+serde = { version = "1", features = ["derive", "std"] }
 
 # Local tracing crates
-evm-tracing-events = { path = "../../primitives/rpc/evm-tracing-events", features = ["std"] }
+evm-tracing-events = { path = "../../primitives/rpc/evm-tracing-events", features = [
+    "std",
+] }
 
 # Substrate
 parity-scale-codec = { version = "3", features = ["std"] }
-sp-std = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = ["std"] }
-sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = ["std"] }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = [
+    "std",
+] }
+sp-std = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = [
+    "std",
+] }

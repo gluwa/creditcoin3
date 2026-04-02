@@ -1,9 +1,9 @@
 [package]
-name = "moonbeam-rpc-core-debug"
-version = "0.1.0"
+description = "Moonbeam RPC core debug (vendored from Moonbeam, maintained by Gluwa)"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Moonbeam RPC core debug (vendored from Moonbeam, maintained by Gluwa)"
+name = "moonbeam-rpc-core-debug"
+version = "0.1.0"
 
 [dependencies]
 ethereum = { version = "0.18.2", features = ["with-scale", "with-serde"] }

@@ -271,23 +271,29 @@ pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verif
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 
 # Tracing (rust-ethereum/evm, same v0.43 API as moonbeam-foundation fork)
-evm = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false, features = ["tracing"] }
-evm-gasometer = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false, features = ["tracing"] }
-evm-runtime = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false, features = ["tracing"] }
+evm = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false, features = [
+    "tracing",
+] }
+evm-gasometer = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false, features = [
+    "tracing",
+] }
+evm-runtime = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false, features = [
+    "tracing",
+] }
 
 creditcoin3-cli-opt = { path = "node/cli-opt", default-features = false }
 
 # Vendored tracing crates (formerly from gluwa/moonbeam, now maintained locally)
 creditcoin3-primitives-ext = { path = "tracing/primitives/ext", package = "moonbeam-primitives-ext", default-features = false }
+evm-tracing-events = { path = "tracing/primitives/rpc/evm-tracing-events", default-features = false }
 moonbeam-client-evm-tracing = { path = "tracing/client/evm-tracing" }
 moonbeam-evm-tracer = { path = "tracing/runtime/evm_tracer", default-features = false }
 moonbeam-rpc-core-debug = { path = "tracing/client/rpc-core/debug" }
 moonbeam-rpc-core-trace = { path = "tracing/client/rpc-core/trace" }
 moonbeam-rpc-core-types = { path = "tracing/client/rpc-core/types" }
 moonbeam-rpc-debug = { path = "tracing/client/rpc/debug" }
-moonbeam-rpc-trace = { path = "tracing/client/rpc/trace" }
-evm-tracing-events = { path = "tracing/primitives/rpc/evm-tracing-events", default-features = false }
 moonbeam-rpc-primitives-debug = { path = "tracing/primitives/rpc/debug", default-features = false }
+moonbeam-rpc-trace = { path = "tracing/client/rpc/trace" }
 
 # Attestation
 attestor = { path = "attestor/attestor" }
