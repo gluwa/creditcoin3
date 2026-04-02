@@ -15,6 +15,8 @@ USED_FORKS=$(find ./ -name Cargo.toml -print0 | xargs --null grep git |
     grep -v github.com/paritytech/polkadot-sdk |
     # frontier depends on this specific version
     grep -v github.com/rust-blockchain/evm |
+    # upstream evm crate (not published to crates.io for v0.x branch)
+    grep -v github.com/rust-ethereum/evm |
     # no_std fork + TS bindings
     grep -v github.com/gluwa/bls-signatures |
     # same version available on crates.io but causes compilation errors
