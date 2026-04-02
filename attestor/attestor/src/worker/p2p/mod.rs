@@ -384,7 +384,8 @@ impl WorkerP2P {
                             &message_id,
                             &propagation_source,
                             libp2p::gossipsub::MessageAcceptance::Reject,
-                        );
+                        )
+                        .ok();
 
                     return Ok(());
                 };
@@ -412,7 +413,8 @@ impl WorkerP2P {
                                 &message_id,
                                 &propagation_source,
                                 libp2p::gossipsub::MessageAcceptance::Accept,
-                            );
+                            )
+                            .ok();
                     }
                     Err(err @ crate::worker::validation::pool::Error::NoSpaceLeft(..)) => {
                         err.log_error(digest);
@@ -423,7 +425,8 @@ impl WorkerP2P {
                                 &message_id,
                                 &propagation_source,
                                 libp2p::gossipsub::MessageAcceptance::Accept,
-                            );
+                            )
+                            .ok();
                     }
                     // CASE 2] IGNORE
                     //
@@ -439,7 +442,8 @@ impl WorkerP2P {
                                 &message_id,
                                 &propagation_source,
                                 libp2p::gossipsub::MessageAcceptance::Ignore,
-                            );
+                            )
+                            .ok();
                     }
                     Err(err @ crate::worker::validation::pool::Error::Equivocation(..)) => {
                         err.log_error(digest);
@@ -451,7 +455,8 @@ impl WorkerP2P {
                                 &message_id,
                                 &propagation_source,
                                 libp2p::gossipsub::MessageAcceptance::Ignore,
-                            );
+                            )
+                            .ok();
                     }
                     // CASE 3] REJECT
                     //
@@ -466,7 +471,8 @@ impl WorkerP2P {
                                 &message_id,
                                 &propagation_source,
                                 libp2p::gossipsub::MessageAcceptance::Reject,
-                            );
+                            )
+                            .ok();
                     }
                 }
             }
@@ -578,7 +584,9 @@ impl WorkerP2P {
                     // is a commitment to an attestor's private key. For an attestor to fail PeerID
                     // verification means it is impersonating another attestor, and should be
                     // considered malicious.
-                    libp2p::swarm::DialError::WrongPeerId { obtained, endpoint, .. } => {
+                    libp2p::swarm::DialError::WrongPeerId {
+                        obtained, endpoint, ..
+                    } => {
                         tracing::error!(%obtained, expected = %endpoint.get_remote_address(), "⛔  Peer ID mismatch");
 
                         if let Some(peer_id) = peer_id {

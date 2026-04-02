@@ -527,6 +527,8 @@ impl pallet_session::Config for Runtime {
     type Keys = opaque::SessionKeys;
     type WeightInfo = ();
     type DisablingStrategy = pallet_session::disabling::UpToLimitDisablingStrategy;
+    type Currency = Balances;
+    type KeyDeposit = ConstU128<0>;
 }
 
 parameter_types! {
@@ -643,12 +645,13 @@ impl pallet_bags_list::Config<VoterBagsListInstance> for Runtime {
     type WeightInfo = ();
     type BagThresholds = BagThresholds;
     type Score = u64;
+    type MaxAutoRebagPerBlock = ConstU32<0>;
 }
 
 impl session_historical::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type FullIdentification = pallet_staking::Exposure<AccountId, Balance>;
-    type FullIdentificationOf = pallet_staking::ExposureOf<Runtime>;
+    type FullIdentificationOf = pallet_staking::DefaultExposureOf<Runtime>;
 }
 
 impl pallet_offences::Config for Runtime {
@@ -888,6 +891,7 @@ impl pallet_nomination_pools::Config for Runtime {
     type MaxMetadataLen = ConstU32<256>;
     type MaxUnbonding = <Self as pallet_staking::Config>::MaxUnlockingChunks;
     type AdminOrigin = frame_system::EnsureRoot<Self::AccountId>;
+    #[allow(deprecated)]
     type StakeAdapter = pallet_nomination_pools::adapter::TransferStake<Self, Staking>;
     type RuntimeFreezeReason = RuntimeFreezeReason;
     type BlockNumberProvider = frame_system::Pallet<Runtime>;
@@ -1181,7 +1185,7 @@ impl_runtime_apis! {
             VERSION
         }
 
-        fn execute_block(block: Block) {
+        fn execute_block(block: <Block as BlockT>::LazyBlock) {
             Executive::execute_block(block)
         }
 
@@ -1218,7 +1222,7 @@ impl_runtime_apis! {
         }
 
         fn check_inherents(
-            block: Block,
+            block: <Block as BlockT>::LazyBlock,
             data: sp_inherents::InherentData,
         ) -> sp_inherents::CheckInherentsResult {
             data.check_extrinsics(&block)

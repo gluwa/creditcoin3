@@ -44,7 +44,17 @@ impl AttestorStatus {
     }
 }
 
-#[derive(Encode, Decode, DecodeWithMemTracking, Default, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    Default,
+    Clone,
+    PartialEq,
+    Eq,
+    Deserialize,
+    serde::Serialize,
+)]
 /// Genesis configuration for attestation pallet
 pub struct AttestationChainConfiguration {
     pub chain_key: ChainKey,
@@ -54,7 +64,19 @@ pub struct AttestationChainConfiguration {
     pub checkpoints: Vec<AttestationCheckpoint>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    Copy,
+    Clone,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    PartialEq,
+    Eq,
+)]
 /// Encoding version to use when processing blocks from source chains
 pub enum ChainEncodingVersion {
     V1 = 1,
@@ -188,7 +210,10 @@ pub struct Attestation<H, AccountId> {
 }
 
 // sr25519::Signature (CryptoBytes) and BLS sig (WrapEncode) are fixed-size crypto types.
-impl<H: DecodeWithMemTracking, AccountId: DecodeWithMemTracking> DecodeWithMemTracking for Attestation<H, AccountId> {}
+impl<H: DecodeWithMemTracking, AccountId: DecodeWithMemTracking> DecodeWithMemTracking
+    for Attestation<H, AccountId>
+{
+}
 
 impl<H, AccountId> Attestation<H, AccountId>
 where

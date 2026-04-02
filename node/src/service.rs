@@ -12,6 +12,7 @@ use sc_service::{error::Error as ServiceError, Configuration, PartialComponents,
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use sp_api::ConstructRuntimeApi;
+use sp_consensus_babe::inherents::BabeCreateInherentDataProviders;
 use sp_consensus_babe::BabeApi;
 use sp_core::U256;
 use substrate_prometheus_endpoint::Registry;
@@ -97,6 +98,8 @@ where
                 Block,
                 FullClient<RuntimeApi>,
                 GrandpaBlockImport<FullClient<RuntimeApi>>,
+                BabeCreateInherentDataProviders<Block>,
+                sc_consensus::LongestChain<FullBackend, Block>,
             >,
             BabeLink<Block>,
         ),
@@ -178,10 +181,6 @@ where
         }
     };
 
-    let babe_config = sc_consensus_babe::configuration(&*client)?;
-    let (babe_block_import, babe_link) =
-        sc_consensus_babe::block_import(babe_config, grandpa_block_import.clone(), client.clone())?;
-
     let transaction_pool = Arc::from(
         sc_transaction_pool::Builder::new(
             task_manager.spawn_essential_handle(),
@@ -192,6 +191,28 @@ where
         .with_prometheus(config.prometheus_registry())
         .build(),
     );
+
+    let babe_config = sc_consensus_babe::configuration(&*client)?;
+    let slot_duration_for_import = babe_config.slot_duration();
+    let (babe_block_import, babe_link) = sc_consensus_babe::block_import(
+        babe_config,
+        grandpa_block_import.clone(),
+        client.clone(),
+        Arc::new(move |_, _| {
+            let slot_duration = slot_duration_for_import;
+            async move {
+                let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+                let slot =
+                    sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+                        *timestamp,
+                        slot_duration,
+                    );
+                Ok((slot, timestamp))
+            }
+        }) as sp_consensus_babe::inherents::BabeCreateInherentDataProviders<Block>,
+        select_chain.clone(),
+        OffchainTransactionPoolFactory::new(transaction_pool.clone()),
+    )?;
 
     let (import_queue, block_import, babe_worker) = build_import_queue(
         eth_config,
@@ -233,7 +254,13 @@ pub fn build_babe_grandpa_import_queue<RuntimeApi>(
     basics: Basics<RuntimeApi>,
     grandpa_block_import: GrandpaBlockImport<FullClient<RuntimeApi>>,
     babe_import: (
-        BabeBlockImport<Block, FullClient<RuntimeApi>, GrandpaBlockImport<FullClient<RuntimeApi>>>,
+        BabeBlockImport<
+            Block,
+            FullClient<RuntimeApi>,
+            GrandpaBlockImport<FullClient<RuntimeApi>>,
+            BabeCreateInherentDataProviders<Block>,
+            sc_consensus::LongestChain<FullBackend, Block>,
+        >,
         BabeLink<Block>,
     ),
 ) -> Result<
@@ -254,42 +281,24 @@ where
         telemetry,
         task_manager,
         client,
-        select_chain,
         config,
-        transaction_pool,
+        ..
     } = basics;
     let (babe_import, babe_link) = babe_import;
-    let slot_duration = babe_link.config().slot_duration();
-    let target_gas_price = eth_config.target_gas_price;
-    let create_inherent_data_providers = move |_parent, ()| async move {
-        let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-
-        let slot =
-            sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-                *timestamp,
-                slot_duration,
-            );
-
-        let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
-            fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
-
-        Ok((slot, timestamp, dynamic_fee))
-    };
 
     let frontier_block_import = FrontierBlockImport::new(babe_import, client.clone());
 
+    let slot_duration = babe_link.config().slot_duration();
     let (import_queue, babe_worker) =
         sc_consensus_babe::import_queue(sc_consensus_babe::ImportQueueParams {
             link: babe_link,
             block_import: frontier_block_import.clone(),
             justification_import: Some(Box::new(grandpa_block_import)),
             client,
-            select_chain,
-            create_inherent_data_providers,
+            slot_duration,
             spawner: &task_manager.spawn_essential_handle(),
             registry: config.prometheus_registry(),
             telemetry: telemetry.as_ref().cloned(),
-            offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
         })?;
 
     Ok((
@@ -305,7 +314,13 @@ pub fn build_manual_seal_import_queue<RuntimeApi>(
     basics: Basics<RuntimeApi>,
     _grandpa_block_import: GrandpaBlockImport<FullClient<RuntimeApi>>,
     _babe_import: (
-        BabeBlockImport<Block, FullClient<RuntimeApi>, GrandpaBlockImport<FullClient<RuntimeApi>>>,
+        BabeBlockImport<
+            Block,
+            FullClient<RuntimeApi>,
+            GrandpaBlockImport<FullClient<RuntimeApi>>,
+            BabeCreateInherentDataProviders<Block>,
+            sc_consensus::LongestChain<FullBackend, Block>,
+        >,
         BabeLink<Block>,
     ),
 ) -> Result<
@@ -514,6 +529,7 @@ where
         let is_authority = role.is_authority();
         let enable_dev_signer = eth_config.enable_dev_signer;
         let max_past_logs = eth_config.max_past_logs;
+        let max_block_range = eth_config.max_block_range;
         let execute_gas_limit_multiplier = eth_config.execute_gas_limit_multiplier;
         let filter_pool = filter_pool.clone();
         let frontier_backend = frontier_backend.clone();
@@ -572,6 +588,7 @@ where
                     block_data_cache: block_data_cache.clone(),
                     filter_pool: filter_pool.clone(),
                     max_past_logs,
+                    max_block_range,
                     fee_history_cache: fee_history_cache.clone(),
                     fee_history_cache_limit,
                     execute_gas_limit_multiplier,
@@ -629,6 +646,7 @@ where
         tx_handler_controller,
         sync_service: sync_service.clone(),
         telemetry: telemetry.as_mut(),
+        tracing_execute_block: None,
     })?;
 
     spawn_frontier_tasks(
@@ -660,7 +678,6 @@ where
                 telemetry.as_ref(),
                 commands_stream,
             )?;
-
 
             return Ok(task_manager);
         }
@@ -761,7 +778,6 @@ where
             .spawn_essential_handle()
             .spawn_blocking("grandpa-voter", None, grandpa_voter);
     }
-
 
     Ok(task_manager)
 }

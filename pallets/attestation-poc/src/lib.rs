@@ -61,7 +61,17 @@ pub mod pallet {
 
     /// The election policy used when electing new attestors after each epoch.
     #[derive(
-        PartialEq, Eq, Copy, Clone, Encode, Decode, DecodeWithMemTracking, RuntimeDebug, TypeInfo, MaxEncodedLen, Default,
+        PartialEq,
+        Eq,
+        Copy,
+        Clone,
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        RuntimeDebug,
+        TypeInfo,
+        MaxEncodedLen,
+        Default,
     )]
     pub enum AttestorElectionPolicy {
         /// Any attestor can be selected.
@@ -78,6 +88,7 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
+        #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
         // TODO: when updating polkadot-sdk we should use `InspectLockableCurrency`

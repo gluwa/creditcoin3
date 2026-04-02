@@ -15,6 +15,9 @@ sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2
 sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
 sp-std = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
 
+[lints.clippy]
+too_many_arguments = "allow"
+
 [features]
 default = ["std"]
 std = [

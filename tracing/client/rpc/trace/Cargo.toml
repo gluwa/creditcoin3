@@ -5,6 +5,9 @@ edition = "2021"
 license = "GPL-3.0-only"
 description = "Moonbeam RPC trace (vendored from Moonbeam, maintained by Gluwa)"
 
+[lints.clippy]
+uninlined_format_args = "allow"
+
 [dependencies]
 ethereum-types = { version = "0.15" }
 futures = { version = "0.3" }

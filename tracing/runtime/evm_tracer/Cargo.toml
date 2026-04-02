@@ -23,6 +23,10 @@ evm = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-f
 evm-gasometer = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false }
 evm-runtime = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false }
 
+[lints.clippy]
+let_unit_value = "allow"
+new_without_default = "allow"
+
 [features]
 default = ["std"]
 std = [
