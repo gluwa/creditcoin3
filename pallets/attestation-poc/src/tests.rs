@@ -3132,9 +3132,6 @@ fn create_checkpoints_from_continuity_proof_with_500_blocks() {
             genesis_attestation.clone(),
         ));
 
-        // Attestation for block 501 with 500 blocks of continuity (blocks 1-500).
-        // With the same span rule as `try_make_checkpoint`, checkpoints land at 100–400:
-        // after last cp at 400, head 501 gives span 101 < 201, so block 500 is not condensed yet.
         let fragment = construct_fragment(
             Some(genesis_attestation.digest()),
             RangeInclusive::new(1, 500),
@@ -3153,7 +3150,7 @@ fn create_checkpoints_from_continuity_proof_with_500_blocks() {
             attestation_500.clone(),
         ));
 
-        let expected_checkpoint_blocks = [100u64, 200, 300, 400];
+        let expected_checkpoint_blocks = [100u64, 200, 300, 400, 500];
         for &block_num in &expected_checkpoint_blocks {
             let digest = Attestation::checkpoints(SUPPORTED_CHAIN_KEY, block_num);
             assert!(
@@ -3161,14 +3158,10 @@ fn create_checkpoints_from_continuity_proof_with_500_blocks() {
                 "Checkpoint at block {block_num} should exist"
             );
         }
-        assert!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 500).is_none(),
-            "Checkpoint at 500 requires a larger head–checkpoint span"
-        );
 
         let last_checkpoint = Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY)
             .expect("Last checkpoint should exist");
-        assert_eq!(last_checkpoint.block_number, 400);
+        assert_eq!(last_checkpoint.block_number, 500);
 
         // Verify checkpoint digests match the continuity proof
         for &block_num in &expected_checkpoint_blocks {
@@ -3350,8 +3343,6 @@ fn create_checkpoints_from_continuity_proof_at_exact_boundary() {
 
         // Attestation at exactly block 300 (a checkpoint boundary) with 299 blocks of continuity
         // (blocks 1-299). The proof has 299 blocks >= 2*checkpoint_width (200), triggering catch-up.
-        // With span `2 * checkpoint_width + 1`, only checkpoint 100 is created from head 300:
-        // 300 - 100 = 200 < 201, so the next boundary (200) waits for a higher head.
         let fragment = construct_fragment(
             Some(genesis_attestation.digest()),
             RangeInclusive::new(1, 299),
@@ -3374,19 +3365,21 @@ fn create_checkpoints_from_continuity_proof_at_exact_boundary() {
             "Checkpoint at block 100 should exist"
         );
 
+        // Checkpoint at 200 should exist (from continuity proof block)
         assert!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 2 * checkpoint_width).is_none(),
-            "Checkpoint at 200 not yet — span from cp at 100 is only 200 < 201"
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 2 * checkpoint_width).is_some(),
+            "Checkpoint at block 200 should exist"
         );
 
+        // Checkpoint at 300 should exist (from continuity proof block)
         assert!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 3 * checkpoint_width).is_none(),
-            "Checkpoint at 300 should not exist yet"
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 3 * checkpoint_width).is_some(),
+            "Checkpoint at block 300 should exist"
         );
 
         let last_checkpoint = Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY)
             .expect("Last checkpoint should exist");
-        assert_eq!(last_checkpoint.block_number, 100);
+        assert_eq!(last_checkpoint.block_number, 300);
     })
 }
 
@@ -3473,21 +3466,16 @@ fn create_checkpoints_from_continuity_proof_with_unaligned_last_attestation() {
             attestation_digest,
         ));
 
-        // Same span rule: after checkpoint 700, head 892 gives span 192 < 201, so 800 is not added.
-        for &block_num in &[300u64, 400, 500, 600, 700] {
+        for &block_num in &[300u64, 400, 500, 600, 700, 800] {
             assert!(
                 Attestation::checkpoints(SUPPORTED_CHAIN_KEY, block_num).is_some(),
                 "Checkpoint at block {block_num} should exist"
             );
         }
-        assert!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 800).is_none(),
-            "Checkpoint at 800 requires larger head span from last checkpoint"
-        );
 
         let last_cp =
             Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY).expect("should have last checkpoint");
-        assert_eq!(last_cp.block_number, 700);
+        assert_eq!(last_cp.block_number, 800);
 
         // CheckpointingQueues should be cleared — all queued attestations were consumed
         assert!(
