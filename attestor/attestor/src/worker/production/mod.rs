@@ -341,7 +341,8 @@ impl WorkerAttestationProduction {
                     //
                     // Catchup to the new target height and update the attestation interval.
                     self.stream_attestation
-                        .note_attestation_interval_change(interval);
+                        .note_attestation_interval_change(interval)
+                        .await;
 
                     // 2. Attestation pool
                     //
