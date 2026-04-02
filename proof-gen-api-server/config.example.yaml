@@ -6,7 +6,7 @@
 # Without --config / PROOF_GEN_CONFIG_FILE: legacy single-chain mode (CLI/env only).
 # Supported chain key defaults to CHAIN_KEY (default 2); ETH RPC from --eth-rpc-url / ETH_RPC_URL.
 # Multi-chain allowlists and per-chain eth_rpc_url require this YAML (or equivalent env wiring).
-
+---
 bind_host: "0.0.0.0"
 bind_port: 3100
 # cc3_key: "..."  # optional; can use CC3_KEY env instead
