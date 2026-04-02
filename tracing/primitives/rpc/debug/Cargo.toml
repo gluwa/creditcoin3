@@ -1,0 +1,28 @@
+[package]
+name = "moonbeam-rpc-primitives-debug"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Moonbeam RPC primitives debug (vendored from Moonbeam, maintained by Gluwa)"
+
+[dependencies]
+ethereum = { version = "0.18.2", default-features = false }
+ethereum-types = { version = "0.15", default-features = false }
+
+# Substrate
+parity-scale-codec = { version = "3", default-features = false }
+sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-std = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "ethereum-types/std",
+    "ethereum/std",
+    "parity-scale-codec/std",
+    "sp-api/std",
+    "sp-runtime/std",
+    "sp-std/std",
+]
+runtime-3900 = []

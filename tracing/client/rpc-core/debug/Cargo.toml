@@ -1,0 +1,19 @@
+[package]
+name = "moonbeam-rpc-core-debug"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Moonbeam RPC core debug (vendored from Moonbeam, maintained by Gluwa)"
+
+[dependencies]
+ethereum = { version = "0.18.2", features = ["with-scale", "with-serde"] }
+ethereum-types = { version = "0.15", features = ["std"] }
+jsonrpsee = { version = "0.24", features = ["macros", "server"] }
+serde = { version = "1", features = ["derive"] }
+
+# Local tracing crates
+moonbeam-client-evm-tracing = { path = "../../evm-tracing" }
+moonbeam-rpc-core-types = { path = "../types" }
+
+# Frontier
+fc-rpc-core = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }

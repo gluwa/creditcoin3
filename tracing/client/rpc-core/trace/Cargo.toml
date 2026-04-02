@@ -1,0 +1,15 @@
+[package]
+name = "moonbeam-rpc-core-trace"
+version = "0.6.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Moonbeam RPC core trace (vendored from Moonbeam, maintained by Gluwa)"
+
+[dependencies]
+ethereum-types = { version = "0.15", features = ["std"] }
+jsonrpsee = { version = "0.24", features = ["macros", "server"] }
+serde = { version = "1", features = ["derive"] }
+
+# Local tracing crates
+moonbeam-client-evm-tracing = { path = "../../evm-tracing" }
+moonbeam-rpc-core-types = { path = "../types" }

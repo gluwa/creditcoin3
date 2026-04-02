@@ -1,0 +1,24 @@
+[package]
+name = "moonbeam-primitives-ext"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Moonbeam primitives ext (vendored from Moonbeam, maintained by Gluwa)"
+
+[dependencies]
+# Local tracing crates
+evm-tracing-events = { path = "../rpc/evm-tracing-events", default-features = false }
+
+# Substrate
+parity-scale-codec = { version = "3", default-features = false }
+sp-runtime-interface = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-std = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "evm-tracing-events/std",
+    "parity-scale-codec/std",
+    "sp-runtime-interface/std",
+    "sp-std/std",
+]

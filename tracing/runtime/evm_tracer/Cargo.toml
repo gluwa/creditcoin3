@@ -1,0 +1,40 @@
+[package]
+name = "moonbeam-evm-tracer"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Moonbeam EVM tracer (vendored from Moonbeam, maintained by Gluwa)"
+
+[dependencies]
+environmental = { version = "1.1.2", default-features = false }
+
+# Local tracing crates
+evm-tracing-events = { path = "../../primitives/rpc/evm-tracing-events", features = ["evm-tracing"], default-features = false }
+moonbeam-primitives-ext = { path = "../../primitives/ext", default-features = false }
+
+# Substrate
+parity-scale-codec = { version = "3", default-features = false }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-std = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+
+# Ethereum
+ethereum-types = { version = "0.15", default-features = false }
+evm = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false }
+evm-gasometer = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false }
+evm-runtime = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "environmental/std",
+    "ethereum-types/std",
+    "evm-gasometer/std",
+    "evm-runtime/std",
+    "evm-tracing-events/std",
+    "evm/std",
+    "evm/with-serde",
+    "moonbeam-primitives-ext/std",
+    "parity-scale-codec/std",
+    "sp-runtime/std",
+    "sp-std/std",
+]

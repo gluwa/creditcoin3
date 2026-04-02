@@ -1,0 +1,20 @@
+[package]
+name = "moonbeam-client-evm-tracing"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Moonbeam client EVM tracing (vendored from Moonbeam, maintained by Gluwa)"
+
+[dependencies]
+ethereum-types = { version = "0.15", features = ["std"] }
+hex = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive", "std"] }
+log = { version = "0.4" }
+
+# Local tracing crates
+evm-tracing-events = { path = "../../primitives/rpc/evm-tracing-events", features = ["std"] }
+
+# Substrate
+parity-scale-codec = { version = "3", features = ["std"] }
+sp-std = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = ["std"] }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", features = ["std"] }

@@ -1,0 +1,34 @@
+[package]
+name = "moonbeam-rpc-trace"
+version = "0.6.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Moonbeam RPC trace (vendored from Moonbeam, maintained by Gluwa)"
+
+[dependencies]
+ethereum-types = { version = "0.15" }
+futures = { version = "0.3" }
+jsonrpsee = { version = "0.24", features = ["macros", "server"] }
+log = { version = "0.4" }
+substrate-prometheus-endpoint = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+tokio = { version = "1", features = ["sync", "time"] }
+tracing = { version = "0.1" }
+
+# Local tracing crates
+moonbeam-client-evm-tracing = { path = "../../evm-tracing" }
+moonbeam-rpc-core-trace = { path = "../../rpc-core/trace" }
+moonbeam-rpc-core-types = { path = "../../rpc-core/types" }
+moonbeam-rpc-primitives-debug = { path = "../../../primitives/rpc/debug" }
+
+# Substrate
+sc-client-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-utils = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-block-builder = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-blockchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+
+# Frontier
+fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", features = ["rpc-binary-search-estimate"] }
+fc-storage = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }
+fp-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }
