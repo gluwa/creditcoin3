@@ -134,6 +134,7 @@ alloy = { version = "0.11", features = [
 
 # Starknet dependencies removed - no longer needed
 
+cumulus-primitives-proof-size-hostfunction = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
 frame-benchmarking = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
 frame-benchmarking-cli = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
 frame-election-provider-support = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }

@@ -2991,6 +2991,7 @@ dependencies = [
  "clap",
  "creditcoin3-cli-opt",
  "creditcoin3-runtime",
+ "cumulus-primitives-proof-size-hostfunction",
  "fc-api",
  "fc-cli",
  "fc-consensus",
