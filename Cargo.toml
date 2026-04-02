@@ -340,5 +340,3 @@ inherits = "release"
 # https://doc.rust-lang.org/rustc/linker-plugin-lto.html
 codegen-units = 1
 lto = "fat"
-
-
