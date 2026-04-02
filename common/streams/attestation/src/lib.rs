@@ -174,6 +174,14 @@ impl StreamAttestation {
         &mut self,
         interval_new: std::num::NonZero<attestor_primitives::Height>,
     ) {
+        // max catchup is aligned to the attestation interval to simplify attestation generation
+        // logic, otherwise several edge cases can occur around the alignment of new block roots.
+        let div = self.max_catchup.get() / interval_new.get();
+        self.max_catchup = interval_new.saturating_mul(
+            std::num::NonZero::new(div)
+                .unwrap_or(std::num::NonZero::<attestor_primitives::Height>::MIN),
+        );
+
         self.attestation_interval = interval_new;
     }
 
