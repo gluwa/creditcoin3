@@ -1,3 +1,4 @@
+---
 rules:
   - id: node-binary-changed
     label: 'Node binary source changed'

@@ -1,7 +1,7 @@
 ---
 name: Check Testnet Snapshot
 
-on:
+"on":
   schedule:
     # at 08:30 on every 14th day-of-month
     - cron: "30 8 */14 * *"
