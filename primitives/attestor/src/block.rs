@@ -139,7 +139,6 @@ impl MaybeCreatedFromEmpty for Block {
     Hash,
     Encode,
     Decode,
-   
     MaxEncodedLen,
     TypeInfo,
     Default,

@@ -8,6 +8,9 @@ version = "0.6.0"
 [lints.clippy]
 uninlined_format_args = "allow"
 
+[lints.clippy]
+uninlined_format_args = "allow"
+
 [dependencies]
 ethereum-types = { version = "0.15" }
 futures = { version = "0.3" }

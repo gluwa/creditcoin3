@@ -19,6 +19,20 @@ single_match = "allow"
 uninlined_format_args = "allow"
 unnecessary_map_or = "allow"
 
+[lints.rust]
+redundant_imports = "allow"
+
+[lints.clippy]
+uninlined_format_args = "allow"
+needless_return = "allow"
+needless_borrow = "allow"
+large_enum_variant = "allow"
+map_unit_fn = "allow"
+single_match = "allow"
+unnecessary_map_or = "allow"
+option_map_unit_fn = "allow"
+let_unit_value = "allow"
+
 [dependencies]
 futures = { version = "0.3", features = ["compat"] }
 hex-literal = { version = "0.4" }
