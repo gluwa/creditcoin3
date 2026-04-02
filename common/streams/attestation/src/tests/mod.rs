@@ -434,3 +434,31 @@ async fn attestation_chain_reversion(
     assert_eq!(attestation.header_number(), 2);
     assert!(attestation.continuity_proof.is_empty());
 }
+
+#[rstest::rstest]
+#[tokio::test]
+async fn simulation_failure(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(1))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+
+    roots.send_ready();
+    roots.send_ready();
+    roots.send_ready();
+    let _ = poll!(stream_attestation);
+
+    stream_attestation.note_attestation_interval_change(nonzero!(3));
+
+    roots.send_ready();
+    roots.send_ready();
+    let _ = poll!(stream_attestation);
+
+    stream_attestation.note_attestation_interval_change(nonzero!(2));
+
+    tip.send_ready();
+    tip.send_ready();
+    tip.send_ready();
+    let _ = poll!(stream_attestation);
+}
