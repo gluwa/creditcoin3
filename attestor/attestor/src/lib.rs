@@ -540,19 +540,12 @@ async fn wait_for_endpoints(
 }
 
 fn get_available_parallelism() -> std::num::NonZeroUsize {
-    let parallelism_used =
-        common::constants::WORKER_COUNT + common::constants::MAX_CONCURRENT_RPC_CALLS.get() + 1;
-    match std::thread::available_parallelism()
+    std::thread::available_parallelism()
         .expect("Failed to retrieve available parallelism")
         .get()
-        .checked_sub(parallelism_used)
-    {
-        Some(parallelism) if parallelism > 0 => std::num::NonZeroUsize::new(parallelism).unwrap(),
-        _ => {
-            tracing::warn!("Running the attestor code with insufficient threads!");
-            std::num::NonZeroUsize::MIN
-        }
-    }
+        .checked_sub(common::constants::WORKER_COUNT + 1)
+        .and_then(std::num::NonZeroUsize::new)
+        .unwrap_or(std::num::NonZeroUsize::MIN)
 }
 
 async fn register_bls(
