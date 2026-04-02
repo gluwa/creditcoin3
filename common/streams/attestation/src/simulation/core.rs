@@ -69,7 +69,8 @@ impl Simulation {
                 }
                 SimulationStep::IntervalChange(interval_new) => {
                     // Simulates a change in the attestation interval
-                    self.sut.note_attestation_interval_change(interval_new);
+                    tokio_test::block_on(self.sut.note_attestation_interval_change(interval_new));
+
                     self.attestation_interval = interval_new;
                 }
                 SimulationStep::ChainReversion(reversion) => {
