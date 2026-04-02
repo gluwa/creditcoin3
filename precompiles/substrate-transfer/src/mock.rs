@@ -28,6 +28,7 @@ pub type Block = frame_system::mocking::MockBlockU32<Runtime>;
     Clone,
     Encode,
     Decode,
+    parity_scale_codec::DecodeWithMemTracking,
     Debug,
     MaxEncodedLen,
     Serialize,
@@ -139,6 +140,7 @@ impl frame_system::Config for Runtime {
     type SS58Prefix = SS58Prefix;
     type OnSetCode = ();
     type MaxConsumers = frame_support::traits::ConstU32<16>;
+    type ExtensionsWeightInfo = ();
 }
 
 parameter_types! {
@@ -166,7 +168,8 @@ impl pallet_balances::Config for Runtime {
     type ExistentialDeposit = ExistentialDeposit;
     type AccountStore = System;
     type WeightInfo = ();
-    type RuntimeHoldReason = ();
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type DoneSlashHandler = ();
     type FreezeIdentifier = ();
     type MaxFreezes = ();
     type RuntimeFreezeReason = RuntimeFreezeReason;
@@ -206,7 +209,6 @@ impl pallet_evm::Config for Runtime {
     type WithdrawOrigin = EnsureAddressNever<AccountId>;
     type AddressMapping = IdentityAddressMapping;
     type Currency = Balances;
-    type RuntimeEvent = RuntimeEvent;
     type Runner = pallet_evm::runner::stack::Runner<Self>;
     type PrecompilesType = Precompiles<Self>;
     type PrecompilesValue = PrecompilesValue;
@@ -221,6 +223,8 @@ impl pallet_evm::Config for Runtime {
     type WeightInfo = pallet_evm::weights::SubstrateWeight<Runtime>;
     type AccountProvider = FrameSystemAccountProvider<Runtime>;
     type GasLimitStorageGrowthRatio = GasLimitStorageGrowthRatio;
+    type CreateOriginFilter = ();
+    type CreateInnerOriginFilter = ();
 }
 
 // Configure a mock runtime to test the pallet.
@@ -252,6 +256,7 @@ impl ExtBuilder {
 
         pallet_balances::GenesisConfig::<Runtime> {
             balances: self.balances,
+            dev_accounts: None,
         }
         .assimilate_storage(&mut t)
         .expect("Pallet balances storage can be assimilated");

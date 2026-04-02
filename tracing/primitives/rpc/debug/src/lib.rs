@@ -15,6 +15,7 @@
 // along with Moonbeam.  If not, see <http://www.gnu.org/licenses/>.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(unused_imports)]
 
 use ethereum::{AuthorizationList, LegacyTransaction, TransactionV2, TransactionV3};
 use ethereum_types::{H160, H256, U256};

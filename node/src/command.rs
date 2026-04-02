@@ -199,17 +199,18 @@ pub fn run() -> sc_cli::Result<()> {
                     let (client, backend, _, _, _) = service::new_chain_ops(&mut config, &cli.eth)?;
                     let db = backend.expose_db();
                     let storage = backend.expose_storage();
-                    cmd.run(config, client, db, storage)
+                    cmd.run(config, client, db, storage, None)
                 }),
                 BenchmarkCmd::Overhead(cmd) => runner.sync_run(|mut config| {
                     let (client, _, _, _, _) = service::new_chain_ops(&mut config, &cli.eth)?;
                     let ext_builder = RemarkBuilder::new(client.clone());
                     cmd.run(
-                        config,
+                        config.chain_spec.name().to_string(),
                         client,
                         inherent_benchmark_data()?,
                         Vec::new(),
                         &ext_builder,
+                        false,
                     )
                 }),
                 BenchmarkCmd::Extrinsic(cmd) => runner.sync_run(|mut config| {

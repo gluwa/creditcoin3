@@ -49,8 +49,10 @@ where
     telemetry: Option<TelemetryHandle>,
     task_manager: &'a TaskManager,
     client: Arc<FullClient<RuntimeApi>>,
+    #[allow(dead_code)]
     select_chain: FullSelectChain,
     config: &'a Configuration,
+    #[allow(dead_code)]
     transaction_pool: Arc<FullPool<FullClient<RuntimeApi>>>,
 }
 
@@ -250,7 +252,7 @@ where
 
 /// Build the import queue for the runtime (babe + grandpa).
 pub fn build_babe_grandpa_import_queue<RuntimeApi>(
-    eth_config: &EthConfiguration,
+    _eth_config: &EthConfiguration,
     basics: Basics<RuntimeApi>,
     grandpa_block_import: GrandpaBlockImport<FullClient<RuntimeApi>>,
     babe_import: (

@@ -729,6 +729,7 @@ mod tests {
         SStore,
     }
 
+    #[allow(clippy::enum_variant_names)]
     enum TestGasometerEvent {
         RecordCost,
         RecordRefund,
@@ -1177,6 +1178,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn call_log_event() {
         let mut listener = Listener::default();
         listener.with_log = true;
@@ -1193,6 +1195,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn call_multiple_logs_event() {
         let mut listener = Listener::default();
         listener.with_log = true;

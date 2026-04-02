@@ -4,6 +4,7 @@
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
 #![recursion_limit = "256"]
 #![allow(clippy::new_without_default, clippy::or_fun_call)]
+extern crate alloc;
 
 // Make the WASM binary available.
 #[cfg(feature = "std")]
@@ -837,6 +838,8 @@ impl pallet_identity::Config for Runtime {
     type MaxUsernameLength = ConstU32<32>;
     type UsernameDeposit = ConstU128<0>;
     type UsernameGracePeriod = ConstU32<{ 30 * DAYS }>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = ();
 }
 
 parameter_types! {
@@ -1659,7 +1662,7 @@ impl_runtime_apis! {
             Vec<frame_benchmarking::BenchmarkList>,
             Vec<frame_support::traits::StorageInfo>,
         ) {
-            use frame_benchmarking::{baseline, Benchmarking, BenchmarkList};
+            use frame_benchmarking::{baseline, BenchmarkList};
             use frame_support::traits::StorageInfoTrait;
 
             use baseline::Pallet as BaselineBench;
@@ -1675,8 +1678,8 @@ impl_runtime_apis! {
         #[allow(non_local_definitions)]
         fn dispatch_benchmark(
             config: frame_benchmarking::BenchmarkConfig
-        ) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
-            use frame_benchmarking::{baseline, Benchmarking, BenchmarkBatch, add_benchmark};
+        ) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, alloc::string::String> {
+            use frame_benchmarking::{baseline, BenchmarkBatch, add_benchmark};
             use frame_support::traits::TrackedStorageKey;
 
             use pallet_evm::Pallet as PalletEvmBench;

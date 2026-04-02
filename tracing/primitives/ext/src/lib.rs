@@ -23,6 +23,7 @@
 //! - Host functions will decode the input and emit an event `with` environmental.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(unused_imports)]
 use sp_runtime_interface::{
     pass_by::{AllocateAndReturnByCodec, PassFatPointerAndRead},
     runtime_interface,
