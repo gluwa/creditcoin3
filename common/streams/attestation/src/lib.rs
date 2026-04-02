@@ -27,6 +27,17 @@ pub struct Config {
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
 }
 
+type ConfigIncomplete = ConfigBuilder<
+    cc_client::signer::CC3Signer,
+    u64,
+    bls_signatures::PrivateKey,
+    (),
+    (),
+    std::num::NonZero<u64>,
+    stream_util::AttestationInfo,
+    std::num::NonZero<u64>,
+>;
+
 /// A generic attestation stream. Different source chains can be configured by passing in different
 /// data streams for retrieving the chain tip ([`Config::stream_tip`]) and chain roots
 /// ([`Config::stream_roots`]). Just make sure that the streams you are using have the same
@@ -170,19 +181,25 @@ impl StreamAttestation {
     ///
     /// This does not reset local state but might cause the next attestation to be produced with a
     /// larger than expected continuity proof.
-    pub fn note_attestation_interval_change(
+    pub async fn note_attestation_interval_change(
         &mut self,
         interval_new: std::num::NonZero<attestor_primitives::Height>,
     ) {
-        // max catchup is aligned to the attestation interval to simplify attestation generation
-        // logic, otherwise several edge cases can occur around the alignment of new block roots.
-        let div = self.max_catchup.get() / interval_new.get();
-        self.max_catchup = interval_new.saturating_mul(
-            std::num::NonZero::new(div)
-                .unwrap_or(std::num::NonZero::<attestor_primitives::Height>::MIN),
-        );
+        use stream_util::ChainData as _;
 
-        self.attestation_interval = interval_new;
+        let next = stream_util::AttestationInfo {
+            height: self.attestation_prev.height + 1,
+            ..self.attestation_prev
+        };
+
+        let config = self
+            .config()
+            .with_stream_roots(self.stream_roots.reset(next).await)
+            .with_stream_tip(self.stream_tip.reset(next).await)
+            .with_attestation_interval(interval_new)
+            .build();
+
+        *self = Self::new(config)
     }
 
     /// Lets the [`StreamAttestation`] know that the chain was reverted to a previous known
@@ -290,6 +307,16 @@ impl StreamAttestation {
             signature_bls,
             continuity_proof,
         }
+    }
+
+    fn config(&self) -> ConfigIncomplete {
+        ConfigBuilder::new()
+            .with_signer(self.signer.clone())
+            .with_chain_key(self.chain_key)
+            .with_bls_key(self.bls_key)
+            .with_attestation_interval(self.attestation_interval)
+            .with_attestation_prev(self.attestation_prev)
+            .with_max_catchup(self.max_catchup)
     }
 
     /// Checks if the root cache contains all blocks up to the chain tip or the max catchup. If
@@ -424,15 +451,11 @@ impl futures::Stream for StreamAttestation {
 
 impl stream_util::ChainData<Attestation> for StreamAttestation {
     async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
-        let config = ConfigBuilder::new()
-            .with_signer(self.signer.clone())
-            .with_chain_key(self.chain_key)
-            .with_bls_key(self.bls_key)
+        let config = self
+            .config()
             .with_stream_roots(self.stream_roots.reset(info).await)
             .with_stream_tip(self.stream_tip.reset(info).await)
-            .with_attestation_interval(self.attestation_interval)
             .with_attestation_prev(info)
-            .with_max_catchup(self.max_catchup)
             .build();
 
         Self::new(config)
