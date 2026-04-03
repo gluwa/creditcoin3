@@ -55,9 +55,17 @@ export class AttestationWatcher extends BaseWatcher {
       console.log(`✅ Connected to Creditcoin3 (${chain})`);
       this.resetReconnectAttempts();
 
+      // Subscribe to finalized heads only, matching the proof-gen API which
+      // waits for finalization before generating proofs.
       this.unsubscribe =
-        (await this.api.query.system.events((events: unknown) => {
-          this.handleEvents(events);
+        (await this.api.rpc.chain.subscribeFinalizedHeads(async (header) => {
+          try {
+            const blockHash = header.hash;
+            const events = await this.api!.query.system.events.at(blockHash);
+            this.handleEvents(events as unknown);
+          } catch (error) {
+            console.error("Error fetching finalized block events:", error);
+          }
         })) as unknown as () => void;
     } catch (error) {
       console.error("Failed to connect to Creditcoin3:", error);
