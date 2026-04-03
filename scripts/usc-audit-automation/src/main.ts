@@ -23,7 +23,12 @@ import {
   getBlockNumberByHash,
 } from "./eth.ts";
 import { queryAttestation } from "./graphql.ts";
-import { createSlackPayload, sendSlackMessage } from "./slack.ts";
+import {
+  BuiltReport,
+  createSlackPayloads,
+  sendSummarySlackMessage,
+  sendThreadSlackMessage,
+} from "./slack.ts";
 
 const MAX_BLOCK_DIFF = 40;
 const BSC_MAX_BLOCK_DIFF = 499;
@@ -48,18 +53,21 @@ function buildReport(
   checkpointRangeOk: boolean,
   graphqlAtt: { headerNumber: string; root: string; digest: string } | null,
   graphqlCp: { lastCheckpointHeaderNumber: string } | null,
-): string {
-  const lines: string[] = [];
-  lines.push(`[${chainLabel} - ${chainId}] ⬛ ${chainLabel}`);
-  lines.push(
+): BuiltReport {
+  const details: string[] = [];
+  const title = `🚦 Attestation chain liveness [${chainLabel} - ${chainId}]`;
+
+  details.push(
     (blockDiffOk ? "✅" : "❌") +
       ` Attestation block heights diff: ${formatNum(ethBlock - attBlock)} (${
         formatNum(ethBlock)
       }|${formatNum(attBlock)})`,
   );
+
   const headerHashMatch = headerHashOk && blockByHash != null &&
     blockByHash === attBlock;
-  lines.push(
+
+  details.push(
     (headerHashOk ? "✅" : "❌") +
       ` Attestation header hash matches correct Ethereum block${
         headerHashMatch
@@ -69,7 +77,8 @@ function buildReport(
           })`
       }`,
   );
-  lines.push(
+
+  details.push(
     (checkpointRangeOk ? "✅" : "❌") +
       ` Last checkpoint creation is ${
         checkpointRangeOk ? "within" : "outside"
@@ -79,15 +88,18 @@ function buildReport(
           : `: (${formatNum(ethBlock)}|${formatNum(checkpointBlock)})`
       }`,
   );
+
   if (graphqlAtt && graphqlCp) {
     const fmt = (s: string) => formatNum(Number(s) || 0);
+
     const cpMatch =
       fmt(graphqlCp.lastCheckpointHeaderNumber) === formatNum(checkpointBlock);
     const attMatch = fmt(graphqlAtt.headerNumber) === formatNum(attBlock);
     const hasRoot = graphqlAtt.root && /^0x[0-9a-fA-F]+$/.test(graphqlAtt.root);
     const hasDigest = graphqlAtt.digest &&
       /^0x[0-9a-fA-F]+$/.test(graphqlAtt.digest);
-    lines.push(
+
+    details.push(
       (cpMatch ? "✅" : "❌") +
         ` Last checkpoint number found in GraphQL${
           cpMatch
@@ -97,7 +109,8 @@ function buildReport(
             })`
         }`,
     );
-    lines.push(
+
+    details.push(
       (attMatch ? "✅" : "❌") +
         ` Last attestation header number found in GraphQL${
           attMatch
@@ -105,22 +118,36 @@ function buildReport(
             : `: (${fmt(graphqlAtt.headerNumber)}|${formatNum(attBlock)})`
         }`,
     );
-    lines.push(
+
+    details.push(
       (hasRoot ? "✅" : "❌") +
         ` Last attestation root found in GraphQL${
           hasRoot ? "" : `: (${graphqlAtt.root || "empty"})`
         }`,
     );
-    lines.push(
+
+    details.push(
       (hasDigest ? "✅" : "❌") +
         ` Last attestation digest found in GraphQL${
           hasDigest ? "" : `: (${graphqlAtt.digest || "empty"})`
         }`,
     );
   } else {
-    lines.push("❌ GraphQL data not found for attestation/checkpoint");
+    details.push("❌ GraphQL data not found for attestation/checkpoint");
   }
-  return lines.join("\n");
+
+  const ok = details.every((line) => line.startsWith("✅"));
+  const summary = `${title}\n${
+    ok
+      ? "✅ All liveness checks passed"
+      : "❌ One or more liveness checks failed"
+  }`;
+
+  return {
+    ok,
+    summary,
+    details: details.join("\n"),
+  };
 }
 
 async function runChecksForChain(
@@ -129,33 +156,37 @@ async function runChecksForChain(
   chainKey: number,
   chainName: string,
   ethRpcUrl: string,
-): Promise<{ report: string; hasErrors: boolean }> {
+): Promise<BuiltReport> {
   const chainLabel = `${config.uscNetworkName} - ${chainName}`;
+  const title = `🚦 Attestation chain liveness [${chainLabel} - ${chainId}]`;
 
   const lastDigest = await getLastDigest(chainKey);
   if (!lastDigest) {
     return {
-      report:
-        `[${chainLabel}] ❌ No last digest for chain key ${chainKey}. Skipping.`,
-      hasErrors: true,
-    };
+      ok: false,
+      summary:
+        `${title}\n❌ No last digest for chain key ${chainKey}. Skipping.`,
+      details: "",
+    } satisfies BuiltReport;
   }
 
   const attestation = await getAttestationByDigest(chainKey, lastDigest);
   if (!attestation) {
     return {
-      report:
-        `[${chainLabel}] ❌ Could not fetch attestation for digest. Skipping.`,
-      hasErrors: true,
-    };
+      ok: false,
+      summary:
+        `${title}\n❌ Could not fetch attestation for lastDigest: ${lastDigest}. Skipping.`,
+      details: "",
+    } satisfies BuiltReport;
   }
 
   const lastCheckpoint = await getLastCheckpoint(chainKey);
   if (!lastCheckpoint) {
     return {
-      report:
-        `[${chainLabel}] ❌ No last checkpoint for chain key ${chainKey}. Skipping.`,
-      hasErrors: true,
+      ok: false,
+      summary:
+        `${title}\n❌ No last checkpoint for chain key ${chainKey}. Skipping.`,
+      details: "",
     };
   }
 
@@ -200,15 +231,6 @@ async function runChecksForChain(
     lastCheckpoint.blockNumber,
   );
 
-  const att = graphqlResult.attestation;
-  const cp = graphqlResult.checkpoint;
-  const graphqlCpMatch = att != null && cp != null &&
-    cp.lastCheckpointHeaderNumber === String(lastCheckpoint.blockNumber);
-  const graphqlAttMatch = att != null && att.headerNumber === String(attBlock);
-  const graphqlHasRoot = att?.root != null && /^0x[0-9a-fA-F]+$/.test(att.root);
-  const graphqlHasDigest = att?.digest != null &&
-    /^0x[0-9a-fA-F]+$/.test(att.digest);
-
   const report = buildReport(
     chainLabel,
     chainId,
@@ -223,9 +245,7 @@ async function runChecksForChain(
     graphqlResult.checkpoint,
   );
 
-  const hasErrors = !blockDiffOk || !headerHashOk || !checkpointRangeOk ||
-    !graphqlCpMatch || !graphqlAttMatch || !graphqlHasRoot || !graphqlHasDigest;
-  return { report, hasErrors };
+  return report;
 }
 
 async function main(): Promise<void> {
@@ -237,7 +257,7 @@ async function main(): Promise<void> {
   if (config.verbose) {
     console.log("Config:", {
       ...config,
-      slackWebhookUrl: config.slackWebhookUrl ? "[REDACTED]" : undefined,
+      slackBotToken: config.slackBotToken ? "[REDACTED]" : undefined,
     });
   }
 
@@ -257,15 +277,20 @@ async function main(): Promise<void> {
     );
   }
 
-  const reports: string[] = [];
-  let anyErrors = false;
+  const reports: BuiltReport[] = [];
+  const title = `🚦 Attestation chain liveness`;
 
   for (const ethRpc of config.ethRpc) {
     const healthy = await checkRpcHealthy(ethRpc.url);
     if (!healthy) {
       console.warn(`⚠️  RPC unhealthy for chain ${ethRpc.chainId}, skipping`);
-      reports.push(`[Chain ${ethRpc.chainId}] ❌ RPC unhealthy - skipped`);
-      anyErrors = true;
+      const report = {
+        ok: false,
+        summary:
+          `${title} [Chain ${ethRpc.chainId}] ❌ RPC unhealthy - skipped`,
+        details: "",
+      } satisfies BuiltReport;
+      reports.push(report);
       continue;
     }
 
@@ -278,15 +303,18 @@ async function main(): Promise<void> {
       console.warn(
         `⚠️  No chain_key for chain ${ethRpc.chainId}, add chainKey to config`,
       );
-      reports.push(
-        `[Chain ${ethRpc.chainId}] ❌ No chain_key - add to config`,
-      );
-      anyErrors = true;
+      const report = {
+        ok: false,
+        summary:
+          `${title} [Chain ${ethRpc.chainId}] ❌ No chain_key - add to config`,
+        details: "",
+      } satisfies BuiltReport;
+      reports.push(report);
       continue;
     }
 
     const chainName = ethRpc.chainName ?? getChainName(ethRpc.chainId);
-    const { report, hasErrors } = await runChecksForChain(
+    const report = await runChecksForChain(
       config,
       ethRpc.chainId,
       chainKey,
@@ -294,30 +322,46 @@ async function main(): Promise<void> {
       ethRpc.url,
     );
     reports.push(report);
-    if (hasErrors) anyErrors = true;
   }
 
   if (reports.length === 0) {
     if (supportedChains.length === 0) {
-      reports.push(
-        "No supported chains found. Add ethRpc with chainKey to config.",
-      );
+      const report = {
+        ok: false,
+        summary:
+          `${title}: No supported chains found. Add ethRpc with chainKey to config.`,
+        details: "",
+      } satisfies BuiltReport;
+      reports.push(report);
     }
   }
 
-  const fullReport = reports.join("\n\n");
-  console.log("\n" + fullReport);
+  for (const report of reports) {
+    console.log("\n" + JSON.stringify(report, null, 2));
 
-  if (!config.noSlack && config.slackWebhookUrl) {
-    const payload = createSlackPayload(
-      fullReport,
-      anyErrors,
-      config.slackAlertGroup,
-    );
-    await sendSlackMessage(config.slackWebhookUrl, payload);
-    console.log("\n✅ Report sent to Slack");
-  } else if (config.noSlack) {
-    console.log("\n📋 Slack disabled (--no-slack); report printed above");
+    if (!config.noSlack && config.slackBotToken && config.slackChannelId) {
+      const { summaryPayload, detailsPayload } = createSlackPayloads(
+        report,
+        config.slackAlertGroup,
+      );
+      const thread_ts = await sendSummarySlackMessage(
+        config.slackBotToken,
+        config.slackChannelId,
+        summaryPayload,
+      );
+      if (detailsPayload.text != "") {
+        // If details message isn't empty, send it
+        await sendThreadSlackMessage(
+          config.slackBotToken,
+          config.slackChannelId,
+          thread_ts,
+          detailsPayload,
+        );
+      }
+      console.log("\n✅ Report sent to Slack");
+    } else if (config.noSlack) {
+      console.log("\n📋 Slack disabled (--no-slack); report printed above");
+    }
   }
 
   disconnect();

@@ -18,7 +18,8 @@ export interface AuditConfig {
   uscNetworkName: string;
   graphqlUrl: string;
   ethRpc: EthRpcConfig[];
-  slackWebhookUrl?: string;
+  slackBotToken?: string;
+  slackChannelId?: string;
   slackAlertGroup?: string;
   noSlack: boolean;
   verbose: boolean;
@@ -102,16 +103,24 @@ export function loadConfig(): AuditConfig {
     };
   });
 
-  let slackWebhookUrl: string | undefined;
+  let slackBotToken: string | undefined;
+  let slackChannelId: string | undefined;
   let slackAlertGroup: string | undefined;
   if (!noSlack) {
-    slackWebhookUrl = Deno.env.get("USC_SLACK_WEBHOOK_URL") ??
-      (obj.slackWebhookUrl as string) ?? undefined;
+    slackBotToken = Deno.env.get("USC_NOTI_SLACK_BOT_TOKEN") ??
+      (obj.slackBotToken as string) ?? undefined;
+    slackChannelId = Deno.env.get("USC_NOTI_SLACK_CHANNEL_ID") ??
+      (obj.slackChannelId as string) ?? undefined;
     slackAlertGroup = Deno.env.get("USC_SLACK_ALERT_GROUP") ??
       (obj.slackAlertGroup as string) ?? undefined;
-    if (!slackWebhookUrl) {
+    if (!slackBotToken) {
       throw new Error(
-        "slackWebhookUrl required in config (or use --no-slack for local report)",
+        "slackBotToken required in config (or use --no-slack for local report)",
+      );
+    }
+    if (!slackChannelId) {
+      throw new Error(
+        "slackChannelId required in config (or use --no-slack for local report)",
       );
     }
   }
@@ -121,7 +130,8 @@ export function loadConfig(): AuditConfig {
     uscNetworkName,
     graphqlUrl,
     ethRpc,
-    slackWebhookUrl,
+    slackBotToken,
+    slackChannelId,
     slackAlertGroup,
     noSlack,
     verbose,
@@ -152,12 +162,13 @@ CONFIG FILE FORMAT (JSON):
       { "chainId": 11155111, "chainKey": 2, "url": "wss://ethereum-sepolia.publicnode.com" },
       { "chainId": 97, "chainKey": 3, "url": "wss://bsc-testnet.publicnode.com" }
     ],
-    "slackWebhookUrl": "https://hooks.slack.com/...",
+    "slackBotToken": "xxxx-xxxxxxxxxx-xx..."
+    "slackChannelId": "C09DC0AAD...",
     "slackAlertGroup": "U123456"
   }
 
   chainKey: optional; if omitted, discovered from USC storage by chainId
-  slackWebhookUrl, slackAlertGroup: optional; required only when not using --no-slack
+  slackBotToken, slackChannelId, slackAlertGroup: optional; required only when not using --no-slack
 
 ENV OVERRIDES (for CI):
   SEPOLIA_RPC_URL   Override ethRpc url for chainId 11155111
