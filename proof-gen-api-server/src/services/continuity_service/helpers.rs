@@ -68,11 +68,9 @@ impl ContinuityService {
             );
             bounds
         } else {
-            return Err(ServiceError::Internal {
-                message: format!(
-                    "no boundaries found in attestation or checkpoint cache for range {min_query}..{max_query}"
-                ),
-            });
+            return Err(self
+                .boundary_lookup_failed_error(chain, min_query, max_query)
+                .await);
         };
 
         // Step 2: Build directly from eth provider (archiver or chain).
