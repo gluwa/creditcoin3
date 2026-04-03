@@ -14,7 +14,12 @@ export class AttestationWatcher extends BaseWatcher {
   private api: ApiPromise | null = null;
   private provider: WsProvider | null = null;
   private unsubscribe: (() => void) | null = null;
-  private lastFinalizedBlock = 0;
+  // null = "never successfully processed a block" (uninitialized sentinel).
+  // Using null instead of 0 separates "not started" from "last success was N"
+  // so a failed first callback leaves lastFinalizedBlock as null, causing the
+  // next callback to retry from the same startBlock rather than jumping to the
+  // new tip and silently skipping all blocks in between.
+  private lastFinalizedBlock: number | null = null;
   // Serializes async subscription callbacks so that concurrent invocations
   // cannot race on lastFinalizedBlock.  Each callback chains onto this promise
   // and the chain advances only after the previous callback fully completes.
@@ -66,7 +71,7 @@ export class AttestationWatcher extends BaseWatcher {
       // GRANDPA may finalize blocks in batches: subscribeFinalizedHeads only
       // emits the tip of each batch, so we backfill any skipped blocks to
       // avoid missing attestation events.
-      this.lastFinalizedBlock = 0;
+      this.lastFinalizedBlock = null;
       this.callbackQueue = Promise.resolve();
       this.unsubscribe =
         (await this.api.rpc.chain.subscribeFinalizedHeads((header) => {
@@ -79,7 +84,10 @@ export class AttestationWatcher extends BaseWatcher {
             if (!api) return;
 
             const currentBlock = header.number.toNumber();
-            const startBlock = this.lastFinalizedBlock > 0
+            // null → first callback ever (or after reconnect): start at
+            // currentBlock.  A non-null value means we have at least one
+            // success, so resume from the block after the last success.
+            const startBlock = this.lastFinalizedBlock !== null
               ? this.lastFinalizedBlock + 1
               : currentBlock;
 
@@ -183,7 +191,7 @@ export class AttestationWatcher extends BaseWatcher {
   }
 
   protected async cleanup(): Promise<void> {
-    this.lastFinalizedBlock = 0;
+    this.lastFinalizedBlock = null;
     this.callbackQueue = Promise.resolve();
     if (this.unsubscribe) {
       try {
