@@ -358,8 +358,7 @@ impl WorkerAttestationProduction {
                     //
                     // Update quorum validation to expect the new target height and attestation
                     // interval.
-                    self.sender_validation
-                        .note_attestation_interval_change(interval);
+                    self.sender_validation.note_attestation_interval_change();
 
                     // 3. Production
                     //

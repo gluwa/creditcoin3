@@ -103,8 +103,6 @@
 //!         .with_max_size(std::num::NonZeroUsize::new(100).unwrap())
 //!         .with_attestors(attestors)
 //!         .with_quorum(std::num::NonZeroUsize::new(3).unwrap())
-//!         .with_attestation_interval(std::num::NonZeroU64::new(1).unwrap())
-//!         .with_start_height(0u64)
 //!         .with_metrics(metrics)
 //!         .build(),
 //! );
@@ -160,20 +158,6 @@ pub struct Config {
     #[specify_later]
     quorum: std::num::NonZeroUsize,
 
-    /// Interval at which attestations are being produced. This value is fetched from on-chain
-    /// storage unless it is overridden in [attestation config].
-    ///
-    /// [attestation config]: crate::attestation
-    #[specify_later]
-    attestation_interval: std::num::NonZero<common::types::Height>,
-
-    /// Starting height at which attestation are produced. This value is fetched from on-chain
-    /// storage unless it is overridden in [attestation config].
-    ///
-    /// [attestation config]: crate::attestation
-    #[specify_later]
-    start_height: common::types::Height,
-
     /// Latest execution chain digest, used to validate the tail prev digest of new attestations.
     #[specify_later]
     start_attestation: Option<stream::util::AttestationInfo>,
@@ -211,16 +195,10 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
 
     tracing::info!("📮 Starting attestor pool");
     tracing::info!(max_size = %config.max_size, "📮  with");
-    tracing::info!(height = %config.start_height, "📮  with");
-    tracing::info!(interval = %config.attestation_interval, "📮  with");
     tracing::info!(quorum = %config.quorum, "📮  with");
 
     let attestors = ValidateAttestor::new(config.attestors);
-    let quorum = ValidateQuorum::new(
-        config.quorum,
-        config.attestation_interval,
-        config.start_height,
-    );
+    let quorum = ValidateQuorum::new(config.quorum);
 
     let pool = AttestationPool::new(
         quorum,
@@ -1132,10 +1110,7 @@ impl AttestationPoolForks {
         Ok(())
     }
 
-    fn note_attestation_interval_change(
-        &mut self,
-        interval_new: std::num::NonZero<common::types::Height>,
-    ) {
+    fn note_attestation_interval_change(&mut self) {
         tracing::debug!("Updating forks");
 
         self.forks_by_digest.clear();
@@ -1151,9 +1126,6 @@ impl AttestationPoolForks {
         self.votes_invalid.clear();
 
         self.quorums_by_height.clear();
-
-        self.validate_quorum
-            .note_attestation_interval_change(interval_new);
     }
 
     fn note_attestation_chain_reversion(&mut self, info: stream::util::AttestationInfo) {
@@ -1373,19 +1345,12 @@ impl AttestationPoolSender {
     //
     // Clear the attestation pool and update the target height and locally tracked attestation
     // interval.
-    #[tracing::instrument(
-        skip_all,
-        fields(interval = interval_new),
-        level = "debug"
-    )]
-    pub fn note_attestation_interval_change(
-        &mut self,
-        interval_new: std::num::NonZero<common::types::Height>,
-    ) {
+    #[tracing::instrument(skip_all, level = "debug")]
+    pub fn note_attestation_interval_change(&mut self) {
         if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
             inner.digest_local = None;
             // Updating the inner pool
-            inner.forks.note_attestation_interval_change(interval_new);
+            inner.forks.note_attestation_interval_change();
 
             // Updating quorums
             inner.valid.note_attestation_interval_change();
@@ -1609,14 +1574,14 @@ impl futures::Stream for AttestationPoolReceiver {
 struct AttestationVote {
     attestation: common::types::Attestation,
     votes: Vec<common::types::Attestation>,
-    signers: std::collections::HashSet<attestor_primitives::AttestorId>,
+    signers: std::collections::BTreeSet<attestor_primitives::AttestorId>,
 }
 
 impl AttestationVote {
     fn new(attestation: common::types::Attestation) -> Self {
         Self {
             votes: vec![attestation.clone()],
-            signers: std::collections::HashSet::from([attestation.attestor.clone()]),
+            signers: std::collections::BTreeSet::from([attestation.attestor.clone()]),
             attestation,
         }
     }
@@ -1694,21 +1659,11 @@ pub struct Permit(stream::util::AttestationInfo);
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ValidateQuorum {
     target_quorum: std::num::NonZeroUsize,
-    attestation_interval: std::num::NonZero<common::types::Height>,
-    start_height: common::types::Height,
 }
 
 impl ValidateQuorum {
-    pub const fn new(
-        target_quorum: std::num::NonZeroUsize,
-        attestation_interval: std::num::NonZero<common::types::Height>,
-        start_height: common::types::Height,
-    ) -> Self {
-        Self {
-            target_quorum,
-            attestation_interval,
-            start_height,
-        }
+    pub const fn new(target_quorum: std::num::NonZeroUsize) -> Self {
+        Self { target_quorum }
     }
 
     #[tracing::instrument(skip_all, fields(target_quorum = %self.target_quorum))]
@@ -1721,14 +1676,6 @@ impl ValidateQuorum {
 
         attestation.signers.len() >= self.target_quorum.into()
     }
-
-    fn note_attestation_interval_change(
-        &mut self,
-        interval_new: std::num::NonZero<common::types::Height>,
-    ) {
-        tracing::debug!("Updating quorum validation");
-        self.attestation_interval = interval_new;
-    }
 }
 
 // ----------------------------------- [ Attestor Validation ] --------------------------------- //
@@ -1739,7 +1686,7 @@ impl ValidateQuorum {
 /// source is denied.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ValidateAttestor {
-    attestor_set: std::collections::HashSet<attestor_primitives::AttestorId>,
+    attestor_set: std::collections::BTreeSet<attestor_primitives::AttestorId>,
 }
 
 impl ValidateAttestor {
@@ -1756,7 +1703,7 @@ impl ValidateAttestor {
         }
     }
 
-    pub fn attestors(&self) -> &std::collections::HashSet<attestor_primitives::AttestorId> {
+    pub fn attestors(&self) -> &std::collections::BTreeSet<attestor_primitives::AttestorId> {
         &self.attestor_set
     }
 }
@@ -1865,7 +1812,7 @@ pub mod fixtures {
         iter.fold(
             AttestationVote {
                 votes: vec![attestation(attestor.clone())],
-                signers: std::collections::HashSet::from([attestor.clone()]),
+                signers: std::collections::BTreeSet::from([attestor.clone()]),
                 attestation: attestation(attestor),
             },
             |mut vote, attestor| {
@@ -1905,8 +1852,6 @@ pub mod fixtures {
     pub fn validate_quorum(#[default(2)] vote_count: usize) -> ValidateQuorum {
         ValidateQuorum {
             target_quorum: vote_count.try_into().unwrap(),
-            start_height: common::types::Height::MIN,
-            attestation_interval: std::num::NonZero::<common::types::Height>::MIN,
         }
     }
 
@@ -1958,12 +1903,10 @@ pub mod fixtures {
             .with_max_size(std::num::NonZeroUsize::new(capacity).unwrap())
             .with_attestors(attestors)
             .with_quorum(validate_quorum.target_quorum)
-            .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
             .with_start_attestation(Some(stream::util::AttestationInfo {
                 digest: DIGEST_0,
                 height: common::types::Height::MIN,
             }))
-            .with_start_height(common::types::Height::MIN)
             .with_metrics(metrics)
             .build()
     }
