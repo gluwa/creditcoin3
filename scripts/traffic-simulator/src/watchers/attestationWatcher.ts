@@ -79,13 +79,16 @@ export class AttestationWatcher extends BaseWatcher {
             if (!api) return;
 
             const currentBlock = header.number.toNumber();
-            const startBlock =
-              this.lastFinalizedBlock > 0
-                ? this.lastFinalizedBlock + 1
-                : currentBlock;
+            const startBlock = this.lastFinalizedBlock > 0
+              ? this.lastFinalizedBlock + 1
+              : currentBlock;
 
             let lastSuccess = this.lastFinalizedBlock;
-            for (let blockNum = startBlock; blockNum <= currentBlock; blockNum++) {
+            for (
+              let blockNum = startBlock;
+              blockNum <= currentBlock;
+              blockNum++
+            ) {
               try {
                 const blockHash = await api.rpc.chain.getBlockHash(blockNum);
                 const events = await api.query.system.events.at(blockHash);
