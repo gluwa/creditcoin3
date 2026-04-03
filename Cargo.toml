@@ -251,8 +251,8 @@ pallet-evm-precompile-sha3fips = { git = "https://github.com/gluwa/frontier_2", 
 pallet-evm-precompile-simple = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", default-features = false }
 pallet-evm-test-vector-support = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }
 pallet-hotfix-sufficients = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", default-features = false }
-subxt = { version = "0.40", features = ["reconnecting-rpc-client"] }
-subxt-signer = "0.40"
+subxt = { version = "0.44.3", features = ["reconnecting-rpc-client"] }
+subxt-signer = "0.44.3"
 
 # Frontier Utility
 precompile-utils = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", default-features = false }

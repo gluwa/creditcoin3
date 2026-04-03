@@ -117,12 +117,22 @@ jobs:
           name: subkey
           path: ~/.cargo/bin/subkey
 
+      - name: Resolve subxt-cli version from workspace Cargo.toml
+        if: ${{ inputs.build-subxt }}
+        id: subxt_version
+        run: |
+          set -euo pipefail
+          ver=$(grep -E '^subxt = ' Cargo.toml | sed -E 's/.*version = "([^"]+)".*/\1/' | head -1)
+          ver="${ver#=}"
+          echo "Resolved subxt / subxt-cli version: $ver"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
       - name: Install subxt
         if: ${{ inputs.build-subxt }}
         uses: gluwa/cargo@dev
         with:
           command: install
-          args: subxt-cli@0.37.0 --locked
+          args: subxt-cli@${{ steps.subxt_version.outputs.version }} --locked
 
       - name: Upload subxt binary
         if: ${{ inputs.build-subxt }}

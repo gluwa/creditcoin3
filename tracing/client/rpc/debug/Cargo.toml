@@ -6,12 +6,12 @@ name = "moonbeam-rpc-debug"
 version = "0.1.0"
 
 [lints.rust]
+map_unit_fn = "allow"
 redundant_imports = "allow"
 
 [lints.clippy]
 large_enum_variant = "allow"
 let_unit_value = "allow"
-map_unit_fn = "allow"
 needless_borrow = "allow"
 needless_return = "allow"
 option_map_unit_fn = "allow"

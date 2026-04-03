@@ -172,7 +172,7 @@ impl Client {
     pub fn extract_events<'a>(
         chain_filter: &'a [ChainKey],
         events: &'a subxt::events::Events<subxt::SubstrateConfig>,
-    ) -> impl Iterator<Item = Result<CcEvent, subxt::ext::subxt_core::Error>> + 'a {
+    ) -> impl Iterator<Item = Result<CcEvent, subxt::Error>> + 'a {
         events.iter().filter_map(move |event| match event {
             Ok(event) => {
                 let span = tracing::debug_span!(

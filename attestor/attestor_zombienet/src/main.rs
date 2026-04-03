@@ -333,7 +333,7 @@ async fn main() -> anyhow::Result<()> {
         futures_register.spawn(async move {
             let query = cc_client::cc3::storage()
                 .attestation()
-                .attestors(args.chain_key, &account_id);
+                .attestors(args.chain_key, account_id.clone());
             let attestor = cc3
                 .api()
                 .storage()
