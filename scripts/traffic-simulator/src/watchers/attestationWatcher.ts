@@ -14,6 +14,7 @@ export class AttestationWatcher extends BaseWatcher {
   private api: ApiPromise | null = null;
   private provider: WsProvider | null = null;
   private unsubscribe: (() => void) | null = null;
+  private lastFinalizedBlock = 0;
   private wsUrl: string;
   private chainKey: number;
   private onAttested: AttestationCallback;
@@ -57,15 +58,36 @@ export class AttestationWatcher extends BaseWatcher {
 
       // Subscribe to finalized heads only, matching the proof-gen API which
       // waits for finalization before generating proofs.
+      //
+      // GRANDPA may finalize blocks in batches: subscribeFinalizedHeads only
+      // emits the tip of each batch, so we backfill any skipped blocks to
+      // avoid missing attestation events.
+      this.lastFinalizedBlock = 0;
       this.unsubscribe =
         (await this.api.rpc.chain.subscribeFinalizedHeads(async (header) => {
-          try {
-            const blockHash = header.hash;
-            const events = await this.api!.query.system.events.at(blockHash);
-            this.handleEvents(events as unknown);
-          } catch (error) {
-            console.error("Error fetching finalized block events:", error);
+          const api = this.api;
+          if (!api) return;
+
+          const currentBlock = header.number.toNumber();
+          const startBlock =
+            this.lastFinalizedBlock > 0
+              ? this.lastFinalizedBlock + 1
+              : currentBlock;
+
+          for (let blockNum = startBlock; blockNum <= currentBlock; blockNum++) {
+            try {
+              const blockHash = await api.rpc.chain.getBlockHash(blockNum);
+              const events = await api.query.system.events.at(blockHash);
+              this.handleEvents(events as unknown);
+            } catch (error) {
+              console.error(
+                `Error fetching finalized block events for block ${blockNum}:`,
+                error,
+              );
+            }
           }
+
+          this.lastFinalizedBlock = currentBlock;
         })) as unknown as () => void;
     } catch (error) {
       console.error("Failed to connect to Creditcoin3:", error);
@@ -140,6 +162,7 @@ export class AttestationWatcher extends BaseWatcher {
   }
 
   protected async cleanup(): Promise<void> {
+    this.lastFinalizedBlock = 0;
     if (this.unsubscribe) {
       try {
         this.unsubscribe();
