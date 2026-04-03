@@ -23,7 +23,7 @@ eth = { workspace = true, default-features = true }
 
 # Creditcoin
 attestor-primitives = { workspace = true }
-bip39 = { version = "2.2.0", features = ["rand", "serde", "zeroize"] }
+bip39 = { workspace = true }
 bls-signatures = { workspace = true }
 builder = { workspace = true }
 cc-client = { workspace = true }

@@ -26,16 +26,20 @@ subxt-signer = { workspace = true }
 
 # Creditcoin deps
 attestor-primitives = { workspace = true }
+bls-signatures = { workspace = true }
+bls12_381 = "0.8.0"
 supported-chains-primitives = { workspace = true }
 vrf = { workspace = true }
 
 # workspace deps
+bip39 = { workspace = true }
 serde = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 usc-abi-encoding = { workspace = true, optional = true }
+zeroize = { workspace = true }
 
 [features]
 default = ["std"]

@@ -57,6 +57,7 @@ async-stream = { version = "0.3.6" }
 async-trait = { version = "0.1.42" }
 axum = { version = "0.8" }
 bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
+bip39 = { version = "2.2.0", features = ["rand", "serde", "zeroize"] }
 clap = { version = "4.5.3", features = ["derive", "env"] }
 derive_more = "0.99.17"
 env_logger = "0.11"

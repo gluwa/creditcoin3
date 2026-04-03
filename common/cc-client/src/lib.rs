@@ -44,7 +44,8 @@ use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
 pub mod cc3 {}
 
 pub mod attestation;
-pub mod signer;
+pub mod attestor;
+pub mod secret;
 
 pub type Randomness = [u8; 32];
 
@@ -84,7 +85,6 @@ pub enum Error {
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
 /// - `keypair`: Creditcoin3 keypair
 pub struct Client {
-    signer: signer::CC3Signer,
     rpc: RpcClient,
     api: OnlineClient<SubstrateConfig>,
     legacy: LegacyRpcMethods<SubstrateConfig>,
@@ -103,13 +103,11 @@ impl Client {
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
     pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
-        let signer = signer::CC3Signer::new(key)?;
         let rpc = RpcClient::from_insecure_url(url.clone().into()).await?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
 
         Ok(Self {
-            signer,
             rpc,
             api,
             legacy,
@@ -152,11 +150,6 @@ impl Client {
     #[must_use]
     pub fn runtime_api() -> cc3::runtime_apis::RuntimeApi {
         cc3::apis()
-    }
-
-    #[must_use]
-    pub fn sign(&self, message: &[u8]) -> Signature {
-        self.signer.sign(message)
     }
 
     pub async fn get_chain_key(
@@ -298,8 +291,13 @@ impl Client {
     }
 
     /// Check the clients membership in the attestor pallet
-    pub async fn check_attestors_membership(&self, chain_key: u64) -> Result<bool, Error> {
-        let storage_query = cc3::storage().attestation().active_attestors(chain_key);
+    pub async fn check_attestors_membership(
+        &self,
+        attestor: &attestor::Attestor,
+    ) -> Result<bool, Error> {
+        let storage_query = cc3::storage()
+            .attestation()
+            .active_attestors(attestor.chain_key());
 
         let result = self
             .api()
@@ -310,17 +308,20 @@ impl Client {
             .await?;
 
         match result {
-            Some(result) => Ok(result.contains(&self.signer.account_id())),
+            Some(result) => Ok(result.contains(&attestor.account_id())),
             None => Ok(false),
         }
     }
 
     /// Check if the attestor is registered (has a public key)
     /// note: this function early exits if the attestor is not registered
-    pub async fn check_attestor_key_is_registered(&self, chain_key: u64) -> Result<bool, Error> {
+    pub async fn check_attestor_key_is_registered(
+        &self,
+        attestor: &attestor::Attestor,
+    ) -> Result<bool, Error> {
         let storage_query = cc3::storage()
             .attestation()
-            .attestors(chain_key, self.signer.account_id());
+            .attestors(attestor.chain_key(), attestor.account_id());
 
         let result = self
             .api()
@@ -339,11 +340,11 @@ impl Client {
     /// Check the attestor status
     pub async fn get_attestor_status(
         &self,
-        chain_key: u64,
+        attestor: &attestor::Attestor,
     ) -> Result<Option<AttestorStatus>, Error> {
         let storage_query = cc3::storage()
             .attestation()
-            .attestors(chain_key, self.signer.account_id());
+            .attestors(attestor.chain_key(), attestor.account_id());
 
         let result = self
             .api()
@@ -371,13 +372,12 @@ impl Client {
     /// Register to the attestation pallet
     pub async fn attestor_register(
         &self,
-        chain_key: u64,
-        attestor_id: AccountId32,
+        attestor: &attestor::Attestor,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
         let tx = cc3::tx()
             .attestation()
-            .register_attestor(chain_key, attestor_id);
+            .register_attestor(attestor.chain_key(), attestor.account_id());
 
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()
@@ -390,7 +390,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signer.signing_keypair, params)
+            .create_signed(&tx, &attestor.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
@@ -407,11 +407,12 @@ impl Client {
 
     pub async fn attestor_chill(
         &self,
-        chain_key: u64,
-        attestor_id: AccountId32,
+        attestor: &attestor::Attestor,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
-        let tx = cc3::tx().attestation().chill(chain_key, attestor_id);
+        let tx = cc3::tx()
+            .attestation()
+            .chill(attestor.chain_key(), attestor.account_id());
 
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()
@@ -424,7 +425,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signer.signing_keypair, params)
+            .create_signed(&tx, &attestor.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
@@ -441,13 +442,12 @@ impl Client {
 
     pub async fn attestor_unregister(
         &self,
-        chain_key: u64,
-        attestor_id: AccountId32,
+        attestor: &attestor::Attestor,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
         let tx = cc3::tx()
             .attestation()
-            .unregister_attestor(chain_key, attestor_id);
+            .unregister_attestor(attestor.chain_key(), attestor.account_id());
 
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()
@@ -460,7 +460,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signer.signing_keypair, params)
+            .create_signed(&tx, &attestor.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
@@ -475,20 +475,17 @@ impl Client {
         utils::handle_tx(tx_progress, "Unregister Attestor").await
     }
 
-    pub async fn start_attesting(
-        &self,
-        chain_key: ChainKey,
-        bls_public_key: BlsPublicKey,
-        proof_of_possession: BlsSignature,
-    ) -> Result<(), Error> {
-        let tx = cc3::tx()
-            .attestation()
-            .attest(chain_key, bls_public_key, proof_of_possession);
+    pub async fn start_attesting(&self, attestor: &attestor::Attestor) -> Result<(), Error> {
+        let tx = cc3::tx().attestation().attest(
+            attestor.chain_key(),
+            attestor.bls_pubkey(),
+            attestor.bls_proof_of_possession(),
+        );
 
         let tx_progress = self
             .api()
             .tx()
-            .sign_and_submit_then_watch_default(&tx, &self.signer.signing_keypair)
+            .sign_and_submit_then_watch_default(&tx, &attestor.signing_keypair)
             .await
             .map_err(|e| {
                 if utils::is_fee_error(&e) {
@@ -505,16 +502,18 @@ impl Client {
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_vrf_production(
         &self,
-        chain_key: ChainKey,
+        attestor: &attestor::Attestor,
         header_number: u64,
         randomness: Randomness,
         epoch_index: u64,
     ) -> Result<ProofOfInclusion, Error> {
         // Get committee set size
-        let target_sample_size = self.target_sample_size(chain_key).await?;
+        let target_sample_size = self.target_sample_size(attestor.chain_key()).await?;
 
         // Get attestor working set size
-        let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
+        let committee_set_size = self
+            .get_attestor_active_set_size(attestor.chain_key())
+            .await?;
 
         info!("Target set size: {target_sample_size}, committee set size: {committee_set_size}",);
 
@@ -522,8 +521,8 @@ impl Client {
             committee_set_size as u64,
             u64::from(target_sample_size),
             &randomness,
-            &self.signer.pair,
-            &self.attestor_id(),
+            &attestor.pair,
+            &attestor.attestor_id(),
             header_number,
             epoch_index,
         )?;
@@ -533,7 +532,7 @@ impl Client {
 
     pub async fn sign_vrf_submission(
         &self,
-        chain_key: ChainKey,
+        attestor: &attestor::Attestor,
         header_number: u64,
         randomness: Randomness,
         epoch_index: u64,
@@ -542,7 +541,9 @@ impl Client {
         let target_sample_size = 3;
 
         // Get attestor working set size
-        let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
+        let committee_set_size = self
+            .get_attestor_active_set_size(attestor.chain_key())
+            .await?;
 
         info!("committee set size: {committee_set_size}",);
 
@@ -550,18 +551,13 @@ impl Client {
             committee_set_size as u64,
             target_sample_size,
             &randomness,
-            &self.signer.pair,
-            &self.attestor_id(),
+            &attestor.pair,
+            &attestor.attestor_id(),
             header_number,
             epoch_index,
         )?;
 
         Ok(proof_of_inclusion)
-    }
-
-    #[must_use]
-    pub fn attestor_id(&self) -> AttestorId {
-        self.signer.attestor_id()
     }
 
     pub async fn chain_attestation_interval(
@@ -808,13 +804,14 @@ impl Client {
 
     pub async fn transfer(
         &self,
-        target: AccountId32,
+        from: &attestor::Attestor,
+        to: AccountId32,
         amount: u128,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
         let tx = cc3::tx()
             .balances()
-            .transfer_allow_death(subxt::utils::MultiAddress::Id(target), amount);
+            .transfer_allow_death(subxt::utils::MultiAddress::Id(to), amount);
 
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()
@@ -827,7 +824,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signer.signing_keypair, params)
+            .create_signed(&tx, &from.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
@@ -844,13 +841,14 @@ impl Client {
 
     pub async fn set_balance(
         &self,
-        target: AccountId32,
+        sudo: &attestor::Attestor,
+        to: AccountId32,
         amount: u128,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
         let tx = cc3::tx().sudo().sudo(cc3::Call::Balances(
             cc3::balances::Call::force_set_balance {
-                who: subxt::utils::MultiAddress::Id(target),
+                who: subxt::utils::MultiAddress::Id(to),
                 new_free: amount,
             },
         ));
@@ -866,7 +864,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signer.signing_keypair, params)
+            .create_signed(&tx, &sudo.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
@@ -893,11 +891,11 @@ impl Client {
         Ok(account_info.map_or(0, |info| info.data.free))
     }
 
-    pub async fn get_account_nonce(&self) -> Result<u64, Error> {
+    pub async fn get_account_nonce(&self, attestor: &attestor::Attestor) -> Result<u64, Error> {
         let nonce = self
             .api()
             .tx()
-            .account_nonce(&self.signer.account_id())
+            .account_nonce(&attestor.account_id())
             .await?;
 
         Ok(nonce)
@@ -923,12 +921,15 @@ impl Client {
 
     pub async fn set_attestation_chain_genesis_block_number(
         &self,
+        sudo: &attestor::Attestor,
         account_nonce: Option<u64>,
-        chain_key: ChainKey,
         genesis_block_number: u64,
     ) -> Result<(), Error> {
         let call = cc3::runtime_types::creditcoin3_runtime::RuntimeCall::Attestation(
-            cc3::runtime_types::pallet_attestation_poc::pallet::Call::set_attestation_chain_genesis_block_number { chain_key, genesis_block_number }
+            cc3::runtime_types::pallet_attestation_poc::pallet::Call::set_attestation_chain_genesis_block_number {
+                chain_key: sudo.chain_key(),
+                genesis_block_number
+            }
         );
 
         let tx = cc3::tx().sudo().sudo(call);
@@ -944,7 +945,7 @@ impl Client {
         let ext = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signer.signing_keypair, params)
+            .create_signed(&tx, &sudo.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await?;
