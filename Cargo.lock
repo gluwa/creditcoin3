@@ -14686,7 +14686,7 @@ dependencies = [
 
 [[package]]
 name = "stream"
-version = "3.104.0"
+version = "3.105.0"
 dependencies = [
  "stream_attestation",
  "stream_eth",
