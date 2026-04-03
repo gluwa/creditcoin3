@@ -19,8 +19,6 @@ USED_FORKS=$(find ./ -name Cargo.toml -print0 | xargs --null grep git |
     grep -v github.com/gluwa/bls-signatures |
     # same version available on crates.io but causes compilation errors
     grep -v github.com/dataphract/acid_io |
-    # moombeam fork
-    grep -v https://github.com/gluwa/moonbeam |
     # frontier fork
     grep -v https://github.com/gluwa/frontier_2
 # whitelist end
