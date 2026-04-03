@@ -7,7 +7,7 @@ import '@polkadot/api-base/types/storage';
 
 import type { ApiTypes, AugmentedQuery, QueryableStorageEntry } from '@polkadot/api-base/types';
 import type { Data } from '@polkadot/types';
-import type { Bytes, Null, Option, Struct, U256, U8aFixed, Vec, bool, u128, u32, u64 } from '@polkadot/types-codec';
+import type { Bytes, Null, Option, U256, U8aFixed, Vec, bool, u128, u32, u64 } from '@polkadot/types-codec';
 import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
@@ -16,11 +16,13 @@ import type {
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     EthereumBlock,
-    EthereumReceiptReceiptV3,
-    EthereumTransactionTransactionV2,
+    EthereumReceiptReceiptV4,
+    EthereumTransactionTransactionV3,
     FpRpcTransactionStatus,
     FrameSupportDispatchPerDispatchClassWeight,
-    FrameSupportTokensMiscIdAmount,
+    FrameSupportTokensFungibleImbalance,
+    FrameSupportTokensMiscIdAmountRuntimeFreezeReason,
+    FrameSupportTokensMiscIdAmountRuntimeHoldReason,
     FrameSystemAccountInfo,
     FrameSystemCodeUpgradeAuthorization,
     FrameSystemEventRecord,
@@ -39,8 +41,10 @@ import type {
     PalletGrandpaStoredPendingChange,
     PalletGrandpaStoredState,
     PalletIdentityAuthorityProperties,
+    PalletIdentityProvider,
     PalletIdentityRegistrarInfo,
     PalletIdentityRegistration,
+    PalletIdentityUsernameInformation,
     PalletImOnlineSr25519AppSr25519Public,
     PalletNominationPoolsBondedPoolInner,
     PalletNominationPoolsClaimPermission,
@@ -71,6 +75,7 @@ import type {
     SpStakingExposurePage,
     SpStakingOffenceOffenceDetails,
     SpStakingPagedExposureMetadata,
+    SpWeightsWeightV2Weight,
     SupportedChainsPrimitivesSupportedChain,
 } from '@polkadot/types/lookup';
 import type { Observable } from '@polkadot/types/types';
@@ -491,7 +496,9 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             freezes: AugmentedQuery<
                 ApiType,
-                (arg: AccountId32 | string | Uint8Array) => Observable<Vec<FrameSupportTokensMiscIdAmount>>,
+                (
+                    arg: AccountId32 | string | Uint8Array,
+                ) => Observable<Vec<FrameSupportTokensMiscIdAmountRuntimeFreezeReason>>,
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
@@ -500,14 +507,9 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             holds: AugmentedQuery<
                 ApiType,
-                (arg: AccountId32 | string | Uint8Array) => Observable<
-                    Vec<
-                        {
-                            readonly id: Null;
-                            readonly amount: u128;
-                        } & Struct
-                    >
-                >,
+                (
+                    arg: AccountId32 | string | Uint8Array,
+                ) => Observable<Vec<FrameSupportTokensMiscIdAmountRuntimeHoldReason>>,
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
@@ -579,7 +581,7 @@ declare module '@polkadot/api-base/types/storage' {
             /**
              * The current Ethereum receipts.
              **/
-            currentReceipts: AugmentedQuery<ApiType, () => Observable<Option<Vec<EthereumReceiptReceiptV3>>>, []> &
+            currentReceipts: AugmentedQuery<ApiType, () => Observable<Option<Vec<EthereumReceiptReceiptV4>>>, []> &
                 QueryableStorageEntry<ApiType, []>;
             /**
              * The current transaction statuses.
@@ -598,7 +600,7 @@ declare module '@polkadot/api-base/types/storage' {
                 (
                     arg: u32 | AnyNumber | Uint8Array,
                 ) => Observable<
-                    Option<ITuple<[EthereumTransactionTransactionV2, FpRpcTransactionStatus, EthereumReceiptReceiptV3]>>
+                    Option<ITuple<[EthereumTransactionTransactionV3, FpRpcTransactionStatus, EthereumReceiptReceiptV4]>>
                 >,
                 [u32]
             > &
@@ -757,15 +759,11 @@ declare module '@polkadot/api-base/types/storage' {
         };
         identity: {
             /**
-             * Reverse lookup from `username` to the `AccountId` that has registered it. The value should
-             * be a key in the `IdentityOf` map, but it may not if the user has cleared their identity.
-             *
-             * Multiple usernames may map to the same `AccountId`, but `IdentityOf` will only map to one
-             * primary username.
+             * A map of the accounts who are authorized to grant usernames.
              **/
-            accountOfUsername: AugmentedQuery<
+            authorityOf: AugmentedQuery<
                 ApiType,
-                (arg: Bytes | string | Uint8Array) => Observable<Option<AccountId32>>,
+                (arg: Bytes | string | Uint8Array) => Observable<Option<PalletIdentityAuthorityProperties>>,
                 [Bytes]
             > &
                 QueryableStorageEntry<ApiType, [Bytes]>;
@@ -777,9 +775,7 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             identityOf: AugmentedQuery<
                 ApiType,
-                (
-                    arg: AccountId32 | string | Uint8Array,
-                ) => Observable<Option<ITuple<[PalletIdentityRegistration, Option<Bytes>]>>>,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<PalletIdentityRegistration>>,
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
@@ -787,13 +783,15 @@ declare module '@polkadot/api-base/types/storage' {
              * Usernames that an authority has granted, but that the account controller has not confirmed
              * that they want it. Used primarily in cases where the `AccountId` cannot provide a signature
              * because they are a pure proxy, multisig, etc. In order to confirm it, they should call
-             * [`Call::accept_username`].
+             * [accept_username](`Call::accept_username`).
              *
              * First tuple item is the account and second is the acceptance deadline.
              **/
             pendingUsernames: AugmentedQuery<
                 ApiType,
-                (arg: Bytes | string | Uint8Array) => Observable<Option<ITuple<[AccountId32, u32]>>>,
+                (
+                    arg: Bytes | string | Uint8Array,
+                ) => Observable<Option<ITuple<[AccountId32, u32, PalletIdentityProvider]>>>,
                 [Bytes]
             > &
                 QueryableStorageEntry<ApiType, [Bytes]>;
@@ -829,11 +827,37 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
             /**
-             * A map of the accounts who are authorized to grant usernames.
+             * Usernames for which the authority that granted them has started the removal process by
+             * unbinding them. Each unbinding username maps to its grace period expiry, which is the first
+             * block in which the username could be deleted through a
+             * [remove_username](`Call::remove_username`) call.
              **/
-            usernameAuthorities: AugmentedQuery<
+            unbindingUsernames: AugmentedQuery<
                 ApiType,
-                (arg: AccountId32 | string | Uint8Array) => Observable<Option<PalletIdentityAuthorityProperties>>,
+                (arg: Bytes | string | Uint8Array) => Observable<Option<u32>>,
+                [Bytes]
+            > &
+                QueryableStorageEntry<ApiType, [Bytes]>;
+            /**
+             * Reverse lookup from `username` to the `AccountId` that has registered it and the provider of
+             * the username. The `owner` value should be a key in the `UsernameOf` map, but it may not if
+             * the user has cleared their username or it has been removed.
+             *
+             * Multiple usernames may map to the same `AccountId`, but `UsernameOf` will only map to one
+             * primary username.
+             **/
+            usernameInfoOf: AugmentedQuery<
+                ApiType,
+                (arg: Bytes | string | Uint8Array) => Observable<Option<PalletIdentityUsernameInformation>>,
+                [Bytes]
+            > &
+                QueryableStorageEntry<ApiType, [Bytes]>;
+            /**
+             * Identifies the primary username of an account.
+             **/
+            usernameOf: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<Bytes>>,
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
@@ -1127,8 +1151,20 @@ declare module '@polkadot/api-base/types/storage' {
              * disabled using binary search. It gets cleared when `on_session_ending` returns
              * a new set of identities.
              **/
-            disabledValidators: AugmentedQuery<ApiType, () => Observable<Vec<u32>>, []> &
+            disabledValidators: AugmentedQuery<ApiType, () => Observable<Vec<ITuple<[u32, Perbill]>>>, []> &
                 QueryableStorageEntry<ApiType, []>;
+            /**
+             * Accounts whose keys were set via `SessionInterface` (external path) without
+             * incrementing the consumer reference or placing a key deposit. `do_purge_keys`
+             * only decrements consumers for accounts that were registered through the local
+             * session pallet.
+             **/
+            externallySetKeys: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<Null>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
             /**
              * The owner of a key. The key is the `KeyTypeId` + the encoded key.
              **/
@@ -1259,17 +1295,6 @@ declare module '@polkadot/api-base/types/storage' {
              * This is basically in sync with the call to [`pallet_session::SessionManager::new_session`].
              **/
             currentPlannedSession: AugmentedQuery<ApiType, () => Observable<u32>, []> &
-                QueryableStorageEntry<ApiType, []>;
-            /**
-             * Indices of validators that have offended in the active era. The offenders are disabled for a
-             * whole era. For this reason they are kept here - only staking pallet knows about eras. The
-             * implementor of [`DisablingStrategy`] defines if a validator should be disabled which
-             * implicitly means that the implementor also controls the max number of disabled validators.
-             *
-             * The vec is always kept sorted so that we can find whether a given validator has previously
-             * offended using binary search.
-             **/
-            disabledValidators: AugmentedQuery<ApiType, () => Observable<Vec<u32>>, []> &
                 QueryableStorageEntry<ApiType, []>;
             /**
              * Rewards for the last [`Config::HistoryDepth`] eras.
@@ -1733,6 +1758,17 @@ declare module '@polkadot/api-base/types/storage' {
             extrinsicData: AugmentedQuery<ApiType, (arg: u32 | AnyNumber | Uint8Array) => Observable<Bytes>, [u32]> &
                 QueryableStorageEntry<ApiType, [u32]>;
             /**
+             * The weight reclaimed for the extrinsic.
+             *
+             * This information is available until the end of the extrinsic execution.
+             * More precisely this information is removed in `note_applied_extrinsic`.
+             *
+             * Logic doing some post dispatch weight reduction must update this storage to avoid duplicate
+             * reduction.
+             **/
+            extrinsicWeightReclaimed: AugmentedQuery<ApiType, () => Observable<SpWeightsWeightV2Weight>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
              * Whether all inherents have been applied.
              **/
             inherentsApplied: AugmentedQuery<ApiType, () => Observable<bool>, []> & QueryableStorageEntry<ApiType, []>;
@@ -1791,6 +1827,17 @@ declare module '@polkadot/api-base/types/storage' {
             storageVersion: AugmentedQuery<ApiType, () => Observable<PalletTransactionPaymentReleases>, []> &
                 QueryableStorageEntry<ApiType, []>;
             /**
+             * The `OnChargeTransaction` stores the withdrawn tx fee here.
+             *
+             * Use `withdraw_txfee` and `remaining_txfee` to access from outside the crate.
+             **/
+            txPaymentCredit: AugmentedQuery<
+                ApiType,
+                () => Observable<Option<FrameSupportTokensFungibleImbalance>>,
+                []
+            > &
+                QueryableStorageEntry<ApiType, []>;
+            /**
              * Generic query
              **/
             [key: string]: QueryableStorageEntry<ApiType>;
@@ -1800,6 +1847,11 @@ declare module '@polkadot/api-base/types/storage' {
              * Counter for the related counted storage map
              **/
             counterForListNodes: AugmentedQuery<ApiType, () => Observable<u32>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
+             * Counter for the related counted storage map
+             **/
+            counterForPendingRebag: AugmentedQuery<ApiType, () => Observable<u32>, []> &
                 QueryableStorageEntry<ApiType, []>;
             /**
              * A bag stored in storage.
@@ -1820,6 +1872,41 @@ declare module '@polkadot/api-base/types/storage' {
             listNodes: AugmentedQuery<
                 ApiType,
                 (arg: AccountId32 | string | Uint8Array) => Observable<Option<PalletBagsListListNode>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            /**
+             * Lock all updates to this pallet.
+             *
+             * If any nodes needs updating, removal or addition due to a temporary lock, the
+             * [`Call::rebag`] can be used.
+             **/
+            lock: AugmentedQuery<ApiType, () => Observable<Option<Null>>, []> & QueryableStorageEntry<ApiType, []>;
+            /**
+             * Pointer that remembers the next node that will be auto-rebagged.
+             * When `None`, the next scan will start from the list head again.
+             **/
+            nextNodeAutoRebagged: AugmentedQuery<ApiType, () => Observable<Option<AccountId32>>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
+             * Accounts that failed to be inserted into the bags-list due to locking.
+             * These accounts will be processed with priority in `on_idle` or via `rebag` extrinsic.
+             *
+             * Note: This storage is intentionally unbounded. The following factors make bounding
+             * unnecessary:
+             * 1. The storage usage is temporary - accounts are processed and removed in `on_idle`
+             * 2. The pallet is only locked during snapshot generation, which is weight-limited
+             * 3. Processing happens at multiple accounts per block, clearing even large backlogs quickly
+             * 4. An artificial limit could be exhausted by an attacker, preventing legitimate
+             * auto-rebagging from putting accounts in the correct position
+             *
+             * We don't store the score here - it's always fetched from `ScoreProvider` when processing,
+             * ensuring we use the most up-to-date score (accounts may have been slashed, rewarded, etc.
+             * while waiting in the queue).
+             **/
+            pendingRebag: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<Null>>,
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;

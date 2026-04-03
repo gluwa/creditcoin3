@@ -188,6 +188,16 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             subAccountDeposit: u128 & AugmentedConst<ApiType>;
             /**
+             * The amount held on deposit per registered username. This value should change only in
+             * runtime upgrades with proper migration of existing deposits.
+             **/
+            usernameDeposit: u128 & AugmentedConst<ApiType>;
+            /**
+             * The number of blocks that must pass to enable the permanent deletion of a username by
+             * its respective authority.
+             **/
+            usernameGracePeriod: u32 & AugmentedConst<ApiType>;
+            /**
              * Generic const
              **/
             [key: string]: Codec;
@@ -277,6 +287,16 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             [key: string]: Codec;
         };
+        session: {
+            /**
+             * The amount to be held when setting keys.
+             **/
+            keyDeposit: u128 & AugmentedConst<ApiType>;
+            /**
+             * Generic const
+             **/
+            [key: string]: Codec;
+        };
         staking: {
             /**
              * Number of eras that staked funds must remain bonded for.
@@ -332,6 +352,10 @@ declare module '@polkadot/api-base/types/consts' {
              * this effect.
              **/
             maxUnlockingChunks: u32 & AugmentedConst<ApiType>;
+            /**
+             * The absolute maximum of winner validators this pallet should return.
+             **/
+            maxValidatorSet: u32 & AugmentedConst<ApiType>;
             /**
              * Number of sessions per era.
              **/
@@ -505,6 +529,13 @@ declare module '@polkadot/api-base/types/consts' {
              * With that `List::migrate` can be called, which will perform the appropriate migration.
              **/
             bagThresholds: Vec<u64> & AugmentedConst<ApiType>;
+            /**
+             * Maximum number of accounts that may be re-bagged automatically in `on_idle`.
+             *
+             * A value of `0` (obtained by configuring `type MaxAutoRebagPerBlock = ();`) disables
+             * the feature.
+             **/
+            maxAutoRebagPerBlock: u32 & AugmentedConst<ApiType>;
             /**
              * Generic const
              **/
