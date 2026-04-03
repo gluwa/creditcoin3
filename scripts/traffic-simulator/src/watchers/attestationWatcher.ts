@@ -15,6 +15,10 @@ export class AttestationWatcher extends BaseWatcher {
   private provider: WsProvider | null = null;
   private unsubscribe: (() => void) | null = null;
   private lastFinalizedBlock = 0;
+  // Serializes async subscription callbacks so that concurrent invocations
+  // cannot race on lastFinalizedBlock.  Each callback chains onto this promise
+  // and the chain advances only after the previous callback fully completes.
+  private callbackQueue: Promise<void> = Promise.resolve();
   private wsUrl: string;
   private chainKey: number;
   private onAttested: AttestationCallback;
@@ -63,31 +67,45 @@ export class AttestationWatcher extends BaseWatcher {
       // emits the tip of each batch, so we backfill any skipped blocks to
       // avoid missing attestation events.
       this.lastFinalizedBlock = 0;
+      this.callbackQueue = Promise.resolve();
       this.unsubscribe =
-        (await this.api.rpc.chain.subscribeFinalizedHeads(async (header) => {
-          const api = this.api;
-          if (!api) return;
+        (await this.api.rpc.chain.subscribeFinalizedHeads((header) => {
+          // Polkadot.js fires subscription callbacks in a fire-and-forget
+          // fashion — the returned promise is never awaited.  Chain each
+          // invocation onto callbackQueue so they execute sequentially and
+          // lastFinalizedBlock is never read/written concurrently.
+          this.callbackQueue = this.callbackQueue.then(async () => {
+            const api = this.api;
+            if (!api) return;
 
-          const currentBlock = header.number.toNumber();
-          const startBlock =
-            this.lastFinalizedBlock > 0
-              ? this.lastFinalizedBlock + 1
-              : currentBlock;
+            const currentBlock = header.number.toNumber();
+            const startBlock =
+              this.lastFinalizedBlock > 0
+                ? this.lastFinalizedBlock + 1
+                : currentBlock;
 
-          for (let blockNum = startBlock; blockNum <= currentBlock; blockNum++) {
-            try {
-              const blockHash = await api.rpc.chain.getBlockHash(blockNum);
-              const events = await api.query.system.events.at(blockHash);
-              this.handleEvents(events as unknown);
-            } catch (error) {
-              console.error(
-                `Error fetching finalized block events for block ${blockNum}:`,
-                error,
-              );
+            let lastSuccess = this.lastFinalizedBlock;
+            for (let blockNum = startBlock; blockNum <= currentBlock; blockNum++) {
+              try {
+                const blockHash = await api.rpc.chain.getBlockHash(blockNum);
+                const events = await api.query.system.events.at(blockHash);
+                this.handleEvents(events as unknown);
+                // Only advance the marker after a successful fetch so that
+                // a transient RPC error does not permanently skip a block.
+                lastSuccess = blockNum;
+              } catch (error) {
+                console.error(
+                  `Error fetching finalized block events for block ${blockNum}:`,
+                  error,
+                );
+                // Stop backfilling at the first failure so we retry from
+                // this block on the next callback rather than skipping it.
+                break;
+              }
             }
-          }
 
-          this.lastFinalizedBlock = currentBlock;
+            this.lastFinalizedBlock = lastSuccess;
+          });
         })) as unknown as () => void;
     } catch (error) {
       console.error("Failed to connect to Creditcoin3:", error);
@@ -163,6 +181,7 @@ export class AttestationWatcher extends BaseWatcher {
 
   protected async cleanup(): Promise<void> {
     this.lastFinalizedBlock = 0;
+    this.callbackQueue = Promise.resolve();
     if (this.unsubscribe) {
       try {
         this.unsubscribe();
