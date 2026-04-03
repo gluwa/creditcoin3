@@ -38,7 +38,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo audit
@@ -112,7 +112,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
 
       - name: Check featalign
@@ -153,7 +153,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
           components: clippy, rust-src
       - uses: Swatinem/rust-cache@v2
 
@@ -222,7 +222,7 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           components: llvm-tools-preview, rust-src
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov

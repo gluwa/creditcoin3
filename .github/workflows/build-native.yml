@@ -59,7 +59,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
           components: rust-src
 
       - uses: Swatinem/rust-cache@v2
