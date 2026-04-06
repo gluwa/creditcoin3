@@ -54,7 +54,7 @@ pub struct AttestationMonitor {
 impl AttestationMonitor {
     /// Create a new attestation monitor
     pub async fn new(cc3_rpc_url: &str, config: AttestationConfig) -> Result<Self> {
-        let cc3_client = CcClient::new(cc3_rpc_url, "")
+        let cc3_client = CcClient::new(cc3_rpc_url)
             .await
             .context("Failed to create Creditcoin3 client")?;
 

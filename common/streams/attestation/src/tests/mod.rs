@@ -15,6 +15,7 @@ async fn attestation_ready_simple(
     #[future]
     #[with(0, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+    attestor: cc_client::attestor::Attestor,
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
@@ -24,9 +25,10 @@ async fn attestation_ready_simple(
     tip.send_ready(); // 0
     tip.send_ready(); // 1
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 1);
     assert!(attestation.continuity_proof.is_empty());
@@ -40,6 +42,7 @@ async fn attestation_finalization_sets_correct_range(
     #[future]
     #[with(0, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+    attestor: cc_client::attestor::Attestor,
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
@@ -60,9 +63,10 @@ async fn attestation_finalization_sets_correct_range(
     tip.send_ready(); // 1
     tip.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 2);
     assert!(attestation.continuity_proof.is_empty());
@@ -76,6 +80,7 @@ async fn attestation_finalization_ignore_past_attestation(
     #[future]
     #[with(0, nonzero!(1), nonzero!(2))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+    attestor: cc_client::attestor::Attestor,
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
@@ -89,9 +94,10 @@ async fn attestation_finalization_ignore_past_attestation(
     roots.send_ready(); // 1
     roots.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 2);
     assert_eq!(attestation.continuity_proof.len(), 1);
@@ -115,9 +121,10 @@ async fn attestation_finalization_ignore_past_attestation(
     tip.send_ready(); // 3
     roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 3);
     assert!(attestation.continuity_proof.is_empty());
@@ -183,6 +190,7 @@ async fn skip_behind_finality(
     #[future]
     #[with(0, nonzero!(1), nonzero!(2))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+    attestor: cc_client::attestor::Attestor,
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
@@ -204,9 +212,10 @@ async fn skip_behind_finality(
     roots.send_ready(); // 2 - skipped, behind finality
     roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 3);
     assert!(attestation.continuity_proof.is_empty());
@@ -220,6 +229,7 @@ async fn continuity_proofs_should_grow(
     #[future]
     #[with(0, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+    attestor: cc_client::attestor::Attestor,
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
@@ -229,9 +239,10 @@ async fn continuity_proofs_should_grow(
     tip.send_ready(); // 0
     tip.send_ready(); // 1
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 1);
     assert!(attestation.continuity_proof.is_empty());
@@ -244,9 +255,10 @@ async fn continuity_proofs_should_grow(
     roots.send_ready(); // 2
     tip.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 2);
     assert!(attestation.continuity_proof.is_empty());
@@ -257,9 +269,10 @@ async fn continuity_proofs_should_grow(
 
     roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 3);
     assert_eq!(attestation.continuity_proof.len(), 1);
@@ -273,6 +286,7 @@ async fn regenerate_attestations(
     #[future]
     #[with(0, nonzero!(1), nonzero!(2))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+    attestor: cc_client::attestor::Attestor,
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
@@ -281,9 +295,10 @@ async fn regenerate_attestations(
     tip.send_ready(); // 0
     tip.send_ready(); // 1
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 1);
     assert!(attestation.continuity_proof.is_empty());
@@ -291,9 +306,10 @@ async fn regenerate_attestations(
     tip.send_ready(); // 2
     roots.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 2);
     assert_eq!(attestation.continuity_proof.len(), 1);
@@ -301,9 +317,10 @@ async fn regenerate_attestations(
     tip.send_ready(); // 3
     roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 3);
     assert_eq!(attestation.continuity_proof.len(), 2);
@@ -313,9 +330,10 @@ async fn regenerate_attestations(
         ..Default::default()
     });
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     // Attestation 3 is re-generated. Notice that the continuity proof is shorter, as it now
     // attests from block 1 instead of block 0.
@@ -323,9 +341,10 @@ async fn regenerate_attestations(
     assert_eq!(attestation.continuity_proof.len(), 1);
 
     // Attestation 2 is regenerated as well
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 2);
     assert!(attestation.continuity_proof.is_empty());
@@ -342,6 +361,7 @@ async fn attestation_interval_change(
     #[future]
     #[with(0, nonzero!(1), nonzero!(3))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+    attestor: cc_client::attestor::Attestor,
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
@@ -351,9 +371,10 @@ async fn attestation_interval_change(
     tip.send_ready(); // 0
     tip.send_ready(); // 1
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 1);
     assert!(attestation.continuity_proof.is_empty());
@@ -374,9 +395,10 @@ async fn attestation_interval_change(
     tip.send_ready(); // 2
     tip.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 3);
     assert_eq!(attestation.continuity_proof.len(), 1);
@@ -389,6 +411,7 @@ async fn attestation_chain_reversion(
     #[future]
     #[with(0, nonzero!(1), nonzero!(2))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+    attestor: cc_client::attestor::Attestor,
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
@@ -400,16 +423,18 @@ async fn attestation_chain_reversion(
     tip.send_ready(); // 1
     tip.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 1);
     assert!(attestation.continuity_proof.is_empty());
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 2);
     assert_eq!(attestation.continuity_proof.len(), 1);
@@ -429,9 +454,10 @@ async fn attestation_chain_reversion(
     tip.send_ready(); // 2
 
     // Attestation at height 1 is re-generated since the chain has been reverted to height 0
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     // Continuity proof is now empty as we are attesting from height 1
     assert_eq!(attestation.header_number(), 2);
@@ -447,6 +473,7 @@ async fn root_cache_must_shrink_with_attestation_interval(
     #[future]
     #[with(0, nonzero!(1), nonzero!(1))]
     attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+    attestor: cc_client::attestor::Attestor,
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
@@ -478,9 +505,10 @@ async fn root_cache_must_shrink_with_attestation_interval(
     tip.send_ready(); // 1
     tip.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(permit)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
+    let attestation = stream_attestation.generate_attestation(&attestor, permit);
 
     assert_eq!(attestation.header_number(), 2);
     assert_eq!(attestation.continuity_proof.len(), 1);

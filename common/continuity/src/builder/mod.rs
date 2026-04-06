@@ -174,7 +174,7 @@ impl ContinuityBuilder {
     /// # }
     /// ```
     pub async fn new(config: ContinuityConfig) -> Result<Self> {
-        let cc_client = CcClient::new_read_only(&config.cc3_rpc_url)
+        let cc_client = CcClient::new(&config.cc3_rpc_url)
             .await
             .context("Failed to create CC client")?;
         let eth_client = EthClient::new(&config.eth_rpc_url, None)
@@ -234,7 +234,7 @@ impl ContinuityBuilder {
         config: ContinuityConfig,
         cache_config: eth::block_cache::BlockCacheConfig,
     ) -> Result<Self> {
-        let cc_client = CcClient::new_read_only(&config.cc3_rpc_url)
+        let cc_client = CcClient::new(&config.cc3_rpc_url)
             .await
             .context("Failed to create CC client")?;
 
