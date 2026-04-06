@@ -85,7 +85,6 @@ anyhow = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true, features = ["std_rng"] }
 user = { workspace = true }
-zeroize = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
