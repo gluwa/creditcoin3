@@ -10,7 +10,6 @@ use subxt::{
     error::RpcError,
     OnlineClient, SubstrateConfig,
 };
-use subxt_signer::sr25519::Signature;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
@@ -28,8 +27,7 @@ use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
     block::Block,
     Attestation as RpcAttestation, AttestationCheckpoint, AttestationData, AttestorId,
-    AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest,
-    SignedAttestation,
+    AttestorStatus, ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
 };
 use supported_chains_primitives::SupportedChain;
 use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};

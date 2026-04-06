@@ -6,6 +6,7 @@ pub enum Secret {
 }
 
 impl Secret {
+    #[must_use]
     pub fn private_key(&self) -> subxt_signer::SecretString {
         match self {
             Self::Mnemonic(mnemonic) => mnemonic.to_string().into(),

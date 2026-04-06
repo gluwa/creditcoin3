@@ -78,7 +78,7 @@
 //! events. These events are then forwarded for further handling.
 //!
 //! [`Worker`]: crate::worker::Worker
-//! [attestation stream]: crate::stream::attestation
+//! [attestation stream]: stream::attestation::StreamAttestation
 //! [attestation pool]: crate::worker::validation::pool
 //! [`Attestation`]: crate::common::types::Attestation
 //! [p2p worker]: crate::worker::p2p
