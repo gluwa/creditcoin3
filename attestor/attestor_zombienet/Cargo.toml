@@ -12,7 +12,7 @@ version.workspace = true
 # Creditcoin
 attestor = { workspace = true }
 attestor-primitives = { workspace = true }
-bip39 = { version = "2.2.0", features = ["rand", "serde"] }
+bip39 = { version = "2.2.0", features = ["serde"] }
 cc-client = { workspace = true }
 eth = { workspace = true }
 subxt = { workspace = true }
@@ -35,4 +35,3 @@ anyhow = { workspace = true }
 
 # Other
 chrono = "0.4.42"
-rand = { version = "0.8.5" }
