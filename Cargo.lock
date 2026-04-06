@@ -2226,6 +2226,7 @@ dependencies = [
  "bls12_381",
  "hex",
  "libp2p 0.56.0",
+ "secrecy 0.10.3",
  "serde",
  "sp-core",
  "subxt",

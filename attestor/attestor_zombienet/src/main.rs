@@ -86,8 +86,6 @@ async fn main() -> anyhow::Result<()> {
     use anyhow::Context as _;
     use chrono::{Datelike as _, Timelike as _};
     use clap::Parser as _;
-    use rand::SeedableRng as _;
-    use std::str::FromStr as _;
     use std::str::FromStr as _;
     use subxt_signer::ExposeSecret as _;
 
@@ -100,19 +98,17 @@ async fn main() -> anyhow::Result<()> {
         .from_env_lossy();
 
     let debug = filter_env.max_level_hint().unwrap() == tracing::level_filters::LevelFilter::DEBUG;
-    let _ = tracing_subscriber::fmt()
+    tracing_subscriber::fmt()
         .with_target(debug)
         .with_file(debug)
         .with_line_number(debug)
         .with_thread_ids(debug)
         .with_env_filter(filter_env)
-        .try_init();
+        .init();
 
     // --------------------------------------* CLI arguments *-------------------------------------
 
     let args = Args::parse();
-
-    let mut rng = rand::rngs::StdRng::seed_from_u64(42 + args.offset as u64);
 
     anyhow::ensure!(
         args.bin.as_path().exists(),
@@ -321,7 +317,7 @@ async fn main() -> anyhow::Result<()> {
 
         let name = name.clone();
         let account_id = attestor.account_id();
-        let attestor = attestor.clone();
+        let sudo = sudo.clone();
 
         let mut attempt = 0;
 
@@ -342,7 +338,10 @@ async fn main() -> anyhow::Result<()> {
             if registered.is_none() {
                 let mut nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
-                while let Err(err) = cc3.attestor_register(&attestor, Some(nonce_local)).await {
+                while let Err(err) = cc3
+                    .attestor_register(&sudo, account_id.clone(), Some(nonce_local))
+                    .await
+                {
                     tracing::error!(%err, "Failed to register attestor");
 
                     attempt += 1;
@@ -391,7 +390,7 @@ async fn main() -> anyhow::Result<()> {
         command
             .kill_on_drop(true)
             .arg(format!("--name={name}"))
-            .arg(format!("--secret={}", secret.leak_private_key()))
+            .arg(format!("--secret={}", secret.private_key().expose_secret()))
             .arg(format!("--config={}", args.config.to_string_lossy()))
             .arg(format!("--chain-key={}", args.chain_key))
             .arg(format!("--eth-url={}", args.eth_url))

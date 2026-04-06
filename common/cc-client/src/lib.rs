@@ -362,12 +362,13 @@ impl Client {
     /// Register to the attestation pallet
     pub async fn attestor_register(
         &self,
-        attestor: &attestor::Attestor,
+        sudo: &attestor::Attestor,
+        account: AccountId32,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
         let tx = cc3::tx()
             .attestation()
-            .register_attestor(attestor.chain_key(), attestor.account_id());
+            .register_attestor(sudo.chain_key(), account);
 
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()
@@ -380,7 +381,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &attestor.keypair_subxt, params)
+            .create_signed(&tx, &sudo.keypair_subxt, params)
             .await?
             .submit_and_watch()
             .await
@@ -509,7 +510,7 @@ impl Client {
             committee_set_size as u64,
             target_sample_size,
             &randomness,
-            &attestor.pair,
+            &attestor.pair_vrf,
             &attestor.attestor_id(),
             header_number,
             epoch_index,
