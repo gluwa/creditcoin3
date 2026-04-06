@@ -97,6 +97,8 @@ pub use error::*;
 /// attestor, such as its account id.
 #[derive(builder::Builder)]
 pub struct Config {
+    attestor: cc_client::attestor::Attestor,
+
     stream_attestation: stream::attestation::StreamAttestation,
     stream_cc3: crate::stream_legacy::cc3::StreamCC3,
 
@@ -114,6 +116,8 @@ pub struct Config {
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
 
 pub(crate) struct WorkerAttestationProduction {
+    attestor: cc_client::attestor::Attestor,
+
     // CHAIN LISTENERS
     stream_attestation: stream::attestation::StreamAttestation,
     stream_cc3: crate::stream_legacy::cc3::StreamCC3,
@@ -138,6 +142,8 @@ pub(crate) struct WorkerAttestationProduction {
 impl WorkerAttestationProduction {
     pub(crate) fn new(config: Config) -> anyhow::Result<Self> {
         Ok(Self {
+            attestor: config.attestor,
+
             stream_attestation: config.stream_attestation,
             stream_cc3: config.stream_cc3,
 
@@ -178,8 +184,8 @@ impl super::Worker for WorkerAttestationProduction {
                 Some(events) = self.stream_cc3.next() => {
                     self.handle_event_cc3(events).await?;
                 }
-                Some(attestation) = self.stream_attestation.next(), if self.can_attest => {
-                    self.handle_event_attestation(attestation).await?;
+                Some(permit) = self.stream_attestation.next(), if self.can_attest => {
+                    self.handle_event_attestation(permit).await?;
                 }
             }
         }
@@ -193,9 +199,13 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_attestation(
         &mut self,
-        attestation: stream::attestation::Attestation,
+        permit: stream::attestation::Permit,
     ) -> Result<(), Interrupt<Error>> {
         let now = std::time::Instant::now();
+
+        let attestation = self
+            .stream_attestation
+            .generate_attestation(&self.attestor, permit);
 
         let height = attestation.header_number();
         let digest = attestation.digest();

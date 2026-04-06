@@ -102,7 +102,7 @@ impl Client {
     /// Create a new instance of cc3 client
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
-    pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
+    pub async fn new(url: impl Into<String> + Clone) -> anyhow::Result<Self> {
         let rpc = RpcClient::from_insecure_url(url.clone().into()).await?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
@@ -125,16 +125,6 @@ impl Client {
         self.legacy = legacy;
 
         Ok(self)
-    }
-
-    /// Create a new read-only instance of cc3 client that doesn't require a keypair.
-    /// This is useful for read-only operations where signing is not needed.
-    /// Uses a dummy keypair internally (which won't be used for read operations).
-    /// - `url`: rpc url of a creditcoin node
-    pub async fn new_read_only(url: impl Into<String> + Clone) -> anyhow::Result<Self> {
-        // Use a dummy key for read-only operations - it won't be used for signing
-        const DUMMY_KEY: &str = "//Alice";
-        Self::new(url, DUMMY_KEY).await
     }
 
     #[must_use]
@@ -390,7 +380,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &attestor.signing_keypair, params)
+            .create_signed(&tx, &attestor.keypair_subxt, params)
             .await?
             .submit_and_watch()
             .await
@@ -425,7 +415,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &attestor.signing_keypair, params)
+            .create_signed(&tx, &attestor.keypair_subxt, params)
             .await?
             .submit_and_watch()
             .await
@@ -460,7 +450,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &attestor.signing_keypair, params)
+            .create_signed(&tx, &attestor.keypair_subxt, params)
             .await?
             .submit_and_watch()
             .await
@@ -485,7 +475,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .sign_and_submit_then_watch_default(&tx, &attestor.signing_keypair)
+            .sign_and_submit_then_watch_default(&tx, &attestor.keypair_subxt)
             .await
             .map_err(|e| {
                 if utils::is_fee_error(&e) {
@@ -496,38 +486,6 @@ impl Client {
             })?;
 
         utils::handle_tx(tx_progress, "Start Attesting").await
-    }
-
-    /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
-    /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
-    pub async fn sign_vrf_production(
-        &self,
-        attestor: &attestor::Attestor,
-        header_number: u64,
-        randomness: Randomness,
-        epoch_index: u64,
-    ) -> Result<ProofOfInclusion, Error> {
-        // Get committee set size
-        let target_sample_size = self.target_sample_size(attestor.chain_key()).await?;
-
-        // Get attestor working set size
-        let committee_set_size = self
-            .get_attestor_active_set_size(attestor.chain_key())
-            .await?;
-
-        info!("Target set size: {target_sample_size}, committee set size: {committee_set_size}",);
-
-        let proof_of_inclusion = make_proof_of_inclusion(
-            committee_set_size as u64,
-            u64::from(target_sample_size),
-            &randomness,
-            &attestor.pair,
-            &attestor.attestor_id(),
-            header_number,
-            epoch_index,
-        )?;
-
-        Ok(proof_of_inclusion)
     }
 
     pub async fn sign_vrf_submission(
@@ -558,6 +516,24 @@ impl Client {
         )?;
 
         Ok(proof_of_inclusion)
+    }
+
+    pub async fn submit<Call>(
+        &self,
+        attestor: &attestor::Attestor,
+        call: &Call,
+    ) -> Result<
+        subxt::tx::TxProgress<subxt::SubstrateConfig, subxt::OnlineClient<subxt::SubstrateConfig>>,
+        Error,
+    >
+    where
+        Call: subxt::tx::Payload,
+    {
+        self.api()
+            .tx()
+            .sign_and_submit_then_watch_default(call, &attestor.keypair_subxt)
+            .await
+            .map_err(Error::SubxtError)
     }
 
     pub async fn chain_attestation_interval(
@@ -824,7 +800,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &from.signing_keypair, params)
+            .create_signed(&tx, &from.keypair_subxt, params)
             .await?
             .submit_and_watch()
             .await
@@ -864,7 +840,7 @@ impl Client {
         let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &sudo.signing_keypair, params)
+            .create_signed(&tx, &sudo.keypair_subxt, params)
             .await?
             .submit_and_watch()
             .await
@@ -945,7 +921,7 @@ impl Client {
         let ext = self
             .api()
             .tx()
-            .create_signed(&tx, &sudo.signing_keypair, params)
+            .create_signed(&tx, &sudo.keypair_subxt, params)
             .await?
             .submit_and_watch()
             .await?;

@@ -96,7 +96,7 @@ pub use error::*;
 pub struct Config {
     stream_cc3: crate::stream_legacy::cc3::StreamCC3,
     cc3: cc_client::Client,
-    signer: cc_client::signer::CC3Signer,
+    attestor: cc_client::attestor::Attestor,
 
     validation_sender: pool::AttestationPoolSender,
     validation_receiver: pool::AttestationPoolReceiver,
@@ -116,7 +116,7 @@ pub(crate) struct WorkerAttestationValidation {
     cc3: cc_client::Client,
 
     // ATTESTATIONS
-    signer: cc_client::signer::CC3Signer,
+    attestor: cc_client::attestor::Attestor,
     watch_submission: future::OptionFuture<(AttestationSubmission, common::types::Height)>,
     validation_sender: pool::AttestationPoolSender,
     validation_receiver: pool::AttestationPoolReceiver,
@@ -136,7 +136,7 @@ impl WorkerAttestationValidation {
             stream_cc3: config.stream_cc3,
             cc3: config.cc3,
 
-            signer: config.signer,
+            attestor: config.attestor,
             watch_submission: future::OptionFuture::default(),
             validation_receiver: config.validation_receiver,
             validation_sender: config.validation_sender,
@@ -929,12 +929,7 @@ impl WorkerAttestationValidation {
             let vrf = loop {
                 match self
                     .cc3
-                    .sign_vrf_submission(
-                        attestation.attestation.chain_key,
-                        height,
-                        randomness,
-                        epoch_index,
-                    )
+                    .sign_vrf_submission(&self.attestor, height, randomness, epoch_index)
                     .await
                 {
                     Ok(vrf) => break vrf,
@@ -1092,17 +1087,11 @@ impl WorkerAttestationValidation {
             .commit_attestation(attestation);
 
         let submit = loop {
-            match self
-                .cc3
-                .api()
-                .tx()
-                .sign_and_submit_then_watch_default(&call, self.signer.keypair())
-                .await
-            {
+            match self.cc3.submit(&self.attestor, &call).await {
                 Ok(submit) => break submit,
                 Err(err) => {
                     tracing::error!(height, ?err, "⛔ Failed to submit attestation");
-                    self.reconnect(Error::Subxt(err)).await?;
+                    self.reconnect(Error::Client(err)).await?;
                 }
             }
         };

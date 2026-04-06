@@ -2,7 +2,8 @@
 pub struct Attestor {
     chain_key: attestor_primitives::ChainKey,
 
-    pub(crate) signing_keypair: subxt_signer::sr25519::Keypair,
+    pub(crate) keypair_subxt: subxt_signer::sr25519::Keypair,
+    pub(crate) keypair_p2p: libp2p::identity::Keypair,
     pub(crate) pair: sp_core::sr25519::Pair,
     pub(crate) bls_key: bls_signatures::PrivateKey,
 }
@@ -14,16 +15,20 @@ impl Attestor {
     ) -> anyhow::Result<Self> {
         use sp_core::Pair as _;
 
-        let sk = secret.clone().into();
-        let signing_keypair = subxt_signer::sr25519::Keypair::from_secret_key(sk)?;
+        let mut sk = secret.clone().into();
+
+        let keypair_subxt = subxt_signer::sr25519::Keypair::from_secret_key(sk)?;
         let pair = sp_core::sr25519::Pair::from_seed(&sk);
         let bls_key = bls_signatures::PrivateKey::new(&sk);
+        let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut sk)?;
 
         anyhow::Ok(Self {
             chain_key,
 
+            keypair_subxt,
+            keypair_p2p,
+
             bls_key,
-            signing_keypair,
             pair,
         })
     }
@@ -35,12 +40,12 @@ impl Attestor {
 
     #[must_use]
     pub fn attestor_id(&self) -> attestor_primitives::AttestorId {
-        attestor_primitives::AttestorId::from_public(self.signing_keypair.public_key().0)
+        attestor_primitives::AttestorId::from_public(self.keypair_subxt.public_key().0)
     }
 
     #[must_use]
     pub fn account_id(&self) -> subxt::utils::AccountId32 {
-        subxt::utils::AccountId32(self.signing_keypair.public_key().0)
+        subxt::utils::AccountId32(self.keypair_subxt.public_key().0)
     }
 
     #[must_use]
@@ -54,8 +59,18 @@ impl Attestor {
     }
 
     #[must_use]
+    pub fn peer_id(&self) -> libp2p::PeerId {
+        libp2p::PeerId::from_public_key(&self.keypair_p2p.public())
+    }
+
+    #[must_use]
+    pub fn peer_keypair(&self) -> libp2p::identity::Keypair {
+        self.keypair_p2p.clone()
+    }
+
+    #[must_use]
     pub fn sign_sr25519(&self, data: &[u8]) -> subxt_signer::sr25519::Signature {
-        self.signing_keypair.sign(data)
+        self.keypair_subxt.sign(data)
     }
 
     pub fn sign_bls(&self, data: &[u8]) -> bls_signatures::Signature {

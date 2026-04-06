@@ -1,6 +1,14 @@
 use crate::nonzero;
 
 #[rstest::fixture]
+pub fn attestor(
+    #[default([0; 32])] secret: [u8; 32],
+    #[default(2)] chain_key: attestor_primitives::ChainKey,
+) -> cc_client::attestor::Attestor {
+    cc_client::attestor::Attestor::new(secret.into(), chain_key).unwrap()
+}
+
+#[rstest::fixture]
 pub async fn roots(
     #[default(0)] start_height: attestor_primitives::Height,
 ) -> (super::mock::RootSender, super::mock::RootReceiver) {
@@ -34,11 +42,6 @@ pub async fn attestations(
 ) {
     use stream_util::ChainExt as _;
 
-    let secret = bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret");
-    let bls_key = bls_signatures::PrivateKey::new(secret.to_string().as_bytes());
-    let signer = cc_client::signer::CC3Signer::new(&secret.to_string())
-        .expect("Failed to create cc3 client");
-
     let (permit_roots, stream_roots) = roots.await;
     let (permit_tip, stream_tip) = tip.await;
 
@@ -48,9 +51,7 @@ pub async fn attestations(
     };
 
     let config = crate::ConfigBuilder::new()
-        .with_signer(signer)
         .with_chain_key(2u64)
-        .with_bls_key(bls_key)
         .with_stream_roots(stream_roots.boxed_data())
         .with_stream_tip(stream_tip.boxed_data())
         .with_attestation_interval(attestation_interval)

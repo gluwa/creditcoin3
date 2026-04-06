@@ -55,7 +55,7 @@ impl Server {
             "[startup] connecting Creditcoin3 read-only client (cc3_rpc_url)"
         );
         let cc3_client = Arc::<CcClient>::new(
-            CcClient::new_read_only(&config.cc3_rpc_url)
+            CcClient::new(&config.cc3_rpc_url)
                 .await
                 .with_context(|| {
                     format!(

@@ -22,6 +22,7 @@ use crate::prelude::*;
 pub struct Config {
     name: String,
     chain_key: attestor_primitives::ChainKey,
+    secret: cc_client::secret::Secret,
 
     stream: stream_legacy::Config,
     attestation: attestation::Config,
@@ -56,16 +57,11 @@ impl Attestor {
         // --------------------------------------* Identity *--------------------------------------
 
         let chain_key = self.config.chain_key;
+        let attestor = cc_client::attestor::Attestor::new(self.config.secret, chain_key)
+            .map_err(Error::InitError)?;
 
-        let secret_str = self.config.stream.secret.to_secret_uri_string();
-        let signer =
-            cc_client::signer::CC3Signer::new(secret_str.as_str()).map_err(Error::InitError)?;
-        let account_id = signer.account_id();
-
-        let mut seed = self.config.stream.secret.to_seed_bytes_32();
-        let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut *seed)
-            .expect("Failed to create ed25519 keypair");
-        let peer_id = libp2p::PeerId::from_public_key(&keypair_p2p.public());
+        let account_id = attestor.account_id();
+        let peer_id = attestor.peer_id();
 
         tracing::info!(name = self.config.name, %account_id, chain_key, "🙋‍♀️ Starting attestor");
 
@@ -85,10 +81,9 @@ impl Attestor {
             }
         }
 
-        let client_cc3 =
-            cc_client::Client::new(self.config.stream.url_cc3.as_ref(), secret_str.as_str())
-                .await
-                .map_err(Error::InitError)?;
+        let client_cc3 = cc_client::Client::new(self.config.stream.url_cc3.as_ref())
+            .await
+            .map_err(Error::InitError)?;
 
         let client_eth = eth::Client::new(self.config.stream.url_eth.as_ref(), None)
             .await
@@ -157,27 +152,12 @@ impl Attestor {
 
         // ------------------------------------* Registration *------------------------------------
 
-        let bls_seed = self.config.stream.secret.to_bls_seed_bytes();
-        let bls_key = bls_signatures::PrivateKey::new(bls_seed.as_slice());
-
-        let bls_public_key_bytes = bls_key.public_key().as_bytes();
-        let bls_pubkey_hex = format!("0x{}", hex::encode(&bls_public_key_bytes));
         tracing::info!(
-            bls_public_key_hex = %bls_pubkey_hex,
+            bls_public_key = format!("0x{}", hex::encode(&attestor.bls_pubkey())),
             "🔑 BLS public key (set this in fork genesis Attestors if needed)"
         );
 
-        // ------------------------------------* Start Attesting *------------------------------------
-
-        match register_bls(
-            chain_key,
-            &client_cc3,
-            &account_id,
-            &bls_key,
-            &bls_public_key_bytes,
-        )
-        .await
-        {
+        match register_bls(&client_cc3, &attestor).await {
             Ok(()) => {}
             Err(Interrupt::Stop) => {
                 tracing::info!("🔌 Received shutdown signal");
@@ -302,9 +282,7 @@ impl Attestor {
         let stream_tip = stream::eth::StreamTip::new(config).await;
 
         let config = stream::attestation::ConfigBuilder::new()
-            .with_signer(signer.clone())
             .with_chain_key(self.config.chain_key)
-            .with_bls_key(bls_key)
             .with_stream_roots(stream_roots.boxed_data())
             .with_stream_tip(stream_tip.boxed_data())
             .with_attestation_interval(interval_attestation)
@@ -371,7 +349,7 @@ impl Attestor {
         let config = worker::validation::ConfigBuilder::new()
             .with_stream_cc3(stream_cc3_validation)
             .with_cc3(client_cc3.clone())
-            .with_signer(signer)
+            .with_attestor(attestor.clone())
             .with_validation_receiver(receiver_validation)
             .with_validation_sender(sender_validation.clone())
             .with_api_calls(cc_client::Client::runtime_api())
@@ -389,7 +367,7 @@ impl Attestor {
         let config = self
             .config
             .p2p
-            .with_keypair(keypair_p2p)
+            .with_keypair(attestor.peer_keypair())
             .with_receiver_p2p(receiver_p2p)
             .with_sender_validation(sender_validation.clone())
             .with_chain_key(chain_key)
@@ -408,7 +386,7 @@ impl Attestor {
                 match wait_for_genesis(
                     genesis,
                     &client_eth,
-                    &account_id,
+                    &attestor,
                     &mut stream_cc3_genesis,
                     &mut stream_attestation,
                     &mut sender_validation,
@@ -434,6 +412,7 @@ impl Attestor {
         tracing::info!("⏳ [4/4] Starting attestation production worker");
 
         let config = worker::production::ConfigBuilder::new()
+            .with_attestor(attestor)
             .with_stream_attestation(stream_attestation)
             .with_stream_cc3(stream_cc3_production)
             .with_sender_p2p(sender_p2p)
@@ -549,42 +528,25 @@ fn get_available_parallelism() -> std::num::NonZeroUsize {
 }
 
 async fn register_bls(
-    chain_key: attestor_primitives::ChainKey,
     client_cc3: &cc_client::Client,
-    account_id: &cc_client::AccountId32,
-    bls_key: &bls_signatures::PrivateKey,
-    bls_public_key_bytes: &[u8],
+    attestor: &cc_client::attestor::Attestor,
 ) -> Result<(), Interrupt<Error>> {
     use anyhow::Context as _;
     use bls_signatures::Serialize as _;
 
     let status = client_cc3
-        .get_attestor_status(chain_key)
+        .get_attestor_status(attestor)
         .await
         .map_interrupt(Error::RpcError)?;
 
     if status == Some(attestor_primitives::AttestorStatus::Idle) {
         tracing::info!(
-            attestor_id = %account_id,
+            attestor_id = %attestor.account_id(),
             "📝 Submitting attest() extrinsic to transition from Idle to Waiting"
         );
 
-        let bls_public_key = bls_public_key_bytes[..]
-            .try_into()
-            .context("BLS public key has unexpected length")
-            .map_interrupt(Error::InitError)?;
-
-        let proof_of_possession = bls_key.sign(bls_public_key).as_bytes()[..]
-            .try_into()
-            .context("BLS signature has unexpected length")
-            .map_interrupt(Error::InitError)?;
-
         tokio::select! {
-            res = client_cc3.start_attesting(
-                chain_key,
-                bls_public_key,
-                proof_of_possession,
-            ) => {
+            res = client_cc3.start_attesting(attestor) => {
                 res.map_interrupt(Error::RpcError)?;
             }
             _ = tokio::signal::ctrl_c() => {
@@ -593,12 +555,12 @@ async fn register_bls(
         }
 
         tracing::info!(
-            attestor_id = %account_id,
+            attestor_id = %attestor.account_id(),
             "✅ Successfully submitted attest() - now Waiting for election"
         );
     } else {
         tracing::info!(
-            attestor_id = %account_id,
+            attestor_id = %attestor.account_id(),
             ?status,
             "ℹ️ Attestor status is already {:?}, skipping attest()", status
         );
@@ -678,7 +640,7 @@ async fn wait_for_eligible(
 async fn wait_for_genesis(
     genesis: common::types::Height,
     client_eth: &eth::Client,
-    account_id: &cc_client::AccountId32,
+    attestor: &cc_client::attestor::Attestor,
     stream_cc3: &mut stream_legacy::cc3::StreamCC3,
     stream_attestation: &mut stream::attestation::StreamAttestation,
     sender_validation: &mut worker::validation::pool::AttestationPoolSender,
@@ -700,7 +662,7 @@ async fn wait_for_genesis(
         hash: attestor_primitives::Digest::from(*block.hash()),
     };
 
-    let attestation_genesis = stream_attestation.generate_attestation_genesis(info);
+    let attestation_genesis = stream_attestation.generate_attestation_genesis(&attestor, info);
 
     let height = attestation_genesis.header_number();
     let digest = attestation_genesis.digest();
@@ -752,7 +714,7 @@ async fn wait_for_genesis(
             _ = interval.tick() => {
                 tracing::info!(
                     height,
-                    attestor_id = %account_id,
+                    attestor_id = %attestor.account_id(),
                     "⏲️  waiting on submission..."
                 );
             }

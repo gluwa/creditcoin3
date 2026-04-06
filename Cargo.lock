@@ -2224,6 +2224,8 @@ dependencies = [
  "bip39",
  "bls-signatures",
  "bls12_381",
+ "hex",
+ "libp2p 0.56.0",
  "serde",
  "sp-core",
  "subxt",

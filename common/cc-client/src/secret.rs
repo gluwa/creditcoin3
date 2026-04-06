@@ -1,6 +1,12 @@
 #[derive(Clone, PartialEq, Eq, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
 pub struct Secret([u8; 64]);
 
+impl Secret {
+    pub fn leak_private_key(&self) -> String {
+        format!("0x{}", hex::encode(self.0))
+    }
+}
+
 impl From<[u8; 32]> for Secret {
     fn from(value: [u8; 32]) -> Self {
         let mut out = [0u8; 64];
@@ -46,5 +52,44 @@ impl std::fmt::Debug for Secret {
 impl std::fmt::Display for Secret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Secret(***)")
+    }
+}
+
+impl std::str::FromStr for Secret {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().strip_prefix("0x") {
+            Some(hex) => {
+                anyhow::ensure!(
+                    hex.len() == 64,
+                    "Invalid hex seed length, expected 64 but got {}",
+                    hex.len()
+                );
+
+                anyhow::ensure!(
+                    hex.chars().all(|c| c.is_ascii_hexdigit()),
+                    "Invalid hex seed, contains non-hex digits"
+                );
+
+                let mut bytes = [0u8; 32];
+                hex::decode_to_slice(hex, &mut bytes).map_err(anyhow::Error::msg)?;
+                Ok(Self::from(bytes))
+            }
+            None => {
+                let seed = bip39::Mnemonic::from_str(s).map_err(anyhow::Error::msg)?;
+                Ok(Self::from(seed))
+            }
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Secret {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <&str>::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
     }
 }

@@ -13,11 +13,11 @@ mod prelude {
 pub type Attestation =
     attestor_primitives::Attestation<attestor_primitives::Digest, attestor_primitives::AttestorId>;
 
+pub struct Permit(attestor_primitives::Height);
+
 #[derive(builder::Builder)]
 pub struct Config {
-    signer: cc_client::signer::CC3Signer,
     chain_key: attestor_primitives::ChainKey,
-    bls_key: bls_signatures::PrivateKey,
 
     stream_roots: stream_util::BoxedData<stream_util::RootInfo>,
     stream_tip: stream_util::BoxedData<attestor_primitives::Height>,
@@ -28,9 +28,7 @@ pub struct Config {
 }
 
 type ConfigIncomplete = ConfigBuilder<
-    cc_client::signer::CC3Signer,
     u64,
-    bls_signatures::PrivateKey,
     (),
     (),
     std::num::NonZero<u64>,
@@ -72,9 +70,7 @@ type ConfigIncomplete = ConfigBuilder<
 /// [`note_attestation_finalization`]: Self::note_attestation_finalization
 /// [cancellation-safe]: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
 pub struct StreamAttestation {
-    signer: cc_client::signer::CC3Signer,
     chain_key: attestor_primitives::ChainKey,
-    bls_key: bls_signatures::PrivateKey,
 
     stream_roots: stream_util::BoxedData<stream_util::RootInfo>,
     stream_tip: stream_util::BoxedData<attestor_primitives::Height>,
@@ -111,9 +107,7 @@ impl StreamAttestation {
         let cache = Vec::with_capacity(max_catchup.get() as usize);
 
         Self {
-            signer: config.signer,
             chain_key: config.chain_key,
-            bls_key: config.bls_key,
 
             stream_roots: config.stream_roots,
             stream_tip: config.stream_tip,
@@ -214,15 +208,21 @@ impl StreamAttestation {
     /// Generates an attestation with no previous digest.
     pub fn generate_attestation_genesis(
         &self,
+        attestor: &cc_client::attestor::Attestor,
         stream_util::RootInfo { height, root, hash }: stream_util::RootInfo,
     ) -> Attestation {
         self.sign_attestation(
+            attestor,
             attestor_primitives::AttestationData::new(self.chain_key, height, hash, root, None),
             Default::default(),
         )
     }
 
-    fn generate_attestation(&self, target: attestor_primitives::Height) -> Attestation {
+    pub fn generate_attestation(
+        &self,
+        attestor: &cc_client::attestor::Attestor,
+        Permit(target): Permit,
+    ) -> Attestation {
         assert!(!self.cache.is_empty(), "Empty root cache");
 
         let start = *self.computed.start();
@@ -284,25 +284,25 @@ impl StreamAttestation {
             continuity_proof.head().map(|head| head.digest),
         );
 
-        self.sign_attestation(attestation_data, continuity_proof)
+        self.sign_attestation(attestor, attestation_data, continuity_proof)
     }
 
     fn sign_attestation(
         &self,
+        attestor: &cc_client::attestor::Attestor,
         attestation_data: attestor_primitives::AttestationData<attestor_primitives::Digest>,
         continuity_proof: attestor_primitives::attestation_fragment::AttestationFragmentSerializable,
     ) -> attestor_primitives::Attestation<
         attestor_primitives::Digest,
         attestor_primitives::AttestorId,
     > {
-        let attestor = self.signer.attestor_id();
         let message = attestation_data.serialize();
-        let signature = sp_core::sr25519::Signature::from_raw(self.signer.sign(&message).0);
-        let signature_bls = attestor_primitives::bls::WrapEncode(self.bls_key.sign(message));
+        let signature = sp_core::sr25519::Signature::from_raw(attestor.sign_sr25519(&message).0);
+        let signature_bls = attestor_primitives::bls::WrapEncode(attestor.sign_bls(&message));
 
         attestor_primitives::Attestation {
             attestation_data,
-            attestor,
+            attestor: attestor.attestor_id(),
             signature,
             signature_bls,
             continuity_proof,
@@ -311,9 +311,7 @@ impl StreamAttestation {
 
     fn config(&self) -> ConfigIncomplete {
         ConfigBuilder::new()
-            .with_signer(self.signer.clone())
             .with_chain_key(self.chain_key)
-            .with_bls_key(self.bls_key)
             .with_attestation_interval(self.attestation_interval)
             .with_attestation_prev(self.attestation_prev)
             .with_max_catchup(self.max_catchup)
@@ -346,7 +344,7 @@ impl StreamAttestation {
 }
 
 impl futures::Stream for StreamAttestation {
-    type Item = Attestation;
+    type Item = Permit;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -367,9 +365,9 @@ impl futures::Stream for StreamAttestation {
                     self.cache.last()
                 );
 
-                let attestation = self.generate_attestation(self.cursor);
+                let permit = Permit(self.cursor);
                 self.cursor = self.cursor.saturating_sub(self.attestation_interval.get());
-                return std::task::Poll::Ready(Some(attestation));
+                return std::task::Poll::Ready(Some(permit));
             }
 
             // Backpressure, limit the max number of roots which can be processed into a single
@@ -449,7 +447,7 @@ impl futures::Stream for StreamAttestation {
     }
 }
 
-impl stream_util::ChainData<Attestation> for StreamAttestation {
+impl stream_util::ChainData<Permit> for StreamAttestation {
     async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
         let config = self
             .config()

@@ -44,15 +44,13 @@ fn main() {
         .expect("Failed to build tokio runtime");
 
     rt.block_on(async move {
-        let secret = bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret");
-        let bls_key = bls_signatures::PrivateKey::new(secret.to_string().as_bytes());
-
         let client_eth = eth::Client::new(args.eth_url.as_ref(), None)
             .await
             .expect("Failed to create eth client");
 
-        let signer = cc_client::signer::CC3Signer::new(&secret.to_string())
-            .expect("Failed to create cc3 signer");
+        let secret = bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret");
+        let attestor = cc_client::attestor::Attestor::new(secret.into(), 2)
+            .expect("Failed to initialize attestor");
 
         let config = stream_eth::roots::ConfigBuilder::new()
             .with_client(client_eth.clone())
@@ -71,9 +69,7 @@ fn main() {
         let stream_tip = stream_eth::StreamTip::new(config).await.boxed_data();
 
         let config = stream_attestation::ConfigBuilder::new()
-            .with_signer(signer)
             .with_chain_key(2u64)
-            .with_bls_key(bls_key)
             .with_stream_roots(stream_roots)
             .with_stream_tip(stream_tip)
             .with_attestation_interval(args.attestation_interval)
@@ -97,8 +93,8 @@ fn main() {
         let root = eth::simple_merkle_tree(&block).root();
         let hash = attestor_primitives::Digest::from(*block.hash());
 
-        let genesis =
-            attestations.generate_attestation_genesis(stream_util::RootInfo { height, root, hash });
+        let genesis = attestations
+            .generate_attestation_genesis(&attestor, stream_util::RootInfo { height, root, hash });
         let digest = genesis.digest();
         let info = stream_util::AttestationInfo { digest, height };
 
@@ -107,7 +103,9 @@ fn main() {
         attestations.note_attestation_finalization(info);
 
         let mut n = 0;
-        while let Some(attestation) = attestations.by_ref().next().await {
+        while let Some(permit) = attestations.by_ref().next().await {
+            let attestation = attestations.generate_attestation(&attestor, permit);
+
             let digest = attestation.digest();
             let height = attestation.header_number();
 

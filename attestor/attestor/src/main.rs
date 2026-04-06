@@ -1,5 +1,4 @@
 use attestor::prelude::*;
-use std::str::FromStr;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
@@ -11,7 +10,7 @@ use std::str::FromStr;
 struct Config {
     name: String,
     logs: std::path::PathBuf,
-    secret: attestor::stream_legacy::AttestorSecret,
+    secret: cc_client::secret::Secret,
     chain_key: attestor_primitives::ChainKey,
     public_addr: Option<String>,
     api_port: u16,
@@ -48,7 +47,7 @@ struct ConfigFileAttestor {
     name: Option<String>,
     chain_key: Option<attestor_primitives::ChainKey>,
     /// BIP39 mnemonic or raw 32-byte seed as hex (e.g. 0x398f...)
-    secret: Option<String>,
+    secret: Option<cc_client::secret::Secret>,
     public_addr: Option<String>,
     #[serde(default = "default_logs")]
     logs: std::path::PathBuf,
@@ -149,7 +148,7 @@ impl Config {
                     )
                     .env("ATTESTOR_SECRET")
                     .required(false)
-                    .value_parser(clap::value_parser!(attestor::stream_legacy::AttestorSecret)),
+                    .value_parser(clap::value_parser!(cc_client::secret::Secret)),
             )
             .arg(
                 clap::arg!(--"public-addr" <PORT>)
@@ -318,15 +317,13 @@ impl Config {
                 .expect("Chain key is set either in config or by clap"),
         };
 
-        let secret = match matches.get_one::<attestor::stream_legacy::AttestorSecret>("secret") {
+        let secret = match matches.get_one::<cc_client::secret::Secret>("secret") {
             Some(secret) => secret.clone(),
-            None => match &config_file.attestor.secret {
-                Some(s) => attestor::stream_legacy::AttestorSecret::from_str(s)
-                    .map_err(|e| anyhow::anyhow!("invalid attestor secret in config file: {e}"))?,
-                None => attestor::stream_legacy::AttestorSecret::Mnemonic(
-                    bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret"),
-                ),
-            },
+            None => config_file.attestor.secret.unwrap_or(
+                bip39::Mnemonic::generate(12)
+                    .expect("Failed to generate attestor secret")
+                    .into(),
+            ),
         };
 
         let api_port = matches
@@ -471,11 +468,11 @@ async fn main() -> anyhow::Result<()> {
     let config = attestor::ConfigBuilder::new()
         .with_name(args.name)
         .with_chain_key(args.chain_key)
+        .with_secret(args.secret)
         .with_stream(
             attestor::stream_legacy::ConfigBuilder::new()
                 .with_url_eth(args.eth_url)
                 .with_url_cc3(args.cc3_url)
-                .with_secret(args.secret)
                 .build(),
         )
         .with_p2p(

@@ -88,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
     use clap::Parser as _;
     use rand::SeedableRng as _;
     use std::str::FromStr as _;
+    use std::str::FromStr as _;
     use subxt_signer::ExposeSecret as _;
 
     const MAX_ATTEMPTS: usize = 10;
@@ -123,15 +124,11 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Collect seeds from --seeds-file and --seeds
-    let mut configured_secrets: Vec<(subxt_signer::SecretUri, String)> = Vec::new();
+    let mut configured_secrets = Vec::new();
 
     if args.well_known_keys {
         for key in WELL_KNOWN_SEEDS.iter() {
-            let secret_uri = subxt_signer::SecretUri::from_str(key).context(format!(
-                "Failed to create secret uri from well-known key: {key}"
-            ))?;
-            let secret = secret_uri.phrase.expose_secret().to_string();
-            configured_secrets.push((secret_uri, secret));
+            configured_secrets.push(cc_client::secret::Secret::from_str(key)?);
         }
     }
 
@@ -140,18 +137,18 @@ async fn main() -> anyhow::Result<()> {
             "Failed to read seeds file: {}",
             seeds_file.display()
         ))?;
-        for (i, line) in contents.lines().enumerate() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
+
+        for (i, line) in contents
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .enumerate()
+        {
             let mnemonic: bip39::Mnemonic = line
                 .parse()
                 .context(format!("Invalid mnemonic on line {} of seeds file", i + 1))?;
-            let secret_uri = subxt_signer::SecretUri::from_str(&mnemonic.to_string())
-                .context("Failed to create secret uri")?;
 
-            configured_secrets.push((secret_uri, mnemonic.to_string()));
+            configured_secrets.push(mnemonic.into());
         }
     }
 
@@ -173,21 +170,15 @@ async fn main() -> anyhow::Result<()> {
             n += args.offset;
             let name = format!("zombie-{n}");
 
-            let (secret_uri, secret) = if let Some(configured_secret) = configured_secrets.pop() {
-                configured_secret
-            } else {
-                let mnemonic =
-                    bip39::Mnemonic::generate_in_with(&mut rng, bip39::Language::English, 12)
-                        .expect("Failed to generate attestor secret");
-                let secret_uri = subxt_signer::SecretUri::from_str(&mnemonic.to_string())
-                    .context("Failed to create secret uri")?;
-                (secret_uri, mnemonic.to_string())
-            };
-            let keypair = subxt_signer::sr25519::Keypair::from_uri(&secret_uri)
-                .context("Failed to create secret keypair")?;
-            let account_id = cc_client::AccountId32(keypair.public_key().0);
+            let secret = configured_secrets.pop().unwrap_or(
+                bip39::Mnemonic::generate(12)
+                    .expect("Failed to generate attestor secret")
+                    .into(),
+            );
 
-            anyhow::Ok((name, secret, account_id))
+            let attestor = cc_client::attestor::Attestor::new(secret.clone(), args.chain_key)?;
+
+            anyhow::Ok((attestor, name, secret))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -209,13 +200,18 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let cc3 = cc_client::Client::new(args.cc3_url.clone(), &args.funding_address)
+    let sudo = cc_client::attestor::Attestor::new(
+        cc_client::secret::Secret::from_str(&args.funding_address)?,
+        args.chain_key,
+    )?;
+
+    let cc3 = cc_client::Client::new(args.cc3_url.clone())
         .await
         .context("Failed to initialize CC3 client")?;
     let cc3 = std::sync::Arc::new(cc3);
 
     let nonce = cc3
-        .get_account_nonce()
+        .get_account_nonce(&sudo)
         .await
         .context("Failed to get funding address nonce")?;
     let nonce = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(nonce));
@@ -259,13 +255,9 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(start_block, "👷 Configuring genesis block for attestors");
 
         let nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        cc3.set_attestation_chain_genesis_block_number(
-            Some(nonce_local),
-            args.chain_key,
-            start_block,
-        )
-        .await
-        .context("Failed to set chain genesis block")?;
+        cc3.set_attestation_chain_genesis_block_number(&sudo, Some(nonce_local), start_block)
+            .await
+            .context("Failed to set chain genesis block")?;
 
         tracing::info!(
             chain_key = args.chain_key,
@@ -278,12 +270,13 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("💵 Funding attestors");
 
     let mut futures_funding = tokio::task::JoinSet::new();
-    for (name, _secret, account_id) in attestor_info.iter() {
+    for (attestor, name, ..) in attestor_info.iter() {
         let name = name.clone();
-        let account_id = account_id.clone();
+        let account_id = attestor.account_id();
 
         let cc3 = std::sync::Arc::clone(&cc3);
         let nonce = std::sync::Arc::clone(&nonce);
+        let sudo = sudo.clone();
 
         let mut attempt = 0;
 
@@ -291,6 +284,7 @@ async fn main() -> anyhow::Result<()> {
             let mut nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             while let Err(err) = cc3
                 .set_balance(
+                    &sudo,
                     account_id.clone(),
                     10_000_000_000_000_000_000_000,
                     Some(nonce_local),
@@ -321,12 +315,13 @@ async fn main() -> anyhow::Result<()> {
     let blocks = cc3.api().blocks().subscribe_finalized().await.unwrap();
 
     let mut futures_register = tokio::task::JoinSet::new();
-    for (name, _secret, account_id) in attestor_info.iter() {
+    for (attestor, name, ..) in attestor_info.iter() {
         let cc3 = std::sync::Arc::clone(&cc3);
         let nonce = std::sync::Arc::clone(&nonce);
 
         let name = name.clone();
-        let account_id = account_id.clone();
+        let account_id = attestor.account_id();
+        let attestor = attestor.clone();
 
         let mut attempt = 0;
 
@@ -334,7 +329,7 @@ async fn main() -> anyhow::Result<()> {
             let query = cc_client::cc3::storage()
                 .attestation()
                 .attestors(args.chain_key, &account_id);
-            let attestor = cc3
+            let registered = cc3
                 .api()
                 .storage()
                 .at_latest()
@@ -344,13 +339,10 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .unwrap();
 
-            if attestor.is_none() {
+            if registered.is_none() {
                 let mut nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
-                while let Err(err) = cc3
-                    .attestor_register(args.chain_key, account_id.clone(), Some(nonce_local))
-                    .await
-                {
+                while let Err(err) = cc3.attestor_register(&attestor, Some(nonce_local)).await {
                     tracing::error!(%err, "Failed to register attestor");
 
                     attempt += 1;
@@ -390,16 +382,16 @@ async fn main() -> anyhow::Result<()> {
     // -------------------------------------* Start attestors *------------------------------------
 
     let mut futures_attestors = tokio::task::JoinSet::new();
-    for (index, (name, secret, account_id)) in attestor_info.iter().enumerate() {
+    for (index, (attestor, name, secret)) in attestor_info.iter().enumerate() {
         // Assign unique P2P port for each attestor
         let port_p2p = args.p2p_port_base + index as u16 + args.offset as u16;
         let port_api = args.api_port_base + index as u16 + args.offset as u16;
 
-        let mut attestor = tokio::process::Command::new(&args.bin);
-        attestor
+        let mut command = tokio::process::Command::new(&args.bin);
+        command
             .kill_on_drop(true)
             .arg(format!("--name={name}"))
-            .arg(format!("--secret={secret}"))
+            .arg(format!("--secret={}", secret.leak_private_key()))
             .arg(format!("--config={}", args.config.to_string_lossy()))
             .arg(format!("--chain-key={}", args.chain_key))
             .arg(format!("--eth-url={}", args.eth_url))
@@ -407,12 +399,12 @@ async fn main() -> anyhow::Result<()> {
             .arg(format!("--p2p-port={port_p2p}"))
             .arg(format!("--api-port={port_api}"));
 
-        attestor
+        command
             .args(&args.trailing)
             .stdout(std::process::Stdio::null());
 
         let name = name.clone();
-        let account_id = account_id.clone();
+        let account_id = attestor.account_id();
 
         futures_attestors.spawn(async move {
             let time = chrono::Utc::now();
@@ -425,7 +417,7 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!(name, attestor_id = %account_id, "🏁 Starting attestor");
             tracing::info!(logs, "🏁   with");
 
-            attestor
+            command
                 .spawn()
                 .context("Failed to start attestor")?
                 .wait()
@@ -457,7 +449,7 @@ async fn main() -> anyhow::Result<()> {
     // ------------------------------------* Attestor chilling *-----------------------------------
 
     let nonce = cc3
-        .get_account_nonce()
+        .get_account_nonce(&sudo)
         .await
         .context("Failed to get funding address nonce")?;
     let nonce = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(nonce));
@@ -467,21 +459,19 @@ async fn main() -> anyhow::Result<()> {
     let blocks = cc3.api().blocks().subscribe_finalized().await.unwrap();
 
     let mut futures_chill = tokio::task::JoinSet::new();
-    for (name, _secret, account_id) in attestor_info.iter() {
+    for (attestor, name, ..) in attestor_info.iter() {
         let cc3 = std::sync::Arc::clone(&cc3);
         let nonce = std::sync::Arc::clone(&nonce);
 
         let name = name.clone();
-        let account_id = account_id.clone();
+        let account_id = attestor.account_id();
+        let attestor = attestor.clone();
 
         let mut attempt = 0;
 
         futures_chill.spawn(async move {
             let mut nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-            while let Err(err) = cc3
-                .attestor_chill(args.chain_key, account_id.clone(), Some(nonce_local))
-                .await
-            {
+            while let Err(err) = cc3.attestor_chill(&attestor, Some(nonce_local)).await {
                 attempt += 1;
                 if attempt >= MAX_ATTEMPTS {
                     anyhow::bail!("Failed to chill attestor {name} - {account_id}: {err}");
@@ -519,21 +509,19 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("🪦 Un-registering attestors");
 
     let mut futures_unregister = tokio::task::JoinSet::new();
-    for (name, _secret, account_id) in attestor_info.iter() {
+    for (attestor, name, ..) in attestor_info.iter() {
         let cc3 = std::sync::Arc::clone(&cc3);
         let nonce = std::sync::Arc::clone(&nonce);
 
         let name = name.clone();
-        let account_id = account_id.clone();
+        let account_id = attestor.account_id();
+        let attestor = attestor.clone();
 
         let mut attempt = 0;
 
         futures_unregister.spawn(async move {
             let mut nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-            while let Err(err) = cc3
-                .attestor_unregister(args.chain_key, account_id.clone(), Some(nonce_local))
-                .await
-            {
+            while let Err(err) = cc3.attestor_unregister(&attestor, Some(nonce_local)).await {
                 attempt += 1;
                 if attempt >= MAX_ATTEMPTS {
                     anyhow::bail!("Failed to un-register attestor {name} - {account_id}: {err}");

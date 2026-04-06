@@ -17,13 +17,9 @@
 //! [`Future`]: std::future::Future
 
 pub mod cc3;
-pub mod secret;
-
-pub use secret::AttestorSecret;
 
 #[derive(Debug, builder::Builder)]
 pub struct Config {
     pub(crate) url_eth: url::Url,
     pub(crate) url_cc3: url::Url,
-    pub(crate) secret: AttestorSecret,
 }
