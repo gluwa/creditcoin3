@@ -19,6 +19,8 @@ pub struct Simulation {
     /// [tip stream]: stream_eth::StreamTip
     sender_tip: crate::tests::mock::TipSender,
 
+    attestor: cc_client::attestor::Attestor,
+
     start_height: attestor_primitives::Height,
     attestation_prev: attestor_primitives::Height,
     attestation_interval: std::num::NonZero<attestor_primitives::Height>,
@@ -86,8 +88,11 @@ impl Simulation {
 
             // Polls the attestation stream, applying the state transition
             match tokio_test::task::spawn(self.sut.next()).poll() {
-                std::task::Poll::Ready(Some(attestation)) => {
-                    self.attestation_prev = attestation.header_number();
+                std::task::Poll::Ready(Some(permit)) => {
+                    self.attestation_prev = self
+                        .sut
+                        .generate_attestation(&self.attestor, permit)
+                        .header_number();
                 }
                 std::task::Poll::Ready(None) => panic!("Attestation stream should be infinite"),
                 std::task::Poll::Pending => {}
@@ -109,9 +114,8 @@ prop_compose! {
         use stream_util::ChainExt as _;
 
         let secret = bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret");
-        let bls_key = bls_signatures::PrivateKey::new(secret.to_string().as_bytes());
-        let signer = cc_client::signer::CC3Signer::new(&secret.to_string())
-            .expect("Failed to create cc3 signer");
+        let attestor = cc_client::attestor::Attestor::new(secret.into(), 2)
+            .expect("Failed to initialize attestor");
 
         let (tx_roots, rx_roots) = crate::tests::mock::roots(start_height);
         let (tx_tip, rx_tip) = crate::tests::mock::tip(start_height);
@@ -125,9 +129,7 @@ prop_compose! {
         let max_catchup = std::num::NonZero::new(max_catchup).unwrap();
 
         let config = crate::ConfigBuilder::new()
-            .with_signer(signer)
             .with_chain_key(2u64)
-            .with_bls_key(bls_key)
             .with_stream_roots(rx_roots.boxed_data())
             .with_stream_tip(rx_tip.boxed_data())
             .with_attestation_interval(attestation_interval)
@@ -142,6 +144,7 @@ prop_compose! {
             steps,
             sender_roots: tx_roots,
             sender_tip: tx_tip,
+            attestor,
 
             start_height,
             attestation_prev: attestation_prev.height,
