@@ -1572,7 +1572,6 @@ dependencies = [
  "url",
  "usc-abi-encoding",
  "user",
- "zeroize",
 ]
 
 [[package]]
@@ -1606,7 +1605,6 @@ dependencies = [
  "chrono",
  "clap",
  "eth",
- "rand 0.8.5",
  "subxt",
  "subxt-signer",
  "tokio",
@@ -14706,7 +14704,6 @@ version = "3.106.0"
 dependencies = [
  "attestor-primitives",
  "bip39",
- "bls-signatures",
  "builder",
  "cc-client",
  "clap",
