@@ -4,7 +4,7 @@ pub struct Attestor {
 
     pub(crate) keypair_subxt: subxt_signer::sr25519::Keypair,
     pub(crate) keypair_p2p: libp2p::identity::Keypair,
-    pub(crate) pair: sp_core::sr25519::Pair,
+    pub(crate) pair_vrf: sp_core::sr25519::Pair,
     pub(crate) bls_key: bls_signatures::PrivateKey,
 }
 
@@ -13,14 +13,19 @@ impl Attestor {
         secret: crate::secret::Secret,
         chain_key: attestor_primitives::ChainKey,
     ) -> anyhow::Result<Self> {
+        use secrecy::ExposeSecret as _;
         use sp_core::Pair as _;
+        use std::str::FromStr as _;
 
-        let mut sk = secret.clone().into();
+        let seed = subxt_signer::SecretUri::from_str(secret.private_key().expose_secret())?;
+        let keypair_subxt = subxt_signer::sr25519::Keypair::from_uri(&seed)?;
 
-        let keypair_subxt = subxt_signer::sr25519::Keypair::from_secret_key(sk)?;
-        let pair = sp_core::sr25519::Pair::from_seed(&sk);
-        let bls_key = bls_signatures::PrivateKey::new(&sk);
-        let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut sk)?;
+        let seed = secret.private_key();
+        let pair_vrf = sp_core::sr25519::Pair::from_string(seed.expose_secret(), None)?;
+
+        let mut seed: [u8; 32] = secret.try_into()?;
+        let bls_key = bls_signatures::PrivateKey::new(&seed);
+        let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed)?;
 
         anyhow::Ok(Self {
             chain_key,
@@ -29,7 +34,7 @@ impl Attestor {
             keypair_p2p,
 
             bls_key,
-            pair,
+            pair_vrf,
         })
     }
 
