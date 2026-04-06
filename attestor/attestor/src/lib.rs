@@ -51,7 +51,6 @@ impl Attestor {
     )]
     pub async fn run(self) -> Result<(), Error> {
         use anyhow::Context as _;
-        use bls_signatures::Serialize as _;
         use stream::util::ChainExt as _;
 
         // --------------------------------------* Identity *--------------------------------------
@@ -153,7 +152,7 @@ impl Attestor {
         // ------------------------------------* Registration *------------------------------------
 
         tracing::info!(
-            bls_public_key = format!("0x{}", hex::encode(&attestor.bls_pubkey())),
+            bls_public_key = format!("0x{}", hex::encode(attestor.bls_pubkey())),
             "🔑 BLS public key (set this in fork genesis Attestors if needed)"
         );
 
@@ -531,9 +530,6 @@ async fn register_bls(
     client_cc3: &cc_client::Client,
     attestor: &cc_client::attestor::Attestor,
 ) -> Result<(), Interrupt<Error>> {
-    use anyhow::Context as _;
-    use bls_signatures::Serialize as _;
-
     let status = client_cc3
         .get_attestor_status(attestor)
         .await
@@ -662,10 +658,11 @@ async fn wait_for_genesis(
         hash: attestor_primitives::Digest::from(*block.hash()),
     };
 
-    let attestation_genesis = stream_attestation.generate_attestation_genesis(&attestor, info);
+    let attestation_genesis = stream_attestation.generate_attestation_genesis(attestor, info);
 
     let height = attestation_genesis.header_number();
     let digest = attestation_genesis.digest();
+
     // No previous digest means we will log `0x000...000` as the previous digest
     let digest_prev = attestation_genesis
         .prev_digest()

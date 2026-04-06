@@ -1,14 +1,17 @@
+/// Identity wrapper around all common attestor signature schemes.
 #[derive(Clone)]
 pub struct Attestor {
     chain_key: attestor_primitives::ChainKey,
 
     pub(crate) keypair_subxt: subxt_signer::sr25519::Keypair,
     pub(crate) keypair_p2p: libp2p::identity::Keypair,
+
     pub(crate) pair_vrf: sp_core::sr25519::Pair,
     pub(crate) bls_key: bls_signatures::PrivateKey,
 }
 
 impl Attestor {
+    /// Initializes all attestor signature schemes from a single secret key phrase.
     pub fn new(
         secret: crate::secret::Secret,
         chain_key: attestor_primitives::ChainKey,
@@ -24,7 +27,7 @@ impl Attestor {
         let pair_vrf = sp_core::sr25519::Pair::from_string(seed.expose_secret(), None)?;
 
         let mut seed: [u8; 32] = secret.try_into()?;
-        let bls_key = bls_signatures::PrivateKey::new(&seed);
+        let bls_key = bls_signatures::PrivateKey::new(seed);
         let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed)?;
 
         anyhow::Ok(Self {
@@ -33,8 +36,8 @@ impl Attestor {
             keypair_subxt,
             keypair_p2p,
 
-            bls_key,
             pair_vrf,
+            bls_key,
         })
     }
 
@@ -78,6 +81,7 @@ impl Attestor {
         self.keypair_subxt.sign(data)
     }
 
+    #[must_use]
     pub fn sign_bls(&self, data: &[u8]) -> bls_signatures::Signature {
         self.bls_key.sign(data)
     }
@@ -89,15 +93,3 @@ impl PartialEq for Attestor {
     }
 }
 impl Eq for Attestor {}
-
-impl Ord for Attestor {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.attestor_id().cmp(&other.attestor_id())
-    }
-}
-
-impl PartialOrd for Attestor {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
