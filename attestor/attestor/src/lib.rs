@@ -85,12 +85,14 @@ impl Attestor {
             }
         }
 
-        let client_cc3 =
-            cc_client::Client::new(self.config.stream.url_cc3.as_ref(), secret_str.as_str())
-                .await
-                .map_err(Error::InitError)?;
+        let client_cc3 = cc_client::Client::new(
+            self.config.stream.url_cc3.as_ref().as_ref(),
+            secret_str.as_str(),
+        )
+        .await
+        .map_err(Error::InitError)?;
 
-        let client_eth = eth::Client::new(self.config.stream.url_eth.as_ref(), None)
+        let client_eth = eth::Client::new(self.config.stream.url_eth.as_ref().as_ref(), None)
             .await
             .map_err(Error::InitError)?;
 
@@ -501,12 +503,12 @@ impl Attestor {
 }
 
 async fn wait_for_endpoints(
-    url_eth: &url::Url,
-    url_cc3: &url::Url,
+    url_eth: &stream_legacy::RpcSecret,
+    url_cc3: &stream_legacy::RpcSecret,
 ) -> Result<(), Interrupt<Error>> {
     loop {
         tokio::select! {
-            Ok(_) = tokio_tungstenite::connect_async(url_eth) => {
+            Ok(_) = tokio_tungstenite::connect_async(url_eth.as_ref()) => {
                 break;
             }
             _ = tokio::time::sleep(common::constants::RETRY_DELAY) => {}
@@ -522,7 +524,7 @@ async fn wait_for_endpoints(
 
     loop {
         tokio::select! {
-            Ok(_) = tokio_tungstenite::connect_async(url_cc3) => {
+            Ok(_) = tokio_tungstenite::connect_async(url_cc3.as_ref()) => {
                 break;
             }
             _ = tokio::time::sleep(common::constants::RETRY_DELAY) => {}

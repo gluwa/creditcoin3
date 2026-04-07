@@ -93,3 +93,54 @@ impl std::fmt::Display for AttestorSecret {
         f.write_str("AttestorSecret(***)")
     }
 }
+
+pub enum RpcSecret {
+    Opaque(url::Url),
+    UnsafeExposed(url::Url),
+}
+
+impl RpcSecret {
+    pub fn new_opaque(url: url::Url) -> Self {
+        Self::Opaque(url)
+    }
+
+    pub fn new_unsafe(url: url::Url) -> Self {
+        Self::UnsafeExposed(url)
+    }
+}
+
+impl From<RpcSecret> for url::Url {
+    fn from(value: RpcSecret) -> Self {
+        match value {
+            RpcSecret::Opaque(url) => url,
+            RpcSecret::UnsafeExposed(url) => url,
+        }
+    }
+}
+
+impl AsRef<url::Url> for RpcSecret {
+    fn as_ref(&self) -> &url::Url {
+        match self {
+            Self::Opaque(url) => url,
+            Self::UnsafeExposed(url) => url,
+        }
+    }
+}
+
+impl std::fmt::Debug for RpcSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Opaque(_) => f.debug_tuple("RpcSecret").field(&"***").finish(),
+            Self::UnsafeExposed(url) => f.debug_tuple("RpcSecret").field(url).finish(),
+        }
+    }
+}
+
+impl std::fmt::Display for RpcSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Opaque(_) => write!(f, "***"),
+            Self::UnsafeExposed(url) => write!(f, "{url}"),
+        }
+    }
+}

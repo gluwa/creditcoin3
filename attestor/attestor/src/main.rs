@@ -473,8 +473,8 @@ async fn main() -> anyhow::Result<()> {
         .with_chain_key(args.chain_key)
         .with_stream(
             attestor::stream_legacy::ConfigBuilder::new()
-                .with_url_eth(args.eth_url)
-                .with_url_cc3(args.cc3_url)
+                .with_url_eth(attestor::stream_legacy::RpcSecret::new_opaque(args.eth_url))
+                .with_url_cc3(attestor::stream_legacy::RpcSecret::new_opaque(args.cc3_url))
                 .with_secret(args.secret)
                 .build(),
         )
