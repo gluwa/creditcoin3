@@ -152,6 +152,7 @@ impl From<AccountId32> for AttestorId {
     }
 }
 
+#[cfg(feature = "std")]
 impl From<subxt::utils::AccountId32> for AttestorId {
     fn from(id: subxt::utils::AccountId32) -> Self {
         id.0.into()
@@ -170,6 +171,7 @@ impl From<AttestorId> for AccountId32 {
     }
 }
 
+#[cfg(feature = "std")]
 impl From<AttestorId> for subxt::utils::AccountId32 {
     fn from(id: AttestorId) -> Self {
         Self(id.public_key())
