@@ -90,4 +90,8 @@ std = [
     "pallet-membership/std",
     "pallet-randomness/std",
 ]
-try-runtime = []
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+]
