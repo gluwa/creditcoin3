@@ -94,16 +94,36 @@ impl std::fmt::Display for AttestorSecret {
     }
 }
 
+/// Wrapper struct around [`Url`] which avoids leaking RPC api keys through logs.
+///
+/// [`Url`]: url::Url
 pub enum RpcSecret {
+    /// Hides the RPC url on calls to [`Debug`] or [`Display`].
+    ///
+    /// [`Debug`]: std::fmt::Debug
+    /// [`Display`]: std::fmt::Display
     Opaque(url::Url),
+    /// Exposes the RPC url on calls to [`Debug`] or [`Display`].
+    ///
+    /// <div class="warning">
+    ///
+    /// Use this for testing purposes only! This option should not be used in environment where
+    /// logs are publicly accessible, such as Github actions or other CI.
+    ///
+    /// </div>
+    ///
+    /// [`Debug`]: std::fmt::Debug
+    /// [`Display`]: std::fmt::Display
     UnsafeExposed(url::Url),
 }
 
 impl RpcSecret {
+    /// Creates a new masked [`RpcSecret`].
     pub fn new_opaque(url: url::Url) -> Self {
         Self::Opaque(url)
     }
 
+    /// Creates a new [`RpcSecret`] **which exposes the underlying RPC url**.
     pub fn new_unsafe(url: url::Url) -> Self {
         Self::UnsafeExposed(url)
     }
