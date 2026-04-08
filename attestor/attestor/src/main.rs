@@ -236,14 +236,14 @@ impl Config {
                     .value_parser(clap::value_parser!(url::Url)),
             )
             .arg(
-                clap::arg!(--"unsafe-url")
+                clap::arg!(--"expose-urls-in-logs")
                     .help("Expose full RPC urls in the logs")
                     .long_help(
                         "Expose full RPC urls in the logs. \
                         By default those are masked to avoid leaking API keys. \
                         Be careful not to use this option in any public environment such as github actions!"
                     )
-                    .env("ATTESTOR_UNSAFE_URL")
+                    .env("ATTESTOR_EXPOSE_URLS_IN_LOGS")
                     .action(clap::ArgAction::SetTrue)
             )
             .arg(
@@ -363,7 +363,7 @@ impl Config {
             .or(config_file.p2p.port)
             .unwrap_or(common::constants::DEFAULT_P2P_PORT);
 
-        let unsafe_url = matches.get_flag("unsafe-url");
+        let expose_url = matches.get_flag("expose-urls-in-logs");
 
         let eth_url = match matches.get_one::<url::Url>("eth-url") {
             Some(url) => url.clone(),
@@ -372,8 +372,8 @@ impl Config {
                 .url
                 .expect("Eth url is set either in config or by clap"),
         };
-        let eth_url = if unsafe_url {
-            attestor::stream_legacy::RpcSecret::new_unsafe(eth_url)
+        let eth_url = if expose_url {
+            attestor::stream_legacy::RpcSecret::new_exposed(eth_url)
         } else {
             attestor::stream_legacy::RpcSecret::new_opaque(eth_url)
         };
@@ -385,8 +385,8 @@ impl Config {
                 .url
                 .expect("CC3 url is set either in config or by clap"),
         };
-        let cc3_url = if unsafe_url {
-            attestor::stream_legacy::RpcSecret::new_unsafe(cc3_url)
+        let cc3_url = if expose_url {
+            attestor::stream_legacy::RpcSecret::new_exposed(cc3_url)
         } else {
             attestor::stream_legacy::RpcSecret::new_opaque(cc3_url)
         };

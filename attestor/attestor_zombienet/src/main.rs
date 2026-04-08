@@ -38,7 +38,7 @@ struct Args {
     cc3_url: url::Url,
 
     #[arg(long)]
-    unsafe_url: bool,
+    expose_urls_in_logs: bool,
 
     /// If true, the program will fetch the current block number of the source chain and configure
     /// that as a genesis block for the attestors.
@@ -410,8 +410,8 @@ async fn main() -> anyhow::Result<()> {
             .arg(format!("--p2p-port={port_p2p}"))
             .arg(format!("--api-port={port_api}"));
 
-        if args.unsafe_url {
-            attestor.arg("--unsafe-url");
+        if args.expose_urls_in_logs {
+            attestor.arg("--expose-urls-in-logs");
         }
 
         attestor
