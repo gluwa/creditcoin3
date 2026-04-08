@@ -25,13 +25,13 @@
         "lint": "eslint -c .eslintrc.js --max-warnings 0 --ext .ts ./src",
         "typecheck": "tsc --noEmit",
         "prepare": "yarn build",
-        "test:unit": "jest --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts src/test/unit-tests",
-        "test:attestor-cli": "jest --config src/test/integration-tests.config.ts --silent --verbose --runInBand --forceExit src/test/integration-tests/attestor/",
-        "test:validator-cli": "jest --config src/test/integration-tests.config.ts --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts --forceExit src/test/integration-tests/validator/",
+        "test:unit": "jest --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts src/test/unit-tests",
+        "test:attestor-cli": "jest --config src/test/integration-tests.config.ts --verbose --runInBand --forceExit src/test/integration-tests/attestor/",
+        "test:validator-cli": "jest --config src/test/integration-tests.config.ts --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts --forceExit src/test/integration-tests/validator/",
         "test:attestation": "jest --config src/test/attestation-tests.config.ts --verbose --runInBand --forceExit src/test/attestation-tests",
-        "test:blockchain": "jest --config src/test/blockchain-tests.config.ts --silent --verbose --runInBand --forceExit src/test/blockchain-tests",
-        "test:cc3-indexer": "jest --config src/test/cc3-indexer-tests.config.ts --silent --verbose --runInBand --forceExit src/test/cc3-indexer-tests",
-        "test:archiver": "jest --config src/test/archiver-tests.config.ts --silent --verbose --runInBand --forceExit src/test/archiver-tests"
+        "test:blockchain": "jest --config src/test/blockchain-tests.config.ts --verbose --runInBand --forceExit src/test/blockchain-tests",
+        "test:cc3-indexer": "jest --config src/test/cc3-indexer-tests.config.ts --verbose --runInBand --forceExit src/test/cc3-indexer-tests",
+        "test:archiver": "jest --config src/test/archiver-tests.config.ts --verbose --runInBand --forceExit src/test/archiver-tests"
     },
     "devDependencies": {
         "@gluwa/usc-sdk": "0.9.0",
