@@ -18,19 +18,6 @@ new_without_default = "allow"
 redundant_field_names = "allow"
 uninlined_format_args = "allow"
 
-[lints.clippy]
-iter_kv_map = "allow"
-uninlined_format_args = "allow"
-needless_borrow = "allow"
-large_enum_variant = "allow"
-derivable_impls = "allow"
-let_unit_value = "allow"
-new_without_default = "allow"
-redundant_field_names = "allow"
-needless_return = "allow"
-into_iter_on_ref = "allow"
-clone_on_copy = "allow"
-
 [dependencies]
 ethereum-types = { version = "0.15", features = ["std"] }
 hex = { version = "0.4", features = ["serde"] }
