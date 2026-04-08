@@ -189,3 +189,21 @@ export interface Metrics {
   sourceChainConnected: number;
   cc3Connected: number;
 }
+
+/**
+ * Slack payload to be submitted by reportSender
+ */
+export interface SlackPayload {
+  username?: string;
+  icon_emoji?: string;
+  text: string;
+  link_names?: boolean;
+  blocks?: Array<{
+    type: string;
+    text?: {
+      type: "mrkdwn" | "plain_text";
+      text: string;
+      emoji?: boolean;
+    };
+  }>;
+}
