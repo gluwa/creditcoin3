@@ -1,4 +1,4 @@
-use attestor_primitives::{block::Block, SignedAttestation};
+use attestor_primitives::SignedAttestation;
 use frame_support::pallet_prelude::*;
 use log::{debug, error, info};
 
@@ -94,13 +94,14 @@ impl<T: Config> Pallet<T> {
 
         // Get the tail block to determine the starting digest for reconstruction
         // The tail's prev_digest should point to a known finalized attestation
-        let tail_block = attestation
+        let tail_block_number = attestation
             .continuity_proof
-            .tail()
+            .start_block_number(attestation.header_number());
+        let tail_prev_digest = attestation
+            .continuity_proof
+            .tail_prev_digest()
             .ok_or(Error::<T>::InvalidAttestationContinuityProofTail)?;
-        let tail: Block = tail_block.clone().into();
-        debug!("📝 Checking continuity proof tail: {tail:?}");
-        let tail_prev_digest = tail.prev_digest;
+        debug!("📝 Checking continuity proof tail: block_number={tail_block_number}, prev_digest={tail_prev_digest:?}");
 
         // Verify the tail's prev_digest points to a known finalized attestation or the last checkpoint.
         // When linking to a checkpoint, it must be the LastCheckpoint since attestations
@@ -121,29 +122,15 @@ impl<T: Config> Pallet<T> {
             return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
         };
 
-        if tail_prev_header_number != tail.block_number - 1 {
-            error!("❌ Continuity proof tail prev digest points to an attestation/checkpoint with header number {}, but expected {}", tail_prev_header_number, tail.block_number - 1);
+        if tail_prev_header_number != tail_block_number - 1 {
+            error!("❌ Continuity proof tail prev digest points to an attestation/checkpoint with header number {}, but expected {}", tail_prev_header_number, tail_block_number - 1);
             return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
         }
 
-        // Start reconstructing the digest chain from the tail's prev_digest
-        // Continuity proof doesn't carry intermediate digests, so we reconstruct them iteratively
-        let mut reconstructed_digest = tail_prev_digest;
-
-        // Iterate through all blocks in the continuity proof, reconstructing digests from roots
-        for serializable in attestation.continuity_proof.get_blocks_ref() {
-            let block: Block = serializable.clone().into();
-
-            debug!(
-                "📝 Reconstructing digest for block number: {}, root: {:?}, prev_digest: {:?}",
-                block.block_number, block.root, reconstructed_digest,
-            );
-
-            // Reconstruct the digest: digest[i] = hash(block_number, root[i], digest[i-1])
-            // This matches what the attester computed: digest[i] = hash(digest[i-1], root[i])
-            reconstructed_digest =
-                Block::hash_payload(&block.block_number, &block.root, &reconstructed_digest);
-        }
+        // Reconstruct the digest chain from roots (digests are computed on-chain, not trusted)
+        let reconstructed_digest = attestation
+            .continuity_proof
+            .compute_continuity_digest(tail_block_number);
 
         // CRITICAL: Verify the final reconstructed digest matches the attestation's prev_digest
         // This ensures the continuity proof correctly links to the attestation and that all roots

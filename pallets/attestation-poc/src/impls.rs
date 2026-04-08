@@ -809,14 +809,14 @@ impl<T: Config> Pallet<T> {
                 sp_std::cmp::Ordering::Greater => {
                     // If the attestation header is greater than the target block,
                     // we need to find the block within its continuity proof
-                    // that matches the target block we want to condense to
-                    let mut maybe_digest = None;
-                    for proof in attestation.continuity_proof.iter() {
-                        if proof.block_number == target_block {
-                            maybe_digest = Some(proof.digest);
-                            break;
-                        }
-                    }
+                    // that matches the target block we want to condense to.
+                    // USC-001: Compute digest from roots rather than trusting proof.digest.
+                    let start_block_number = attestation
+                        .continuity_proof
+                        .start_block_number(attestation.header_number());
+                    let maybe_digest = attestation
+                        .continuity_proof
+                        .digest_for_block(start_block_number, target_block);
 
                     match maybe_digest {
                         Some(digest) => {
@@ -892,19 +892,20 @@ impl<T: Config> Pallet<T> {
         ensure!(checkpoint_width > 0, Error::<T>::CheckpointWidthIsZero);
 
         // Only when catching up: proof spans 2+ checkpoint intervals
-        let proof_len = attestation.continuity_proof.get_blocks_ref().len();
+        let proof_len = attestation.continuity_proof.len();
         if proof_len < 2 * checkpoint_width as usize {
             return Ok(false);
         }
 
-        // Build map of block_number -> digest from continuity proof blocks.
+        // Build map of block_number -> digest from continuity proof.
+        // USC-001: Compute digests from roots rather than trusting proof.digest values.
         // Include the attestation block itself so boundaries at header_number are not missed.
+        let start_block_number = attestation
+            .continuity_proof
+            .start_block_number(attestation.header_number());
         let mut block_digests: BTreeMap<u64, Digest> = attestation
             .continuity_proof
-            .get_blocks_ref()
-            .iter()
-            .map(|b| (b.block_number, b.digest))
-            .collect();
+            .block_digests(start_block_number);
         block_digests.insert(attestation.header_number(), attestation_digest);
 
         // Also include digests from queued attestations that precede the current proof.
@@ -919,11 +920,14 @@ impl<T: Config> Pallet<T> {
                 block_digests
                     .entry(queued_att.header_number())
                     .or_insert(queued_att.digest());
-                // Add all blocks from its continuity proof
-                for block in queued_att.continuity_proof.get_blocks_ref() {
-                    block_digests
-                        .entry(block.block_number)
-                        .or_insert(block.digest);
+                // Add all blocks from its continuity proof (digests computed from roots)
+                let queued_start = queued_att
+                    .continuity_proof
+                    .start_block_number(queued_att.header_number());
+                for (block_number, digest) in
+                    queued_att.continuity_proof.block_digests(queued_start)
+                {
+                    block_digests.entry(block_number).or_insert(digest);
                 }
             }
         }
