@@ -202,8 +202,7 @@ export function createReportPayloads(
     ? false
     : totalAttempts > 0 &&
       successRatePct < warningSuccessThresholdPct;
-  const triggerProofVolumeAlert = Boolean(config.alertGroup) &&
-    totalAttempts > 0 && (proofsPerHourNum < proofVolumeAlertThreshold);
+  const triggerProofVolumeAlert = Boolean(config.alertGroup) && (proofsPerHourNum < proofVolumeAlertThreshold);
 
   const alertOrWarning = triggerSuccessThresholdAlert ||
     triggerSuccessThresholdWarning || triggerProofVolumeAlert;
@@ -221,7 +220,7 @@ export function createReportPayloads(
   ];
   if (triggerSuccessThresholdWarning) {
     reportSummaryLines.push(
-      `⚠️⚠️⚠️ Proof success rate below warning threshold: ${successRatePct} < ${warningSuccessThresholdPct} ⚠️⚠️⚠️`,
+      `⚠️⚠️⚠️ Proof success rate below warning threshold: ${successRate}% < ${warningSuccessThresholdPct}% ⚠️⚠️⚠️`,
     );
   }
 
@@ -428,11 +427,13 @@ export async function sendPeriodicReport(
   const { reportSummary, reportBody } = createReportPayloads(report, config);
   const messageTs = await sendSlackMessage(config, reportSummary);
 
-  // Send report body as thread reply
-  try {
-    await sendSlackMessage(config, reportBody, messageTs);
-  } catch (error) {
-    console.warn(`Failed to send report body thread reply: ${error}`);
+  // Send report body as thread reply when using the Slack API
+  if (messageTs) {
+    try {
+      await sendSlackMessage(config, reportBody, messageTs);
+    } catch (error) {
+      console.warn(`Failed to send report body thread reply: ${error}`);
+    }
   }
 
   // Send errors as a thread reply when using the Slack API
