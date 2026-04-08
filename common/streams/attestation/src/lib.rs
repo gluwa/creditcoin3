@@ -249,8 +249,8 @@ impl StreamAttestation {
 
         assert_eq!(height, target, "Attestation height mismatch");
 
-        let blocks = self.cache[0..index].iter().fold(
-            Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(index),
+        let blocks: Vec<attestor_primitives::block::Block> = self.cache[0..index].iter().fold(
+            Vec::with_capacity(index),
             |mut acc, stream_util::RootInfo { height, root, .. }| {
                 let digest_prev = acc
                     .last()
@@ -261,27 +261,22 @@ impl StreamAttestation {
                     *root,
                     digest_prev,
                 );
-
-                acc.push(block.into());
+                acc.push(block);
                 acc
             },
         );
 
-        assert_eq!(
-            blocks.len(),
-            (target - self.attestation_prev.height - 1) as usize,
-            "Invalid continuity proof length"
-        );
+        let continuity_proof = attestor_primitives::block::ContinuityProof::from_blocks(blocks);
 
-        let continuity_proof =
-            attestor_primitives::attestation_fragment::AttestationFragmentSerializable { blocks };
+        let prev_digest = (!continuity_proof.is_empty())
+            .then(|| continuity_proof.compute_continuity_digest(block_first));
 
         let attestation_data = attestor_primitives::AttestationData::new(
             self.chain_key,
             target,
             hash,
             root,
-            continuity_proof.head().map(|head| head.digest),
+            prev_digest,
         );
 
         self.sign_attestation(attestation_data, continuity_proof)
@@ -290,7 +285,7 @@ impl StreamAttestation {
     fn sign_attestation(
         &self,
         attestation_data: attestor_primitives::AttestationData<attestor_primitives::Digest>,
-        continuity_proof: attestor_primitives::attestation_fragment::AttestationFragmentSerializable,
+        continuity_proof: attestor_primitives::block::ContinuityProof,
     ) -> attestor_primitives::Attestation<
         attestor_primitives::Digest,
         attestor_primitives::AttestorId,

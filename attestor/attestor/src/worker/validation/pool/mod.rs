@@ -606,10 +606,7 @@ impl AttestationPoolForks {
 
         tracing::debug!("Validating tail prev digest");
 
-        let prev_digest_tail = attestation
-            .continuity_proof
-            .tail()
-            .map(|tail| tail.prev_digest);
+        let prev_digest_tail = attestation.continuity_proof.tail_prev_digest();
 
         let key_vote = KeyVote {
             height,
@@ -1849,15 +1846,10 @@ pub mod fixtures {
                         bls_signatures::PrivateKey::new(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
                             .sign(b"0xdeadbeef"),
                     ),
-                    continuity_proof:
-                        attestor_primitives::attestation_fragment::AttestationFragmentSerializable {
-                            blocks: vec![attestor_primitives::block::BlockSerializable {
-                                block_number: header_number,
-                                root: attestor_primitives::Digest::default(),
-                                prev_digest,
-                                digest: attestor_primitives::Digest::default(),
-                            }],
-                        },
+                    continuity_proof: attestor_primitives::block::ContinuityProof::new(
+                        prev_digest,
+                        vec![attestor_primitives::Digest::default()],
+                    ),
                 }
             };
 

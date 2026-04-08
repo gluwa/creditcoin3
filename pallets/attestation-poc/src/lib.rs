@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub use migrations::MigrateAttestationContinuityProofV0ToV1;
 pub use pallet::*;
 
 #[allow(clippy::unnecessary_cast)]
@@ -22,6 +23,7 @@ mod clear_or_revert;
 mod continuity;
 mod impls;
 mod ledger;
+pub mod migrations;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -455,7 +457,7 @@ pub mod pallet {
     >;
 
     /// The in-code storage version.
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]

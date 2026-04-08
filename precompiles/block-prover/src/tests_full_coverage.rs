@@ -123,7 +123,7 @@ fn create_tx_with_layout(segments: &[(usize, usize, u8)]) -> Vec<u8> {
 
 /// Helper to setup attestations at both ends of continuity chain
 fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
-    use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
+    use attestor_primitives::block::ContinuityProof;
 
     if blocks.is_empty() {
         return;
@@ -143,7 +143,7 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
         attestation: start_attestation,
         signature,
         attestors: vec![Account::Alice],
-        continuity_proof: AttestationFragmentSerializable::default(),
+        continuity_proof: ContinuityProof::default(),
     };
 
     pallet_attestation_poc::Attestations::<Runtime>::insert(
@@ -170,7 +170,7 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
             attestation: end_attestation,
             signature,
             attestors: vec![Account::Alice],
-            continuity_proof: AttestationFragmentSerializable::default(),
+            continuity_proof: ContinuityProof::default(),
         };
 
         pallet_attestation_poc::Attestations::<Runtime>::insert(
@@ -446,7 +446,7 @@ fn test_continuity_with_checkpoint_fallback() {
         pallet_attestation_poc::LastCheckpoint::<Runtime>::insert(1, checkpoint);
 
         // Setup end attestation
-        use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
+        use attestor_primitives::block::ContinuityProof;
         if let Some(last_block) = continuity_blocks.last() {
             let end_attestation = AttestationData {
                 chain_key: 1,
@@ -460,7 +460,7 @@ fn test_continuity_with_checkpoint_fallback() {
                 attestation: end_attestation,
                 signature: [0u8; 96],
                 attestors: vec![Account::Alice],
-                continuity_proof: AttestationFragmentSerializable::default(),
+                continuity_proof: ContinuityProof::default(),
             };
 
             pallet_attestation_poc::Attestations::<Runtime>::insert(
@@ -500,7 +500,7 @@ fn test_continuity_attestation_header_validation() {
             create_valid_continuity_chain_with_root(100, 4, Some(merkle_proof.root));
 
         // Setup attestation with correct header number
-        use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
+        use attestor_primitives::block::ContinuityProof;
         let attestation = AttestationData {
             chain_key: 1,
             header_number: continuity_blocks[0].block_number - 1, // Correct number
@@ -513,7 +513,7 @@ fn test_continuity_attestation_header_validation() {
             attestation,
             signature: [0u8; 96],
             attestors: vec![Account::Alice],
-            continuity_proof: AttestationFragmentSerializable::default(),
+            continuity_proof: ContinuityProof::default(),
         };
 
         pallet_attestation_poc::Attestations::<Runtime>::insert(
@@ -543,7 +543,7 @@ fn test_continuity_attestation_header_validation() {
                 attestation: end_attestation,
                 signature: [0u8; 96],
                 attestors: vec![Account::Alice],
-                continuity_proof: AttestationFragmentSerializable::default(),
+                continuity_proof: ContinuityProof::default(),
             };
 
             pallet_attestation_poc::Attestations::<Runtime>::insert(
@@ -582,7 +582,7 @@ fn test_continuity_wrong_attestation_header_succeeds() {
             create_valid_continuity_chain_with_root(100, 3, Some(merkle_proof.root));
 
         // Setup attestation with WRONG header number at start (doesn't matter anymore)
-        use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
+        use attestor_primitives::block::ContinuityProof;
         let attestation = AttestationData {
             chain_key: 1,
             header_number: continuity_blocks[0].block_number + 10, // Wrong number but doesn't matter
@@ -595,7 +595,7 @@ fn test_continuity_wrong_attestation_header_succeeds() {
             attestation,
             signature: [0u8; 96],
             attestors: vec![Account::Alice],
-            continuity_proof: AttestationFragmentSerializable::default(),
+            continuity_proof: ContinuityProof::default(),
         };
 
         pallet_attestation_poc::Attestations::<Runtime>::insert(
@@ -626,7 +626,7 @@ fn test_continuity_wrong_attestation_header_succeeds() {
                 attestation: end_attestation,
                 signature: [0u8; 96],
                 attestors: vec![Account::Alice],
-                continuity_proof: AttestationFragmentSerializable::default(),
+                continuity_proof: ContinuityProof::default(),
             };
 
             pallet_attestation_poc::Attestations::<Runtime>::insert(
@@ -1457,7 +1457,7 @@ fn test_batch_queries_continuity_failure() {
         // Setup attestation at the end of the chain (block 101) with CORRECT digest
         // This ensures continuity check will fail because computed digest from wrong root won't match
         let correct_digest = FragmentBlock::hash_payload(&101, &proof2.root, &block100_digest);
-        use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
+        use attestor_primitives::block::ContinuityProof;
         let attestation = AttestationData {
             chain_key: 1,
             header_number: 101,
@@ -1469,7 +1469,7 @@ fn test_batch_queries_continuity_failure() {
             attestation,
             signature: [0u8; 96],
             attestors: vec![Account::Alice],
-            continuity_proof: AttestationFragmentSerializable::default(),
+            continuity_proof: ContinuityProof::default(),
         };
         pallet_attestation_poc::Attestations::<Runtime>::insert(
             1,

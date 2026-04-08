@@ -258,11 +258,10 @@ impl EthRpcProvider for eth::Client {
     ) -> Result<Vec<Block>> {
         // Note: This uses Redis block caching if configured (via ContinuityManager -> eth_client.get_block() -> block_cache.rs)
         let manager = ContinuityManager::new(start, end, self);
-        let fragment = manager
+        manager
             .create(lower_digest, EncodingVersion::V1)
             .await
-            .context("Failed to create continuity fragment")?;
-        Ok(fragment.blocks().to_vec())
+            .context("Failed to create continuity blocks")
     }
 
     async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>> {
