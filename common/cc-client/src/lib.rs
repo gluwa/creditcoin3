@@ -16,8 +16,7 @@ use tracing::{debug, error, info};
 
 use cc3::runtime_types::{
     attestor_primitives::{
-        attestation_fragment::AttestationFragmentSerializable as CcAttestationFragment,
-        block::BlockSerializable as CcBlockSerializable,
+        block::ContinuityProof as CcContinuityProof,
         AttestationCheckpoint as CcAttestationCheckpoint, AttestationData as CcAttestationData,
         ChainEncodingVersion as CcChainEncodingVersion, SignedAttestation as CcSignedAttestation,
     },
@@ -25,10 +24,8 @@ use cc3::runtime_types::{
 };
 
 use attestor_primitives::{
-    attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
-    block::Block,
-    Attestation as RpcAttestation, AttestationCheckpoint, AttestationData, AttestorId,
-    AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest,
+    block::ContinuityProof, Attestation as RpcAttestation, AttestationCheckpoint, AttestationData,
+    AttestorId, AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest,
     SignedAttestation,
 };
 use supported_chains_primitives::SupportedChain;
@@ -1065,38 +1062,24 @@ impl From<SignedAttestation<Digest, AttestorId>> for CcSignedAttestation<H256, A
     }
 }
 
-impl From<CcAttestationFragment> for AttestationFragmentSerializable {
-    fn from(fragment: CcAttestationFragment) -> Self {
-        let fragment =
-            AttestationFragment::from_blocks(fragment.blocks.into_iter().map(Into::into).collect());
-        (&fragment).into()
-    }
-}
-
-impl From<AttestationFragmentSerializable> for CcAttestationFragment {
-    fn from(fragment: AttestationFragmentSerializable) -> Self {
-        CcAttestationFragment {
-            blocks: fragment
-                .blocks
+impl From<CcContinuityProof> for ContinuityProof {
+    fn from(p: CcContinuityProof) -> Self {
+        Self {
+            lower_endpoint_digest: sp_core::H256::from_slice(&p.lower_endpoint_digest.0),
+            roots: p
+                .roots
                 .into_iter()
-                .map(|block| CcBlockSerializable {
-                    block_number: block.block_number,
-                    root: H256(block.root.0),
-                    prev_digest: H256(block.prev_digest.0),
-                    digest: H256(block.digest.0),
-                })
+                .map(|r| sp_core::H256::from_slice(&r.0))
                 .collect(),
         }
     }
 }
 
-impl From<CcBlockSerializable> for Block {
-    fn from(block: CcBlockSerializable) -> Self {
-        Block {
-            block_number: block.block_number,
-            root: sp_core::H256::from_slice(&block.root.0),
-            prev_digest: sp_core::H256::from_slice(&block.prev_digest.0),
-            digest: sp_core::H256::from_slice(&block.digest.0),
+impl From<ContinuityProof> for CcContinuityProof {
+    fn from(p: ContinuityProof) -> Self {
+        CcContinuityProof {
+            lower_endpoint_digest: H256(p.lower_endpoint_digest.0),
+            roots: p.roots.into_iter().map(|r| H256(r.0)).collect(),
         }
     }
 }
