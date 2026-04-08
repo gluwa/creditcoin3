@@ -114,7 +114,7 @@ pub enum RpcSecret {
     ///
     /// [`Debug`]: std::fmt::Debug
     /// [`Display`]: std::fmt::Display
-    UnsafeExposed(url::Url),
+    Exposed(url::Url),
 }
 
 impl RpcSecret {
@@ -124,8 +124,8 @@ impl RpcSecret {
     }
 
     /// Creates a new [`RpcSecret`] **which exposes the underlying RPC url**.
-    pub fn new_unsafe(url: url::Url) -> Self {
-        Self::UnsafeExposed(url)
+    pub fn new_exposed(url: url::Url) -> Self {
+        Self::Exposed(url)
     }
 }
 
@@ -133,7 +133,7 @@ impl From<RpcSecret> for url::Url {
     fn from(value: RpcSecret) -> Self {
         match value {
             RpcSecret::Opaque(url) => url,
-            RpcSecret::UnsafeExposed(url) => url,
+            RpcSecret::Exposed(url) => url,
         }
     }
 }
@@ -142,7 +142,18 @@ impl AsRef<url::Url> for RpcSecret {
     fn as_ref(&self) -> &url::Url {
         match self {
             Self::Opaque(url) => url,
-            Self::UnsafeExposed(url) => url,
+            Self::Exposed(url) => url,
+        }
+    }
+}
+
+impl std::ops::Deref for RpcSecret {
+    type Target = url::Url;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Opaque(url) => url,
+            Self::Exposed(url) => url,
         }
     }
 }
@@ -151,7 +162,7 @@ impl std::fmt::Debug for RpcSecret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Opaque(_) => f.debug_tuple("RpcSecret").field(&"***").finish(),
-            Self::UnsafeExposed(url) => f.debug_tuple("RpcSecret").field(url).finish(),
+            Self::Exposed(url) => f.debug_tuple("RpcSecret").field(url).finish(),
         }
     }
 }
@@ -160,7 +171,7 @@ impl std::fmt::Display for RpcSecret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Opaque(_) => write!(f, "***"),
-            Self::UnsafeExposed(url) => write!(f, "{url}"),
+            Self::Exposed(url) => write!(f, "{url}"),
         }
     }
 }
