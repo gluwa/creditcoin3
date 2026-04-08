@@ -191,9 +191,12 @@ export function createReportPayloads(
     ? (delta.proofsSubmitted / totalAttempts) * 100
     : 100;
 
-  const alertSuccessThresholdPct = config.alertSuccessThresholdPct ?? DEFAULT_PROOF_SUCCESS_ALERT_THRESHOLD;
-  const warningSuccessThresholdPct = config.warningSuccessThresholdPct ?? DEFAULT_PROOF_SUCCESS_WARNING_THRESHOLD;
-  const proofVolumeAlertThreshold = config.proofVolumeAlertThreshold ?? DEFAULT_EXPECTED_PROOFS_PER_HOUR;
+  const alertSuccessThresholdPct = config.alertSuccessThresholdPct ??
+    DEFAULT_PROOF_SUCCESS_ALERT_THRESHOLD;
+  const warningSuccessThresholdPct = config.warningSuccessThresholdPct ??
+    DEFAULT_PROOF_SUCCESS_WARNING_THRESHOLD;
+  const proofVolumeAlertThreshold = config.proofVolumeAlertThreshold ??
+    DEFAULT_EXPECTED_PROOFS_PER_HOUR;
 
   const triggerSuccessThresholdAlert = Boolean(config.alertGroup) &&
     totalAttempts > 0 &&
@@ -202,7 +205,8 @@ export function createReportPayloads(
     ? false
     : totalAttempts > 0 &&
       successRatePct < warningSuccessThresholdPct;
-  const triggerProofVolumeAlert = Boolean(config.alertGroup) && (proofsPerHourNum < proofVolumeAlertThreshold);
+  const triggerProofVolumeAlert = Boolean(config.alertGroup) &&
+    (proofsPerHourNum < proofVolumeAlertThreshold);
 
   const alertOrWarning = triggerSuccessThresholdAlert ||
     triggerSuccessThresholdWarning || triggerProofVolumeAlert;
@@ -322,15 +326,15 @@ export function createReportPayloads(
       },
       ...(mentionPrefix
         ? [
-            { type: "divider" as const },
-            {
-              type: "section" as const,
-              text: {
-                type: "mrkdwn" as const,
-                text: alertText,
-              },
+          { type: "divider" as const },
+          {
+            type: "section" as const,
+            text: {
+              type: "mrkdwn" as const,
+              text: alertText,
             },
-          ]
+          },
+        ]
         : []),
     ],
   };
