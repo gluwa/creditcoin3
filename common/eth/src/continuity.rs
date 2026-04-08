@@ -3,13 +3,10 @@ use futures::stream::{self, StreamExt};
 use sp_core::H256;
 use tracing::{debug, trace};
 use usc_abi_encoding::common::EncodingVersion;
+use user::prelude::*;
 
 use super::{Client, Error as EthError};
-use attestor_primitives::{
-    attestation_fragment::{AttestationFragment, AttestationFragmentError},
-    block::{Block as FragmentBlock, BlockError},
-};
-use user::prelude::*;
+use attestor_primitives::block::{Block, BlockError};
 
 /// Maximum number of concurrent block fetches when building continuity chains.
 /// This limits concurrency to avoid overwhelming Redis with too many simultaneous requests.
@@ -17,14 +14,10 @@ use user::prelude::*;
 /// prevents timeouts and ensures better performance when fetching many blocks.
 const MAX_CONCURRENT_BLOCK_FETCHES: usize = 20;
 
-// Removed Felt import - using H256 instead
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Invalid Fragment Length, {0}")]
+    #[error("Invalid fragment length, {0}")]
     InvalidFragmentLength(u64),
-    #[error("Attestation fragment error: {0}")]
-    Fragment(#[from] AttestationFragmentError),
     #[error("Attestation fragment block eth error: {0}")]
     Eth(#[from] EthError),
     #[error("Attestation fragment block error: {0}")]
@@ -52,42 +45,25 @@ impl<'a> Manager<'a> {
         &self,
         prev_digest: H256,
         encoding: EncodingVersion,
-    ) -> Result<AttestationFragment, Error> {
-        // Only for genesis block we don't need to build a fragment
-        // if self.end_block == 0 {
-        //     debug!("No need to build full fragment for genesis block");
-        //     return Ok(AttestationFragment::default());
-        // }
-
-        // Fragment size is the difference between the attestation header number and the last finalized attestation header number
-        // Start and end block are inclusive
-        let fragment_size = self.end_block - self.start_block + 1;
-        let fragment_length = usize::try_from(fragment_size)
-            .map_err(|_| Error::InvalidFragmentLength(fragment_size))?;
-
-        // Create a new fragment with the correct length
-        let mut fragment = AttestationFragment::new(fragment_length);
-
+    ) -> Result<Vec<Block>, Error> {
         debug!(
-            "Building fragment for interval: {} - {}",
+            "Building continuity blocks for interval: {} - {}",
             self.start_block, self.end_block
         );
 
         // Get all blocks with limited concurrency to avoid overwhelming Redis
-        // This list is sorted because we provide the futures in order
         let blocks = stream::iter(self.start_block..=self.end_block)
             .map(|i| self.eth_client.get_block(i, encoding))
             .buffered(MAX_CONCURRENT_BLOCK_FETCHES)
             .collect::<Vec<_>>()
             .await;
 
-        // Handle errors and collect blocks
         let collected_blocks = blocks
             .into_iter()
             .collect::<Result<Vec<_>, _>>()
-            .unwrap_interrupt("Not handling user interrupts")?;
+            .unwrap_interrupt("Not handling user interrupts yet")?;
 
-        // Now spawn MMR computations in parallel threads
+        // Spawn MMR computations in parallel threads
         let blocks_with_roots = stream::iter(collected_blocks)
             .map(|block| {
                 let end_block = self.end_block;
@@ -102,25 +78,33 @@ impl<'a> Manager<'a> {
             .collect::<Vec<_>>()
             .await;
 
-        // Start building the fragment for the interval
+        // Build chain of blocks with digest continuity
+        let mut result: Vec<Block> = Vec::with_capacity(blocks_with_roots.len());
+        let mut prev_digest = prev_digest;
+
         for block_with_root in blocks_with_roots {
             let (block, root) = block_with_root?;
+            let next_block = Block::new_from_prev_digest(block.number(), root, prev_digest);
 
-            let fragment_block = if fragment.is_empty() {
-                debug!("Constructing first block from start block");
-                FragmentBlock::new_from_prev_digest(block.number(), root, prev_digest)
+            let block = if let Some(prev) = result.last() {
+                if next_block.block_number != prev.block_number + 1 {
+                    return Err(BlockError::BlockNumberMismatch(next_block.block_number).into());
+                }
+                next_block
             } else {
-                FragmentBlock::new(block.number(), root)
+                debug!("Constructing first block from start block");
+                next_block
             };
 
             trace!(
                 "Appending block number: {} with root: {:?}",
-                fragment_block.block_number,
-                fragment_block.root
+                block.block_number,
+                block.root
             );
-            fragment.try_append_block(fragment_block)?;
+            prev_digest = block.digest;
+            result.push(block);
         }
 
-        Ok(fragment)
+        Ok(result)
     }
 }

@@ -3,7 +3,7 @@ use precompile_utils::solidity::Codec;
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
-use sp_std::vec::Vec;
+use sp_std::{collections::btree_map::BTreeMap, vec::Vec};
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -127,6 +127,10 @@ impl MaybeCreatedFromEmpty for Block {
     }
 }
 
+/// Serialization format for continuity proof blocks.
+/// Digest and prev_digest are omitted - they are computed from the chain.
+/// prev_digest for block 0 comes from the proof's lower_endpoint_digest;
+/// for block i > 0 it is the digest of block i-1.
 #[derive(
     Debug,
     Clone,
@@ -144,8 +148,6 @@ impl MaybeCreatedFromEmpty for Block {
 pub struct BlockSerializable {
     pub block_number: u64,
     pub root: H256,
-    pub prev_digest: H256,
-    pub digest: H256,
 }
 
 /// Optimized continuity block structure for native query verifier
@@ -173,11 +175,13 @@ impl From<&ContinuityBlock> for ContinuityBlockSerializable {
     }
 }
 
-impl From<BlockSerializable> for ContinuityBlockSerializable {
-    fn from(b: BlockSerializable) -> Self {
-        Self {
-            merkle_root: b.root,
-            digest: b.digest,
+impl BlockSerializable {
+    /// Create ContinuityBlockSerializable; caller must provide prev_digest for the chain.
+    pub fn to_continuity_block(&self, prev_digest: H256) -> ContinuityBlockSerializable {
+        let digest = Block::hash_payload(&self.block_number, &self.root, &prev_digest);
+        ContinuityBlockSerializable {
+            merkle_root: self.root,
+            digest,
         }
     }
 }
@@ -200,7 +204,9 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
 /// Tuple with lowerEndpointDigest and array of roots
 /// Block number for index i = startBlock + i, where startBlock = queryBlockHeight
 /// The query block is at index 0 for optimal proof size
-#[derive(Debug, Clone, Default, Codec, Serialize, Deserialize, Encode, Decode, TypeInfo)]
+#[derive(
+    Debug, Clone, Default, PartialEq, Eq, Codec, Serialize, Deserialize, Encode, Decode, TypeInfo,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ContinuityProof {
     /// The digest of the block before the continuity chain starts (digest of queryHeight - 1)
@@ -217,6 +223,35 @@ impl ContinuityProof {
             lower_endpoint_digest,
             roots,
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.roots.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.roots.is_empty()
+    }
+
+    /// Get digest for block at index i (0-based). Returns the digest of the block at start_block_number + i.
+    pub fn digest_at(&self, start_block_number: u64, index: usize) -> Option<H256> {
+        if index >= self.roots.len() {
+            return None;
+        }
+        let mut prev = self.lower_endpoint_digest;
+        for i in 0..=index {
+            prev = Self::hash_payload(&(start_block_number + i as u64), &self.roots[i], &prev);
+        }
+        Some(prev)
+    }
+
+    /// Compute digest for block at given height. Returns None if height is outside the proof range.
+    pub fn digest_for_block(&self, start_block_number: u64, block_number: u64) -> Option<H256> {
+        if block_number < start_block_number {
+            return None;
+        }
+        let index = (block_number - start_block_number) as usize;
+        self.digest_at(start_block_number, index)
     }
 
     /// Convert from Vec<Block> to ContinuityProof
@@ -285,6 +320,34 @@ impl ContinuityProof {
         digest
     }
 
+    /// First block number in the proof given the attestation header (last block).
+    /// The proof contains blocks [start_block_number, attestation_header_number - 1].
+    pub fn start_block_number(&self, attestation_header_number: u64) -> u64 {
+        attestation_header_number.saturating_sub(self.roots.len() as u64)
+    }
+
+    /// Digest that the continuity proof chains from (prev_digest of the first block).
+    /// Used for continuity validation to look up the finalized attestation/checkpoint.
+    pub fn tail_prev_digest(&self) -> Option<H256> {
+        if self.roots.is_empty() {
+            return None;
+        }
+        Some(self.lower_endpoint_digest)
+    }
+
+    /// Build block_number -> digest map for checkpoint creation.
+    pub fn block_digests(&self, start_block_number: u64) -> BTreeMap<u64, H256> {
+        let mut map = BTreeMap::new();
+        let mut prev = self.lower_endpoint_digest;
+        for (i, root) in self.roots.iter().enumerate() {
+            let block_number = start_block_number + i as u64;
+            let digest = Self::hash_payload(&block_number, root, &prev);
+            map.insert(block_number, digest);
+            prev = digest;
+        }
+        map
+    }
+
     /// Find query block index in continuity proof
     /// Returns the index of the block with the given height, or None if not found
     pub fn find_query_block_index(
@@ -315,8 +378,6 @@ impl From<&Block> for BlockSerializable {
         Self {
             block_number: b.block_number,
             root: b.root,
-            prev_digest: b.prev_digest,
-            digest: b.digest,
         }
     }
 }
@@ -326,19 +387,19 @@ impl From<Block> for BlockSerializable {
         Self {
             block_number: b.block_number,
             root: b.root,
-            prev_digest: b.prev_digest,
-            digest: b.digest,
         }
     }
 }
 
-impl From<BlockSerializable> for Block {
-    fn from(val: BlockSerializable) -> Self {
+impl Block {
+    /// Create Block from BlockSerializable given the previous block's digest in the chain.
+    pub fn from_serializable_with_prev(val: &BlockSerializable, prev_digest: H256) -> Self {
+        let digest = Self::hash_payload(&val.block_number, &val.root, &prev_digest);
         Block {
             block_number: val.block_number,
             root: val.root,
-            prev_digest: val.prev_digest,
-            digest: val.digest,
+            prev_digest,
+            digest,
         }
     }
 }
@@ -389,23 +450,26 @@ mod tests {
             block_number: 7,
             root: h256_from_u64(98765432109876543),
             prev_digest: h256_from_u64(314159265358979),
-            digest: h256_from_u64(271828182845904),
+            digest: Block::hash_payload(
+                &7,
+                &h256_from_u64(98765432109876543),
+                &h256_from_u64(314159265358979),
+            ),
         };
 
-        // Act: produce serializable and serialize to JSON
+        // Act: produce serializable (digest omitted) and serialize to JSON
         let ser = BlockSerializable::from(&original);
         let json = serde_json::to_string(&ser).expect("serialization failed");
 
         // Assert: serialized strings are hex (with 0x prefix)
         assert!(json.contains("0x"));
 
-        // Act: parse back via JSON and convert to Block
-        // Act: parse back to BlockSerializable via JSON and then convert
+        // Act: parse back via JSON and convert to Block (digest is computed)
         let parsed_ser: BlockSerializable =
             serde_json::from_str(&json).expect("deserialization failed");
-        let parsed = Block::from(parsed_ser);
+        let parsed = Block::from_serializable_with_prev(&parsed_ser, original.prev_digest);
 
-        // Assert: values round-trip
+        // Assert: values round-trip (digest is recomputed)
         assert_eq!(original.block_number, parsed.block_number);
         assert_eq!(original.root, parsed.root);
         assert_eq!(original.prev_digest, parsed.prev_digest);
@@ -419,7 +483,7 @@ mod tests {
             block_number: 42,
             root: h256_from_u64(1),
             prev_digest: h256_from_u64(2),
-            digest: h256_from_u64(3),
+            digest: Block::hash_payload(&42, &h256_from_u64(1), &h256_from_u64(2)),
         };
         let ser_block = BlockSerializable::from(&block);
         let value = serde_json::to_value(&ser_block).expect("serialize block");
@@ -441,23 +505,13 @@ mod tests {
             );
         };
 
-        // Extract strings
+        // BlockSerializable omits digest and prev_digest - only block_number and root are serialized
         let root_str = value
             .get("root")
             .and_then(|v| v.as_str())
             .expect("root string");
-        let prev_str = value
-            .get("prev_digest")
-            .and_then(|v| v.as_str())
-            .expect("prev_digest string");
-        let digest_str = value
-            .get("digest")
-            .and_then(|v| v.as_str())
-            .expect("digest string");
 
         assert_h256_str("root", root_str);
-        assert_h256_str("prev_digest", prev_str);
-        assert_h256_str("digest", digest_str);
 
         // Continuity block serialization check as well.
         let cblock = ContinuityBlock {

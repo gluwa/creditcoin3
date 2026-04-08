@@ -1,0 +1,80 @@
+---
+name: Try Runtime
+
+"on":
+  pull_request:
+    branches: [testnet, poc_external_attestation_network]
+    paths:
+      - "**/migrations/**"
+      - "**/migrations.rs"
+      - "runtime/src/lib.rs"
+      - ".github/workflows/try-runtime.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  deploy-runner-try-runtime:
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy: "try-runtime"
+    secrets: inherit
+
+  try-runtime:
+    needs:
+      - deploy-runner-try-runtime
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-try-runtime"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          targets: wasm32-unknown-unknown
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build runtime with try-runtime
+        run: |
+          cargo build --release -p creditcoin3-runtime --features try-runtime
+
+      - name: Install try-runtime-cli
+        run: |
+          cargo install --git https://github.com/paritytech/try-runtime-cli --locked
+
+      - name: Run try-runtime on-runtime-upgrade
+        timeout-minutes: 30
+        run: |
+          try-runtime \
+            --runtime ./target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.wasm \
+            on-runtime-upgrade \
+            --blocktime 15000 \
+            live --uri wss://rpc.usc-testnet2.creditcoin.network
+
+  rm-gh-runner-try-runtime:
+    needs:
+      - try-runtime
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "try-runtime"
+    secrets: inherit

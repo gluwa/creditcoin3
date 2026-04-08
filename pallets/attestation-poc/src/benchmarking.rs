@@ -11,8 +11,7 @@ use sp_runtime::traits::Bounded;
 use sp_std::{ops::RangeInclusive, vec::Vec};
 
 use attestor_primitives::{
-    attestation_fragment::AttestationFragmentSerializable, block::Block, AttestationCheckpoint,
-    AttestationData as AttestationPrimitive, BlsPublicKey, BlsSignature,
+    AttestationCheckpoint, AttestationData as AttestationPrimitive, BlsPublicKey, BlsSignature,
     ChainAttestationIntervalType, ChainKey, SignedAttestation,
 };
 
@@ -76,20 +75,22 @@ fn create_signed_attestation<T: frame_system::Config>(
     header_number: u64,
     prev_digest: Option<H256>,
 ) -> SignedAttestation<<T as frame_system::Config>::Hash, <T as frame_system::Config>::AccountId> {
-    let fragment = construct_fragment(
+    let continuity_proof = construct_fragment(
         prev_digest,
         RangeInclusive::new(start_block, header_number.saturating_sub(1)),
     );
+
+    let attestation_prev_digest = (!continuity_proof.is_empty()).then(|| {
+        let start = header_number.saturating_sub(continuity_proof.len() as u64);
+        continuity_proof.compute_continuity_digest(start)
+    });
 
     let attestation = AttestationPrimitive::<<T as frame_system::Config>::Hash> {
         chain_key,
         header_number,
         header_hash: <T as frame_system::Config>::Hash::default(),
         root: H256::from([0; 32]),
-        prev_digest: fragment.head().map(|h| {
-            let block: Block = h.clone();
-            block.digest()
-        }),
+        prev_digest: attestation_prev_digest,
     };
 
     let mut signatures = Vec::new();
@@ -100,10 +101,7 @@ fn create_signed_attestation<T: frame_system::Config>(
 
         signatures.push(bls_sig);
     }
-    // sign
     let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
-
-    let continuity_proof = AttestationFragmentSerializable::from(&fragment);
 
     let attestation = SignedAttestation {
         attestation,

@@ -90,6 +90,13 @@ pub mod pool;
 use crate::prelude::*;
 pub use error::*;
 
+/// First block height covered by a continuity proof (`header_number - roots.len()`).
+/// Same as [`attestor_primitives::block::ContinuityProof::start_block_number`]; use this when the
+/// proof comes from subxt-generated types that only expose `roots`, not helper methods.
+fn continuity_proof_start_block(header_number: u64, roots_len: usize) -> u64 {
+    header_number.saturating_sub(roots_len as u64)
+}
+
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
 #[derive(builder::Builder)]
@@ -217,7 +224,10 @@ impl WorkerAttestationValidation {
                 tracing::info!(
                     ?digest,
                     height = attestation.attestation.header_number,
-                    start = ?attestation.continuity_proof.blocks.first().map(|block| block.block_number),
+                    start = ?continuity_proof_start_block(
+                        attestation.attestation.header_number,
+                        attestation.continuity_proof.roots.len(),
+                    ),
                     stop = attestation.attestation.header_number,
                     "🛫 Submitting attestation"
                 );
@@ -464,7 +474,10 @@ impl WorkerAttestationValidation {
             tracing::info!(
                 ?digest,
                 height,
-                start = ?attestation.continuity_proof.blocks.first().map(|block| block.block_number),
+                start = ?continuity_proof_start_block(
+                    attestation.attestation.header_number,
+                    attestation.continuity_proof.roots.len(),
+                ),
                 stop = attestation.attestation.header_number,
                 "🛫 Submitting pre-validated attestation"
             );
@@ -725,8 +738,13 @@ impl WorkerAttestationValidation {
         // -------------------------------------* Head digest *------------------------------------
 
         // The head digest of an attestation's continuity chain must match its prev digest
-        if let Some(head) = attestation.continuity_proof.head() {
-            let digest_head = head.digest;
+        if !attestation.continuity_proof.is_empty() {
+            let start = attestation
+                .continuity_proof
+                .start_block_number(attestation.header_number());
+            let digest_head = attestation
+                .continuity_proof
+                .compute_continuity_digest(start);
             let digest_prev = attestation.prev_digest().unwrap_or_default();
 
             if digest_head != digest_prev {
@@ -789,8 +807,8 @@ impl WorkerAttestationValidation {
         // often if we race multiple attestors to submission. However, unlike previously where an
         // attestation might contain new overlapping data, no new data can be committed to this way
         // and we can drop the attestation quorum.
-        if let Some(tail) = attestation.continuity_proof.tail() {
-            let digest_prev_tail = cc_client::H256(tail.prev_digest.0);
+        if let Some(digest_prev_tail) = attestation.continuity_proof.tail_prev_digest() {
+            let digest_prev_tail = cc_client::H256(digest_prev_tail.0);
 
             if digest_prev_tail != digest_last_finalized
                 && digest_local.is_none_or(|digest_local| digest_prev_tail != digest_local)
@@ -820,35 +838,10 @@ impl WorkerAttestationValidation {
         }
 
         // ----------------------------------* Continuity proof *----------------------------------
-
-        // Checks that each block in the continuity proof follows a matching chain of digests,
-        // starting from the latest finalized digest
-        let mut digest_prev_continuity = digest_last_finalized;
-        for block in attestation.continuity_proof.iter() {
-            let digest_prev_block = cc_client::H256(block.prev_digest.0);
-
-            if digest_prev_block != digest_prev_continuity
-                && digest_local.is_none_or(|digest_local| digest_prev_block != digest_local)
-            {
-                tracing::error!(
-                    ?digest,
-                    height,
-                    ?digest_prev_block,
-                    ?digest_prev_continuity,
-                    ?digest_local,
-                    block_height = block.block_number,
-                    "⛔ Invalid attestation continuity chain"
-                );
-                return Err(Interrupt::Cont(Error::InvalidAttestation(
-                    InvalidCause::InvalidContinuityProof {
-                        block: block.clone(),
-                        expected: digest_prev_continuity,
-                    },
-                )));
-            }
-
-            digest_prev_continuity = cc_client::H256(block.digest.0);
-        }
+        //
+        // Internal chaining is fully determined by `lower_endpoint_digest` + `roots` (see
+        // `ContinuityProof::to_blocks`). The head and tail checks above are the real anchors; a
+        // block-by-block loop would only re-derive the same hash chain.
 
         tracing::debug!(?digest, height, "Valid attestation continuity proof");
 
