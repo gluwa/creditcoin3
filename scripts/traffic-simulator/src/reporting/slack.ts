@@ -15,6 +15,10 @@ export interface SlackConfig {
   username?: string;
   /** Success rate threshold percentage below which alerts are triggered (default: 75) */
   alertSuccessThresholdPct?: number;
+  /** Success rate threshold percentage below which a warning is printed in the summary */
+  warningSuccessThresholdPct?: number;
+  /** Proof submission volume per hour below which alerts are triggered (default: 10/hour) */
+  proofVolumeAlertThreshold?: number;
   /** Slack Bot Token for API-based messaging (enables thread replies) */
   botToken?: string;
   /** Slack Channel ID for API-based messaging (required with botToken) */
@@ -136,12 +140,12 @@ function formatPeriodLabel(hours: number): string {
 }
 
 /**
- * Create Slack payload for hourly report using a single code block
+ * Create Slack payloads for report summary and report body
  */
-export function createReportPayload(
+export function createReportPayloads(
   report: PeriodicReport,
   config: SlackConfig,
-): unknown {
+): {reportSummary: unknown; reportBody: unknown} {
   const { delta, endSnapshot, periodStart, periodEnd } = report;
   const periodDuration = periodEnd - periodStart;
   const periodHours = periodDuration / 3600000;
@@ -154,9 +158,11 @@ export function createReportPayload(
     ).toFixed(1)
     : "N/A";
 
-  const proofsPerHour = periodHours > 0
-    ? (delta.proofsSubmitted / periodHours).toFixed(1)
-    : "0";
+  const proofsPerHourNum = periodHours > 0
+    ? delta.proofsSubmitted / periodHours
+    : 0;
+
+  const proofsPerHour = proofsPerHourNum.toFixed(1);
 
   const periodStartStr = new Date(periodStart).toISOString().replace("T", " ")
     .slice(0, 19);
@@ -165,14 +171,32 @@ export function createReportPayload(
 
   const allConnected = endSnapshot.sourceChainConnected &&
     endSnapshot.cc3Connected;
-  const hasErrors = delta.proofErrors > 0;
 
   const periodLabel = formatPeriodLabel(periodHours);
   const sourceChain = getSourceChainName(endSnapshot.sourceChainKey);
   const targetNetwork = getTargetNetworkName(endSnapshot.cc3WsUrl);
 
+  const totalAttempts = delta.proofsSubmitted + delta.proofErrors;
+
+  // Determing any warnings and alerts to trigger
+  const successRatePct = totalAttempts > 0
+    ? (delta.proofsSubmitted / totalAttempts) * 100
+    : 100;
+
+  const alertSuccessThresholdPct = config.alertSuccessThresholdPct ?? 75;
+  const warningSuccessThresholdPct = config.warningSuccessThresholdPct ?? 95;
+  const proofVolumeAlertThreshold = config.proofVolumeAlertThreshold ?? 10;
+
+  const triggerSuccessThresholdAlert = Boolean(config.alertGroup) &&
+    totalAttempts > 0 &&
+    successRatePct < alertSuccessThresholdPct;
+  const triggerSuccessThresholdWarning = triggerSuccessThresholdAlert ? false : totalAttempts > 0 &&
+    successRatePct < warningSuccessThresholdPct;
+  const triggerProofVolumeAlert = Boolean(config.alertGroup) && totalAttempts > 0 && (proofsPerHourNum < proofVolumeAlertThreshold);
+
+  let alertOrWarning = triggerSuccessThresholdAlert || triggerSuccessThresholdWarning || triggerProofVolumeAlert;
   // Header emoji based on status
-  const headerEmoji = hasErrors ? "🚨" : allConnected ? "📊" : "⚠️";
+  const headerEmoji = allConnected ? "📊" : "⚠️";
 
   const padLeft = (str: string, width: number): string => {
     return String(str).padStart(width);
@@ -183,75 +207,44 @@ export function createReportPayload(
     return String(str).padEnd(width);
   };
 
-  // Build report text in code block format with tables
-  const reportLines: string[] = [
-    `${headerEmoji} Traffic Simulator ${periodLabel} Report`,
-    "",
+  // Build report summary
+  const reportSummaryLines: string[] = [
+    `${headerEmoji} Traffic Simulator Report`,
     `🕐 Period: ${periodStartStr} → ${periodEndStr} UTC (${
       periodHours.toFixed(1)
     }h)`,
+    `✅ Proofs submitted: ${formatNumber(delta.proofsSubmitted)}`,
+    `❌ Proofs Failed: ${formatNumber(delta.proofErrors)}`
+  ];
+  if (triggerSuccessThresholdWarning) {
+    reportSummaryLines.push(`⚠️⚠️⚠️ Proof success rate below warning threshold: ${successRatePct} < ${warningSuccessThresholdPct} ⚠️⚠️⚠️`)
+  }
+
+  const summaryText = reportSummaryLines.join("\n");
+
+  // Build report body with tables
+  const reportBodyLines: string[] = [
+    "🔗 *Chains & Connection*",
+    `• Source: ${(endSnapshot.sourceChainConnected ? "🟢" : "🔴")} ${sourceChain}`,
+    `• Target: ${(endSnapshot.cc3Connected ? "🟢" : "🔴")} ${targetNetwork}`,
     "",
-    "🔗 Chains & Connection",
-    "┌─────────┬─────────────────────────────┐",
-    `│ Source  │ ${
-      padLabel(
-        (endSnapshot.sourceChainConnected ? "🟢" : "🔴") + " " + sourceChain,
-        27,
-      )
-    } │`,
-    `├─────────┼─────────────────────────────┤`,
-    `│ Target  │ ${
-      padLabel(
-        (endSnapshot.cc3Connected ? "🟢" : "🔴") + " " + targetNetwork,
-        27,
-      )
-    } │`,
-    "└─────────┴─────────────────────────────┘",
+    `📤 *Proof Submissions (${periodHours.toFixed(1)}h)*`,
+    `• ✅ Successful: ${formatNumber(delta.proofsSubmitted)}`,
+    `• ❌ Failed: ${formatNumber(delta.proofErrors)}`,
+    `• 📈 Rate: ${proofsPerHour}/hr`,
+    `• 🎯 Success: ${successRate}%`,
     "",
-    `📤 Proof Submissions (${periodHours.toFixed(1)}h)`,
-    "┌──────────────────┬──────────────┐",
-    `│ ${padLabel("✅ Successful", 15)} │ ${
-      padLeft(formatNumber(delta.proofsSubmitted), 12)
-    } │`,
-    `├──────────────────┼──────────────┤`,
-    `│ ${padLabel("❌ Failed", 15)} │ ${
-      padLeft(formatNumber(delta.proofErrors), 12)
-    } │`,
-    `├──────────────────┼──────────────┤`,
-    `│ ${padLabel("📈 Rate", 16)} │ ${padLeft(proofsPerHour + "/hr", 12)} │`,
-    `├──────────────────┼──────────────┤`,
-    `│ ${padLabel("🎯 Success", 16)} │ ${padLeft(successRate + "%", 12)} │`,
-    "└──────────────────┴──────────────┘",
+    `📋 *Breakdown & Blocks (${periodHours.toFixed(1)}h)*`,
+    `• 📝 Single: ${formatNumber(delta.singleSubmissions)}`,
+    `• 📦 Batch: ${formatNumber(delta.batchSubmissions)}`,
+    `• ⚙️ Processed: ${formatNumber(delta.blocksProcessed)}`,
+    `• 📋 Queue: ${formatNumber(endSnapshot.queueSize)}`,
     "",
-    `📋 Breakdown & Blocks (${periodHours.toFixed(1)}h)`,
-    "┌──────────────────┬──────────────┬──────────────────┬──────────────┐",
-    `│ ${padLabel("📝 Single", 16)} │ ${
-      padLeft(formatNumber(delta.singleSubmissions), 12)
-    } │ ${padLabel("📦 Batch", 16)} │ ${
-      padLeft(formatNumber(delta.batchSubmissions), 12)
-    } │`,
-    `├──────────────────┼──────────────┼──────────────────┼──────────────┤`,
-    `│ ${padLabel("⚙️  Processed", 16)} │ ${
-      padLeft(formatNumber(delta.blocksProcessed), 12)
-    } │ ${padLabel("📋 Queue", 16)} │ ${
-      padLeft(formatNumber(endSnapshot.queueSize), 12)
-    } │`,
-    "└──────────────────┴──────────────┴──────────────────┴──────────────┘",
-    "",
-    "📊 Totals",
-    "┌──────────────────┬──────────────┬──────────────────┬──────────────┐",
-    `│ ${padLabel("✅ Proofs", 15)} │ ${
-      padLeft(formatNumber(endSnapshot.proofsSubmitted), 12)
-    } │ ${padLabel("❌ Errors", 15)} │ ${
-      padLeft(formatNumber(endSnapshot.proofErrors), 12)
-    } │`,
-    `├──────────────────┼──────────────┼──────────────────┼──────────────┤`,
-    `│ ${padLabel("📦 Blocks", 16)} │ ${
-      padLeft(formatNumber(endSnapshot.blocksProcessed), 12)
-    } │ ${padLabel("⏱️  Uptime", 16)} │ ${
-      padLeft(formatUptime(endSnapshot.uptimeSeconds), 12)
-    } │`,
-    "└──────────────────┴──────────────┴──────────────────┴──────────────┘",
+    "*📊 Totals Since Startup*",
+    `• ✅ Proofs: ${formatNumber(endSnapshot.proofsSubmitted)}`,
+    `• ❌ Errors: ${formatNumber(endSnapshot.proofErrors)}`,
+    `• 📦 Blocks: ${formatNumber(endSnapshot.blocksProcessed)}`,
+    `• ⏱️ Uptime: ${formatUptime(endSnapshot.uptimeSeconds)}`,
   ];
 
   if (endSnapshot.lastError) {
@@ -259,44 +252,51 @@ export function createReportPayload(
     const truncated = endSnapshot.lastError.length > maxErrorLen
       ? endSnapshot.lastError.slice(0, maxErrorLen) + "…"
       : endSnapshot.lastError;
-    reportLines.push("");
-    reportLines.push(`🚨 Last Error: ${truncated}`);
+    reportBodyLines.push("");
+    reportBodyLines.push(`🚨 Last Error: ${truncated}`);
   }
 
-  const reportText = reportLines.join("\n");
+  const bodyText = reportBodyLines.join("\n");
 
   // Build text for notifications (fallback)
   let text = `Traffic Simulator ${periodLabel} Report: ${
     formatNumber(delta.proofsSubmitted)
   } proofs submitted`;
-  if (hasErrors) {
+  if (alertOrWarning) {
     text += `, ${formatNumber(delta.proofErrors)} errors`;
   }
 
-  const totalAttempts = delta.proofsSubmitted + delta.proofErrors;
-
-  const successRatePct = totalAttempts > 0
-    ? (delta.proofsSubmitted / totalAttempts) * 100
-    : 100;
-
-  const alertSuccessThresholdPct = config.alertSuccessThresholdPct ?? 75;
-
-  const shouldAlertTeam = Boolean(config.alertGroup) &&
-    totalAttempts > 0 &&
-    successRatePct < alertSuccessThresholdPct;
-
+  // Build alert text using status from earlier
   let mentionPrefix = "";
-  if (shouldAlertTeam && config.alertGroup) {
+  let alertText = "";
+  if (config.alertGroup && (triggerSuccessThresholdAlert || triggerProofVolumeAlert)) {
+    // Set mention prefix
     try {
       mentionPrefix = `${formatSlackMention(config.alertGroup)} `;
     } catch (error) {
       console.warn(`Failed to format Slack mention: ${error}`);
     }
+    // Build alert text. Capture both alert conditions if both are present.
+    const alertReasons: string[] = [];
+
+    if (triggerSuccessThresholdAlert) {
+      alertReasons.push(
+        `proof submission success rate below threshold (success ${successRate}% < ${alertSuccessThresholdPct}%)`,
+      );
+    }
+
+    if (triggerProofVolumeAlert) {
+      alertReasons.push(
+        `processed proof volume below threshold (${proofsPerHour} proofs/hour < ${proofVolumeAlertThreshold})`,
+      );
+    }
+
+    alertText = `🚨 Alert(s) triggered, ${alertReasons.join(" and ")}, tagging ${mentionPrefix.trim()}`;
   }
 
-  return {
+  const reportSummary = {
     username: config.username || "traffic-simulator",
-    icon_emoji: hasErrors ? ":rotating_light:" : ":chart_with_upwards_trend:",
+    icon_emoji: alertOrWarning ? ":rotating_light:" : ":chart_with_upwards_trend:",
     link_names: true,
     text,
     blocks: [
@@ -304,7 +304,7 @@ export function createReportPayload(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: truncateForSlack(`\`\`\`${reportText}\`\`\``),
+          text: truncateForSlack(`\`\`\`${summaryText}\`\`\``),
         },
       },
       ...(mentionPrefix
@@ -314,14 +314,31 @@ export function createReportPayload(
             type: "section",
             text: {
               type: "mrkdwn",
-              text:
-                `🚨 Errors detected, proof submission success rate below threshold (success ${successRate}% < ${alertSuccessThresholdPct}%), tagging ${mentionPrefix.trim()}`,
+              text: alertText,
             },
           },
         ]
         : []),
     ],
   };
+
+  const reportBody = {
+    username: config.username || "traffic-simulator",
+    icon_emoji: alertOrWarning ? ":rotating_light:" : ":chart_with_upwards_trend:",
+    link_names: true,
+    text,
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: truncateForSlack(`\`\`\`${bodyText}\`\`\``),
+        },
+      },
+    ],
+  }
+
+  return {reportSummary, reportBody}
 }
 
 /**
@@ -392,8 +409,15 @@ export async function sendPeriodicReport(
   report: PeriodicReport,
   config: SlackConfig,
 ): Promise<void> {
-  const payload = createReportPayload(report, config);
-  const messageTs = await sendSlackMessage(config, payload);
+  const {reportSummary, reportBody} = createReportPayloads(report, config);
+  const messageTs = await sendSlackMessage(config, reportSummary);
+
+  // Send report body as thread reply
+  try {
+    await sendSlackMessage(config, reportBody, messageTs);
+  } catch (error) {
+    console.warn(`Failed to send report body thread reply: ${error}`);
+  }
 
   // Send errors as a thread reply when using the Slack API
   const errors = report.endSnapshot.uniqueErrors;

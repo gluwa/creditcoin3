@@ -162,8 +162,8 @@ async function main(): Promise<void> {
     "http://traffic-simulator:8080";
   const slackWebhookUrl = Deno.env.get("SLACK_WEBHOOK_URL");
   const slackAlertGroup = Deno.env.get("SLACK_ALERT_GROUP");
-  const slackBotToken = Deno.env.get("SLACK_BOT_TOKEN");
-  const slackChannelId = Deno.env.get("SLACK_CHANNEL_ID");
+  const slackBotToken = Deno.env.get("USC_NOTI_SLACK_BOT_TOKEN");
+  const slackChannelId = Deno.env.get("USC_NOTI_SLACK_CHANNEL_ID");
   const snapshotPath = Deno.env.get("SNAPSHOT_PATH") ||
     "/tmp/metrics-snapshot.json";
   const reportIntervalHours = parseFloat(
