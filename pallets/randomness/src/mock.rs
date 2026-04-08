@@ -258,6 +258,12 @@ impl randomness_pallet::Config for Test {
 pub fn go_to_block(n: u64, s: u64) {
     use frame_support::traits::OnFinalize;
 
+    // `System::initialize` (frame_system stable2512+) requires `n == block_number() + 1`.
+    // Tests often `set_block_number(1)` then call `go_to_block(1, …)`; rewind so `initialize(1)` is valid.
+    if System::block_number() == n {
+        System::set_block_number(n.saturating_sub(1));
+    }
+
     Babe::on_finalize(System::block_number());
     Session::on_finalize(System::block_number());
     Staking::on_finalize(System::block_number());
