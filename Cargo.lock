@@ -2875,6 +2875,7 @@ dependencies = [
  "frame-system",
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
+ "frame-try-runtime",
  "log",
  "moonbeam-evm-tracer",
  "moonbeam-rpc-primitives-debug",

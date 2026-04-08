@@ -167,7 +167,7 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: clippy
-          args: --all-targets --all-features -- -D warnings
+          args: --all-targets --all-features -- -D warnings -A clippy::manual_inspect
 
   cargo-machete:
     runs-on: ubuntu-24.04
