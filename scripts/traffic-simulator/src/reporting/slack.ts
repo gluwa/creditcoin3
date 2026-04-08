@@ -145,7 +145,7 @@ function formatPeriodLabel(hours: number): string {
 export function createReportPayloads(
   report: PeriodicReport,
   config: SlackConfig,
-): {reportSummary: unknown; reportBody: unknown} {
+): { reportSummary: unknown; reportBody: unknown } {
   const { delta, endSnapshot, periodStart, periodEnd } = report;
   const periodDuration = periodEnd - periodStart;
   const periodHours = periodDuration / 3600000;
@@ -190,11 +190,15 @@ export function createReportPayloads(
   const triggerSuccessThresholdAlert = Boolean(config.alertGroup) &&
     totalAttempts > 0 &&
     successRatePct < alertSuccessThresholdPct;
-  const triggerSuccessThresholdWarning = triggerSuccessThresholdAlert ? false : totalAttempts > 0 &&
-    successRatePct < warningSuccessThresholdPct;
-  const triggerProofVolumeAlert = Boolean(config.alertGroup) && totalAttempts > 0 && (proofsPerHourNum < proofVolumeAlertThreshold);
+  const triggerSuccessThresholdWarning = triggerSuccessThresholdAlert
+    ? false
+    : totalAttempts > 0 &&
+      successRatePct < warningSuccessThresholdPct;
+  const triggerProofVolumeAlert = Boolean(config.alertGroup) &&
+    totalAttempts > 0 && (proofsPerHourNum < proofVolumeAlertThreshold);
 
-  let alertOrWarning = triggerSuccessThresholdAlert || triggerSuccessThresholdWarning || triggerProofVolumeAlert;
+  let alertOrWarning = triggerSuccessThresholdAlert ||
+    triggerSuccessThresholdWarning || triggerProofVolumeAlert;
   // Header emoji based on status
   const headerEmoji = allConnected ? "📊" : "⚠️";
 
@@ -214,10 +218,12 @@ export function createReportPayloads(
       periodHours.toFixed(1)
     }h)`,
     `✅ Proofs submitted: ${formatNumber(delta.proofsSubmitted)}`,
-    `❌ Proofs Failed: ${formatNumber(delta.proofErrors)}`
+    `❌ Proofs Failed: ${formatNumber(delta.proofErrors)}`,
   ];
   if (triggerSuccessThresholdWarning) {
-    reportSummaryLines.push(`⚠️⚠️⚠️ Proof success rate below warning threshold: ${successRatePct} < ${warningSuccessThresholdPct} ⚠️⚠️⚠️`)
+    reportSummaryLines.push(
+      `⚠️⚠️⚠️ Proof success rate below warning threshold: ${successRatePct} < ${warningSuccessThresholdPct} ⚠️⚠️⚠️`,
+    );
   }
 
   const summaryText = reportSummaryLines.join("\n");
@@ -225,7 +231,9 @@ export function createReportPayloads(
   // Build report body with tables
   const reportBodyLines: string[] = [
     "🔗 *Chains & Connection*",
-    `• Source: ${(endSnapshot.sourceChainConnected ? "🟢" : "🔴")} ${sourceChain}`,
+    `• Source: ${(endSnapshot.sourceChainConnected
+      ? "🟢"
+      : "🔴")} ${sourceChain}`,
     `• Target: ${(endSnapshot.cc3Connected ? "🟢" : "🔴")} ${targetNetwork}`,
     "",
     `📤 *Proof Submissions (${periodHours.toFixed(1)}h)*`,
@@ -269,7 +277,10 @@ export function createReportPayloads(
   // Build alert text using status from earlier
   let mentionPrefix = "";
   let alertText = "";
-  if (config.alertGroup && (triggerSuccessThresholdAlert || triggerProofVolumeAlert)) {
+  if (
+    config.alertGroup &&
+    (triggerSuccessThresholdAlert || triggerProofVolumeAlert)
+  ) {
     // Set mention prefix
     try {
       mentionPrefix = `${formatSlackMention(config.alertGroup)} `;
@@ -291,12 +302,16 @@ export function createReportPayloads(
       );
     }
 
-    alertText = `🚨 Alert(s) triggered, ${alertReasons.join(" and ")}, tagging ${mentionPrefix.trim()}`;
+    alertText = `🚨 Alert(s) triggered, ${
+      alertReasons.join(" and ")
+    }, tagging ${mentionPrefix.trim()}`;
   }
 
   const reportSummary = {
     username: config.username || "traffic-simulator",
-    icon_emoji: alertOrWarning ? ":rotating_light:" : ":chart_with_upwards_trend:",
+    icon_emoji: alertOrWarning
+      ? ":rotating_light:"
+      : ":chart_with_upwards_trend:",
     link_names: true,
     text,
     blocks: [
@@ -324,7 +339,9 @@ export function createReportPayloads(
 
   const reportBody = {
     username: config.username || "traffic-simulator",
-    icon_emoji: alertOrWarning ? ":rotating_light:" : ":chart_with_upwards_trend:",
+    icon_emoji: alertOrWarning
+      ? ":rotating_light:"
+      : ":chart_with_upwards_trend:",
     link_names: true,
     text,
     blocks: [
@@ -336,9 +353,9 @@ export function createReportPayloads(
         },
       },
     ],
-  }
+  };
 
-  return {reportSummary, reportBody}
+  return { reportSummary, reportBody };
 }
 
 /**
@@ -409,7 +426,7 @@ export async function sendPeriodicReport(
   report: PeriodicReport,
   config: SlackConfig,
 ): Promise<void> {
-  const {reportSummary, reportBody} = createReportPayloads(report, config);
+  const { reportSummary, reportBody } = createReportPayloads(report, config);
   const messageTs = await sendSlackMessage(config, reportSummary);
 
   // Send report body as thread reply
