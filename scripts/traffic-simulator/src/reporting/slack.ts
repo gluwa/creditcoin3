@@ -4,7 +4,15 @@
  * Sends formatted reports to Slack via webhook.
  */
 
-import type { HealthStatus } from "../types.ts";
+import type { HealthStatus, SlackPayload } from "../types.ts";
+
+// The default success percentage for proof submission below which we alert the dev team on slack.
+const DEFAULT_PROOF_SUCCESS_ALERT_THRESHOLD = 75;
+// The default success percentage for proof submission below which we print
+// a warning message in the traffic report summary.
+const DEFAULT_PROOF_SUCCESS_WARNING_THRESHOLD = 95;
+// The rate measured in proofs/hour below which we alert the dev team
+const DEFAULT_EXPECTED_PROOFS_PER_HOUR = 10;
 
 export interface SlackConfig {
   /** Slack webhook URL (used when botToken/channelId are not set) */
@@ -145,7 +153,7 @@ function formatPeriodLabel(hours: number): string {
 export function createReportPayloads(
   report: PeriodicReport,
   config: SlackConfig,
-): { reportSummary: unknown; reportBody: unknown } {
+): { reportSummary: SlackPayload; reportBody: SlackPayload } {
   const { delta, endSnapshot, periodStart, periodEnd } = report;
   const periodDuration = periodEnd - periodStart;
   const periodHours = periodDuration / 3600000;
@@ -183,9 +191,9 @@ export function createReportPayloads(
     ? (delta.proofsSubmitted / totalAttempts) * 100
     : 100;
 
-  const alertSuccessThresholdPct = config.alertSuccessThresholdPct ?? 75;
-  const warningSuccessThresholdPct = config.warningSuccessThresholdPct ?? 95;
-  const proofVolumeAlertThreshold = config.proofVolumeAlertThreshold ?? 10;
+  const alertSuccessThresholdPct = config.alertSuccessThresholdPct ?? DEFAULT_PROOF_SUCCESS_ALERT_THRESHOLD;
+  const warningSuccessThresholdPct = config.warningSuccessThresholdPct ?? DEFAULT_PROOF_SUCCESS_WARNING_THRESHOLD;
+  const proofVolumeAlertThreshold = config.proofVolumeAlertThreshold ?? DEFAULT_EXPECTED_PROOFS_PER_HOUR;
 
   const triggerSuccessThresholdAlert = Boolean(config.alertGroup) &&
     totalAttempts > 0 &&
@@ -197,19 +205,10 @@ export function createReportPayloads(
   const triggerProofVolumeAlert = Boolean(config.alertGroup) &&
     totalAttempts > 0 && (proofsPerHourNum < proofVolumeAlertThreshold);
 
-  let alertOrWarning = triggerSuccessThresholdAlert ||
+  const alertOrWarning = triggerSuccessThresholdAlert ||
     triggerSuccessThresholdWarning || triggerProofVolumeAlert;
   // Header emoji based on status
   const headerEmoji = allConnected ? "📊" : "⚠️";
-
-  const padLeft = (str: string, width: number): string => {
-    return String(str).padStart(width);
-  };
-
-  // Pad label column - use fixed width padding
-  const padLabel = (str: string, width: number): string => {
-    return String(str).padEnd(width);
-  };
 
   // Build report summary
   const reportSummaryLines: string[] = [
@@ -307,7 +306,7 @@ export function createReportPayloads(
     }, tagging ${mentionPrefix.trim()}`;
   }
 
-  const reportSummary = {
+  const reportSummary: SlackPayload = {
     username: config.username || "traffic-simulator",
     icon_emoji: alertOrWarning
       ? ":rotating_light:"
@@ -316,28 +315,28 @@ export function createReportPayloads(
     text,
     blocks: [
       {
-        type: "section",
+        type: "section" as const,
         text: {
-          type: "mrkdwn",
+          type: "mrkdwn" as const,
           text: truncateForSlack(`\`\`\`${summaryText}\`\`\``),
         },
       },
       ...(mentionPrefix
         ? [
-          { type: "divider" },
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: alertText,
+            { type: "divider" as const },
+            {
+              type: "section" as const,
+              text: {
+                type: "mrkdwn" as const,
+                text: alertText,
+              },
             },
-          },
-        ]
+          ]
         : []),
     ],
   };
 
-  const reportBody = {
+  const reportBody: SlackPayload = {
     username: config.username || "traffic-simulator",
     icon_emoji: alertOrWarning
       ? ":rotating_light:"
@@ -364,14 +363,14 @@ export function createReportPayloads(
  */
 export async function sendSlackMessage(
   config: SlackConfig,
-  payload: unknown,
+  payload: SlackPayload,
   threadTs?: string,
 ): Promise<string | undefined> {
   // Use Slack API when bot token and channel are configured
   if (config.botToken && config.channelId) {
     const apiPayload = {
       channel: config.channelId,
-      ...(payload as Record<string, unknown>),
+      ...payload,
       ...(threadTs ? { thread_ts: threadTs } : {}),
     };
 
@@ -457,7 +456,7 @@ export async function sendPeriodicReport(
       errorSummary = "Latest Error";
     }
 
-    const errorPayload = {
+    const errorPayload: SlackPayload = {
       username: config.username || "traffic-simulator",
       icon_emoji: ":rotating_light:",
       text: errorSummary,
