@@ -37,6 +37,9 @@ struct Args {
     #[arg(long, default_value_t = url::Url::parse("ws://localhost:9944").unwrap())]
     cc3_url: url::Url,
 
+    #[arg(long)]
+    unsafe_url: bool,
+
     /// If true, the program will fetch the current block number of the source chain and configure
     /// that as a genesis block for the attestors.
     ///
@@ -406,6 +409,10 @@ async fn main() -> anyhow::Result<()> {
             .arg(format!("--cc3-url={}", args.cc3_url))
             .arg(format!("--p2p-port={port_p2p}"))
             .arg(format!("--api-port={port_api}"));
+
+        if args.unsafe_url {
+            attestor.arg("--unsafe-url");
+        }
 
         attestor
             .args(&args.trailing)
