@@ -175,14 +175,14 @@ async function main(): Promise<void> {
 
   if (!slackWebhookUrl && !slackBotToken) {
     console.error(
-      "❌ Either SLACK_WEBHOOK_URL or SLACK_BOT_TOKEN environment variable is required",
+      "❌ Either SLACK_WEBHOOK_URL or USC_NOTI_SLACK_BOT_TOKEN environment variable is required",
     );
     Deno.exit(1);
   }
 
   if (slackBotToken && !slackChannelId) {
     console.error(
-      "❌ SLACK_CHANNEL_ID is required when using SLACK_BOT_TOKEN",
+      "❌ USC_NOTI_SLACK_CHANNEL_ID is required when using USC_NOTI_SLACK_BOT_TOKEN",
     );
     Deno.exit(1);
   }
