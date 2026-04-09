@@ -16,7 +16,7 @@ name: Propose Testnet PR
       TARGET_BRANCH:
         required: true
         type: string
-        default: 'testnet'
+        default: 'usc-testnet'
         description: Target branch for PR
 
 permissions: read-all
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       last_ref: ${{ env.LAST_REF || github.ref_name }}
-      target_branch: ${{ env.TARGET_BRANCH || 'testnet' }}
+      target_branch: ${{ env.TARGET_BRANCH || 'usc-testnet' }}
 
     steps:
       - name: Print input values

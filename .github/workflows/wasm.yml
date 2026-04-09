@@ -5,7 +5,7 @@ name: Build WASM Runtime
   push:
     branches: [dev]
   pull_request:
-    branches: [main, testnet, usc-dev]
+    branches: [main, usc-testnet, usc-dev]
     paths:
       - '**.rs'
       - '**.toml'
