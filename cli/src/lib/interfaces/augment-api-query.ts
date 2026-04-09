@@ -26,9 +26,9 @@ import type {
     FrameSystemEventRecord,
     FrameSystemLastRuntimeUpgradeInfo,
     FrameSystemPhase,
-    PalletAttestationPocAttestorElectionPolicy,
-    PalletAttestationPocClearOrRevertCheckpointPruningState,
-    PalletAttestationPocLedgerAttestorLedger,
+    PalletAttestationAttestorElectionPolicy,
+    PalletAttestationClearOrRevertCheckpointPruningState,
+    PalletAttestationLedgerAttestorLedger,
     PalletBagsListListBag,
     PalletBagsListListNode,
     PalletBalancesAccountData,
@@ -171,7 +171,7 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             chainElectionPolicy: AugmentedQuery<
                 ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<PalletAttestationPocAttestorElectionPolicy>,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<PalletAttestationAttestorElectionPolicy>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
@@ -210,7 +210,7 @@ declare module '@polkadot/api-base/types/storage' {
                 ApiType,
                 (
                     arg: u64 | AnyNumber | Uint8Array,
-                ) => Observable<Option<PalletAttestationPocClearOrRevertCheckpointPruningState>>,
+                ) => Observable<Option<PalletAttestationClearOrRevertCheckpointPruningState>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
@@ -249,9 +249,7 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             ledger: AugmentedQuery<
                 ApiType,
-                (
-                    arg: AccountId32 | string | Uint8Array,
-                ) => Observable<Option<PalletAttestationPocLedgerAttestorLedger>>,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<PalletAttestationLedgerAttestorLedger>>,
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
