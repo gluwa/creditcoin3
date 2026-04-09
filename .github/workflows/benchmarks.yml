@@ -4,7 +4,7 @@ name: BENCHMARKS
 # Controls when the action will run.
 "on":
   pull_request:
-    branches: [testnet]
+    branches: [usc-testnet]
     paths:
       - '**weights.rs'
       - '**benchmarking.rs'
@@ -180,30 +180,30 @@ jobs:
           author_email: creditcoin@gluwa.com
           message: "Auto-update pallet weights"
 
-      - name: Prepare commit for PR against dev
+      - name: Prepare commit for PR against usc-dev
         id: prepare-commit
         run: |
           LAST_COMMIT=$(git rev-parse HEAD)
-          BRANCH_NAME=auto-update-weights-for-dev-${{ github.sha }}
+          BRANCH_NAME=auto-update-weights-for-usc-dev-${{ github.sha }}
 
-          git checkout -b "$BRANCH_NAME" origin/poc_external_attestation_network
+          git checkout -b "$BRANCH_NAME" origin/usc-dev
           git cherry-pick "$LAST_COMMIT"
           git push origin "$BRANCH_NAME"
 
           REPO_NAME=$(echo "${{ github.repository }}" | cut -f2 -d"/")
           echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Open PR against dev
+      - name: Open PR against usc-dev
         id: open_pr
         uses: rematocorp/open-pull-request-action@v1
         with:
           github-token: ${{ secrets.GLUWA_BOT_TOKEN }}
-          from-branch: auto-update-weights-for-dev-${{ github.sha }}
-          to-branch: poc_external_attestation_network
+          from-branch: auto-update-weights-for-usc-dev-${{ github.sha }}
+          to-branch: usc-dev
           repository-owner: ${{ github.repository_owner }}
           repository: ${{ steps.prepare-commit.outputs.repo_name }}
 
-      - name: PR number against dev
+      - name: PR number against usc-dev
         run: echo ${{ steps.open_pr.outputs.pull_number }}
 
       - name: Update PR ${{ steps.open_pr.outputs.pull_number }} description and instructions

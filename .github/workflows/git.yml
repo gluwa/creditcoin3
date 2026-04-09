@@ -21,7 +21,7 @@ jobs:
 
       - name: Devnet ENV
         id: devnet-env
-        if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
+        if: github.base_ref == 'usc-dev'
         run: |
           # shellcheck disable=SC2129
           PREV_RELEASE=$(.github/extract-release-tag.sh "devnet")
@@ -32,7 +32,7 @@ jobs:
 
       - name: Testnet ENV
         id: testnet-env
-        if: github.base_ref == 'testnet'
+        if: github.base_ref == 'usc-testnet'
         run: |
           # shellcheck disable=SC2129
           PREV_RELEASE=$(.github/extract-release-tag.sh "testnet")
@@ -53,7 +53,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
   check-changelog:
-    if: github.base_ref == 'testnet' || github.base_ref == 'main'
+    if: github.base_ref == 'usc-testnet' || github.base_ref == 'main'
     needs: setup
     uses: ./.github/workflows/generate-changelog.yml
     with:
@@ -114,7 +114,7 @@ jobs:
 
   rebase-check:
     runs-on: ubuntu-24.04
-    if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
+    if: github.base_ref == 'usc-dev'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -126,16 +126,16 @@ jobs:
       - name: Setup
         run: |
           sudo apt-get install colordiff
-          echo "BRANCH_NAME=rebase-dev+pr-${{ github.event.pull_request.number }}-onto-testnet" >> "$GITHUB_ENV"
+          echo "BRANCH_NAME=rebase-dev+pr-${{ github.event.pull_request.number }}-onto-usc-testnet" >> "$GITHUB_ENV"
 
-      - name: Rebase current PR against `testnet` branch
+      - name: Rebase current PR against `usc-testnet` branch
         run: |
           git config --global user.email "creditcoin@gluwa.com"
           git config --global user.name "gluwa-bot"
 
           git checkout -b "${{ env.BRANCH_NAME }}"
           git branch
-          git rebase "origin/testnet"
+          git rebase "origin/usc-testnet"
 
       - name: TODO
         if: always()
@@ -143,7 +143,7 @@ jobs:
           # note: GitHub appears to display these in reverse order
           echo "::notice::May also require reverting gluwa-bot commits on the default branch too!"
           echo "::notice::IMPORTANT:  Do this ASAP to prevent further branch divergence in the future."
-          echo "::notice::SUGGESTION: Revert conflicting commit(s) on 'testnet' branch and/or merge default into 'testnet'."
+          echo "::notice::SUGGESTION: Revert conflicting commit(s) on 'usc-testnet' branch and/or merge default into 'usc-testnet'."
 
       - name: DEBUG
         if: always()
@@ -155,11 +155,11 @@ jobs:
           git diff --diff-filter=U | colordiff
 
           echo "Most Recent Common Ancestor"
-          git merge-base "${{ env.BRANCH_NAME }}" origin/testnet --all
+          git merge-base "${{ env.BRANCH_NAME }}" origin/usc-testnet --all
 
   merge-check:
     runs-on: ubuntu-24.04
-    if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
+    if: github.base_ref == 'usc-dev'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -172,9 +172,9 @@ jobs:
         run: |
           sudo apt-get install colordiff
 
-      - name: Merge current PR into `testnet` branch
+      - name: Merge current PR into `usc-testnet` branch
         env:
-          BRANCH_NAME: merge+pr-${{ github.event.pull_request.number }}-into-testnet
+          BRANCH_NAME: merge+pr-${{ github.event.pull_request.number }}-into-usc-testnet
         run: |
           git config --global user.email "creditcoin@gluwa.com"
           git config --global user.name "gluwa-bot"
@@ -183,8 +183,8 @@ jobs:
           git checkout -b "${{ env.BRANCH_NAME }}"
           git branch
 
-          # then switch to testnet branch and merge the incoming changes
-          git checkout -b testnet "origin/testnet"
+          # then switch to usc-testnet branch and merge the incoming changes
+          git checkout -b usc-testnet "origin/usc-testnet"
           git merge "${{ env.BRANCH_NAME }}"
 
       - name: TODO
@@ -193,7 +193,7 @@ jobs:
           # note: GitHub appears to display these in reverse order
           echo "::notice::May also require reverting gluwa-bot commits on the default branch too!"
           echo "::notice::IMPORTANT:  Do this ASAP to prevent further branch divergence in the future."
-          echo "::notice::SUGGESTION: Revert conflicting commit(s) on 'testnet' branch and/or merge default into 'testnet'."
+          echo "::notice::SUGGESTION: Revert conflicting commit(s) on 'usc-testnet' branch and/or merge default into 'usc-testnet'."
 
       - name: DEBUG
         if: always()
@@ -220,11 +220,11 @@ jobs:
         run: |
           TARGET_BRANCH="${{ github.base_ref }}"
 
-          if [ "$TARGET_BRANCH" == "poc_external_attestation_network" ]; then
+          if [ "$TARGET_BRANCH" == "usc-dev" ]; then
             exit 0
           fi
 
-          if [ "$TARGET_BRANCH" == "testnet" ]; then
+          if [ "$TARGET_BRANCH" == "usc-testnet" ]; then
             exit 0
           fi
 
