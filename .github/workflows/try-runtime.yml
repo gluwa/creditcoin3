@@ -3,7 +3,7 @@ name: Try Runtime
 
 "on":
   pull_request:
-    branches: [testnet, usc-dev]
+    branches: [usc-testnet, usc-dev]
     paths:
       - "**/migrations/**"
       - "**/migrations.rs"

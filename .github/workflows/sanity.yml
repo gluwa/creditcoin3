@@ -3,7 +3,7 @@ name: sanity
 
 "on":
   pull_request:
-    branches: [main, testnet, usc-dev]
+    branches: [main, usc-testnet, usc-dev]
   workflow_dispatch:
 
 concurrency:
@@ -137,7 +137,7 @@ jobs:
 
       - name: Prepare ENV for Testnet
         id: testnet-env
-        if: github.base_ref == 'testnet'
+        if: github.base_ref == 'usc-testnet'
         run: |
           echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")

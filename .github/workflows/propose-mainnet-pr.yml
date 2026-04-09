@@ -11,7 +11,7 @@ name: Propose Mainnet PR
       LAST_REF:
         required: true
         type: string
-        default: 'testnet'
+        default: 'usc-testnet'
         description: "Last ref to be included in PR. WARNING: edit this field, not the one above!"
       TARGET_BRANCH:
         required: true
@@ -31,7 +31,7 @@ jobs:
   setup:
     runs-on: ubuntu-24.04
     outputs:
-      last_ref: ${{ env.LAST_REF || 'testnet' }}
+      last_ref: ${{ env.LAST_REF || 'usc-testnet' }}
       target_branch: ${{ env.TARGET_BRANCH || 'main' }}
 
     steps:

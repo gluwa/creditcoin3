@@ -4,7 +4,7 @@ name: CI
 # Controls when the action will run.
 "on":
   pull_request:
-    branches: [main, testnet, usc-dev]
+    branches: [main, usc-testnet, usc-dev]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -1036,7 +1036,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Testnet
-        if: github.base_ref == 'testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: github.base_ref == 'usc-testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
