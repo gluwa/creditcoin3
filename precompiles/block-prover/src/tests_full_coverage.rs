@@ -146,12 +146,12 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
         continuity_proof: ContinuityProof::default(),
     };
 
-    pallet_attestation_poc::Attestations::<Runtime>::insert(
+    pallet_attestation::Attestations::<Runtime>::insert(
         chain_id,
         blocks[0].prev_digest,
         signed_start_attestation,
     );
-    pallet_attestation_poc::LastDigest::<Runtime>::insert(
+    pallet_attestation::LastDigest::<Runtime>::insert(
         chain_id,
         (blocks[0].block_number, blocks[0].prev_digest),
     );
@@ -173,7 +173,7 @@ fn setup_valid_attestation_chain(chain_id: u64, blocks: &[Block]) {
             continuity_proof: ContinuityProof::default(),
         };
 
-        pallet_attestation_poc::Attestations::<Runtime>::insert(
+        pallet_attestation::Attestations::<Runtime>::insert(
             chain_id,
             last_block.digest,
             signed_end_attestation,
@@ -438,12 +438,12 @@ fn test_continuity_with_checkpoint_fallback() {
             continuity_blocks[0].block_number - 1,
             continuity_blocks[0].prev_digest,
         );
-        pallet_attestation_poc::Checkpoints::<Runtime>::insert(
+        pallet_attestation::Checkpoints::<Runtime>::insert(
             1,
             continuity_blocks[0].block_number - 1,
             continuity_blocks[0].prev_digest,
         );
-        pallet_attestation_poc::LastCheckpoint::<Runtime>::insert(1, checkpoint);
+        pallet_attestation::LastCheckpoint::<Runtime>::insert(1, checkpoint);
 
         // Setup end attestation
         use attestor_primitives::block::ContinuityProof;
@@ -463,7 +463,7 @@ fn test_continuity_with_checkpoint_fallback() {
                 continuity_proof: ContinuityProof::default(),
             };
 
-            pallet_attestation_poc::Attestations::<Runtime>::insert(
+            pallet_attestation::Attestations::<Runtime>::insert(
                 1,
                 last_block.digest,
                 signed_end_attestation,
@@ -516,12 +516,12 @@ fn test_continuity_attestation_header_validation() {
             continuity_proof: ContinuityProof::default(),
         };
 
-        pallet_attestation_poc::Attestations::<Runtime>::insert(
+        pallet_attestation::Attestations::<Runtime>::insert(
             1,
             continuity_blocks[0].prev_digest,
             signed_attestation,
         );
-        pallet_attestation_poc::LastDigest::<Runtime>::insert(
+        pallet_attestation::LastDigest::<Runtime>::insert(
             1,
             (
                 continuity_blocks[0].block_number,
@@ -546,7 +546,7 @@ fn test_continuity_attestation_header_validation() {
                 continuity_proof: ContinuityProof::default(),
             };
 
-            pallet_attestation_poc::Attestations::<Runtime>::insert(
+            pallet_attestation::Attestations::<Runtime>::insert(
                 1,
                 last_block.digest,
                 signed_end_attestation,
@@ -598,13 +598,13 @@ fn test_continuity_wrong_attestation_header_succeeds() {
             continuity_proof: ContinuityProof::default(),
         };
 
-        pallet_attestation_poc::Attestations::<Runtime>::insert(
+        pallet_attestation::Attestations::<Runtime>::insert(
             1,
             continuity_blocks[0].prev_digest,
             signed_attestation,
         );
         // Also set last digest so the continuity chain can be validated
-        pallet_attestation_poc::LastDigest::<Runtime>::insert(
+        pallet_attestation::LastDigest::<Runtime>::insert(
             1,
             (
                 continuity_blocks[0].block_number,
@@ -629,7 +629,7 @@ fn test_continuity_wrong_attestation_header_succeeds() {
                 continuity_proof: ContinuityProof::default(),
             };
 
-            pallet_attestation_poc::Attestations::<Runtime>::insert(
+            pallet_attestation::Attestations::<Runtime>::insert(
                 1,
                 last_block.digest,
                 signed_end_attestation,
@@ -1471,12 +1471,8 @@ fn test_batch_queries_continuity_failure() {
             attestors: vec![Account::Alice],
             continuity_proof: ContinuityProof::default(),
         };
-        pallet_attestation_poc::Attestations::<Runtime>::insert(
-            1,
-            correct_digest,
-            signed_attestation,
-        );
-        pallet_attestation_poc::LastDigest::<Runtime>::insert(1, (101, correct_digest));
+        pallet_attestation::Attestations::<Runtime>::insert(1, correct_digest, signed_attestation);
+        pallet_attestation::LastDigest::<Runtime>::insert(1, (101, correct_digest));
 
         // Batch should revert due to continuity chain failure
         precompiles()

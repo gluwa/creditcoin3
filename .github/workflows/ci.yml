@@ -44,7 +44,7 @@ jobs:
             attestor_cli_testing:
               - "attestor/**"
               - "common/**"
-              - "pallets/attestation-poc/**"
+              - "pallets/attestation/**"
               - "precompiles/**"
               - "primitives/**"
               - "runtime/**"
@@ -54,7 +54,7 @@ jobs:
             attestor_network_testing:
               - "attestor/**"
               - "common/**"
-              - "pallets/attestation-poc/**"
+              - "pallets/attestation/**"
               - "precompiles/**"
               - "primitives/**"
               - "runtime/**"
