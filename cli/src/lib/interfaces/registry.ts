@@ -42,6 +42,8 @@ import type {
     FinalityGrandpaPrecommit,
     FinalityGrandpaPrevote,
     FpRpcTransactionStatus,
+    FrameMetadataHashExtensionCheckMetadataHash,
+    FrameMetadataHashExtensionMode,
     FrameSupportDispatchDispatchClass,
     FrameSupportDispatchDispatchInfo,
     FrameSupportDispatchPays,
@@ -69,13 +71,13 @@ import type {
     FrameSystemLimitsBlockWeights,
     FrameSystemLimitsWeightsPerClass,
     FrameSystemPhase,
-    PalletAttestationPocAttestorElectionPolicy,
-    PalletAttestationPocCall,
-    PalletAttestationPocClearOrRevertCheckpointPruningState,
-    PalletAttestationPocError,
-    PalletAttestationPocEvent,
-    PalletAttestationPocLedgerAttestorLedger,
-    PalletAttestationPocLedgerUnlockChunk,
+    PalletAttestationAttestorElectionPolicy,
+    PalletAttestationCall,
+    PalletAttestationClearOrRevertCheckpointPruningState,
+    PalletAttestationError,
+    PalletAttestationEvent,
+    PalletAttestationLedgerAttestorLedger,
+    PalletAttestationLedgerUnlockChunk,
     PalletBabeCall,
     PalletBabeError,
     PalletBagsListCall,
@@ -269,6 +271,8 @@ declare module '@polkadot/types/types/registry' {
         FinalityGrandpaPrecommit: FinalityGrandpaPrecommit;
         FinalityGrandpaPrevote: FinalityGrandpaPrevote;
         FpRpcTransactionStatus: FpRpcTransactionStatus;
+        FrameMetadataHashExtensionCheckMetadataHash: FrameMetadataHashExtensionCheckMetadataHash;
+        FrameMetadataHashExtensionMode: FrameMetadataHashExtensionMode;
         FrameSupportDispatchDispatchClass: FrameSupportDispatchDispatchClass;
         FrameSupportDispatchDispatchInfo: FrameSupportDispatchDispatchInfo;
         FrameSupportDispatchPays: FrameSupportDispatchPays;
@@ -296,13 +300,13 @@ declare module '@polkadot/types/types/registry' {
         FrameSystemLimitsBlockWeights: FrameSystemLimitsBlockWeights;
         FrameSystemLimitsWeightsPerClass: FrameSystemLimitsWeightsPerClass;
         FrameSystemPhase: FrameSystemPhase;
-        PalletAttestationPocAttestorElectionPolicy: PalletAttestationPocAttestorElectionPolicy;
-        PalletAttestationPocCall: PalletAttestationPocCall;
-        PalletAttestationPocClearOrRevertCheckpointPruningState: PalletAttestationPocClearOrRevertCheckpointPruningState;
-        PalletAttestationPocError: PalletAttestationPocError;
-        PalletAttestationPocEvent: PalletAttestationPocEvent;
-        PalletAttestationPocLedgerAttestorLedger: PalletAttestationPocLedgerAttestorLedger;
-        PalletAttestationPocLedgerUnlockChunk: PalletAttestationPocLedgerUnlockChunk;
+        PalletAttestationAttestorElectionPolicy: PalletAttestationAttestorElectionPolicy;
+        PalletAttestationCall: PalletAttestationCall;
+        PalletAttestationClearOrRevertCheckpointPruningState: PalletAttestationClearOrRevertCheckpointPruningState;
+        PalletAttestationError: PalletAttestationError;
+        PalletAttestationEvent: PalletAttestationEvent;
+        PalletAttestationLedgerAttestorLedger: PalletAttestationLedgerAttestorLedger;
+        PalletAttestationLedgerUnlockChunk: PalletAttestationLedgerUnlockChunk;
         PalletBabeCall: PalletBabeCall;
         PalletBabeError: PalletBabeError;
         PalletBagsListCall: PalletBagsListCall;

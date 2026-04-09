@@ -45,7 +45,7 @@ import type {
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
     EthereumTransactionTransactionV2,
-    PalletAttestationPocAttestorElectionPolicy,
+    PalletAttestationAttestorElectionPolicy,
     PalletBalancesAdjustmentDirection,
     PalletIdentityJudgement,
     PalletIdentityLegacyIdentityInfo,
@@ -216,14 +216,14 @@ declare module '@polkadot/api-base/types/submittable' {
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
                     newPolicy:
-                        | PalletAttestationPocAttestorElectionPolicy
+                        | PalletAttestationAttestorElectionPolicy
                         | 'OpenToAny'
                         | 'AuthorizedOnly'
                         | 'DeniedToAll'
                         | number
                         | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [u64, PalletAttestationPocAttestorElectionPolicy]
+                [u64, PalletAttestationAttestorElectionPolicy]
             >;
             setMaxAttestors: AugmentedSubmittable<
                 (
