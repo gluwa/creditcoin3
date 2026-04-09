@@ -7,7 +7,7 @@ services:
     container_name: creditcoin-validator
     volumes:
       - validator_data:/creditcoin-node/data
-    image: gluwa/creditcoin3-next
+    image: gluwa/creditcoin3
     entrypoint: /bin/creditcoin3-node
     command:
       - --dev
