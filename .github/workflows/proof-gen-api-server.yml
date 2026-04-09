@@ -108,7 +108,7 @@ jobs:
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
+      LINODE_VM_SIZE: "g6-standard-6"
       proxy: "build-proof-gen"
     secrets: inherit
 
