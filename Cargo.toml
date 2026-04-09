@@ -238,10 +238,10 @@ pallet-dynamic-fee = { git = "https://github.com/gluwa/frontier_2", branch = "st
 pallet-ethereum = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 pallet-evm = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 pallet-evm-chain-id = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
+pallet-evm-precompile-bn128 = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 pallet-evm-precompile-modexp = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 pallet-evm-precompile-sha3fips = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 pallet-evm-precompile-simple = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-pallet-evm-precompile-bn128 = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 pallet-evm-test-vector-support = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch" }
 pallet-hotfix-sufficients = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 subxt = { version = "0.40", features = ["reconnecting-rpc-client"] }
@@ -253,8 +253,8 @@ precompile-utils = { git = "https://github.com/gluwa/frontier_2", branch = "stab
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
 pallet-attestation = { path = "pallets/attestation", default-features = false }
-pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 pallet-randomness = { path = "pallets/randomness", default-features = false }
+pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 
 # Encoding
 usc-abi-encoding = { version = "0.5" }
