@@ -110,4 +110,4 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#protocol-internal"
-          message: "${{ env.LAST_REF }} -> ${{ env.TARGET_BRANCH }}: https://github.com/gluwa/creditcoin3-next/pull/${{ steps.open-pr.outputs.pull_number }}! Check for results in ~2hrs; cc <@U028EMRHS3S>"
+          message: "${{ env.LAST_REF }} -> ${{ env.TARGET_BRANCH }}: https://github.com/gluwa/creditcoin3/pull/${{ steps.open-pr.outputs.pull_number }}! Check for results in ~2hrs; cc <@U028EMRHS3S>"
