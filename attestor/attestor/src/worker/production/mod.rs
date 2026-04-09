@@ -36,26 +36,26 @@
 //!     box Thread 5..n
 //!         participant Rayon Thread Pool
 //!     end
-//!  
+//!
 //!     loop Production
 //!         Production Worker ->> Eth Chain Listener: Polls
-//!  
+//!
 //!         activate Eth Chain Listener
 //!         Eth Chain Listener -->> Eth: Polls
 //!         deactivate Eth Chain Listener
-//!  
+//!
 //!         activate Eth
 //!         Eth -->> Eth Chain Listener: New block
 //!         deactivate Eth
-//!  
+//!
 //!         activate Eth Chain Listener
 //!         Eth Chain Listener ->> Production Worker: Notify
 //!         deactivate Eth Chain Listener
-//!  
+//!
 //!         activate Production Worker
 //!         Production Worker ->> CC3 Chain Listener: Generate Attestation
 //!         deactivate Production Worker
-//!  
+//!
 //!         activate CC3 Chain Listener
 //!         CC3 Chain Listener ->> Rayon Thread Pool: Compute Continuity Proof
 //!         activate Rayon Thread Pool
@@ -63,7 +63,7 @@
 //!         deactivate Rayon Thread Pool
 //!         CC3 Chain Listener ->> Production Worker: Attestation
 //!         deactivate CC3 Chain Listener
-//!  
+//!
 //!         activate Production Worker
 //!         Production Worker ->> Attestation Pool: Store attestation
 //!         Production Worker ->> P2P Worker: Send attestation
