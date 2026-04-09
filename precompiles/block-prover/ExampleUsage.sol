@@ -66,7 +66,7 @@ contract SimpleQueryExample {
         );
 
         require(verified, "Verification failed");
-        
+
         emit VerificationSuccess(chainKey, height);
         return true;
     }
@@ -165,7 +165,7 @@ contract BatchVerificationExample {
         );
 
         require(verified, "Batch verification failed");
-        
+
         emit BatchVerificationSuccess(chainKey, heights);
         return true;
     }
