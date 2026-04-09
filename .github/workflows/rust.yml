@@ -3,7 +3,7 @@ name: rust
 
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
+    branches: [main, testnet, usc-dev]
     paths:
       - "**.rs"
       - "**.toml"
@@ -19,7 +19,7 @@ permissions: read-all
 
 jobs:
   cargo-audit:
-    if: github.base_ref == 'dev'
+    if: github.base_ref == 'usc-dev'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6

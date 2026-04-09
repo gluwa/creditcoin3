@@ -3,7 +3,7 @@ name: Check runtime changes
 
 "on":
   pull_request:
-    branches: [dev, testnet, main]
+    branches: [usc-dev, testnet, main]
     paths:
       - '**Cargo.*'
       - 'precompiles/**'
