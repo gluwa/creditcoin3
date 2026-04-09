@@ -36,8 +36,11 @@ get_precompile_info() {
         "ChainInfoPrecompile")
             echo "chain_info:ChainInfo"
             ;;
-        "SignatureVerifierPrecompile")
-            echo "signature_verifier:SignatureVerifier"
+        "Sr25519VerifierPrecompile")
+            echo "sr25519_verifier:Sr25519Verifier"
+            ;;
+        "Ed25519VerifierPrecompile")
+            echo "ed25519_verifier:Ed25519Verifier"
             ;;
         "SubstrateTransferPrecompile")
             echo "substrate_transfer:SubstrateTransfer"
@@ -61,7 +64,8 @@ fi
 while IFS= read -r line; do
     # Match lines like: a if a == hash(4050) => Some(BlockProverPrecompile::<Runtime>::execute(handle)),
     # Extract hash number and precompile type name
-    if [[ $line =~ hash\(([0-9]+)\)\ =\>\ Some\(([A-Za-z]+Precompile):: ]]; then
+    # Type names may include digits (e.g. Sr25519VerifierPrecompile)
+    if [[ $line =~ hash\(([0-9]+)\)\ =\>\ Some\(([A-Za-z0-9]+Precompile):: ]]; then
         hash_number="${BASH_REMATCH[1]}"
         precompile_type="${BASH_REMATCH[2]}"
 
@@ -74,7 +78,7 @@ while IFS= read -r line; do
             precompile_map+=("${abi_filename}:${display_name}:${address}")
         fi
     fi
-done < <(grep -E "hash\([0-9]+\)\s*=>\s*Some\([A-Za-z]+Precompile::" "$runtime_precompiles_file")
+done < <(grep -E "hash\([0-9]+\)\s*=>\s*Some\([A-Za-z0-9]+Precompile::" "$runtime_precompiles_file")
 
 if [ ${#precompile_map[@]} -eq 0 ]; then
     echo "Error: No precompiles found in $runtime_precompiles_file"
