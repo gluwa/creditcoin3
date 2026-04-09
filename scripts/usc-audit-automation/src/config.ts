@@ -5,6 +5,7 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
+import type { BalanceNetworkConfig } from "./balances.ts";
 
 export interface EthRpcConfig {
   chainId: number;
@@ -23,6 +24,7 @@ export interface AuditConfig {
   slackAlertGroup?: string;
   noSlack: boolean;
   verbose: boolean;
+  balanceChecks?: BalanceNetworkConfig[];
 }
 
 /**
@@ -124,6 +126,7 @@ export function loadConfig(): AuditConfig {
       );
     }
   }
+  const balanceChecks = obj.balanceChecks as BalanceNetworkConfig[] | undefined;
 
   return {
     uscWsUrl,
@@ -135,6 +138,7 @@ export function loadConfig(): AuditConfig {
     slackAlertGroup,
     noSlack,
     verbose,
+    balanceChecks,
   };
 }
 
@@ -164,7 +168,28 @@ CONFIG FILE FORMAT (JSON):
     ],
     "slackBotToken": "xxxx-xxxxxxxxxx-xx..."
     "slackChannelId": "C09DC0AAD...",
-    "slackAlertGroup": "U123456"
+    "slackAlertGroup": "U123456",
+    "balanceChecks": [
+      {
+        "name": "USC Devnet",
+        "baseUrl": "https://blockscout.usc-devnet.creditcoin.network/",
+        "rpcUrl": "https://rpc.usc-devnet.creditcoin.network",
+        "accounts": [
+          {
+            "address": "0x053e6100c1C9A31e5c8a56156649f0972dCC815e",
+            "name": "Devnet bigbag"
+          },
+          {
+            "address": "0x465ac26CD80E6e6AADe0C2EdfF2518D03Ac4E4e5",
+            "name": "Devnet traffic sim"
+          },
+          {
+            "address": "0x2C317383b8A99537c61042B63C4fB042Df51033a",
+            "name": "NEW_LENDER_ accnt in 1Password. Used for testing"
+          }
+        ]
+      }
+    ]
   }
 
   chainKey: optional; if omitted, discovered from USC storage by chainId
