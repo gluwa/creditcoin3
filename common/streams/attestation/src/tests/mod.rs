@@ -18,13 +18,13 @@ async fn attestation_ready_simple(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0 - skipped, start height is always ignored
-    roots.send_ready().await; // 1
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
 
-    tip.send_ready().await; // 0
-    tip.send_ready().await; // 1
+    tip.send_ready(); // 0
+    tip.send_ready(); // 1
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -43,9 +43,9 @@ async fn attestation_finalization_sets_correct_range(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0 - skipped, start height is always ignored
-    roots.send_ready().await; // 1
-    roots.send_ready().await; // 2
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
+    roots.send_ready(); // 2
 
     assert!(poll!(stream_attestation).is_pending());
 
@@ -56,11 +56,11 @@ async fn attestation_finalization_sets_correct_range(
 
     assert_eq!(stream_attestation.computed, 1..=1); // not 1..=2!
 
-    tip.send_ready().await; // 0
-    tip.send_ready().await; // 1
-    tip.send_ready().await; // 2
+    tip.send_ready(); // 0
+    tip.send_ready(); // 1
+    tip.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -79,17 +79,17 @@ async fn attestation_finalization_ignore_past_attestation(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    tip.send_ready().await; // 0
-    tip.send_ready().await; // 1
-    tip.send_ready().await; // 2
+    tip.send_ready(); // 0
+    tip.send_ready(); // 1
+    tip.send_ready(); // 2
 
     assert!(poll!(stream_attestation).is_pending());
 
-    roots.send_ready().await; // 0 - skipped, start height is always ignored
-    roots.send_ready().await; // 1
-    roots.send_ready().await; // 2
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
+    roots.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -112,15 +112,35 @@ async fn attestation_finalization_ignore_past_attestation(
 
     assert_eq!(stream_attestation.computed, 2..=2);
 
-    tip.send_ready().await; // 3
-    roots.send_ready().await; // 3
+    tip.send_ready(); // 3
+    roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
     assert_eq!(attestation.header_number(), 3);
     assert!(attestation.continuity_proof.is_empty());
+}
+
+/// Attestations finalization should be allowed to override the previous finalized digest
+#[rstest::rstest]
+#[tokio::test]
+async fn attestation_finalization_affect_genesis(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(3))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (_roots, _tip, mut stream_attestation) = attestations.await;
+
+    let info = stream_util::AttestationInfo {
+        height: 0,
+        digest: attestor_primitives::Digest::from([1; 32]),
+    };
+
+    stream_attestation.note_attestation_finalization(info);
+
+    assert_eq!(stream_attestation.attestation_prev, info);
 }
 
 /// Attestation stream cache size should grow up to `max_catchup` + 1 in order to allow the last
@@ -134,9 +154,9 @@ async fn max_cache_size(
 ) {
     let (mut roots, _tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 2 - skipped, start height is always ignored
-    roots.send_ready().await; // 3
-    roots.send_ready().await; // 4 - not polled, max cache size reached
+    roots.send_ready(); // 2 - skipped, start height is always ignored
+    roots.send_ready(); // 3
+    roots.send_ready(); // 4 - not polled, max cache size reached
 
     assert!(poll!(stream_attestation).is_pending());
 
@@ -166,8 +186,8 @@ async fn skip_behind_finality(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0 - skipped, start height is always ignored
-    roots.send_ready().await; // 1
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
 
     assert!(poll!(stream_attestation).is_pending());
 
@@ -176,15 +196,15 @@ async fn skip_behind_finality(
         ..Default::default()
     });
 
-    tip.send_ready().await; // 0
-    tip.send_ready().await; // 1
-    tip.send_ready().await; // 2
-    tip.send_ready().await; // 3
+    tip.send_ready(); // 0
+    tip.send_ready(); // 1
+    tip.send_ready(); // 2
+    tip.send_ready(); // 3
 
-    roots.send_ready().await; // 2 - skipped, behind finality
-    roots.send_ready().await; // 3
+    roots.send_ready(); // 2 - skipped, behind finality
+    roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -203,13 +223,13 @@ async fn continuity_proofs_should_grow(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0 - skipped, start height is always ignored
-    roots.send_ready().await; // 1
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
 
-    tip.send_ready().await; // 0
-    tip.send_ready().await; // 1
+    tip.send_ready(); // 0
+    tip.send_ready(); // 1
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -221,23 +241,23 @@ async fn continuity_proofs_should_grow(
         ..Default::default()
     });
 
-    roots.send_ready().await; // 2
-    tip.send_ready().await; // 2
+    roots.send_ready(); // 2
+    tip.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
     assert_eq!(attestation.header_number(), 2);
     assert!(attestation.continuity_proof.is_empty());
 
-    tip.send_ready().await; // 3
+    tip.send_ready(); // 3
 
     assert!(poll!(stream_attestation).is_pending());
 
-    roots.send_ready().await; // 3
+    roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -256,32 +276,32 @@ async fn regenerate_attestations(
 ) {
     let (mut roots, mut tip, mut stream_attestation) = attestations.await;
 
-    roots.send_ready().await; // 0 - skipped, start height is always ignored
-    roots.send_ready().await; // 1
-    tip.send_ready().await; // 0
-    tip.send_ready().await; // 1
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
+    tip.send_ready(); // 0
+    tip.send_ready(); // 1
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
     assert_eq!(attestation.header_number(), 1);
     assert!(attestation.continuity_proof.is_empty());
 
-    tip.send_ready().await; // 2
-    roots.send_ready().await; // 2
+    tip.send_ready(); // 2
+    roots.send_ready(); // 2
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
     assert_eq!(attestation.header_number(), 2);
     assert_eq!(attestation.continuity_proof.len(), 1);
 
-    tip.send_ready().await; // 3
-    roots.send_ready().await; // 3
+    tip.send_ready(); // 3
+    roots.send_ready(); // 3
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -293,7 +313,7 @@ async fn regenerate_attestations(
         ..Default::default()
     });
 
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -303,7 +323,7 @@ async fn regenerate_attestations(
     assert_eq!(attestation.continuity_proof.len(), 1);
 
     // Attestation 2 is regenerated as well
-    let std::task::Poll::Ready(Some(Ok(attestation))) = poll!(stream_attestation) else {
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
@@ -312,4 +332,156 @@ async fn regenerate_attestations(
 
     // Attestation 1 is not regenerated as it has already finalized
     assert!(poll!(stream_attestation).is_pending());
+}
+
+/// Changes to the attestation interval should be properly handled even if the previous finalized
+/// attestation was not a multiple of the new interval.
+#[rstest::rstest]
+#[tokio::test]
+async fn attestation_interval_change(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(3))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
+
+    tip.send_ready(); // 0
+    tip.send_ready(); // 1
+
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 1);
+    assert!(attestation.continuity_proof.is_empty());
+
+    stream_attestation.note_attestation_finalization(stream_util::AttestationInfo {
+        height: 1,
+        ..Default::default()
+    });
+
+    // Applies the interval change and resets the stream
+    stream_attestation
+        .note_attestation_interval_change(nonzero!(3))
+        .await;
+
+    roots.send_ready(); // 2
+    roots.send_ready(); // 3
+
+    tip.send_ready(); // 2
+    tip.send_ready(); // 3
+
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 3);
+    assert_eq!(attestation.continuity_proof.len(), 1);
+}
+
+/// Attestation chain reversion should reset attestation production to a previous height
+#[rstest::rstest]
+#[tokio::test]
+async fn attestation_chain_reversion(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(2))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
+    roots.send_ready(); // 2
+
+    tip.send_ready(); // 0
+    tip.send_ready(); // 1
+    tip.send_ready(); // 2
+
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 1);
+    assert!(attestation.continuity_proof.is_empty());
+
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 2);
+    assert_eq!(attestation.continuity_proof.len(), 1);
+
+    // Reset the chain at height 1
+    stream_attestation
+        .note_attestation_chain_reversion(stream_util::AttestationInfo {
+            height: 1,
+            ..Default::default()
+        })
+        .await;
+
+    roots.send_ready(); // 1 - skipped, start height is always ignored
+    roots.send_ready(); // 2
+
+    tip.send_ready(); // 1
+    tip.send_ready(); // 2
+
+    // Attestation at height 1 is re-generated since the chain has been reverted to height 0
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    // Continuity proof is now empty as we are attesting from height 1
+    assert_eq!(attestation.header_number(), 2);
+    assert!(attestation.continuity_proof.is_empty());
+}
+
+/// If the attestation interval is shrunk to a lower value, this can cause the max catchup to be
+/// shrunk too as a result of alignment. The root cache needs to be updated accordingly to avoid
+/// exceeding the max allowed size.
+#[rstest::rstest]
+#[tokio::test]
+async fn root_cache_must_shrink_with_attestation_interval(
+    #[future]
+    #[with(0, nonzero!(1), nonzero!(1))]
+    attestations: (mock::RootSender, mock::TipSender, crate::StreamAttestation),
+) {
+    let (mut roots, mut tip, mut stream_attestation) = attestations.await;
+
+    roots.send_ready(); // 0 - skipped, start height is always ignored
+    roots.send_ready(); // 1
+    roots.send_ready(); // 2
+    let _ = poll!(stream_attestation);
+
+    // root cache contains 2 blocks, must grow to accommodate up to 3 blocks
+    stream_attestation
+        .note_attestation_interval_change(nonzero!(3))
+        .await;
+
+    roots.send_ready(); // 1
+    roots.send_ready(); // 2
+    roots.send_ready(); // 3
+    let _ = poll!(stream_attestation);
+
+    // root cache contains 3 blocks, must shrink to accommodate at most 2 blocks
+    stream_attestation
+        .note_attestation_interval_change(nonzero!(2))
+        .await;
+
+    roots.send_ready(); // 1
+    roots.send_ready(); // 2
+    roots.send_ready(); // 3 - never received by the stream, as the max catchup is now 2
+    let _ = poll!(stream_attestation);
+
+    tip.send_ready(); // 1
+    tip.send_ready(); // 2
+
+    let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
+        panic!("Failed to generate attestation");
+    };
+
+    assert_eq!(attestation.header_number(), 2);
+    assert_eq!(attestation.continuity_proof.len(), 1);
 }

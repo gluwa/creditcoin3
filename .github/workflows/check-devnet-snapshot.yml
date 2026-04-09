@@ -1,7 +1,7 @@
 ---
 name: Check Devnet Snapshot
 
-on:
+"on":
   schedule:
     # at 6am, 3rd of every month
     - cron: "0 6 3 * *"

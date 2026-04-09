@@ -16,6 +16,7 @@ self-hosted-runner:
     - proxy-cc3-indexer
     - proxy-proof-gen-api-server-integration-tests
     - proxy-submit-proof
+    - proxy-try-runtime
     - type-devnet
     - type-docker
     - type-loan-flow-example

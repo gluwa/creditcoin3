@@ -1,4 +1,4 @@
-use attestor_primitives::{attestation_fragment::AttestationFragment, block::Block, Digest};
+use attestor_primitives::{block::Block, block::ContinuityProof, Digest};
 use sp_core::H256;
 use sp_runtime::traits::Zero;
 use sp_std::ops::RangeInclusive;
@@ -6,13 +6,12 @@ use sp_std::ops::RangeInclusive;
 pub fn construct_fragment(
     prev_digest: Option<Digest>,
     range: RangeInclusive<u64>,
-) -> AttestationFragment {
+) -> ContinuityProof {
     if range.end().is_zero() {
-        return AttestationFragment::default();
+        return ContinuityProof::default();
     }
 
-    // Create a dummy fragment from start to end and use provided digest if we can
-    let mut fragment = AttestationFragment::new(range.clone().count());
+    let mut blocks = sp_std::vec::Vec::new();
     let mut current_prev_digest = prev_digest.unwrap_or_else(Digest::zero);
 
     for block_number in range {
@@ -23,11 +22,9 @@ pub fn construct_fragment(
             current_prev_digest,
             block.digest()
         );
-        let appended_block = fragment
-            .try_append_block(block)
-            .expect("Failed to append block");
-        current_prev_digest = appended_block.digest();
+        current_prev_digest = block.digest();
+        blocks.push(block);
     }
 
-    fragment
+    ContinuityProof::from_blocks(blocks)
 }

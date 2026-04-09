@@ -2,12 +2,9 @@ use super::*;
 use crate::clear_or_revert::{CheckpointPruningState, MAX_CHECKPOINTS_CLEARED_PER_BLOCK};
 use crate::impls::ONE_TENTH_CTC;
 use crate::mock::*;
-use attestor_primitives::attestation_fragment::{
-    AttestationFragment, AttestationFragmentSerializable,
-};
 use attestor_primitives::{
-    block::Block, AttestationCheckpoint, AttestationData as AttestationPrimitive, AttestorStatus,
-    ChainKey, SignedAttestation,
+    block::Block, block::ContinuityProof, AttestationCheckpoint,
+    AttestationData as AttestationPrimitive, AttestorStatus, ChainKey, SignedAttestation,
 };
 use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey, PublicKey};
@@ -68,10 +65,10 @@ pub fn create_signed_attestation(
     chain_key: ChainKey,
     header_number: u64,
     prev_digest: Option<H256>,
-    fragment: Option<AttestationFragment>,
+    continuity_proof: Option<ContinuityProof>,
 ) -> SignedAttestation<H256, mock::AccountId> {
-    let fragment = if let Some(f) = fragment {
-        f
+    let continuity_proof = if let Some(p) = continuity_proof {
+        p
     } else {
         construct_fragment(
             prev_digest,
@@ -79,24 +76,26 @@ pub fn create_signed_attestation(
         )
     };
 
+    let attestation_prev_digest = (!continuity_proof.is_empty()).then(|| {
+        let start = header_number.saturating_sub(continuity_proof.len() as u64);
+        continuity_proof.compute_continuity_digest(start)
+    });
+
     let attestation = AttestationPrimitive {
         chain_key,
         header_number,
         header_hash: H256::random(),
         root: H256::from([0; 32]),
-        prev_digest: fragment.head().map(|h| {
-            let block: Block = h.clone();
-            block.digest()
-        }),
+        prev_digest: attestation_prev_digest,
     };
 
-    self::bls_sign_attestation(attestors, attestation, &fragment)
+    self::bls_sign_attestation(attestors, attestation, continuity_proof)
 }
 
 pub fn bls_sign_attestation(
     attestors: Vec<Attestor>,
     attestation: AttestationPrimitive<H256>,
-    fragment: &AttestationFragment,
+    continuity_proof: ContinuityProof,
 ) -> SignedAttestation<H256, mock::AccountId> {
     let mut signatures = Vec::new();
     for attestor in attestors.iter() {
@@ -106,20 +105,16 @@ pub fn bls_sign_attestation(
 
         signatures.push(bls_sig);
     }
-    // sign
     let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
-    let continuity_proof = AttestationFragmentSerializable::from(fragment);
-    let attestation = SignedAttestation {
+    SignedAttestation {
         attestation,
         signature: aggregated_signature.as_bytes()[..]
             .try_into()
             .expect("Failed to convert to array"),
         attestors: attestors.iter().map(|a| a.attestor_id).collect::<Vec<_>>(),
         continuity_proof,
-    };
-
-    attestation
+    }
 }
 
 pub fn create_checkpoint(
@@ -164,6 +159,61 @@ fn insert_checkpoint_and_bucket_entry<Test: pallet::Config>(
     Checkpoints::<Test>::insert(chain_key, block_number, digest);
     let checkpoint_pivot = Pallet::<Test>::compute_block_index_for(block_number);
     CheckpointBuckets::<Test>::insert((chain_key, checkpoint_pivot, block_number), ());
+}
+
+#[test]
+fn test_create_signed_attestation_consistency() {
+    let attestors = vec![Attestor::new(STASH_1, ATTESTOR_1)];
+
+    // Test with default continuity proof (non-empty)
+    let chain_key = 1;
+    let header_number = 10u64;
+    let prev_digest = Some(H256::from_low_u64_be(42));
+    let signed = create_signed_attestation(
+        attestors.clone(),
+        chain_key,
+        header_number,
+        prev_digest,
+        None,
+    );
+
+    // Verify attestation fields
+    assert_eq!(signed.attestation.chain_key, chain_key);
+    assert_eq!(signed.attestation.header_number, header_number);
+    assert_eq!(signed.attestation.root, H256::from([0; 32]));
+
+    // Verify continuity proof is consistent with attestation
+    let start = header_number.saturating_sub(signed.continuity_proof.len() as u64);
+    let expected_prev_digest = (!signed.continuity_proof.is_empty())
+        .then(|| signed.continuity_proof.compute_continuity_digest(start));
+    assert_eq!(signed.attestation.prev_digest, expected_prev_digest);
+
+    // Verify continuity proof tail chains from the provided prev_digest
+    if !signed.continuity_proof.is_empty() {
+        assert_eq!(
+            signed.continuity_proof.tail_prev_digest(),
+            prev_digest,
+            "tail_prev_digest should match the provided prev_digest"
+        );
+    }
+
+    // Verify attestors list
+    assert_eq!(signed.attestors.len(), 1);
+    assert_eq!(signed.attestors[0], attestors[0].attestor_id);
+
+    // Test with empty continuity proof (header_number = 1, range is 1..=0 which is empty)
+    let signed_empty = create_signed_attestation(
+        attestors.clone(),
+        chain_key,
+        1,
+        None,
+        Some(ContinuityProof::default()),
+    );
+    assert!(signed_empty.continuity_proof.is_empty());
+    assert_eq!(signed_empty.attestation.prev_digest, None);
+    assert_eq!(signed_empty.attestation.chain_key, chain_key);
+    assert_eq!(signed_empty.attestation.header_number, 1);
+    assert_eq!(signed_empty.continuity_proof.tail_prev_digest(), None);
 }
 
 #[test]
@@ -2063,7 +2113,7 @@ fn commit_attestation_interval_1_works() {
         let attestation = self::bls_sign_attestation(
             vec![attestor.clone()],
             attestation,
-            &AttestationFragment::default(),
+            ContinuityProof::default(),
         );
 
         assert_ok!(Attestation::commit_attestation(
@@ -2139,7 +2189,7 @@ fn commit_attestation_interval_1_fails_with_wrong_prev_digest() {
         let attestation = self::bls_sign_attestation(
             vec![attestor.clone()],
             attestation,
-            &AttestationFragment::default(),
+            ContinuityProof::default(),
         );
 
         // Will error with EmptyContinuityProof because the prev digest does not match
@@ -2293,8 +2343,8 @@ fn commit_attestation_should_error_on_invalid_prev_digest() {
         // sign
         let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
-        let fragment = construct_fragment(attestation_1.prev_digest(), RangeInclusive::new(1, 9));
-        let continuity_proof = AttestationFragmentSerializable::from(&fragment);
+        let continuity_proof =
+            construct_fragment(attestation_1.prev_digest(), RangeInclusive::new(1, 9));
 
         let attestation_2 = SignedAttestation {
             attestation,
@@ -2367,8 +2417,7 @@ fn commit_attestation_should_error_on_invalid_continuity_head() {
         // sign
         let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
-        let fragment = construct_fragment(Some(H256::random()), RangeInclusive::new(1, 9));
-        let continuity_proof = AttestationFragmentSerializable::from(&fragment);
+        let continuity_proof = construct_fragment(Some(H256::random()), RangeInclusive::new(1, 9));
 
         let attestation_2 = SignedAttestation {
             attestation,
@@ -2425,15 +2474,13 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
         // Create a correct continuity proof fragment
         let correct_fragment =
             construct_fragment(Some(attestation_1.digest()), RangeInclusive::new(1, 9));
+        let start_block = 1u64;
         let attestation = AttestationPrimitive {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 10,
             header_hash: H256::random(),
             root: H256::from([0; 32]),
-            prev_digest: correct_fragment.head().map(|h| {
-                let block: Block = h.clone();
-                block.digest()
-            }),
+            prev_digest: Some(correct_fragment.compute_continuity_digest(start_block)),
         };
 
         let mut signatures = Vec::new();
@@ -2444,28 +2491,19 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
 
             signatures.push(bls_sig);
         }
-        // sign
         let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
-        // Create a fragment with correct tail but wrong roots in the middle
+        // Create a proof with correct tail but wrong roots in the middle
         // This will cause the final reconstructed digest to not match the attestation's prev_digest
-        let correct_fragment =
-            construct_fragment(Some(attestation_1.digest()), RangeInclusive::new(1, 9));
-        let mut invalid_blocks = correct_fragment.blocks().to_vec();
-
-        // Modify one block in the middle to have a wrong root
-        // This will cause the reconstructed digest chain to be wrong
+        let mut invalid_blocks = correct_fragment.to_blocks(start_block);
         if let Some(block) = invalid_blocks.get_mut(4) {
-            // Change the root to a different value, which will break the digest chain
             *block = Block::new_from_prev_digest(
                 block.block_number,
                 H256::from([1; 32]), // Wrong root instead of zero
                 block.prev_digest,
             );
         }
-
-        let invalid_fragment = AttestationFragment::from_blocks(invalid_blocks);
-        let continuity_proof = AttestationFragmentSerializable::from(&invalid_fragment);
+        let continuity_proof = ContinuityProof::from_blocks(invalid_blocks);
 
         let attestation_2 = SignedAttestation {
             attestation,
@@ -2517,15 +2555,13 @@ fn commit_attestation_should_error_on_invalid_continuity_genesis_block() {
 
         // Create a correct continuity proof fragment
         let correct_fragment = construct_fragment(Some(H256::random()), RangeInclusive::new(0, 9));
+        let start_block = 0u64;
         let attestation = AttestationPrimitive {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 10,
             header_hash: H256::random(),
             root: H256::from([0; 32]),
-            prev_digest: correct_fragment.head().map(|h| {
-                let block: Block = h.clone();
-                block.digest()
-            }),
+            prev_digest: Some(correct_fragment.compute_continuity_digest(start_block)),
         };
 
         let mut signatures = Vec::new();
@@ -2536,11 +2572,9 @@ fn commit_attestation_should_error_on_invalid_continuity_genesis_block() {
 
             signatures.push(bls_sig);
         }
-        // sign
         let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
-        // let fragment = construct_fragment(None, 0, 9);
-        let continuity_proof = AttestationFragmentSerializable::from(&correct_fragment);
+        let continuity_proof = correct_fragment;
 
         let attestation_2 = SignedAttestation {
             attestation,
@@ -3048,19 +3082,30 @@ fn creating_checkpoint_works_at_expected_intervals() {
                 // But in the 9th the header will be at 103, so the checkpoint's header is going to be
                 // contained in this attestation's continuity proof
 
-                // The checkpoint should be exactly at block 100
-                let maybe_block = attestation
+                // The checkpoint should be exactly at block 100 (digest computed from roots)
+                let start = attestation
                     .continuity_proof
-                    .blocks
-                    .iter()
-                    .find(|b| b.block_number == 100);
-                assert!(maybe_block.is_some());
-
-                let checkpoint_block = maybe_block.unwrap();
+                    .start_block_number(attestation.header_number());
+                let blocks = attestation.continuity_proof.to_blocks(start);
+                let mut prev_digest = attestation.continuity_proof.lower_endpoint_digest;
+                let mut checkpoint_digest = None;
+                for b in blocks.iter() {
+                    let digest = attestor_primitives::block::Block::hash_payload(
+                        &b.block_number,
+                        &b.root,
+                        &prev_digest,
+                    );
+                    if b.block_number == 100 {
+                        checkpoint_digest = Some(digest);
+                        break;
+                    }
+                    prev_digest = digest;
+                }
+                assert!(checkpoint_digest.is_some());
 
                 checkpoint = Some(AttestationCheckpoint {
-                    block_number: checkpoint_block.block_number,
-                    digest: checkpoint_block.digest,
+                    block_number: 100,
+                    digest: checkpoint_digest.unwrap(),
                 });
             }
         }
@@ -3132,9 +3177,6 @@ fn create_checkpoints_from_continuity_proof_with_500_blocks() {
             genesis_attestation.clone(),
         ));
 
-        // Attestation for block 501 with 500 blocks of continuity (blocks 1-500).
-        // With the same span rule as `try_make_checkpoint`, checkpoints land at 100–400:
-        // after last cp at 400, head 501 gives span 101 < 201, so block 500 is not condensed yet.
         let fragment = construct_fragment(
             Some(genesis_attestation.digest()),
             RangeInclusive::new(1, 500),
@@ -3146,14 +3188,14 @@ fn create_checkpoints_from_continuity_proof_with_500_blocks() {
             Some(genesis_attestation.digest()),
             Some(fragment),
         );
-        assert_eq!(attestation_500.continuity_proof.get_blocks_ref().len(), 500);
+        assert_eq!(attestation_500.continuity_proof.len(), 500);
 
         assert_ok!(Attestation::commit_attestation(
             attestor.attestor_origin.clone(),
             attestation_500.clone(),
         ));
 
-        let expected_checkpoint_blocks = [100u64, 200, 300, 400];
+        let expected_checkpoint_blocks = [100u64, 200, 300, 400, 500];
         for &block_num in &expected_checkpoint_blocks {
             let digest = Attestation::checkpoints(SUPPORTED_CHAIN_KEY, block_num);
             assert!(
@@ -3161,25 +3203,22 @@ fn create_checkpoints_from_continuity_proof_with_500_blocks() {
                 "Checkpoint at block {block_num} should exist"
             );
         }
-        assert!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 500).is_none(),
-            "Checkpoint at 500 requires a larger head–checkpoint span"
-        );
 
         let last_checkpoint = Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY)
             .expect("Last checkpoint should exist");
-        assert_eq!(last_checkpoint.block_number, 400);
+        assert_eq!(last_checkpoint.block_number, 500);
 
-        // Verify checkpoint digests match the continuity proof
+        // Verify checkpoint digests match the continuity proof (digests are computed from roots)
+        let start = attestation_500
+            .continuity_proof
+            .start_block_number(attestation_500.header_number());
         for &block_num in &expected_checkpoint_blocks {
             let stored_digest = Attestation::checkpoints(SUPPORTED_CHAIN_KEY, block_num).unwrap();
-            let proof_block = attestation_500
+            let digest = attestation_500
                 .continuity_proof
-                .get_blocks_ref()
-                .iter()
-                .find(|b| b.block_number == block_num)
-                .expect("Block should be in continuity proof");
-            assert_eq!(stored_digest, proof_block.digest);
+                .digest_for_block(start, block_num)
+                .expect("block in proof");
+            assert_eq!(stored_digest, digest);
         }
     })
 }
@@ -3350,8 +3389,6 @@ fn create_checkpoints_from_continuity_proof_at_exact_boundary() {
 
         // Attestation at exactly block 300 (a checkpoint boundary) with 299 blocks of continuity
         // (blocks 1-299). The proof has 299 blocks >= 2*checkpoint_width (200), triggering catch-up.
-        // With span `2 * checkpoint_width + 1`, only checkpoint 100 is created from head 300:
-        // 300 - 100 = 200 < 201, so the next boundary (200) waits for a higher head.
         let fragment = construct_fragment(
             Some(genesis_attestation.digest()),
             RangeInclusive::new(1, 299),
@@ -3374,19 +3411,21 @@ fn create_checkpoints_from_continuity_proof_at_exact_boundary() {
             "Checkpoint at block 100 should exist"
         );
 
+        // Checkpoint at 200 should exist (from continuity proof block)
         assert!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 2 * checkpoint_width).is_none(),
-            "Checkpoint at 200 not yet — span from cp at 100 is only 200 < 201"
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 2 * checkpoint_width).is_some(),
+            "Checkpoint at block 200 should exist"
         );
 
+        // Checkpoint at 300 should exist (from continuity proof block)
         assert!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 3 * checkpoint_width).is_none(),
-            "Checkpoint at 300 should not exist yet"
+            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 3 * checkpoint_width).is_some(),
+            "Checkpoint at block 300 should exist"
         );
 
         let last_checkpoint = Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY)
             .expect("Last checkpoint should exist");
-        assert_eq!(last_checkpoint.block_number, 100);
+        assert_eq!(last_checkpoint.block_number, 300);
     })
 }
 
@@ -3473,21 +3512,16 @@ fn create_checkpoints_from_continuity_proof_with_unaligned_last_attestation() {
             attestation_digest,
         ));
 
-        // Same span rule: after checkpoint 700, head 892 gives span 192 < 201, so 800 is not added.
-        for &block_num in &[300u64, 400, 500, 600, 700] {
+        for &block_num in &[300u64, 400, 500, 600, 700, 800] {
             assert!(
                 Attestation::checkpoints(SUPPORTED_CHAIN_KEY, block_num).is_some(),
                 "Checkpoint at block {block_num} should exist"
             );
         }
-        assert!(
-            Attestation::checkpoints(SUPPORTED_CHAIN_KEY, 800).is_none(),
-            "Checkpoint at 800 requires larger head span from last checkpoint"
-        );
 
         let last_cp =
             Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY).expect("should have last checkpoint");
-        assert_eq!(last_cp.block_number, 700);
+        assert_eq!(last_cp.block_number, 800);
 
         // CheckpointingQueues should be cleared — all queued attestations were consumed
         assert!(
@@ -4671,7 +4705,7 @@ fn commit_attestation_should_succeed_when_genesis_block_number_is_correct() {
             SUPPORTED_CHAIN_KEY,
             10000,
             None,
-            Some(AttestationFragment::default()),
+            Some(ContinuityProof::default()),
         );
 
         // Set genesis block number to the correct value

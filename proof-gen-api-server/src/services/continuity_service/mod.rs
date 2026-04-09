@@ -462,6 +462,98 @@ impl ContinuityService {
         }
     }
 
+    /// Operator-oriented detail when boundary resolution failed and we cannot map it to
+    /// [`ServiceError::BlockNotReady`] / [`ServiceError::AttestationsMissing`].
+    fn format_boundary_miss_ops_detail(
+        chain_key: u64,
+        min_query: u64,
+        max_query: u64,
+        att: &BTreeMap<u64, H256>,
+        cp: &BTreeMap<u64, H256>,
+    ) -> String {
+        let att_lower = att.range(..min_query).next_back().map(|(&k, _)| k);
+        let att_upper = att.range(max_query..).next().map(|(&k, _)| k);
+        let att_span = match (att.keys().next().copied(), att.keys().next_back().copied()) {
+            (Some(lo), Some(hi)) => format!("{lo}..={hi}"),
+            _ => "empty".to_string(),
+        };
+        let att_len = att.len();
+
+        let cp_lower = cp.range(..min_query).next_back().map(|(&k, _)| k);
+        let cp_upper = cp.range(max_query..).next().map(|(&k, _)| k);
+        let cp_span = match (cp.keys().next().copied(), cp.keys().next_back().copied()) {
+            (Some(lo), Some(hi)) => format!("{lo}..={hi}"),
+            _ => "empty".to_string(),
+        };
+        let cp_len = cp.len();
+
+        let request_desc = if min_query == max_query {
+            format!("requested block {min_query}")
+        } else {
+            format!("requested blocks {min_query}..={max_query}")
+        };
+
+        format!(
+            "no attestation or checkpoint window in cache (chain_key={chain_key}) for {request_desc}; \
+             need greatest cached block < {min_query} and smallest cached block >= {max_query}. \
+             Attestations: n={att_len} span={att_span} greatest_strictly_before={att_lower:?} smallest_at_or_after={att_upper:?}. \
+             Checkpoints: n={cp_len} span={cp_span} greatest_strictly_before={cp_lower:?} smallest_at_or_after={cp_upper:?}"
+        )
+    }
+
+    /// When attestation and checkpoint caches cannot bracket the query, return a client-safe error
+    /// when the cause is simply that on-chain data has not caught up yet; otherwise
+    /// [`ServiceError::Internal`].
+    async fn boundary_lookup_failed_error(
+        &self,
+        chain: &Arc<ChainState>,
+        min_query: u64,
+        max_query: u64,
+    ) -> ServiceError {
+        let chain_key = chain.builder.config.chain_key;
+        let att = chain.attestation_cache.read().await;
+        let cp = chain.checkpoint_cache.read().await;
+
+        if att.is_empty() && cp.is_empty() {
+            return ServiceError::AttestationsMissing { chain_key };
+        }
+
+        let last_coverage = match (
+            att.keys().next_back().copied(),
+            cp.keys().next_back().copied(),
+        ) {
+            (Some(a), Some(b)) => a.max(b),
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            (None, None) => {
+                return ServiceError::AttestationsMissing { chain_key };
+            }
+        };
+
+        if last_coverage < max_query {
+            let ops =
+                Self::format_boundary_miss_ops_detail(chain_key, min_query, max_query, &att, &cp);
+            tracing::debug!(
+                chain_key,
+                min_query,
+                max_query,
+                last_coverage,
+                %ops,
+                "boundary miss: returning BlockNotReady to client"
+            );
+            return ServiceError::BlockNotReady {
+                block_number: max_query,
+                last_attested_block: last_coverage,
+            };
+        }
+
+        ServiceError::Internal {
+            message: Self::format_boundary_miss_ops_detail(
+                chain_key, min_query, max_query, &att, &cp,
+            ),
+        }
+    }
+
     /// Updates the attestation genesis block number.
     /// This will be called when we receive an AttestationChainGenesisBlockNumberSet event from CC3,
     /// allowing the service to adapt if the attestation genesis block changes (e.g. due to a chain reset or reconfiguration).

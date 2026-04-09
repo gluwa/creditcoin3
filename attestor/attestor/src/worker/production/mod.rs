@@ -36,26 +36,26 @@
 //!     box Thread 5..n
 //!         participant Rayon Thread Pool
 //!     end
-//!  
+//!
 //!     loop Production
 //!         Production Worker ->> Eth Chain Listener: Polls
-//!  
+//!
 //!         activate Eth Chain Listener
 //!         Eth Chain Listener -->> Eth: Polls
 //!         deactivate Eth Chain Listener
-//!  
+//!
 //!         activate Eth
 //!         Eth -->> Eth Chain Listener: New block
 //!         deactivate Eth
-//!  
+//!
 //!         activate Eth Chain Listener
 //!         Eth Chain Listener ->> Production Worker: Notify
 //!         deactivate Eth Chain Listener
-//!  
+//!
 //!         activate Production Worker
 //!         Production Worker ->> CC3 Chain Listener: Generate Attestation
 //!         deactivate Production Worker
-//!  
+//!
 //!         activate CC3 Chain Listener
 //!         CC3 Chain Listener ->> Rayon Thread Pool: Compute Continuity Proof
 //!         activate Rayon Thread Pool
@@ -63,7 +63,7 @@
 //!         deactivate Rayon Thread Pool
 //!         CC3 Chain Listener ->> Production Worker: Attestation
 //!         deactivate CC3 Chain Listener
-//!  
+//!
 //!         activate Production Worker
 //!         Production Worker ->> Attestation Pool: Store attestation
 //!         Production Worker ->> P2P Worker: Send attestation
@@ -97,14 +97,14 @@ pub use error::*;
 /// attestor, such as its account id.
 #[derive(builder::Builder)]
 pub struct Config {
-    stream_attestation: crate::stream::attestation::StreamAttestation,
-    stream_cc3: crate::stream::cc3::StreamCC3,
+    stream_attestation: stream::attestation::StreamAttestation,
+    stream_cc3: crate::stream_legacy::cc3::StreamCC3,
 
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
     sender_validation: crate::worker::validation::pool::AttestationPoolSender,
 
     interval_attestation: std::num::NonZero<common::types::Height>,
-    attestation_latest_cc3: common::types::AttestationInfo,
+    attestation_latest_cc3: stream::util::AttestationInfo,
 
     start_height: common::types::Height,
     account_id: cc_client::AccountId32,
@@ -115,8 +115,8 @@ pub struct Config {
 
 pub(crate) struct WorkerAttestationProduction {
     // CHAIN LISTENERS
-    stream_attestation: crate::stream::attestation::StreamAttestation,
-    stream_cc3: crate::stream::cc3::StreamCC3,
+    stream_attestation: stream::attestation::StreamAttestation,
+    stream_cc3: crate::stream_legacy::cc3::StreamCC3,
 
     // MESSAGE CHANNELS
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
@@ -124,7 +124,7 @@ pub(crate) struct WorkerAttestationProduction {
 
     // ATTESTATION DATA
     attestation_local: common::types::Height,
-    attestation_latest_cc3: common::types::AttestationInfo,
+    attestation_latest_cc3: stream::util::AttestationInfo,
     attestation_interval: std::num::NonZero<common::types::Height>,
 
     // METRICS
@@ -178,8 +178,8 @@ impl super::Worker for WorkerAttestationProduction {
                 Some(events) = self.stream_cc3.next() => {
                     self.handle_event_cc3(events).await?;
                 }
-                Some(event) = self.stream_attestation.next(), if self.can_attest => {
-                    self.handle_event_attestation(event).await?;
+                Some(attestation) = self.stream_attestation.next(), if self.can_attest => {
+                    self.handle_event_attestation(attestation).await?;
                 }
             }
         }
@@ -193,19 +193,9 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_attestation(
         &mut self,
-        event: Result<
-            crate::stream::attestation::Permit,
-            Interrupt<crate::stream::attestation::Error>,
-        >,
+        attestation: stream::attestation::Attestation,
     ) -> Result<(), Interrupt<Error>> {
-        let permit = event.map_interrupt(Error::Attestation)?;
         let now = std::time::Instant::now();
-
-        let attestation = self
-            .stream_attestation
-            .generate_attestation(permit)
-            .await
-            .map_interrupt(Error::Attestation)?;
 
         let height = attestation.header_number();
         let digest = attestation.digest();
@@ -233,7 +223,7 @@ impl WorkerAttestationProduction {
 
         self.metrics.update_attestation_lag_eth(
             attestation.header_number(),
-            self.stream_attestation.block_highest(),
+            self.stream_attestation.latest_tip(),
             self.attestation_interval,
         );
         self.metrics.update_attestation_lag_cc3(
@@ -270,7 +260,7 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_cc3(
         &mut self,
-        mut events: crate::stream::cc3::StreamEvents,
+        mut events: crate::stream_legacy::cc3::StreamEvents,
     ) -> Result<(), Interrupt<Error>> {
         use futures::TryStreamExt as _;
 
@@ -280,7 +270,7 @@ impl WorkerAttestationProduction {
                 cc_client::attestation::CcEvent::BlockAttested(attestation) => {
                     let digest = attestation.digest;
                     let height = attestation.header_number;
-                    let attestation_latest_cc3 = common::types::AttestationInfo { digest, height };
+                    let attestation_latest_cc3 = stream::util::AttestationInfo { digest, height };
 
                     tracing::info!(height, ?digest, "💾 New execution chain attestation");
 
@@ -351,7 +341,8 @@ impl WorkerAttestationProduction {
                     //
                     // Catchup to the new target height and update the attestation interval.
                     self.stream_attestation
-                        .note_attestation_interval_change(interval);
+                        .note_attestation_interval_change(interval)
+                        .await;
 
                     // 2. Attestation pool
                     //
@@ -368,7 +359,7 @@ impl WorkerAttestationProduction {
                     // 4. Metrics
                     self.metrics.update_attestation_lag_eth(
                         attestation_latest_cc3,
-                        self.stream_attestation.block_highest(),
+                        self.stream_attestation.latest_tip(),
                         interval,
                     );
                     self.metrics.update_attestation_lag_cc3(
@@ -475,7 +466,7 @@ impl WorkerAttestationProduction {
                     height,
                     digest,
                 ) => {
-                    let attestation_latest_cc3 = common::types::AttestationInfo { digest, height };
+                    let attestation_latest_cc3 = stream::util::AttestationInfo { digest, height };
 
                     tracing::info!(height, ?digest, "💾 Attestation chain reversion detected!");
 
@@ -494,8 +485,7 @@ impl WorkerAttestationProduction {
                     // revert height.
                     self.stream_attestation
                         .note_attestation_chain_reversion(attestation_latest_cc3)
-                        .await
-                        .map_interrupt(Error::Attestation)?;
+                        .await;
                 }
             }
         }

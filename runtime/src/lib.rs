@@ -223,7 +223,8 @@ impl frame_system::Config for Runtime {
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
     type MultiBlockMigrator = ();
-    type SingleBlockMigrations = ();
+    type SingleBlockMigrations =
+        (pallet_attestation_poc::MigrateAttestationContinuityProofV0ToV1<Runtime>,);
     type PreInherents = ();
     type PostInherents = ();
     type PostTransactions = ();
@@ -1068,11 +1069,7 @@ pub type Executive = frame_executive::Executive<
     frame_system::ChainContext<Runtime>,
     Runtime,
     AllPalletsWithSystem,
-    (
-        pallet_nomination_pools::migration::versioned::V5toV6<Runtime>,
-        pallet_nomination_pools::migration::versioned::V6ToV7<Runtime>,
-        pallet_nomination_pools::migration::versioned::V7ToV8<Runtime>,
-    ),
+    (),
 >;
 
 impl fp_self_contained::SelfContainedCall for RuntimeCall {
@@ -1868,6 +1865,23 @@ impl_runtime_apis! {
                 );
             });
             Ok(())
+        }
+    }
+
+    #[cfg(feature = "try-runtime")]
+    impl frame_try_runtime::TryRuntime<Block> for Runtime {
+        fn on_runtime_upgrade(checks: frame_try_runtime::UpgradeCheckSelect) -> (Weight, Weight) {
+            let weight = Executive::try_runtime_upgrade(checks).unwrap();
+            (weight, BlockWeights::get().max_block)
+        }
+
+        fn execute_block(
+            block: Block,
+            state_root_check: bool,
+            signature_check: bool,
+            select: frame_try_runtime::TryStateSelect,
+        ) -> Weight {
+            Executive::try_execute_block(block, state_root_check, signature_check, select).unwrap()
         }
     }
 

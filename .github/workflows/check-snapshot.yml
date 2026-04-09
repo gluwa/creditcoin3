@@ -1,7 +1,7 @@
 ---
 name: Reusable workflow to check a chain snapshot
 
-on:
+"on":
   workflow_call:
     inputs:
       target-chain:

@@ -1,6 +1,6 @@
 # CI multi-chain configuration — two local Anvil instances.
 # Used by the exercise-scripts CI job to validate multi-chain mode.
-
+---
 bind_host: "0.0.0.0"
 bind_port: 3100
 

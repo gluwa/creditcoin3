@@ -12,7 +12,7 @@ pub struct Config {
     chain_key: attestor_primitives::ChainKey,
 
     start_height: common::types::Height,
-    start_attestation: Option<common::types::AttestationInfo>,
+    start_attestation: Option<stream::util::AttestationInfo>,
     genesis: common::types::Height,
 
     attestation_latest_eth: common::types::Height,

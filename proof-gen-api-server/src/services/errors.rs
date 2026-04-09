@@ -161,6 +161,30 @@ impl ServiceError {
     pub fn into_response(self) -> (StatusCode, Json<ErrorResponse>) {
         let status = self.status_code();
         let response = ErrorResponse::from_service_error(&self);
+
+        // Structured log for every failed API response; inherits `http_request` span fields (e.g. request_id).
+        if status.is_server_error() {
+            tracing::error!(
+                http_status = %status,
+                error_code = %response.code,
+                error_message = %response.message,
+                retriable = response.retriable,
+                block_number = ?response.block_number,
+                last_attested_block = ?response.last_attested_block,
+                "proof API returning server error"
+            );
+        } else {
+            tracing::warn!(
+                http_status = %status,
+                error_code = %response.code,
+                error_message = %response.message,
+                retriable = response.retriable,
+                block_number = ?response.block_number,
+                last_attested_block = ?response.last_attested_block,
+                "proof API returning client error"
+            );
+        }
+
         (status, Json(response))
     }
 }

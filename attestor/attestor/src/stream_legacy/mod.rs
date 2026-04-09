@@ -16,15 +16,14 @@
 //! [execution chain]: cc3
 //! [`Future`]: std::future::Future
 
-pub mod attestation;
 pub mod cc3;
 pub mod secret;
 
-pub use secret::AttestorSecret;
+pub use secret::*;
 
 #[derive(Debug, builder::Builder)]
 pub struct Config {
-    pub(crate) url_eth: url::Url,
-    pub(crate) url_cc3: url::Url,
+    pub(crate) url_eth: RpcSecret,
+    pub(crate) url_cc3: RpcSecret,
     pub(crate) secret: AttestorSecret,
 }

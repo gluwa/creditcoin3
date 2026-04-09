@@ -102,10 +102,11 @@ describe('handleEventBlockAttested()', () => {
                     // continuityProof is only present for attestations after the first one
                     // and should contain at least attestationInterval - 1 blocks
                     expect(node.continuityProof).toBeTruthy();
-                    expect(node.continuityProof.blocks).toBeTruthy();
-                    expect(node.continuityProof.blocks.length).toBeGreaterThanOrEqual(attestationInterval - 1);
+                    expect(node.continuityProof.lowerEndpointDigest).toBeTruthy();
+                    expect(node.continuityProof.roots).toBeTruthy();
+                    expect(node.continuityProof.roots.length).toBeGreaterThanOrEqual(attestationInterval - 1);
                 } else {
-                    expect(node.continuityProof.blocks.length).toEqual(0);
+                    expect(node.continuityProof.roots.length).toEqual(0);
                 }
             }
             expect(lastHeaderNumber).toBeGreaterThan(0n);
