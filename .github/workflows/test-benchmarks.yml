@@ -3,7 +3,7 @@ name: test-benchmarks
 
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
+    branches: [main, testnet, usc-dev]
     paths:
       - "pallets/**"
       - "**weights.rs"
