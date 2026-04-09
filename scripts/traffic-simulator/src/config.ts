@@ -97,17 +97,17 @@ OPTIONS:
                             Note: URLs with query params should be quoted:
                             --source-rpc 'wss://...?key=value'
                             (backslashes before ? and = are auto-removed)
-  
+
   -w, --cc3-ws <URL>        Creditcoin3 WebSocket URL
                             Env: CC3_WS_URL
                             Default: ws://localhost:9944
-  
+
       --cc3-http <URL>      Creditcoin3 HTTP URL (derived from ws if not set)
                             Env: CC3_HTTP_URL
-  
+
   -k, --private-key <KEY>   Private key for signing submissions (required)
                             Env: CC3_PRIVATE_KEY
-  
+
   -a, --api-url <URL>       Proof generation API URL
                             Env: PROOF_API_URL
                             Default: http://localhost:3100
@@ -115,15 +115,15 @@ OPTIONS:
       --chain-key <NUM>     Source chain key (e.g., 1, 2)
                             Env: CHAIN_KEY
                             Default: 1
-  
+
       --max-queue-size <N>  Max blocks to track in queue
                             Env: MAX_QUEUE_SIZE
                             Default: 100
-  
+
       --batch-size <N>      Max transactions per batch (random 1..N, max: 10)
                             Env: BATCH_SIZE
                             Default: 10
-  
+
       --batch-probability <P>  Probability of batch mode (0.0-1.0)
                               Env: BATCH_PROBABILITY
                               Default: 0.5
@@ -131,7 +131,7 @@ OPTIONS:
       --single-every <N>    Submit a single proof once every N blocks
                             Env: SINGLE_EVERY_BLOCKS
                             Default: 1
-  
+
       --health-port <PORT>  Health check server port
                             Env: HEALTH_PORT
                             Default: 8080

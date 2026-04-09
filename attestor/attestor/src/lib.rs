@@ -44,7 +44,7 @@ impl Attestor {
     }
 
     #[tracing::instrument(
-        name = "attestor", 
+        name = "attestor",
         skip_all,
         fields(attestor_name = self.config.name, chain_key = self.config.chain_key)
     )]

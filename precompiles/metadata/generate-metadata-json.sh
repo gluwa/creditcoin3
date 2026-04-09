@@ -64,10 +64,10 @@ while IFS= read -r line; do
     if [[ $line =~ hash\(([0-9]+)\)\ =\>\ Some\(([A-Za-z]+Precompile):: ]]; then
         hash_number="${BASH_REMATCH[1]}"
         precompile_type="${BASH_REMATCH[2]}"
-        
+
         # Get ABI filename and display name
         precompile_info=$(get_precompile_info "$precompile_type")
-        
+
         if [ -n "$precompile_info" ]; then
             IFS=':' read -r abi_filename display_name <<< "$precompile_info"
             address=$(decimal_to_address "$hash_number")
@@ -98,40 +98,40 @@ generate_precompile_json() {
     local abi_file="$1"
     local precompile_name="$2"
     local address="$3"
-    
+
     # Get source file name (remove .json extension and use same basename for .sol file)
     # basename with second argument removes that suffix: basename "file.json" .json -> "file"
     local abi_basename
     abi_basename=$(basename "$abi_file" .json)
     local source_file="${sol_directory}/${abi_basename}.sol"
-    
+
     if [ ! -f "$source_file" ]; then
         echo "Error: Source file $source_file not found for $precompile_name (ABI file: $abi_file)" >&2
         exit 1
     fi
-    
+
     if [ ! -f "$abi_file" ]; then
         echo "Error: ABI file $abi_file not found for $precompile_name" >&2
         exit 1
     fi
-    
+
     # Check if ABI file is empty (non-empty check also verifies file exists)
     if [ ! -s "$abi_file" ]; then
         echo "Error: ABI file $abi_file is empty for $precompile_name" >&2
         exit 1
     fi
-    
+
     # Read source and convert to JSON string (single line, escaped)
     # Strip trailing newline from source file before converting to JSON string
     local source_content
     source_content=$(cat "$source_file" | perl -pe 'chomp if eof' | jq -Rs '.')
-    
+
     # Read ABI and convert to JSON string (compact, single line, escaped)
     # ABI files are JSON arrays, so parse first, then convert to JSON string
     # Root cause: jq errors might output to stdout, which would be invalid JSON for --argjson
     local abi_content
     local jq_exit_code
-    
+
     # Parse JSON - separate stdout and stderr properly
     # Use a temp file for stderr to avoid mixing with stdout
     local stderr_file
@@ -141,7 +141,7 @@ generate_precompile_json() {
     local jq_stderr
     jq_stderr=$(cat "$stderr_file")
     rm -f "$stderr_file"
-    
+
     if [ $jq_exit_code -ne 0 ]; then
         echo "Error: Failed to parse ABI file $abi_file as JSON (exit code: $jq_exit_code)" >&2
         if [ -n "$jq_stderr" ]; then
@@ -152,12 +152,12 @@ generate_precompile_json() {
         fi
         exit 1
     fi
-    
+
     # Check if output is empty (after trimming whitespace)
     # Use echo -n to avoid adding newline, then trim
     local abi_content_trimmed
     abi_content_trimmed=$(echo -n "$abi_content" | tr -d '[:space:]')
-    
+
     if [ -z "$abi_content_trimmed" ]; then
         echo "Error: ABI file $abi_file produced empty output after parsing" >&2
         echo "Debug: File size is $(wc -c < "$abi_file") bytes" >&2
@@ -165,13 +165,13 @@ generate_precompile_json() {
         echo "Debug: jq exit code was: $jq_exit_code" >&2
         exit 1
     fi
-    
+
     # Validate that the content is actually valid JSON before using with --argjson
     if ! echo -n "$abi_content" | jq -e . >/dev/null 2>&1; then
         echo "Error: ABI file $abi_file contains invalid JSON: ${abi_content:0:100}" >&2
         exit 1
     fi
-    
+
     # Generate JSON entry
     # Note: source is a JSON string (from jq -Rs), abi is a JSON value (from jq -c)
     # Store source as parsed JSON, abi as JSON string (using tojson to ensure proper formatting)
@@ -195,7 +195,7 @@ entries=()
 for mapping in "${precompile_map[@]}"; do
     IFS=':' read -r abi_filename precompile_name address <<< "$mapping"
     abi_file="${abi_directory}/${abi_filename}.json"
-    
+
     # Generate entry - function will exit on error, so no need to check return code
     entry_output=$(generate_precompile_json "$abi_file" "$precompile_name" "$address" 2>&1)
     entries+=("$entry_output")
@@ -222,4 +222,3 @@ echo "$json_array" | jq '.' > "$output_devnet"
 echo "$json_array" | jq '.' > "$output_testnet"
 
 echo "Generated $output_devnet and $output_testnet successfully"
-
