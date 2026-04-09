@@ -54,7 +54,7 @@ let builder = ContinuityBuilder::new(config).await?;
 
 // Get attestation endpoints for a query
 let query_height = 100;
-let (lower_attestation, upper_attestation, _) = 
+let (lower_attestation, upper_attestation, _) =
     builder.get_endpoints(&[query_height], None).await?;
 
 // Build the continuity proof

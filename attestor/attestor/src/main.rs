@@ -17,8 +17,8 @@ struct Config {
     api_port: u16,
     boot_nodes: Vec<libp2p::Multiaddr>,
     p2p_port: u16, // Defaults to 9000 if not specified
-    eth_url: url::Url,
-    cc3_url: url::Url,
+    eth_url: attestor::stream_legacy::RpcSecret,
+    cc3_url: attestor::stream_legacy::RpcSecret,
     pool_capacity: std::num::NonZeroUsize,
     start_height: Option<common::types::Height>,
     attestation_interval: Option<std::num::NonZero<common::types::Height>>,
@@ -236,6 +236,17 @@ impl Config {
                     .value_parser(clap::value_parser!(url::Url)),
             )
             .arg(
+                clap::arg!(--"expose-urls-in-logs")
+                    .help("Expose full RPC urls in the logs")
+                    .long_help(
+                        "Expose full RPC urls in the logs. \
+                        By default those are masked to avoid leaking API keys. \
+                        Be careful not to use this option in any public environment such as github actions!"
+                    )
+                    .env("ATTESTOR_EXPOSE_URLS_IN_LOGS")
+                    .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
                 clap::arg!(--"pool-capacity" <SIZE>)
                     .help("Maximum number of pending attestation")
                     .long_help(
@@ -352,12 +363,19 @@ impl Config {
             .or(config_file.p2p.port)
             .unwrap_or(common::constants::DEFAULT_P2P_PORT);
 
+        let expose_url = matches.get_flag("expose-urls-in-logs");
+
         let eth_url = match matches.get_one::<url::Url>("eth-url") {
             Some(url) => url.clone(),
             None => config_file
                 .eth
                 .url
                 .expect("Eth url is set either in config or by clap"),
+        };
+        let eth_url = if expose_url {
+            attestor::stream_legacy::RpcSecret::new_exposed(eth_url)
+        } else {
+            attestor::stream_legacy::RpcSecret::new_opaque(eth_url)
         };
 
         let cc3_url = match matches.get_one::<url::Url>("cc3-url") {
@@ -366,6 +384,11 @@ impl Config {
                 .cc3
                 .url
                 .expect("CC3 url is set either in config or by clap"),
+        };
+        let cc3_url = if expose_url {
+            attestor::stream_legacy::RpcSecret::new_exposed(cc3_url)
+        } else {
+            attestor::stream_legacy::RpcSecret::new_opaque(cc3_url)
         };
 
         let pool_capacity = match matches.get_one::<std::num::NonZeroUsize>("pool-capacity") {

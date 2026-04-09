@@ -129,7 +129,7 @@ async fn simulation_failure(
 
 ```
 
-Once you are confident you cannot simplify the failing case anymore, it helps to set some breakpoints and use a debugger to step through each state transition in the stream implementation and write down key variable changes. Regressing to a minimal failure case makes it so it generally takes only a single run of debugging to find the source of the bug this way. 
+Once you are confident you cannot simplify the failing case anymore, it helps to set some breakpoints and use a debugger to step through each state transition in the stream implementation and write down key variable changes. Regressing to a minimal failure case makes it so it generally takes only a single run of debugging to find the source of the bug this way.
 
 Once the bug has been addressed, make sure to update the test to something more rigorous which no longer relies on internal assertions to fail, as these might be removed in the future. It also helps to add extra checks and give it a more explicit name now that you know the root cause.
 

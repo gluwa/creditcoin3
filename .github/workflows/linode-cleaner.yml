@@ -3,7 +3,7 @@ name: Linode Cleaner
 
 "on":
   push:
-    branches: [poc_external_attestation_network]
+    branches: [usc-dev]
   workflow_dispatch:
   schedule:
     - cron: "0 * * * *" # every hour

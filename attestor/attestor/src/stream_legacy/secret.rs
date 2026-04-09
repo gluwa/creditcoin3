@@ -93,3 +93,85 @@ impl std::fmt::Display for AttestorSecret {
         f.write_str("AttestorSecret(***)")
     }
 }
+
+/// Wrapper struct around [`Url`] which avoids leaking RPC api keys through logs.
+///
+/// [`Url`]: url::Url
+pub enum RpcSecret {
+    /// Hides the RPC url on calls to [`Debug`] or [`Display`].
+    ///
+    /// [`Debug`]: std::fmt::Debug
+    /// [`Display`]: std::fmt::Display
+    Opaque(url::Url),
+    /// Exposes the RPC url on calls to [`Debug`] or [`Display`].
+    ///
+    /// <div class="warning">
+    ///
+    /// Use this for testing purposes only! This option should not be used in environment where
+    /// logs are publicly accessible, such as Github actions or other CI.
+    ///
+    /// </div>
+    ///
+    /// [`Debug`]: std::fmt::Debug
+    /// [`Display`]: std::fmt::Display
+    Exposed(url::Url),
+}
+
+impl RpcSecret {
+    /// Creates a new masked [`RpcSecret`].
+    pub fn new_opaque(url: url::Url) -> Self {
+        Self::Opaque(url)
+    }
+
+    /// Creates a new [`RpcSecret`] **which exposes the underlying RPC url**.
+    pub fn new_exposed(url: url::Url) -> Self {
+        Self::Exposed(url)
+    }
+}
+
+impl From<RpcSecret> for url::Url {
+    fn from(value: RpcSecret) -> Self {
+        match value {
+            RpcSecret::Opaque(url) => url,
+            RpcSecret::Exposed(url) => url,
+        }
+    }
+}
+
+impl AsRef<url::Url> for RpcSecret {
+    fn as_ref(&self) -> &url::Url {
+        match self {
+            Self::Opaque(url) => url,
+            Self::Exposed(url) => url,
+        }
+    }
+}
+
+impl std::ops::Deref for RpcSecret {
+    type Target = url::Url;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Opaque(url) => url,
+            Self::Exposed(url) => url,
+        }
+    }
+}
+
+impl std::fmt::Debug for RpcSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Opaque(_) => f.debug_tuple("RpcSecret").field(&"***").finish(),
+            Self::Exposed(url) => f.debug_tuple("RpcSecret").field(url).finish(),
+        }
+    }
+}
+
+impl std::fmt::Display for RpcSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Opaque(_) => write!(f, "***"),
+            Self::Exposed(url) => write!(f, "{url}"),
+        }
+    }
+}
