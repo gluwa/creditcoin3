@@ -1,6 +1,8 @@
 use crate::mock::*;
 use precompile_utils::testing::*;
-use sp_core::{sr25519, Pair, H160, H256};
+use sp_core::{ed25519, Pair, H160, H256};
+
+const THREE_MB: usize = 3 * 1024 * 1024; // 3,145,728 bytes
 
 fn precompiles() -> Precompiles<Runtime> {
     PrecompilesValue::get()
@@ -10,7 +12,7 @@ fn precompiles() -> Precompiles<Runtime> {
 fn verify_valid_signature_should_return_true() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate a keypair
-        let (pair, _seed) = sr25519::Pair::generate();
+        let (pair, _seed) = ed25519::Pair::generate();
         let public = pair.public();
         let message = b"Hello!";
 
@@ -39,7 +41,7 @@ fn verify_valid_signature_should_return_true() {
 fn verify_bogus_signature_should_return_false() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate a keypair
-        let (pair, _seed) = sr25519::Pair::generate();
+        let (pair, _seed) = ed25519::Pair::generate();
         let public = pair.public();
         let message = b"Hello!";
 
@@ -68,7 +70,7 @@ fn verify_bogus_signature_should_return_false() {
 fn verify_tampered_message_should_return_false() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate a keypair
-        let (pair, _seed) = sr25519::Pair::generate();
+        let (pair, _seed) = ed25519::Pair::generate();
         let public = pair.public();
         let message = b"Hello!";
 
@@ -100,8 +102,8 @@ fn verify_tampered_message_should_return_false() {
 fn verify_wrong_public_key_should_return_false() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate two keypairs
-        let (pair1, _seed1) = sr25519::Pair::generate();
-        let (pair2, _seed2) = sr25519::Pair::generate();
+        let (pair1, _seed1) = ed25519::Pair::generate();
+        let (pair2, _seed2) = ed25519::Pair::generate();
         let public2 = pair2.public();
 
         let message = b"Hello!";
@@ -131,7 +133,7 @@ fn verify_wrong_public_key_should_return_false() {
 fn verify_invalid_signature_length_should_revert() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate a keypair
-        let (pair, _seed) = sr25519::Pair::generate();
+        let (pair, _seed) = ed25519::Pair::generate();
         let public = pair.public();
         let message = b"Hello!";
 
@@ -162,7 +164,7 @@ fn verify_invalid_signature_length_should_revert() {
 fn verify_empty_message_should_work() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate a keypair
-        let (pair, _seed) = sr25519::Pair::generate();
+        let (pair, _seed) = ed25519::Pair::generate();
         let public = pair.public();
         let message = b"";
 
@@ -191,7 +193,7 @@ fn verify_empty_message_should_work() {
 fn verify_long_message_should_work() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate a keypair
-        let (pair, _seed) = sr25519::Pair::generate();
+        let (pair, _seed) = ed25519::Pair::generate();
         let public = pair.public();
 
         // Create a long message
@@ -222,7 +224,7 @@ fn verify_long_message_should_work() {
 fn verify_signature_too_long_should_revert() {
     ExtBuilder::default().build().execute_with(|| {
         // Generate a keypair
-        let (pair, _seed) = sr25519::Pair::generate();
+        let (pair, _seed) = ed25519::Pair::generate();
         let public = pair.public();
         let message = b"Hello!";
 
@@ -245,5 +247,32 @@ fn verify_signature_too_long_should_revert() {
             )
             .expect_no_logs()
             .execute_reverts(|output| output == b"signature: Value is too large for length");
+    });
+}
+
+#[test]
+fn verify_message_exceeding_3mb_should_revert() {
+    ExtBuilder::default().build().execute_with(|| {
+        let (pair, _seed) = ed25519::Pair::generate();
+        let public = pair.public();
+
+        // 3MB + 1 byte exceeds the BoundedBytes<ConstU3MB> limit
+        let message = vec![0x42u8; THREE_MB + 1];
+        let signature = pair.sign(&message);
+
+        let caller: H160 = Account::Alice.into();
+
+        precompiles()
+            .prepare_test(
+                caller,
+                Account::Precompile,
+                PCall::verify {
+                    message: message.into(),
+                    signature: signature.0.to_vec().into(),
+                    public_key: H256::from(public.0),
+                },
+            )
+            .expect_no_logs()
+            .execute_reverts(|output| output == b"message: Value is too large for length");
     });
 }

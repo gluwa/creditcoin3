@@ -257,13 +257,13 @@ parameter_types! {
     pub const DefaultAttestationChainGenesisBlockNumber: u64 = 0;
 }
 
-impl pallet_attestation_poc::Config for Runtime {
+impl pallet_attestation::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = ConstU32<500>;
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
+    type WeightInfo = pallet_attestation::weights::WeightInfo<Runtime>;
     type MaxAttestationNodes = MaxAttestorsDefault;
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
@@ -406,7 +406,7 @@ construct_runtime!(
         Evm: pallet_evm,
         Timestamp: pallet_timestamp,
         SupportedChains: pallet_supported_chains,
-        Attestation: pallet_attestation_poc,
+        Attestation: pallet_attestation,
         Staking: pallet_staking,
         Session: pallet_session,
         Babe: pallet_babe,
