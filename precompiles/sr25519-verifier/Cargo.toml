@@ -6,8 +6,6 @@ name = "pallet-evm-precompile-sr25519-verifier"
 version = "0.1.0"
 
 [dependencies]
-log = { workspace = true }
-
 # Moonbeam
 precompile-utils = { workspace = true }
 
@@ -37,7 +35,6 @@ serde = { workspace = true }
 [features]
 default = ["std"]
 std = [
-    "log/std",
     "precompile-utils/std",
     "fp-evm/std",
     "frame-support/std",

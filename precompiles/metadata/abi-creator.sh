@@ -5,6 +5,15 @@
 sol_directory="sol"
 abi_directory="abi"
 
+# Drop ABI JSON files whose .sol was removed (otherwise abi/*.json flatten drifts from metadata).
+shopt -s nullglob
+for j in "$abi_directory"/*.json; do
+    base=$(basename "$j" .json)
+    if [ ! -f "$sol_directory/${base}.sol" ]; then
+        rm -f "$j"
+    fi
+done
+
 for p in "$sol_directory"/*; do
     file=$(basename "$p")
     file_with_extension="${file%.*}.json"
