@@ -111,12 +111,12 @@ may be required. Review the changes carefully before upgrading.
 <details>
 <summary>Changed files (9)</summary>
 
-- `pallets/attestation-poc/src/benchmarking.rs`
-- `pallets/attestation-poc/src/clear_or_revert.rs`
-- `pallets/attestation-poc/src/continuity.rs`
-- `pallets/attestation-poc/src/impls.rs`
-- `pallets/attestation-poc/src/lib.rs`
-- `pallets/attestation-poc/src/weights.rs`
+- `pallets/attestation/src/benchmarking.rs`
+- `pallets/attestation/src/clear_or_revert.rs`
+- `pallets/attestation/src/continuity.rs`
+- `pallets/attestation/src/impls.rs`
+- `pallets/attestation/src/lib.rs`
+- `pallets/attestation/src/weights.rs`
 - `pallets/randomness/src/weights.rs`
 - `pallets/supported-chains/src/lib.rs`
 - `pallets/supported-chains/src/weights.rs`

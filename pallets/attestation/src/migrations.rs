@@ -1,4 +1,4 @@
-//! Storage migrations for pallet-attestation-poc.
+//! Storage migrations for pallet-attestation.
 //!
 //! Migrates `SignedAttestation.continuity_proof` from `AttestationFragmentSerializable`
 //! (blocks with block_number, root, prev_digest, digest) to `ContinuityProof`

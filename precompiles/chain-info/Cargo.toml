@@ -21,7 +21,7 @@ attestor-primitives = { workspace = true }
 # Substrate
 frame-support = { workspace = true }
 frame-system = { workspace = true }
-pallet-attestation-poc = { workspace = true }
+pallet-attestation = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-supported-chains = { workspace = true }
 pallet-timestamp = { workspace = true }
@@ -56,7 +56,7 @@ default = ["std"]
 runtime-benchmarks = [
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
-    "pallet-attestation-poc/runtime-benchmarks",
+    "pallet-attestation/runtime-benchmarks",
     "pallet-balances/runtime-benchmarks",
     "pallet-evm/runtime-benchmarks",
     "pallet-supported-chains/runtime-benchmarks",
@@ -79,7 +79,7 @@ std = [
     "sp-std/std",
     "pallet-supported-chains/std",
     "attestor-primitives/std",
-    "pallet-attestation-poc/std",
+    "pallet-attestation/std",
     "pallet-babe/std",
     "sp-staking/std",
     "pallet-staking/std",
