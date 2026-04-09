@@ -12,3 +12,6 @@ DISABLE_LINTERS:
 
 GITHUB_COMMENT_REPORTER: false
 JSON_PRETTIER_ARGUMENTS: --no-error-on-unmatched-pattern
+# Git LFS files (.gitattributes): CI often has pointer stubs ("version https://git-lfs...")
+# instead of real JSON — jsonlint would parse that as invalid. Raw chainspecs are huge anyway.
+JSON_JSONLINT_FILTER_REGEX_EXCLUDE: '(chainspecs/(dryRunSpec\.json|dryRunSpecRaw\.json|mainnetSpecRaw\.json))'
