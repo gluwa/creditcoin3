@@ -126,7 +126,7 @@ RPC endpoint is `http://localhost:8545`.
 Now that we have a local _execution chain_ and _source chain_ set up, let's get our _attestors_ up
 and running.
 
-The attestor binary depends on a configuration file. A default configuration is available under 
+The attestor binary depends on a configuration file. A default configuration is available under
 `attestor/config.yaml`. You can use this or create your own depending on your network needs.
 
 Now you can start the attestor zombienet:
