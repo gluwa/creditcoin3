@@ -1,5 +1,5 @@
 /**
- * Base subscriber class with common reconnection logic
+ * Base watcher class with common reconnection logic
  */
 
 import { MAX_RECONNECT_ATTEMPTS } from "../constants.ts";
@@ -7,10 +7,10 @@ import {
   getReconnectDelay,
   logReconnectAttempt,
   logReconnectFailed,
-  sleep,
-} from "../utils/reconnect.ts";
+} from "../utils/backoff.ts";
+import { sleep } from "../utils/sleep.ts";
 
-export abstract class BaseSubscriber {
+export abstract class BaseWatcher {
   protected isRunning = false;
   protected reconnectAttempts = 0;
   protected abstract readonly name: string;
@@ -49,9 +49,9 @@ export abstract class BaseSubscriber {
   }
 
   async stop(): Promise<void> {
-    console.log(`⏹️  Stopping ${this.name} subscriber...`);
+    console.log(`⏹️  Stopping ${this.name} watcher...`);
     this.isRunning = false;
     await this.cleanup();
-    console.log(`✅ ${this.name} subscriber stopped`);
+    console.log(`✅ ${this.name} watcher stopped`);
   }
 }

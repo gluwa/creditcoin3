@@ -3,7 +3,7 @@ name: Runtime Upgrade
 
 "on":
   pull_request:
-    branches: [main, testnet]
+    branches: [main, usc-testnet]
     paths:
       - '**.rs'
       - '**.toml'
@@ -40,7 +40,7 @@ jobs:
 
       - name: Testnet ENV
         id: testnet-env
-        if: github.base_ref == 'testnet'
+        if: github.base_ref == 'usc-testnet'
         run: |
           # shellcheck disable=SC2129
           echo "target_chain=testnet" >> "$GITHUB_OUTPUT"

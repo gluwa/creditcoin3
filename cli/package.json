@@ -41,7 +41,7 @@
         "@types/prompts": "^2.4.8",
         "@types/validator": "13.15.2",
         "@typescript-eslint/eslint-plugin": "8.40.0",
-        "@typescript-eslint/parser": "8.57.0",
+        "@typescript-eslint/parser": "8.58.0",
         "axios": "1.14.0",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",

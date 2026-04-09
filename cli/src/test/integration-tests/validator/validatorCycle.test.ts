@@ -51,14 +51,14 @@ describeIf(
 
             // Funding the stash account should make its balance equal to the amount funded
             const fundAmount = parseAmount('10000');
-            await fundFromSudo(caller.address, fundAmount);
+            await fundFromSudo(api, caller.address, fundAmount);
             const stashBalance = (await getBalance(caller.address, api)).transferable;
             expect(stashBalance.toString()).toBe(fundAmount.toString());
 
             // configure proxy
             proxy = await randomFundedAccount(api, sudoSigner);
             const wrongProxy = await randomFundedAccount(api, sudoSigner);
-            CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
+            CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
         }, 120_000);
 
         afterEach(() => {

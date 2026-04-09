@@ -108,14 +108,8 @@ type Attestations @entity {
 }
 
 type ContinuityProof @jsonField {
-    blocks: [ContinuityBlock] # List of continuity blocks
-}
-
-type ContinuityBlock @jsonField {
-    blockNumber: BigInt! # Block number of the continuity block
-    merkleRoot: String! # Root hash of the continuity block
-    prevDigest: String # Previous digest of the continuity block
-    digest: String! # Digest of the continuity block
+    lowerEndpointDigest: String! # Digest that the proof chains from (prev_digest of the first block)
+    roots: [String!]! # Merkle roots of each block in the proof
 }
 
 type Attestors @entity {

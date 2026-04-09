@@ -4,8 +4,10 @@
  * Sends formatted reports to Slack via webhook.
  */
 
+import type { HealthStatus } from "../types.ts";
+
 export interface SlackConfig {
-  /** Slack webhook URL */
+  /** Slack webhook URL (used when botToken/channelId are not set) */
   webhookUrl: string;
   /** Optional Slack user/group ID to mention in alerts (e.g., "U123456" or "S123456") */
   alertGroup?: string;
@@ -13,44 +15,21 @@ export interface SlackConfig {
   username?: string;
   /** Success rate threshold percentage below which alerts are triggered (default: 75) */
   alertSuccessThresholdPct?: number;
+  /** Slack Bot Token for API-based messaging (enables thread replies) */
+  botToken?: string;
+  /** Slack Channel ID for API-based messaging (required with botToken) */
+  channelId?: string;
 }
 
-export interface MetricsSnapshot {
-  /** Total proofs submitted successfully */
-  proofsSubmitted: number;
-  /** Total proof submission errors */
-  proofErrors: number;
-  /** Total blocks processed */
-  blocksProcessed: number;
-  /** Total single submissions */
-  singleSubmissions: number;
-  /** Total batch submissions */
-  batchSubmissions: number;
-  /** Current queue size */
-  queueSize: number;
-  /** Whether connected to Sepolia */
-  sepoliaConnected: boolean;
-  /** Whether connected to CC3 */
-  cc3Connected: boolean;
-  /** Source chain key (e.g., 1 for Sepolia) */
-  sourceChainKey: number;
-  /** CC3 WebSocket URL */
-  cc3WsUrl: string;
-  /** Uptime in seconds */
-  uptimeSeconds: number;
-  /** Last error message if any */
-  lastError: string | null;
-}
-
-export interface HourlyReport {
+export interface PeriodicReport {
   /** Report period start timestamp */
   periodStart: number;
   /** Report period end timestamp */
   periodEnd: number;
-  /** Metrics at start of period */
-  startMetrics: MetricsSnapshot;
-  /** Metrics at end of period */
-  endMetrics: MetricsSnapshot;
+  /** Status snapshot at start of period */
+  startSnapshot: HealthStatus;
+  /** Status snapshot at end of period */
+  endSnapshot: HealthStatus;
   /** Delta calculations */
   delta: {
     proofsSubmitted: number;
@@ -108,6 +87,15 @@ function formatNumber(num: number): string {
   return num.toLocaleString("en-US");
 }
 
+/** Slack section block text limit */
+const SLACK_SECTION_TEXT_MAX = 3000;
+
+function truncateForSlack(text: string, max = SLACK_SECTION_TEXT_MAX): string {
+  if (text.length <= max) return text;
+  const suffix = "\n… (truncated)";
+  return text.slice(0, max - suffix.length) + suffix;
+}
+
 /**
  * Format uptime in human-readable format
  */
@@ -150,11 +138,11 @@ function formatPeriodLabel(hours: number): string {
 /**
  * Create Slack payload for hourly report using a single code block
  */
-export function createHourlyReportPayload(
-  report: HourlyReport,
+export function createReportPayload(
+  report: PeriodicReport,
   config: SlackConfig,
 ): unknown {
-  const { delta, endMetrics, periodStart, periodEnd } = report;
+  const { delta, endSnapshot, periodStart, periodEnd } = report;
   const periodDuration = periodEnd - periodStart;
   const periodHours = periodDuration / 3600000;
 
@@ -175,12 +163,13 @@ export function createHourlyReportPayload(
   const periodEndStr = new Date(periodEnd).toISOString().replace("T", " ")
     .slice(0, 19);
 
-  const allConnected = endMetrics.sepoliaConnected && endMetrics.cc3Connected;
+  const allConnected = endSnapshot.sourceChainConnected &&
+    endSnapshot.cc3Connected;
   const hasErrors = delta.proofErrors > 0;
 
   const periodLabel = formatPeriodLabel(periodHours);
-  const sourceChain = getSourceChainName(endMetrics.sourceChainKey);
-  const targetNetwork = getTargetNetworkName(endMetrics.cc3WsUrl);
+  const sourceChain = getSourceChainName(endSnapshot.sourceChainKey);
+  const targetNetwork = getTargetNetworkName(endSnapshot.cc3WsUrl);
 
   // Header emoji based on status
   const headerEmoji = hasErrors ? "🚨" : allConnected ? "📊" : "⚠️";
@@ -206,14 +195,14 @@ export function createHourlyReportPayload(
     "┌─────────┬─────────────────────────────┐",
     `│ Source  │ ${
       padLabel(
-        (endMetrics.sepoliaConnected ? "🟢" : "🔴") + " " + sourceChain,
+        (endSnapshot.sourceChainConnected ? "🟢" : "🔴") + " " + sourceChain,
         27,
       )
     } │`,
     `├─────────┼─────────────────────────────┤`,
     `│ Target  │ ${
       padLabel(
-        (endMetrics.cc3Connected ? "🟢" : "🔴") + " " + targetNetwork,
+        (endSnapshot.cc3Connected ? "🟢" : "🔴") + " " + targetNetwork,
         27,
       )
     } │`,
@@ -245,31 +234,33 @@ export function createHourlyReportPayload(
     `│ ${padLabel("⚙️  Processed", 16)} │ ${
       padLeft(formatNumber(delta.blocksProcessed), 12)
     } │ ${padLabel("📋 Queue", 16)} │ ${
-      padLeft(formatNumber(endMetrics.queueSize), 12)
+      padLeft(formatNumber(endSnapshot.queueSize), 12)
     } │`,
     "└──────────────────┴──────────────┴──────────────────┴──────────────┘",
     "",
     "📊 Totals",
     "┌──────────────────┬──────────────┬──────────────────┬──────────────┐",
     `│ ${padLabel("✅ Proofs", 15)} │ ${
-      padLeft(formatNumber(endMetrics.proofsSubmitted), 12)
+      padLeft(formatNumber(endSnapshot.proofsSubmitted), 12)
     } │ ${padLabel("❌ Errors", 15)} │ ${
-      padLeft(formatNumber(endMetrics.proofErrors), 12)
+      padLeft(formatNumber(endSnapshot.proofErrors), 12)
     } │`,
     `├──────────────────┼──────────────┼──────────────────┼──────────────┤`,
     `│ ${padLabel("📦 Blocks", 16)} │ ${
-      padLeft(formatNumber(endMetrics.blocksProcessed), 12)
+      padLeft(formatNumber(endSnapshot.blocksProcessed), 12)
     } │ ${padLabel("⏱️  Uptime", 16)} │ ${
-      padLeft(formatUptime(endMetrics.uptimeSeconds), 12)
+      padLeft(formatUptime(endSnapshot.uptimeSeconds), 12)
     } │`,
     "└──────────────────┴──────────────┴──────────────────┴──────────────┘",
   ];
 
-  // Add error section if there's a last error
-  if (endMetrics.lastError) {
+  if (endSnapshot.lastError) {
+    const maxErrorLen = 256;
+    const truncated = endSnapshot.lastError.length > maxErrorLen
+      ? endSnapshot.lastError.slice(0, maxErrorLen) + "…"
+      : endSnapshot.lastError;
     reportLines.push("");
-    reportLines.push("🚨 Last Error");
-    reportLines.push(endMetrics.lastError);
+    reportLines.push(`🚨 Last Error: ${truncated}`);
   }
 
   const reportText = reportLines.join("\n");
@@ -313,7 +304,7 @@ export function createHourlyReportPayload(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `\`\`\`${reportText}\`\`\``,
+          text: truncateForSlack(`\`\`\`${reportText}\`\`\``),
         },
       },
       ...(mentionPrefix
@@ -334,12 +325,47 @@ export function createHourlyReportPayload(
 }
 
 /**
- * Send message to Slack via webhook
+ * Send message to Slack via API (chat.postMessage) or webhook fallback.
+ * Returns the message timestamp when using the API (needed for thread replies).
  */
 export async function sendSlackMessage(
   config: SlackConfig,
   payload: unknown,
-): Promise<void> {
+  threadTs?: string,
+): Promise<string | undefined> {
+  // Use Slack API when bot token and channel are configured
+  if (config.botToken && config.channelId) {
+    const apiPayload = {
+      channel: config.channelId,
+      ...(payload as Record<string, unknown>),
+      ...(threadTs ? { thread_ts: threadTs } : {}),
+    };
+
+    const response = await fetch("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Authorization": `Bearer ${config.botToken}`,
+      },
+      body: JSON.stringify(apiPayload),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(
+        `Slack API request failed: ${response.status} ${response.statusText} - ${text}`,
+      );
+    }
+
+    const result = await response.json();
+    if (!result.ok) {
+      throw new Error(`Slack API error: ${result.error}`);
+    }
+
+    return result.ts as string;
+  }
+
+  // Fallback to webhook (no thread support)
   const response = await fetch(config.webhookUrl, {
     method: "POST",
     headers: {
@@ -354,15 +380,63 @@ export async function sendSlackMessage(
       `Slack webhook failed: ${response.status} ${response.statusText} - ${text}`,
     );
   }
+
+  return undefined;
 }
 
 /**
- * Send hourly report to Slack
+ * Send periodic report to Slack, with the latest error as a thread reply
+ * when using the Slack API (botToken + channelId configured).
  */
-export async function sendHourlyReport(
-  report: HourlyReport,
+export async function sendPeriodicReport(
+  report: PeriodicReport,
   config: SlackConfig,
 ): Promise<void> {
-  const payload = createHourlyReportPayload(report, config);
-  await sendSlackMessage(config, payload);
+  const payload = createReportPayload(report, config);
+  const messageTs = await sendSlackMessage(config, payload);
+
+  // Send errors as a thread reply when using the Slack API
+  const errors = report.endSnapshot.uniqueErrors;
+  const errorEntries = Object.entries(errors);
+  const hasUniqueErrors = errorEntries.length > 0;
+  const hasLastError = Boolean(report.endSnapshot.lastError);
+
+  if (messageTs && (hasUniqueErrors || hasLastError)) {
+    let errorText: string;
+    let errorSummary: string;
+
+    if (hasUniqueErrors) {
+      const errorLines = errorEntries.map(
+        ([msg, count]) => `• (x${count}) ${msg}`,
+      );
+      errorText = errorLines.join("\n");
+      errorSummary = `${errorEntries.length} Unique Error(s)`;
+    } else {
+      errorText = `• ${report.endSnapshot.lastError}`;
+      errorSummary = "Latest Error";
+    }
+
+    const errorPayload = {
+      username: config.username || "traffic-simulator",
+      icon_emoji: ":rotating_light:",
+      text: errorSummary,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: truncateForSlack(
+              `:rotating_light: *${errorSummary}*\n\`\`\`${errorText}\`\`\``,
+            ),
+          },
+        },
+      ],
+    };
+
+    try {
+      await sendSlackMessage(config, errorPayload, messageTs);
+    } catch (error) {
+      console.warn(`Failed to send error thread reply: ${error}`);
+    }
+  }
 }

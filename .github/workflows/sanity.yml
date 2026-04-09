@@ -3,7 +3,7 @@ name: sanity
 
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
+    branches: [main, usc-testnet, usc-dev]
   workflow_dispatch:
 
 concurrency:
@@ -127,7 +127,7 @@ jobs:
 
       - name: Prepare ENV for Devnet
         id: devnet-env
-        if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
+        if: github.base_ref == 'usc-dev'
         run: |
           echo "target_chain=devnet" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
@@ -137,7 +137,7 @@ jobs:
 
       - name: Prepare ENV for Testnet
         id: testnet-env
-        if: github.base_ref == 'testnet'
+        if: github.base_ref == 'usc-testnet'
         run: |
           echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")

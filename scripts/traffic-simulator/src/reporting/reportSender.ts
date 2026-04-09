@@ -15,26 +15,26 @@
  */
 
 import {
-  type HourlyReport,
-  type MetricsSnapshot,
-  sendHourlyReport,
+  type PeriodicReport,
+  sendPeriodicReport,
   type SlackConfig,
 } from "./slack.ts";
+import type { HealthStatus } from "../types.ts";
 
 /**
  * Snapshot with timestamp for accurate period tracking
  */
 interface TimestampedSnapshot {
   timestamp: number;
-  metrics: MetricsSnapshot;
+  metrics: HealthStatus;
 }
 
 /**
  * Fetch current metrics from simulator
  */
-async function fetchMetrics(
+async function fetchStatus(
   simulatorUrl: string,
-): Promise<MetricsSnapshot> {
+): Promise<HealthStatus> {
   const url = new URL("/status", simulatorUrl);
   const response = await fetch(url.toString());
 
@@ -53,12 +53,13 @@ async function fetchMetrics(
     singleSubmissions: data.singleSubmissions ?? 0,
     batchSubmissions: data.batchSubmissions ?? 0,
     queueSize: data.queueSize ?? 0,
-    sepoliaConnected: data.sepoliaConnected ?? false,
+    sourceChainConnected: data.sourceChainConnected ?? false,
     cc3Connected: data.cc3Connected ?? false,
-    sourceChainKey: data.sourceChainKey ?? 1, // default to sepolia
+    sourceChainKey: data.sourceChainKey ?? 1,
     cc3WsUrl: data.cc3WsUrl ?? "",
     uptimeSeconds: data.uptimeSeconds ?? 0,
     lastError: data.lastError ?? null,
+    uniqueErrors: data.uniqueErrors ?? {},
   };
 }
 
@@ -77,13 +78,12 @@ async function loadPreviousSnapshot(
       return data as TimestampedSnapshot;
     }
 
-    // Legacy format: assume it's a raw MetricsSnapshot
-    // Use file modification time as fallback timestamp
+    // Legacy format: use file modification time as fallback timestamp
     const fileInfo = await Deno.stat(snapshotPath);
     const timestamp = fileInfo.mtime?.getTime() ?? Date.now();
     return {
       timestamp,
-      metrics: data as MetricsSnapshot,
+      metrics: data as HealthStatus,
     };
   } catch {
     return null;
@@ -95,7 +95,7 @@ async function loadPreviousSnapshot(
  */
 async function saveSnapshot(
   snapshotPath: string,
-  metrics: MetricsSnapshot,
+  metrics: HealthStatus,
   timestamp: number,
 ): Promise<void> {
   const snapshot: TimestampedSnapshot = {
@@ -119,36 +119,36 @@ function calculateDelta(previous: number, current: number): number {
  * Calculate hourly report from two snapshots
  */
 function calculateReport(
-  startMetrics: MetricsSnapshot,
-  endMetrics: MetricsSnapshot,
+  startSnapshot: HealthStatus,
+  endSnapshot: HealthStatus,
   periodStart: number,
   periodEnd: number,
-): HourlyReport {
+): PeriodicReport {
   return {
     periodStart,
     periodEnd,
-    startMetrics,
-    endMetrics,
+    startSnapshot,
+    endSnapshot,
     delta: {
       proofsSubmitted: calculateDelta(
-        startMetrics.proofsSubmitted,
-        endMetrics.proofsSubmitted,
+        startSnapshot.proofsSubmitted,
+        endSnapshot.proofsSubmitted,
       ),
       proofErrors: calculateDelta(
-        startMetrics.proofErrors,
-        endMetrics.proofErrors,
+        startSnapshot.proofErrors,
+        endSnapshot.proofErrors,
       ),
       blocksProcessed: calculateDelta(
-        startMetrics.blocksProcessed,
-        endMetrics.blocksProcessed,
+        startSnapshot.blocksProcessed,
+        endSnapshot.blocksProcessed,
       ),
       singleSubmissions: calculateDelta(
-        startMetrics.singleSubmissions,
-        endMetrics.singleSubmissions,
+        startSnapshot.singleSubmissions,
+        endSnapshot.singleSubmissions,
       ),
       batchSubmissions: calculateDelta(
-        startMetrics.batchSubmissions,
-        endMetrics.batchSubmissions,
+        startSnapshot.batchSubmissions,
+        endSnapshot.batchSubmissions,
       ),
     },
   };
@@ -162,6 +162,8 @@ async function main(): Promise<void> {
     "http://traffic-simulator:8080";
   const slackWebhookUrl = Deno.env.get("SLACK_WEBHOOK_URL");
   const slackAlertGroup = Deno.env.get("SLACK_ALERT_GROUP");
+  const slackBotToken = Deno.env.get("SLACK_BOT_TOKEN");
+  const slackChannelId = Deno.env.get("SLACK_CHANNEL_ID");
   const snapshotPath = Deno.env.get("SNAPSHOT_PATH") ||
     "/tmp/metrics-snapshot.json";
   const reportIntervalHours = parseFloat(
@@ -171,8 +173,17 @@ async function main(): Promise<void> {
     Deno.env.get("ALERT_SUCCESS_THRESHOLD_PCT") || "75",
   );
 
-  if (!slackWebhookUrl) {
-    console.error("❌ SLACK_WEBHOOK_URL environment variable is required");
+  if (!slackWebhookUrl && !slackBotToken) {
+    console.error(
+      "❌ Either SLACK_WEBHOOK_URL or SLACK_BOT_TOKEN environment variable is required",
+    );
+    Deno.exit(1);
+  }
+
+  if (slackBotToken && !slackChannelId) {
+    console.error(
+      "❌ SLACK_CHANNEL_ID is required when using SLACK_BOT_TOKEN",
+    );
     Deno.exit(1);
   }
 
@@ -196,16 +207,18 @@ async function main(): Promise<void> {
   }
 
   const slackConfig: SlackConfig = {
-    webhookUrl: slackWebhookUrl,
+    webhookUrl: slackWebhookUrl ?? "",
     alertGroup: slackAlertGroup,
     username: "traffic-simulator-reporter",
     alertSuccessThresholdPct,
+    botToken: slackBotToken,
+    channelId: slackChannelId,
   };
 
   try {
-    console.log(`📊 Fetching metrics from ${simulatorUrl}...`);
-    const currentMetrics = await fetchMetrics(simulatorUrl);
-    console.log("✅ Metrics fetched successfully");
+    console.log(`📊 Fetching status from ${simulatorUrl}...`);
+    const currentStatus = await fetchStatus(simulatorUrl);
+    console.log("✅ Status fetched successfully");
 
     const now = Date.now();
     const previousSnapshot = await loadPreviousSnapshot(snapshotPath);
@@ -219,13 +232,30 @@ async function main(): Promise<void> {
       );
       const report = calculateReport(
         previousSnapshot.metrics,
-        currentMetrics,
+        currentStatus,
         periodStart,
         now,
       );
 
-      await sendHourlyReport(report, slackConfig);
+      await sendPeriodicReport(report, slackConfig);
       console.log("✅ Report sent to Slack");
+
+      // Reset unique errors so the next report only shows new errors
+      try {
+        const resetUrl = new URL("/reset-errors", simulatorUrl);
+        const resetResponse = await fetch(resetUrl.toString(), {
+          method: "POST",
+        });
+        if (resetResponse.ok) {
+          console.log("🔄 Unique errors reset for next reporting period");
+        } else {
+          console.warn(
+            `⚠️  Failed to reset errors: ${resetResponse.status} ${resetResponse.statusText}`,
+          );
+        }
+      } catch (resetError) {
+        console.warn("⚠️  Failed to reset errors:", resetError);
+      }
     } else {
       console.log(
         `ℹ️  No previous snapshot found, skipping report ` +
@@ -234,7 +264,7 @@ async function main(): Promise<void> {
     }
 
     // Save current snapshot for next run
-    await saveSnapshot(snapshotPath, currentMetrics, now);
+    await saveSnapshot(snapshotPath, currentStatus, now);
     console.log(`💾 Snapshot saved to ${snapshotPath}`);
   } catch (error) {
     console.error("❌ Error:", error);

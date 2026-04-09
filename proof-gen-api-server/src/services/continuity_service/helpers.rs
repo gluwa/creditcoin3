@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Instant;
 
 use super::*;
@@ -25,13 +26,12 @@ impl ContinuityService {
     /// Build a continuity proof.
     ///
     /// Flow:
-    /// 1. Resolve checkpoint boundaries from local cache
-    /// 2. If indexer configured → try GraphQL attestation data, fall back to eth provider
-    /// 3. If no indexer → go straight to eth provider (archiver/chain) for roots
+    /// 1. Resolve checkpoint boundaries from local cache (attestation first, then checkpoint)
+    /// 2. Build proof from eth provider roots (archiver or chain)
     pub(crate) async fn build_continuity(
         &self,
+        chain: &Arc<ChainState>,
         header_numbers: &[u64],
-        current_block: u64,
     ) -> Result<ContinuityProof, ServiceError> {
         let (&min_query, &max_query) = header_numbers
             .iter()
@@ -43,8 +43,9 @@ impl ContinuityService {
 
         // Step 1: Resolve boundaries from local caches.
         // Try attestation bounds first (more granular), then fall back to checkpoint bounds.
-        let (lower, lower_digest, upper) = if let Some(bounds) =
-            self.get_attestation_boundaries(min_query, max_query).await
+        let (lower, lower_digest, upper) = if let Some(bounds) = self
+            .get_attestation_boundaries(chain, min_query, max_query)
+            .await
         {
             tracing::debug!(
                 min_query,
@@ -54,7 +55,10 @@ impl ContinuityService {
                 "resolved boundaries from attestation cache"
             );
             bounds
-        } else if let Some(bounds) = self.get_checkpoint_boundaries(min_query, max_query).await {
+        } else if let Some(bounds) = self
+            .get_checkpoint_boundaries(chain, min_query, max_query)
+            .await
+        {
             tracing::debug!(
                 min_query,
                 max_query,
@@ -64,61 +68,14 @@ impl ContinuityService {
             );
             bounds
         } else {
-            return Err(ServiceError::Internal {
-                message: format!(
-                    "no boundaries found in attestation or checkpoint cache for range {min_query}..{max_query}"
-                ),
-            });
+            return Err(self
+                .boundary_lookup_failed_error(chain, min_query, max_query)
+                .await);
         };
 
-        // Step 2: If indexer is configured, try building from GraphQL first.
-        if self.builder.indexer_provider.is_some() {
-            match self
-                .build_proof_from_graphql(header_numbers, current_block)
-                .await
-            {
-                Ok(proof) => return Ok(proof),
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "GraphQL proof failed, falling back to eth provider"
-                    );
-                }
-            }
-        }
-
-        // Step 3: Build directly from eth provider (archiver or chain).
-        self.build_proof_from_roots(min_query, lower, lower_digest, upper)
+        // Step 2: Build directly from eth provider (archiver or chain).
+        self.build_proof_from_roots(chain, min_query, lower, lower_digest, upper)
             .await
-    }
-
-    /// Try building a proof from GraphQL attestation data.
-    async fn build_proof_from_graphql(
-        &self,
-        header_numbers: &[u64],
-        current_block: u64,
-    ) -> Result<ContinuityProof, ServiceError> {
-        let (lower_attestation, upper_attestation) = self
-            .builder
-            .get_endpoints(header_numbers, Some(current_block))
-            .await
-            .map_err(ServiceError::from)?;
-
-        let proof = self
-            .builder
-            .build_for_batch_queries(header_numbers, lower_attestation.clone(), upper_attestation)
-            .await
-            .map_err(ServiceError::from)?;
-
-        proof
-            .to_attestor_proof_with_attestation_context(lower_attestation.digest)
-            .ok_or_else(|| ServiceError::Internal {
-                message: format!(
-                    "Failed to convert proof: {} blocks, lower digest: {:?}",
-                    proof.blocks.len(),
-                    lower_attestation.digest
-                ),
-            })
     }
 
     /// Build a proof from eth provider roots (archiver or chain) using
@@ -127,6 +84,7 @@ impl ContinuityService {
     /// proof's digest chain to a known on-chain value.
     async fn build_proof_from_roots(
         &self,
+        chain_state: &Arc<ChainState>,
         min_query: u64,
         lower_checkpoint: u64,
         lower_checkpoint_digest: sp_core::H256,
@@ -144,7 +102,7 @@ impl ContinuityService {
         // Blocks are built from lower_checkpoint + 1 since the checkpoint block itself
         // is already accounted for by its digest.
         let build_from = lower_checkpoint + 1;
-        let blocks = self
+        let blocks = chain_state
             .builder
             .eth_provider
             .build_continuity_blocks(lower_checkpoint_digest, build_from, upper_checkpoint)
@@ -171,9 +129,10 @@ impl ContinuityService {
 
     pub(crate) async fn get_height_and_index_for_tx_hash(
         &self,
+        chain: &Arc<ChainState>,
         tx_hash: H256,
     ) -> ServiceResult<(u64, u64)> {
-        match self.builder.get_tx_position_by_hash(tx_hash).await {
+        match chain.builder.get_tx_position_by_hash(tx_hash).await {
             Ok(Some((header_number, tx_index))) => Ok((header_number, tx_index)),
             Ok(None) => Err(ServiceError::TxHashNotFound {
                 tx_hash: format!("0x{}", hex::encode(tx_hash.as_bytes())),
@@ -186,15 +145,16 @@ impl ContinuityService {
 
     pub(crate) async fn generate_merkle_proof(
         &self,
-        chain_key: u64,
+        chain: &Arc<ChainState>,
         header_number: u64,
         tx_index: u64,
     ) -> ServiceResult<MerkleProofItem> {
+        let chain_key = chain.builder.config.chain_key;
         let merkle_start = Instant::now();
 
         // Fetch tx bytes & validate index.
         // Note: This uses Redis block caching if configured (via eth_client.get_block() -> block_cache.rs)
-        let tx_bytes = self
+        let tx_bytes = chain
             .builder
             .get_block_tx_bytes(header_number)
             .await
@@ -235,7 +195,8 @@ impl ContinuityService {
         let tx_hash_opt = if tx_bytes.is_empty() {
             None
         } else {
-            self.builder
+            chain
+                .builder
                 .get_tx_hash_by_index(header_number, tx_index)
                 .await
                 .map_err(|e| ServiceError::RpcUnavailable {
@@ -374,7 +335,7 @@ mod tests {
             cc_provider,
             eth_provider,
         ));
-        ContinuityService::new(builder, NoopMetrics::new(), 10)
+        ContinuityService::new(vec![builder], NoopMetrics::new(), 10)
             .await
             .expect("service init should succeed with mocks")
     }
@@ -383,7 +344,8 @@ mod tests {
     async fn tx_hash_found_returns_position() {
         let svc = make_service(Arc::new(FoundEthProvider)).await;
         let hash = H256::from_low_u64_be(1);
-        let result = svc.get_height_and_index_for_tx_hash(hash).await;
+        let chain = svc.chain_state(2).unwrap();
+        let result = svc.get_height_and_index_for_tx_hash(chain, hash).await;
         assert_eq!(result.unwrap(), (42, 3));
     }
 
@@ -392,7 +354,8 @@ mod tests {
         let (_, eth_provider) = make_mock_providers(2);
         let svc = make_service(eth_provider).await;
         let hash = H256::from_low_u64_be(999);
-        let result = svc.get_height_and_index_for_tx_hash(hash).await;
+        let chain = svc.chain_state(2).unwrap();
+        let result = svc.get_height_and_index_for_tx_hash(chain, hash).await;
         let err = result.unwrap_err();
         assert!(
             matches!(err, ServiceError::TxHashNotFound { .. }),
@@ -406,7 +369,8 @@ mod tests {
     async fn tx_hash_rpc_error_returns_rpc_unavailable() {
         let svc = make_service(Arc::new(ErrorEthProvider)).await;
         let hash = H256::from_low_u64_be(1);
-        let result = svc.get_height_and_index_for_tx_hash(hash).await;
+        let chain = svc.chain_state(2).unwrap();
+        let result = svc.get_height_and_index_for_tx_hash(chain, hash).await;
         let err = result.unwrap_err();
         assert!(
             matches!(err, ServiceError::RpcUnavailable { .. }),
@@ -424,13 +388,14 @@ mod tests {
         // and checkpoints at 0, 100, 200, ..., 1000
         // For query block 15, attestation bounds should be (10, 20)
         // which is tighter than checkpoint bounds (0, 100)
-        let att_bounds = svc.get_attestation_boundaries(15, 15).await;
+        let chain = svc.chain_state(2).unwrap();
+        let att_bounds = svc.get_attestation_boundaries(chain, 15, 15).await;
         assert!(att_bounds.is_some(), "attestation bounds should exist");
         let (lower, _, upper) = att_bounds.unwrap();
         assert_eq!(lower, 10);
         assert_eq!(upper, 20);
 
-        let cp_bounds = svc.get_checkpoint_boundaries(15, 15).await;
+        let cp_bounds = svc.get_checkpoint_boundaries(chain, 15, 15).await;
         assert!(cp_bounds.is_some(), "checkpoint bounds should exist");
         let (lower, _, upper) = cp_bounds.unwrap();
         assert_eq!(lower, 0);
@@ -445,7 +410,8 @@ mod tests {
         // Query block 11 → lower attestation at 10, upper at 20
         // In build_proof_from_roots, take_while(b.n() < 11) yields zero blocks
         // so lower_endpoint_digest falls back to the attestation digest at block 10.
-        let bounds = svc.get_attestation_boundaries(11, 11).await;
+        let chain = svc.chain_state(2).unwrap();
+        let bounds = svc.get_attestation_boundaries(chain, 11, 11).await;
         assert!(bounds.is_some());
         let (lower, lower_digest, upper) = bounds.unwrap();
         assert_eq!(lower, 10);
@@ -460,11 +426,12 @@ mod tests {
 
         // Query beyond attestation range (mock attestations go up to 1000)
         // Should fail attestation lookup but succeed with checkpoint lookup
-        let att_bounds = svc.get_attestation_boundaries(1005, 1005).await;
+        let chain = svc.chain_state(2).unwrap();
+        let att_bounds = svc.get_attestation_boundaries(chain, 1005, 1005).await;
         assert!(att_bounds.is_none(), "no attestation bounds beyond range");
 
         // Checkpoint at 1000 exists as lower, but no upper checkpoint
-        let cp_bounds = svc.get_checkpoint_boundaries(1005, 1005).await;
+        let cp_bounds = svc.get_checkpoint_boundaries(chain, 1005, 1005).await;
         assert!(
             cp_bounds.is_none(),
             "no checkpoint upper bound beyond range"

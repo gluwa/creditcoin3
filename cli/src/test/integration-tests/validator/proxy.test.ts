@@ -162,7 +162,7 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             // setup
             const result = CLI(`proxy add --proxy ${proxy.address} --type All`);
             expect(result.exitCode).toEqual(0);
-            await fundFromSudo(caller.address, new BN(0));
+            await fundFromSudo(api, caller.address, new BN(0));
 
             // test
             try_catch_else_finally(

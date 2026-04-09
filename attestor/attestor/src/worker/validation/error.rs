@@ -1,6 +1,6 @@
 #[derive(Debug)]
 pub enum Error {
-    CC3(crate::stream::cc3::Error),
+    CC3(crate::stream_legacy::cc3::Error),
     Pool(super::pool::Error),
     Client(cc_client::Error),
     Subxt(subxt::Error),
@@ -47,10 +47,6 @@ pub enum InvalidCause {
         actual: cc_client::H256,
         expected: cc_client::H256,
     },
-    InvalidContinuityProof {
-        block: attestor_primitives::block::BlockSerializable,
-        expected: cc_client::H256,
-    },
 }
 
 impl std::fmt::Display for InvalidCause {
@@ -69,10 +65,6 @@ impl std::fmt::Display for InvalidCause {
             Self::InvalidContinuityTailDigest { actual, expected } => write!(
                 f,
                 "Invalid continuity proof tail digest, expected {expected}, got {actual}"
-            ),
-            Self::InvalidContinuityProof { block, expected } => write!(
-                f,
-                "Invalid continuity proof at block {block:?}, expected previous digest {expected}"
             ),
         }
     }

@@ -249,11 +249,15 @@ impl AttestationMonitor {
                     }));
                 }
             }
-            CcEvent::CheckpointReached(checkpoint) => {
+            CcEvent::CheckpointReached(event_chain_key, checkpoint) => {
                 debug!(
                     "Received CheckpointReached event for block {} on chain_key {}",
-                    checkpoint.block_number, chain_key
+                    checkpoint.block_number, event_chain_key
                 );
+
+                if event_chain_key != chain_key {
+                    return Ok(None);
+                }
 
                 // Validate checkpoint block number is reasonable before using it
                 if checkpoint.block_number <= MAX_REASONABLE_BLOCK

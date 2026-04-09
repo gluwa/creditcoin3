@@ -32,7 +32,7 @@ describe('Precompile: SignatureVerifier.verify()', (): void => {
         alith = new ethers.Wallet(privateKey, provider);
 
         // Fund the account for gas fees
-        const result = await fundFromSudo(alith.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
+        const result = await fundFromSudo(api, alith.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
         expect(result.status).toBe(0);
 
         contract = new ethers.Contract(precompileContractAddress, contractABI, alith);

@@ -1,50 +1,131 @@
+use anyhow::{bail, Context, Result};
+use serde::Deserialize;
+use std::collections::HashSet;
+use std::fs;
+use std::num::NonZeroUsize;
+use std::path::Path;
+
+/// Default `max_batch_size` (10) for CLI, YAML, and [`Config::new_mock_config`].
+pub const DEFAULT_MAX_BATCH_SIZE: NonZeroUsize = match NonZeroUsize::new(10) {
+    Some(n) => n,
+    None => panic!("10 is non-zero"),
+};
+
+/// One source chain (EVM) served by this process, keyed on Creditcoin3.
 #[derive(Debug, Clone)]
-/// Server configuration
-/// - `bind_host`: The IP address to bind the API server to (IPv4 or IPv6)
-/// - `bind_port`: The port to bind the API server to
-/// - `cc3_rpc_url`: Creditcoin RPC url (must have rpc + websocket features)
-/// - `cc3_key`: Mnemonic for a creditcoin3 account (optional, not needed for read-only operations)
-/// - `chain_key`: Chain key for the source chain, must match the chain key on creditcoin3
-/// - `eth_rpc_url`: Ethereum RPC url
-/// - `redis_url`: Optional Redis URL for Ethereum block caching
-/// - `redis_cluster_mode`: When true, use Redis Cluster client (required for Redis Cluster deployments)
-/// - `indexer_url`: Optional CC3 Indexer GraphQL URL for pre-fetching continuity proofs
-/// - `max_batch_size`: Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes. Adjust based on expected load and RPC rate limits.
+pub struct ChainConfig {
+    pub chain_key: u64,
+    pub eth_rpc_url: String,
+    pub archiver_url: Option<String>,
+}
+
+/// Server configuration after CLI / file resolution.
+#[derive(Debug, Clone)]
 pub struct Config {
     pub bind_host: String,
     pub bind_port: u16,
     pub cc3_rpc_url: String,
     pub cc3_key: Option<String>,
-    pub chain_key: u64,
-    pub eth_rpc_url: String,
+    pub chains: Vec<ChainConfig>,
     pub redis_url: Option<String>,
     pub redis_cluster_mode: bool,
-    pub indexer_url: Option<String>,
-    pub max_batch_size: usize,
-    /// Optional archiver HTTP URL. When set, continuity proofs are built from
-    /// pre-computed merkle roots served by the archiver instead of fetching
-    /// full blocks from Ethereum RPC.
-    pub archiver_url: Option<String>,
+    pub max_batch_size: NonZeroUsize,
 }
 
 impl Config {
-    /// Convenience constructor for tests
-    /// Builds a config with stable dummy values and does not read environment variables.
-    /// - Uses loopback addresses for bind and metrics.
-    /// - Accepts a `chain_key` parameter to match test expectations.
+    /// Convenience constructor for tests — one chain, dummy endpoints.
     pub fn new_mock_config(chain_key: u64) -> Self {
         Self {
             bind_host: "127.0.0.1".to_string(),
             bind_port: 3000,
             cc3_rpc_url: "ws://mock".to_string(),
             cc3_key: None,
-            chain_key,
-            eth_rpc_url: "http://mock".to_string(),
+            chains: vec![ChainConfig {
+                chain_key,
+                eth_rpc_url: "http://mock".to_string(),
+                archiver_url: None,
+            }],
             redis_url: None,
             redis_cluster_mode: false,
-            indexer_url: None,
-            max_batch_size: 10,
-            archiver_url: None,
+            max_batch_size: DEFAULT_MAX_BATCH_SIZE,
         }
+    }
+
+    pub fn chain_keys(&self) -> HashSet<u64> {
+        self.chains.iter().map(|c| c.chain_key).collect()
+    }
+
+    /// Load YAML configuration from disk (see `.env.example` / `config.example.yaml`).
+    /// Creditcoin3 WebSocket URL is not stored in YAML; pass `cc3_rpc_url` from `CC3_RPC_URL` / CLI.
+    pub fn from_yaml_file(path: impl AsRef<Path>, cc3_rpc_url: String) -> Result<Self> {
+        let text = fs::read_to_string(path.as_ref()).with_context(|| {
+            format!(
+                "Failed to read proof-gen config file {}",
+                path.as_ref().display()
+            )
+        })?;
+        let file: ConfigFile = serde_yaml::from_str(&text).context("Invalid YAML config")?;
+        file.into_config(cc3_rpc_url)
+    }
+}
+
+/// YAML file layout (shared fields + `chains` list).
+#[derive(Debug, Deserialize)]
+pub struct ConfigFile {
+    pub bind_host: String,
+    pub bind_port: u16,
+    #[serde(default)]
+    pub cc3_key: Option<String>,
+    pub chains: Vec<ChainConfigFile>,
+    #[serde(default)]
+    pub redis_url: Option<String>,
+    #[serde(default)]
+    pub redis_cluster_mode: bool,
+    /// Deprecated – accepted for backward compat but ignored at runtime.
+    #[serde(default)]
+    pub indexer_url: Option<String>,
+    #[serde(default = "default_max_batch_size")]
+    pub max_batch_size: NonZeroUsize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChainConfigFile {
+    pub chain_key: u64,
+    pub eth_rpc_url: String,
+    #[serde(default)]
+    pub archiver_url: Option<String>,
+}
+
+fn default_max_batch_size() -> NonZeroUsize {
+    DEFAULT_MAX_BATCH_SIZE
+}
+
+impl ConfigFile {
+    fn into_config(self, cc3_rpc_url: String) -> Result<Config> {
+        if self.chains.is_empty() {
+            bail!("config must include at least one entry in `chains`");
+        }
+        let mut seen = HashSet::new();
+        let mut chains = Vec::with_capacity(self.chains.len());
+        for c in self.chains {
+            if !seen.insert(c.chain_key) {
+                bail!("duplicate chain_key {} in config", c.chain_key);
+            }
+            chains.push(ChainConfig {
+                chain_key: c.chain_key,
+                eth_rpc_url: c.eth_rpc_url,
+                archiver_url: c.archiver_url,
+            });
+        }
+        Ok(Config {
+            bind_host: self.bind_host,
+            bind_port: self.bind_port,
+            cc3_rpc_url,
+            cc3_key: self.cc3_key,
+            chains,
+            redis_url: self.redis_url,
+            redis_cluster_mode: self.redis_cluster_mode,
+            max_batch_size: self.max_batch_size,
+        })
     }
 }

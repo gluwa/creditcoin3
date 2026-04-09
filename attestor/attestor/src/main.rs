@@ -11,14 +11,14 @@ use std::str::FromStr;
 struct Config {
     name: String,
     logs: std::path::PathBuf,
-    secret: attestor::stream::AttestorSecret,
+    secret: attestor::stream_legacy::AttestorSecret,
     chain_key: attestor_primitives::ChainKey,
     public_addr: Option<String>,
     api_port: u16,
     boot_nodes: Vec<libp2p::Multiaddr>,
     p2p_port: u16, // Defaults to 9000 if not specified
-    eth_url: url::Url,
-    cc3_url: url::Url,
+    eth_url: attestor::stream_legacy::RpcSecret,
+    cc3_url: attestor::stream_legacy::RpcSecret,
     pool_capacity: std::num::NonZeroUsize,
     start_height: Option<common::types::Height>,
     attestation_interval: Option<std::num::NonZero<common::types::Height>>,
@@ -94,39 +94,6 @@ struct ConfigAttestation {
 
 impl Config {
     fn parse() -> anyhow::Result<Self> {
-        // --------------------------------* Configure Parallelism *-------------------------------
-
-        // WARNING: DOS
-        //
-        // For performance reasons, we want to be able to fan out computationally expensive tasks to
-        // multiple threads. We need to be careful when doing this so as NOT TO BLOCK OTHER WORKER
-        // THREADS, since they are responsible for making progress in the production, validation,
-        // dissemination and submission of attestation. Ie: we do not want CPU-intensive tasks
-        // blocking up all available threads and stalling progress, since blocking other threads this
-        // way is a potential DOS vector.
-        //
-        // To avoid this, we configure the rayon thread pool to leave enough threads available for
-        // each worker + the thread monitor (main thread). While it is still possible for each
-        // thread in the rayon thread pool to use up a lot of CPU, this at least helps mitigate the
-        // issue of thread starvation while allowing us to scale CPU-bound computations with the
-        // available hardware.
-        let parallelism = match std::thread::available_parallelism()
-            .expect("Failed to retrieve available parallelism")
-            .get()
-            .checked_sub(common::constants::WORKER_COUNT + 1)
-        {
-            Some(parallelism) => parallelism,
-            None => {
-                tracing::warn!("Running the attestor code with insufficient threads!");
-                1
-            }
-        };
-
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(parallelism)
-            .build_global()
-            .expect("Failed to build rayon thread pool");
-
         // --------------------------------* Read config from file *-------------------------------
 
         let mut args = std::env::args();
@@ -182,7 +149,7 @@ impl Config {
                     )
                     .env("ATTESTOR_SECRET")
                     .required(false)
-                    .value_parser(clap::value_parser!(attestor::stream::AttestorSecret)),
+                    .value_parser(clap::value_parser!(attestor::stream_legacy::AttestorSecret)),
             )
             .arg(
                 clap::arg!(--"public-addr" <PORT>)
@@ -269,6 +236,17 @@ impl Config {
                     .value_parser(clap::value_parser!(url::Url)),
             )
             .arg(
+                clap::arg!(--"expose-urls-in-logs")
+                    .help("Expose full RPC urls in the logs")
+                    .long_help(
+                        "Expose full RPC urls in the logs. \
+                        By default those are masked to avoid leaking API keys. \
+                        Be careful not to use this option in any public environment such as github actions!"
+                    )
+                    .env("ATTESTOR_EXPOSE_URLS_IN_LOGS")
+                    .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
                 clap::arg!(--"pool-capacity" <SIZE>)
                     .help("Maximum number of pending attestation")
                     .long_help(
@@ -351,12 +329,12 @@ impl Config {
                 .expect("Chain key is set either in config or by clap"),
         };
 
-        let secret = match matches.get_one::<attestor::stream::AttestorSecret>("secret") {
+        let secret = match matches.get_one::<attestor::stream_legacy::AttestorSecret>("secret") {
             Some(secret) => secret.clone(),
             None => match &config_file.attestor.secret {
-                Some(s) => attestor::stream::AttestorSecret::from_str(s)
+                Some(s) => attestor::stream_legacy::AttestorSecret::from_str(s)
                     .map_err(|e| anyhow::anyhow!("invalid attestor secret in config file: {e}"))?,
-                None => attestor::stream::AttestorSecret::Mnemonic(
+                None => attestor::stream_legacy::AttestorSecret::Mnemonic(
                     bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret"),
                 ),
             },
@@ -385,12 +363,19 @@ impl Config {
             .or(config_file.p2p.port)
             .unwrap_or(common::constants::DEFAULT_P2P_PORT);
 
+        let expose_url = matches.get_flag("expose-urls-in-logs");
+
         let eth_url = match matches.get_one::<url::Url>("eth-url") {
             Some(url) => url.clone(),
             None => config_file
                 .eth
                 .url
                 .expect("Eth url is set either in config or by clap"),
+        };
+        let eth_url = if expose_url {
+            attestor::stream_legacy::RpcSecret::new_exposed(eth_url)
+        } else {
+            attestor::stream_legacy::RpcSecret::new_opaque(eth_url)
         };
 
         let cc3_url = match matches.get_one::<url::Url>("cc3-url") {
@@ -399,6 +384,11 @@ impl Config {
                 .cc3
                 .url
                 .expect("CC3 url is set either in config or by clap"),
+        };
+        let cc3_url = if expose_url {
+            attestor::stream_legacy::RpcSecret::new_exposed(cc3_url)
+        } else {
+            attestor::stream_legacy::RpcSecret::new_opaque(cc3_url)
         };
 
         let pool_capacity = match matches.get_one::<std::num::NonZeroUsize>("pool-capacity") {
@@ -457,7 +447,9 @@ async fn main() -> anyhow::Result<()> {
         .filter(|v| !v.is_empty())
         .map(|_| tracing_subscriber::EnvFilter::from_default_env())
         .unwrap_or_else(|| {
-            tracing_subscriber::EnvFilter::new("attestor=info,alloy=warn,subxt=warn")
+            tracing_subscriber::EnvFilter::new(
+                "attestor=info,stream_attestation=info,stream_eth=info,alloy=warn,subxt=warn",
+            )
         });
 
     let is_max_level_debug =
@@ -476,6 +468,8 @@ async fn main() -> anyhow::Result<()> {
     let filter_logs = tracing_subscriber::filter::Targets::new()
         .with_default(tracing_subscriber::filter::LevelFilter::OFF)
         .with_target("attestor", tracing::Level::TRACE)
+        .with_target("stream_attestation", tracing::Level::TRACE)
+        .with_target("stream_eth", tracing::Level::TRACE)
         .with_target("alloy", tracing::Level::WARN)
         .with_target("subxt", tracing::Level::DEBUG);
     let (appender, _guard) = tracing_appender::non_blocking(tracing_appender::rolling::hourly(
@@ -501,7 +495,7 @@ async fn main() -> anyhow::Result<()> {
         .with_name(args.name)
         .with_chain_key(args.chain_key)
         .with_stream(
-            attestor::stream::ConfigBuilder::new()
+            attestor::stream_legacy::ConfigBuilder::new()
                 .with_url_eth(args.eth_url)
                 .with_url_cc3(args.cc3_url)
                 .with_secret(args.secret)

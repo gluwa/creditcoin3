@@ -39,9 +39,9 @@ function formatPrometheusMetrics(metrics: Metrics): string {
     "# TYPE simulator_queue_size gauge",
     `simulator_queue_size ${metrics.queueSize}`,
     "",
-    "# HELP simulator_sepolia_connected Is connected to Sepolia",
-    "# TYPE simulator_sepolia_connected gauge",
-    `simulator_sepolia_connected ${metrics.sepoliaConnected}`,
+    "# HELP simulator_source_chain_connected Is connected to source chain",
+    "# TYPE simulator_source_chain_connected gauge",
+    `simulator_source_chain_connected ${metrics.sourceChainConnected}`,
     "",
     "# HELP simulator_cc3_connected Is connected to Creditcoin3",
     "# TYPE simulator_cc3_connected gauge",
@@ -59,6 +59,7 @@ export function startHealthServer(
   port: number,
   getStatus: () => HealthStatus,
   getMetrics: () => Metrics,
+  resetUniqueErrors?: () => void,
 ): { shutdown: () => void } {
   console.log(`🏥 Starting health server on port ${port}...`);
 
@@ -86,11 +87,11 @@ export function startHealthServer(
 
       // Readiness probe - check connections
       if (url.pathname === "/ready") {
-        const ready = status.sepoliaConnected && status.cc3Connected;
+        const ready = status.sourceChainConnected && status.cc3Connected;
         return new Response(
           JSON.stringify({
             ready,
-            sepoliaConnected: status.sepoliaConnected,
+            sourceChainConnected: status.sourceChainConnected,
             cc3Connected: status.cc3Connected,
           }),
           {
@@ -115,6 +116,27 @@ export function startHealthServer(
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
+      }
+
+      // Reset unique errors (called by report sender after each report)
+      if (url.pathname === "/reset-errors" && req.method === "POST") {
+        if (resetUniqueErrors) {
+          resetUniqueErrors();
+          return new Response(
+            JSON.stringify({ ok: true, message: "Unique errors reset" }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        return new Response(
+          JSON.stringify({ ok: false, message: "Reset not available" }),
+          {
+            status: 501,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
 
       return new Response("Not Found", { status: 404 });

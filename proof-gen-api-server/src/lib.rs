@@ -1,13 +1,13 @@
 use anyhow::{anyhow, bail, Context, Result};
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::prom::{Metrics, ProofGenMetrics};
 use cc_client::Client as CcClient;
-use config::Config;
 use continuity::ContinuityBuilder;
 use eth::Client as EthClient;
 use networking::run_http_server;
@@ -18,141 +18,223 @@ pub mod networking;
 pub mod prom;
 pub mod services;
 
+pub use config::{ChainConfig, Config, DEFAULT_MAX_BATCH_SIZE};
+
 // Re-exports for integration tests and external callers
 pub use networking::build_app;
 pub use services::continuity_service::ContinuityService;
 pub use services::errors::ErrorResponse;
 
+/// Hide `?query` in logs so keys in URLs are not fully printed.
+fn redact_url_query(url: &str) -> String {
+    url.split_once('?')
+        .map(|(base, _)| format!("{base}?…"))
+        .unwrap_or_else(|| url.to_string())
+}
+
 pub struct Server {
-    // proof-gen-api-server is configured using `Config`
     config: Config,
-    // Client which allows us to request info from Creditcoin3 and follow events
     cc3_client: Arc<CcClient>,
-    // Builder for continuity proofs (owns ETH + CC3 clients internally)
-    builder: Arc<ContinuityBuilder>,
-    // Dynamic checkpoint intervals per chain (updated via events)
+    /// One continuity builder per configured source chain.
+    builders: Vec<Arc<ContinuityBuilder>>,
     checkpoint_intervals: events::CheckpointIntervalMap,
-    // Last checkpoint block number per chain (updated via events)
-    // Used to quickly determine if a query needs checkpoint data
     last_checkpoint_blocks: events::LastCheckpointBlockMap,
-    // Prometheus metrics (always enabled)
     prom_metrics: Arc<ProofGenMetrics>,
 }
 
 impl Server {
     /// Create a new server based on `Config`.
     pub async fn new(config: Config) -> Result<Self> {
-        // Create metrics first so we can share the registry with block cache
-        let prom_metrics = Arc::new(ProofGenMetrics::new(config.chain_key));
+        let chain_keys: Vec<u64> = config.chains.iter().map(|c| c.chain_key).collect();
+        let prom_metrics = Arc::new(ProofGenMetrics::new(&chain_keys));
         info!("📈 Prometheus metrics available at /metrics");
 
-        // Initialize CC3 client (read-only, no keypair needed)
-        let cc3_client = Arc::<CcClient>::new(CcClient::new_read_only(&config.cc3_rpc_url).await?);
+        debug!(
+            cc3_rpc_url = %config.cc3_rpc_url,
+            chain_count = config.chains.len(),
+            "[startup] connecting Creditcoin3 read-only client (cc3_rpc_url)"
+        );
+        let cc3_client = Arc::<CcClient>::new(
+            CcClient::new_read_only(&config.cc3_rpc_url)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Creditcoin3 RPC failed at cc3_rpc_url={}. \
+                         Ensure the node is up, the URL scheme (ws/wss) matches, and network/firewall allows the connection.",
+                        config.cc3_rpc_url
+                    )
+                })?,
+        );
+        debug!("[startup] Creditcoin3 client connected");
 
-        // Validate supported chain and source chain id alignment
+        let mut builders: Vec<Arc<ContinuityBuilder>> = Vec::with_capacity(config.chains.len());
+        let checkpoint_intervals = Arc::new(RwLock::new(HashMap::new()));
+        let last_checkpoint_blocks = Arc::new(RwLock::new(HashMap::new()));
+
+        for (idx, chain) in config.chains.iter().enumerate() {
+            debug!(
+                step = idx + 1,
+                of = config.chains.len(),
+                chain_key = chain.chain_key,
+                eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
+                archiver_url = ?chain.archiver_url.as_ref().map(|u| redact_url_query(u)),
+                "[startup] configuring source chain"
+            );
+            let builder = Self::build_continuity_for_chain(
+                &config,
+                cc3_client.clone(),
+                chain,
+                prom_metrics.clone(),
+                &checkpoint_intervals,
+                &last_checkpoint_blocks,
+            )
+            .await?;
+            builders.push(builder);
+        }
+
+        Ok(Server {
+            config,
+            cc3_client,
+            builders,
+            checkpoint_intervals,
+            last_checkpoint_blocks,
+            prom_metrics,
+        })
+    }
+
+    async fn build_continuity_for_chain(
+        global: &Config,
+        cc3_client: Arc<CcClient>,
+        chain: &ChainConfig,
+        prom_metrics: Arc<ProofGenMetrics>,
+        checkpoint_intervals: &Arc<RwLock<HashMap<u64, u64>>>,
+        last_checkpoint_blocks: &Arc<RwLock<HashMap<u64, u64>>>,
+    ) -> Result<Arc<ContinuityBuilder>> {
+        let chain_key = chain.chain_key;
+
+        debug!(
+            chain_key,
+            "[startup] querying CC3 for supported chain metadata (get_supported_chain)"
+        );
         let supported_chain = cc3_client
-            .get_supported_chain(config.chain_key)
-            .await?
-            .ok_or(anyhow!("Failed to get chain key"))?;
+            .get_supported_chain(chain_key)
+            .await
+            .with_context(|| {
+                format!("CC3 RPC call get_supported_chain failed for chain_key={chain_key}")
+            })?
+            .ok_or_else(|| anyhow!("Failed to get supported chain for chain_key {chain_key}"))?;
         let supported_chain_id = supported_chain.chain_id;
 
-        // Initialize source chain client and validate chain id matches
-        // Use cached client if Redis is configured, otherwise regular client
-        let eth_client = if let Some(ref redis_url) = config.redis_url {
-            info!(
-                "Using Redis block caching at {} (cluster_mode={})",
-                redis_url, config.redis_cluster_mode
+        let eth_client = if let Some(ref redis_url) = global.redis_url {
+            debug!(
+                chain_key,
+                redis_url = %redact_url_query(redis_url),
+                cluster_mode = global.redis_cluster_mode,
+                eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
+                "[startup] connecting source chain ETH client with Redis block cache"
             );
-            // Get block cache metrics from our metrics (if enabled) or create standalone
             let block_cache_metrics = prom_metrics.block_cache_metrics();
             let cache_config = eth::block_cache::BlockCacheConfig {
                 redis_url: redis_url.clone(),
-                redis_cluster_mode: config.redis_cluster_mode,
+                redis_cluster_mode: global.redis_cluster_mode,
                 metrics: block_cache_metrics,
             };
-            Arc::new(EthClient::new_with_cache(&config.eth_rpc_url, None, cache_config).await?)
+            Arc::new(
+                EthClient::new_with_cache(&chain.eth_rpc_url, None, cache_config)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Ethereum/source RPC + Redis cache failed for chain_key={chain_key} (eth_rpc_url={}, redis={})",
+                            redact_url_query(&chain.eth_rpc_url),
+                            redact_url_query(redis_url)
+                        )
+                    })?,
+            )
         } else {
-            Arc::new(EthClient::new(&config.eth_rpc_url, None).await?)
+            debug!(
+                chain_key,
+                eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
+                "[startup] connecting source chain ETH client (no Redis)"
+            );
+            Arc::new(
+                EthClient::new(&chain.eth_rpc_url, None)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Ethereum/source RPC connection failed for chain_key={chain_key} (eth_rpc_url={})",
+                            redact_url_query(&chain.eth_rpc_url)
+                        )
+                    })?,
+            )
         };
+
         let chain_id = eth_client.chain_id();
         if supported_chain_id != chain_id {
-            bail!("Wrong chain. Source chain endpoint chain id: {chain_id}, Supported chain id: {supported_chain_id}");
+            bail!(
+                "Wrong chain for chain_key {chain_key}. Source chain endpoint chain id: {chain_id}, Supported chain id: {supported_chain_id}"
+            );
         }
 
-        // Fetch intervals from CC3 chain at startup
         let attestation_interval = cc3_client
-            .chain_attestation_interval(config.chain_key)
+            .chain_attestation_interval(chain_key)
             .await
             .context("Failed to fetch attestation interval")?
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Attestation interval not configured for chain {}",
-                    config.chain_key
-                )
+                anyhow::anyhow!("Attestation interval not configured for chain {chain_key}")
             })?;
 
         let checkpoint_interval = cc3_client
-            .chain_checkpoint_interval(config.chain_key)
+            .chain_checkpoint_interval(chain_key)
             .await
             .context("Failed to fetch checkpoint interval")?
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Checkpoint interval not configured for chain {}",
-                    config.chain_key
-                )
+                anyhow::anyhow!("Checkpoint interval not configured for chain {chain_key}")
             })? as u64;
 
-        info!(
+        debug!(
             "📊 Intervals for chain {}: {} blocks/attestation, {} attestations/checkpoint ({} blocks/checkpoint)",
-            config.chain_key, attestation_interval, checkpoint_interval, attestation_interval * checkpoint_interval
+            chain_key,
+            attestation_interval,
+            checkpoint_interval,
+            attestation_interval * checkpoint_interval
         );
 
-        // Initialize last checkpoint blocks map by fetching the last checkpoint
-        let last_checkpoint_blocks = Arc::new(RwLock::new(std::collections::HashMap::new()));
-        let last_checkpoint_block = if let Ok(Some(last_checkpoint)) =
-            cc3_client.get_last_checkpoint(config.chain_key).await
-        {
-            let block_number = last_checkpoint.block_number;
-            last_checkpoint_blocks
-                .write()
-                .await
-                .insert(config.chain_key, block_number);
-            info!(
-                "📌 Initialized last checkpoint block for chain {}: {}",
-                config.chain_key, block_number
-            );
-            Some(block_number)
-        } else {
-            info!(
-                "📌 No checkpoint found for chain {} at startup (will be updated via events)",
-                config.chain_key
-            );
-            None
-        };
+        let last_checkpoint_block =
+            if let Ok(Some(last_checkpoint)) = cc3_client.get_last_checkpoint(chain_key).await {
+                let block_number = last_checkpoint.block_number;
+                last_checkpoint_blocks
+                    .write()
+                    .await
+                    .insert(chain_key, block_number);
+                debug!(
+                    "📌 Initialized last checkpoint block for chain {}: {}",
+                    chain_key, block_number
+                );
+                Some(block_number)
+            } else {
+                debug!(
+                    "📌 No checkpoint found for chain {} at startup (will be updated via events)",
+                    chain_key
+                );
+                None
+            };
 
-        // Create continuity builder with validated clients
         let continuity_config = continuity::ContinuityConfig::builder()
-            .cc3_rpc_url(config.cc3_rpc_url.clone())
-            .eth_rpc_url(config.eth_rpc_url.clone())
-            .chain_key(config.chain_key)
+            .cc3_rpc_url(global.cc3_rpc_url.clone())
+            .eth_rpc_url(chain.eth_rpc_url.clone())
+            .chain_key(chain_key)
             .attestation_interval(attestation_interval)
             .checkpoint_interval(checkpoint_interval)
             .last_checkpoint_block(last_checkpoint_block)
             .build();
 
-        // Create indexer client if URL is configured
-        let indexer_provider = if let Some(url) = config.indexer_url.as_ref() {
-            info!("Indexer provider configured at: {}", url);
-            let client = indexer_client::IndexerClient::new(url.clone())?;
-            Some(Arc::new(client))
-        } else {
-            None
-        };
-
-        // If archiver URL is configured, wrap the eth client in an archiver-backed provider.
         let eth_provider: continuity::rpc::SharedEthProvider =
-            if let Some(ref archiver_url) = config.archiver_url {
-                info!("🗄️  Archiver configured at: {}", archiver_url);
+            if let Some(ref archiver_url) = chain.archiver_url {
+                debug!(
+                    chain_key,
+                    archiver_url = %redact_url_query(archiver_url),
+                    "[startup] wrapping ETH client with archiver HTTP provider"
+                );
                 Arc::new(continuity::archiver::ArchiverEthProvider::new(
                     archiver_url.clone(),
                     eth_client,
@@ -161,56 +243,42 @@ impl Server {
                 eth_client
             };
 
-        let builder = Arc::new(ContinuityBuilder::new_with_indexer(
+        debug!(
+            chain_key,
+            "[startup] building ContinuityBuilder (continuity + CC3 + source chain providers)"
+        );
+        let builder = Arc::new(ContinuityBuilder::new_with_providers(
             continuity_config,
             cc3_client.clone(),
             eth_provider,
-            indexer_provider,
         ));
 
-        // Initialize checkpoint intervals map with the fetched value
-        let checkpoint_intervals = Arc::new(RwLock::new(std::collections::HashMap::new()));
         checkpoint_intervals
             .write()
             .await
-            .insert(config.chain_key, checkpoint_interval);
+            .insert(chain_key, checkpoint_interval);
 
-        Ok(Server {
-            config,
-            cc3_client,
-            builder,
-            checkpoint_intervals,
-            last_checkpoint_blocks,
-            prom_metrics,
-        })
+        Ok(builder)
     }
 
     pub async fn run(&self) -> Result<()> {
         let metrics: Metrics = self.prom_metrics.clone() as Metrics;
 
         let service = services::continuity_service::ContinuityService::new(
-            self.builder.clone(),
+            self.builders.clone(),
             metrics.clone(),
-            self.config.max_batch_size,
+            self.config.max_batch_size.get(),
         )
         .await?;
 
         let service = Arc::new(service);
 
-        // Spawn background task to refresh hardware metrics (CPU, memory, threads)
-        // so /metrics responds instantly without blocking on sysinfo
         ProofGenMetrics::spawn_hardware_updater(self.prom_metrics.clone());
 
-        // Build axum application - uses the same Metrics instance
-        // Pass prom_metrics for /metrics endpoint on main server
-        let app = build_app(
-            service.clone(),
-            self.config.chain_key,
-            self.prom_metrics.clone(),
-        );
+        let allowed: std::collections::HashSet<u64> = self.config.chain_keys();
+        let app = build_app(service.clone(), allowed, self.prom_metrics.clone());
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
 
-        // Parse bind address properly to support both IPv4 and IPv6
         let bind_host = &self.config.bind_host;
         let ip = bind_host.parse::<IpAddr>().with_context(|| {
             format!("Invalid bind host: '{bind_host}'. Expected IP address (e.g., '0.0.0.0', '127.0.0.1', '::1', '::')")
@@ -222,21 +290,15 @@ impl Server {
 
         info!("Server listening on {bind_addr}");
 
-        // Start CC3 event subscription with the configured chain key
-        // Events are processed directly in the subscription loop and checkpoint interval changes are monitored
         let cc3_client_clone = self.cc3_client.clone();
-        let chain_key = self.config.chain_key;
         let checkpoint_intervals_clone = self.checkpoint_intervals.clone();
         let last_checkpoint_blocks_clone = self.last_checkpoint_blocks.clone();
-        let builder_clone = self.builder.clone();
 
         tokio::spawn(async move {
             if let Err(e) = events::start_cc3_event_subscription(
                 cc3_client_clone,
-                chain_key,
                 checkpoint_intervals_clone,
                 last_checkpoint_blocks_clone,
-                builder_clone,
                 service,
             )
             .await
@@ -245,7 +307,6 @@ impl Server {
             }
         });
 
-        // Wait for server exit or shutdown signal
         select! {
             res = &mut server => {
                 if let Err(err) = res {
@@ -261,30 +322,24 @@ impl Server {
         }
     }
 
-    /// Get the current checkpoint interval for the configured chain.
-    /// This value is dynamically updated when checkpoint interval changes are detected.
-    pub async fn get_checkpoint_interval(&self) -> Option<u64> {
+    pub async fn get_checkpoint_interval(&self, chain_key: u64) -> Option<u64> {
         self.checkpoint_intervals
             .read()
             .await
-            .get(&self.config.chain_key)
+            .get(&chain_key)
             .copied()
     }
 
-    /// Get the last checkpoint block number for the configured chain.
-    /// Returns None if no checkpoint has been reached yet.
-    /// This value is dynamically updated when checkpoint events are received.
-    pub async fn get_last_checkpoint_block(&self) -> Option<u64> {
+    pub async fn get_last_checkpoint_block(&self, chain_key: u64) -> Option<u64> {
         self.last_checkpoint_blocks
             .read()
             .await
-            .get(&self.config.chain_key)
+            .get(&chain_key)
             .copied()
     }
 }
 
 pub async fn shutdown_signal() {
-    // Ctrl+C
     let ctrl_c = async {
         signal::ctrl_c()
             .await

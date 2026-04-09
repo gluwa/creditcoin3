@@ -6,7 +6,7 @@
  * Information about a block from the source chain
  */
 export interface BlockInfo {
-  /** Block number on the source chain */
+  /** Block number */
   blockNumber: number;
   /** Transaction hashes in this block */
   txHashes: string[];
@@ -18,13 +18,12 @@ export interface BlockInfo {
  * Simulator configuration
  */
 export interface SimulatorConfig {
-  // Source chain (Sepolia)
   /** WebSocket RPC URL for source chain */
   sourceRpcUrl: string;
-  /** Chain key for the source chain (1 for Sepolia on testnet) */
+  /** Chain key for the source chain */
   chainKey: number;
 
-  // Creditcoin3-next
+  // Creditcoin3
   /** WebSocket URL for CC3 */
   cc3WsUrl: string;
   /** HTTP URL for CC3 */
@@ -45,8 +44,6 @@ export interface SimulatorConfig {
   batchProbability: number;
   /** Submit a single proof once every N blocks */
   singleEveryBlocks: number;
-  /** Enable verbose debug logging */
-  logVerbose: boolean;
 
   // Server
   /** Port for health check server */
@@ -57,11 +54,11 @@ export interface SimulatorConfig {
  * Health status of the simulator
  */
 export interface HealthStatus {
-  /** Whether connected to source chain (Sepolia) */
-  sepoliaConnected: boolean;
+  /** Whether connected to source chain */
+  sourceChainConnected: boolean;
   /** Whether connected to CC3 */
   cc3Connected: boolean;
-  /** Source chain key (e.g., 1 for Sepolia) */
+  /** Source chain key */
   sourceChainKey: number;
   /** CC3 WebSocket URL */
   cc3WsUrl: string;
@@ -79,6 +76,8 @@ export interface HealthStatus {
   proofErrors: number;
   /** Last error message if any */
   lastError: string | null;
+  /** Unique errors with occurrence counts */
+  uniqueErrors: Record<string, number>;
   /** Uptime in seconds */
   uptimeSeconds: number;
 }
@@ -107,6 +106,44 @@ export interface ProofResponse {
       isLeft: boolean;
     }>;
   };
+  generatedAt?: string;
+}
+
+/**
+ * Batch proof query for the proof-gen-api batch endpoint
+ */
+export interface ProofQuery {
+  headerNumber: number;
+  txIndexes: number[];
+}
+
+/**
+ * Merkle proof entry in a batch response
+ */
+export interface BatchMerkleProofEntry {
+  txHash?: string;
+  txBytes?: string;
+  merkleProof: {
+    root: string;
+    siblings: Array<{ hash: string; isLeft: boolean }>;
+  };
+}
+
+/**
+ * Response from the proof-gen-api batch endpoint
+ * POST /api/v1/proof-batch/{chain_key}
+ */
+export interface BatchProofResponse {
+  chainKey: number;
+  fromHeader: number;
+  toHeader: number;
+  continuityProof: {
+    lowerEndpointDigest: string;
+    roots: string[];
+  };
+  /** Nested map: blockNumber -> txIndex -> proof entry */
+  merkleProofs: Record<string, Record<string, BatchMerkleProofEntry>>;
+  cached: boolean;
   generatedAt?: string;
 }
 
@@ -149,6 +186,6 @@ export interface Metrics {
   batchSubmissions: number;
   proofErrors: number;
   queueSize: number;
-  sepoliaConnected: number;
+  sourceChainConnected: number;
   cc3Connected: number;
 }

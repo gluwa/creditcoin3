@@ -3,7 +3,7 @@ name: rust
 
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
+    branches: [main, usc-testnet, usc-dev]
     paths:
       - "**.rs"
       - "**.toml"
@@ -19,7 +19,7 @@ permissions: read-all
 
 jobs:
   cargo-audit:
-    if: github.base_ref == 'dev'
+    if: github.base_ref == 'usc-dev'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -115,6 +115,15 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
 
+      - name: Check featalign
+        run: |
+          set -o pipefail
+
+          cargo install --locked cargo-featalign@0.7.0
+
+          # produces a human readable output
+          cargo featalign runtime --features std,runtime-benchmarks,fast-runtime,devnet --workspace-only --default-std --depth -1 --mode check | jq
+
       - name: Check Build
         run: |
           SKIP_WASM_BUILD=1 cargo check --release
@@ -122,13 +131,6 @@ jobs:
       - name: Check Build for Benchmarking
         run: |
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   cargo-clippy:
     needs:
@@ -165,14 +167,7 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: clippy
-          args: --all-targets --all-features -- -D warnings
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
+          args: --all-targets --all-features -- -D warnings -A clippy::manual_inspect
 
   cargo-machete:
     runs-on: ubuntu-24.04
@@ -231,7 +226,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.69.11
+        uses: taiki-e/install-action@v2.71.2
         with:
           tool: cargo-llvm-cov@0.6.24
 
@@ -269,13 +264,6 @@ jobs:
         with:
           name: coverage-report
           path: target/llvm-cov/html/
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   deploy-runner-clippy:
     uses: ./.github/workflows/deploy-runner.yml

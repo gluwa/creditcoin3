@@ -1,5 +1,5 @@
 import { ApiPromise } from '@polkadot/api';
-import { BN, mnemonicGenerate, newApi } from '../../lib';
+import { BN, mnemonicGenerate } from '../../lib';
 import { initKeyringPair, CallerKeyring } from '../../lib/account/keyring';
 import { signSendAndWatchCcKeyring } from '../../lib/tx';
 import { commandSync } from 'execa';
@@ -13,22 +13,19 @@ export const ALICE_NODE_URL = 'ws://127.0.0.1:9944';
 export const BOB_NODE_URL = 'ws://127.0.0.1:9955';
 export const CLI_PATH = 'dist/cli.js';
 
-export async function fundFromSudo(address: string, amount: BN, url = ALICE_NODE_URL) {
-    const { api } = await newApi(url);
+export function fundFromSudo(api: ApiPromise, address: string, amount: BN) {
     const call = api.tx.balances.forceSetBalance(address, amount.toString());
     const tx = api.tx.sudo.sudo(call);
     const sudoKeyring: CallerKeyring = { type: 'caller', pair: initAliceKeyring() };
     return signSendAndWatchCcKeyring(tx, api, sudoKeyring);
 }
 
-export async function fundAddressesFromSudo(addresses: string[], amount: BN, url = ALICE_NODE_URL) {
-    const { api } = await newApi(url);
+export function fundAddressesFromSudo(api: ApiPromise, addresses: string[], amount: BN) {
     const txs = addresses.map((address) => {
         const fundTx = api.tx.balances.forceSetBalance(address, amount.toString());
         return api.tx.sudo.sudo(fundTx);
     });
-    const tx = api.tx.utility.batchAll(txs);
-    return tx;
+    return api.tx.utility.batchAll(txs);
 }
 
 export async function waitEras(eras: number, api: ApiPromise) {
@@ -67,7 +64,7 @@ export function initAliceKeyring() {
 
 export async function randomFundedAccount(api: ApiPromise, sudoSigner: KeyringPair, amount: BN = parseAmount('1000')) {
     const account = randomTestAccount();
-    const fundTx = await fundAddressesFromSudo([account.address], amount);
+    const fundTx = fundAddressesFromSudo(api, [account.address], amount);
     const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
     await signSendAndWatchCcKeyring(fundTx, api, sudoKeyring);
     return account;
@@ -101,7 +98,7 @@ export function CLIBuilder(env: any) {
     return CLICmd;
 }
 
-export async function setUpProxy(nonProxiedCli: any, delegate: any, proxy: any, wrongProxy: any) {
+export async function setUpProxy(api: ApiPromise, nonProxiedCli: any, delegate: any, proxy: any, wrongProxy: any) {
     if (process.env.PROXY_ENABLED === 'yes') {
         // this value isn't always defined properly
         let proxyType = process.env.PROXY_TYPE;
@@ -116,7 +113,7 @@ export async function setUpProxy(nonProxiedCli: any, delegate: any, proxy: any, 
 
         if (process.env.PROXY_SECRET_VARIANT === 'no-funds') {
             // will cause the configured proxy account not to have enough funds to pay fees
-            await fundFromSudo(proxy.address, new BN(0));
+            await fundFromSudo(api, proxy.address, new BN(0));
         } else if (process.env.PROXY_SECRET_VARIANT === 'not-a-proxy') {
             // will cause CLI calls to use a proxy secret for a funded account which ISN'T
             // configured as a proxy for the delegate address. WARNING: outside of this function

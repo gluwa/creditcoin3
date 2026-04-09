@@ -46,7 +46,7 @@ async fn test_route_with_tx_index_should_report_failure_with_invalid_chain_key()
     assert!(body["message"]
         .as_str()
         .unwrap()
-        .contains("expected 2, got 99"));
+        .contains("Chain key not configured: 99"));
     assert_eq!(body["retriable"], false);
 }
 
@@ -104,7 +104,54 @@ async fn test_route_with_tx_hash_should_report_failure_with_invalid_chain_key() 
     assert!(body["message"]
         .as_str()
         .unwrap()
-        .contains("expected 2, got 999"));
+        .contains("Chain key not configured: 999"));
+    assert_eq!(body["retriable"], false);
+}
+
+/// Two configured chains: middleware should accept requests for both keys (same path as production multi-chain YAML).
+#[tokio::test]
+async fn test_multi_chain_middleware_accepts_both_configured_keys() {
+    let app = test_utils::start_test_app_chains(&[2u64, 11]).await;
+
+    for chain_key in [2u64, 11] {
+        let request = Request::builder()
+            .uri(format!("/api/v1/proof/{chain_key}/100/0"))
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "chain_key {chain_key} should be allowed when configured"
+        );
+    }
+}
+
+/// Two configured chains: an unlisted key should still be rejected.
+#[tokio::test]
+async fn test_multi_chain_middleware_rejects_unconfigured_key() {
+    let app = test_utils::start_test_app_chains(&[2u64, 11]).await;
+
+    let request = Request::builder()
+        .uri("/api/v1/proof/999/100/0")
+        .method("GET")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let bytes = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "InvalidChainKey");
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("Chain key not configured: 999"));
     assert_eq!(body["retriable"], false);
 }
 

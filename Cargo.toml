@@ -26,6 +26,7 @@ members = [
     "common/streams/eth",
     "common/streams/attestation",
     "common/streams/util",
+    "common/streams/stream",
     "query-cli",
     "proof-gen-api-server",
     "attestor/attestor",
@@ -39,12 +40,13 @@ edition = "2021"
 license = "Unlicense"
 publish = false
 repository = "https://github.com/gluwa/creditcoin3-next/"
-version = "3.103.0"
+version = "3.106.0"
 
 [workspace.dependencies]
 assert_matches = "1.5.0"
 proptest = "1.10.0"
 rstest = "0.26.1"
+sync_wrapper = "1.0.2"
 tokio-retry = "0.3"
 tokio-test = "0.4.4"
 
@@ -129,6 +131,7 @@ frame-support = { git = "https://github.com/paritytech/polkadot-sdk", branch = "
 frame-system = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 frame-system-benchmarking = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 frame-system-rpc-runtime-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
+frame-try-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 generate-bags = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 pallet-authorship = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 pallet-babe = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
@@ -308,6 +311,7 @@ indexer-client = { path = "common/indexer-client" }
 libp2p = { version = "0.56", default-features = false }
 merkle = { path = "common/merkle", default-features = false }
 prometheus-client = { version = "0.24.0" }
+stream = { path = "common/streams/stream" }
 stream_attestation = { path = "common/streams/attestation" }
 stream_eth = { path = "common/streams/eth" }
 stream_util = { path = "common/streams/util" }

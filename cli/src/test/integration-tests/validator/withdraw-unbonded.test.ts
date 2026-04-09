@@ -154,7 +154,7 @@ describe('withdraw-unbonded', () => {
             // configure proxy - used only for Full Unbond scenarios
             proxy = await randomFundedAccount(api, sudoSigner);
             const wrongProxy = await randomFundedAccount(api, sudoSigner);
-            CLI = await setUpProxy(nonProxiedCliFullUnbond, callerFullUnbond, proxy, wrongProxy);
+            CLI = await setUpProxy(api, nonProxiedCliFullUnbond, callerFullUnbond, proxy, wrongProxy);
 
             // wait for funds to become unlocked
             await erasCountdownPromise;

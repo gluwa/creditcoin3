@@ -3,7 +3,7 @@ name: proof-gen-api-server
 
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
+    branches: [main, usc-testnet, usc-dev]
     paths:
       - "proof-gen-api-server/**"
       - "scripts/**"
@@ -63,7 +63,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.69.11
+        uses: taiki-e/install-action@v2.71.2
         with:
           tool: cargo-llvm-cov@0.6.24
 
@@ -187,11 +187,13 @@ jobs:
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8142 &
 
       - name: Check that creditcoin-node and anvil are running
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8142'
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -236,7 +238,7 @@ jobs:
 
           echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
 
-      - name: Start Attestation Zombienet
+      - name: Start Attestation Zombienet (chain 2 — Anvil 1)
         run: |
           chmod a+x ./target/release/attestor*
 
@@ -248,12 +250,49 @@ jobs:
                 --cc3-url=ws://localhost:9944 \
                 --funding-address='//Alice' \
                 --config=./attestor/config.yaml \
-                >/var/tmp/exercise-scripts/zombienet-alice.log &
+                >/var/tmp/exercise-scripts/zombienet-chain2.log &
 
-      - name: Wait for 3 attestors to be registered
+      - name: Wait for chain 2 attestors to be registered
         run: |
-          # wait for Anvil_1 attestors (chain 2)
-          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944' 2
+
+      # Chain 4 zombienet starts AFTER chain 2 attestors are registered to
+      # avoid nonce collisions when both use the same funding account (//Alice).
+      # --offset=3 gives chain 4 attestors unique keypairs so they don't share
+      # account nonces with chain 2 attestors (which would cause tx failures).
+      - name: Start Attestation Zombienet (chain 4 — Anvil 2)
+        run: |
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --offset=3 \
+                --chain-key=4 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8142 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                --p2p-port-base=9010 \
+                --api-port-base=9110 \
+                >/var/tmp/exercise-scripts/zombienet-chain4.log &
+
+      - name: Wait for chain 4 attestors to be registered
+        run: |
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944' 4
+
+      - name: Wait for chain 2 transfer and attestation events
+        working-directory: scripts
+        run: |
+          npm install
+          node TransferAndWait.js --chain-key 2 \
+            --source-rpc-url http://127.0.0.1:8141 \
+            --cc3-rpc-url ws://localhost:9944
+
+      - name: Wait for chain 4 transfer and attestation events
+        working-directory: scripts
+        run: |
+          node TransferAndWait.js --chain-key 4 \
+            --source-rpc-url http://127.0.0.1:8142 \
+            --cc3-rpc-url ws://localhost:9944
 
       - name: Start Redis
         working-directory: proof-gen-api-server
@@ -262,14 +301,14 @@ jobs:
           docker compose up -d
           sleep 60
 
-      - name: Start proof-gen-api-server
+      - name: Start proof-gen-api-server (multi-chain via YAML config)
         run: |
           chmod a+x ./target/release/proof-gen-api-server
 
           ./target/release/proof-gen-api-server \
             --cc3-key "//Alice" \
             --cc3-rpc-url ws://localhost:9944 \
-            --eth-rpc-url http://localhost:8141 \
+            --config proof-gen-api-server/config.ci.yaml \
             >/var/tmp/exercise-scripts/proof-gen-api-server.log &
 
           sleep 30
@@ -345,13 +384,15 @@ jobs:
             --cc3-rpc-url http://localhost:9944 \
             --verbose
 
-      - name: Exercise TransferAndWait.js
+      - name: Exercise TransferWaitAndSubmit.js against Anvil 2 (chain 4)
         working-directory: scripts
         run: |
-          # Using Anvil Account #0 on source chain
-          node TransferAndWait.js --chain-key 2 \
-            --source-rpc-url http://127.0.0.1:8141 \
-            --cc3-rpc-url ws://localhost:9944
+          node TransferWaitAndSubmit.js \
+            --chain-key 4 \
+            --source-rpc-url http://127.0.0.1:8142 \
+            --cc3-rpc-url ws://localhost:9944 \
+            --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
+            --api-url http://localhost:3100
 
       - name: Upload logs
         if: always()

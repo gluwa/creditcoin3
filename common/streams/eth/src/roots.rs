@@ -26,20 +26,23 @@ pub struct Config {
 /// Implements capped exponential retry without unbounded attempts in order to handle RPC
 /// disconnections. This stream can be considered infinite and will never return [`None`].
 pub struct StreamRoots {
-    stream: stream_util::BoxedStream<stream_util::RootInfo>,
+    stream: sync_wrapper::SyncStream<stream_util::BoxedStream<stream_util::RootInfo>>,
+    config: Config,
 }
 
 impl StreamRoots {
-    pub async fn new(mut config: Config) -> Result<Self, Error> {
+    pub async fn new(mut config: Config) -> Self {
         use futures::StreamExt as _;
 
         let start_height = config.start_height;
         let max_parallelism = config.max_parallelism.get();
-        let mut stream_blocks = stream_rpc(config.clone()).await?;
+        let mut stream_blocks = stream_rpc(config.clone()).await;
 
         let mut next = start_height;
         let mut roots = tokio::task::JoinSet::<stream_util::RootInfo>::new();
         let mut heap = std::collections::BinaryHeap::with_capacity(max_parallelism);
+
+        let backup = config.clone();
 
         let stream = async_stream::stream! {
             loop {
@@ -167,7 +170,10 @@ impl StreamRoots {
         }
         .boxed();
 
-        Ok(Self { stream })
+        Self {
+            stream: sync_wrapper::SyncStream::new(stream),
+            config: backup,
+        }
     }
 
     async fn reconnect(
@@ -189,7 +195,7 @@ impl StreamRoots {
 
             async move {
                 config.client.reconnect().await.map_err(Error::Client)?;
-                let stream = stream_rpc(config.clone()).await?;
+                let stream = stream_rpc(config.clone()).await;
 
                 Ok::<_, Error>((config.client, stream))
             }
@@ -212,23 +218,58 @@ impl futures::Stream for StreamRoots {
     }
 }
 
-async fn stream_rpc(
-    config: Config,
-) -> Result<stream_util::BoxedStream<Result<eth::OrderedBlock, Error>>, Error> {
+impl stream_util::ChainData<stream_util::RootInfo> for StreamRoots {
+    async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
+        let mut config = self.config.clone();
+        config.start_height = info.height;
+
+        Self::new(config).await
+    }
+}
+
+async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::OrderedBlock, Error>> {
     use futures::StreamExt as _;
 
-    let mut stream_headers = config.client.subscribe().await.map_err(Error::Client)?;
-    let next = stream_headers.next().await.ok_or(Error::StreamEnd)?.number;
+    let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+        .max_delay(std::time::Duration::from_millis(5_000))
+        .map(tokio_retry::strategy::jitter);
+
+    let reconnect = || {
+        let client = config.client.clone();
+        async move {
+            let mut stream_headers = client.subscribe().await.map_err(Error::Client)?;
+            let next = stream_headers.next().await.ok_or(Error::StreamEnd)?.number;
+
+            Ok::<_, Error>((stream_headers, next))
+        }
+    };
+
+    let retry = tokio_retry::Retry::spawn(strategy, reconnect);
+    let (stream_headers, next) = retry.await.expect("Unbounded retry cannot error");
 
     let mut stream_n = futures::stream::iter(config.start_height..=next)
-        .chain(stream_headers.map(|header| header.number))
+        .chain(
+            stream_headers
+                .scan(next + 1, |next, header| {
+                    // Backfill missing blocks
+                    if header.number >= *next {
+                        let missing = *next..=header.number;
+                        *next = header.number + 1;
+                        futures::future::ready(Some(futures::stream::iter(missing)))
+                    } else {
+                        #[allow(clippy::reversed_empty_ranges)]
+                        futures::future::ready(Some(futures::stream::iter(1..=0)))
+                    }
+                })
+                .flatten(),
+        )
         .skip_while(move |number| {
             futures::future::ready(*number < config.start_height + config.finalization_lag)
         });
 
     let mut blocks = tokio::task::JoinSet::new();
 
-    Ok(async_stream::stream! {
+    async_stream::stream! {
         loop {
             tokio::select! {
                 // TASK 1] Poll source chain headers
@@ -292,5 +333,5 @@ async fn stream_rpc(
             }
         }
     }
-    .boxed())
+    .boxed()
 }

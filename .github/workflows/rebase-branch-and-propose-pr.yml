@@ -4,12 +4,18 @@ name: Reusable workflow to rebase a branch and propose a PR
 "on":
   workflow_call:
     inputs:
-      source-branch:
+      last-ref:
         required: true
         type: string
       target-branch:
         required: true
         type: string
+
+# Security: don't use inputs directly, pass them through ENV, see:
+# https://docs.github.com/en/actions/reference/security/secure-use#use-an-intermediate-environment-variable
+env:
+  LAST_REF: ${{ inputs.last-ref }}
+  TARGET_BRANCH: ${{ inputs.target-branch }}
 
 jobs:
   open-new-pr:
@@ -26,19 +32,19 @@ jobs:
       - name: Setup
         run: |
           sudo apt-get install colordiff
-          echo "BRANCH_NAME=$(date +%Y-%m-%d)/merge-${{ inputs.source-branch }}-into-${{ inputs.target-branch }}" >> "$GITHUB_ENV"
+          echo "BRANCH_NAME=$(date +%Y-%m-%d)/merge-${{ env.LAST_REF }}-into-${{ env.TARGET_BRANCH }}" >> "$GITHUB_ENV"
 
-      - name: Create ${{ env.BRANCH_NAME }} from ${{ inputs.source-branch }}
+      - name: Create ${{ env.BRANCH_NAME }} from ${{ env.LAST_REF }}
         run: |
-          git checkout -b "${{ env.BRANCH_NAME }}" "origin/${{ inputs.source-branch }}"
+          git checkout -b "${{ env.BRANCH_NAME }}" "${{ env.LAST_REF }}"
           git branch
 
-      - name: Rebase ${{ env.BRANCH_NAME }} against ${{ inputs.target-branch }}
+      - name: Rebase ${{ env.BRANCH_NAME }} against ${{ env.TARGET_BRANCH }}
         run: |
           git config --global user.email "creditcoin@gluwa.com"
           git config --global user.name "gluwa-bot"
 
-          git rebase "origin/${{ inputs.target-branch }}"
+          git rebase "origin/${{ env.TARGET_BRANCH }}"
 
       - name: DEBUG
         if: always()
@@ -49,19 +55,19 @@ jobs:
           git diff --diff-filter=U | colordiff
 
           echo "Most Recent Common Ancestor"
-          git merge-base "${{ env.BRANCH_NAME }}" "origin/${{ inputs.target-branch }}" --all
+          git merge-base "${{ env.BRANCH_NAME }}" "origin/${{ env.TARGET_BRANCH }}" --all
 
       - name: Push ${{ env.BRANCH_NAME }}
         run: |
           git push origin "${{ env.BRANCH_NAME }}"
 
-      - name: Open PR against ${{ inputs.target-branch }}
+      - name: Open PR against ${{ env.TARGET_BRANCH }}
         id: open-pr
         uses: rematocorp/open-pull-request-action@v1
         with:
           github-token: ${{ secrets.GLUWA_BOT_TOKEN }}
           from-branch: ${{ env.BRANCH_NAME }}
-          to-branch: ${{ inputs.target-branch }}
+          to-branch: ${{ env.TARGET_BRANCH }}
           repository-owner: ${{ github.repository_owner }}
           repository: ${{ github.event.repository.name }}
 
@@ -104,4 +110,4 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#protocol-internal"
-          message: "${{ inputs.source-branch }} -> ${{ inputs.target-branch }}: https://github.com/gluwa/creditcoin3-next/pull/${{ steps.open-pr.outputs.pull_number }}! Check for results in ~2hrs; cc <@U028EMRHS3S>"
+          message: "${{ env.LAST_REF }} -> ${{ env.TARGET_BRANCH }}: https://github.com/gluwa/creditcoin3-next/pull/${{ steps.open-pr.outputs.pull_number }}! Check for results in ~2hrs; cc <@U028EMRHS3S>"

@@ -184,10 +184,12 @@ impl StreamEvents {
     ) -> Self {
         use futures::TryStreamExt as _;
 
-        let stream = Box::pin(
-            futures::stream::iter(cc_client::Client::extract_events(chain_key, &events))
-                .map_err(|err| Error::Subxt(err.into())),
-        );
+        // Collect so the boxed stream is `'static` (extract_events borrows `events`).
+        let extracted: Vec<_> =
+            cc_client::Client::extract_events(std::slice::from_ref(&chain_key), &events).collect();
+
+        let stream =
+            Box::pin(futures::stream::iter(extracted).map_err(|err| Error::Subxt(err.into())));
 
         Self {
             block_number,

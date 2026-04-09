@@ -27,5 +27,6 @@ std = [
     "sp-api/std",
     "attestor-primitives/std",
     "parity-scale-codec/std",
+    "precompile-utils/std",
     "scale-info/std",
 ]

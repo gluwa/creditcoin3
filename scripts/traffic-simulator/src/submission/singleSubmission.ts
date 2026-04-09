@@ -5,9 +5,9 @@
  */
 
 import type { SimulatorConfig, TxInfo } from "../types.ts";
-import { fetchAndSubmitProof } from "./proofUtils.ts";
+import { fetchAndSubmitProof } from "./proofApi.ts";
 import { withContinuityRetry } from "../utils/retry.ts";
-import { sleep } from "../utils/reconnect.ts";
+import { sleep } from "../utils/sleep.ts";
 
 /**
  * Submit a single proof for a transaction
@@ -55,6 +55,7 @@ export async function submitProofsIndividually(
   config: SimulatorConfig,
   txInfos: TxInfo[],
   delayMs = 1000,
+  onError?: (error: string) => void,
 ): Promise<{ successful: number; failed: number }> {
   let successful = 0;
   let failed = 0;
@@ -66,6 +67,9 @@ export async function submitProofsIndividually(
       successful++;
     } else {
       failed++;
+      if (onError && result.error) {
+        onError(result.error);
+      }
     }
 
     // Add delay between submissions (except for the last one)

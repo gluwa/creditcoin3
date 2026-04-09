@@ -3,6 +3,7 @@ use axum::{
     routing::{get, post},
     Extension, Router,
 };
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -19,16 +20,18 @@ use routes::{continuity, health};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+pub mod extract;
 pub mod middleware;
 pub mod openapi;
 pub mod routes;
 
 pub fn build_app(
     service: Arc<ContinuityService>,
-    chain_key: u64,
+    allowed_chain_keys: HashSet<u64>,
     prom_metrics: Arc<ProofGenMetrics>,
 ) -> Router {
     let metrics: Metrics = prom_metrics.clone() as Metrics;
+    let allowed_chain_keys = Arc::new(allowed_chain_keys);
     // Configure CORS to allow browser-based applications to access the API
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -76,15 +79,20 @@ pub fn build_app(
             middleware::request_metrics_middleware,
         ))
         .layer(Extension(metrics.clone()))
-        .layer(axum::middleware::from_fn_with_state(
-            chain_key,
-            move |request: axum::extract::Request, next: axum::middleware::Next| async move {
-                crate::networking::middleware::chain_key_validator_middleware(
-                    request, next, chain_key,
-                )
-                .await
-            },
-        ))
+        .layer({
+            let allowed_chain_keys = allowed_chain_keys.clone();
+            axum::middleware::from_fn(move |request, next| {
+                let allowed_chain_keys = allowed_chain_keys.clone();
+                async move {
+                    crate::networking::middleware::chain_key_validator_middleware(
+                        request,
+                        next,
+                        allowed_chain_keys,
+                    )
+                    .await
+                }
+            })
+        })
         // CORS must be outside the middleware so error responses also get CORS headers
         .layer(cors)
         .layer(

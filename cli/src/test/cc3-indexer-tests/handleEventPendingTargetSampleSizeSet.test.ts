@@ -66,7 +66,7 @@ describe('handleEventPendingTargetSampleSizeSet()', () => {
         it('graphQL returns known PendingTargetSampleSizeSet entity', async () => {
             const response = await graphQLQuery(
                 `query { pendingTargetSampleSizeSets(
-                    orderBy: BLOCK_NUMBER_ASC, 
+                    orderBy: BLOCK_NUMBER_ASC,
                     filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
                 ) { nodes { id, blockNumber, date, chainKey, targetSampleSize, whoId }}}`,

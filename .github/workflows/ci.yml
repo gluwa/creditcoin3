@@ -4,7 +4,7 @@ name: CI
 # Controls when the action will run.
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
+    branches: [main, usc-testnet, usc-dev]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -133,7 +133,7 @@ jobs:
     secrets: inherit
 
   integration-test-check-extrinsics:
-    if: github.base_ref == 'dev'|| github.base_ref == 'poc_external_attestation_network'
+    if: github.base_ref == 'usc-dev'
     needs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
@@ -511,13 +511,6 @@ jobs:
             ./logs
           include-hidden-files: true
 
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
-
   trigger-integration-test-cli:
     needs:
       - build-creditcoin-node-for-testing-ci
@@ -671,7 +664,7 @@ jobs:
           echo "======================================="
 
       - name: Extra ENV for PRs towards dev branch
-        if: github.base_ref == 'dev'
+        if: github.base_ref == 'usc-dev'
         id: for-dev-prs
         run: |
           echo "========== DEBUG DEBUG DEBUG =========="
@@ -681,7 +674,7 @@ jobs:
           echo "validator_cycle=no" >> "$GITHUB_OUTPUT"
 
       - name: Extra ENV for other PRs and commits
-        if: github.base_ref != 'dev'
+        if: github.base_ref != 'usc-dev'
         id: non-dev-prs
         run: |
           echo "========== DEBUG DEBUG DEBUG =========="
@@ -729,13 +722,6 @@ jobs:
         with:
           name: integration-test-cli-coverage-report
           path: cli/src/test/coverage/
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   deploy-runner-blockchain:
     needs:
@@ -1028,7 +1014,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Devnet
-        if: (github.base_ref == 'dev'|| github.base_ref == 'poc_external_attestation_network') && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: github.base_ref == 'usc-dev' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
@@ -1050,7 +1036,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Testnet
-        if: github.base_ref == 'testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: github.base_ref == 'usc-testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
@@ -1525,13 +1511,6 @@ jobs:
           path: |
             /tmp/attestor-*.std*
             /tmp/creditcoin3-node-*.std*
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   rm-gh-runner-attestor-cli:
     needs:

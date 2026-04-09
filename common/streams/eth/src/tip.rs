@@ -1,9 +1,8 @@
-use crate::Error;
-
-#[derive(builder::Builder)]
+#[derive(builder::Builder, Clone)]
 pub struct Config {
     pub client: eth::Client,
     pub finalization_lag: attestor_primitives::Height,
+    pub start_height: attestor_primitives::Height,
 }
 
 /// Follows the latest Eth chain tip, backed by [`eth::Client`] under the hood.
@@ -11,14 +10,37 @@ pub struct Config {
 /// Implements capped exponential retry without unbounded attempts in order to handle RPC
 /// disconnections. This stream can be considered infinite and will never return [`None`].
 pub struct StreamTip {
-    stream: stream_util::BoxedStream<attestor_primitives::Height>,
+    stream: sync_wrapper::SyncStream<stream_util::BoxedStream<attestor_primitives::Height>>,
+    config: Config,
 }
 
 impl StreamTip {
-    pub async fn new(mut config: Config) -> Result<Self, Error> {
+    pub async fn new(mut config: Config) -> Self {
         use futures::StreamExt as _;
 
-        let mut stream_headers = config.client.subscribe().await.map_err(Error::Client)?;
+        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+            .max_delay(std::time::Duration::from_millis(5_000))
+            .map(tokio_retry::strategy::jitter);
+
+        let reconnect = || {
+            let client = config.client.clone();
+            let start_height = config.start_height;
+
+            async move {
+                let stream = client
+                    .subscribe()
+                    .await?
+                    .skip_while(move |header| futures::future::ready(header.number < start_height))
+                    .boxed();
+
+                Ok::<_, eth::Error>(stream)
+            }
+        };
+
+        let retry = tokio_retry::Retry::spawn(strategy, reconnect);
+        let mut stream_headers = retry.await.expect("Unbounded retry cannot error");
+
+        let backup = config.clone();
 
         let stream = async_stream::stream! {
             let mut tip = None;
@@ -44,9 +66,17 @@ impl StreamTip {
                             tracing::warn!("Reconnecting to Eth...");
 
                             let mut client = config.client.clone();
+                            let start_height = config.start_height;
                             async move {
                                 client.reconnect().await?;
-                                let stream = client.subscribe().await?;
+
+                                let stream = client
+                                    .subscribe()
+                                    .await?
+                                    .skip_while(move |header| {
+                                        futures::future::ready(header.number < start_height)
+                                    })
+                                    .boxed();
 
                                 Ok::<_, eth::Error>((client, stream))
                             }
@@ -63,7 +93,10 @@ impl StreamTip {
         }
         .boxed();
 
-        Ok(Self { stream })
+        Self {
+            stream: sync_wrapper::SyncStream::new(stream),
+            config: backup,
+        }
     }
 }
 
@@ -76,5 +109,14 @@ impl futures::Stream for StreamTip {
     ) -> std::task::Poll<Option<Self::Item>> {
         use futures::StreamExt as _;
         self.stream.poll_next_unpin(cx)
+    }
+}
+
+impl stream_util::ChainData<attestor_primitives::Height> for StreamTip {
+    async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
+        let mut config = self.config.clone();
+        config.start_height = info.height;
+
+        Self::new(config).await
     }
 }

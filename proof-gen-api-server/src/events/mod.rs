@@ -1,5 +1,6 @@
 use anyhow::Result;
 use cc_client::{attestation::CcEvent, Client as CcClient};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -25,7 +26,6 @@ static LAST_ATTESTATIONS: Mutex<Vec<LastAttestation>> = Mutex::new(Vec::new());
 pub type CheckpointIntervalMap = Arc<RwLock<std::collections::HashMap<u64, u64>>>;
 
 /// Last checkpoint block number per chain (stored in Arc<RwLock> for dynamic updates)
-/// Used to quickly determine if a query needs checkpoint data
 pub type LastCheckpointBlockMap = Arc<RwLock<std::collections::HashMap<u64, u64>>>;
 
 /// Get the last attestation for a chain (for local view)
@@ -36,38 +36,39 @@ pub fn get_last_attestation(chain_key: u64) -> Option<LastAttestation> {
         .and_then(|cache| cache.iter().find(|a| a.chain_key == chain_key).cloned())
 }
 
-/// Start CC3 event subscription with automatic reconnection on failure.
-///
-/// This function will continuously attempt to maintain a subscription to CC3 events,
-/// reconnecting with exponential backoff if the connection is lost. Events are logged
-/// and cached in-memory for local view.
-///
-/// Also monitors for checkpoint interval changes and updates the provided map.
-/// Also tracks the last checkpoint block number per chain and updates the builder.
+/// Start a single CC3 event subscription for all configured chain keys (one finalized-block stream).
 pub async fn start_cc3_event_subscription(
     cc3_client: Arc<CcClient>,
-    chain_key: u64,
     checkpoint_intervals: CheckpointIntervalMap,
     last_checkpoint_blocks: LastCheckpointBlockMap,
-    builder: std::sync::Arc<continuity::ContinuityBuilder>,
-    service: std::sync::Arc<ContinuityService>,
+    service: Arc<ContinuityService>,
 ) -> Result<()> {
+    let chain_keys: HashSet<u64> = service.configured_chain_keys();
+    if chain_keys.is_empty() {
+        anyhow::bail!("no chains configured for event subscription");
+    }
+
+    let chain_keys_vec: Vec<u64> = chain_keys.iter().copied().collect();
+
     let mut backoff = INITIAL_BACKOFF;
 
     loop {
-        info!("Starting CC3 event subscription for chain_key: {chain_key}");
+        info!(
+            ?chain_keys,
+            "Starting CC3 event subscription (single task, multi-chain filter)"
+        );
 
-        match cc3_client.subscribe_events(chain_key) {
+        match cc3_client.subscribe_events_chains(&chain_keys_vec) {
             Ok(mut subscription) => {
-                info!("Successfully subscribed to CC3 events for chain_key: {chain_key}");
+                info!(
+                    "Successfully subscribed to CC3 events for chain keys: {:?}",
+                    chain_keys
+                );
                 let mut received_event = false;
 
                 loop {
                     match subscription.next().await {
                         Some(cc_event) => {
-                            // Reset backoff after successfully receiving at least one event,
-                            // not just on connection success. This prevents tight reconnect
-                            // loops when the server accepts connections but immediately drops them.
                             if !received_event {
                                 received_event = true;
                                 backoff = INITIAL_BACKOFF;
@@ -75,23 +76,20 @@ pub async fn start_cc3_event_subscription(
 
                             if let Err(e) = process_cc_event(
                                 &cc_event,
-                                chain_key,
                                 &checkpoint_intervals,
                                 &last_checkpoint_blocks,
-                                &builder,
                                 &service,
                             )
                             .await
                             {
                                 error!("Failed to process CC3 event: {e}");
-                                // Continue processing other events even if one fails
                             }
                         }
                         None => {
                             warn!(
                                 "CC3 event subscription ended unexpectedly, reconnecting in {backoff:?}"
                             );
-                            break; // Break inner loop to reconnect
+                            break;
                         }
                     }
                 }
@@ -106,19 +104,17 @@ pub async fn start_cc3_event_subscription(
     }
 }
 
-/// Process a CC3 event, filtering by chain_key and caching attestations in-memory.
 async fn process_cc_event(
     event: &CcEvent,
-    chain_key: u64,
     checkpoint_intervals: &CheckpointIntervalMap,
     last_checkpoint_blocks: &LastCheckpointBlockMap,
-    builder: &std::sync::Arc<continuity::ContinuityBuilder>,
-    service: &std::sync::Arc<ContinuityService>,
+    service: &Arc<ContinuityService>,
 ) -> Result<()> {
     match event {
         CcEvent::BlockAttested(metadata) => {
-            if metadata.chain_key != chain_key {
-                return Ok(()); // Not our chain, ignore
+            let chain_key = metadata.chain_key;
+            if !service.serves_chain(chain_key) {
+                return Ok(());
             }
 
             let header_number = metadata.header_number;
@@ -127,9 +123,7 @@ async fn process_cc_event(
                 "Processing BlockAttested event: chain_key={chain_key}, header_number={header_number}, digest={digest:?}"
             );
 
-            // Cache in-memory for local view
             if let Ok(mut cache) = LAST_ATTESTATIONS.lock() {
-                // Update or insert last attestation for this chain
                 if let Some(existing) = cache.iter_mut().find(|a| a.chain_key == chain_key) {
                     *existing = LastAttestation {
                         chain_key,
@@ -145,73 +139,86 @@ async fn process_cc_event(
                 }
             }
 
-            // Insert into attestation cache for fast boundary lookups.
-            service.insert_attestation(header_number, digest).await;
+            service
+                .insert_attestation(chain_key, header_number, digest)
+                .await;
 
             info!("Cached attestation in-memory: chain_key={chain_key}, header_number={header_number}");
 
             Ok(())
         }
-        CcEvent::CheckpointReached(checkpoint) => {
+        CcEvent::CheckpointReached(event_chain_key, checkpoint) => {
+            if !service.serves_chain(*event_chain_key) {
+                return Ok(());
+            }
+
             let block_number = checkpoint.block_number;
             let digest = checkpoint.digest;
             info!(
-                "Processing CheckpointReached event: chain_key={chain_key}, block_number={block_number}, digest={digest:?}"
+                "Processing CheckpointReached event: chain_key={event_chain_key}, block_number={block_number}, digest={digest:?}"
             );
 
-            // Update last checkpoint block number for this chain
             let mut checkpoint_blocks = last_checkpoint_blocks.write().await;
-            let current_last = checkpoint_blocks.get(&chain_key).copied().unwrap_or(0);
+            let current_last = checkpoint_blocks.get(event_chain_key).copied().unwrap_or(0);
             if block_number > current_last {
-                checkpoint_blocks.insert(chain_key, block_number);
+                checkpoint_blocks.insert(*event_chain_key, block_number);
                 info!(
-                    "✅ Updated last checkpoint block for chain {chain_key} to {}",
+                    "✅ Updated last checkpoint block for chain {event_chain_key} to {}",
                     block_number
                 );
 
-                // Also update the builder's last checkpoint block for optimization
-                builder.update_last_checkpoint_block(block_number).await;
+                service
+                    .update_builder_last_checkpoint(*event_chain_key, block_number)
+                    .await;
             }
 
-            // Insert into checkpoint cache for fast boundary lookups.
-            service.insert_checkpoint(block_number, digest).await;
+            service
+                .insert_checkpoint(*event_chain_key, block_number, digest)
+                .await;
 
             Ok(())
         }
-        CcEvent::CheckpointIntervalChanged(new_interval) => {
+        CcEvent::CheckpointIntervalChanged(event_chain_key, new_interval) => {
+            if !service.serves_chain(*event_chain_key) {
+                return Ok(());
+            }
             let interval_u64 = *new_interval;
             info!(
-                "⚙️  Checkpoint interval changed for chain {chain_key}: {} attestations",
+                "⚙️  Checkpoint interval changed for chain {event_chain_key}: {} attestations",
                 interval_u64
             );
 
-            // Update the checkpoint interval map
             let mut intervals = checkpoint_intervals.write().await;
-            intervals.insert(chain_key, interval_u64);
+            intervals.insert(*event_chain_key, interval_u64);
 
             info!(
-                "✅ Updated checkpoint interval for chain {chain_key} to {}",
+                "✅ Updated checkpoint interval for chain {event_chain_key} to {}",
                 interval_u64
             );
 
             Ok(())
         }
-        CcEvent::AttestationChainGenesisBlockNumberSet(new_genesis) => {
+        CcEvent::AttestationChainGenesisBlockNumberSet(event_chain_key, new_genesis) => {
+            if !service.serves_chain(*event_chain_key) {
+                return Ok(());
+            }
             let new_genesis = *new_genesis;
             info!(
-                "⚙️  Chain genesis block changed for chain {chain_key}: {}",
+                "⚙️  Chain genesis block changed for chain {event_chain_key}: {}",
                 new_genesis
             );
 
-            service.update_genesis_block(new_genesis).await;
+            service
+                .update_genesis_block(*event_chain_key, new_genesis)
+                .await;
 
             info!(
-                "✅ Updated chain genesis block for chain {chain_key} to {}",
+                "✅ Updated chain genesis block for chain {event_chain_key} to {}",
                 new_genesis
             );
 
             Ok(())
         }
-        _ => Ok(()), // Ignore other event types
+        _ => Ok(()),
     }
 }

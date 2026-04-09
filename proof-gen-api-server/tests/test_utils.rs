@@ -18,6 +18,7 @@ mod anvil_integration {
         ContinuityService,
     };
     use serde_json::Value;
+    use std::collections::HashSet;
     use std::sync::Arc;
 
     /// Sends a test transaction to Anvil and returns the transaction hash.
@@ -168,27 +169,47 @@ mod anvil_integration {
         ))
     }
 
-    /// Starts test app with mock providers.
+    /// Starts test app with mock providers for a single chain (same as [`start_test_app_chains`] with one key).
     pub async fn start_test_app(chain_key: u64) -> Router {
-        let cfg = ContinuityConfig::builder()
-            .cc3_rpc_url("ws://mock")
-            .eth_rpc_url("ws://mock")
-            .chain_key(chain_key)
-            .attestation_interval(10)
-            .checkpoint_interval(10)
-            .build();
+        start_test_app_chains(&[chain_key]).await
+    }
 
-        let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
-        let builder = ContinuityBuilder::new_with_providers(cfg, cc_provider.clone(), eth_provider);
+    /// Starts test app with one [`ContinuityBuilder`] per chain key (multi-chain allowlist + routing).
+    /// `chain_keys` must be non-empty and unique.
+    pub async fn start_test_app_chains(chain_keys: &[u64]) -> Router {
+        assert!(!chain_keys.is_empty(), "chain_keys must not be empty");
+
+        let mut builders: Vec<Arc<ContinuityBuilder>> = Vec::with_capacity(chain_keys.len());
+        let mut allowed = HashSet::new();
+
+        for &chain_key in chain_keys {
+            let cfg = ContinuityConfig::builder()
+                .cc3_rpc_url("ws://mock")
+                .eth_rpc_url("ws://mock")
+                .chain_key(chain_key)
+                .attestation_interval(10)
+                .checkpoint_interval(10)
+                .build();
+
+            let (cc_provider, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
+            let builder =
+                ContinuityBuilder::new_with_providers(cfg, cc_provider.clone(), eth_provider);
+            builders.push(Arc::new(builder));
+            assert!(
+                allowed.insert(chain_key),
+                "duplicate chain_key in start_test_app_chains: {chain_key}"
+            );
+        }
+
         let service = Arc::new(
-            ContinuityService::new(Arc::new(builder), NoopMetrics::new(), 10)
+            ContinuityService::new(builders, NoopMetrics::new(), 10)
                 .await
                 .expect("service init"),
         );
         build_app(
             service,
-            chain_key,
-            std::sync::Arc::new(ProofGenMetrics::new(chain_key)),
+            allowed,
+            std::sync::Arc::new(ProofGenMetrics::new(chain_keys)),
         )
     }
 
@@ -213,4 +234,5 @@ mod anvil_integration {
 #[allow(unused_imports)]
 pub use anvil_integration::{
     assert_h256_str, get_tx_info_via_rpc, send_test_tx_via_alloy, start_test_app,
+    start_test_app_chains,
 };

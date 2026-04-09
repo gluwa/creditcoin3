@@ -3,7 +3,7 @@ name: Docker
 
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
+    branches: [main, usc-testnet, usc-dev]
     paths:
       - '**.rs'
       - '**.toml'
@@ -130,13 +130,6 @@ jobs:
         with:
           name: docker-logs
           path: docker-*.log
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   deploy-runner-docker-build:
     uses: ./.github/workflows/deploy-runner.yml

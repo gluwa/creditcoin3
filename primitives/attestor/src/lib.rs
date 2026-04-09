@@ -11,17 +11,13 @@ use sp_runtime::AccountId32;
 use sp_std::vec::Vec;
 
 pub mod api;
-pub mod attestation_fragment;
 pub mod block;
 pub mod bls;
 pub mod provider;
 // Re-export block types for convenience
 pub use block::{Block, ContinuityBlock, ContinuityProof};
 
-use crate::{
-    attestation_fragment::AttestationFragmentSerializable,
-    bls::{Bls, CryptoScheme},
-};
+use crate::bls::{Bls, CryptoScheme};
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
 /// Attestor struct
@@ -151,7 +147,7 @@ pub struct SignedAttestation<H, AccountId> {
     pub attestation: AttestationData<H>,
     pub signature: BlsSignature,
     pub attestors: Vec<AccountId>,
-    pub continuity_proof: AttestationFragmentSerializable,
+    pub continuity_proof: ContinuityProof,
 }
 
 impl<H, A> SignedAttestation<H, A>
@@ -185,7 +181,7 @@ pub struct Attestation<H, AccountId> {
     pub attestor: AccountId,
     pub signature: sp_core::sr25519::Signature,
     pub signature_bls: <Bls as CryptoScheme>::Signature,
-    pub continuity_proof: AttestationFragmentSerializable,
+    pub continuity_proof: ContinuityProof,
 }
 
 impl<H, AccountId> Attestation<H, AccountId>
