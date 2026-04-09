@@ -15,7 +15,11 @@ jobs:
 
     strategy:
       matrix:
-        config: [devnet, testnet]
+        include:
+          - config: devnet
+            slack_channel_id: C0AR9BM30UU
+          - config: testnet
+            slack_channel_id: C09BX3KSL3C
 
     steps:
       - uses: actions/checkout@v6
@@ -41,8 +45,8 @@ jobs:
       - name: Run USC Audit Automation for ${{ matrix.config }}
         working-directory: scripts/usc-audit-automation
         env:
-          USC_NOTI_SLACK_BOT_TOKEN: ${{ secrets.USC_NOTI_SLACK_BOT_TOKEN}}
-          USC_NOTI_SLACK_CHANNEL_ID: ${{ secrets.USC_NOTI_SLACK_CHANNEL_ID}}
+          USC_NOTI_SLACK_BOT_TOKEN: ${{ secrets.USC_NOTI_SLACK_BOT_TOKEN }}
+          USC_NOTI_SLACK_CHANNEL_ID: ${{ matrix.slack_channel_id }}
           USC_SLACK_ALERT_GROUP: ${{ secrets.USC_SLACK_ALERT_GROUP }}
           SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
           BSC_RPC_URL: ${{ secrets.BSC_RPC_URL }}
