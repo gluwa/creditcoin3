@@ -8,7 +8,7 @@ use crate::{
 
 use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
 
-use pallet_attestation_poc::{Attestations, Checkpoints, LastCheckpoint, LastDigest};
+use pallet_attestation::{Attestations, Checkpoints, LastCheckpoint, LastDigest};
 use precompile_utils::{prelude::UnboundedBytes, testing::*};
 
 use sp_core::{H160, H256};
@@ -96,7 +96,7 @@ fn get_attestation_genesis_height_works() {
         .with_balances(vec![(alice.into(), 300)])
         .build()
         .execute_with(|| {
-            pallet_attestation_poc::AttestationChainGenesisBlockNumber::<Runtime>::insert(
+            pallet_attestation::AttestationChainGenesisBlockNumber::<Runtime>::insert(
                 SUPPORTED_CHAIN_KEY,
                 expected_result,
             );

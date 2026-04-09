@@ -68,7 +68,7 @@ updates:
       - "/common/streams/stream"
       - "/node"
       - "/node/cli-opt"
-      - "/pallets/attestation-poc"
+      - "/pallets/attestation"
       - "/pallets/randomness"
       - "/pallets/supported-chains"
       - "/precompiles/chain-info"

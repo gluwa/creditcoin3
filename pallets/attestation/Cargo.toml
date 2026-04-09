@@ -2,7 +2,7 @@
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
-name = "pallet-attestation-poc"
+name = "pallet-attestation"
 publish.workspace = true
 repository.workspace = true
 version.workspace = true

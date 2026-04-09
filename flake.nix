@@ -227,7 +227,7 @@
         cargo run --features=fast-runtime --release --bin creditcoin3-node -- \
           --dev                                                               \
           --tmp                                                               \
-          --log=info,pallet_attestation_poc=debug                             \
+          --log=info,pallet_attestation=debug                             \
           "$@"
       '';
 

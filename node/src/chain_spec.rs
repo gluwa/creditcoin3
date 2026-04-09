@@ -125,6 +125,7 @@ fn properties() -> Properties {
 const UNITS: Balance = 1_000_000_000_000_000_000;
 const EVM_CHAINID: u64 = 102036;
 
+/// CC3 chainspec configurations
 pub fn devnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/devnetSpecRaw.json")[..])
 }
@@ -133,7 +134,20 @@ pub fn testnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/testnetSpecRaw.json")[..])
 }
 
-pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
+pub fn mainnet_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/mainnetSpecRaw.json")[..])
+}
+
+/// USC chainspec configurations
+pub fn usc_devnet_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/uscDevnetSpecRaw.json")[..])
+}
+
+pub fn usc_testnet_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/uscTestnetSpecRaw.json")[..])
+}
+
+pub fn usc_development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
 
     let rgc = devnet_genesis(
@@ -219,7 +233,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
         .build()
 }
 
-pub fn local_testnet_config() -> ChainSpec {
+pub fn usc_local_testnet_config() -> ChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
 
     const SUDO: &str = "5FTtKTjpLBeYxMFbrG3eMMpMQgj4uaQ2tsy3PZSemFDZTEZw";

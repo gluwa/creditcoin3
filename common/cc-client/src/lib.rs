@@ -925,7 +925,7 @@ impl Client {
         genesis_block_number: u64,
     ) -> Result<(), Error> {
         let call = cc3::runtime_types::creditcoin3_runtime::RuntimeCall::Attestation(
-            cc3::runtime_types::pallet_attestation_poc::pallet::Call::set_attestation_chain_genesis_block_number { chain_key, genesis_block_number }
+            cc3::runtime_types::pallet_attestation::pallet::Call::set_attestation_chain_genesis_block_number { chain_key, genesis_block_number }
         );
 
         let tx = cc3::tx().sudo().sudo(call);

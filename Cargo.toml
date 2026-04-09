@@ -4,7 +4,7 @@ members = [
     "node",
     "runtime",
     "runtime/generate-bags",
-    "pallets/attestation-poc",
+    "pallets/attestation",
     "pallets/randomness",
     "pallets/supported-chains",
     "primitives/attestor",
@@ -12,7 +12,8 @@ members = [
     "primitives/supported-chains",
     "primitives/user",
     "precompiles/chain-info",
-    "precompiles/signature-verifier",
+    "precompiles/ed25519-verifier",
+    "precompiles/sr25519-verifier",
     "precompiles/substrate-transfer",
     "precompiles/block-prover",
     "common/cc-client",
@@ -44,6 +45,7 @@ version = "3.107.0"
 
 [workspace.dependencies]
 assert_matches = "1.5.0"
+bn = { package = "substrate-bn", version = "0.6", default-features = false }
 proptest = "1.10.0"
 rstest = "0.26.1"
 sync_wrapper = "1.0.2"
@@ -127,6 +129,7 @@ frame-benchmarking = { git = "https://github.com/paritytech/polkadot-sdk", branc
 frame-benchmarking-cli = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 frame-election-provider-support = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 frame-executive = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
+frame-metadata-hash-extension = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 frame-support = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 frame-system = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 frame-system-benchmarking = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
@@ -238,6 +241,7 @@ pallet-evm-chain-id = { git = "https://github.com/gluwa/frontier_2", branch = "s
 pallet-evm-precompile-modexp = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 pallet-evm-precompile-sha3fips = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 pallet-evm-precompile-simple = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
+pallet-evm-precompile-bn128 = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 pallet-evm-test-vector-support = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch" }
 pallet-hotfix-sufficients = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
 subxt = { version = "0.40", features = ["reconnecting-rpc-client"] }
@@ -248,16 +252,23 @@ precompile-utils = { git = "https://github.com/gluwa/frontier_2", branch = "stab
 
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
-pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = false }
+pallet-attestation = { path = "pallets/attestation", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
+pallet-randomness = { path = "pallets/randomness", default-features = false }
+
+# Encoding
 usc-abi-encoding = { version = "0.5" }
 usc-query-builder = { version = "0.7" }
 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }
+# Usc
 pallet-evm-precompile-block-prover = { path = "precompiles/block-prover", default-features = false }
 pallet-evm-precompile-chain-info = { path = "precompiles/chain-info", default-features = false }
-pallet-evm-precompile-signature-verifier = { path = "precompiles/signature-verifier", default-features = false }
+# Signature verifier
+pallet-evm-precompile-ed25519-verifier = { path = "precompiles/ed25519-verifier", default-features = false }
+pallet-evm-precompile-sr25519-verifier = { path = "precompiles/sr25519-verifier", default-features = false }
+# Substrate transfer
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 
 # Tracing
@@ -291,8 +302,6 @@ attestor = { path = "attestor/attestor" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
 
-# Randomness
-pallet-randomness = { path = "pallets/randomness", default-features = false }
 # Using an old version of rand as it is already in the dependency graph
 rand = { version = "0.9.0", default-features = false }
 randomness-primitives = { path = "primitives/randomness", default-features = false }

@@ -1,11 +1,12 @@
 [package]
 authors = { workspace = true }
-description = "A Precompile to verify Substrate signatures"
+description = "A Precompile to verify ed25519 signatures"
 edition = "2021"
-name = "pallet-evm-precompile-signature-verifier"
+name = "pallet-evm-precompile-ed25519-verifier"
 version = "0.1.0"
 
 [dependencies]
+log = { workspace = true }
 
 # Moonbeam
 precompile-utils = { workspace = true }
@@ -36,6 +37,7 @@ serde = { workspace = true }
 [features]
 default = ["std"]
 std = [
+    "log/std",
     "precompile-utils/std",
     "fp-evm/std",
     "frame-support/std",

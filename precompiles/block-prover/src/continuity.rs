@@ -45,7 +45,7 @@ fn continuity_revert(err: ContinuityVerificationError) -> PrecompileFailure {
 
 impl<Runtime> BlockProverPrecompile<Runtime>
 where
-    Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation_poc::Config,
+    Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation::Config,
     Runtime::Hash: Into<H256>,
     H256: Into<Runtime::Hash>,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
