@@ -1104,8 +1104,8 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'NewBaseFeePerGas' | 'BaseFeeOverflow' | 'NewElasticity';
     }
 
-    /** @name PalletAttestationPocEvent (93) */
-    interface PalletAttestationPocEvent extends Enum {
+    /** @name PalletAttestationEvent (93) */
+    interface PalletAttestationEvent extends Enum {
         readonly isAttestorRegistered: boolean;
         readonly asAttestorRegistered: ITuple<[u64, AccountId32]>;
         readonly isAttestorUnregistered: boolean;
@@ -1168,7 +1168,7 @@ declare module '@polkadot/types/lookup' {
         readonly isAttestationChainGenesisBlockNumberSet: boolean;
         readonly asAttestationChainGenesisBlockNumberSet: ITuple<[u64, u64]>;
         readonly isChangedElectionPolicy: boolean;
-        readonly asChangedElectionPolicy: ITuple<[u64, PalletAttestationPocAttestorElectionPolicy]>;
+        readonly asChangedElectionPolicy: ITuple<[u64, PalletAttestationAttestorElectionPolicy]>;
         readonly isAuthorizedAttestorAdded: boolean;
         readonly asAuthorizedAttestorAdded: ITuple<[u64, AccountId32]>;
         readonly isAuthorizedAttestorRemoved: boolean;
@@ -1223,8 +1223,8 @@ declare module '@polkadot/types/lookup' {
         readonly digest: H256;
     }
 
-    /** @name PalletAttestationPocAttestorElectionPolicy (97) */
-    interface PalletAttestationPocAttestorElectionPolicy extends Enum {
+    /** @name PalletAttestationAttestorElectionPolicy (97) */
+    interface PalletAttestationAttestorElectionPolicy extends Enum {
         readonly isOpenToAny: boolean;
         readonly isAuthorizedOnly: boolean;
         readonly isDeniedToAll: boolean;
@@ -2958,8 +2958,8 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'HotfixIncAccountSufficients';
     }
 
-    /** @name PalletAttestationPocCall (322) */
-    interface PalletAttestationPocCall extends Enum {
+    /** @name PalletAttestationCall (322) */
+    interface PalletAttestationCall extends Enum {
         readonly isSetChainAttestationInterval: boolean;
         readonly asSetChainAttestationInterval: {
             readonly chainKey: u64;
@@ -3039,7 +3039,7 @@ declare module '@polkadot/types/lookup' {
         readonly isSetElectionPolicy: boolean;
         readonly asSetElectionPolicy: {
             readonly chainKey: u64;
-            readonly newPolicy: PalletAttestationPocAttestorElectionPolicy;
+            readonly newPolicy: PalletAttestationAttestorElectionPolicy;
         } & Struct;
         readonly isAuthorizeAttestor: boolean;
         readonly asAuthorizeAttestor: {
@@ -3617,28 +3617,28 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'Active' | 'Idle' | 'Waiting';
     }
 
-    /** @name PalletAttestationPocLedgerAttestorLedger (411) */
-    interface PalletAttestationPocLedgerAttestorLedger extends Struct {
+    /** @name PalletAttestationLedgerAttestorLedger (411) */
+    interface PalletAttestationLedgerAttestorLedger extends Struct {
         readonly stash: AccountId32;
         readonly totalStaked: Compact<u128>;
         readonly active: Compact<u128>;
-        readonly unlocking: Vec<PalletAttestationPocLedgerUnlockChunk>;
+        readonly unlocking: Vec<PalletAttestationLedgerUnlockChunk>;
     }
 
-    /** @name PalletAttestationPocLedgerUnlockChunk (413) */
-    interface PalletAttestationPocLedgerUnlockChunk extends Struct {
+    /** @name PalletAttestationLedgerUnlockChunk (413) */
+    interface PalletAttestationLedgerUnlockChunk extends Struct {
         readonly value: Compact<u128>;
         readonly era: Compact<u32>;
     }
 
-    /** @name PalletAttestationPocClearOrRevertCheckpointPruningState (415) */
-    interface PalletAttestationPocClearOrRevertCheckpointPruningState extends Struct {
+    /** @name PalletAttestationClearOrRevertCheckpointPruningState (415) */
+    interface PalletAttestationClearOrRevertCheckpointPruningState extends Struct {
         readonly stopHeight: u64;
         readonly nextPivot: u64;
     }
 
-    /** @name PalletAttestationPocError (416) */
-    interface PalletAttestationPocError extends Enum {
+    /** @name PalletAttestationError (416) */
+    interface PalletAttestationError extends Enum {
         readonly isAlreadyAttestor: boolean;
         readonly isAttestorListFull: boolean;
         readonly isAddressNotAttestor: boolean;
@@ -3795,6 +3795,18 @@ declare module '@polkadot/types/lookup' {
     /** @name PalletTransactionPaymentChargeTransactionPayment (433) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name Creditcoin3RuntimeRuntime (435) */
+    /** @name FrameMetadataHashExtensionCheckMetadataHash (434) */
+    interface FrameMetadataHashExtensionCheckMetadataHash extends Struct {
+        readonly mode: FrameMetadataHashExtensionMode;
+    }
+
+    /** @name FrameMetadataHashExtensionMode (435) */
+    interface FrameMetadataHashExtensionMode extends Enum {
+        readonly isDisabled: boolean;
+        readonly isEnabled: boolean;
+        readonly type: 'Disabled' | 'Enabled';
+    }
+
+    /** @name Creditcoin3RuntimeRuntime (437) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module

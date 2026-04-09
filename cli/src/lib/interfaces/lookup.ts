@@ -888,7 +888,7 @@ export default {
     /**
      * Lookup93: pallet_attestation::pallet::Event<T>
      **/
-    PalletAttestationPocEvent: {
+    PalletAttestationEvent: {
         _enum: {
             AttestorRegistered: '(u64,AccountId32)',
             AttestorUnregistered: '(u64,AccountId32)',
@@ -927,7 +927,7 @@ export default {
             ClearedStorageForRemovedChain: 'u64',
             MaxAttestorsChanged: '(u64,u32)',
             AttestationChainGenesisBlockNumberSet: '(u64,u64)',
-            ChangedElectionPolicy: '(u64,PalletAttestationPocAttestorElectionPolicy)',
+            ChangedElectionPolicy: '(u64,PalletAttestationAttestorElectionPolicy)',
             AuthorizedAttestorAdded: '(u64,AccountId32)',
             AuthorizedAttestorRemoved: '(u64,AccountId32)',
             ForcedElection: {
@@ -951,7 +951,7 @@ export default {
     /**
      * Lookup97: pallet_attestation::pallet::AttestorElectionPolicy
      **/
-    PalletAttestationPocAttestorElectionPolicy: {
+    PalletAttestationAttestorElectionPolicy: {
         _enum: ['OpenToAny', 'AuthorizedOnly', 'DeniedToAll'],
     },
     /**
@@ -2535,7 +2535,7 @@ export default {
     /**
      * Lookup322: pallet_attestation::pallet::Call<T>
      **/
-    PalletAttestationPocCall: {
+    PalletAttestationCall: {
         _enum: {
             set_chain_attestation_interval: {
                 chainKey: 'u64',
@@ -2605,7 +2605,7 @@ export default {
             __Unused20: 'Null',
             set_election_policy: {
                 chainKey: 'u64',
-                newPolicy: 'PalletAttestationPocAttestorElectionPolicy',
+                newPolicy: 'PalletAttestationAttestorElectionPolicy',
             },
             authorize_attestor: {
                 chainKey: 'u64',
@@ -3080,30 +3080,30 @@ export default {
     /**
      * Lookup411: pallet_attestation::ledger::AttestorLedger<T>
      **/
-    PalletAttestationPocLedgerAttestorLedger: {
+    PalletAttestationLedgerAttestorLedger: {
         stash: 'AccountId32',
         totalStaked: 'Compact<u128>',
         active: 'Compact<u128>',
-        unlocking: 'Vec<PalletAttestationPocLedgerUnlockChunk>',
+        unlocking: 'Vec<PalletAttestationLedgerUnlockChunk>',
     },
     /**
      * Lookup413: pallet_attestation::ledger::UnlockChunk<Balance>
      **/
-    PalletAttestationPocLedgerUnlockChunk: {
+    PalletAttestationLedgerUnlockChunk: {
         value: 'Compact<u128>',
         era: 'Compact<u32>',
     },
     /**
      * Lookup415: pallet_attestation::clear_or_revert::CheckpointPruningState
      **/
-    PalletAttestationPocClearOrRevertCheckpointPruningState: {
+    PalletAttestationClearOrRevertCheckpointPruningState: {
         stopHeight: 'u64',
         nextPivot: 'u64',
     },
     /**
      * Lookup416: pallet_attestation::pallet::Error<T>
      **/
-    PalletAttestationPocError: {
+    PalletAttestationError: {
         _enum: [
             'AlreadyAttestor',
             'AttestorListFull',
@@ -3213,7 +3213,19 @@ export default {
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup435: creditcoin3_runtime::Runtime
+     * Lookup434: frame_metadata_hash_extension::CheckMetadataHash<T>
+     **/
+    FrameMetadataHashExtensionCheckMetadataHash: {
+        mode: 'FrameMetadataHashExtensionMode',
+    },
+    /**
+     * Lookup435: frame_metadata_hash_extension::Mode
+     **/
+    FrameMetadataHashExtensionMode: {
+        _enum: ['Disabled', 'Enabled'],
+    },
+    /**
+     * Lookup437: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };
