@@ -87,7 +87,7 @@ type MaxBatchSize = sp_core::ConstU32<10>;
 #[precompile_utils::precompile]
 impl<Runtime> BlockProverPrecompile<Runtime>
 where
-    Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation_poc::Config,
+    Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation::Config,
     Runtime::Hash: Into<H256>,
     H256: Into<Runtime::Hash>,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
@@ -346,7 +346,7 @@ where
     {
         // Charge for attestation storage lookup
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
-        Ok(pallet_attestation_poc::Pallet::<Runtime>::attestations(
+        Ok(pallet_attestation::Pallet::<Runtime>::attestations(
             chain_key, digest,
         ))
     }
@@ -358,7 +358,7 @@ where
     /// Currently unused but kept for potential future optimizations.
     #[allow(dead_code)]
     fn last_checkpoint(chain_key: u64) -> Option<attestor_primitives::AttestationCheckpoint> {
-        pallet_attestation_poc::Pallet::<Runtime>::last_checkpoint(chain_key)
+        pallet_attestation::Pallet::<Runtime>::last_checkpoint(chain_key)
     }
 
     /// Check if a digest corresponds to a checkpoint
@@ -375,7 +375,7 @@ where
     ) -> EvmResult<Option<H256>> {
         // Charge for checkpoint storage lookup only if we need to check it
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
-        Ok(pallet_attestation_poc::Pallet::<Runtime>::checkpoints(
+        Ok(pallet_attestation::Pallet::<Runtime>::checkpoints(
             chain_key,
             block_number,
         ))

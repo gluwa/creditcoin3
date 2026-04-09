@@ -10,9 +10,15 @@ use pallet_evm_precompile_modexp::Modexp;
 use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
 
+use pallet_evm_precompile_bn128::{Bn128Add, Bn128Mul, Bn128Pairing};
+
+// USC Precompiles
 use pallet_evm_precompile_block_prover::BlockProverPrecompile;
 use pallet_evm_precompile_chain_info::ChainInfoPrecompile;
-use pallet_evm_precompile_signature_verifier::SignatureVerifierPrecompile;
+// Signature verifier
+use pallet_evm_precompile_ed25519_verifier::Ed25519VerifierPrecompile;
+use pallet_evm_precompile_sr25519_verifier::Sr25519VerifierPrecompile;
+// Substrate specifics
 use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
 
 pub struct GluwaPrecompiles<R>(PhantomData<R>);
@@ -24,11 +30,12 @@ where
     pub fn new() -> Self {
         Self(Default::default())
     }
-    pub fn used_addresses() -> [H160; 11] {
+    pub fn used_addresses() -> [H160; 15] {
         used_addresses()
         // see fn execute() below for an address-->precompile map
     }
 }
+
 impl<R> PrecompileSet for GluwaPrecompiles<R>
 where
     SubstrateTransferPrecompile<R>: Precompile,
@@ -42,6 +49,9 @@ where
             a if a == hash(3) => Some(Ripemd160::execute(handle)),
             a if a == hash(4) => Some(Identity::execute(handle)),
             a if a == hash(5) => Some(Modexp::execute(handle)),
+            a if a == hash(6) => Some(Bn128Add::execute(handle)),
+            a if a == hash(7) => Some(Bn128Mul::execute(handle)),
+            a if a == hash(8) => Some(Bn128Pairing::execute(handle)),
             // Non-Frontier specific nor Ethereum precompiles :
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
@@ -49,7 +59,8 @@ where
             a if a == hash(4049) => Some(SubstrateTransferPrecompile::<R, ()>::execute(handle)),
             a if a == hash(4050) => Some(BlockProverPrecompile::<Runtime>::execute(handle)),
             a if a == hash(4051) => Some(ChainInfoPrecompile::<Runtime>::execute(handle)),
-            a if a == hash(5049) => Some(SignatureVerifierPrecompile::<R>::execute(handle)),
+            a if a == hash(5049) => Some(Sr25519VerifierPrecompile::<R>::execute(handle)),
+            a if a == hash(5050) => Some(Ed25519VerifierPrecompile::<R>::execute(handle)),
             _ => None,
         }
     }
@@ -67,19 +78,23 @@ fn hash(a: u64) -> H160 {
     H160::from_low_u64_be(a)
 }
 
-pub fn used_addresses() -> [H160; 11] {
+pub fn used_addresses() -> [H160; 15] {
     [
         hash(1),    // 0x0000000000000000000000000000000000000001
         hash(2),    // 0x0000000000000000000000000000000000000002
         hash(3),    // 0x0000000000000000000000000000000000000003
         hash(4),    // 0x0000000000000000000000000000000000000004
         hash(5),    // 0x0000000000000000000000000000000000000005
+        hash(6),    // 0x0000000000000000000000000000000000000006
+        hash(7),    // 0x0000000000000000000000000000000000000007
+        hash(8),    // 0x0000000000000000000000000000000000000008
         hash(1024), // 0x0000000000000000000000000000000000000400
         hash(1025), // 0x0000000000000000000000000000000000000401
         hash(4049), // 0x0000000000000000000000000000000000000Fd1
         hash(4050), // 0x0000000000000000000000000000000000000Fd2
         hash(4051), // 0x0000000000000000000000000000000000000fD3
         hash(5049), // 0x00000000000000000000000000000000000013B9
+        hash(5050), // 0x00000000000000000000000000000000000013BA
     ]
     // see fn execute() below for an address-->precompile map
 }

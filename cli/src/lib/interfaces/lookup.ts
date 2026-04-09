@@ -886,7 +886,7 @@ export default {
         },
     },
     /**
-     * Lookup93: pallet_attestation_poc::pallet::Event<T>
+     * Lookup93: pallet_attestation::pallet::Event<T>
      **/
     PalletAttestationPocEvent: {
         _enum: {
@@ -949,7 +949,7 @@ export default {
         digest: 'H256',
     },
     /**
-     * Lookup97: pallet_attestation_poc::pallet::AttestorElectionPolicy
+     * Lookup97: pallet_attestation::pallet::AttestorElectionPolicy
      **/
     PalletAttestationPocAttestorElectionPolicy: {
         _enum: ['OpenToAny', 'AuthorizedOnly', 'DeniedToAll'],
@@ -2533,7 +2533,7 @@ export default {
         },
     },
     /**
-     * Lookup322: pallet_attestation_poc::pallet::Call<T>
+     * Lookup322: pallet_attestation::pallet::Call<T>
      **/
     PalletAttestationPocCall: {
         _enum: {
@@ -3078,7 +3078,7 @@ export default {
         _enum: ['Active', 'Idle', 'Waiting'],
     },
     /**
-     * Lookup411: pallet_attestation_poc::ledger::AttestorLedger<T>
+     * Lookup411: pallet_attestation::ledger::AttestorLedger<T>
      **/
     PalletAttestationPocLedgerAttestorLedger: {
         stash: 'AccountId32',
@@ -3087,21 +3087,21 @@ export default {
         unlocking: 'Vec<PalletAttestationPocLedgerUnlockChunk>',
     },
     /**
-     * Lookup413: pallet_attestation_poc::ledger::UnlockChunk<Balance>
+     * Lookup413: pallet_attestation::ledger::UnlockChunk<Balance>
      **/
     PalletAttestationPocLedgerUnlockChunk: {
         value: 'Compact<u128>',
         era: 'Compact<u32>',
     },
     /**
-     * Lookup415: pallet_attestation_poc::clear_or_revert::CheckpointPruningState
+     * Lookup415: pallet_attestation::clear_or_revert::CheckpointPruningState
      **/
     PalletAttestationPocClearOrRevertCheckpointPruningState: {
         stopHeight: 'u64',
         nextPivot: 'u64',
     },
     /**
-     * Lookup416: pallet_attestation_poc::pallet::Error<T>
+     * Lookup416: pallet_attestation::pallet::Error<T>
      **/
     PalletAttestationPocError: {
         _enum: [
