@@ -31,7 +31,7 @@ import type {
     EvmCoreErrorExitReason,
     FrameSupportDispatchDispatchInfo,
     FrameSupportTokensMiscBalanceStatus,
-    PalletAttestationPocAttestorElectionPolicy,
+    PalletAttestationAttestorElectionPolicy,
     PalletImOnlineSr25519AppSr25519Public,
     PalletNominationPoolsCommissionChangeRate,
     PalletNominationPoolsCommissionClaimPermission,
@@ -84,7 +84,7 @@ declare module '@polkadot/api-base/types/events' {
             /**
              * Note a change in the attestor election policy.
              **/
-            ChangedElectionPolicy: AugmentedEvent<ApiType, [u64, PalletAttestationPocAttestorElectionPolicy]>;
+            ChangedElectionPolicy: AugmentedEvent<ApiType, [u64, PalletAttestationAttestorElectionPolicy]>;
             CheckpointIntervalChanged: AugmentedEvent<ApiType, [u64, u32]>;
             CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesAttestationCheckpoint]>;
             /**
