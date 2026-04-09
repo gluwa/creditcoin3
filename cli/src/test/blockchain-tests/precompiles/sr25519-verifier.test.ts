@@ -6,10 +6,10 @@ import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../artifacts/signature_verifier.json');
+import contractABIJSON = require('../artifacts/sr25519_verifier.json');
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 
-describe('Precompile: SignatureVerifier.verify()', (): void => {
+describe('Precompile: Sr25519Verifier.verify()', (): void => {
     let contract: any;
     let provider: any;
     let alith: any;
@@ -210,7 +210,8 @@ describe('Precompile: SignatureVerifier.verify()', (): void => {
 
             // Tamper with the signature (flip a bit)
             const tamperedSignature = new Uint8Array(signature);
-            tamperedSignature[0] = 0x01;
+            // eslint-disable-next-line no-bitwise
+            tamperedSignature[0] ^= 0x01;
 
             // Convert to hex strings
             const messageHex = u8aToHex(messageBytes);
@@ -272,12 +273,12 @@ describe('Precompile: SignatureVerifier.verify()', (): void => {
             ).rejects.toThrow(/Value is too large for length/);
         });
 
-        test('should revert for message exceeding 1MB limit', async () => {
+        test('should revert for message exceeding 3MB limit', async () => {
             // Generate a keypair
             const pair = keyring.addFromMnemonic(mnemonicGenerate());
 
-            // Create a message larger than 1MB (1MB + 1 byte)
-            const largeMessage = 'A'.repeat(1048577);
+            // Create a message larger than 3MB (3MB + 1 byte)
+            const largeMessage = 'A'.repeat(3145729);
             const messageBytes = new TextEncoder().encode(largeMessage);
 
             // Sign the message (this will work in substrate)
@@ -292,7 +293,7 @@ describe('Precompile: SignatureVerifier.verify()', (): void => {
             await expect(
                 contract.verify(messageHex, signatureHex, publicKeyHex, {
                     gasPrice,
-                    gasLimit: 30000000, // Higher gas limit
+                    gasLimit: 75_000_000,
                 }),
             ).rejects.toThrow(/Value is too large for length/);
         }, 120_000);
