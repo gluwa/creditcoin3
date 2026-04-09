@@ -22,7 +22,7 @@ if [[ "$SUFFIX_FROM_GIT_TAG" == "devnet" && "$NEAREST_GIT_BRANCH" == "usc-dev" ]
     exit 0
 fi
 
-if [[ "$SUFFIX_FROM_GIT_TAG" == "testnet" && "$NEAREST_GIT_BRANCH" == "testnet" ]]; then
+if [[ "$SUFFIX_FROM_GIT_TAG" == "testnet" && "$NEAREST_GIT_BRANCH" == "usc-testnet" ]]; then
     echo "PASS: good match for -testnet releases"
     exit 0
 fi
