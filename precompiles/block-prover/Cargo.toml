@@ -22,7 +22,7 @@ precompile-utils = { workspace = true }
 attestor-primitives = { workspace = true }
 
 # Pallets
-pallet-attestation-poc = { workspace = true, default-features = false }
+pallet-attestation = { workspace = true, default-features = false }
 
 # Utils
 merkle = { workspace = true, default-features = false, features = [
@@ -54,7 +54,7 @@ ethabi = { workspace = true, default-features = false }
 derive_more = { workspace = true }
 env_logger = { workspace = true }
 frame-election-provider-support = { workspace = true }
-pallet-attestation-poc = { workspace = true }
+pallet-attestation = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
@@ -83,7 +83,7 @@ std = [
     "sp-runtime/std",
     "sp-std/std",
     "pallet-supported-chains/std",
-    "pallet-attestation-poc/std",
+    "pallet-attestation/std",
     "attestor-primitives/std",
     "pallet-babe/std",
     "utils/std",

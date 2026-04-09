@@ -4,7 +4,7 @@ This document will explain the inner workings of the attestation network and it'
 
 ## Components
 
-- Attestation Pallet `(./pallets/attestation-poc)`
+- Attestation Pallet `(./pallets/attestation)`
 - Client `./client/attestor-gossip`
 - Client RPC `./client-attestor-rpc`
 - Node (creditcoin3-next node)

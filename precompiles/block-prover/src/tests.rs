@@ -156,8 +156,8 @@ pub(crate) fn setup_attestation(chain_key: u64, block_number: u64, digest: H256)
         continuity_proof: ContinuityProof::default(),
     };
 
-    pallet_attestation_poc::Attestations::<Runtime>::insert(chain_key, digest, signed_attestation);
-    pallet_attestation_poc::LastDigest::<Runtime>::insert(chain_key, (block_number, digest));
+    pallet_attestation::Attestations::<Runtime>::insert(chain_key, digest, signed_attestation);
+    pallet_attestation::LastDigest::<Runtime>::insert(chain_key, (block_number, digest));
 }
 
 /// Helper function to set up both lower and upper attestations for a test scenario
@@ -180,8 +180,8 @@ pub(crate) fn setup_scenario_attestations(scenario: &TestScenario) {
 /// Helper to setup checkpoint in storage
 fn setup_checkpoint(chain_key: u64, block_number: u64, digest: H256) {
     let checkpoint = AttestationCheckpoint::new(block_number, digest);
-    pallet_attestation_poc::Checkpoints::<Runtime>::insert(chain_key, block_number, digest);
-    pallet_attestation_poc::LastCheckpoint::<Runtime>::insert(chain_key, checkpoint);
+    pallet_attestation::Checkpoints::<Runtime>::insert(chain_key, block_number, digest);
+    pallet_attestation::LastCheckpoint::<Runtime>::insert(chain_key, checkpoint);
 }
 
 pub(crate) fn precompiles() -> Precompiles<Runtime> {
