@@ -5,7 +5,7 @@ name: CI
 on:
   # Triggers the workflow on push or pull request events but only for the master branch
   push:
-    branches: [main, testnet, dev]
+    branches: [main, cc3-testnet, cc3-dev]
   pull_request:
 
   # Allows you to run this workflow manually from the Actions tab
@@ -194,7 +194,7 @@ jobs:
 
   git-rebase-sanity-check:
     runs-on: ubuntu-24.04
-    if: github.base_ref == 'dev'
+    if: github.base_ref == 'cc3-dev'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -206,16 +206,16 @@ jobs:
       - name: Setup
         run: |
           sudo apt-get install colordiff
-          echo "BRANCH_NAME=rebase-dev+pr-${{ github.event.pull_request.number }}-onto-testnet" >> "$GITHUB_ENV"
+          echo "BRANCH_NAME=rebase-dev+pr-${{ github.event.pull_request.number }}-onto-cc3-testnet" >> "$GITHUB_ENV"
 
-      - name: Rebase current PR against `testnet`
+      - name: Rebase current PR against `cc3-testnet`
         run: |
           git config --global user.email "creditcoin@gluwa.com"
           git config --global user.name "gluwa-bot"
 
           git checkout -b "${{ env.BRANCH_NAME }}"
           git branch
-          git rebase "origin/testnet"
+          git rebase "origin/cc3-testnet"
 
       - name: DEBUG
         if: always()
@@ -226,7 +226,7 @@ jobs:
           git diff --diff-filter=U | colordiff
 
           echo "Most Recent Common Ancestor"
-          git merge-base "${{ env.BRANCH_NAME }}" origin/testnet --all
+          git merge-base "${{ env.BRANCH_NAME }}" origin/cc3-testnet --all
 
 
   sanity-tests:
@@ -311,13 +311,13 @@ jobs:
 
       - name: Prepare ENV for Devnet
         id: devnet-env
-        if: github.base_ref == 'dev'
+        if: github.base_ref == 'cc3-dev'
         run: |
           echo "target_chain=devnet" >> "$GITHUB_OUTPUT"
 
       - name: Prepare ENV for Testnet
         id: testnet-env
-        if: github.base_ref == 'testnet'
+        if: github.base_ref == 'cc3-testnet'
         run: |
           echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
 
@@ -831,7 +831,7 @@ jobs:
           fi
 
       - name: Extra ENV for PRs towards dev branch
-        if: github.base_ref == 'dev'
+        if: github.base_ref == 'cc3-dev'
         id: for-dev-prs
         run: |
           echo "========== DEBUG DEBUG DEBUG =========="
@@ -841,7 +841,7 @@ jobs:
           echo "validator_cycle=no" >> "$GITHUB_OUTPUT"
 
       - name: Extra ENV for other PRs and commits
-        if: github.base_ref != 'dev'
+        if: github.base_ref != 'cc3-dev'
         id: non-dev-prs
         run: |
           echo "========== DEBUG DEBUG DEBUG =========="
@@ -1197,7 +1197,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: yes
 
       - name: Deploy contract(s) to Creditcoin Devnet
-        if: github.base_ref == 'dev' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: github.base_ref == 'cc3-dev' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
@@ -1211,7 +1211,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: yes
 
       - name: Deploy contract(s) to Creditcoin Testnet
-        if: github.base_ref == 'testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: github.base_ref == 'cc3-testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
