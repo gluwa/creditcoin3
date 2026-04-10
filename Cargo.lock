@@ -2921,6 +2921,7 @@ dependencies = [
  "log",
  "moonbeam-evm-tracer",
  "moonbeam-rpc-primitives-debug",
+ "pallet-attest-coin-rewards",
  "pallet-attestation",
  "pallet-authorship",
  "pallet-babe",
@@ -2931,6 +2932,7 @@ dependencies = [
  "pallet-ethereum",
  "pallet-evm",
  "pallet-evm-chain-id",
+ "pallet-evm-precompile-attest-coin",
  "pallet-evm-precompile-attestor-stash",
  "pallet-evm-precompile-block-prover",
  "pallet-evm-precompile-bn128",
@@ -8999,6 +9001,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-attest-coin-rewards"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-attestation",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-attestation"
 version = "3.120.0"
 dependencies = [
@@ -9190,6 +9206,19 @@ dependencies = [
  "frame-system",
  "parity-scale-codec",
  "scale-info",
+]
+
+[[package]]
+name = "pallet-evm-precompile-attest-coin"
+version = "0.1.0"
+dependencies = [
+ "fp-evm",
+ "frame-system",
+ "pallet-attest-coin-rewards",
+ "pallet-attestation",
+ "pallet-evm",
+ "sp-core",
+ "sp-std",
 ]
 
 [[package]]
