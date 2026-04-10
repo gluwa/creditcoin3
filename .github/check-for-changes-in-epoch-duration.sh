@@ -74,7 +74,7 @@ check_slot_duration() {
 
 #### main part
 
-FROM=$(git rev-parse "${1:-origin/dev}")
+FROM=$(git rev-parse "${1:-origin/cc3-dev}")
 TO=$(git rev-parse "${2:-HEAD}")
 
 yellowprint "DEBUG: Inspecting range $FROM...$TO"

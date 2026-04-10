@@ -3,7 +3,7 @@ name: Check runtime changes
 
 on:
   pull_request:
-    branches: [dev, testnet, main]
+    branches: [cc3-dev, cc3-testnet, main]
 
 permissions: read-all
 

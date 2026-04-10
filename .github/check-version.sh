@@ -37,7 +37,7 @@ if [ "$VERSION_FROM_CARGO_TOML" != "$VERSION_FROM_VERSION_RS" ]; then
 fi
 
 
-FROM=$(git rev-parse "${1:-origin/dev}")
+FROM=$(git rev-parse "${1:-origin/cc3-dev}")
 TO=$(git rev-parse "${2:-HEAD}")
 
 greenprint "DEBUG: Inspecting range $FROM..$TO"
