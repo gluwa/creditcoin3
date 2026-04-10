@@ -15,7 +15,7 @@ jobs:
 
     strategy:
       matrix:
-        config: [devnet, testnet, testnet-v1]
+        config: [devnet, testnet]
 
     steps:
       - uses: actions/checkout@v6
