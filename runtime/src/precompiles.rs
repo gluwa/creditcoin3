@@ -2,6 +2,7 @@
 //! Moonbeam [`precompile_utils::precompile_set`] pattern).
 
 use crate::Runtime;
+use pallet_evm_precompile_attest_coin::AttestCoinPrecompile;
 use pallet_evm_precompile_attestor_stash::AttestorStashPrecompile;
 use pallet_evm_precompile_block_prover::BlockProverPrecompile;
 use pallet_evm_precompile_bn128::{Bn128Add, Bn128Mul, Bn128Pairing};
@@ -43,6 +44,7 @@ type GluwaPrecompilesInner<R> = (
     PrecompileAt<AddressU64<4050>, BlockProverPrecompile<R>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<4051>, ChainInfoPrecompile<R>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<4052>, AttestorStashPrecompile<R>, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<4053>, AttestCoinPrecompile<R>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<5049>, Sr25519VerifierPrecompile<R>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<5050>, Ed25519VerifierPrecompile<R>, NonEthereumPrecompileChecks>,
 );

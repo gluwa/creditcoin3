@@ -933,6 +933,20 @@ impl pallet_attestation::Config for Runtime {
 }
 
 parameter_types! {
+    /// Same length as Babe epoch (`EPOCH_DURATION_IN_BLOCKS`); rewards settle at these boundaries.
+    pub const AttestCoinRewardEpochDuration: BlockNumber = EPOCH_DURATION_IN_BLOCKS;
+    /// 10 ATTEST (1e18 units) split across all bonded stashes each Babe epoch.
+    pub const AttestCoinEpochRewardPool: Balance = 10_000_000_000_000_000_000u128;
+}
+
+impl pallet_attest_coin_rewards::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RewardPoints = Balance;
+    type EpochDuration = AttestCoinRewardEpochDuration;
+    type EpochRewardPool = AttestCoinEpochRewardPool;
+}
+
+parameter_types! {
     pub const DefaultMaturityStrategy: &'static str = MATURITY_EVM_SAFE;
 }
 
@@ -1006,6 +1020,7 @@ construct_runtime!(
         HotfixSufficients: pallet_hotfix_sufficients,
 
         Attestation: pallet_attestation,
+        AttestCoinRewards: pallet_attest_coin_rewards,
         SupportedChains: pallet_supported_chains,
 
         Randomness: pallet_randomness,
