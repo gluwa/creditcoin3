@@ -8,7 +8,7 @@
       },
       {
         "internalType": "bytes",
-        "name": "signature",
+        "name": "edSignature",
         "type": "bytes"
       },
       {
