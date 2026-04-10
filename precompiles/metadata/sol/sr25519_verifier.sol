@@ -11,8 +11,8 @@ SignatureVerifier constant SIGNATURE_VERIFIER_CONTRACT = SignatureVerifier(SIGNA
 interface SignatureVerifier {
     /// @dev Verifies an sr25519 signature.
     /// @param message The message that was signed.
-    /// @param signature The 64-byte sr25519 signature.
+    /// @param srSignature The 64-byte sr25519 signature.
     /// @param publicKey The 32-byte sr25519 public key.
     /// @return bool true if the signature is valid, false otherwise.
-    function verify(bytes calldata message, bytes calldata signature, bytes32 publicKey) external view returns (bool);
+    function verify(bytes calldata message, bytes calldata srSignature, bytes32 publicKey) external view returns (bool);
 }
