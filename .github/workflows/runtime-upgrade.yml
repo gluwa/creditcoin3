@@ -3,7 +3,7 @@ name: Runtime Upgrade
 
 on:
   pull_request:
-    branches: [main, testnet]
+    branches: [main, cc3-testnet]
 
 permissions: read-all
 
@@ -39,7 +39,7 @@ jobs:
 
       - name: Testnet ENV
         id: testnet-env
-        if: github.base_ref == 'testnet'
+        if: github.base_ref == 'cc3-testnet'
         run: |
           # shellcheck disable=SC2129
           echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
@@ -476,7 +476,7 @@ jobs:
 
   test-against-disconnected-live-node:
     # execute only against Testnet b/c we don't have sudo key for Mainnet
-    # if: github.base_ref == 'testnet'
+    # if: github.base_ref == 'cc3-testnet'
     # skip upgrades against disconnected live nodes, see
     # https://gluwa.atlassian.net/wiki/spaces/CB/pages/1119912022/Context+decision+for+CSUB-861+runtime+upgrade+testing+against+disconnected+node
     if: false
