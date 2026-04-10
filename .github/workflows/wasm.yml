@@ -5,7 +5,7 @@ on:
   push:
     branches: [main, testnet, dev]
   pull_request:
-    branches: [testnet, dev]
+    branches: [cc3-testnet, cc3-dev]
   workflow_dispatch:
 
 permissions: read-all
