@@ -46,7 +46,7 @@ jobs:
           echo "boot_node=/dns4/cc3-test-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWAxmsWr6iEjFyLqQBzfLvbCRTAhYBeszyr8UWgQx6Zu7K" >> "$GITHUB_OUTPUT"
           echo "rpc_url=wss://rpc.cc3-testnet.creditcoin.network:443/ws" >> "$GITHUB_OUTPUT"
           echo "https_rpc_url=https://rpc.cc3-testnet.creditcoin.network/rpc" >> "$GITHUB_OUTPUT"
-          RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
+          RELEASE_TAG="3.64.0-testnet"
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "snapshot_container=cc3-testnet" >> "$GITHUB_OUTPUT"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
@@ -60,7 +60,7 @@ jobs:
           echo "boot_node=/dns4/cc3-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWLGyvbdQ3wTGjRAEueFsDnstZnV8fN3iyPTmHeyswSPGy" >> "$GITHUB_OUTPUT"
           echo "rpc_url=wss://rpc.cc3-mainnet.creditcoin.network:443/ws" >> "$GITHUB_OUTPUT"
           echo "https_rpc_url=https://rpc.cc3-mainnet.creditcoin.network/rpc" >> "$GITHUB_OUTPUT"
-          RELEASE_TAG=$(.github/extract-release-tag.sh "mainnet")
+          RELEASE_TAG="3.61.0-mainnet"
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "snapshot_container=cc3-mainnet" >> "$GITHUB_OUTPUT"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
