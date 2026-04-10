@@ -1,0 +1,28 @@
+[package]
+name = "pallet-evm-precompile-attest-coin"
+version = "0.1.0"
+edition = "2021"
+authors = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[dependencies]
+sp-core = { workspace = true }
+sp-std = { workspace = true }
+fp-evm = { workspace = true }
+pallet-evm = { workspace = true, default-features = false }
+pallet-attest-coin-rewards = { workspace = true, default-features = false }
+pallet-attestation = { workspace = true, default-features = false }
+frame-system = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "sp-core/std",
+    "sp-std/std",
+    "fp-evm/std",
+    "pallet-evm/std",
+    "pallet-attest-coin-rewards/std",
+    "pallet-attestation/std",
+    "frame-system/std",
+]

@@ -87,6 +87,8 @@ moonbeam-rpc-primitives-debug = { workspace = true }
 
 # Gluwa
 pallet-attestation = { workspace = true }
+pallet-attest-coin-rewards = { workspace = true }
+pallet-evm-precompile-attest-coin = { workspace = true }
 pallet-randomness = { workspace = true }
 pallet-supported-chains = { workspace = true }
 
@@ -168,6 +170,8 @@ std = [
     "frame-system-rpc-runtime-api/std",
     "frame-system-benchmarking?/std",
     "pallet-attestation/std",
+    "pallet-attest-coin-rewards/std",
+    "pallet-evm-precompile-attest-coin/std",
     "pallet-authorship/std",
     "pallet-babe/std",
     "pallet-bags-list/std",

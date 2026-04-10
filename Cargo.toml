@@ -5,6 +5,7 @@ members = [
     "runtime",
     "runtime/generate-bags",
     "pallets/attestation",
+    "pallets/attest-coin-rewards",
     "pallets/randomness",
     "pallets/supported-chains",
     "primitives/attestor",
@@ -16,6 +17,7 @@ members = [
     "precompiles/sr25519-verifier",
     "precompiles/substrate-transfer",
     "precompiles/block-prover",
+    "precompiles/attest-coin",
     "common/cc-client",
     "common/continuity",
     "common/eth",
@@ -253,6 +255,8 @@ precompile-utils = { git = "https://github.com/gluwa/frontier_2", branch = "stab
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
 pallet-attestation = { path = "pallets/attestation", default-features = false }
+pallet-attest-coin-rewards = { path = "pallets/attest-coin-rewards", default-features = false }
+pallet-evm-precompile-attest-coin = { path = "precompiles/attest-coin", default-features = false }
 pallet-randomness = { path = "pallets/randomness", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 
