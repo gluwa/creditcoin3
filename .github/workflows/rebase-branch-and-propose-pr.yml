@@ -73,7 +73,7 @@ jobs:
 
       - name: Assign PR ${{ steps.open-pr.outputs.pull_number }} to ${{ github.triggering_actor }}
         if: env.ACTOR
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           TARGET_PR: ${{ steps.open-pr.outputs.pull_number }}
           ACTOR: ${{ github.triggering_actor }}
