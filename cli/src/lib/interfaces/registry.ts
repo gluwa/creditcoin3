@@ -18,19 +18,24 @@ import type {
     Creditcoin3RuntimeProxyFilter,
     Creditcoin3RuntimeRuntime,
     Creditcoin3RuntimeRuntimeFreezeReason,
+    Creditcoin3RuntimeRuntimeHoldReason,
     EthbloomBloom,
     EthereumBlock,
     EthereumHeader,
     EthereumLog,
     EthereumReceiptEip658ReceiptData,
-    EthereumReceiptReceiptV3,
-    EthereumTransactionAccessListItem,
-    EthereumTransactionEip1559Transaction,
-    EthereumTransactionEip2930Transaction,
-    EthereumTransactionLegacyTransaction,
-    EthereumTransactionTransactionAction,
-    EthereumTransactionTransactionSignature,
-    EthereumTransactionTransactionV2,
+    EthereumReceiptReceiptV4,
+    EthereumTransactionEip1559Eip1559Transaction,
+    EthereumTransactionEip2930AccessListItem,
+    EthereumTransactionEip2930Eip2930Transaction,
+    EthereumTransactionEip2930MalleableTransactionSignature,
+    EthereumTransactionEip2930TransactionSignature,
+    EthereumTransactionEip7702AuthorizationListItem,
+    EthereumTransactionEip7702Eip7702Transaction,
+    EthereumTransactionLegacyLegacyTransaction,
+    EthereumTransactionLegacyTransactionAction,
+    EthereumTransactionLegacyTransactionSignature,
+    EthereumTransactionTransactionV3,
     EthereumTypesHashH64,
     EvmCoreErrorExitError,
     EvmCoreErrorExitFatal,
@@ -43,18 +48,21 @@ import type {
     FinalityGrandpaPrevote,
     FpRpcTransactionStatus,
     FrameSupportDispatchDispatchClass,
-    FrameSupportDispatchDispatchInfo,
     FrameSupportDispatchPays,
     FrameSupportDispatchPerDispatchClassU32,
     FrameSupportDispatchPerDispatchClassWeight,
     FrameSupportDispatchPerDispatchClassWeightsPerClass,
     FrameSupportDispatchRawOrigin,
     FrameSupportPalletId,
+    FrameSupportStorageNoDrop,
+    FrameSupportTokensFungibleImbalance,
     FrameSupportTokensMiscBalanceStatus,
-    FrameSupportTokensMiscIdAmount,
+    FrameSupportTokensMiscIdAmountRuntimeFreezeReason,
+    FrameSupportTokensMiscIdAmountRuntimeHoldReason,
     FrameSystemAccountInfo,
     FrameSystemCall,
     FrameSystemCodeUpgradeAuthorization,
+    FrameSystemDispatchEventInfo,
     FrameSystemError,
     FrameSystemEvent,
     FrameSystemEventRecord,
@@ -92,6 +100,7 @@ import type {
     PalletBalancesEvent,
     PalletBalancesReasons,
     PalletBalancesReserveData,
+    PalletBalancesUnexpectedKind,
     PalletBaseFeeCall,
     PalletBaseFeeEvent,
     PalletDynamicFeeCall,
@@ -120,8 +129,10 @@ import type {
     PalletIdentityEvent,
     PalletIdentityJudgement,
     PalletIdentityLegacyIdentityInfo,
+    PalletIdentityProvider,
     PalletIdentityRegistrarInfo,
     PalletIdentityRegistration,
+    PalletIdentityUsernameInformation,
     PalletImOnlineCall,
     PalletImOnlineError,
     PalletImOnlineEvent,
@@ -155,6 +166,7 @@ import type {
     PalletOffencesEvent,
     PalletProxyAnnouncement,
     PalletProxyCall,
+    PalletProxyDepositKind,
     PalletProxyError,
     PalletProxyEvent,
     PalletProxyProxyDefinition,
@@ -164,6 +176,8 @@ import type {
     PalletSessionCall,
     PalletSessionError,
     PalletSessionEvent,
+    PalletSessionHistoricalPalletEvent,
+    PalletSessionHoldReason,
     PalletStakingActiveEraInfo,
     PalletStakingEraRewardPoints,
     PalletStakingForcing,
@@ -175,6 +189,7 @@ import type {
     PalletStakingPalletConfigOpU32,
     PalletStakingPalletError,
     PalletStakingPalletEvent,
+    PalletStakingPalletHoldReason,
     PalletStakingRewardDestination,
     PalletStakingSlashingSlashingSpans,
     PalletStakingSlashingSpanRecord,
@@ -217,6 +232,7 @@ import type {
     SpRuntimeHeader,
     SpRuntimeModuleError,
     SpRuntimeMultiSignature,
+    SpRuntimeProvingTrieTrieError,
     SpRuntimeTokenError,
     SpRuntimeTransactionalError,
     SpSessionMembershipProof,
@@ -245,19 +261,24 @@ declare module '@polkadot/types/types/registry' {
         Creditcoin3RuntimeProxyFilter: Creditcoin3RuntimeProxyFilter;
         Creditcoin3RuntimeRuntime: Creditcoin3RuntimeRuntime;
         Creditcoin3RuntimeRuntimeFreezeReason: Creditcoin3RuntimeRuntimeFreezeReason;
+        Creditcoin3RuntimeRuntimeHoldReason: Creditcoin3RuntimeRuntimeHoldReason;
         EthbloomBloom: EthbloomBloom;
         EthereumBlock: EthereumBlock;
         EthereumHeader: EthereumHeader;
         EthereumLog: EthereumLog;
         EthereumReceiptEip658ReceiptData: EthereumReceiptEip658ReceiptData;
-        EthereumReceiptReceiptV3: EthereumReceiptReceiptV3;
-        EthereumTransactionAccessListItem: EthereumTransactionAccessListItem;
-        EthereumTransactionEip1559Transaction: EthereumTransactionEip1559Transaction;
-        EthereumTransactionEip2930Transaction: EthereumTransactionEip2930Transaction;
-        EthereumTransactionLegacyTransaction: EthereumTransactionLegacyTransaction;
-        EthereumTransactionTransactionAction: EthereumTransactionTransactionAction;
-        EthereumTransactionTransactionSignature: EthereumTransactionTransactionSignature;
-        EthereumTransactionTransactionV2: EthereumTransactionTransactionV2;
+        EthereumReceiptReceiptV4: EthereumReceiptReceiptV4;
+        EthereumTransactionEip1559Eip1559Transaction: EthereumTransactionEip1559Eip1559Transaction;
+        EthereumTransactionEip2930AccessListItem: EthereumTransactionEip2930AccessListItem;
+        EthereumTransactionEip2930Eip2930Transaction: EthereumTransactionEip2930Eip2930Transaction;
+        EthereumTransactionEip2930MalleableTransactionSignature: EthereumTransactionEip2930MalleableTransactionSignature;
+        EthereumTransactionEip2930TransactionSignature: EthereumTransactionEip2930TransactionSignature;
+        EthereumTransactionEip7702AuthorizationListItem: EthereumTransactionEip7702AuthorizationListItem;
+        EthereumTransactionEip7702Eip7702Transaction: EthereumTransactionEip7702Eip7702Transaction;
+        EthereumTransactionLegacyLegacyTransaction: EthereumTransactionLegacyLegacyTransaction;
+        EthereumTransactionLegacyTransactionAction: EthereumTransactionLegacyTransactionAction;
+        EthereumTransactionLegacyTransactionSignature: EthereumTransactionLegacyTransactionSignature;
+        EthereumTransactionTransactionV3: EthereumTransactionTransactionV3;
         EthereumTypesHashH64: EthereumTypesHashH64;
         EvmCoreErrorExitError: EvmCoreErrorExitError;
         EvmCoreErrorExitFatal: EvmCoreErrorExitFatal;
@@ -270,18 +291,21 @@ declare module '@polkadot/types/types/registry' {
         FinalityGrandpaPrevote: FinalityGrandpaPrevote;
         FpRpcTransactionStatus: FpRpcTransactionStatus;
         FrameSupportDispatchDispatchClass: FrameSupportDispatchDispatchClass;
-        FrameSupportDispatchDispatchInfo: FrameSupportDispatchDispatchInfo;
         FrameSupportDispatchPays: FrameSupportDispatchPays;
         FrameSupportDispatchPerDispatchClassU32: FrameSupportDispatchPerDispatchClassU32;
         FrameSupportDispatchPerDispatchClassWeight: FrameSupportDispatchPerDispatchClassWeight;
         FrameSupportDispatchPerDispatchClassWeightsPerClass: FrameSupportDispatchPerDispatchClassWeightsPerClass;
         FrameSupportDispatchRawOrigin: FrameSupportDispatchRawOrigin;
         FrameSupportPalletId: FrameSupportPalletId;
+        FrameSupportStorageNoDrop: FrameSupportStorageNoDrop;
+        FrameSupportTokensFungibleImbalance: FrameSupportTokensFungibleImbalance;
         FrameSupportTokensMiscBalanceStatus: FrameSupportTokensMiscBalanceStatus;
-        FrameSupportTokensMiscIdAmount: FrameSupportTokensMiscIdAmount;
+        FrameSupportTokensMiscIdAmountRuntimeFreezeReason: FrameSupportTokensMiscIdAmountRuntimeFreezeReason;
+        FrameSupportTokensMiscIdAmountRuntimeHoldReason: FrameSupportTokensMiscIdAmountRuntimeHoldReason;
         FrameSystemAccountInfo: FrameSystemAccountInfo;
         FrameSystemCall: FrameSystemCall;
         FrameSystemCodeUpgradeAuthorization: FrameSystemCodeUpgradeAuthorization;
+        FrameSystemDispatchEventInfo: FrameSystemDispatchEventInfo;
         FrameSystemError: FrameSystemError;
         FrameSystemEvent: FrameSystemEvent;
         FrameSystemEventRecord: FrameSystemEventRecord;
@@ -319,6 +343,7 @@ declare module '@polkadot/types/types/registry' {
         PalletBalancesEvent: PalletBalancesEvent;
         PalletBalancesReasons: PalletBalancesReasons;
         PalletBalancesReserveData: PalletBalancesReserveData;
+        PalletBalancesUnexpectedKind: PalletBalancesUnexpectedKind;
         PalletBaseFeeCall: PalletBaseFeeCall;
         PalletBaseFeeEvent: PalletBaseFeeEvent;
         PalletDynamicFeeCall: PalletDynamicFeeCall;
@@ -347,8 +372,10 @@ declare module '@polkadot/types/types/registry' {
         PalletIdentityEvent: PalletIdentityEvent;
         PalletIdentityJudgement: PalletIdentityJudgement;
         PalletIdentityLegacyIdentityInfo: PalletIdentityLegacyIdentityInfo;
+        PalletIdentityProvider: PalletIdentityProvider;
         PalletIdentityRegistrarInfo: PalletIdentityRegistrarInfo;
         PalletIdentityRegistration: PalletIdentityRegistration;
+        PalletIdentityUsernameInformation: PalletIdentityUsernameInformation;
         PalletImOnlineCall: PalletImOnlineCall;
         PalletImOnlineError: PalletImOnlineError;
         PalletImOnlineEvent: PalletImOnlineEvent;
@@ -382,6 +409,7 @@ declare module '@polkadot/types/types/registry' {
         PalletOffencesEvent: PalletOffencesEvent;
         PalletProxyAnnouncement: PalletProxyAnnouncement;
         PalletProxyCall: PalletProxyCall;
+        PalletProxyDepositKind: PalletProxyDepositKind;
         PalletProxyError: PalletProxyError;
         PalletProxyEvent: PalletProxyEvent;
         PalletProxyProxyDefinition: PalletProxyProxyDefinition;
@@ -391,6 +419,8 @@ declare module '@polkadot/types/types/registry' {
         PalletSessionCall: PalletSessionCall;
         PalletSessionError: PalletSessionError;
         PalletSessionEvent: PalletSessionEvent;
+        PalletSessionHistoricalPalletEvent: PalletSessionHistoricalPalletEvent;
+        PalletSessionHoldReason: PalletSessionHoldReason;
         PalletStakingActiveEraInfo: PalletStakingActiveEraInfo;
         PalletStakingEraRewardPoints: PalletStakingEraRewardPoints;
         PalletStakingForcing: PalletStakingForcing;
@@ -402,6 +432,7 @@ declare module '@polkadot/types/types/registry' {
         PalletStakingPalletConfigOpU32: PalletStakingPalletConfigOpU32;
         PalletStakingPalletError: PalletStakingPalletError;
         PalletStakingPalletEvent: PalletStakingPalletEvent;
+        PalletStakingPalletHoldReason: PalletStakingPalletHoldReason;
         PalletStakingRewardDestination: PalletStakingRewardDestination;
         PalletStakingSlashingSlashingSpans: PalletStakingSlashingSlashingSpans;
         PalletStakingSlashingSpanRecord: PalletStakingSlashingSpanRecord;
@@ -444,6 +475,7 @@ declare module '@polkadot/types/types/registry' {
         SpRuntimeHeader: SpRuntimeHeader;
         SpRuntimeModuleError: SpRuntimeModuleError;
         SpRuntimeMultiSignature: SpRuntimeMultiSignature;
+        SpRuntimeProvingTrieTrieError: SpRuntimeProvingTrieTrieError;
         SpRuntimeTokenError: SpRuntimeTokenError;
         SpRuntimeTransactionalError: SpRuntimeTransactionalError;
         SpSessionMembershipProof: SpSessionMembershipProof;

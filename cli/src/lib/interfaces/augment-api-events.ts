@@ -27,15 +27,19 @@ import type {
     AttestorPrimitivesAttestationCheckpoint,
     AttestorPrimitivesChainEncodingVersion,
     Creditcoin3RuntimeProxyFilter,
+    Creditcoin3RuntimeRuntimeHoldReason,
     EthereumLog,
     EvmCoreErrorExitReason,
-    FrameSupportDispatchDispatchInfo,
     FrameSupportTokensMiscBalanceStatus,
+    FrameSystemDispatchEventInfo,
     PalletAttestationPocAttestorElectionPolicy,
+    PalletBalancesUnexpectedKind,
     PalletImOnlineSr25519AppSr25519Public,
+    PalletNominationPoolsClaimPermission,
     PalletNominationPoolsCommissionChangeRate,
     PalletNominationPoolsCommissionClaimPermission,
     PalletNominationPoolsPoolState,
+    PalletProxyDepositKind,
     PalletStakingForcing,
     PalletStakingRewardDestination,
     PalletStakingValidatorPrefs,
@@ -149,6 +153,18 @@ declare module '@polkadot/api-base/types/events' {
              **/
             Burned: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
             /**
+             * Some debt has been dropped from the Total Issuance.
+             **/
+            BurnedDebt: AugmentedEvent<ApiType, [amount: u128], { amount: u128 }>;
+            /**
+             * Held balance was burned from an account.
+             **/
+            BurnedHeld: AugmentedEvent<
+                ApiType,
+                [reason: Creditcoin3RuntimeRuntimeHoldReason, who: AccountId32, amount: u128],
+                { reason: Creditcoin3RuntimeRuntimeHoldReason; who: AccountId32; amount: u128 }
+            >;
+            /**
              * Some amount was deposited (e.g. for transaction fees).
              **/
             Deposit: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
@@ -174,6 +190,14 @@ declare module '@polkadot/api-base/types/events' {
              **/
             Frozen: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
             /**
+             * Some balance was placed on hold.
+             **/
+            Held: AugmentedEvent<
+                ApiType,
+                [reason: Creditcoin3RuntimeRuntimeHoldReason, who: AccountId32, amount: u128],
+                { reason: Creditcoin3RuntimeRuntimeHoldReason; who: AccountId32; amount: u128 }
+            >;
+            /**
              * Total issuance was increased by `amount`, creating a credit to be balanced.
              **/
             Issued: AugmentedEvent<ApiType, [amount: u128], { amount: u128 }>;
@@ -185,6 +209,18 @@ declare module '@polkadot/api-base/types/events' {
              * Some amount was minted into an account.
              **/
             Minted: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Some credit was balanced and added to the TotalIssuance.
+             **/
+            MintedCredit: AugmentedEvent<ApiType, [amount: u128], { amount: u128 }>;
+            /**
+             * Some balance was released from hold.
+             **/
+            Released: AugmentedEvent<
+                ApiType,
+                [reason: Creditcoin3RuntimeRuntimeHoldReason, who: AccountId32, amount: u128],
+                { reason: Creditcoin3RuntimeRuntimeHoldReason; who: AccountId32; amount: u128 }
+            >;
             /**
              * Total issuance was decreased by `amount`, creating a debt to be balanced.
              **/
@@ -240,6 +276,36 @@ declare module '@polkadot/api-base/types/events' {
                 [from: AccountId32, to: AccountId32, amount: u128],
                 { from: AccountId32; to: AccountId32; amount: u128 }
             >;
+            /**
+             * The `transferred` balance is placed on hold at the `dest` account.
+             **/
+            TransferAndHold: AugmentedEvent<
+                ApiType,
+                [
+                    reason: Creditcoin3RuntimeRuntimeHoldReason,
+                    source: AccountId32,
+                    dest: AccountId32,
+                    transferred: u128,
+                ],
+                {
+                    reason: Creditcoin3RuntimeRuntimeHoldReason;
+                    source: AccountId32;
+                    dest: AccountId32;
+                    transferred: u128;
+                }
+            >;
+            /**
+             * A transfer of `amount` on hold from `source` to `dest` was initiated.
+             **/
+            TransferOnHold: AugmentedEvent<
+                ApiType,
+                [reason: Creditcoin3RuntimeRuntimeHoldReason, source: AccountId32, dest: AccountId32, amount: u128],
+                { reason: Creditcoin3RuntimeRuntimeHoldReason; source: AccountId32; dest: AccountId32; amount: u128 }
+            >;
+            /**
+             * An unexpected/defensive event was triggered.
+             **/
+            Unexpected: AugmentedEvent<ApiType, [PalletBalancesUnexpectedKind]>;
             /**
              * Some balance was unlocked.
              **/
@@ -365,6 +431,20 @@ declare module '@polkadot/api-base/types/events' {
              **/
             [key: string]: AugmentedEvent<ApiType>;
         };
+        historical: {
+            /**
+             * The merkle roots of up to this session index were pruned
+             **/
+            RootsPruned: AugmentedEvent<ApiType, [upTo: u32], { upTo: u32 }>;
+            /**
+             * The merkle root of the validators of the said session were stored
+             **/
+            RootStored: AugmentedEvent<ApiType, [index: u32], { index: u32 }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
         identity: {
             /**
              * A username authority was added.
@@ -444,6 +524,14 @@ declare module '@polkadot/api-base/types/events' {
              **/
             RegistrarAdded: AugmentedEvent<ApiType, [registrarIndex: u32], { registrarIndex: u32 }>;
             /**
+             * An account's sub-identities were set (in bulk).
+             **/
+            SubIdentitiesSet: AugmentedEvent<
+                ApiType,
+                [main: AccountId32, numberOfSubs: u32, newDeposit: u128],
+                { main: AccountId32; numberOfSubs: u32; newDeposit: u128 }
+            >;
+            /**
              * A sub-identity was added to an identity and the deposit paid.
              **/
             SubIdentityAdded: AugmentedEvent<
@@ -460,6 +548,14 @@ declare module '@polkadot/api-base/types/events' {
                 { sub: AccountId32; main: AccountId32; deposit: u128 }
             >;
             /**
+             * A given sub-account's associated name was changed by its super-identity.
+             **/
+            SubIdentityRenamed: AugmentedEvent<
+                ApiType,
+                [sub: AccountId32, main: AccountId32],
+                { sub: AccountId32; main: AccountId32 }
+            >;
+            /**
              * A sub-identity was cleared, and the given deposit repatriated from the
              * main identity account to the sub-identity account.
              **/
@@ -469,6 +565,10 @@ declare module '@polkadot/api-base/types/events' {
                 { sub: AccountId32; main: AccountId32; deposit: u128 }
             >;
             /**
+             * A username has been killed.
+             **/
+            UsernameKilled: AugmentedEvent<ApiType, [username: Bytes], { username: Bytes }>;
+            /**
              * A username was queued, but `who` must accept it prior to `expiration`.
              **/
             UsernameQueued: AugmentedEvent<
@@ -477,6 +577,10 @@ declare module '@polkadot/api-base/types/events' {
                 { who: AccountId32; username: Bytes; expiration: u32 }
             >;
             /**
+             * A username has been removed.
+             **/
+            UsernameRemoved: AugmentedEvent<ApiType, [username: Bytes], { username: Bytes }>;
+            /**
              * A username was set for `who`.
              **/
             UsernameSet: AugmentedEvent<
@@ -484,6 +588,10 @@ declare module '@polkadot/api-base/types/events' {
                 [who: AccountId32, username: Bytes],
                 { who: AccountId32; username: Bytes }
             >;
+            /**
+             * A username has been unbound.
+             **/
+            UsernameUnbound: AugmentedEvent<ApiType, [username: Bytes], { username: Bytes }>;
             /**
              * Generic event
              **/
@@ -537,6 +645,36 @@ declare module '@polkadot/api-base/types/events' {
              **/
             Destroyed: AugmentedEvent<ApiType, [poolId: u32], { poolId: u32 }>;
             /**
+             * Global parameters regulating nomination pools have been updated.
+             **/
+            GlobalParamsUpdated: AugmentedEvent<
+                ApiType,
+                [
+                    minJoinBond: u128,
+                    minCreateBond: u128,
+                    maxPools: Option<u32>,
+                    maxMembers: Option<u32>,
+                    maxMembersPerPool: Option<u32>,
+                    globalMaxCommission: Option<Perbill>,
+                ],
+                {
+                    minJoinBond: u128;
+                    minCreateBond: u128;
+                    maxPools: Option<u32>;
+                    maxMembers: Option<u32>;
+                    maxMembersPerPool: Option<u32>;
+                    globalMaxCommission: Option<Perbill>;
+                }
+            >;
+            /**
+             * A pool member's claim permission has been updated.
+             **/
+            MemberClaimPermissionUpdated: AugmentedEvent<
+                ApiType,
+                [member: AccountId32, permission: PalletNominationPoolsClaimPermission],
+                { member: AccountId32; permission: PalletNominationPoolsClaimPermission }
+            >;
+            /**
              * A member has been removed from a pool.
              *
              * The removal can be voluntary (withdrawn all unbonded funds) or involuntary (kicked).
@@ -547,6 +685,14 @@ declare module '@polkadot/api-base/types/events' {
                 ApiType,
                 [poolId: u32, member: AccountId32, releasedBalance: u128],
                 { poolId: u32; member: AccountId32; releasedBalance: u128 }
+            >;
+            /**
+             * A pool's metadata was updated.
+             **/
+            MetadataUpdated: AugmentedEvent<
+                ApiType,
+                [poolId: u32, caller: AccountId32],
+                { poolId: u32; caller: AccountId32 }
             >;
             /**
              * Topped up deficit in frozen ED of the reward pool.
@@ -611,6 +757,23 @@ declare module '@polkadot/api-base/types/events' {
                 ApiType,
                 [poolId: u32, maxCommission: Perbill],
                 { poolId: u32; maxCommission: Perbill }
+            >;
+            /**
+             * A pool's nominating account (or the pool's root account) has nominated a validator set
+             * on behalf of the pool.
+             **/
+            PoolNominationMade: AugmentedEvent<
+                ApiType,
+                [poolId: u32, caller: AccountId32],
+                { poolId: u32; caller: AccountId32 }
+            >;
+            /**
+             * The pool is chilled i.e. no longer nominating.
+             **/
+            PoolNominatorChilled: AugmentedEvent<
+                ApiType,
+                [poolId: u32, caller: AccountId32],
+                { poolId: u32; caller: AccountId32 }
             >;
             /**
              * The active balance of pool `pool_id` has been slashed to `balance`.
@@ -729,6 +892,14 @@ declare module '@polkadot/api-base/types/events' {
                 { real: AccountId32; proxy: AccountId32; callHash: H256 }
             >;
             /**
+             * A deposit stored for proxies or announcements was poked / updated.
+             **/
+            DepositPoked: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, kind: PalletProxyDepositKind, oldDeposit: u128, newDeposit: u128],
+                { who: AccountId32; kind: PalletProxyDepositKind; oldDeposit: u128; newDeposit: u128 }
+            >;
+            /**
              * A proxy was added.
              **/
             ProxyAdded: AugmentedEvent<
@@ -763,10 +934,32 @@ declare module '@polkadot/api-base/types/events' {
                     who: AccountId32,
                     proxyType: Creditcoin3RuntimeProxyFilter,
                     disambiguationIndex: u16,
+                    at: u32,
+                    extrinsicIndex: u32,
                 ],
                 {
                     pure: AccountId32;
                     who: AccountId32;
+                    proxyType: Creditcoin3RuntimeProxyFilter;
+                    disambiguationIndex: u16;
+                    at: u32;
+                    extrinsicIndex: u32;
+                }
+            >;
+            /**
+             * A pure proxy was killed by its spawner.
+             **/
+            PureKilled: AugmentedEvent<
+                ApiType,
+                [
+                    pure: AccountId32,
+                    spawner: AccountId32,
+                    proxyType: Creditcoin3RuntimeProxyFilter,
+                    disambiguationIndex: u16,
+                ],
+                {
+                    pure: AccountId32;
+                    spawner: AccountId32;
                     proxyType: Creditcoin3RuntimeProxyFilter;
                     disambiguationIndex: u16;
                 }
@@ -789,10 +982,23 @@ declare module '@polkadot/api-base/types/events' {
         };
         session: {
             /**
+             * The `NewSession` event in the current block also implies a new validator set to be
+             * queued.
+             **/
+            NewQueued: AugmentedEvent<ApiType, []>;
+            /**
              * New session has happened. Note that the argument is the session index, not the
              * block number as the type might suggest.
              **/
             NewSession: AugmentedEvent<ApiType, [sessionIndex: u32], { sessionIndex: u32 }>;
+            /**
+             * Validator has been disabled.
+             **/
+            ValidatorDisabled: AugmentedEvent<ApiType, [validator: AccountId32], { validator: AccountId32 }>;
+            /**
+             * Validator has been re-enabled.
+             **/
+            ValidatorReenabled: AugmentedEvent<ApiType, [validator: AccountId32], { validator: AccountId32 }>;
             /**
              * Generic event
              **/
@@ -814,6 +1020,15 @@ declare module '@polkadot/api-base/types/events' {
              * Report of a controller batch deprecation.
              **/
             ControllerBatchDeprecated: AugmentedEvent<ApiType, [failures: u32], { failures: u32 }>;
+            /**
+             * Staking balance migrated from locks to holds, with any balance that could not be held
+             * is force withdrawn.
+             **/
+            CurrencyMigrated: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, forceWithdraw: u128],
+                { stash: AccountId32; forceWithdraw: u128 }
+            >;
             /**
              * The era payout has been set; the first balance is the validator-payout; the second is
              * the remainder from the maximum amount of reward.
@@ -841,12 +1056,12 @@ declare module '@polkadot/api-base/types/events' {
              **/
             OldSlashingReportDiscarded: AugmentedEvent<ApiType, [sessionIndex: u32], { sessionIndex: u32 }>;
             /**
-             * The stakers' rewards are getting paid.
+             * A Page of stakers rewards are getting paid. `next` is `None` if all pages are claimed.
              **/
             PayoutStarted: AugmentedEvent<
                 ApiType,
-                [eraIndex: u32, validatorStash: AccountId32],
-                { eraIndex: u32; validatorStash: AccountId32 }
+                [eraIndex: u32, validatorStash: AccountId32, page: u32, next: Option<u32>],
+                { eraIndex: u32; validatorStash: AccountId32; page: u32; next: Option<u32> }
             >;
             /**
              * The nominator has been rewarded by this amount to this destination.
@@ -1005,16 +1220,16 @@ declare module '@polkadot/api-base/types/events' {
              **/
             ExtrinsicFailed: AugmentedEvent<
                 ApiType,
-                [dispatchError: SpRuntimeDispatchError, dispatchInfo: FrameSupportDispatchDispatchInfo],
-                { dispatchError: SpRuntimeDispatchError; dispatchInfo: FrameSupportDispatchDispatchInfo }
+                [dispatchError: SpRuntimeDispatchError, dispatchInfo: FrameSystemDispatchEventInfo],
+                { dispatchError: SpRuntimeDispatchError; dispatchInfo: FrameSystemDispatchEventInfo }
             >;
             /**
              * An extrinsic completed successfully.
              **/
             ExtrinsicSuccess: AugmentedEvent<
                 ApiType,
-                [dispatchInfo: FrameSupportDispatchDispatchInfo],
-                { dispatchInfo: FrameSupportDispatchDispatchInfo }
+                [dispatchInfo: FrameSystemDispatchEventInfo],
+                { dispatchInfo: FrameSystemDispatchEventInfo }
             >;
             /**
              * An account was reaped.
@@ -1024,6 +1239,14 @@ declare module '@polkadot/api-base/types/events' {
              * A new account was created.
              **/
             NewAccount: AugmentedEvent<ApiType, [account: AccountId32], { account: AccountId32 }>;
+            /**
+             * An invalid authorized upgrade was rejected while trying to apply it.
+             **/
+            RejectedInvalidAuthorizedUpgrade: AugmentedEvent<
+                ApiType,
+                [codeHash: H256, error: SpRuntimeDispatchError],
+                { codeHash: H256; error: SpRuntimeDispatchError }
+            >;
             /**
              * On on-chain remark happened.
              **/
@@ -1082,6 +1305,18 @@ declare module '@polkadot/api-base/types/events' {
                 [result: Result<Null, SpRuntimeDispatchError>],
                 { result: Result<Null, SpRuntimeDispatchError> }
             >;
+            /**
+             * The fallback call was dispatched.
+             **/
+            IfElseFallbackCalled: AugmentedEvent<
+                ApiType,
+                [mainError: SpRuntimeDispatchError],
+                { mainError: SpRuntimeDispatchError }
+            >;
+            /**
+             * Main call was dispatched.
+             **/
+            IfElseMainSuccess: AugmentedEvent<ApiType, []>;
             /**
              * A single item within a Batch of dispatches has completed with no error.
              **/

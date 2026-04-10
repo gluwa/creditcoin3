@@ -98,6 +98,7 @@ creditcoin3-runtime = { workspace = true, features = ["std"], optional = true }
 # Tracing
 creditcoin3-cli-opt = { workspace = true }
 creditcoin3-primitives-ext = { workspace = true }
+cumulus-primitives-proof-size-hostfunction = { workspace = true }
 moonbeam-rpc-debug = { workspace = true }
 moonbeam-rpc-primitives-debug = { workspace = true }
 moonbeam-rpc-trace = { workspace = true }

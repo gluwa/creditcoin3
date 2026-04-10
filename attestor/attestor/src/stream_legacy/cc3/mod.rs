@@ -109,7 +109,7 @@ impl StreamCC3 {
                                                 Ok(None) => Err(Error::BlockHash(n)),
                                                 Err(err) => {
                                                     tracing::error!(?err, "Failed to retrieve block hash");
-                                                    Err(Error::Subxt(err))
+                                                    Err(Error::Subxt(err.into()))
                                                 },
                                             }
                                         }
@@ -188,8 +188,7 @@ impl StreamEvents {
         let extracted: Vec<_> =
             cc_client::Client::extract_events(std::slice::from_ref(&chain_key), &events).collect();
 
-        let stream =
-            Box::pin(futures::stream::iter(extracted).map_err(|err| Error::Subxt(err.into())));
+        let stream = Box::pin(futures::stream::iter(extracted).map_err(Error::Subxt));
 
         Self {
             block_number,

@@ -38,7 +38,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo audit
@@ -112,8 +112,22 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
+
+      - name: Verify cc-client uses workspace-pinned subxt version
+        run: |
+          set -euo pipefail
+          expected=$(grep -E '^subxt = ' Cargo.toml | sed -E 's/.*version = "([^"]+)".*/\1/' | head -1)
+          expected="${expected#=}"
+          test -n "$expected"
+          got=$(cargo tree -p cc-client --locked -e normal | grep -oE 'subxt v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -dv -f2)
+          test -n "$got"
+          if [ "$got" != "$expected" ]; then
+            echo "Workspace Cargo.toml pins subxt $expected but cc-client resolves to $got (see Cargo.lock / workspace deps)."
+            exit 1
+          fi
+          echo "cc-client depends on subxt $got (matches workspace pin)."
 
       - name: Check featalign
         run: |
@@ -153,7 +167,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
           components: clippy, rust-src
       - uses: Swatinem/rust-cache@v2
 
@@ -222,7 +236,7 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           components: llvm-tools-preview, rust-src
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov

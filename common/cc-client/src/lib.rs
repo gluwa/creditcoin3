@@ -2,12 +2,10 @@ use serde::Serialize;
 use sp_core::U256;
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
-    backend::{
-        legacy::LegacyRpcMethods,
-        rpc::{RpcClient, RpcParams},
-    },
+    backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
     config::DefaultExtrinsicParamsBuilder,
     error::RpcError,
+    ext::subxt_rpcs::client::RpcParams,
     OnlineClient, SubstrateConfig,
 };
 use subxt_signer::sr25519::Signature;
@@ -115,7 +113,9 @@ impl Client {
     }
 
     pub async fn reconnect(&mut self) -> Result<&mut Self, Error> {
-        let rpc = RpcClient::from_insecure_url(self.url.clone()).await?;
+        let rpc = RpcClient::from_insecure_url(self.url.clone())
+            .await
+            .map_err(|e| Error::SubxtError(subxt::Error::from(e)))?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
 
@@ -792,9 +792,10 @@ impl Client {
                 Ok(())
             }
             Err(e) => {
-                if let subxt::Error::Rpc(e) = e {
-                    error!("Error submitting attestation: {:?}", e);
-                    Err(Error::RpcError(e))
+                let e: subxt::Error = e.into();
+                if let subxt::Error::Rpc(rpc_e) = e {
+                    error!("Error submitting attestation: {:?}", rpc_e);
+                    Err(Error::RpcError(rpc_e))
                 } else {
                     error!("Error submitting attestation: {:?}", e);
                     Err(Error::FailedToSubmit)
@@ -879,7 +880,7 @@ impl Client {
     }
 
     pub async fn get_free_balance(&self, account: &AccountId32) -> Result<u128, Error> {
-        let storage_query = cc3::storage().system().account(account);
+        let storage_query = cc3::storage().system().account(account.clone());
         let account_info = self
             .api()
             .storage()
@@ -1014,17 +1015,25 @@ mod utils {
     }
 
     pub(super) fn is_fee_error(e: &subxt::Error) -> bool {
-        if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(err)) = e {
-            if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(call_err)) =
-                err.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
-            {
-                if let Some(data) = call_err.data() {
+        let subxt::Error::Rpc(subxt::error::RpcError::ClientError(err)) = e else {
+            return false;
+        };
+
+        match err {
+            subxt::ext::subxt_rpcs::Error::User(u) => {
+                if u.message.contains(INABILITY_TO_PAY_SOME_FEE_MSG) {
+                    return true;
+                }
+                if let Some(data) = &u.data {
                     return data.get().contains(INABILITY_TO_PAY_SOME_FEE_MSG);
                 }
+                false
             }
+            subxt::ext::subxt_rpcs::Error::Client(boxed) => {
+                boxed.to_string().contains(INABILITY_TO_PAY_SOME_FEE_MSG)
+            }
+            _ => false,
         }
-
-        false
     }
 }
 
