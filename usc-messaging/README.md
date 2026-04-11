@@ -10,7 +10,7 @@ usc-messaging/
 │   ├── quoter/          # Quotation service
 │   └── relayer/         # Relayer client (delivers to inbox)
 ├── contracts/           # Foundry (Solidity)
-│   ├── src/             # DummyInbox, DummyRelayerContract, TestDestination, etc.
+│   ├── src/             # SimpleInbox, DummyRelayerContract, TestDestination, etc.
 │   └── script/Deploy.s.sol
 ├── scripts/
 │   ├── deploy.sh
@@ -100,7 +100,7 @@ See `usc-write-ability-research/documents/requirements/03-quotation-requirements
 
 ## Relayer Client
 
-Off-chain client that picks up "ready" messages (mock P2P) and delivers them to the DummyInbox.
+Off-chain client that picks up "ready" messages (mock P2P) and delivers them to the SimpleInbox.
 
 ### Quick Start
 
@@ -123,7 +123,7 @@ The relayer watches `messages.json` and POST `/deliver` for messages. After depl
 | Env / CLI | Default | Description |
 |-----------|---------|-------------|
 | `RELAYER_RPC_URL` / `--rpc-url` | http://127.0.0.1:8545 | Destination chain RPC |
-| `RELAYER_INBOX_ADDRESS` / `--inbox` | from deployments.json | DummyInbox address |
+| `RELAYER_INBOX_ADDRESS` / `--inbox` | from deployments.json | SimpleInbox address |
 | `RELAYER_PRIVATE_KEY` | (Anvil #1) | Key that pays gas |
 | `RELAYER_MESSAGES_FILE` | ./messages.json | Mock P2P messages file |
 | `RELAYER_HTTP_PORT` | 3301 | POST /deliver endpoint |

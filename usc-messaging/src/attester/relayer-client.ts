@@ -3,11 +3,10 @@
  * For the POC this is a best-effort call — failures are logged but not fatal.
  */
 
-import type { DeliveredMessage } from "./types.js";
+import type { DeliveredMessage } from "../types.js";
 
 /**
  * POSTs a voted message to the relayer's /deliver endpoint.
- * The relayer expects a ReadyMessage shape; we map from DeliveredMessage.
  */
 export async function notifyRelayer(
   relayerUrl: string,

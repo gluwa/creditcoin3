@@ -1,107 +1,140 @@
 /**
- * Relayer client: listens for ready messages and delivers to DummyInbox.
- * Mock P2P: reads from JSON file and/or HTTP POST.
+ * Relayer server: receives voted messages from attesters via HTTP POST,
+ * queues them, and delivers to SimpleInbox on a configurable interval.
+ * A separate worker listens for MessageDelivered events on SimpleInbox and
+ * acknowledges each one on the source chain Outbox.
  *
- * Start: node dist/relayer/server.js --inbox 0x... [--rpc-url http://...]
+ * Start: node dist/relayer/server.js --inbox 0x... --outbox 0x...
  */
 
 import { ethers } from "ethers";
 import express from "express";
-import { readFile, writeFile } from "fs/promises";
-import { existsSync } from "fs";
-import { loadRelayerConfig, type RelayerConfig } from "./config.js";
+import { loadRelayerConfig } from "./config.js";
 import { deliverMessage } from "./deliver.js";
-import type { ReadyMessage } from "./types.js";
+import { listenInbox, type StopFn } from "./listeners.js";
+import type { DeliveredMessage } from "./types.js";
 
-async function loadMessages(filePath: string): Promise<ReadyMessage[]> {
-  if (!existsSync(filePath)) return [];
-  const raw = await readFile(filePath, "utf-8");
-  const data = JSON.parse(raw);
-  return Array.isArray(data) ? data : (data.messages ?? []);
-}
+const OUTBOX_ABI = ["function acknowledgeMessage(bytes32 messageId) public"];
 
-async function saveMessages(
-  filePath: string,
-  messages: ReadyMessage[],
+/**
+ * Calls Outbox.acknowledgeMessage on the source chain. Best-effort: errors
+ * are logged but do not affect the already-completed delivery.
+ */
+async function acknowledgeOnSource(
+  sourceSigner: ethers.Wallet,
+  outboxAddress: string,
+  messageId: string,
 ): Promise<void> {
-  await writeFile(filePath, JSON.stringify({ messages }, null, 2));
-}
-
-async function processMessages(
-  provider: ethers.Provider,
-  signer: ethers.Signer,
-  inboxAddress: string,
-  filePath: string,
-): Promise<void> {
-  const messages = await loadMessages(filePath);
-  if (messages.length === 0) return;
-
-  const remaining: ReadyMessage[] = [];
-  for (const msg of messages) {
-    const result = await deliverMessage(provider, signer, inboxAddress, msg);
-    if (result.success) {
-      console.log(`Delivered messageId=${msg.messageId} tx=${result.txHash}`);
+  const outbox = new ethers.Contract(outboxAddress, OUTBOX_ABI, sourceSigner);
+  try {
+    const tx = await outbox.acknowledgeMessage(messageId);
+    await tx.wait();
+    console.log(`[ACK] messageId=${messageId} acknowledged on source chain`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("MessageAlreadyAcknowledged")) {
+      console.warn(`[ACK] messageId=${messageId} already acknowledged`);
     } else {
-      console.error(
-        `Failed to deliver messageId=${msg.messageId}: ${result.error}`,
-      );
-      remaining.push(msg);
+      console.error(`[ACK] Failed to acknowledge messageId=${messageId}:`, msg);
     }
   }
-  await saveMessages(filePath, remaining);
 }
 
 async function main(): Promise<void> {
   const config = await loadRelayerConfig();
+
   const provider = new ethers.JsonRpcProvider(config.rpcUrl);
   const signer = new ethers.Wallet(config.privateKey, provider);
 
-  // File watcher
-  const run = async () => {
-    try {
-      await processMessages(
-        provider,
-        signer,
-        config.inboxAddress,
-        config.messagesFilePath,
-      );
-    } catch (err) {
-      console.error("Process error:", err);
-    }
-    setTimeout(run, config.pollIntervalMs);
-  };
-  run();
+  const sourceProvider = new ethers.JsonRpcProvider(config.sourceRpcUrl);
+  const sourceSigner = new ethers.Wallet(config.privateKey, sourceProvider);
 
-  // HTTP: POST /deliver for immediate delivery
-  if (config.httpPort > 0) {
-    const app = express();
-    app.use(express.json());
-    app.post("/deliver", async (req, res) => {
-      const msg = req.body as ReadyMessage;
-      if (
-        !msg?.messageId ||
-        !msg?.emitterAddress ||
-        !msg?.destinationContract
-      ) {
-        res.status(400).json({
-          error: "Missing messageId, emitterAddress, or destinationContract",
-        });
-        return;
-      }
-      msg.payloadData = msg.payloadData ?? "0x";
+  // Pending message store: map for O(1) deduplication, queue for ordered processing.
+  const pendingMessages = new Map<string, DeliveredMessage>();
+  const pendingQueue: string[] = [];
+
+  // Delivery worker: processes all pending messages on each tick.
+  const deliveryTimer = setInterval(async () => {
+    if (pendingQueue.length === 0) return;
+    console.log(
+      `[Worker] Processing ${pendingQueue.length} pending message(s)`,
+    );
+
+    // Snapshot the queue so new arrivals during this tick are picked up next time.
+    const snapshot = [...pendingQueue];
+
+    for (const messageId of snapshot) {
+      const msg = pendingMessages.get(messageId);
+      if (!msg) continue; // already removed by a concurrent tick (safety guard)
+
       const result = await deliverMessage(
         provider,
         signer,
         config.inboxAddress,
         msg,
       );
+
       if (result.success) {
-        res.json({ success: true, txHash: result.txHash });
+        console.log(
+          `[Worker] Delivered messageId=${messageId} tx=${result.txHash}`,
+        );
+        pendingMessages.delete(messageId);
+        pendingQueue.splice(pendingQueue.indexOf(messageId), 1);
       } else {
-        res.status(500).json({ success: false, error: result.error });
+        console.error(
+          `[Worker] Failed to deliver messageId=${messageId}: ${result.error} — will retry`,
+        );
       }
+    }
+  }, config.deliveryIntervalMs);
+
+  // ACK worker: polls SimpleInbox for MessageDelivered events and acknowledges
+  // each one on the source chain Outbox.
+  const destBlock = await provider.getBlockNumber();
+  const stopInboxListener = listenInbox(
+    provider,
+    config.inboxAddress,
+    destBlock,
+    config.deliveryIntervalMs,
+    async (messageId: string) => {
+      console.log(`[Inbox] MessageDelivered messageId=${messageId}`);
+      await acknowledgeOnSource(sourceSigner, config.outboxAddress, messageId);
+    },
+  );
+
+  // HTTP: POST /deliver to receive messages from attesters.
+  if (config.httpPort > 0) {
+    const app = express();
+    app.use(express.json());
+
+    app.post("/deliver", (req, res) => {
+      const msg = req.body as DeliveredMessage;
+
+      if (!msg?.messageId || !msg?.emitterAddress || !msg?.payload) {
+        res.status(400).json({
+          error: "Missing required fields: messageId, emitterAddress, payload",
+        });
+        return;
+      }
+
+      if (pendingMessages.has(msg.messageId)) {
+        res.status(202).json({ queued: false, reason: "duplicate" });
+        return;
+      }
+
+      pendingMessages.set(msg.messageId, msg);
+      pendingQueue.push(msg.messageId);
+      console.log(
+        `[HTTP] Queued messageId=${msg.messageId} (queue size: ${pendingQueue.length})`,
+      );
+
+      res.status(202).json({ queued: true, messageId: msg.messageId });
     });
-    app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
+    app.get("/health", (_req, res) =>
+      res.json({ status: "ok", pending: pendingQueue.length }),
+    );
+
     app.listen(config.httpPort, () => {
       console.log(
         `Relayer HTTP on http://localhost:${config.httpPort} (POST /deliver)`,
@@ -109,10 +142,24 @@ async function main(): Promise<void> {
     });
   }
 
-  console.log(
-    `Relayer watching ${config.messagesFilePath} every ${config.pollIntervalMs}ms`,
-  );
-  console.log(`Inbox: ${config.inboxAddress}`);
+  console.log(`Relayer starting`);
+  console.log(`  Destination RPC: ${config.rpcUrl}`);
+  console.log(`  Source RPC:      ${config.sourceRpcUrl}`);
+  console.log(`  Inbox:           ${config.inboxAddress}`);
+  console.log(`  Outbox:          ${config.outboxAddress}`);
+  console.log(`  Delivery interval: ${config.deliveryIntervalMs}ms`);
+
+  const stopFns: StopFn[] = [stopInboxListener];
+
+  const shutdown = () => {
+    console.log("\nRelayer shutting down...");
+    clearInterval(deliveryTimer);
+    for (const stop of stopFns) stop();
+    process.exit(0);
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 main().catch((err) => {

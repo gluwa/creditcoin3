@@ -5,8 +5,8 @@ interface IVoteValidator {
     function validateVotes(bytes32 messageHash, bytes calldata votes) external view;
 }
 
-/// @notice Dummy inbox for PoC. Accepts messages and delivers to destination contract.
-contract DummyInbox {
+/// @notice Simple inbox for PoC. Accepts messages and delivers to destination contract.
+contract SimpleInbox {
     IVoteValidator public voteValidator;
     uint256 public immutable creditcoinChainId;
     bytes32 public immutable localChainKey;

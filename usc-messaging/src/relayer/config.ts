@@ -1,32 +1,35 @@
 /**
  * Relayer client configuration.
+ *
+ * Start: node dist/relayer/server.js --inbox 0x... --outbox 0x...
  */
 
 import {
   DEFAULT_DESTINATION_RPC_URL,
-  DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_RELAYER_HTTP_PORT,
   DEFAULT_SOURCE_RPC_URL,
   DEPLOYMENTS_FILE,
 } from "../consts.js";
+import { isValidContractAddress, isValidPrivateKey } from "../utils.js";
+
+const DEFAULT_DELIVERY_INTERVAL_MS = "5000";
 
 export interface RelayerConfig {
-  /** RPC URL for the destination chain (where inbox is deployed) */
+  /** RPC URL for the destination chain (where SimpleInbox is deployed) */
   rpcUrl: string;
-  /** Private key for the relayer (pays gas) */
+  /** Private key for the relayer (pays gas on both chains) */
   privateKey: string;
-  /** DummyInbox contract address */
+  /** SimpleInbox contract address on destination chain */
   inboxAddress: string;
-  /** Poll interval in ms when watching a messages file */
-  pollIntervalMs: number;
-  /** Path to JSON file with pending messages (mock P2P) */
-  messagesFilePath: string;
-  /** HTTP port for receiving messages (0 = disabled) */
+  /** RPC URL for the source chain (where Outbox is deployed, used for ACK) */
+  sourceRpcUrl: string;
+  /** Outbox contract address on source chain (used for ACK) */
+  outboxAddress: string;
+  /** How often (ms) the delivery worker attempts to process the pending queue */
+  deliveryIntervalMs: number;
+  /** HTTP port for receiving messages from attesters (0 = disabled) */
   httpPort: number;
 }
-
-const DEFAULT_KEY =
-  "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 function parseArg(name: string, short?: string): string | undefined {
   const args = process.argv.slice(2);
@@ -46,14 +49,14 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
     parseArg("--rpc-url", "-r") ??
     process.env.RELAYER_RPC_URL ??
     DEFAULT_DESTINATION_RPC_URL;
+
+  const sourceRpcUrl =
+    parseArg("--source-rpc-url") ??
+    process.env.RELAYER_SOURCE_RPC_URL ??
+    DEFAULT_SOURCE_RPC_URL;
+
   const key =
-    parseArg("--private-key", "-k") ??
-    process.env.RELAYER_PRIVATE_KEY ??
-    DEFAULT_KEY;
-  const messagesFile =
-    parseArg("--messages-file", "-m") ??
-    process.env.RELAYER_MESSAGES_FILE ??
-    "./messages.json";
+    parseArg("--private-key", "-k") ?? process.env.RELAYER_PRIVATE_KEY;
 
   const inbox = parseArg("--inbox", "-i") ?? process.env.RELAYER_INBOX_ADDRESS;
   const outbox =
@@ -65,14 +68,18 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
       DEFAULT_RELAYER_HTTP_PORT,
     10,
   );
-  const pollInterval = parseInt(
-    process.env.RELAYER_POLL_INTERVAL_MS ?? DEFAULT_POLL_INTERVAL_MS,
+
+  const deliveryIntervalMs = parseInt(
+    parseArg("--delivery-interval") ??
+      process.env.RELAYER_DELIVERY_INTERVAL_MS ??
+      DEFAULT_DELIVERY_INTERVAL_MS,
     10,
   );
 
-  // Try deployments.json if inbox not provided
+  // Resolve inbox and outbox addresses: CLI/env first, then deployments.json fallback.
   let inboxAddress = inbox;
-  if (!inboxAddress) {
+  let outboxAddress = outbox;
+  if (!inboxAddress || !outboxAddress) {
     try {
       const { readFile } = await import("fs/promises");
       const { existsSync } = await import("fs");
@@ -81,24 +88,39 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
       if (existsSync(deployPath)) {
         const raw = await readFile(deployPath, "utf-8");
         const d = JSON.parse(raw);
-        inboxAddress = d.inbox;
+        if (!inboxAddress) inboxAddress = d.inbox;
+        if (!outboxAddress) outboxAddress = d.outbox;
       }
     } catch {
       // ignore
     }
   }
-  if (!inboxAddress) {
+
+  if (!isValidPrivateKey(key)) {
     throw new Error(
-      "Missing inbox address. Pass --inbox 0x... or set RELAYER_INBOX_ADDRESS. Run 'npm run deploy' first.",
+      "Invalid or missing private key. Pass --private-key 0x<64 hex chars> or set RELAYER_PRIVATE_KEY.",
+    );
+  }
+
+  if (!isValidContractAddress(inboxAddress)) {
+    throw new Error(
+      "Invalid or missing inbox address. Pass --inbox 0x<40 hex chars> or set RELAYER_INBOX_ADDRESS.",
+    );
+  }
+
+  if (!isValidContractAddress(outboxAddress)) {
+    throw new Error(
+      "Invalid or missing outbox address. Pass --outbox 0x<40 hex chars> or set RELAYER_OUTBOX_ADDRESS.",
     );
   }
 
   return {
     rpcUrl,
+    sourceRpcUrl,
     privateKey: key.startsWith("0x") ? key : `0x${key}`,
-    inboxAddress: inboxAddress!,
-    pollIntervalMs: pollInterval,
-    messagesFilePath: messagesFile,
+    inboxAddress,
+    outboxAddress,
+    deliveryIntervalMs,
     httpPort,
   };
 }

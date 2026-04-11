@@ -1,9 +1,9 @@
 /**
- * Delivers a ready message to the DummyInbox contract.
+ * Delivers a ready message to the SimpleInbox contract.
  */
 
 import { ethers } from "ethers";
-import type { ReadyMessage } from "./types.js";
+import type { DeliveredMessage } from "./types.js";
 
 const INBOX_ABI = [
   "function deliverMessage(bytes32 messageId, address emitterAddress, bytes calldata payload, bytes calldata votes) external returns (bool)",
@@ -13,7 +13,7 @@ export async function deliverMessage(
   provider: ethers.Provider,
   signer: ethers.Signer,
   inboxAddress: string,
-  msg: ReadyMessage,
+  msg: DeliveredMessage,
 ): Promise<{ success: boolean; txHash?: string; error?: string }> {
   const inbox = new ethers.Contract(inboxAddress, INBOX_ABI, signer);
 
@@ -29,21 +29,27 @@ export async function deliverMessage(
     };
   }
 
-  const payload = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["address", "bytes"],
-    [
-      msg.destinationContract,
-      msg.payloadData.startsWith("0x")
-        ? msg.payloadData
-        : `0x${msg.payloadData}`,
-    ],
+  // emitterAddress arrives as a bytes32 hex (bytes20 address padded to 32 bytes).
+  // SimpleInbox.deliverMessage expects address — extract the last 20 bytes.
+  const emitterAddress = ethers.getAddress(
+    "0x" + msg.emitterAddress.replace("0x", "").slice(-40),
   );
-  const votes = msg.votes ?? "0x";
+
+  // payload is already abi.encode(address destinationContract, bytes payloadData) — pass through as-is.
+  const payload = msg.payload.startsWith("0x")
+    ? msg.payload
+    : `0x${msg.payload}`;
+
+  // Encode the array of ECDSA signatures into bytes for the vote validator.
+  const votes = ethers.AbiCoder.defaultAbiCoder().encode(
+    ["bytes[]"],
+    [msg.signedVotes],
+  );
 
   try {
     const tx = await inbox.deliverMessage(
       messageId,
-      msg.emitterAddress,
+      emitterAddress,
       payload,
       votes,
       { gasLimit: 500_000 },

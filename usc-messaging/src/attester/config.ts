@@ -11,6 +11,7 @@ import {
   DEFAULT_SOURCE_RPC_URL,
   DEPLOYMENTS_FILE,
 } from "../consts.js";
+import { isValidContractAddress, isValidPrivateKey } from "../utils.js";
 
 export interface AttesterConfig {
   /** Source chain RPC (where Outbox lives) */
@@ -83,15 +84,15 @@ export async function loadAttesterConfig(): Promise<AttesterConfig> {
     }
   }
 
-  if (!outboxAddress) {
+  if (!isValidContractAddress(outboxAddress)) {
     throw new Error(
-      "Missing outbox address. Pass --outbox 0x... or set ATTESTER_OUTBOX_ADDRESS.",
+      "Invalid or missing outbox address. Pass --outbox 0x<40 hex chars> or set ATTESTER_OUTBOX_ADDRESS.",
     );
   }
 
-  if (!key) {
+  if (!isValidPrivateKey(key)) {
     throw new Error(
-      "Missing private key. Pass --private-key 0x... or set RELAYER_PRIVATE_KEY.",
+      "Invalid or missing private key. Pass --private-key 0x<64 hex chars> or set RELAYER_PRIVATE_KEY.",
     );
   }
 

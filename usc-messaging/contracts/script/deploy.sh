@@ -37,7 +37,7 @@ RELAYER=$(deploy_to_destination "src/DummyRelayerContract.sol:DummyRelayerContra
 OUTBOX=$(deploy_to_source "src/SimpleOutbox.sol:Outbox" "")
 
 INBOX_ARGS=$(cast abi-encode "constructor(address,uint256,bytes32)" "$VALIDATOR" "$SOURCE_CHAIN_ID" "$LOCAL_CHAIN_KEY")
-INBOX=$(deploy_to_destination "src/DummyInbox.sol:DummyInbox" "--constructor-args $INBOX_ARGS")
+INBOX=$(deploy_to_destination "src/SimpleInbox.sol:SimpleInbox" "--constructor-args $INBOX_ARGS")
 
 DEPLOY_JSON=$(cat <<EOF
 {"validator":"$VALIDATOR","inbox":"$INBOX","outbox":"$OUTBOX","destination":"$DESTINATION","relayer":"$RELAYER"}
@@ -46,7 +46,7 @@ EOF
 echo "$DEPLOY_JSON" > ../deployments.json
 
 echo "DummyVoteValidator: $VALIDATOR"
-echo "DummyInbox: $INBOX"
+echo "SimpleInbox: $INBOX"
 echo "Outbox: $OUTBOX"
 echo "TestDestination: $DESTINATION"
 echo "DummyRelayerContract: $RELAYER"
