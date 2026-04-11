@@ -10,6 +10,8 @@
     "dev:quoter": "tsx src/quoter/server.ts",
     "dev:relayer": "tsx src/relayer/server.ts",
     "relayer": "node dist/relayer/server.js",
+    "dev:attester": "tsx src/attester/server.ts",
+    "attester": "node dist/attester/server.js",
     "deploy": "cd contracts && ./script/deploy.sh",
     "seed-message": "tsx scripts/seed-message.ts",
     "lint": "eslint src --ext .ts",

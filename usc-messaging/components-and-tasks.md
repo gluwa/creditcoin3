@@ -18,7 +18,7 @@ Offchain HTTP service that receives quoting requests from dApp and returns them 
 
 * In order for the relayer to validate the quotes, some form of registration seems to be necessary in the relayer contract?
 
-## DummyAttester
+## Attester
 
 Simple offchain worker which listens to the `SimpleOutboxContract` for `MessagePublished` events and votes on them.
 

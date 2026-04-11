@@ -52,13 +52,16 @@ export async function loadQuoterConfig(): Promise<QuoterConfig> {
   const tokenArg = parseArg("--payment-token", "-t");
   const rpcUrlArg = parseArg("--rpc-url", "-r");
 
-  const payeeAddress = payeeArg ?? process.env.QUOTER_PAYEE_ADDRESS ?? DEFAULT_PAYEE;
+  const payeeAddress =
+    payeeArg ?? process.env.QUOTER_PAYEE_ADDRESS ?? DEFAULT_PAYEE;
   const paymentToken =
     tokenArg ??
     process.env.QUOTER_PAYMENT_TOKEN ??
     "0x0000000000000000000000000000000000000000";
   const destinationChainRpcUrl =
-    rpcUrlArg ?? process.env.QUOTER_DESTINATION_RPC_URL ?? process.env.QUOTER_RPC_URL;
+    rpcUrlArg ??
+    process.env.QUOTER_DESTINATION_RPC_URL ??
+    process.env.QUOTER_RPC_URL;
 
   if (!isValidAddress(payeeAddress)) {
     throw new Error(`Invalid payeeAddress: ${payeeAddress}`);
@@ -76,18 +79,24 @@ export async function loadQuoterConfig(): Promise<QuoterConfig> {
       destinationChainId = Number(network.chainId);
     } catch (err) {
       throw new Error(
-        `Failed to fetch chain ID from RPC ${destinationChainRpcUrl}: ${err instanceof Error ? err.message : err}`
+        `Failed to fetch chain ID from RPC ${destinationChainRpcUrl}: ${err instanceof Error ? err.message : err}`,
       );
     }
   }
 
   return {
     port: parseInt(process.env.QUOTER_PORT ?? "3300", 10),
-    signerPrivateKey: process.env.QUOTER_SIGNER_PRIVATE_KEY ?? DEFAULT_SIGNER_KEY,
+    signerPrivateKey:
+      process.env.QUOTER_SIGNER_PRIVATE_KEY ?? DEFAULT_SIGNER_KEY,
     payeeAddress,
     paymentToken,
-    quoteExpirySeconds: parseInt(process.env.QUOTER_EXPIRY_SECONDS ?? "3600", 10),
-    defaultRelayGasLimit: BigInt(process.env.QUOTER_RELAY_GAS_LIMIT ?? "300000"),
+    quoteExpirySeconds: parseInt(
+      process.env.QUOTER_EXPIRY_SECONDS ?? "3600",
+      10,
+    ),
+    defaultRelayGasLimit: BigInt(
+      process.env.QUOTER_RELAY_GAS_LIMIT ?? "300000",
+    ),
     ackGasLimit: BigInt(process.env.QUOTER_ACK_GAS_LIMIT ?? "500000"),
     gasBufferMultiplier: parseInt(process.env.QUOTER_GAS_BUFFER ?? "135", 10),
     destinationChainRpcUrl,

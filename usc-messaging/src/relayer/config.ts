@@ -17,7 +17,8 @@ export interface RelayerConfig {
   httpPort: number;
 }
 
-const DEFAULT_KEY = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const DEFAULT_KEY =
+  "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 function parseArg(name: string, short?: string): string | undefined {
   const args = process.argv.slice(2);
@@ -33,18 +34,26 @@ function parseArg(name: string, short?: string): string | undefined {
 }
 
 export async function loadRelayerConfig(): Promise<RelayerConfig> {
-  const rpcUrl = parseArg("--rpc-url", "-r") ?? process.env.RELAYER_RPC_URL ?? "http://127.0.0.1:8545";
+  const rpcUrl =
+    parseArg("--rpc-url", "-r") ??
+    process.env.RELAYER_RPC_URL ??
+    "http://127.0.0.1:8545";
   const inbox = parseArg("--inbox", "-i") ?? process.env.RELAYER_INBOX_ADDRESS;
-  const key = parseArg("--private-key", "-k") ?? process.env.RELAYER_PRIVATE_KEY ?? DEFAULT_KEY;
+  const key =
+    parseArg("--private-key", "-k") ??
+    process.env.RELAYER_PRIVATE_KEY ??
+    DEFAULT_KEY;
   const messagesFile =
-    parseArg("--messages-file", "-m") ?? process.env.RELAYER_MESSAGES_FILE ?? "./messages.json";
+    parseArg("--messages-file", "-m") ??
+    process.env.RELAYER_MESSAGES_FILE ??
+    "./messages.json";
   const httpPort = parseInt(
     parseArg("--http-port") ?? process.env.RELAYER_HTTP_PORT ?? "3301",
-    10
+    10,
   );
   const pollInterval = parseInt(
     process.env.RELAYER_POLL_INTERVAL_MS ?? "2000",
-    10
+    10,
   );
 
   // Try deployments.json if inbox not provided
@@ -66,7 +75,7 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
   }
   if (!inboxAddress) {
     throw new Error(
-      "Missing inbox address. Pass --inbox 0x... or set RELAYER_INBOX_ADDRESS. Run 'npm run deploy' first."
+      "Missing inbox address. Pass --inbox 0x... or set RELAYER_INBOX_ADDRESS. Run 'npm run deploy' first.",
     );
   }
 

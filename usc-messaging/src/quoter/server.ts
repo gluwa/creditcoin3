@@ -23,8 +23,11 @@ app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 app.get("/quote", async (req, res) => {
   const config = await getConfig();
   try {
-    const destinationChainIdParam = req.query.destinationChainId as string | undefined;
-    const requiresAck = (req.query.requiresAck as string)?.toLowerCase() === "true";
+    const destinationChainIdParam = req.query.destinationChainId as
+      | string
+      | undefined;
+    const requiresAck =
+      (req.query.requiresAck as string)?.toLowerCase() === "true";
     const gasLimitParam = req.query.gasLimit as string | undefined;
 
     const destinationChainId = destinationChainIdParam
@@ -89,7 +92,9 @@ app.listen(port, () => {
   console.log(`Quoter listening on http://localhost:${port}`);
   console.log(`  GET /quote?destinationChainId=31337&requiresAck=false`);
   if (config.destinationChainRpcUrl) {
-    console.log(`  RPC: ${config.destinationChainRpcUrl} (chainId: ${config.destinationChainId})`);
+    console.log(
+      `  RPC: ${config.destinationChainRpcUrl} (chainId: ${config.destinationChainId})`,
+    );
     console.log(`  destinationChainId optional when using --rpc-url`);
   }
   console.log(`  GET /health`);

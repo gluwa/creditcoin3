@@ -18,17 +18,22 @@ function encodeQuoteForSigning(data: QuoteData): string {
       data.payeeAddress,
       data.paymentToken,
       data.expiry,
-    ]
+    ],
   );
 }
 
 /**
  * Fetch gas price from destination chain RPC, or use a fallback.
  */
-async function getGasPrice(config: QuoterConfig, chainId: number): Promise<bigint> {
+async function getGasPrice(
+  config: QuoterConfig,
+  chainId: number,
+): Promise<bigint> {
   if (config.destinationChainRpcUrl) {
     try {
-      const provider = new ethers.JsonRpcProvider(config.destinationChainRpcUrl);
+      const provider = new ethers.JsonRpcProvider(
+        config.destinationChainRpcUrl,
+      );
       const feeData = await provider.getFeeData();
       const gasPrice = feeData.gasPrice ?? 0n;
       if (gasPrice > 0n) return gasPrice;
@@ -45,7 +50,7 @@ async function getGasPrice(config: QuoterConfig, chainId: number): Promise<bigin
  */
 export async function createQuote(
   request: QuoteRequest,
-  config: QuoterConfig
+  config: QuoterConfig,
 ): Promise<SignedQuote> {
   const gasPrice = await getGasPrice(config, request.destinationChainId);
   const exchangeRate = getExchangeRate(request.destinationChainId);
