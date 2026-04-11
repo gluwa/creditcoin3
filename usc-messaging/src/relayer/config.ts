@@ -2,6 +2,14 @@
  * Relayer client configuration.
  */
 
+import {
+  DEFAULT_DESTINATION_RPC_URL,
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_RELAYER_HTTP_PORT,
+  DEFAULT_SOURCE_RPC_URL,
+  DEPLOYMENTS_FILE,
+} from "../consts.js";
+
 export interface RelayerConfig {
   /** RPC URL for the destination chain (where inbox is deployed) */
   rpcUrl: string;
@@ -37,8 +45,7 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
   const rpcUrl =
     parseArg("--rpc-url", "-r") ??
     process.env.RELAYER_RPC_URL ??
-    "http://127.0.0.1:8545";
-  const inbox = parseArg("--inbox", "-i") ?? process.env.RELAYER_INBOX_ADDRESS;
+    DEFAULT_DESTINATION_RPC_URL;
   const key =
     parseArg("--private-key", "-k") ??
     process.env.RELAYER_PRIVATE_KEY ??
@@ -47,12 +54,19 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
     parseArg("--messages-file", "-m") ??
     process.env.RELAYER_MESSAGES_FILE ??
     "./messages.json";
+
+  const inbox = parseArg("--inbox", "-i") ?? process.env.RELAYER_INBOX_ADDRESS;
+  const outbox =
+    parseArg("--outbox", "-o") ?? process.env.RELAYER_OUTBOX_ADDRESS;
+
   const httpPort = parseInt(
-    parseArg("--http-port") ?? process.env.RELAYER_HTTP_PORT ?? "3301",
+    parseArg("--http-port") ??
+      process.env.RELAYER_HTTP_PORT ??
+      DEFAULT_RELAYER_HTTP_PORT,
     10,
   );
   const pollInterval = parseInt(
-    process.env.RELAYER_POLL_INTERVAL_MS ?? "2000",
+    process.env.RELAYER_POLL_INTERVAL_MS ?? DEFAULT_POLL_INTERVAL_MS,
     10,
   );
 
@@ -63,7 +77,7 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
       const { readFile } = await import("fs/promises");
       const { existsSync } = await import("fs");
       const path = await import("path");
-      const deployPath = path.join(process.cwd(), "deployments.json");
+      const deployPath = path.join(process.cwd(), DEPLOYMENTS_FILE);
       if (existsSync(deployPath)) {
         const raw = await readFile(deployPath, "utf-8");
         const d = JSON.parse(raw);

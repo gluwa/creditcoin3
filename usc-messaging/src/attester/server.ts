@@ -1,46 +1,30 @@
 /**
  * Attester worker: listens for MessagePublished on Outbox (Source chain)
- * and MessageDelivered on Inbox (Destination chain).
+ * and forwards each message to the relayer via HTTP.
  *
- * On MessagePublished: "votes" and forwards to relayer via HTTP.
- * On MessageDelivered: logs delivery (future: trigger ACK flow).
- *
- * Start: node dist/attester/server.js --outbox 0x... --inbox 0x...
+ * Start: node dist/attester/server.js --outbox 0x...
  */
 
 import { ethers } from "ethers";
 import { loadAttesterConfig } from "./config.js";
-import { listenOutbox, listenInbox, type StopFn } from "./listeners.js";
+import { listenOutbox, type StopFn } from "./listeners.js";
 import { notifyRelayer } from "./relayer-client.js";
 import type { PublishedMessage } from "./types.js";
-
-/** Track messages that require ACK (messageId -> requiresAck) */
-const ackTracker = new Map<string, boolean>();
 
 async function main(): Promise<void> {
   const config = await loadAttesterConfig();
 
-  const sourceProvider = new ethers.JsonRpcProvider(
-    config.sourceRpcUrl,
-  );
-  const destinationProvider = new ethers.JsonRpcProvider(
-    config.destinationRpcUrl,
+  const wallet = new ethers.Wallet(config.key);
+  console.log(
+    `Derived public key ${wallet.address} from provided private key.`,
   );
 
-  const [sourceBlock, destinationBlock] = await Promise.all([
-    sourceProvider.getBlockNumber(),
-    destinationProvider.getBlockNumber(),
-  ]);
+  const sourceProvider = new ethers.JsonRpcProvider(config.sourceRpcUrl);
+  const sourceBlock = await sourceProvider.getBlockNumber();
 
   console.log(`Attester starting`);
-  console.log(
-    `  Source RPC: ${config.sourceRpcUrl} (block ${sourceBlock})`,
-  );
-  console.log(
-    `  Destination RPC: ${config.destinationRpcUrl} (block ${destinationBlock})`,
-  );
+  console.log(`  Source RPC: ${config.sourceRpcUrl} (block ${sourceBlock})`);
   console.log(`  Outbox: ${config.outboxAddress}`);
-  console.log(`  Inbox: ${config.inboxAddress}`);
   console.log(`  Relayer: ${config.relayerUrl}`);
   console.log(`  Poll interval: ${config.pollIntervalMs}ms`);
 
@@ -54,39 +38,26 @@ async function main(): Promise<void> {
     config.pollIntervalMs,
     async (msg: PublishedMessage) => {
       console.log(
-        `[MessagePublished] messageId=${msg.messageId} emitter=${msg.emitterAddress} requiresAck=${msg.requiresAck}`,
+        `[MessagePublished] messageId=${msg.messageId} emitter=${msg.emitterAddress}`,
       );
 
-      // Track for ACK if needed
-      ackTracker.set(msg.messageId, msg.requiresAck);
+      // POC: We "vote" on the message by signing its ID with our private key.
+      const vote = await wallet.signMessage(msg.messageId);
+      const votes = [vote];
 
-      // POC: "vote" is implicit — forward directly to relayer
-      await notifyRelayer(config.relayerUrl, msg);
+      const deliveryMsg = {
+        messageId: msg.messageId,
+        emitterAddress: msg.emitterAddress,
+        payload: msg.payload,
+        requiresAck: msg.requiresAck,
+        signedVotes: votes,
+      };
+
+      // Forward signed message to relayer
+      await notifyRelayer(config.relayerUrl, deliveryMsg);
     },
   );
   stopFns.push(stopOutbox);
-
-  // Listen for MessageDelivered on Inbox (Destination chain)
-  const stopInbox = listenInbox(
-    destinationProvider,
-    config.inboxAddress,
-    destinationBlock,
-    config.pollIntervalMs,
-    async (delivered) => {
-      console.log(
-        `[MessageDelivered] messageId=${delivered.messageId} processor=${delivered.processor}`,
-      );
-
-      const requiresAck = ackTracker.get(delivered.messageId);
-      if (requiresAck) {
-        // TODO: call Outbox.acknowledgeMessage(messageId) — requires gas on Source chain
-        console.log(
-          `[ACK required] messageId=${delivered.messageId} — acknowledge not yet implemented`,
-        );
-      }
-    },
-  );
-  stopFns.push(stopInbox);
 
   // Graceful shutdown
   const shutdown = () => {

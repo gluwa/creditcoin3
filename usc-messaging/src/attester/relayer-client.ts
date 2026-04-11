@@ -3,15 +3,15 @@
  * For the POC this is a best-effort call — failures are logged but not fatal.
  */
 
-import type { PublishedMessage } from "./types.js";
+import type { DeliveredMessage } from "./types.js";
 
 /**
  * POSTs a voted message to the relayer's /deliver endpoint.
- * The relayer expects a ReadyMessage shape; we map from PublishedMessage.
+ * The relayer expects a ReadyMessage shape; we map from DeliveredMessage.
  */
 export async function notifyRelayer(
   relayerUrl: string,
-  message: PublishedMessage,
+  message: DeliveredMessage,
 ): Promise<void> {
   const url = `${relayerUrl}/deliver`;
   const body = {
@@ -19,6 +19,7 @@ export async function notifyRelayer(
     emitterAddress: message.emitterAddress,
     payload: message.payload,
     requiresAck: message.requiresAck,
+    signedVotes: message.signedVotes,
   };
 
   console.log(`[Relayer client] POST ${url} messageId=${message.messageId}`);
