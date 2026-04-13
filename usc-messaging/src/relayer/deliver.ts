@@ -10,7 +10,6 @@ const INBOX_ABI = [
 ];
 
 export async function deliverMessage(
-  provider: ethers.Provider,
   signer: ethers.Signer,
   inboxAddress: string,
   msg: DeliveredMessage,

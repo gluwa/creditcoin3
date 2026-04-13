@@ -5,6 +5,8 @@
  * Start: node dist/attester/server.js --outbox 0x... --private-key 0x...
  */
 
+import dotenv from "dotenv";
+
 import {
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_RELAYER_URL,
@@ -40,13 +42,15 @@ function parseArg(name: string, short?: string): string | undefined {
 }
 
 export async function loadAttesterConfig(): Promise<AttesterConfig> {
+  dotenv.config({ override: true });
+
   const sourceRpcUrl =
     parseArg("--source-rpc-url") ??
     process.env.ATTESTER_SOURCE_RPC_URL ??
     DEFAULT_SOURCE_RPC_URL;
 
   const key =
-    parseArg("--private-key", "-k") ?? process.env.RELAYER_PRIVATE_KEY;
+    parseArg("--private-key", "-k") ?? process.env.ATTESTER_PRIVATE_KEY;
 
   const outbox =
     parseArg("--outbox", "-o") ?? process.env.ATTESTER_OUTBOX_ADDRESS;

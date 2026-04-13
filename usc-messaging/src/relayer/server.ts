@@ -29,13 +29,16 @@ async function acknowledgeOnSource(
   try {
     const tx = await outbox.acknowledgeMessage(messageId);
     await tx.wait();
-    console.log(`[ACK] messageId=${messageId} acknowledged on source chain`);
+    console.log(`[Outbox] messageId=${messageId} acknowledged on source chain`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("MessageAlreadyAcknowledged")) {
-      console.warn(`[ACK] messageId=${messageId} already acknowledged`);
+      console.warn(`[Outbox] messageId=${messageId} already acknowledged`);
     } else {
-      console.error(`[ACK] Failed to acknowledge messageId=${messageId}:`, msg);
+      console.error(
+        `[Outbox] Failed to acknowledge messageId=${messageId}:`,
+        msg,
+      );
     }
   }
 }
@@ -52,10 +55,15 @@ async function main(): Promise<void> {
   // Pending message store: map for O(1) deduplication, queue for ordered processing.
   const pendingMessages = new Map<string, DeliveredMessage>();
   const pendingQueue: string[] = [];
+  const ackPending = new Set<string>();
+
+  // Guarded flag to prevent concurrent delivery worker runs.
+  let processing = false;
 
   // Delivery worker: processes all pending messages on each tick.
   const deliveryTimer = setInterval(async () => {
-    if (pendingQueue.length === 0) return;
+    if (pendingQueue.length === 0 || processing) return;
+    processing = true;
     console.log(
       `[Worker] Processing ${pendingQueue.length} pending message(s)`,
     );
@@ -67,12 +75,11 @@ async function main(): Promise<void> {
       const msg = pendingMessages.get(messageId);
       if (!msg) continue; // already removed by a concurrent tick (safety guard)
 
-      const result = await deliverMessage(
-        provider,
-        signer,
-        config.inboxAddress,
-        msg,
-      );
+      if (msg.requiresAck) {
+        ackPending.add(messageId);
+      }
+
+      const result = await deliverMessage(signer, config.inboxAddress, msg);
 
       if (result.success) {
         console.log(
@@ -86,6 +93,7 @@ async function main(): Promise<void> {
         );
       }
     }
+    processing = false;
   }, config.deliveryIntervalMs);
 
   // ACK worker: polls SimpleInbox for MessageDelivered events and acknowledges
@@ -98,7 +106,22 @@ async function main(): Promise<void> {
     config.deliveryIntervalMs,
     async (messageId: string) => {
       console.log(`[Inbox] MessageDelivered messageId=${messageId}`);
-      await acknowledgeOnSource(sourceSigner, config.outboxAddress, messageId);
+
+      if (ackPending.has(messageId)) {
+        console.log(
+          `[Inbox] messageId=${messageId} requested ACK, acknowledging on source chain...`,
+        );
+        await acknowledgeOnSource(
+          sourceSigner,
+          config.outboxAddress,
+          messageId,
+        );
+        ackPending.delete(messageId);
+      } else {
+        console.log(
+          `[Inbox] messageId=${messageId} did not request ACK, skipping acknowledgment`,
+        );
+      }
     },
   );
 
@@ -110,12 +133,9 @@ async function main(): Promise<void> {
     app.post("/deliver", (req, res) => {
       const msg = req.body as DeliveredMessage;
 
-      if (!msg?.messageId || !msg?.emitterAddress || !msg?.payload) {
-        res.status(400).json({
-          error: "Missing required fields: messageId, emitterAddress, payload",
-        });
-        return;
-      }
+      console.log(
+        `[Attester] Received messageId=${msg.messageId} from attester`,
+      );
 
       if (pendingMessages.has(msg.messageId)) {
         res.status(202).json({ queued: false, reason: "duplicate" });
@@ -125,7 +145,7 @@ async function main(): Promise<void> {
       pendingMessages.set(msg.messageId, msg);
       pendingQueue.push(msg.messageId);
       console.log(
-        `[HTTP] Queued messageId=${msg.messageId} (queue size: ${pendingQueue.length})`,
+        `[Worker] Queued messageId=${msg.messageId} (queue size: ${pendingQueue.length})`,
       );
 
       res.status(202).json({ queued: true, messageId: msg.messageId });

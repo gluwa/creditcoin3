@@ -4,6 +4,8 @@
  * Start: node dist/relayer/server.js --inbox 0x... --outbox 0x...
  */
 
+import dotenv from "dotenv";
+
 import {
   DEFAULT_DESTINATION_RPC_URL,
   DEFAULT_RELAYER_HTTP_PORT,
@@ -45,6 +47,8 @@ function parseArg(name: string, short?: string): string | undefined {
 }
 
 export async function loadRelayerConfig(): Promise<RelayerConfig> {
+  dotenv.config({ override: true });
+
   const rpcUrl =
     parseArg("--rpc-url", "-r") ??
     process.env.RELAYER_RPC_URL ??

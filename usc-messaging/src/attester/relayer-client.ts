@@ -21,7 +21,7 @@ export async function notifyRelayer(
     signedVotes: message.signedVotes,
   };
 
-  console.log(`[Relayer client] POST ${url} messageId=${message.messageId}`);
+  console.log(`[Relayer] POST ${url} messageId=${message.messageId}`);
 
   try {
     const res = await fetch(url, {
@@ -31,15 +31,16 @@ export async function notifyRelayer(
     });
 
     if (res.ok) {
-      const data = await res.json();
-      console.log(`[Relayer client] OK:`, data);
+      console.log(
+        `[Relayer] messageId=${message.messageId} successfully notified to relayer`,
+      );
     } else {
       const text = await res.text();
-      console.warn(`[Relayer client] HTTP ${res.status}: ${text}`);
+      console.warn(`[Relayer] HTTP ${res.status}: ${text}`);
     }
   } catch (err) {
     console.warn(
-      `[Relayer client] Failed to reach relayer at ${url}:`,
+      `[Relayer] Failed to reach relayer at ${url}:`,
       err instanceof Error ? err.message : err,
     );
   }

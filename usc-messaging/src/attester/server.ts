@@ -19,6 +19,7 @@ async function main(): Promise<void> {
     `Derived public key ${wallet.address} from provided private key.`,
   );
 
+  console.log(`Connecting to source RPC at ${config.sourceRpcUrl}...`);
   const sourceProvider = new ethers.JsonRpcProvider(config.sourceRpcUrl);
   const sourceBlock = await sourceProvider.getBlockNumber();
 
@@ -38,7 +39,7 @@ async function main(): Promise<void> {
     config.pollIntervalMs,
     async (msg: PublishedMessage) => {
       console.log(
-        `[MessagePublished] messageId=${msg.messageId} emitter=${msg.emitterAddress}`,
+        `[Outbox] MessagePublished messageId=${msg.messageId} emitter=${msg.emitterAddress}`,
       );
 
       // POC: We "vote" on the message by signing its ID with our private key.
