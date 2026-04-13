@@ -1,6 +1,6 @@
 import { Command, OptionValues } from 'commander';
 import { decodeAddress } from '@polkadot/util-crypto';
-import { Contract, JsonRpcProvider, Wallet, hexlify, zeroPadValue } from 'ethers';
+import { Contract, JsonRpcProvider, hexlify, zeroPadValue } from 'ethers';
 import { newApi } from '../../lib';
 import { substrateAddressOption } from '../options';
 
@@ -12,13 +12,6 @@ const PRECOMPILE_ABI = [
         name: 'accrued',
         outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
         stateMutability: 'view',
-        type: 'function',
-    },
-    {
-        inputs: [{ internalType: 'uint256', name: 'amount', type: 'uint256' }],
-        name: 'claim',
-        outputs: [],
-        stateMutability: 'nonpayable',
         type: 'function',
     },
 ] as const;
@@ -82,41 +75,28 @@ async function attestCoinAccruedEvmAction(options: OptionValues) {
     console.log(v.toString());
 }
 
-/** Claim reward points via EVM precompile (mints configured ERC-20 to the caller). */
-export function makeAttestCoinClaimCommand() {
-    const cmd = new Command('claim');
-    cmd.description('Claim attest-coin rewards via EVM precompile (set CC_EVM_PRIVATE_KEY to the claimer EVM key)');
-    cmd.requiredOption(
-        '-a, --amount <amount>',
-        'Amount to claim in wei (must not exceed accrued balance)',
-    );
-    cmd.action(attestCoinClaimAction);
+/** Next EVM-claim nonce for a stash (see precompile `claim` + sr25519 signing). */
+export function makeAttestCoinClaimNonceCommand() {
+    const cmd = new Command('claim-nonce');
+    cmd.description('Show on-chain claim nonce for a Substrate stash (paired with sr25519-signed precompile claim)');
+    cmd.addOption(substrateAddressOption.makeOptionMandatory());
+    cmd.action(attestCoinClaimNonceAction);
     return cmd;
 }
 
-async function attestCoinClaimAction(options: OptionValues) {
+async function attestCoinClaimNonceAction(options: OptionValues) {
     const url = options.url as string;
-    const amountStr = options.amount as string;
-    if (!/^\d+$/.test(amountStr)) {
-        console.error('amount must be a positive integer string (wei)');
-        process.exit(1);
+    const stash = options.substrateAddress as string;
+    const { api } = await newApi(url);
+    try {
+        const pallet = (api.query as any).attestCoinRewards;
+        if (!pallet?.claimNonce) {
+            console.error('Chain metadata has no pallet attestCoinRewards.claimNonce.');
+            process.exit(1);
+        }
+        const raw = await pallet.claimNonce(stash);
+        console.log((raw as { toString: () => string }).toString());
+    } finally {
+        await api.disconnect();
     }
-
-    const pk = process.env.CC_EVM_PRIVATE_KEY;
-    if (!pk || !isValidHexKey(pk)) {
-        console.error('Set CC_EVM_PRIVATE_KEY to a 0x-prefixed 32-byte EVM private key for the claiming account.');
-        process.exit(1);
-    }
-
-    const provider = new JsonRpcProvider(httpRpcFromWs(url));
-    const wallet = new Wallet(pk, provider);
-    const contract = new Contract(ATTEST_COIN_PRECOMPILE, PRECOMPILE_ABI, wallet);
-
-    const tx = await contract.claim(amountStr, { gasLimit: 500_000n });
-    const receipt = await tx.wait();
-    console.log(receipt?.hash ?? tx.hash);
-}
-
-function isValidHexKey(k: string) {
-    return /^0x[0-9a-fA-F]{64}$/.test(k);
 }

@@ -906,6 +906,9 @@ type EnsureOperators = frame_system::EnsureSignedBy<Operators, AccountId>;
 type EnsureRootOrOperators =
     frame_support::traits::EitherOfDiverse<frame_system::EnsureRoot<AccountId>, EnsureOperators>;
 
+/// Dispatches attest-coin accrual when a committed attestation includes eligible signers.
+pub struct AttestCoinCommittedAttestationHook;
+
 impl pallet_attestation::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
@@ -930,19 +933,20 @@ impl pallet_attestation::Config for Runtime {
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
     type OperatorsOrigin = EnsureRootOrOperators;
+    type CommittedAttestationHook = AttestCoinCommittedAttestationHook;
 }
 
 parameter_types! {
-    /// Same length as Babe epoch (`EPOCH_DURATION_IN_BLOCKS`); rewards settle at these boundaries.
-    pub const AttestCoinRewardEpochDuration: BlockNumber = EPOCH_DURATION_IN_BLOCKS;
-    /// 10 ATTEST (1e18 units) split across all bonded stashes each Babe epoch.
+    /// Reward units (1e18 scale) per **eligible** signer on each successful `commit_attestation`.
+    pub const AttestCoinRewardPerEligibleSigner: Balance = 1_000_000_000_000_000_000u128;
+    /// Pool for [`pallet_attest_coin_rewards::Pallet::force_settle`] (split across all ledger stashes).
     pub const AttestCoinEpochRewardPool: Balance = 10_000_000_000_000_000_000u128;
 }
 
 impl pallet_attest_coin_rewards::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RewardPoints = Balance;
-    type EpochDuration = AttestCoinRewardEpochDuration;
+    type RewardPerEligibleSigner = AttestCoinRewardPerEligibleSigner;
     type EpochRewardPool = AttestCoinEpochRewardPool;
 }
 
@@ -1027,6 +1031,12 @@ construct_runtime!(
         Operators: pallet_membership::<Instance1>,
     }
 );
+
+impl pallet_attestation::CommittedAttestationObserver<AccountId> for AttestCoinCommittedAttestationHook {
+    fn on_committed_eligible(chain_key: ChainKey, eligible_signers: &[AccountId]) {
+        pallet_attest_coin_rewards::Pallet::<Runtime>::reward_commit_signers(chain_key, eligible_signers);
+    }
+}
 
 #[derive(Clone)]
 pub struct TransactionConverter;
