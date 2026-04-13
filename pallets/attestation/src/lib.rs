@@ -1181,13 +1181,6 @@ pub mod pallet {
 
             Self::do_chill_attestor(chain_key, attestor_id.clone());
 
-            // We also remove the attestor from the active attestor list if they are present
-            ActiveAttestors::<T>::mutate(chain_key, |active_attestors| {
-                if let Some(pos) = active_attestors.iter().position(|x| *x == attestor_id) {
-                    active_attestors.swap_remove(pos);
-                }
-            });
-
             if unregister {
                 // If unregister is true, also remove the attestor from the attestor list
                 let stash = attestor.stash.clone();
