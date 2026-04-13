@@ -104,20 +104,21 @@ impl<T: Config> Pallet<T> {
 
         let mut kept = BoundedVec::<(ChainKey, T::AccountId), ConstU32<64>>::default();
         for (chain_key, attestor_id) in pairs.into_iter() {
-            let remove = match RetiredAttestorBlsKeys::<T>::get(chain_key, &attestor_id) {
+            match RetiredAttestorBlsKeys::<T>::get(chain_key, &attestor_id) {
+                None => {
+                    // Dangling index entry only — row already gone.
+                }
+                Some(entry) if entry.stash != *stash => {
+                    // This stash's index points at a BLS row owned by another stash; drop the
+                    // stale index entry but do not delete their [`RetiredAttestorBlsKeys`] row.
+                }
                 Some(entry) => {
-                    if entry.stash != *stash || current_era >= entry.purge_at_era {
+                    if current_era >= entry.purge_at_era {
                         RetiredAttestorBlsKeys::<T>::remove(chain_key, &attestor_id);
-                        true
                     } else {
-                        false
+                        let _ = kept.try_push((chain_key, attestor_id));
                     }
                 }
-                None => true,
-            };
-
-            if !remove {
-                let _ = kept.try_push((chain_key, attestor_id));
             }
         }
 
