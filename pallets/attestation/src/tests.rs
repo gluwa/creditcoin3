@@ -689,6 +689,13 @@ fn attestor_authorized_should_be_elected_after_5_blocks_and_emit_event() {
             AttestorElectionPolicy::AuthorizedOnly
         ));
 
+        // Operator must authorize the controller before registration under AuthorizedOnly.
+        assert_ok!(Attestation::authorize_attestor(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash.clone(),
@@ -716,13 +723,6 @@ fn attestor_authorized_should_be_elected_after_5_blocks_and_emit_event() {
             SUPPORTED_CHAIN_KEY,
             att.public_key,
             att.signature
-        ));
-
-        // Authorize the attestor
-        assert_ok!(Attestation::authorize_attestor(
-            RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY,
-            ATTESTOR_1
         ));
 
         progress_to_block(5);
@@ -784,18 +784,19 @@ fn attestor_should_not_be_elected_after_5_blocks_if_not_signaling_start() {
 #[test]
 fn attestor_should_not_be_elected_after_5_blocks_if_not_authorized() {
     ExtBuilder.build_and_execute(|| {
-        // We set the election policy to AuthorizedOnly to ensure that attestors are not elected
-        assert_ok!(Attestation::set_election_policy(
-            RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY,
-            AttestorElectionPolicy::AuthorizedOnly
-        ));
-
+        // Register while OpenToAny, then switch to AuthorizedOnly without adding this key to
+        // `AuthorizedAttestors` — election must skip them.
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash.clone(),
             SUPPORTED_CHAIN_KEY,
             att.attestor_id
+        ));
+
+        assert_ok!(Attestation::set_election_policy(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            AttestorElectionPolicy::AuthorizedOnly
         ));
 
         // assert_eq!(Attestors::<Test>::count(), 1);
@@ -824,6 +825,27 @@ fn attestor_should_not_be_elected_after_5_blocks_if_not_authorized() {
 
         // The attestor should not be elected because they are not authorized
         assert!(!Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+    })
+}
+
+#[test]
+fn register_attestor_should_fail_under_authorized_only_without_prior_authorize() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::set_election_policy(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            AttestorElectionPolicy::AuthorizedOnly
+        ));
+
+        let att = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_noop!(
+            Attestation::register_attestor(
+                att.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att.attestor_id
+            ),
+            Error::<Test>::NotPreAuthorizedToRegister
+        );
     })
 }
 
@@ -4971,17 +4993,17 @@ mod authorize_attestor {
     }
 
     #[test]
-    fn authorize_attestor_should_error_when_address_is_not_attestor() {
+    fn authorize_attestor_should_succeed_before_attestor_is_registered() {
         ExtBuilder.build_and_execute(|| {
-            // ATTESTOR_1 is not registered as an attestor yet
-            assert_noop!(
-                Attestation::authorize_attestor(
-                    RuntimeOrigin::root(),
-                    SUPPORTED_CHAIN_KEY,
-                    ATTESTOR_1
-                ),
-                Error::<Test>::AddressNotAttestor
-            );
+            assert_ok!(Attestation::authorize_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+            assert!(AuthorizedAttestors::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
         })
     }
 

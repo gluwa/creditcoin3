@@ -3143,6 +3143,7 @@ export default {
             'AttestorWithInvalidPublicKey',
             'MajorityNotReached',
             'AttestorAlreadyAuthorized',
+            'NotPreAuthorizedToRegister',
             'AttestorNotAuthorized',
             'NoFinalizedAttestation',
             'AttestationsAlreadyExist',
