@@ -3677,6 +3677,7 @@ declare module '@polkadot/types/lookup' {
         readonly isAttestorWithInvalidPublicKey: boolean;
         readonly isMajorityNotReached: boolean;
         readonly isAttestorAlreadyAuthorized: boolean;
+        readonly isNotPreAuthorizedToRegister: boolean;
         readonly isAttestorNotAuthorized: boolean;
         readonly isNoFinalizedAttestation: boolean;
         readonly isAttestationsAlreadyExist: boolean;
@@ -3730,6 +3731,7 @@ declare module '@polkadot/types/lookup' {
             | 'AttestorWithInvalidPublicKey'
             | 'MajorityNotReached'
             | 'AttestorAlreadyAuthorized'
+            | 'NotPreAuthorizedToRegister'
             | 'AttestorNotAuthorized'
             | 'NoFinalizedAttestation'
             | 'AttestationsAlreadyExist'

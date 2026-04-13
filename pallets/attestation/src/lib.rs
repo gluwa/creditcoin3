@@ -448,7 +448,8 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn authorized_attestors)]
     #[allow(clippy::unused_unit)]
-    // Authorized attestors are a subset of attestors that can be elected when the election policy is AuthorizedOnly
+    // Operator-authorized attestor controller accounts: (1) required before `register_attestor` when
+    // the election policy is `AuthorizedOnly`; (2) used at election time to promote waiting attestors.
     pub type AuthorizedAttestors<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
@@ -697,6 +698,9 @@ pub mod pallet {
         MajorityNotReached,
         // Attestor is already authorized for the chain.
         AttestorAlreadyAuthorized,
+        /// `register_attestor` was called under `AuthorizedOnly` without a prior `authorize_attestor`
+        /// for this attestor controller account.
+        NotPreAuthorizedToRegister,
         // Attestor is not authorized for the chain.
         AttestorNotAuthorized,
         // No finalized attestation found when one is required
@@ -1091,10 +1095,6 @@ pub mod pallet {
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
-            );
-            ensure!(
-                Attestors::<T>::contains_key(chain_key, &attestor_id),
-                Error::<T>::AddressNotAttestor
             );
             ensure!(
                 !AuthorizedAttestors::<T>::contains_key(chain_key, &attestor_id),
