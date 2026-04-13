@@ -102,6 +102,13 @@ pub enum ServiceError {
     EmptyTxHashes,
     #[error("Batch request cannot contain more than 100 tx hashes")]
     TooManyTxHashes,
+    #[error("Batch span too large: requested span {span} blocks (from block {from_block} to {to_block}) exceeds the maximum allowed span of {max_span} blocks")]
+    BatchSpanTooLarge {
+        from_block: u64,
+        to_block: u64,
+        span: u64,
+        max_span: u64,
+    },
 }
 
 impl ServiceError {
@@ -133,6 +140,7 @@ impl ServiceError {
             ServiceError::TooManyTxQueriesInProofQuery => "TooManyTxQueriesInProofQuery",
             ServiceError::TooManyTxHashes => "TooManyTxHashes",
             ServiceError::EmptyTxHashes => "EmptyTxHashes",
+            ServiceError::BatchSpanTooLarge { .. } => "BatchSpanTooLarge",
         }
     }
 
@@ -148,7 +156,8 @@ impl ServiceError {
             | Self::TooManyProofQueries
             | Self::TooManyTxQueriesInProofQuery
             | Self::EmptyTxHashes
-            | Self::TooManyTxHashes => StatusCode::BAD_REQUEST,
+            | Self::TooManyTxHashes
+            | Self::BatchSpanTooLarge { .. } => StatusCode::BAD_REQUEST,
             Self::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::TxHashNotFound { .. }
@@ -271,6 +280,7 @@ impl GetErrorType for ServiceError {
             ServiceError::TooManyTxQueriesInProofQuery => ErrorType::TooManyTxQueriesInProofQuery,
             ServiceError::EmptyTxHashes => ErrorType::EmptyTxHashes,
             ServiceError::TooManyTxHashes => ErrorType::TooManyTxHashes,
+            ServiceError::BatchSpanTooLarge { .. } => ErrorType::BatchSpanTooLarge,
         }
     }
 }

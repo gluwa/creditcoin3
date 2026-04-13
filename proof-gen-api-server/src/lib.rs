@@ -268,6 +268,7 @@ impl Server {
             self.builders.clone(),
             metrics.clone(),
             self.config.max_batch_size.get(),
+            self.config.max_batch_span,
         )
         .await?;
 
