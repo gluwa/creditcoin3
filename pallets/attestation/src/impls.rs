@@ -1,6 +1,6 @@
 use frame_support::{
     pallet_prelude::*,
-    traits::{Currency, DefensiveSaturating},
+    traits::{ConstU32, Currency, DefensiveSaturating},
     transactional,
 };
 use log::debug;
@@ -35,6 +35,67 @@ pub const ONE_TENTH_CTC: u64 = 100_000_000_000_000_000;
 
 /// PALLET CALL IMPLS ///
 impl<T: Config> Pallet<T> {
+    pub(crate) fn remove_active_attestor_from_set(chain_key: ChainKey, attestor_id: &T::AccountId) {
+        ActiveAttestors::<T>::mutate(chain_key, |active_attestors| {
+            if let Some(pos) = active_attestors.iter().position(|x| x == attestor_id) {
+                active_attestors.swap_remove(pos);
+            }
+        });
+    }
+
+    /// Drop any retired BLS key row for this controller so a new registration can use the slot.
+    pub(crate) fn clear_retired_bls_entry_for_controller(
+        chain_key: ChainKey,
+        attestor_id: &T::AccountId,
+    ) {
+        if let Some(entry) = RetiredAttestorBlsKeys::<T>::take(chain_key, attestor_id) {
+            Self::remove_stash_retired_index_pair(&entry.stash, chain_key, attestor_id);
+        }
+    }
+
+    fn remove_stash_retired_index_pair(
+        stash: &T::AccountId,
+        chain_key: ChainKey,
+        attestor_id: &T::AccountId,
+    ) {
+        RetiredAttestorKeysByStash::<T>::mutate(stash, |vec| {
+            if let Some(pos) = vec
+                .iter()
+                .position(|(ck, id)| *ck == chain_key && id == attestor_id)
+            {
+                vec.swap_remove(pos);
+            }
+        });
+    }
+
+    fn purge_retired_bls_keys_for_stash(stash: &T::AccountId, current_era: u32) {
+        let pairs = RetiredAttestorKeysByStash::<T>::get(stash);
+        if pairs.is_empty() {
+            return;
+        }
+
+        let mut kept = BoundedVec::<(ChainKey, T::AccountId), ConstU32<64>>::default();
+        for (chain_key, attestor_id) in pairs.into_iter() {
+            let remove = match RetiredAttestorBlsKeys::<T>::get(chain_key, &attestor_id) {
+                Some(entry) => {
+                    if entry.stash != *stash || current_era >= entry.purge_at_era {
+                        RetiredAttestorBlsKeys::<T>::remove(chain_key, &attestor_id);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                None => true,
+            };
+
+            if !remove {
+                let _ = kept.try_push((chain_key, attestor_id));
+            }
+        }
+
+        RetiredAttestorKeysByStash::<T>::insert(stash, kept);
+    }
+
     /// Inserts an attestor and sets the default status to Idle
     /// Emits an event `AttestorRegistered` if successful
     /// An attestor needs to call `attest` to become active
@@ -59,6 +120,8 @@ impl<T: Config> Pallet<T> {
             !Self::attestor_is_registered(chain_key, &attestor_id),
             Error::<T>::AlreadyAttestor
         );
+
+        Self::clear_retired_bls_entry_for_controller(chain_key, &attestor_id);
 
         ensure!(
             Self::attestor_list_has_space(chain_key),
@@ -160,6 +223,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NoMoreChunks,
         );
 
+        // Aligns with the unlock chunk era used below (unbond completes at or after this era).
+        let purge_at_era = Self::current_era().defensive_saturating_add(T::BondingDuration::get());
+
         if !value.is_zero() {
             // Decrease the active amount
             ledger.active -= value;
@@ -171,8 +237,11 @@ impl<T: Config> Pallet<T> {
             }
 
             // Note: in case there is no current era it is fine to bond one era more.
-            let era = Self::current_era().defensive_saturating_add(T::BondingDuration::get());
-            if let Some(chunk) = ledger.unlocking.last_mut().filter(|chunk| chunk.era == era) {
+            if let Some(chunk) = ledger
+                .unlocking
+                .last_mut()
+                .filter(|chunk| chunk.era == purge_at_era)
+            {
                 // To keep the chunk count down, we only keep one chunk per era. Since
                 // `unlocking` is a FiFo queue, if a chunk exists for `era` we know that it will
                 // be the last one.
@@ -180,7 +249,10 @@ impl<T: Config> Pallet<T> {
             } else {
                 ledger
                     .unlocking
-                    .try_push(UnlockChunk { value, era })
+                    .try_push(UnlockChunk {
+                        value,
+                        era: purge_at_era,
+                    })
                     .map_err(|_| Error::<T>::NoMoreChunks)?;
             };
 
@@ -188,12 +260,30 @@ impl<T: Config> Pallet<T> {
             ledger.update()?;
 
             Self::deposit_event(Event::<T>::Unbonded {
-                stash,
+                stash: stash.clone(),
                 amount: value,
             });
         }
 
-        // Remove the attestor
+        if let Some(bls_public_key) = attestor.bls_public_key {
+            RetiredAttestorBlsKeys::<T>::insert(
+                chain_key,
+                &attestor_id,
+                RetiredAttestorBlsKeyEntry {
+                    bls_public_key,
+                    purge_at_era,
+                    stash: stash.clone(),
+                },
+            );
+            RetiredAttestorKeysByStash::<T>::mutate(&stash, |vec| {
+                vec.try_push((chain_key, attestor_id.clone()))
+                    .map_err(|_| Error::<T>::RetiredAttestorPendingFull)
+            })?;
+        }
+
+        Self::remove_active_attestor_from_set(chain_key, &attestor_id);
+
+        // Remove the attestor (BLS key may remain in [`RetiredAttestorBlsKeys`] until unbond ends)
         Attestors::<T>::remove(chain_key, &attestor_id);
 
         Self::deposit_event(Event::<T>::AttestorUnregistered(chain_key, attestor_id));
@@ -335,6 +425,8 @@ impl<T: Config> Pallet<T> {
             }
         });
 
+        Self::remove_active_attestor_from_set(chain_key, &attestor_id);
+
         Self::deposit_event(Event::<T>::AttestorChilled(chain_key, attestor_id));
     }
 
@@ -347,6 +439,7 @@ impl<T: Config> Pallet<T> {
         if current_era > 0 {
             ledger = ledger.consolidate_unlocked(current_era)
         }
+        Self::purge_retired_bls_keys_for_stash(&stash, current_era);
         let new_total = ledger.total_staked;
 
         let ed = T::Currency::minimum_balance();
@@ -1139,21 +1232,30 @@ impl<T: Config> Pallet<T> {
     ) -> Result<Vec<PublicKey>, Error<T>> {
         attestors
             .iter()
-            .map(|attestor| {
-                let attestor = Attestors::<T>::get(chain_key, attestor).ok_or_else(|| {
-                    log::error!("Attestor {attestor:?} not found");
-                    Error::<T>::InvalidAttestorFound
-                })?;
-                match attestor.bls_public_key {
-                    Some(key) => PublicKey::from_bytes(&key[..]).map_err(|_| {
-                        log::error!("Invalid BLS key for attestor {attestor:?}");
-                        Error::<T>::AttestorWithInvalidPublicKey
-                    }),
+            .map(|attestor_id| {
+                let attestor_rec = Attestors::<T>::get(chain_key, attestor_id);
+                let retired = RetiredAttestorBlsKeys::<T>::get(chain_key, attestor_id);
+                let has_retired = retired.is_some();
+                let maybe_key = attestor_rec
+                    .as_ref()
+                    .and_then(|a| a.bls_public_key)
+                    .or_else(|| retired.map(|e| e.bls_public_key));
+                let key = match maybe_key {
+                    Some(k) => k,
                     None => {
-                        log::error!("No BLS key for attestor {attestor:?}");
-                        Err(Error::<T>::AttestorWithInvalidPublicKey)
+                        return Err(if attestor_rec.is_some() || has_retired {
+                            log::error!("No BLS key for attestor {attestor_id:?}");
+                            Error::<T>::AttestorWithInvalidPublicKey
+                        } else {
+                            log::error!("Attestor {attestor_id:?} not found");
+                            Error::<T>::InvalidAttestorFound
+                        });
                     }
-                }
+                };
+                PublicKey::from_bytes(&key[..]).map_err(|_| {
+                    log::error!("Invalid BLS key for attestor {attestor_id:?}");
+                    Error::<T>::AttestorWithInvalidPublicKey
+                })
             })
             .collect()
     }

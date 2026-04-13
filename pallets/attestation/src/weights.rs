@@ -146,14 +146,16 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Balances::Freezes` (r:1 w:0)
 	/// Proof: `Balances::Freezes` (`max_values`: None, `max_size`: Some(67), added: 2542, mode: `MaxEncodedLen`)
+	/// Storage: `Attestation::RetiredAttestorBlsKeys` (r:1 w:0)
+	/// Proof: `Attestation::RetiredAttestorBlsKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn register_attestor() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1406`
 		//  Estimated: `7346`
 		// Minimum execution time: 204_108_000 picoseconds.
-		Weight::from_parts(212_278_000, 0)
+		Weight::from_parts(215_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 7346))
-			.saturating_add(T::DbWeight::get().reads(15))
+			.saturating_add(T::DbWeight::get().reads(16))
 			.saturating_add(T::DbWeight::get().writes(7))
 	}
 	/// Storage: `Attestation::Attestors` (r:1 w:1)
@@ -178,15 +180,21 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::ActiveAttestors` (r:1 w:1)
+	/// Proof: `Attestation::ActiveAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::RetiredAttestorBlsKeys` (r:0 w:1)
+	/// Proof: `Attestation::RetiredAttestorBlsKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::RetiredAttestorKeysByStash` (r:1 w:1)
+	/// Proof: `Attestation::RetiredAttestorKeysByStash` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn unregister_attestor() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1401`
 		//  Estimated: `4866`
 		// Minimum execution time: 100_770_000 picoseconds.
-		Weight::from_parts(105_150_000, 0)
+		Weight::from_parts(132_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 4866))
-			.saturating_add(T::DbWeight::get().reads(11))
-			.saturating_add(T::DbWeight::get().writes(6))
+			.saturating_add(T::DbWeight::get().reads(14))
+			.saturating_add(T::DbWeight::get().writes(9))
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -371,15 +379,17 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::ActiveAttestors` (r:1 w:1)
+	/// Proof: `Attestation::ActiveAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn chill() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `350`
 		//  Estimated: `3815`
 		// Minimum execution time: 34_159_000 picoseconds.
-		Weight::from_parts(37_270_000, 0)
+		Weight::from_parts(48_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 3815))
-			.saturating_add(T::DbWeight::get().reads(5))
-			.saturating_add(T::DbWeight::get().writes(3))
+			.saturating_add(T::DbWeight::get().reads(6))
+			.saturating_add(T::DbWeight::get().writes(4))
 	}
 	/// Storage: `Attestation::Ledger` (r:1 w:1)
 	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -391,15 +401,19 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Balances::Freezes` (`max_values`: None, `max_size`: Some(67), added: 2542, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	/// Storage: `Attestation::RetiredAttestorKeysByStash` (r:1 w:1)
+	/// Proof: `Attestation::RetiredAttestorKeysByStash` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::RetiredAttestorBlsKeys` (r:1 w:1)
+	/// Proof: `Attestation::RetiredAttestorBlsKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn withdraw_unbonded() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1256`
 		//  Estimated: `4764`
 		// Minimum execution time: 70_469_000 picoseconds.
-		Weight::from_parts(72_840_000, 0)
+		Weight::from_parts(95_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 4764))
-			.saturating_add(T::DbWeight::get().reads(5))
-			.saturating_add(T::DbWeight::get().writes(3))
+			.saturating_add(T::DbWeight::get().reads(8))
+			.saturating_add(T::DbWeight::get().writes(5))
 	}
 	/// Storage: `Attestation::LastDigest` (r:1 w:0)
 	/// Proof: `Attestation::LastDigest` (`max_values`: None, `max_size`: None, mode: `Measured`)
