@@ -105,8 +105,10 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, AccountId32]
             >;
             /**
-             * [`CommitAttestationWeight`] makes it so active attestors do not pay fees on this
-             * extrinsic
+             * Inclusion fees are assessed up front for every caller ([`Pays::Yes`] via
+             * [`CommitAttestationWeight`]) so the transaction pool cannot admit zero-fee spam from
+             * callers who are not active attestors. On successful commit, active attestors receive
+             * [`PostDispatchInfo`] with [`Pays::No`] so the final fee is waived.
              **/
             commitAttestation: AugmentedSubmittable<
                 (
