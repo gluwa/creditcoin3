@@ -38,7 +38,10 @@ pub mod pallet {
         ChainKey, Digest, SignedAttestation,
     };
     use frame_support::{
-        dispatch::{ClassifyDispatch, DispatchClass, Pays, PaysFee, WeighData},
+        dispatch::{
+            ClassifyDispatch, DispatchClass, DispatchResultWithPostInfo, Pays, PaysFee,
+            PostDispatchInfo, WeighData,
+        },
         pallet_prelude::{OptionQuery, ValueQuery, *},
         traits::{Currency, LockableCurrency, OnUnbalanced},
         Blake2_128Concat, Twox64Concat,
@@ -889,14 +892,16 @@ pub mod pallet {
             Ok(())
         }
 
-        /// [`CommitAttestationWeight`] makes it so active attestors do not pay fees on this
-        /// extrinsic
+        /// Inclusion fees are assessed up front for every caller ([`Pays::Yes`] via
+        /// [`CommitAttestationWeight`]) so the transaction pool cannot admit zero-fee spam from
+        /// callers who are not active attestors. On successful commit, active attestors receive
+        /// [`PostDispatchInfo`] with [`Pays::No`] so the final fee is waived.
         #[pallet::call_index(9)]
         #[pallet::weight(CommitAttestationWeight::<T>::default())]
         pub fn commit_attestation(
             origin: OriginFor<T>,
             attestation: SignedAttestation<T::Hash, T::AccountId>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             // Only allow active attestors to commit attestations
             let account = ensure_signed(origin)?;
             let chain_key = attestation.chain_key();
@@ -908,7 +913,11 @@ pub mod pallet {
                 Error::<T>::AttestorNotActive
             );
 
-            Self::do_commit_attestation(attestation)
+            Self::do_commit_attestation(attestation)?;
+            Ok(PostDispatchInfo {
+                actual_weight: None,
+                pays_fee: Pays::No,
+            })
         }
 
         #[pallet::call_index(10)]
@@ -1435,25 +1444,12 @@ pub mod pallet {
     impl<T: Config> PaysFee<(&SignedAttestation<T::Hash, T::AccountId>,)>
         for CommitAttestationWeight<T>
     {
-        /// Makes it so active attestors do not pay fees but regular accounts do
-        fn pays_fee(&self, attestation: (&SignedAttestation<T::Hash, T::AccountId>,)) -> Pays {
-            let chain_key = attestation.0.chain_key();
-
-            let active_attestors = ActiveAttestors::<T>::get(chain_key)
-                .into_iter()
-                .collect::<BTreeSet<_>>();
-
-            let is_attestor = attestation
-                .0
-                .attestors
-                .iter()
-                .all(|attestor| active_attestors.contains(attestor));
-
-            if is_attestor {
-                Pays::No
-            } else {
-                Pays::Yes
-            }
+        /// Always [`Pays::Yes`] at validation time: [`PaysFee`] only sees call arguments, not the
+        /// signer, so fee exemption must not depend on `attestation.attestors`. Successful commits
+        /// from active attestors waive the charged fee via [`PostDispatchInfo`] in
+        /// [`Pallet::commit_attestation`].
+        fn pays_fee(&self, _attestation: (&SignedAttestation<T::Hash, T::AccountId>,)) -> Pays {
+            Pays::Yes
         }
     }
 }
