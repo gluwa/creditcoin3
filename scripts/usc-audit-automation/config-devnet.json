@@ -12,6 +12,11 @@
       "chainId": 97,
       "chainKey": 8,
       "url": ""
+    },
+    {
+      "chainId": 11155111,
+      "chainKey": 11,
+      "url": ""
     }
   ]
 }
