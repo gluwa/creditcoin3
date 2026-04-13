@@ -219,6 +219,35 @@ async fn process_cc_event(
 
             Ok(())
         }
+        CcEvent::RevertedAttestationChainTo(event_chain_key, checkpoint_height, _digest) => {
+            let chain_key = *event_chain_key;
+            if !service.serves_chain(chain_key) {
+                return Ok(());
+            }
+
+            let revert_height = *checkpoint_height;
+            warn!(
+                "⚠️  Attestation chain reversion detected for chain {chain_key}: \
+                 reverting caches to height {revert_height}"
+            );
+
+            // Truncate per chain attestation and checkpoint boundary caches
+            service.revert_caches(chain_key, revert_height).await;
+
+            // Clear last seen entries. they'll be repopulated by the next
+            // BlockAttested / CheckpointReached events.
+            if let Ok(mut cache) = LAST_ATTESTATIONS.lock() {
+                cache.retain(|a| a.chain_key != chain_key);
+            }
+            last_checkpoint_blocks.write().await.remove(&chain_key);
+
+            info!(
+                "✅ Attestation chain reversion handled for chain {chain_key} \
+                 (reverted to height {revert_height})"
+            );
+
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
