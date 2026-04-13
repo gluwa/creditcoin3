@@ -16,6 +16,7 @@
     {
       "chainId": 11155111,
       "chainKey": 11,
+      "chainName": "Sepolia Historical",
       "url": ""
     }
   ]
