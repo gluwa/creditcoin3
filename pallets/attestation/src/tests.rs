@@ -4407,6 +4407,67 @@ fn retired_bls_key_storage_cleared_after_full_unbond_withdraw() {
     });
 }
 
+/// If this stash's index lists another stash's retired controller, `purge_retired_bls_keys_for_stash`
+/// must only drop the dangling index pair — never delete the [`RetiredAttestorBlsKeys`] row.
+#[test]
+fn purge_retired_bls_does_not_remove_other_stash_bls_row_on_index_mismatch() {
+    ExtBuilder.build_and_execute(|| {
+        let a1 = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(a1.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            a1.public_key,
+            a1.signature
+        ));
+        assert_ok!(Attestation::chill(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id
+        ));
+
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        let a2 = Attestor::new(STASH_2, ATTESTOR_2);
+        assert_ok!(Attestation::register_attestor(
+            a2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a2.attestor_id
+        ));
+
+        crate::RetiredAttestorKeysByStash::<Test>::mutate(STASH_2, |vec| {
+            vec.try_push((SUPPORTED_CHAIN_KEY, ATTESTOR_1)).unwrap();
+        });
+
+        progress_to_block(50);
+
+        assert_ok!(Attestation::withdraw_unbonded(RuntimeOrigin::signed(
+            STASH_2
+        )));
+
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert!(crate::RetiredAttestorKeysByStash::<Test>::get(STASH_2).is_empty());
+        assert!(crate::RetiredAttestorKeysByStash::<Test>::get(STASH_1)
+            .iter()
+            .any(|(k, id)| *k == SUPPORTED_CHAIN_KEY && *id == ATTESTOR_1));
+    });
+}
+
 #[test]
 fn on_supported_chain_removed_clears_retired_attestor_keys_by_stash() {
     ExtBuilder.build_and_execute(|| {
