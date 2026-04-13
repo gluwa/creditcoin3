@@ -446,6 +446,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn revert_caches_truncates_entries_above_height() {
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        // Mock populates attestations at 10, 20, ..., 1000
+        // and checkpoints at 0, 100, 200, ..., 1000.
+        // Revert to height 500: entries > 500 should be gone.
+        svc.revert_caches(2, 500).await;
+
+        // Attestations at 500 and below survive; 510+ are gone
+        let att = chain.attestation_cache.read().await;
+        assert!(att.contains_key(&500));
+        assert!(!att.contains_key(&510));
+        assert!(!att.contains_key(&1000));
+        assert_eq!(*att.keys().next_back().unwrap(), 500);
+        drop(att);
+
+        // Checkpoints at 0..=500 survive; 600+ are gone
+        let cp = chain.checkpoint_cache.read().await;
+        assert!(cp.contains_key(&500));
+        assert!(!cp.contains_key(&600));
+        assert!(!cp.contains_key(&1000));
+        assert_eq!(*cp.keys().next_back().unwrap(), 500);
+        drop(cp);
+
+        // Boundary lookups reflect the truncated state
+        let bounds = svc.get_attestation_boundaries(chain, 505, 505).await;
+        assert!(bounds.is_none(), "no upper attestation bound after revert");
+    }
+
+    #[tokio::test]
+    async fn revert_caches_is_noop_for_unknown_chain() {
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+
+        // Should not panic or affect chain 2's caches
+        svc.revert_caches(999, 0).await;
+
+        let chain = svc.chain_state(2).unwrap();
+        let att = chain.attestation_cache.read().await;
+        assert!(!att.is_empty());
+    }
+
+    #[tokio::test]
+    async fn revert_caches_to_zero_clears_all() {
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        svc.revert_caches(2, 0).await;
+
+        let att = chain.attestation_cache.read().await;
+        // Attestations start at 10, so reverting to 0 clears everything
+        assert!(att.is_empty(), "all attestations should be removed");
+        drop(att);
+
+        // Checkpoint at block 0 should survive (0 <= 0)
+        let cp = chain.checkpoint_cache.read().await;
+        assert_eq!(cp.len(), 1);
+        assert!(cp.contains_key(&0));
+    }
+
+    #[tokio::test]
     async fn batch_span_exceeding_limit_is_rejected() {
         // Set a tight max_batch_span of 50 blocks
         let svc = make_service_with_batch_span(Arc::new(FoundEthProvider), 50).await;
