@@ -11,6 +11,11 @@ pub const DEFAULT_MAX_BATCH_SIZE: NonZeroUsize = match NonZeroUsize::new(10) {
     None => panic!("10 is non-zero"),
 };
 
+/// Default `max_batch_span` (10 000 blocks) - maximum distance between the
+/// lowest and highest block in a single batch request. Prevents a small batch
+/// from forcing proof generation over an extremely large block range.
+pub const DEFAULT_MAX_BATCH_SPAN: u64 = 10_000;
+
 /// One source chain (EVM) served by this process, keyed on Creditcoin3.
 #[derive(Debug, Clone)]
 pub struct ChainConfig {
@@ -30,6 +35,7 @@ pub struct Config {
     pub redis_url: Option<String>,
     pub redis_cluster_mode: bool,
     pub max_batch_size: NonZeroUsize,
+    pub max_batch_span: u64,
 }
 
 impl Config {
@@ -48,6 +54,7 @@ impl Config {
             redis_url: None,
             redis_cluster_mode: false,
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
+            max_batch_span: DEFAULT_MAX_BATCH_SPAN,
         }
     }
 
@@ -86,6 +93,8 @@ pub struct ConfigFile {
     pub indexer_url: Option<String>,
     #[serde(default = "default_max_batch_size")]
     pub max_batch_size: NonZeroUsize,
+    #[serde(default = "default_max_batch_span")]
+    pub max_batch_span: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,6 +107,10 @@ pub struct ChainConfigFile {
 
 fn default_max_batch_size() -> NonZeroUsize {
     DEFAULT_MAX_BATCH_SIZE
+}
+
+fn default_max_batch_span() -> u64 {
+    DEFAULT_MAX_BATCH_SPAN
 }
 
 impl ConfigFile {
@@ -126,6 +139,7 @@ impl ConfigFile {
             redis_url: self.redis_url,
             redis_cluster_mode: self.redis_cluster_mode,
             max_batch_size: self.max_batch_size,
+            max_batch_span: self.max_batch_span,
         })
     }
 }

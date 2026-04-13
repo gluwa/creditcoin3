@@ -87,6 +87,14 @@ pub struct ProofGenApiServer {
         help = "Archiver HTTP URL for the legacy single-chain mode (e.g. http://localhost:8080)."
     )]
     archiver_url: Option<String>,
+
+    #[arg(
+        long,
+        default_value = "10000",
+        env = "MAX_BATCH_SPAN",
+        help = "Maximum allowed block span (highest − lowest block) in a single batch request. Prevents small batches from forcing proof generation over extremely large ranges. Set to 0 to disable the limit."
+    )]
+    max_batch_span: u64,
 }
 
 #[tokio::main]
@@ -135,6 +143,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 c.max_batch_size = n;
             }
         }
+        // MAX_BATCH_SPAN env/CLI overrides YAML when explicitly set.
+        if let Ok(raw) = env::var("MAX_BATCH_SPAN") {
+            if let Ok(n) = raw.parse::<u64>() {
+                c.max_batch_span = n;
+            }
+        }
         c
     } else {
         // Legacy single-chain mode: chain key from CHAIN_KEY env (default 2).
@@ -156,6 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             redis_cluster_mode: resolved_redis_cluster_mode,
 
             max_batch_size: args.max_batch_size,
+            max_batch_span: args.max_batch_span,
         }
     };
 
