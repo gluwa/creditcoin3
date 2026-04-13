@@ -469,6 +469,7 @@ mod labels {
         TooManyTxQueriesInProofQuery,
         EmptyTxHashes,
         TooManyTxHashes,
+        BatchSpanTooLarge,
         Internal,
     }
 

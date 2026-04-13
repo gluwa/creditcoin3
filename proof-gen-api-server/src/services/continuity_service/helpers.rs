@@ -328,6 +328,13 @@ mod tests {
     }
 
     async fn make_service(eth_provider: Arc<dyn EthRpcProvider>) -> ContinuityService {
+        make_service_with_batch_span(eth_provider, 10_000).await
+    }
+
+    async fn make_service_with_batch_span(
+        eth_provider: Arc<dyn EthRpcProvider>,
+        max_batch_span: u64,
+    ) -> ContinuityService {
         let chain_key = 2;
         let (cc_provider, _) = make_mock_providers(chain_key);
         let builder = Arc::new(ContinuityBuilder::new_with_providers(
@@ -335,7 +342,7 @@ mod tests {
             cc_provider,
             eth_provider,
         ));
-        ContinuityService::new(vec![builder], NoopMetrics::new(), 10)
+        ContinuityService::new(vec![builder], NoopMetrics::new(), 10, max_batch_span)
             .await
             .expect("service init should succeed with mocks")
     }
@@ -436,5 +443,89 @@ mod tests {
             cp_bounds.is_none(),
             "no checkpoint upper bound beyond range"
         );
+    }
+
+    #[tokio::test]
+    async fn batch_span_exceeding_limit_is_rejected() {
+        // Set a tight max_batch_span of 50 blocks
+        let svc = make_service_with_batch_span(Arc::new(FoundEthProvider), 50).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        // Blocks 100 and 200 are 100 apart, which exceeds the 50-block limit
+        let queries = vec![
+            ProofQuery {
+                header_number: 100,
+                tx_indexes: vec![],
+            },
+            ProofQuery {
+                header_number: 200,
+                tx_indexes: vec![],
+            },
+        ];
+        let err = svc
+            .get_proof_batch(chain, &queries)
+            .await
+            .expect_err("should reject span > max_batch_span");
+        assert!(
+            matches!(
+                err,
+                ServiceError::BatchSpanTooLarge {
+                    span: 100,
+                    max_span: 50,
+                    ..
+                }
+            ),
+            "expected BatchSpanTooLarge, got {err:?}"
+        );
+        assert!(!err.retriable());
+        assert_eq!(err.code(), "BatchSpanTooLarge");
+    }
+
+    #[tokio::test]
+    async fn batch_span_within_limit_is_accepted() {
+        // Set max_batch_span of 50 blocks
+        let svc = make_service_with_batch_span(Arc::new(FoundEthProvider), 50).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        // Blocks 100 and 140 are 40 apart, which is within the 50-block limit.
+        // The request will still fail (boundary lookup / RPC) but NOT with BatchSpanTooLarge.
+        let queries = vec![
+            ProofQuery {
+                header_number: 100,
+                tx_indexes: vec![],
+            },
+            ProofQuery {
+                header_number: 140,
+                tx_indexes: vec![],
+            },
+        ];
+        let result = svc.get_proof_batch(chain, &queries).await;
+        // It may fail for other reasons (mock doesn't serve real blocks) but
+        // it must NOT fail with BatchSpanTooLarge.
+        if let Err(err) = result {
+            assert!(
+                !matches!(err, ServiceError::BatchSpanTooLarge { .. }),
+                "span within limit should not be rejected, got {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn single_block_batch_always_passes_span_check() {
+        // Even with max_batch_span = 0, a single-block batch has span 0 and should pass.
+        let svc = make_service_with_batch_span(Arc::new(FoundEthProvider), 0).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        let queries = vec![ProofQuery {
+            header_number: 100,
+            tx_indexes: vec![],
+        }];
+        let result = svc.get_proof_batch(chain, &queries).await;
+        if let Err(err) = result {
+            assert!(
+                !matches!(err, ServiceError::BatchSpanTooLarge { .. }),
+                "single-block batch should never fail span check, got {err:?}"
+            );
+        }
     }
 }

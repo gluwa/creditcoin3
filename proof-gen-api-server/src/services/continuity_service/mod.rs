@@ -157,6 +157,10 @@ pub struct ContinuityService {
     metrics: Metrics,
     /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
     max_batch_size: usize,
+    /// Maximum allowed span (highest block − lowest block) in a single batch
+    /// request.  Prevents a small batch from forcing proof generation over an
+    /// extremely large block range.
+    max_batch_span: u64,
 }
 
 impl ContinuityService {
@@ -168,6 +172,7 @@ impl ContinuityService {
         builders: Vec<Arc<ContinuityBuilder>>,
         metrics: Metrics,
         max_batch_size: usize,
+        max_batch_span: u64,
     ) -> anyhow::Result<Self> {
         if builders.is_empty() {
             anyhow::bail!("ContinuityService requires at least one ContinuityBuilder");
@@ -271,6 +276,7 @@ impl ContinuityService {
             total_proof_requests: AtomicU64::new(0),
             metrics,
             max_batch_size,
+            max_batch_span,
         })
     }
 
@@ -667,6 +673,18 @@ impl ContinuityService {
         // We can safely unwrap header_numbers here because the API layer guarantees at least one query is present.
         let from_header = *header_numbers.iter().min().unwrap();
         let to_header = *header_numbers.iter().max().unwrap();
+
+        // Enforce maximum batch span to prevent extremely expensive proof
+        // generation when a small batch contains widely separated block heights.
+        let span = to_header - from_header;
+        if span > self.max_batch_span {
+            return Err(ServiceError::BatchSpanTooLarge {
+                from_block: from_header,
+                to_block: to_header,
+                span,
+                max_span: self.max_batch_span,
+            });
+        }
 
         // Record block range metric
         for &header_number in header_numbers.iter() {
