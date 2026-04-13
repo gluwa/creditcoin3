@@ -146,17 +146,20 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Balances::Freezes` (r:1 w:0)
 	/// Proof: `Balances::Freezes` (`max_values`: None, `max_size`: Some(67), added: 2542, mode: `MaxEncodedLen`)
-	/// Storage: `Attestation::RetiredAttestorBlsKeys` (r:1 w:0)
+	/// Storage: `Attestation::RetiredAttestorBlsKeys` (r:1 w:1)
 	/// Proof: `Attestation::RetiredAttestorBlsKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::RetiredAttestorKeysByStash` (r:1 w:1)
+	/// Proof: `Attestation::RetiredAttestorKeysByStash` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn register_attestor() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1406`
 		//  Estimated: `7346`
 		// Minimum execution time: 204_108_000 picoseconds.
-		Weight::from_parts(215_000_000, 0)
+		// Benchmark setup includes unregister so `clear_retired_bls_entry_for_controller` takes the row.
+		Weight::from_parts(245_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 7346))
-			.saturating_add(T::DbWeight::get().reads(16))
-			.saturating_add(T::DbWeight::get().writes(7))
+			.saturating_add(T::DbWeight::get().reads(18))
+			.saturating_add(T::DbWeight::get().writes(9))
 	}
 	/// Storage: `Attestation::Attestors` (r:1 w:1)
 	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
