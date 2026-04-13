@@ -43,7 +43,7 @@ pub mod pallet {
             PostDispatchInfo, WeighData,
         },
         pallet_prelude::{OptionQuery, ValueQuery, *},
-        traits::{Currency, LockableCurrency, OnUnbalanced},
+        traits::{ConstU32, Currency, LockableCurrency, OnUnbalanced},
         Blake2_128Concat, Twox64Concat,
     };
     use frame_system::pallet_prelude::*;
@@ -208,6 +208,38 @@ pub mod pallet {
     // Active attestors are the ones that have been registered and are not in the chilling state
     pub type ActiveAttestors<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, Vec<T::AccountId>, ValueQuery>;
+
+    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    pub struct RetiredAttestorBlsKeyEntry<AccountId: MaxEncodedLen> {
+        pub bls_public_key: BlsPublicKey,
+        pub purge_at_era: u32,
+        pub stash: AccountId,
+    }
+
+    /// BLS public keys kept after [`unregister_attestor`](Pallet::unregister_attestor) so
+    /// aggregated attestations that still list this controller can be verified until the unbond
+    /// delay elapses. Purged in [`withdraw_unbonded`](Pallet::withdraw_unbonded) once
+    /// `purge_at_era` is reached.
+    #[pallet::storage]
+    pub type RetiredAttestorBlsKeys<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        RetiredAttestorBlsKeyEntry<T::AccountId>,
+        OptionQuery,
+    >;
+
+    /// Stash accounts with pending [`RetiredAttestorBlsKeys`] entries (for pruning on withdraw).
+    #[pallet::storage]
+    pub type RetiredAttestorKeysByStash<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<(ChainKey, T::AccountId), ConstU32<64>>,
+        ValueQuery,
+    >;
 
     #[pallet::storage]
     #[pallet::getter(fn invulnerables)]
@@ -696,6 +728,8 @@ pub mod pallet {
         AttestorWithInvalidPublicKey,
         // Majority of signatures not reached
         MajorityNotReached,
+        /// Too many retired attestor key entries are queued for this stash
+        RetiredAttestorPendingFull,
         // Attestor is already authorized for the chain.
         AttestorAlreadyAuthorized,
         /// `register_attestor` was called under `AuthorizedOnly` without a prior `authorize_attestor`
