@@ -399,6 +399,15 @@ impl ContinuityBuilder {
         }
     }
 
+    /// Reset the last checkpoint block hint to `None`.
+    ///
+    /// Called on attestation chain reversion so that `determine_checkpoint_info`
+    /// falls back to always performing checkpoint checks until a new
+    /// `CheckpointReached` event repopulates the hint.
+    pub async fn reset_last_checkpoint_block(&self) {
+        *self.last_checkpoint_block.write().await = None;
+    }
+
     /// Build a continuity proof for a single query block.
     ///
     /// Generates the minimal continuity chain needed to verify the query block.

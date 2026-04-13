@@ -437,6 +437,10 @@ impl ContinuityService {
                     "Reverted checkpoint cache"
                 );
             }
+
+            // Reset the builder's last-checkpoint hint so that
+            // determine_checkpoint_info does not skip checks based on stale state.
+            chain.builder.reset_last_checkpoint_block().await;
         }
     }
 
