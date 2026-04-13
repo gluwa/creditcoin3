@@ -28,6 +28,8 @@ use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 
 use attestor_primitives::{AttestationChainConfiguration, ChainEncodingVersion};
 
+use crate::NoopCommittedAttestationObserver;
+
 use sp_staking::{EraIndex, SessionIndex};
 
 type DummyValidatorId = u64;
@@ -282,6 +284,7 @@ impl attestation_poc::Config for Test {
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
     type OperatorsOrigin = EnsureRootOrOperators;
+    type CommittedAttestationHook = NoopCommittedAttestationObserver;
 }
 
 parameter_types! {

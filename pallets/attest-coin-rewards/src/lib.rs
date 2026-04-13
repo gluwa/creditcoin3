@@ -1,4 +1,5 @@
-//! Attest-coin reward points: accrue per **stash** each Babe-aligned epoch, claim on EVM via precompile.
+//! Attest-coin reward points: accrue per **stash** when attestors appear as **eligible signers**
+//! on a committed attestation; optional **sudo** epoch split for tests; claim on EVM via precompile.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -6,9 +7,11 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use attestor_primitives::ChainKey;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
-    use sp_runtime::traits::{SaturatedConversion, Zero};
+    use parity_scale_codec::Encode;
+    use sp_runtime::traits::Zero;
     use sp_std::prelude::*;
 
     #[pallet::pallet]
@@ -32,11 +35,14 @@ pub mod pallet {
             + Zero
             + MaxEncodedLen;
 
-        /// Must match `pallet_babe` / session epoch length in blocks (see runtime `EpochDuration`).
+        /// Points credited to each **stash** backing an eligible signer on a successful
+        /// [`pallet_attestation::Pallet::commit_attestation`].
         #[pallet::constant]
-        type EpochDuration: Get<BlockNumberFor<Self>>;
+        type RewardPerEligibleSigner: Get<Self::RewardPoints>;
 
-        /// Total points minted into `Accrued` per epoch, split equally across all bonded stashes.
+        /// Total points for [`Self::do_settlement`] (e.g. [`crate::Pallet::force_settle`]), split
+        /// equally across every stash in [`pallet_attestation::Ledger`]. Not used by automatic
+        /// block hooks.
         #[pallet::constant]
         type EpochRewardPool: Get<Self::RewardPoints>;
     }
@@ -45,14 +51,24 @@ pub mod pallet {
     pub type Accrued<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, T::RewardPoints, ValueQuery>;
 
-    /// ERC-20 contract address (Option A minter is the attest-coin precompile, not this account).
+    /// Monotonic claim nonce per stash (for sr25519-signed EVM claims).
+    #[pallet::storage]
+    pub type ClaimNonce<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
+    /// ERC-20 contract address (treasury tokens sit here; claims use `transfer`, not `mint`).
     #[pallet::storage]
     pub type AttestCoinErc20<T: Config> = StorageValue<_, sp_core::H160, OptionQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// Reward points credited after an epoch boundary.
+        /// Reward points credited to stashes after a committed attestation (one unit per eligible signer).
+        CommitSignersRewarded {
+            chain_key: ChainKey,
+            signers: u32,
+            per_signer: T::RewardPoints,
+        },
+        /// Reward points from [`Self::do_settlement`] (tests / manual ops).
         EpochRewardsAccrued {
             epoch_block: BlockNumberFor<T>,
             stashes: u32,
@@ -70,6 +86,8 @@ pub mod pallet {
         NotStash,
         /// Claim exceeds accrued points.
         InsufficientAccrued,
+        /// Claim nonce does not match on-chain counter.
+        BadClaimNonce,
     }
 
     #[pallet::call]
@@ -84,7 +102,7 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Force one settlement (for tests / ops). **Root only.**
+        /// Split [`Config::EpochRewardPool`] across all ledger stashes (tests / ops). **Root only.**
         #[pallet::weight(Weight::from_parts(50_000_000, 0))]
         #[pallet::call_index(1)]
         pub fn force_settle(origin: OriginFor<T>) -> DispatchResult {
@@ -94,27 +112,36 @@ pub mod pallet {
         }
     }
 
-    #[pallet::hooks]
-    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        fn on_finalize(n: BlockNumberFor<T>) {
-            let epoch = T::EpochDuration::get();
-            if epoch.is_zero() {
-                return;
-            }
-            let n_u64: u64 = n.saturated_into();
-            let e_u64: u64 = epoch.saturated_into();
-            if e_u64 == 0 {
-                return;
-            }
-            if n_u64 % e_u64 != 0 {
-                return;
-            }
-            Self::do_settlement(n);
-        }
-    }
-
     impl<T: Config> Pallet<T> {
-        /// Equal split of `EpochRewardPool` across every stash with an attestation ledger entry.
+        /// Credit [`Config::RewardPerEligibleSigner`] to each **stash** for the given **eligible**
+        /// attestor operator accounts (from [`pallet_attestation`]). Called from the runtime hook
+        /// after [`pallet_attestation::Pallet::commit_attestation`].
+        pub fn reward_commit_signers(chain_key: ChainKey, eligible_signers: &[T::AccountId]) {
+            let per = T::RewardPerEligibleSigner::get();
+            if per.is_zero() || eligible_signers.is_empty() {
+                return;
+            }
+
+            let mut credited = 0u32;
+            for attestor_id in eligible_signers {
+                if let Some(att) = pallet_attestation::Pallet::<T>::attestors(chain_key, attestor_id)
+                {
+                    let stash = att.stash;
+                    Accrued::<T>::mutate(&stash, |a| *a += per);
+                    credited = credited.saturating_add(1);
+                }
+            }
+
+            if credited > 0 {
+                Self::deposit_event(Event::CommitSignersRewarded {
+                    chain_key,
+                    signers: credited,
+                    per_signer: per,
+                });
+            }
+        }
+
+        /// Equal split of [`Config::EpochRewardPool`] across every stash with an attestation ledger entry.
         pub fn do_settlement(at_block: BlockNumberFor<T>) {
             let stashes: Vec<T::AccountId> = pallet_attestation::Ledger::<T>::iter_keys().collect();
             let n = stashes.len() as u128;
@@ -163,6 +190,64 @@ pub mod pallet {
         /// Restore accrued points after a failed EVM mint (precompile rollback).
         pub fn restore_accrued(stash: &T::AccountId, amount: T::RewardPoints) {
             Accrued::<T>::mutate(stash, |a| *a += amount);
+        }
+
+        /// Bytes that must be signed (sr25519) for [`Self::commit_claim`].
+        ///
+        /// Layout: `b"AttestCoin:claim:v1:" || stash_id(32) || nonce(le u64) || chain_key(le u64)
+        /// || amount(le u128) || evm_recipient(20)`.
+        pub fn claim_signing_message(
+            stash: &T::AccountId,
+            nonce: u64,
+            chain_key: u64,
+            amount: u128,
+            evm_recipient: [u8; 20],
+        ) -> Vec<u8> {
+            const PREFIX: &[u8] = b"AttestCoin:claim:v1:";
+            let mut m = Vec::with_capacity(PREFIX.len() + 32 + 8 + 8 + 16 + 20);
+            m.extend_from_slice(PREFIX);
+            let enc = stash.encode();
+            let mut id = [0u8; 32];
+            if enc.len() >= 32 {
+                id.copy_from_slice(&enc[..32]);
+            } else if !enc.is_empty() {
+                id[32 - enc.len()..].copy_from_slice(&enc);
+            }
+            m.extend_from_slice(&id);
+            m.extend_from_slice(&nonce.to_le_bytes());
+            m.extend_from_slice(&chain_key.to_le_bytes());
+            m.extend_from_slice(&amount.to_le_bytes());
+            m.extend_from_slice(&evm_recipient);
+            m
+        }
+
+        pub fn claim_nonce_of(stash: &T::AccountId) -> u64 {
+            ClaimNonce::<T>::get(stash)
+        }
+
+        /// Debit accrued and bump claim nonce after signature verification in the precompile.
+        pub fn commit_claim(
+            stash: &T::AccountId,
+            expected_nonce: u64,
+            amount: T::RewardPoints,
+        ) -> Result<(), Error<T>> {
+            ensure!(
+                ClaimNonce::<T>::get(stash) == expected_nonce,
+                Error::<T>::BadClaimNonce
+            );
+            Self::take_accrued_for_claim(stash, amount)?;
+            ClaimNonce::<T>::insert(stash, expected_nonce.saturating_add(1));
+            Ok(())
+        }
+
+        /// Undo [`commit_claim`] if the EVM `transfer` fails (precompile only).
+        pub fn undo_claim_commit(
+            stash: &T::AccountId,
+            nonce_before_claim: u64,
+            amount: T::RewardPoints,
+        ) {
+            ClaimNonce::<T>::insert(stash, nonce_before_claim);
+            Self::restore_accrued(stash, amount);
         }
     }
 }

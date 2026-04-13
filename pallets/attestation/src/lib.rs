@@ -1,5 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub mod commit_observer;
+
+pub use commit_observer::{CommittedAttestationObserver, NoopCommittedAttestationObserver};
 pub use migrations::{MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsCountV1ToV2};
 pub use pallet::*;
 
@@ -163,6 +166,9 @@ pub mod pallet {
         type DefaultAttestationChainGenesisBlockNumber: Get<u64>;
         /// Origin that can perform Operator-only calls
         type OperatorsOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
+        /// Called after a successful [`Pallet::commit_attestation`] with eligible signers.
+        type CommittedAttestationHook: crate::CommittedAttestationObserver<Self::AccountId>;
     }
 
     pub trait WeightInfo {
