@@ -90,7 +90,7 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
-        default_value = "10000",
+        default_value = "1000",
         env = "MAX_BATCH_SPAN",
         help = "Maximum allowed block span (highest - lowest block) in a single batch request. Prevents small batches from forcing proof generation over extremely large ranges."
     )]
