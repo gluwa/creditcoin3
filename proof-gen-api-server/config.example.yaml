@@ -25,4 +25,4 @@ redis_cluster_mode: false
 max_batch_size: 10
 # Maximum allowed block span (highest − lowest block) in a single batch request.
 # Prevents small batches from forcing proof generation over extremely large ranges.
-max_batch_span: 10000
+max_batch_span: 1000

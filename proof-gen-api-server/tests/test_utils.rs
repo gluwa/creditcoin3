@@ -202,7 +202,7 @@ mod anvil_integration {
         }
 
         let service = Arc::new(
-            ContinuityService::new(builders, NoopMetrics::new(), 10, 10_000)
+            ContinuityService::new(builders, NoopMetrics::new(), 10, 1_000)
                 .await
                 .expect("service init"),
         );

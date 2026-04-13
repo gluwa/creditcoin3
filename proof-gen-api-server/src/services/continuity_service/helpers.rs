@@ -328,7 +328,7 @@ mod tests {
     }
 
     async fn make_service(eth_provider: Arc<dyn EthRpcProvider>) -> ContinuityService {
-        make_service_with_batch_span(eth_provider, 10_000).await
+        make_service_with_batch_span(eth_provider, 1_000).await
     }
 
     async fn make_service_with_batch_span(
