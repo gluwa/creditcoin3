@@ -200,16 +200,26 @@ mod benchmarks {
 
     #[benchmark]
     fn unregister_attestor() {
-        // Setup
+        // Setup: worst case retains BLS key in `RetiredAttestorBlsKeys` + updates `ActiveAttestors`
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
         let att = Attestor::<T>::new(stash_id, attestor_id.clone());
 
         Attestation::<T>::register_attestor(
             att.stash_origin.clone(),
-             DEV_CHAIN_KEY,
+            DEV_CHAIN_KEY,
             attestor_id.clone(),
-        ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+        )
+        .expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+        Attestation::<T>::attest(
+            att.attestor_origin.clone(),
+            DEV_CHAIN_KEY,
+            att.public_key,
+            att.signature,
+        )
+        .expect("attest() required so unregister stores a retired BLS key");
+        Attestation::<T>::chill(att.stash_origin.clone(), DEV_CHAIN_KEY, attestor_id.clone())
+            .expect("chill() required before unregister");
         let signed_origin = att.stash_origin;
 
         #[extrinsic_call]
@@ -450,7 +460,7 @@ mod benchmarks {
 
     #[benchmark]
     fn withdraw_unbonded() {
-        // Setup
+        // Setup: match unregister path that queues retired BLS keys, then exercise purge in withdraw
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
         let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
@@ -460,7 +470,17 @@ mod benchmarks {
             DEV_CHAIN_KEY,
             attestor_id.clone(),
         ));
-
+        assert_ok!(Attestation::<T>::attest(
+            attestor.attestor_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+        assert_ok!(Attestation::<T>::chill(
+            attestor.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ));
         assert_ok!(Attestation::<T>::unregister_attestor(
             attestor.stash_origin.clone(),
             DEV_CHAIN_KEY,

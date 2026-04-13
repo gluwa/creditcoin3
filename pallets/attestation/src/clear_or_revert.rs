@@ -218,6 +218,8 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
 
         ActiveAttestors::<T>::remove(chain_key);
 
+        _ = RetiredAttestorBlsKeys::<T>::clear_prefix(chain_key, u32::MAX, None);
+
         // Can dispense with result, since limit is equal to maximum storage size
         _ = Invulnerables::<T>::clear_prefix(
             chain_key,

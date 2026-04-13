@@ -4187,6 +4187,226 @@ fn chilled_attestor_cannot_commit_attestation() {
     });
 }
 
+/// After an attestor signs off-chain and then chills + unregisters, their BLS key must remain
+/// available for aggregate verification until the unbond completes; otherwise valid attestations
+/// would fail with `InvalidAttestorFound`.
+#[test]
+fn validate_attestation_succeeds_when_signer_unregistered_but_key_retained() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor_a = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestor_b = Attestor::new(STASH_2, ATTESTOR_2);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor_a.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_a.attestor_id,
+        ));
+        assert_ok!(Attestation::register_attestor(
+            attestor_b.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_b.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor_a.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor_a.public_key,
+            attestor_a.signature
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor_b.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor_b.public_key,
+            attestor_b.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation = create_signed_attestation(
+            vec![attestor_a.clone(), attestor_b.clone()],
+            SUPPORTED_CHAIN_KEY,
+            0,
+            None,
+            None,
+        );
+
+        assert_ok!(Attestation::chill(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            attestor_a.attestor_id
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            attestor_a.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_a.attestor_id
+        ));
+
+        assert!(!Attestation::attestor_is_registered(
+            SUPPORTED_CHAIN_KEY,
+            &ATTESTOR_1
+        ));
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+
+        assert_ok!(Attestation::validate_attestation(
+            attestation.chain_key(),
+            &attestation
+        ));
+    });
+}
+
+/// Same scenario as [`validate_attestation_succeeds_when_signer_unregistered_but_key_retained`], but
+/// exercises the full `commit_attestation` extrinsic (the path that originally failed with
+/// `InvalidAttestorFound` when the malicious signer had unregistered).
+#[test]
+fn commit_attestation_succeeds_when_co_signer_unregistered_but_key_retained() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor_a = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestor_b = Attestor::new(STASH_2, ATTESTOR_2);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor_a.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_a.attestor_id,
+        ));
+        assert_ok!(Attestation::register_attestor(
+            attestor_b.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_b.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor_a.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor_a.public_key,
+            attestor_a.signature
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor_b.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor_b.public_key,
+            attestor_b.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation = create_signed_attestation(
+            vec![attestor_a.clone(), attestor_b.clone()],
+            SUPPORTED_CHAIN_KEY,
+            0,
+            None,
+            None,
+        );
+
+        assert_ok!(Attestation::chill(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            attestor_a.attestor_id
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            attestor_a.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_a.attestor_id
+        ));
+
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor_b.attestor_origin.clone(),
+            attestation.clone()
+        ));
+
+        assert_eq!(
+            Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()),
+            Some(attestation)
+        );
+    });
+}
+
+/// Voluntary `chill` must drop the controller from `ActiveAttestors` immediately so quorum logic
+/// and extrinsic checks stay consistent with aggregate verification.
+#[test]
+fn chill_removes_attestor_from_active_attestor_set() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(att.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            att.public_key,
+            att.signature
+        ));
+
+        progress_to_block(5);
+
+        assert!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+
+        assert_ok!(Attestation::chill(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id
+        ));
+
+        assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+    });
+}
+
+/// After unbond completes and the stash withdraws, retired BLS material must be purged from
+/// `RetiredAttestorBlsKeys` / `RetiredAttestorKeysByStash`.
+#[test]
+fn retired_bls_key_storage_cleared_after_full_unbond_withdraw() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        assert_ok!(Attestation::chill(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id
+        ));
+
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        progress_to_block(50);
+
+        assert_ok!(Attestation::withdraw_unbonded(attestor.stash));
+
+        assert!(!crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert!(crate::RetiredAttestorKeysByStash::<Test>::get(STASH_1).is_empty());
+    });
+}
+
 #[test]
 fn withdraw_unbonded_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
