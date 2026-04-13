@@ -48,6 +48,13 @@ impl<T: Config> Pallet<T> {
             Error::<T>::ChainNotSupported
         );
 
+        if ChainElectionPolicy::<T>::get(chain_key) == AttestorElectionPolicy::AuthorizedOnly {
+            ensure!(
+                AuthorizedAttestors::<T>::contains_key(chain_key, &attestor_id),
+                Error::<T>::NotPreAuthorizedToRegister
+            );
+        }
+
         ensure!(
             !Self::attestor_is_registered(chain_key, &attestor_id),
             Error::<T>::AlreadyAttestor

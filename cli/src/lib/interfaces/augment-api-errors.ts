@@ -31,6 +31,11 @@ declare module '@polkadot/api-base/types/errors' {
             AttestationsAlreadyExist: AugmentedError<ApiType>;
             AttestorAlreadyAuthorized: AugmentedError<ApiType>;
             /**
+             * `register_attestor` was called under `AuthorizedOnly` without a prior `authorize_attestor`
+             * for this attestor controller account.
+             **/
+            NotPreAuthorizedToRegister: AugmentedError<ApiType>;
+            /**
              * The attestor list is at the max size allowed by the current configuration
              **/
             AttestorListFull: AugmentedError<ApiType>;
