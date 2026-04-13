@@ -7,22 +7,28 @@ license = { workspace = true }
 publish = false
 
 [dependencies]
+parity-scale-codec = { workspace = true, default-features = false, features = ["derive"] }
 sp-core = { workspace = true }
+sp-io = { workspace = true, default-features = false }
 sp-std = { workspace = true }
 fp-evm = { workspace = true }
 pallet-evm = { workspace = true, default-features = false }
 pallet-attest-coin-rewards = { workspace = true, default-features = false }
 pallet-attestation = { workspace = true, default-features = false }
+pallet-staking = { workspace = true, default-features = false }
 frame-system = { workspace = true }
 
 [features]
 default = ["std"]
 std = [
+    "parity-scale-codec/std",
     "sp-core/std",
+    "sp-io/std",
     "sp-std/std",
     "fp-evm/std",
     "pallet-evm/std",
     "pallet-attest-coin-rewards/std",
     "pallet-attestation/std",
+    "pallet-staking/std",
     "frame-system/std",
 ]

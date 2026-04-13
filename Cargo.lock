@@ -8946,6 +8946,7 @@ dependencies = [
 name = "pallet-attest-coin-rewards"
 version = "0.1.0"
 dependencies = [
+ "attestor-primitives",
  "frame-support",
  "frame-system",
  "pallet-attestation",
@@ -9159,7 +9160,10 @@ dependencies = [
  "pallet-attest-coin-rewards",
  "pallet-attestation",
  "pallet-evm",
+ "pallet-staking",
+ "parity-scale-codec",
  "sp-core",
+ "sp-io",
  "sp-std",
 ]
 

@@ -25,6 +25,7 @@ use supported_chains_primitives::provider::SupportedChainsProvider;
 
 use crate::{
     asset::existential_deposit,
+    commit_observer::CommittedAttestationObserver,
     ledger::{AttestorLedger, UnlockChunk},
 };
 
@@ -340,6 +341,10 @@ impl<T: Config> Pallet<T> {
 
         // Validate the attestation
         Self::validate_attestation(chain_key, &attestation)?;
+        let eligible_vec: Vec<T::AccountId> =
+            Self::eligible_active_signers(chain_key, &attestation)
+                .into_iter()
+                .collect();
 
         // Store the attestation
         let digest = attestation.digest();
@@ -389,12 +394,14 @@ impl<T: Config> Pallet<T> {
             AttestationRemovalQueues::<T>::mutate(chain_key, |queue| {
                 queue.push_back(digest);
             });
+            Self::notify_rewards_for_commit(chain_key, &eligible_vec);
             return Ok(());
         }
 
         // When catching up (large continuity proof spanning 2+ checkpoint boundaries), create
         // checkpoints directly from the proof. Otherwise use the legacy queue-based flow.
         if Self::create_checkpoints_from_continuity_proof(chain_key, &attestation, digest)? {
+            Self::notify_rewards_for_commit(chain_key, &eligible_vec);
             return Ok(());
         }
 
@@ -410,7 +417,31 @@ impl<T: Config> Pallet<T> {
         }
         CheckpointingQueues::<T>::insert(chain_key, queue);
 
+        Self::notify_rewards_for_commit(chain_key, &eligible_vec);
         Ok(())
+    }
+
+    /// Active attestors listed on the attestation (intersection with [`ActiveAttestors`]).
+    pub(crate) fn eligible_active_signers(
+        chain_key: ChainKey,
+        attestation: &SignedAttestation<T::Hash, T::AccountId>,
+    ) -> BTreeSet<T::AccountId> {
+        let active_attestors = ActiveAttestors::<T>::get(chain_key)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        attestation
+            .attestors
+            .iter()
+            .filter(|a| active_attestors.contains(a))
+            .cloned()
+            .collect()
+    }
+
+    fn notify_rewards_for_commit(chain_key: ChainKey, eligible_signers: &[T::AccountId]) {
+        <T::CommittedAttestationHook as CommittedAttestationObserver<T::AccountId>>::on_committed_eligible(
+            chain_key,
+            eligible_signers,
+        );
     }
 
     pub fn start_attesting(
@@ -819,16 +850,7 @@ impl<T: Config> Pallet<T> {
         }
 
         // Attestor eligibility validation
-        let active_attestors = ActiveAttestors::<T>::get(chain_key)
-            .into_iter()
-            .collect::<BTreeSet<_>>(); // or HashSet if std is available
-
-        let eligible_attestors: BTreeSet<T::AccountId> = attestation
-            .attestors
-            .iter()
-            .filter(|attestor| active_attestors.contains(attestor))
-            .cloned()
-            .collect();
+        let eligible_attestors = Self::eligible_active_signers(chain_key, attestation);
 
         // Threshold validation
         let target_sample_size = Self::target_sample_size(chain_key);
