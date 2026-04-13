@@ -11,10 +11,10 @@ pub const DEFAULT_MAX_BATCH_SIZE: NonZeroUsize = match NonZeroUsize::new(10) {
     None => panic!("10 is non-zero"),
 };
 
-/// Default `max_batch_span` (10 000 blocks) - maximum distance between the
+/// Default `max_batch_span` (1 000 blocks) - maximum distance between the
 /// lowest and highest block in a single batch request. Prevents a small batch
 /// from forcing proof generation over an extremely large block range.
-pub const DEFAULT_MAX_BATCH_SPAN: u64 = 10_000;
+pub const DEFAULT_MAX_BATCH_SPAN: u64 = 1_000;
 
 /// One source chain (EVM) served by this process, keyed on Creditcoin3.
 #[derive(Debug, Clone)]
