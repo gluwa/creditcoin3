@@ -2,6 +2,7 @@ use super::*;
 use crate::clear_or_revert::{CheckpointPruningState, MAX_CHECKPOINTS_CLEARED_PER_BLOCK};
 use crate::impls::ONE_TENTH_CTC;
 use crate::mock::*;
+use crate::Call;
 use attestor_primitives::{
     block::Block, block::ContinuityProof, AttestationCheckpoint,
     AttestationData as AttestationPrimitive, AttestorStatus, ChainKey, SignedAttestation,
@@ -9,7 +10,10 @@ use attestor_primitives::{
 use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey, PublicKey};
 use continuity_dev::construct_fragment;
-use frame_support::{assert_err, assert_noop, assert_ok};
+use frame_support::{
+    assert_err, assert_noop, assert_ok,
+    dispatch::{GetDispatchInfo, Pays},
+};
 use sp_core::{Get, H256};
 use sp_io::TestExternalities;
 use sp_runtime::traits::BadOrigin;
@@ -2660,6 +2664,123 @@ fn commit_attestation_should_error_when_signed_by_non_active_attestor() {
             Attestation::commit_attestation(attestor_2.attestor_origin, attestation),
             Error::<Test>::AttestorNotActive
         );
+    })
+}
+
+/// [`PaysFee`] for `commit_attestation` must not treat an empty `attestors` payload as fee-free
+/// (vacuous `Iterator::all`), otherwise non-attestors could queue zero-fee spam extrinsics.
+#[test]
+fn commit_attestation_dispatch_info_charges_fee_when_attestors_payload_empty() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let mut attestation =
+            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 0, None, None);
+        attestation.attestors.clear();
+
+        let info = Call::<Test>::commit_attestation { attestation }.get_dispatch_info();
+        assert_eq!(info.pays_fee, Pays::Yes);
+    })
+}
+
+/// Pre-dispatch fee classification must not depend on `attestation.attestors` matching
+/// [`ActiveAttestors`] (call args are attacker-controlled; only the signer is authoritative).
+#[test]
+fn commit_attestation_dispatch_info_charges_fee_even_when_payload_attestors_are_all_active() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        assert!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert!(
+            !attestation.attestors.is_empty()
+                && attestation
+                    .attestors
+                    .iter()
+                    .all(|a| ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(a)),
+            "test expects payload attestors to be a subset of active attestors"
+        );
+
+        let info = Call::<Test>::commit_attestation { attestation }.get_dispatch_info();
+        assert_eq!(info.pays_fee, Pays::Yes);
+    })
+}
+
+#[test]
+fn commit_attestation_success_post_dispatch_info_waives_fee() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+
+        let post_info = Attestation::commit_attestation(attestor.attestor_origin, attestation)
+            .expect("active attestor should commit successfully");
+
+        assert_eq!(post_info.pays_fee, Pays::No);
+        assert_eq!(post_info.actual_weight, None);
+    })
+}
+
+#[test]
+fn commit_attestation_inactive_signer_error_keeps_default_post_dispatch_pays_fee() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let attestation = create_signed_attestation(vec![attestor], 1, 1, None, None);
+
+        progress_to_block(5);
+
+        let attestor_2 = Attestor::new(STASH_2, ATTESTOR_2);
+
+        let err = Attestation::commit_attestation(attestor_2.attestor_origin, attestation)
+            .expect_err("inactive signer must not commit");
+
+        assert_eq!(err.post_info.pays_fee, Pays::Yes);
     })
 }
 
