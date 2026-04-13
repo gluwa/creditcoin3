@@ -405,6 +405,41 @@ impl ContinuityService {
         }
     }
 
+    /// Truncate attestation and checkpoint caches to the given revert height.
+    /// Removes all entries with block numbers strictly greater than `revert_height`.
+    /// Called when a `RevertedAttestationChainTo` event is received from CC3.
+    pub async fn revert_caches(&self, chain_key: u64, revert_height: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            {
+                let mut att = chain.attestation_cache.write().await;
+                let before = att.len();
+                att.retain(|&block_number, _| block_number <= revert_height);
+                let removed = before - att.len();
+                tracing::info!(
+                    chain_key,
+                    revert_height,
+                    removed,
+                    remaining = att.len(),
+                    "Reverted attestation cache"
+                );
+            }
+
+            {
+                let mut cp = chain.checkpoint_cache.write().await;
+                let before = cp.len();
+                cp.retain(|&block_number, _| block_number <= revert_height);
+                let removed = before - cp.len();
+                tracing::info!(
+                    chain_key,
+                    revert_height,
+                    removed,
+                    remaining = cp.len(),
+                    "Reverted checkpoint cache"
+                );
+            }
+        }
+    }
+
     /// Insert a checkpoint into the in-memory cache (called from event handler).
     pub async fn insert_checkpoint(&self, chain_key: u64, block_number: u64, digest: H256) {
         if let Some(chain) = self.chains.get(&chain_key) {
