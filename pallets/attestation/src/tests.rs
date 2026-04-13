@@ -4408,6 +4408,44 @@ fn retired_bls_key_storage_cleared_after_full_unbond_withdraw() {
 }
 
 #[test]
+fn on_supported_chain_removed_clears_retired_attestor_keys_by_stash() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+        assert_ok!(Attestation::chill(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id
+        ));
+
+        assert!(!crate::RetiredAttestorKeysByStash::<Test>::get(STASH_1).is_empty());
+
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            false
+        ));
+
+        assert!(crate::RetiredAttestorKeysByStash::<Test>::get(STASH_1).is_empty());
+    });
+}
+
+#[test]
 fn withdraw_unbonded_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(

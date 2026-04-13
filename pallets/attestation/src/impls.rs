@@ -68,6 +68,34 @@ impl<T: Config> Pallet<T> {
         });
     }
 
+    /// After [`RetiredAttestorBlsKeys`] for `chain_key` is cleared (e.g. chain removal), drop
+    /// `(chain_key, _)` pairs from [`RetiredAttestorKeysByStash`] so stashes do not retain stale
+    /// index entries that could fill the bounded vec.
+    pub(crate) fn purge_retired_keys_by_stash_for_removed_chain(chain_key: ChainKey) {
+        let stashes: Vec<T::AccountId> = RetiredAttestorKeysByStash::<T>::iter()
+            .map(|(stash, _)| stash)
+            .collect();
+        for stash in stashes {
+            let pairs = RetiredAttestorKeysByStash::<T>::get(&stash);
+            let len_before = pairs.len();
+            let filtered: Vec<(ChainKey, T::AccountId)> = pairs
+                .into_iter()
+                .filter(|(ck, _)| *ck != chain_key)
+                .collect();
+            if filtered.len() == len_before {
+                continue;
+            }
+            if filtered.is_empty() {
+                RetiredAttestorKeysByStash::<T>::remove(&stash);
+            } else {
+                let kept: BoundedVec<(ChainKey, T::AccountId), ConstU32<64>> = filtered
+                    .try_into()
+                    .expect("subset of prior bounded vec; qed");
+                RetiredAttestorKeysByStash::<T>::insert(&stash, kept);
+            }
+        }
+    }
+
     fn purge_retired_bls_keys_for_stash(stash: &T::AccountId, current_era: u32) {
         let pairs = RetiredAttestorKeysByStash::<T>::get(stash);
         if pairs.is_empty() {

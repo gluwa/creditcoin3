@@ -403,17 +403,18 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
 	/// Storage: `Attestation::RetiredAttestorKeysByStash` (r:1 w:1)
 	/// Proof: `Attestation::RetiredAttestorKeysByStash` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::RetiredAttestorBlsKeys` (r:1 w:1)
+	/// Storage: `Attestation::RetiredAttestorBlsKeys` (r:64 w:64)
 	/// Proof: `Attestation::RetiredAttestorBlsKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn withdraw_unbonded() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1256`
-		//  Estimated: `4764`
+		//  Estimated:  `4764`
 		// Minimum execution time: 70_469_000 picoseconds.
-		Weight::from_parts(95_000_000, 0)
+		// `purge_retired_bls_keys_for_stash` may touch up to 64 retired controllers; benchmark uses one.
+		Weight::from_parts(240_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 4764))
-			.saturating_add(T::DbWeight::get().reads(8))
-			.saturating_add(T::DbWeight::get().writes(5))
+			.saturating_add(T::DbWeight::get().reads(71))
+			.saturating_add(T::DbWeight::get().writes(68))
 	}
 	/// Storage: `Attestation::LastDigest` (r:1 w:0)
 	/// Proof: `Attestation::LastDigest` (`max_values`: None, `max_size`: None, mode: `Measured`)
