@@ -20,13 +20,14 @@ pub enum Error {
 impl Error {
     pub fn log_error(self, digest: attestor_primitives::Digest) {
         match self {
-            Self::InvalidHeight(attestor_id, height, expected) => {
+            Self::InvalidHeight(attestor_id, height, last_finalized) => {
                 tracing::debug!(
                     %attestor_id,
                     ?digest,
                     height,
-                    expected,
-                    "Ignoring attestation because it attests to a previous height"
+                    last_finalized,
+                    "Ignoring attestation with inadmissible height \
+                    (misaligned, at or below finalized, or beyond catch-up window)"
                 );
             }
             Self::InvalidDigest(attestor_id, height, known_invalid_digest) => {
@@ -92,12 +93,12 @@ impl std::fmt::Display for Error {
                     for source chain height {height}"
                 )
             }
-            Error::InvalidHeight(address, height, expected) => {
+            Error::InvalidHeight(address, height, last_finalized) => {
                 write!(
                     f,
                     "Attestor {address} \
-                    for source chain height {height} \
-                    but expected height of at least {expected}"
+                    submitted vote at inadmissible height {height} \
+                    (last finalized: {last_finalized})"
                 )
             }
             Error::InvalidDigest(address, height, digest) => {
