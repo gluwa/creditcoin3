@@ -78,6 +78,7 @@ import type {
     PalletAttestationEvent,
     PalletAttestationLedgerAttestorLedger,
     PalletAttestationLedgerUnlockChunk,
+    PalletAttestationRetiredAttestorBlsKeyEntry,
     PalletBabeCall,
     PalletBabeError,
     PalletBagsListCall,
@@ -307,6 +308,7 @@ declare module '@polkadot/types/types/registry' {
         PalletAttestationEvent: PalletAttestationEvent;
         PalletAttestationLedgerAttestorLedger: PalletAttestationLedgerAttestorLedger;
         PalletAttestationLedgerUnlockChunk: PalletAttestationLedgerUnlockChunk;
+        PalletAttestationRetiredAttestorBlsKeyEntry: PalletAttestationRetiredAttestorBlsKeyEntry;
         PalletBabeCall: PalletBabeCall;
         PalletBabeError: PalletBabeError;
         PalletBagsListCall: PalletBagsListCall;
