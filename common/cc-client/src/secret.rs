@@ -144,11 +144,13 @@ pub enum RpcUrl {
 
 impl RpcUrl {
     /// Creates a new masked [`RpcSecret`].
+    #[must_use]
     pub fn new_opaque(url: url::Url) -> Self {
         Self::Opaque(url)
     }
 
     /// Creates a new [`RpcSecret`] **which exposes the underlying RPC url**.
+    #[must_use]
     pub fn new_exposed(url: url::Url) -> Self {
         Self::Exposed(url)
     }
@@ -157,8 +159,7 @@ impl RpcUrl {
 impl From<RpcUrl> for url::Url {
     fn from(value: RpcUrl) -> Self {
         match value {
-            RpcUrl::Opaque(url) => url,
-            RpcUrl::Exposed(url) => url,
+            RpcUrl::Opaque(url) | RpcUrl::Exposed(url) => url,
         }
     }
 }
@@ -166,8 +167,7 @@ impl From<RpcUrl> for url::Url {
 impl AsRef<url::Url> for RpcUrl {
     fn as_ref(&self) -> &url::Url {
         match self {
-            Self::Opaque(url) => url,
-            Self::Exposed(url) => url,
+            Self::Opaque(url) | Self::Exposed(url) => url,
         }
     }
 }
@@ -176,8 +176,7 @@ impl std::ops::Deref for RpcUrl {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            Self::Opaque(url) => url,
-            Self::Exposed(url) => url,
+            Self::Opaque(url) | Self::Exposed(url) => url,
         }
     }
 }
