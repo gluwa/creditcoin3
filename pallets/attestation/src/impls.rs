@@ -72,10 +72,7 @@ impl<T: Config> Pallet<T> {
     /// `(chain_key, _)` pairs from [`RetiredAttestorKeysByStash`] so stashes do not retain stale
     /// index entries that could fill the bounded vec.
     pub(crate) fn purge_retired_keys_by_stash_for_removed_chain(chain_key: ChainKey) {
-        let stashes: Vec<T::AccountId> = RetiredAttestorKeysByStash::<T>::iter()
-            .map(|(stash, _)| stash)
-            .collect();
-        for stash in stashes {
+        for stash in RetiredAttestorKeysByStash::<T>::iter().map(|(stash, _)| stash) {
             let pairs = RetiredAttestorKeysByStash::<T>::get(&stash);
             let len_before = pairs.len();
             let filtered: Vec<(ChainKey, T::AccountId)> = pairs
@@ -116,7 +113,10 @@ impl<T: Config> Pallet<T> {
                     if current_era >= entry.purge_at_era {
                         RetiredAttestorBlsKeys::<T>::remove(chain_key, &attestor_id);
                     } else {
-                        let _ = kept.try_push((chain_key, attestor_id));
+                        // `kept` is a strict subset of `pairs` which was already bounded to 64 entries,
+                        // so this push is infallible.
+                        kept.try_push((chain_key, attestor_id))
+                            .expect("subset of prior bounded vec; qed");
                     }
                 }
             }
