@@ -22,4 +22,13 @@ contract MockAttestToken {
         balanceOf[to] += amount;
         emit Transfer(address(0), to, amount);
     }
+
+    /// ERC-20 `transfer` — required by attest-coin precompile (treasury → recipient).
+    function transfer(address to, uint256 amount) external returns (bool) {
+        require(balanceOf[msg.sender] >= amount, "insufficient balance");
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
 }
