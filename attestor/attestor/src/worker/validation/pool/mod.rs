@@ -105,6 +105,7 @@
 //!         .with_quorum(std::num::NonZeroUsize::new(3).unwrap())
 //!         .with_attestation_interval(std::num::NonZeroU64::new(1).unwrap())
 //!         .with_start_height(0u64)
+//!         .with_max_catchup(std::num::NonZeroU64::new(500).unwrap())
 //!         .with_metrics(metrics)
 //!         .build(),
 //! );
@@ -174,6 +175,11 @@ pub struct Config {
     #[specify_later]
     start_height: common::types::Height,
 
+    /// Maximum number of attestation intervals an attestor can catch up from the latest finalized
+    /// attestation. Votes beyond this window are rejected to prevent pool-filling DoS attacks.
+    #[specify_later]
+    max_catchup: std::num::NonZero<common::types::Height>,
+
     /// Latest execution chain digest, used to validate the tail prev digest of new attestations.
     #[specify_later]
     start_attestation: Option<stream::util::AttestationInfo>,
@@ -220,6 +226,7 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
         config.quorum,
         config.attestation_interval,
         config.start_height,
+        config.max_catchup,
     );
 
     let pool = AttestationPool::new(
@@ -545,6 +552,7 @@ pub struct AttestationPoolForks {
     quorums_by_height: std::collections::BTreeSet<KeyHeight>,
 
     last_finalized_digest: Option<attestor_primitives::Digest>,
+    last_finalized_height: Option<common::types::Height>,
     max_size: std::num::NonZeroUsize,
     validate_quorum: ValidateQuorum,
 }
@@ -571,6 +579,7 @@ impl AttestationPoolForks {
             quorums_by_height: Default::default(),
 
             last_finalized_digest,
+            last_finalized_height: None,
             max_size,
             validate_quorum,
         }
@@ -589,6 +598,20 @@ impl AttestationPoolForks {
         let key_digest = KeyDigest { height, digest };
         if self.votes_invalid.contains(&key_digest) {
             return Err(Error::InvalidDigest(attestor, height, digest));
+        }
+
+        tracing::debug!("Validating attestation height");
+
+        if !self
+            .validate_quorum
+            .validate_height(height, self.last_finalized_height)
+        {
+            return Err(Error::InvalidHeight(
+                attestor,
+                height,
+                self.last_finalized_height
+                    .unwrap_or(self.validate_quorum.start_height),
+            ));
         }
 
         tracing::debug!("Making sure there is enough space for insertion");
@@ -1053,6 +1076,7 @@ impl AttestationPoolForks {
 
         self.split_off(info.height);
         self.last_finalized_digest = Some(info.digest);
+        self.last_finalized_height = Some(info.height);
 
         let key_start = KeyTailPending {
             prev_digest_tail: PrevDigestTail(info.digest),
@@ -1171,6 +1195,7 @@ impl AttestationPoolForks {
         self.quorums_by_height.clear();
 
         self.last_finalized_digest = Some(info.digest);
+        self.last_finalized_height = Some(info.height);
     }
 }
 
@@ -1693,6 +1718,7 @@ struct ValidateQuorum {
     target_quorum: std::num::NonZeroUsize,
     attestation_interval: std::num::NonZero<common::types::Height>,
     start_height: common::types::Height,
+    max_catchup: std::num::NonZero<common::types::Height>,
 }
 
 impl ValidateQuorum {
@@ -1700,11 +1726,13 @@ impl ValidateQuorum {
         target_quorum: std::num::NonZeroUsize,
         attestation_interval: std::num::NonZero<common::types::Height>,
         start_height: common::types::Height,
+        max_catchup: std::num::NonZero<common::types::Height>,
     ) -> Self {
         Self {
             target_quorum,
             attestation_interval,
             start_height,
+            max_catchup,
         }
     }
 
@@ -1717,6 +1745,33 @@ impl ValidateQuorum {
         );
 
         attestation.signers.len() >= self.target_quorum.into()
+    }
+
+    /// Validates that a vote height is admissible: aligned with the attestation interval,
+    /// above the latest finalized height, and within the maximum catch-up window.
+    fn validate_height(
+        &self,
+        height: common::types::Height,
+        last_finalized_height: Option<common::types::Height>,
+    ) -> bool {
+        let catchup_window = self
+            .max_catchup
+            .get()
+            .saturating_mul(self.attestation_interval.get());
+
+        let base = last_finalized_height.unwrap_or(self.start_height);
+        let upper_bound = base.saturating_add(catchup_window);
+
+        // Must be above the last finalized height (if any), or at/above start_height
+        let above_finalized = match last_finalized_height {
+            Some(finalized) => height > finalized,
+            None => height >= self.start_height,
+        };
+
+        above_finalized
+            && height >= self.start_height
+            && (height - self.start_height) % self.attestation_interval.get() == 0
+            && height <= upper_bound
     }
 
     fn note_attestation_interval_change(
@@ -1899,6 +1954,7 @@ pub mod fixtures {
             target_quorum: vote_count.try_into().unwrap(),
             start_height: common::types::Height::MIN,
             attestation_interval: std::num::NonZero::<common::types::Height>::MIN,
+            max_catchup: crate::common::constants::MAX_CATCHUP,
         }
     }
 
@@ -1956,6 +2012,7 @@ pub mod fixtures {
                 height: common::types::Height::MIN,
             }))
             .with_start_height(common::types::Height::MIN)
+            .with_max_catchup(crate::common::constants::MAX_CATCHUP)
             .with_metrics(metrics)
             .build()
     }
@@ -2771,5 +2828,93 @@ mod test {
             // Delay tracking reset
             assert!(inner.attestation_delay.time.is_empty());
         }
+    }
+
+    // -------------------------------- [ Height Validation Tests ] ------------------------------- //
+
+    #[test]
+    fn validate_height_rejects_misaligned() {
+        let vq = ValidateQuorum::new(
+            std::num::NonZeroUsize::new(2).unwrap(),
+            std::num::NonZero::new(10u64).unwrap(),
+            0,
+            std::num::NonZero::new(500u64).unwrap(),
+        );
+        // Height 7 is not a multiple of interval 10
+        assert!(!vq.validate_height(7, None));
+        assert!(!vq.validate_height(15, None));
+        // Aligned heights are accepted
+        assert!(vq.validate_height(10, None));
+        assert!(vq.validate_height(20, None));
+        assert!(vq.validate_height(0, None));
+    }
+
+    #[test]
+    fn validate_height_rejects_beyond_catchup_window() {
+        let vq = ValidateQuorum::new(
+            std::num::NonZeroUsize::new(2).unwrap(),
+            std::num::NonZero::new(10u64).unwrap(),
+            0,
+            std::num::NonZero::new(5u64).unwrap(), // max_catchup = 5 → window = 5*10 = 50
+        );
+        // With no finalization, upper bound = start_height + 50 = 50
+        assert!(vq.validate_height(50, None));
+        assert!(!vq.validate_height(60, None));
+
+        // With finalization at height 20, upper bound = 20 + 50 = 70
+        assert!(vq.validate_height(70, Some(20)));
+        assert!(!vq.validate_height(80, Some(20)));
+    }
+
+    #[test]
+    fn validate_height_rejects_at_or_below_finalized() {
+        let vq = ValidateQuorum::new(
+            std::num::NonZeroUsize::new(2).unwrap(),
+            std::num::NonZero::new(10u64).unwrap(),
+            0,
+            std::num::NonZero::new(500u64).unwrap(),
+        );
+        // Height at finalized is rejected
+        assert!(!vq.validate_height(20, Some(20)));
+        // Height below finalized is rejected
+        assert!(!vq.validate_height(10, Some(20)));
+        // First valid height above finalized
+        assert!(vq.validate_height(30, Some(20)));
+    }
+
+    #[test]
+    fn validate_height_accepts_start_height_when_no_finalization() {
+        let vq = ValidateQuorum::new(
+            std::num::NonZeroUsize::new(2).unwrap(),
+            std::num::NonZero::new(10u64).unwrap(),
+            100, // start_height = 100
+            std::num::NonZero::new(500u64).unwrap(),
+        );
+        // Before any finalization, start_height is valid
+        assert!(vq.validate_height(100, None));
+        // Below start_height is rejected
+        assert!(!vq.validate_height(90, None));
+        // Above start_height and aligned is valid
+        assert!(vq.validate_height(110, None));
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_rejects_inadmissible_height(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 501, DIGEST_0)]
+        attestation_far_future: AttestationVote,
+        config: Config,
+    ) {
+        // Default config: start_height=0, interval=1, max_catchup=500, no finalization
+        // Height 501 exceeds window of 0 + 500*1 = 500
+        let (sx, _rx) = attestation_pool(config);
+
+        assert_matches::assert_matches!(
+            sx.send(attestation_far_future.attestation.clone()),
+            Some(Err(Error::InvalidHeight(ATTESTOR_VALID_0, 501, 0)))
+        );
     }
 }
