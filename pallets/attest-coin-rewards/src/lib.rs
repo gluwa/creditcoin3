@@ -82,7 +82,7 @@ pub mod pallet {
     pub enum Error<T> {
         /// No ERC-20 configured yet.
         TokenNotConfigured,
-        /// Not a bonded attestor stash.
+        /// Not a bonded attestor stash (`pallet_attestation::Ledger`).
         NotStash,
         /// Claim exceeds accrued points.
         InsufficientAccrued,
