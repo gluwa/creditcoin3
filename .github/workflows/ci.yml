@@ -257,12 +257,17 @@ jobs:
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
+      LINODE_REGION: "us-ord"
+      LINODE_VM_SIZE: "g6-standard-6"
       proxy: "attestator-network"
     secrets: inherit
 
   integration-test-attestator-network:
+    # b/c of azure/login
+    environment: snapshot
+    permissions:
+      id-token: write
+      contents: read
     needs:
       - build-creditcoin-node-for-testing-ci
       - deploy-runner-attestator-network
@@ -288,6 +293,29 @@ jobs:
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
 
+      - name: Install azure-cli
+        run: |
+          sudo apt remove azure-cli -y && sudo apt autoremove -y
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          sudo apt install -y jq
+          az version
+
+      - name: Azure Login with OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          # https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-azure
+
+      - name: Download 10k Anvil state
+        run: |
+          az storage blob download --auth-mode=login --account-name=snapshotexportaccount --container-name=usc-testing-data --name "anvil10k_blocks.json.xz" --file ./anvil10k_blocks.json.xz
+          ls -lh
+
+          unxz anvil10k_blocks.json.xz
+          ls -lh
+
       - name: Start Ethereum simulation with Anvil - 2 chains
         run: |
           # first install it
@@ -296,8 +324,12 @@ jobs:
 
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
-          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
-          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8242 &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
+              --load-state ./anvil10k_blocks.json \
+              >/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
+
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8242 \
+              >/var/tmp/integration-test-attestor-network/anvil2.log 2>&1 &
 
       - name: Check that creditcoin-node and anvil are running
         run: |
