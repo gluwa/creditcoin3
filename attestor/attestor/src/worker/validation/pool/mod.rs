@@ -1981,6 +1981,7 @@ mod fixtures {
         >,
         #[default(1)] header_number: common::types::Height,
         #[default(DIGEST_0)] prev_digest: CompoundDigest,
+        #[default(DIGEST_0)] header_hash: CompoundDigest,
     ) -> AttestationVote {
         let mut iter = attestors.into_iter();
 
@@ -1990,6 +1991,7 @@ mod fixtures {
                     attestation_data: attestor_primitives::AttestationData {
                         header_number,
                         prev_digest: Some(prev_digest.into()),
+                        header_hash: header_hash.into(),
                         ..Default::default()
                     },
                     attestor,
@@ -2040,7 +2042,9 @@ mod fixtures {
             + Clone,
         #[default(1)] _header_number: common::types::Height,
         #[default(DIGEST_0)] _prev_digest: CompoundDigest,
-        #[with(_attestors.clone(), _header_number, _prev_digest)] attestation: AttestationVote,
+        #[default(DIGEST_0)] _header_hash: CompoundDigest,
+        #[with(_attestors.clone(), _header_number, _prev_digest, _header_hash)]
+        attestation: AttestationVote,
     ) -> Quorum {
         Quorum(attestation.votes)
     }
@@ -2120,7 +2124,9 @@ mod fixtures {
             + Clone,
         #[default(1)] _header_number: common::types::Height,
         #[default(DIGEST_0)] _prev_digest: CompoundDigest,
-        #[with(_attestors.clone(), _header_number, _prev_digest)] attestation: AttestationVote,
+        #[default(DIGEST_0)] _header_hash: CompoundDigest,
+        #[with(_attestors.clone(), _header_number, _prev_digest, _header_hash)]
+        attestation: AttestationVote,
     ) -> Permit {
         Permit(CompoundInfo {
             height: attestation.attestation.header_number(),
@@ -2225,6 +2231,55 @@ mod test {
                 header_hash: attestation_0.attestation.attestation_data.header_hash
             }
         }));
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_sanity_deduplicate_header_hash(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 0, DIGEST_0, DIGEST_0)]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1], 0, DIGEST_0, DIGEST_1)]
+        attestation_1: AttestationVote,
+        config: Config,
+    ) {
+        let (sx, rx) = attestation_pool(config);
+
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+
+        let mut pool = rx.common.pool.lock();
+        let inner = pool.expect_open();
+
+        assert_eq!(inner.forks.votes.len(), 2);
+        assert_eq!(inner.forks.forks_by_digest.len(), 2);
+
+        assert_eq!(
+            inner
+                .forks
+                .forks_by_digest
+                .get(&CompoundDigest {
+                    digest: attestation_0.attestation.digest(),
+                    header_hash: attestation_0.attestation.attestation_data.header_hash
+                })
+                .unwrap(),
+            &attestation_0
+        );
+
+        assert_eq!(
+            inner
+                .forks
+                .forks_by_digest
+                .get(&CompoundDigest {
+                    digest: attestation_1.attestation.digest(),
+                    header_hash: attestation_1.attestation.attestation_data.header_hash
+                })
+                .unwrap(),
+            &attestation_1
+        );
     }
 
     #[tokio::test]
