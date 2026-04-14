@@ -1,12 +1,28 @@
 /**
  * Quoter configuration.
  * Uses CLI args first, then env vars, then defaults.
+ *
+ * Start: node dist/quoter/server.js --payee-address 0x... --rpc-url http://...
  */
+
+import dotenv from "dotenv";
+
+import { DEFAULT_DESTINATION_RPC_URL, DEFAULT_QUOTER_PORT } from "../consts.js";
+import { isValidContractAddress, isValidPrivateKey } from "../utils.js";
+
+const DEFAULT_SIGNER_KEY =
+  "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const DEFAULT_PAYEE = "0x0000000000000000000000000000000000000001";
+const DEFAULT_PAYMENT_TOKEN = "0x0000000000000000000000000000000000000000";
+const DEFAULT_EXPIRY_SECONDS = "3600";
+const DEFAULT_RELAY_GAS_LIMIT = "300000";
+const DEFAULT_ACK_GAS_LIMIT = "500000";
+const DEFAULT_GAS_BUFFER = "135";
 
 export interface QuoterConfig {
   /** Port for the HTTP server */
   port: number;
-  /** Private key for signing quotes (hex string, no 0x prefix or with) */
+  /** Private key for signing quotes (hex string with 0x prefix) */
   signerPrivateKey: string;
   /** Relayer pool / payee address to receive payments */
   payeeAddress: string;
@@ -26,10 +42,6 @@ export interface QuoterConfig {
   destinationChainId?: number;
 }
 
-const DEFAULT_SIGNER_KEY =
-  "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-const DEFAULT_PAYEE = "0x0000000000000000000000000000000000000001";
-
 function parseArg(name: string, short?: string): string | undefined {
   const args = process.argv.slice(2);
   for (let i = 0; i < args.length; i++) {
@@ -43,31 +55,49 @@ function parseArg(name: string, short?: string): string | undefined {
   return undefined;
 }
 
-function isValidAddress(s: string): boolean {
-  return /^0x[a-fA-F0-9]{40}$/.test(s);
-}
-
 export async function loadQuoterConfig(): Promise<QuoterConfig> {
-  const payeeArg = parseArg("--payee-address", "-p");
-  const tokenArg = parseArg("--payment-token", "-t");
-  const rpcUrlArg = parseArg("--rpc-url", "-r");
+  dotenv.config({ override: true });
 
   const payeeAddress =
-    payeeArg ?? process.env.QUOTER_PAYEE_ADDRESS ?? DEFAULT_PAYEE;
-  const paymentToken =
-    tokenArg ??
-    process.env.QUOTER_PAYMENT_TOKEN ??
-    "0x0000000000000000000000000000000000000000";
-  const destinationChainRpcUrl =
-    rpcUrlArg ??
-    process.env.QUOTER_DESTINATION_RPC_URL ??
-    process.env.QUOTER_RPC_URL;
+    parseArg("--payee-address", "-p") ??
+    process.env.QUOTER_PAYEE_ADDRESS ??
+    DEFAULT_PAYEE;
 
-  if (!isValidAddress(payeeAddress)) {
-    throw new Error(`Invalid payeeAddress: ${payeeAddress}`);
+  const paymentToken =
+    parseArg("--payment-token", "-t") ??
+    process.env.QUOTER_PAYMENT_TOKEN ??
+    DEFAULT_PAYMENT_TOKEN;
+
+  const destinationChainRpcUrl =
+    parseArg("--rpc-url", "-r") ??
+    process.env.QUOTER_DESTINATION_RPC_URL ??
+    process.env.QUOTER_RPC_URL ??
+    DEFAULT_DESTINATION_RPC_URL;
+
+  const key =
+    parseArg("--private-key", "-k") ??
+    process.env.QUOTER_SIGNER_PRIVATE_KEY ??
+    DEFAULT_SIGNER_KEY;
+
+  const port = parseInt(
+    parseArg("--port") ?? process.env.QUOTER_PORT ?? DEFAULT_QUOTER_PORT,
+    10,
+  );
+
+  if (!isValidContractAddress(payeeAddress)) {
+    throw new Error(
+      `Invalid payee address: ${payeeAddress}. Pass --payee-address 0x<40 hex chars> or set QUOTER_PAYEE_ADDRESS.`,
+    );
   }
-  if (!isValidAddress(paymentToken)) {
-    throw new Error(`Invalid paymentToken: ${paymentToken}`);
+  if (!isValidContractAddress(paymentToken)) {
+    throw new Error(
+      `Invalid payment token: ${paymentToken}. Pass --payment-token 0x<40 hex chars> or set QUOTER_PAYMENT_TOKEN.`,
+    );
+  }
+  if (!isValidPrivateKey(key)) {
+    throw new Error(
+      "Invalid or missing private key. Pass --private-key 0x<64 hex chars> or set QUOTER_SIGNER_PRIVATE_KEY.",
+    );
   }
 
   let destinationChainId: number | undefined;
@@ -85,20 +115,24 @@ export async function loadQuoterConfig(): Promise<QuoterConfig> {
   }
 
   return {
-    port: parseInt(process.env.QUOTER_PORT ?? "3300", 10),
-    signerPrivateKey:
-      process.env.QUOTER_SIGNER_PRIVATE_KEY ?? DEFAULT_SIGNER_KEY,
+    port,
+    signerPrivateKey: key.startsWith("0x") ? key : `0x${key}`,
     payeeAddress,
     paymentToken,
     quoteExpirySeconds: parseInt(
-      process.env.QUOTER_EXPIRY_SECONDS ?? "3600",
+      process.env.QUOTER_EXPIRY_SECONDS ?? DEFAULT_EXPIRY_SECONDS,
       10,
     ),
     defaultRelayGasLimit: BigInt(
-      process.env.QUOTER_RELAY_GAS_LIMIT ?? "300000",
+      process.env.QUOTER_RELAY_GAS_LIMIT ?? DEFAULT_RELAY_GAS_LIMIT,
     ),
-    ackGasLimit: BigInt(process.env.QUOTER_ACK_GAS_LIMIT ?? "500000"),
-    gasBufferMultiplier: parseInt(process.env.QUOTER_GAS_BUFFER ?? "135", 10),
+    ackGasLimit: BigInt(
+      process.env.QUOTER_ACK_GAS_LIMIT ?? DEFAULT_ACK_GAS_LIMIT,
+    ),
+    gasBufferMultiplier: parseInt(
+      process.env.QUOTER_GAS_BUFFER ?? DEFAULT_GAS_BUFFER,
+      10,
+    ),
     destinationChainRpcUrl,
     destinationChainId,
   };

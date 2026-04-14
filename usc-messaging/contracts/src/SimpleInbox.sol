@@ -11,7 +11,8 @@ contract SimpleInbox {
     uint256 public immutable creditcoinChainId;
     bytes32 public immutable localChainKey;
 
-    bytes4 constant RECEIVE_SELECTOR = bytes4(keccak256("receiveMessage(bytes32,uint256,address,bytes)"));
+    bytes4 constant RECEIVE_SELECTOR =
+        bytes4(keccak256("receiveMessage(bytes32,uint256,address,bytes)"));
 
     mapping(bytes32 => bool) private validatedMessages;
 
@@ -20,6 +21,7 @@ contract SimpleInbox {
         address emitterAddress;
         bytes payload;
     }
+
     mapping(bytes32 => PendingMessage) private pendingMessages;
     mapping(bytes32 => bool) public isPending;
 
@@ -41,18 +43,22 @@ contract SimpleInbox {
     ) external returns (bool) {
         require(!validatedMessages[messageId], "Already validated");
 
-        bytes32 messageHash = keccak256(abi.encode(messageId, emitterAddress, localChainKey, creditcoinChainId, payload));
+        bytes32 messageHash = keccak256(
+            abi.encode(messageId, emitterAddress, localChainKey, creditcoinChainId, payload)
+        );
         voteValidator.validateVotes(messageHash, votes);
 
         validatedMessages[messageId] = true;
 
-        (address destinationContract, bytes memory payloadData) = abi.decode(payload, (address, bytes));
+        (address destinationContract, bytes memory payloadData) =
+            abi.decode(payload, (address, bytes));
 
         try this.executeDelivery(destinationContract, messageId, emitterAddress, payloadData) {
             emit MessageDelivered(messageId);
         } catch {
             isPending[messageId] = true;
-            pendingMessages[messageId] = PendingMessage(destinationContract, emitterAddress, payloadData);
+            pendingMessages[messageId] =
+                PendingMessage(destinationContract, emitterAddress, payloadData);
             emit MessagePending(messageId, destinationContract);
         }
 
@@ -76,7 +82,9 @@ contract SimpleInbox {
     ) external {
         require(msg.sender == address(this), "Only self");
         (bool ok,) = destinationContract.call(
-            abi.encodeWithSelector(RECEIVE_SELECTOR, messageId, creditcoinChainId, emitterAddress, payload)
+            abi.encodeWithSelector(
+                RECEIVE_SELECTOR, messageId, creditcoinChainId, emitterAddress, payload
+            )
         );
         require(ok, "Delivery failed");
     }

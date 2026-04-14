@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/quoter/server.js",
-    "dev": "tsx src/quoter/server.ts",
+    "quoter": "node dist/quoter/server.js",
     "dev:quoter": "tsx src/quoter/server.ts",
     "dev:relayer": "tsx src/relayer/server.ts",
     "relayer": "node dist/relayer/server.js",
@@ -14,6 +13,7 @@
     "attester": "node dist/attester/server.js",
     "deploy": "cd contracts && ./script/deploy.sh",
     "seed-message": "tsx scripts/seed-message.ts",
+    "request-quote": "tsx scripts/request-and-relay-quote.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },

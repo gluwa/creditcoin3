@@ -13,6 +13,7 @@ import { createQuote } from "./quote.js";
 import { loadQuoterConfig } from "./config.js";
 import type { QuoterConfig } from "./config.js";
 import type { QuoteRequest, SignedQuote } from "./types.js";
+import { isValidBytes32 } from "../utils.js";
 
 const app = express();
 
@@ -23,12 +24,21 @@ app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 app.get("/quote", async (req, res) => {
   const config = await getConfig();
   try {
+    const messageId = req.query.messageId as string | undefined;
     const destinationChainIdParam = req.query.destinationChainId as
       | string
       | undefined;
     const requiresAck =
       (req.query.requiresAck as string)?.toLowerCase() === "true";
     const gasLimitParam = req.query.gasLimit as string | undefined;
+
+    if (!isValidBytes32(messageId)) {
+      res.status(400).json({
+        error:
+          "Missing or invalid messageId. Must be a 0x-prefixed bytes32 hex string.",
+      });
+      return;
+    }
 
     const destinationChainId = destinationChainIdParam
       ? parseInt(destinationChainIdParam, 10)
@@ -53,6 +63,7 @@ app.get("/quote", async (req, res) => {
     }
 
     const request: QuoteRequest = {
+      messageId,
       destinationChainId,
       requiresAck,
       gasLimit: gasLimitParam ? BigInt(gasLimitParam) : undefined,
@@ -61,6 +72,7 @@ app.get("/quote", async (req, res) => {
     const quote: SignedQuote = await createQuote(request, config);
 
     res.json({
+      messageId: quote.messageId,
       relayPrice: quote.relayPrice.toString(),
       acknowledgmentPrice: quote.acknowledgmentPrice.toString(),
       payeeAddress: quote.payeeAddress,
@@ -90,7 +102,9 @@ const config = await getConfig();
 const port = config.port;
 app.listen(port, () => {
   console.log(`Quoter listening on http://localhost:${port}`);
-  console.log(`  GET /quote?destinationChainId=31337&requiresAck=false`);
+  console.log(
+    `  GET /quote?messageId=0x<bytes32>&destinationChainId=31337&requiresAck=false`,
+  );
   if (config.destinationChainRpcUrl) {
     console.log(
       `  RPC: ${config.destinationChainRpcUrl} (chainId: ${config.destinationChainId})`,

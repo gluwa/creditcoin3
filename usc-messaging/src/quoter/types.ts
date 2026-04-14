@@ -8,6 +8,8 @@ export type ChainId = number;
 
 /** Quote request parameters */
 export interface QuoteRequest {
+  /** Message ID (bytes32 hex) the quote is being issued for */
+  messageId: string;
   /** Destination chain EVM chain ID (e.g. 31337 for Anvil, 1 for Ethereum) */
   destinationChainId: ChainId;
   /** Whether the message requires acknowledgment */
@@ -27,7 +29,9 @@ export interface QuoteData {
 
 /** Signed quote returned to the client */
 export interface SignedQuote extends QuoteData {
-  /** ECDSA signature of the quote hash (hex string) */
+  /** Message ID (bytes32 hex) this quote was issued for */
+  messageId: string;
+  /** ECDSA signature over keccak256(messageId, relayPrice, acknowledgmentPrice, payeeAddress, paymentToken, expiry) */
   signature: string;
 }
 

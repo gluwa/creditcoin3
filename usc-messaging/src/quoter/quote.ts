@@ -7,12 +7,15 @@ import { getExchangeRate } from "./exchange-rates.js";
 import type { QuoteData, QuoteRequest, SignedQuote } from "./types.js";
 import type { QuoterConfig } from "./config.js";
 
-/** EIP-712 style hash for quote - keccak256 of packed values for simplicity.
- * RelayerContract will need to use the same encoding. */
-function encodeQuoteForSigning(data: QuoteData): string {
+/** keccak256 of packed (messageId, quoteData) fields.
+ * Including messageId binds the signature to a specific message — a verifier can confirm
+ * both that the quoter signed the prices and that the quote was issued for a given messageId.
+ * RelayerContract will need to use the same encoding for ecrecover. */
+function encodeQuoteForSigning(data: QuoteData, messageId: string): string {
   return ethers.solidityPackedKeccak256(
-    ["uint256", "uint256", "address", "address", "uint256"],
+    ["bytes32", "uint256", "uint256", "address", "address", "uint256"],
     [
+      messageId,
       data.relayPrice,
       data.acknowledgmentPrice,
       data.payeeAddress,
@@ -74,7 +77,7 @@ export async function createQuote(
     expiry,
   };
 
-  const hash = encodeQuoteForSigning(quoteData);
+  const hash = encodeQuoteForSigning(quoteData, request.messageId);
   const wallet = new ethers.Wallet(config.signerPrivateKey);
   // Sign the raw hash (no Ethereum signed message prefix) so RelayerContract ecrecover works
   const sig = wallet.signingKey.sign(ethers.getBytes(hash));
@@ -82,6 +85,7 @@ export async function createQuote(
 
   return {
     ...quoteData,
+    messageId: request.messageId,
     signature,
   };
 }

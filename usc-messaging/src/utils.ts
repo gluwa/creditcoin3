@@ -7,3 +7,7 @@ export function isValidContractAddress(
 ): address is string {
   return !!address && address.startsWith("0x") && address.length === 42;
 }
+
+export function isValidBytes32(value: string | undefined): value is string {
+  return !!value && /^0x[0-9a-fA-F]{64}$/.test(value);
+}

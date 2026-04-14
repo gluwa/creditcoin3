@@ -24,8 +24,6 @@ Simple offchain worker which listens to the `SimpleOutboxContract` for `MessageP
 
 Once message is voted call HTTP endpoint in relayer with message to deliver.
 
-For ACK attesters will need enough gas in the creditcoin evm chain to call the `acknowledge` method on `SimpleOutboxContract`
-
 ### Questions
 
 * Should they be integrated into the current attestor codebase?
