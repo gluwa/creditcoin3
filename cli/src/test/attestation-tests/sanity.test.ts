@@ -16,7 +16,7 @@ describe('BlockAttested events', (): void => {
     let chain_Anvil1_AttestationInterval = 0;
     let startBlock_Anvil1 = 0;
     let provider_Anvil1: WebSocketProvider;
-    const maxBlocks = 220; // ~ 18:20 mins
+    const maxBlocks = 250; // ~ 21 mins
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -147,14 +147,16 @@ describe('BlockAttested events', (): void => {
             expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);
 
             const endBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
-            const expectedBlockAttestedEvents_Anvil1 = Math.floor(
-                (endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval,
-            );
+            // There are 10013 initial blocks which will result in 20 attestations for each 500
+            // until we catch up, then every 10 blocks
+            const expectedBlockAttestedEvents_Anvil1 =
+                20 + Math.floor((endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval);
 
-            // note: ±2 tolerance accounts for timing differences between when startBlock was captured
-            // (in beforeAll) vs when event counting started, plus Math.floor rounding effects
-            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(expectedBlockAttestedEvents_Anvil1 - 2);
+            // however we don't start listening immediately
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(15);
+            // so allow for some timing differences
             expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 2);
+
             // note: interval for Anvil2 changes dynamically during this test
             expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(40);
 
@@ -171,5 +173,5 @@ describe('BlockAttested events', (): void => {
             // this test loops over roughly 15 epochs and we make a change every 2
             expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(5);
         });
-    }, 1_500_000); // 220 blocks is 1100 sec + reserve to avoid timeouts
+    }, 1_500_000); // 250 blocks is 1250 sec + reserve to avoid timeouts
 });
