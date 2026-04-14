@@ -839,11 +839,7 @@ fn register_attestor_should_fail_under_authorized_only_without_prior_authorize()
 
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_noop!(
-            Attestation::register_attestor(
-                att.stash.clone(),
-                SUPPORTED_CHAIN_KEY,
-                att.attestor_id
-            ),
+            Attestation::register_attestor(att.stash.clone(), SUPPORTED_CHAIN_KEY, att.attestor_id),
             Error::<Test>::NotPreAuthorizedToRegister
         );
     })
