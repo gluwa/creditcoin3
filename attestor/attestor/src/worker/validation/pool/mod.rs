@@ -587,7 +587,7 @@ impl From<CompoundInfo> for CompoundDigest {
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct PrevDigestTail(CompoundDigest);
+struct PrevDigestTail(attestor_primitives::Digest);
 
 /// Holds and manages all attestation forks behind the execution chain finality. Keeps track of
 /// contentious forks, past equivocations and known invalid votes. Attestation [`Quorum`]s which can
@@ -737,11 +737,7 @@ impl AttestationPoolForks {
                 "🏎️ Received pending attestation"
             );
 
-            if let Some(prev_digest_tail) = prev_digest_tail {
-                let prev_digest_tail = PrevDigestTail(CompoundDigest {
-                    digest: prev_digest_tail,
-                    header_hash,
-                });
+            if let Some(prev_digest_tail) = prev_digest_tail.map(PrevDigestTail) {
                 let key_digest_pending = KeyDigestPending {
                     height,
                     digest,
@@ -956,7 +952,7 @@ impl AttestationPoolForks {
         let key_height_pending = KeyHeightPending {
             height: split,
             digest: digest_min,
-            prev_digest_tail: PrevDigestTail(digest_min),
+            prev_digest_tail: PrevDigestTail(attestor_primitives::Digest::zero()),
         };
 
         let after_by_height = self.forks_by_height.split_off(&key_height);
@@ -1160,22 +1156,14 @@ impl AttestationPoolForks {
         self.last_finalized_digest = Some(info.digest);
         self.last_finalized_height = Some(info.height);
 
-        let digest_start = CompoundDigest {
-            digest: info.digest,
-            ..CompoundDigest::min()
-        };
         let key_start = KeyTailPending {
-            prev_digest_tail: PrevDigestTail(digest_start),
+            prev_digest_tail: PrevDigestTail(info.digest),
             height: info.height,
             digest: CompoundDigest::min(),
         };
 
-        let digest_stop = CompoundDigest {
-            digest: info.digest,
-            ..CompoundDigest::max()
-        };
         let key_stop = KeyTailPending {
-            prev_digest_tail: PrevDigestTail(digest_stop),
+            prev_digest_tail: PrevDigestTail(info.digest),
             height: common::types::Height::MAX,
             digest: CompoundDigest::max(),
         };
@@ -2239,10 +2227,10 @@ mod test {
     async fn attestation_pool_sanity_deduplicate_header_hash(
         _logs: (),
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 0, DIGEST_0, DIGEST_0)]
+        #[with([ATTESTOR_VALID_0], 1, DIGEST_0, DIGEST_0)]
         attestation_0: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 0, DIGEST_0, DIGEST_1)]
+        #[with([ATTESTOR_VALID_1], 1, DIGEST_0, DIGEST_1)]
         attestation_1: AttestationVote,
         config: Config,
     ) {
@@ -2374,7 +2362,7 @@ mod test {
                 .forks
                 .pending_by_prev_digest_tail
                 .contains(&KeyTailPending {
-                    prev_digest_tail: PrevDigestTail(DIGEST_1),
+                    prev_digest_tail: PrevDigestTail(DIGEST_1.into()),
                     height: 2,
                     digest: CompoundDigest {
                         digest: attestation_pending.attestation.digest(),
