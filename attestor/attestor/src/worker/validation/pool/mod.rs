@@ -229,11 +229,14 @@ pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPo
         config.max_catchup,
     );
 
+    let last_finalized_height = config.start_attestation.as_ref().map(|info| info.height);
+
     let pool = AttestationPool::new(
         quorum,
         attestors,
         config.metrics,
         config.start_attestation.map(|info| info.digest),
+        last_finalized_height,
         config.max_size,
     );
 
@@ -369,10 +372,16 @@ impl AttestationPool {
         validate_attestor: ValidateAttestor,
         metrics: common::types::Metrics,
         prev_digest: Option<attestor_primitives::Digest>,
+        last_finalized_height: Option<common::types::Height>,
         max_size: std::num::NonZeroUsize,
     ) -> Self {
         Self::Open(AttestationPoolInner {
-            forks: AttestationPoolForks::new(prev_digest, max_size, validate_quorum),
+            forks: AttestationPoolForks::new(
+                prev_digest,
+                last_finalized_height,
+                max_size,
+                validate_quorum,
+            ),
             valid: AttestationPoolValid::new(),
             digest_local: None,
 
@@ -560,6 +569,7 @@ pub struct AttestationPoolForks {
 impl AttestationPoolForks {
     fn new(
         last_finalized_digest: Option<attestor_primitives::Digest>,
+        last_finalized_height: Option<common::types::Height>,
         max_size: std::num::NonZeroUsize,
         validate_quorum: ValidateQuorum,
     ) -> Self {
@@ -579,7 +589,7 @@ impl AttestationPoolForks {
             quorums_by_height: Default::default(),
 
             last_finalized_digest,
-            last_finalized_height: None,
+            last_finalized_height,
             max_size,
             validate_quorum,
         }
@@ -1882,7 +1892,7 @@ pub mod fixtures {
         #[default([ATTESTOR_VALID_0])] attestors: impl IntoIterator<
             Item = attestor_primitives::AttestorId,
         >,
-        #[default(0)] header_number: common::types::Height,
+        #[default(1)] header_number: common::types::Height,
         #[default(DIGEST_0)] prev_digest: attestor_primitives::Digest,
     ) -> AttestationVote {
         let mut iter = attestors.into_iter();
@@ -1941,7 +1951,7 @@ pub mod fixtures {
     pub fn quorum(
         #[default([ATTESTOR_VALID_0])] _attestors: impl IntoIterator<Item = attestor_primitives::AttestorId>
             + Clone,
-        #[default(0)] _header_number: common::types::Height,
+        #[default(1)] _header_number: common::types::Height,
         #[default(DIGEST_0)] _prev_digest: attestor_primitives::Digest,
         #[with(_attestors.clone(), _header_number, _prev_digest)] attestation: AttestationVote,
     ) -> Quorum {
@@ -1952,7 +1962,7 @@ pub mod fixtures {
     pub fn validate_quorum(#[default(2)] vote_count: usize) -> ValidateQuorum {
         ValidateQuorum {
             target_quorum: vote_count.try_into().unwrap(),
-            start_height: common::types::Height::MIN,
+            start_height: 1,
             attestation_interval: std::num::NonZero::<common::types::Height>::MIN,
             max_catchup: crate::common::constants::MAX_CATCHUP,
         }
@@ -2009,9 +2019,9 @@ pub mod fixtures {
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
             .with_start_attestation(Some(stream::util::AttestationInfo {
                 digest: DIGEST_0,
-                height: common::types::Height::MIN,
+                height: 0,
             }))
-            .with_start_height(common::types::Height::MIN)
+            .with_start_height(1u64)
             .with_max_catchup(crate::common::constants::MAX_CATCHUP)
             .with_metrics(metrics)
             .build()
@@ -2021,7 +2031,7 @@ pub mod fixtures {
     pub fn permit(
         #[default([ATTESTOR_VALID_0])] _attestors: impl IntoIterator<Item = attestor_primitives::AttestorId>
             + Clone,
-        #[default(0)] _header_number: common::types::Height,
+        #[default(1)] _header_number: common::types::Height,
         #[default(DIGEST_0)] _prev_digest: attestor_primitives::Digest,
         #[with(_attestors.clone(), _header_number, _prev_digest)] attestation: AttestationVote,
     ) -> Permit {
@@ -2048,16 +2058,16 @@ mod test {
     async fn attestation_pool_sanity_mark_valid(
         _logs: (),
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 0, DIGEST_0)]
+        #[with([ATTESTOR_VALID_0], 1, DIGEST_0)]
         attestation_0: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 0, DIGEST_0)]
+        #[with([ATTESTOR_VALID_1], 1, DIGEST_0)]
         attestation_1: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_2], 0, DIGEST_1)]
+        #[with([ATTESTOR_VALID_2], 1, DIGEST_1)]
         attestation_2: AttestationVote,
         #[from(quorum)]
-        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 0, DIGEST_0)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 1, DIGEST_0)]
         quorum_expected: Quorum,
         config: Config,
     ) {
@@ -2079,7 +2089,7 @@ mod test {
         let inner = pool.expect_open();
 
         assert!(!inner.forks.forks_by_height.contains(&KeyHeight {
-            height: 0,
+            height: 1,
             size: 2,
             digest: DIGEST_0
         }));
@@ -2196,7 +2206,7 @@ mod test {
     async fn attestation_pool_sanity_pending(
         _logs: (),
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 1, DIGEST_1)]
+        #[with([ATTESTOR_VALID_0], 2, DIGEST_1)]
         attestation_pending: AttestationVote,
         config: Config,
     ) {
@@ -2219,14 +2229,14 @@ mod test {
                 .pending_by_prev_digest_tail
                 .contains(&KeyTailPending {
                     prev_digest_tail: PrevDigestTail(DIGEST_1),
-                    height: 1,
+                    height: 2,
                     digest: attestation_pending.attestation.digest(),
                 }));
         }
 
         sx.note_attestation_finalization(stream::util::AttestationInfo {
             digest: DIGEST_1,
-            height: 0,
+            height: 1,
         })
         .unwrap();
 
@@ -2250,7 +2260,7 @@ mod test {
 
         assert_matches::assert_matches!(
             sx.send(attestation.attestation.clone()),
-            Some(Err(Error::Unauthorized(ATTESTOR_INVALID, 0)))
+            Some(Err(Error::Unauthorized(ATTESTOR_INVALID, 1)))
         );
     }
 
@@ -2339,16 +2349,16 @@ mod test {
         #[with([ATTESTOR_VALID_2])]
         attestation_2: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 100)]
+        #[with([ATTESTOR_VALID_0], 101)]
         attestation_3: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 100)]
+        #[with([ATTESTOR_VALID_1], 101)]
         attestation_4: AttestationVote,
         #[from(quorum)]
-        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 100)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 101)]
         quorum: Quorum,
         #[from(permit)]
-        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 100)]
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1], 101)]
         permit: Permit,
         config: Config,
     ) {
@@ -2356,12 +2366,12 @@ mod test {
 
         let (sx, mut rx) = attestation_pool(config);
 
-        // Source chain height 0
+        // Source chain height 1 (default)
         assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
         assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
         assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
 
-        // Source chain height 100
+        // Source chain height 101
         assert!(sx.send(attestation_3.attestation.clone()).unwrap().is_ok());
         assert!(sx.send(attestation_4.attestation.clone()).unwrap().is_ok());
 
@@ -2383,7 +2393,7 @@ mod test {
         #[with([ATTESTOR_VALID_0])]
         attestation_0: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 1, DIGEST_1)]
+        #[with([ATTESTOR_VALID_1], 2, DIGEST_1)]
         attestation_1: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_VALID_2])]
@@ -2423,13 +2433,13 @@ mod test {
         assert_eq!(inner.forks.forks_by_height.len(), 1);
         assert_eq!(inner.forks.forks_by_size.len(), 1);
         assert!(inner.forks.forks_by_height.contains(&KeyHeight {
-            height: 0,
+            height: 1,
             size: 2,
             digest: attestation_0.attestation.digest()
         }));
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 2,
-            height: 0,
+            height: 1,
             digest: attestation_0.attestation.digest()
         }));
     }
@@ -2446,7 +2456,7 @@ mod test {
         #[with([ATTESTOR_VALID_1])]
         attestation_1: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_2], 1)]
+        #[with([ATTESTOR_VALID_2], 2)]
         attestation_2: AttestationVote,
         #[from(attestation)]
         #[with([ATTESTOR_VALID_3])]
@@ -2503,13 +2513,13 @@ mod test {
             assert_eq!(inner.forks.forks_by_height.len(), 1);
             assert_eq!(inner.forks.forks_by_size.len(), 1);
             assert!(inner.forks.forks_by_height.contains(&KeyHeight {
-                height: 0,
+                height: 1,
                 size: 3,
                 digest: attestation_0.attestation.digest()
             }));
             assert!(inner.forks.forks_by_size.contains(&KeySize {
                 size: 3,
-                height: 0,
+                height: 1,
                 digest: attestation_0.attestation.digest()
             }));
         }
@@ -2527,7 +2537,7 @@ mod test {
         #[with([ATTESTOR_VALID_1])]
         attestation_1: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_2], 1)]
+        #[with([ATTESTOR_VALID_2], 2)]
         attestation_2: AttestationVote,
         #[from(validate_quorum)]
         #[with(1)]
@@ -2564,13 +2574,13 @@ mod test {
         assert_eq!(inner.forks.forks_by_digest.len(), 1);
         assert_eq!(inner.forks.votes.len(), 2);
         assert!(inner.forks.forks_by_height.contains(&KeyHeight {
-            height: 0,
+            height: 1,
             size: 2,
             digest: attestation_0.attestation.digest()
         }));
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 2,
-            height: 0,
+            height: 1,
             digest: attestation_0.attestation.digest()
         }));
     }
@@ -2636,7 +2646,7 @@ mod test {
             .is_ok());
         assert_matches::assert_matches!(
             validate_attestor.validate(&attestation_2.attestation),
-            Err(Error::Unauthorized(ATTESTOR_INVALID, 0))
+            Err(Error::Unauthorized(ATTESTOR_INVALID, 1))
         );
     }
 
@@ -2648,28 +2658,28 @@ mod test {
         _logs: (),
         // Attestations that will be marked valid via mark_for_later
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 0, DIGEST_0)]
+        #[with([ATTESTOR_VALID_0], 1, DIGEST_0)]
         attestation_0: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 0, DIGEST_0)]
+        #[with([ATTESTOR_VALID_1], 1, DIGEST_0)]
         attestation_1: AttestationVote,
         // Attestations that will be marked invalid
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 1, DIGEST_0)]
+        #[with([ATTESTOR_VALID_0], 2, DIGEST_0)]
         attestation_2: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 1, DIGEST_0)]
+        #[with([ATTESTOR_VALID_1], 2, DIGEST_0)]
         attestation_3: AttestationVote,
         // Attestations that will remain in forks after removals
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_2], 2, DIGEST_0)]
+        #[with([ATTESTOR_VALID_2], 3, DIGEST_0)]
         attestation_4: AttestationVote,
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_3], 2, DIGEST_0)]
+        #[with([ATTESTOR_VALID_3], 3, DIGEST_0)]
         attestation_5: AttestationVote,
         // Attestation that will be entered into pending
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_2], 1, DIGEST_1)]
+        #[with([ATTESTOR_VALID_2], 2, DIGEST_1)]
         attestation_pending: AttestationVote,
         #[from(validate_quorum)]
         #[with(2)]
@@ -2908,8 +2918,8 @@ mod test {
         attestation_far_future: AttestationVote,
         config: Config,
     ) {
-        // Default config: start_height=0, interval=1, max_catchup=500, no finalization
-        // Height 501 exceeds window of 0 + 500*1 = 500
+        // Default config: start_height=1, interval=1, max_catchup=500,
+        // last_finalized_height=Some(0). Height 501 exceeds window of 0 + 500*1 = 500
         let (sx, _rx) = attestation_pool(config);
 
         assert_matches::assert_matches!(
