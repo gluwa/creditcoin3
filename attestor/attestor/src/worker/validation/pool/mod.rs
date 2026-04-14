@@ -529,6 +529,15 @@ struct KeyDigestPending {
     prev_digest_tail: PrevDigestTail,
 }
 
+/// Attestation [digest computation] does not account for all fields in the [`AttestationData`].
+/// Namely, the attestation `header_hash` is absent from digest computation yet is still used for
+/// [attestation data serialization], **which is what attestors sign on**. This means the
+/// attestation digest alone is not a guarantee of uniqueness, and must be paired with the header
+/// hash to avoid collisions.
+///
+/// [digest computation]: attestor_primitives::Attestation::digest
+/// [`AttestationData`]:  attestor_primitives::AttestationData
+/// [attestation data serialization]: attestor_primitives::AttestationData::serialize
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct CompoundDigest {
     digest: attestor_primitives::Digest,
@@ -557,6 +566,9 @@ impl From<CompoundDigest> for attestor_primitives::Digest {
     }
 }
 
+/// Identifying wrapper around [`AttestationInfo`], similar to [`CompoundDigest`].
+///
+/// [`AttestationInfo`]: stream::util::AttestationInfo
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct CompoundInfo {
     height: common::types::Height,
