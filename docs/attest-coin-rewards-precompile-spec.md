@@ -1,6 +1,6 @@
 # Attest-coin rewards: ERC-20 surface + precompile — specification
 
-This document specifies how **attest-coin** integrates with **Creditcoin-native attestation rewards**. The **chosen architecture** is in **§0**; later sections cover **goals**, **fair distribution**, **API**, **linking**, and **open items**.
+This document specifies how **attest-coin** integrates with **Creditcoin-native attestation rewards**. The **chosen architecture** is in **§0**; later sections cover **goals**, **fair distribution**, **API**, **linking**, **local testing (§6)**, and **open items (§7)**.
 
 Runtime details (exact pallets, storage keys, Frontier hooks) must stay aligned with this repository’s Frontier fork and governance process.
 
@@ -15,13 +15,14 @@ This section is the **source of truth** for what the runtime + precompile implem
 | Layer | Role |
 |--------|------|
 | **ERC-20 (EVM)** | The liquid token. **Supply is not minted by the precompile on claim.** Claims move tokens **out of the precompile’s ERC-20 balance** via standard **`transfer`**, with the subcall’s `msg.sender` equal to the precompile address (treasury **holds** the ERC-20). |
-| **Runtime (`pallet-attest-coin-rewards`)** | Tracks **`Accrued[stash]`** (reward **units**, same decimal semantics as the ERC-20, typically 1e18-style), **`ClaimNonce[stash]`**, and the configured **ERC-20 contract address** (`set_attest_coin_token`, root). Epoch settlement **credits** `Accrued` from a configured pool (policy); separate from ERC-20 `totalSupply`. |
+| **Runtime (`pallet-attest-coin-rewards`)** | Tracks **`Accrued[stash]`** (reward **units**, same decimal semantics as the ERC-20, typically 1e18-style), **`ClaimNonce[stash]`**, and the configured **ERC-20 contract address** (`set_attest_coin_token`, root). **`Accrued` increases when eligible attestors appear on a successful `commit_attestation`** (see **§0.2**). Optional **`force_settle`** (root) splits a separate test/ops pool across all **`Ledger`** stashes. Separate from ERC-20 `totalSupply`. |
 | **Deposit → substrate mint (future)** | *Product direction:* at **ERC-20 inception**, nothing is minted on Substrate; when value is **deposited into the precompile** (treasury), a matching **native** representation may be minted (e.g. `pallet-assets`). *Not required for the claim path below.* |
 
-### 0.2 Reward flow (intended)
+### 0.2 Reward flow (implemented)
 
-1. **Per epoch (policy):** participation / vote counters (or other signals) feed **settlement**, which increases **`Accrued[stash]`** and may move value from a protocol treasury into stash-facing balances (exact split: governance; **equal split across ledger stashes** is the current placeholder in code).
+1. **On each successful `commit_attestation`:** `pallet-attestation` computes **eligible signers** = `attestation.attestors` ∩ **active** attestor set (the same set that must meet the BLS majority threshold). For each eligible **attestor `AccountId`**, the runtime resolves **`Attestors[chain_key, attestor_id].stash`** and credits **`Accrued[stash] += RewardPerEligibleSigner`** (`pallet-attest-coin-rewards`, constant in the runtime). This uses the **`CommittedAttestationHook`** on `pallet-attestation::Config` (production: forwards to `reward_commit_signers`). There is **no** automatic per–Babe-epoch accrual in `on_finalize`.
 2. **Withdraw to EVM:** the stash (or its **controller**, see §0.4) authorizes a **claim** that debits **`Accrued`**, increments **`ClaimNonce`**, and **transfers** ERC-20 from the precompile to the user’s EVM address.
+3. **Optional (root, tests / ops):** **`force_settle`** runs **`do_settlement`**, which splits **`EpochRewardPool`** equally across every account in **`pallet-attestation` `Ledger`** (independent of commits). The integration test in `cli` uses this path so **`accrued`** is non-zero without submitting a full BLS attestation.
 
 ### 0.3 Precompile address
 
@@ -108,7 +109,7 @@ In Creditcoin’s attestation model, each registered attestor carries a **`stash
 
 **Implementation note**
 
-- Attribution still uses **observable attestor activity** (which identity signed which checkpoint); settlement **aggregates** into `Accrued[stash]` by mapping each included vote to its attestor’s `stash` before summing.
+- **Accrual today:** each successful **`commit_attestation`** credits **`RewardPerEligibleSigner`** once per **eligible** attestor id in the committee list (active ∩ listed), resolved to **stash** via **`Attestors`**. Multiple attestor keys under one stash each receive a credit when they appear as eligible signers on a commit.
 
 ---
 
@@ -193,7 +194,9 @@ Below are **mutually comparable proposals**; pick one primary model and optional
 | C — Era-linked | Era boundary (with staking) | On **claim** |
 | D — Lazy | At claim (computed) | On **claim** |
 
-**Recommendation**: Start with reward **Proposal A** or **Proposal B** (in the table above) with an explicit **period cap** so issuance is predictable; use §2.3 adjustments so **sampling** does not break **equal expected pay** under §2.0.
+**Implemented today (aligns with B — per observation):** `Accrued` is incremented in the **`commit_attestation`** success path via **`RewardPerEligibleSigner`** per eligible signer, aggregated to **stash** (**§0.2**). **Period caps**, inverse-weighting, and other §2.3 mechanisms are **not** wired in the runtime yet; issuance scales with **commits × eligible signers × constant**.
+
+**Recommendation (longer term):** Add an explicit **period cap** or treasury budget so total issuance matches policy; use §2.3 if **sampling** still distorts **equal expected pay** under §2.0.
 
 ---
 
@@ -259,37 +262,92 @@ Earlier drafts described **`claim(uint256)`** + ERC-20 **`mint`**. That has been
 | Topic | Recommendation / **chosen (§0)** |
 |-------|----------------|
 | Architecture | ERC-20 **treasury at precompile**; claim uses **`transfer`**, not mint. Optional future: **deposit → precompile** ↔ **native asset** mint (see §0.1). |
-| Vote weight | **Unweighted**; **equal stake** per attestor → equal base credit per eligible work unit; combine with §2.3 for sampling fairness. **Placeholder settlement:** equal split of epoch pool across `Ledger` keys. |
+| Vote weight | **Unweighted** committee semantics in attestation; **per-commit** credit **`RewardPerEligibleSigner`** per **eligible** signer → **stash**; §2.3+ for future fairness tuning. |
 | Token | Plain ERC-20; treasury must **hold** balance; **mint** to precompile only for funding (governance / inception), not per-claim inflation. |
-| Accrual | Runtime **`Accrued[stash]`**; **claim nonce** per stash; **cadence** aligned with Babe epoch length for settlement hook (configurable constant). |
-| Fairness | §2.0–2.3 + budget model in §2.5 (still governance). |
+| Accrual | **`Accrued[stash]`** on each successful **`commit_attestation`** (hook); **`ClaimNonce`** per stash for EVM claims. Optional **`force_settle`** = equal split of **`EpochRewardPool`** over **`Ledger`** (tests / sudo). |
+| Fairness | §2.0–2.3 + budget / caps (still governance); constant per-signer accrual is the current baseline. |
 | Precompile | **View**: `accrued(bytes32)`; **Mutate**: **`claim(...)`** + **sr25519** + **`transfer`**. |
 | Inner ERC-20 call | Precompile **`CALL`** with **`caller = precompile`**, **`transfer`** (see §0.6). |
 | EVM claim | **Signed claim** (**§0.4–0.5**); **stash or controller** sr25519; **`evmRecipient == msg.sender`**. |
 
 ---
 
-## 6. Open items
+## 6. Local testing and verification
 
-### 6.1 Closed or partially closed
+### 6.1 Unit tests (Rust)
+
+- **`pallet-attestation`:** `cargo test -p pallet-attestation --lib` — covers **`commit_attestation`** validation and storage; the reward hook is a **no-op** in the mock runtime (`NoopCommittedAttestationObserver`).
+- **`pallet-attest-coin-rewards`:** `cargo test -p pallet-attest-coin-rewards` if present; otherwise rely on runtime + precompile checks.
+
+### 6.2 Integration: CLI precompile test (accrued + claim)
+
+The suite **`cli/src/test/blockchain-tests/precompiles/attest-coin-rewards.test.ts`** exercises the **precompile** end-to-end against a running node:
+
+1. **`//Alice` is the stash** (well-known dev key); a **separate** funded account is the **attestor operator** (`registerAttestor(chain_key, attestor)` — stash and operator must differ). Then deploy mock ERC-20, mint to the precompile, **`sudo`** `setAttestCoinToken`.
+2. Calls **`sudo`** **`attestCoinRewards.forceSettle()`** so **`Accrued`** is non-zero without submitting a BLS **`commit_attestation`** (uses **`EpochRewardPool`** / **`do_settlement`**).
+3. Reads **`accrued(bytes32)`** via ethers and runs **`claim`** with an sr25519 signature over **`claim_signing_message`**.
+
+**CI alignment (`integration-test-blockchain` in `.github/workflows/ci.yml`):** the job starts **one** Anvil on port **8141** and **`attestor_zombienet`** with **`--chain-key=2`** (Anvil1). The test uses **`chain_key = 2`** (`chain_Anvil1_Key`) for **`registerAttestor`** and for the **`chainKey`** field in **`claim` / signing preimage**, so it matches that setup. You do **not** need to wait for Babe epochs or for **`commit_attestation`** in this test: **`forceSettle`** credits **`Accrued`** in the same block as the sudo call. Waiting for attestor activity is only required if you add assertions on **commit-time** rewards (**§6.3**).
+
+**Run locally**
+
+1. Build and start a dev node (from repo root, see root **`README.md`**):
+
+   ```bash
+   cargo build --release
+   ./target/release/creditcoin3-node --dev
+   ```
+
+   Default WebSocket for tests is **`ws://127.0.0.1:9944`** unless you set **`CREDITCOIN_WS_PORT`** / **`CREDITCOIN_API_URL`**.
+
+2. In another terminal, from **`cli/`** (after **`yarn install`**):
+
+   ```bash
+   yarn test:blockchain:attest-coin-rewards
+   ```
+
+   **`yarn test:blockchain` always passes the whole `src/test/blockchain-tests` directory**, so extra path arguments still run **all** blockchain tests. Use the script above, or invoke Jest on **one file only**:
+
+   ```bash
+   npx jest --config src/test/blockchain-tests.config.ts --runInBand --forceExit src/test/blockchain-tests/precompiles/attest-coin-rewards.test.ts
+   ```
+
+   See **`cli/README.md`** and **`.github/workflows/ci.yml`** for the full blockchain test matrix.
+
+### 6.3 Full reward path (commit → `Accrued` → claim)
+
+To verify **commit-time** accrual (not **`forceSettle`**):
+
+1. Run a local **`creditcoin3-node`** (see repository root **`README.md`** for build/run; binary from **`cargo build -p creditcoin3-node`**).
+2. Ensure a **supported chain** and an **active** attestor set as required by **`validate_attestation`** (threshold, BLS aggregate, continuity).
+3. Submit a valid **`attestation.commitAttestation`** extrinsic. After inclusion, **`Accrued[stash]`** should increase by **`RewardPerEligibleSigner ×`** (number of your attestor ids that are **eligible** on that attestation).
+4. Query storage: **`attestCoinRewards.accrued(AccountId)`** or the precompile **`accrued(bytes32)`** view.
+5. Optionally **`claim`** on the precompile as in §0.4.
+
+If you only need to sanity-check **`Accrued`** without BLS infrastructure, use **`forceSettle`** as in §6.2.
+
+---
+
+## 7. Open items
+
+### 7.1 Closed or partially closed
 
 - [x] **Architecture direction (this branch):** treasury-held ERC-20 + runtime **`Accrued`** + **`transfer`** on claim + **sr25519** signed preimage (**§0**).
-- [x] **`Accrued[stash]`** as accrual key (aligned with §2.0.1).
+- [x] **`Accrued[stash]`** as accrual key (aligned with §2.0.1); credits applied from **`commit_attestation`** eligible signers → stash.
 - [x] **Frontier:** precompile → ERC-20 nested **`CALL`** with controlled **`Context.caller`** (**§0.6**); **transfer** instead of mint for claims.
 - [x] **Decimals / units:** reward **`RewardPoints`** and ERC-20 use the same **1e18-style** numeric range in implementation (fits `u128`); enforce in policy.
 - [x] **EVM claim binding:** **`evmRecipient == msg.sender`** + preimage includes **stash / nonce / chain_key / amount / recipient bytes**.
 
-### 6.2 Still open (governance / product)
+### 7.2 Still open (governance / product)
 
 - [ ] **Equal-stake** vs future **weighted** votes (§2.0).
-- [ ] **Reward cadence** (Babe epoch vs attestation epoch vs staking **era**) vs current **`EpochDuration`** hook only.
-- [ ] **Proposal A/B/C** (§2.5): exact **`R_period` / `r` / caps**; replace **equal split** placeholder with **vote counters → settlement → `Accrued`** as in product discussions.
+- [ ] **Issuance budget:** cap **`RewardPerEligibleSigner`** or total per period so commits do not overshoot treasury policy.
 - [ ] **Exact fairness** formula vs attestation sampling (§2.3–2.5).
 - [ ] **Deposit → `pallet-assets` mint** when ERC-20 is deposited to precompile (§0.1) — not yet wired in code.
 - [ ] **Governance:** `set_attest_coin_token` (root today); emergency pause; treasury top-up policy.
-- [ ] **Gas / weight** limits for batched claims and heavy settlement paths.
+- [ ] **Gas / weight** limits for batched claims; **benchmark** `commit_attestation` with the reward hook enabled.
 
-### 6.3 Tooling
+### 7.3 Tooling
 
 - [ ] Regenerate **Polkadot.js** types / metadata after runtime upgrades so `attestCoinRewards.*` queries match production nodes.
 - [ ] Wallet **signing** helpers for **`claim_signing_message`** (exact bytes in §0.5).
