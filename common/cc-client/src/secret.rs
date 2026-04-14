@@ -77,16 +77,16 @@ impl TryInto<[u8; 32]> for Secret {
     fn try_into(self) -> Result<[u8; 32], Self::Error> {
         use std::str::FromStr as _;
 
-        match self {
+        match &self {
             Self::Mnemonic(mnemonic) => {
                 let data = mnemonic.to_seed_normalized("");
                 let mut arr = [0; 32];
                 arr.copy_from_slice(&data[..32]);
                 Ok(arr)
             }
-            Self::Seed(seed) => Ok(seed),
+            Self::Seed(seed) => Ok(*seed),
             Self::Uri(uri) => {
-                subxt_signer::ecdsa::Keypair::from_uri(&subxt_signer::SecretUri::from_str(&uri)?)
+                subxt_signer::ecdsa::Keypair::from_uri(&subxt_signer::SecretUri::from_str(uri)?)
                     .map_err(anyhow::Error::msg)
                     .map(|keypair| keypair.secret_key())
             }
@@ -102,7 +102,17 @@ impl Default for Secret {
 
 impl zeroize::Zeroize for Secret {
     fn zeroize(&mut self) {
-        *self = Self::Seed([0; 32]);
+        match self {
+            Self::Mnemonic(mnemonic) => zeroize::Zeroize::zeroize(mnemonic),
+            Self::Seed(seed) => zeroize::Zeroize::zeroize(seed),
+            Self::Uri(uri) => zeroize::Zeroize::zeroize(uri),
+        }
+    }
+}
+
+impl Drop for Secret {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(self);
     }
 }
 

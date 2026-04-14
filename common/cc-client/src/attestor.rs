@@ -26,8 +26,10 @@ impl Attestor {
         let seed = secret.private_key();
         let pair_vrf = sp_core::sr25519::Pair::from_string(seed.expose_secret(), None)?;
 
+        let bls_seed = secret.private_key();
+        let bls_key = bls_signatures::PrivateKey::new(bls_seed.expose_secret().as_bytes());
+
         let mut seed: [u8; 32] = secret.try_into()?;
-        let bls_key = bls_signatures::PrivateKey::new(seed);
         let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed)?;
 
         anyhow::Ok(Self {
@@ -58,7 +60,11 @@ impl Attestor {
 
     #[must_use]
     pub fn bls_pubkey(&self) -> attestor_primitives::BlsPublicKey {
-        self.bls_key.public_key().as_affine().to_compressed()
+        use bls_signatures::Serialize as _;
+
+        self.bls_key.public_key().as_bytes().try_into().expect(
+            "bls-signatures::PublicKey::as_bytes() must always return exactly 48 compressed bytes",
+        )
     }
 
     #[must_use]
