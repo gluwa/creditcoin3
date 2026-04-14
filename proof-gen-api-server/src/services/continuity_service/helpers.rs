@@ -450,24 +450,77 @@ mod tests {
         let svc = make_service(Arc::new(FoundEthProvider)).await;
         let chain = svc.chain_state(2).unwrap();
 
+        let att = chain.attestation_cache.read().await;
+
+        assert!(
+            att.contains_key(&500),
+            "attestation at 500 should exist before revert"
+        );
+        assert!(
+            att.contains_key(&510),
+            "attestation at 510 should exist before revert"
+        );
+        assert!(
+            att.contains_key(&1000),
+            "attestation at 1000 should exist before revert"
+        );
+        assert_eq!(*att.keys().next_back().unwrap(), 1000);
+        drop(att);
+
+        let cp = chain.checkpoint_cache.read().await;
+        assert!(
+            cp.contains_key(&500),
+            "attestation at 500 should exist before revert"
+        );
+        assert!(
+            cp.contains_key(&600),
+            "attestation at 510 should exist before revert"
+        );
+        assert!(
+            cp.contains_key(&1000),
+            "attestation at 1000 should exist before revert"
+        );
+        assert_eq!(*cp.keys().next_back().unwrap(), 1000);
+        drop(cp);
+
         // Mock populates attestations at 10, 20, ..., 1000
         // and checkpoints at 0, 100, 200, ..., 1000.
         // Revert to height 500: entries > 500 should be gone.
         svc.revert_caches(2, 500).await;
 
-        // Attestations at 500 and below survive; 510+ are gone
+        // Every attestation at or below 500 survives; every one above is gone
         let att = chain.attestation_cache.read().await;
-        assert!(att.contains_key(&500));
-        assert!(!att.contains_key(&510));
-        assert!(!att.contains_key(&1000));
+        for h in (10..=1000).step_by(10) {
+            if h <= 500 {
+                assert!(
+                    att.contains_key(&h),
+                    "attestation at {h} should survive revert"
+                );
+            } else {
+                assert!(
+                    !att.contains_key(&h),
+                    "attestation at {h} should be removed by revert"
+                );
+            }
+        }
         assert_eq!(*att.keys().next_back().unwrap(), 500);
         drop(att);
 
-        // Checkpoints at 0..=500 survive; 600+ are gone
+        // Every checkpoint at or below 500 survives; every one above is gone
         let cp = chain.checkpoint_cache.read().await;
-        assert!(cp.contains_key(&500));
-        assert!(!cp.contains_key(&600));
-        assert!(!cp.contains_key(&1000));
+        for h in (0..=1000).step_by(100) {
+            if h <= 500 {
+                assert!(
+                    cp.contains_key(&h),
+                    "checkpoint at {h} should survive revert"
+                );
+            } else {
+                assert!(
+                    !cp.contains_key(&h),
+                    "checkpoint at {h} should be removed by revert"
+                );
+            }
+        }
         assert_eq!(*cp.keys().next_back().unwrap(), 500);
         drop(cp);
 

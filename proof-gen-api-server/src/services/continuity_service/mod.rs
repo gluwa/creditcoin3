@@ -410,11 +410,12 @@ impl ContinuityService {
     /// Called when a `RevertedAttestationChainTo` event is received from CC3.
     pub async fn revert_caches(&self, chain_key: u64, revert_height: u64) {
         if let Some(chain) = self.chains.get(&chain_key) {
+            // split_off is O(log n) on BTreeMap vs O(n) for retain.
+            let split_key = revert_height.saturating_add(1);
+
             {
                 let mut att = chain.attestation_cache.write().await;
-                let before = att.len();
-                att.retain(|&block_number, _| block_number <= revert_height);
-                let removed = before - att.len();
+                let removed = att.split_off(&split_key).len();
                 tracing::info!(
                     chain_key,
                     revert_height,
@@ -426,9 +427,7 @@ impl ContinuityService {
 
             {
                 let mut cp = chain.checkpoint_cache.write().await;
-                let before = cp.len();
-                cp.retain(|&block_number, _| block_number <= revert_height);
-                let removed = before - cp.len();
+                let removed = cp.split_off(&split_key).len();
                 tracing::info!(
                     chain_key,
                     revert_height,
