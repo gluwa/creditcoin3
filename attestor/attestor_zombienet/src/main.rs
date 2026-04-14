@@ -454,12 +454,6 @@ async fn main() -> anyhow::Result<()> {
 
     // ------------------------------------* Attestor chilling *-----------------------------------
 
-    let nonce = cc3
-        .get_account_nonce(&sudo)
-        .await
-        .context("Failed to get funding address nonce")?;
-    let nonce = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(nonce));
-
     tracing::info!("❄️ Chilling attestors");
 
     let blocks = cc3.api().blocks().subscribe_finalized().await.unwrap();
@@ -467,7 +461,6 @@ async fn main() -> anyhow::Result<()> {
     let mut futures_chill = tokio::task::JoinSet::new();
     for (attestor, name, ..) in attestor_info.iter() {
         let cc3 = std::sync::Arc::clone(&cc3);
-        let nonce = std::sync::Arc::clone(&nonce);
 
         let name = name.clone();
         let account_id = attestor.account_id();
@@ -476,14 +469,17 @@ async fn main() -> anyhow::Result<()> {
         let mut attempt = 0;
 
         futures_chill.spawn(async move {
-            let mut nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            let mut nonce_local = cc3
+                .get_account_nonce(&attestor)
+                .await
+                .context("Failed to get attestor nonce")?;
             while let Err(err) = cc3.attestor_chill(&attestor, Some(nonce_local)).await {
                 attempt += 1;
                 if attempt >= MAX_ATTEMPTS {
                     anyhow::bail!("Failed to chill attestor {name} - {account_id}: {err}");
                 }
 
-                nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                nonce_local = nonce_local.saturating_add(1);
             }
 
             tracing::debug!(nonce_local, "OK - chill");
@@ -517,7 +513,6 @@ async fn main() -> anyhow::Result<()> {
     let mut futures_unregister = tokio::task::JoinSet::new();
     for (attestor, name, ..) in attestor_info.iter() {
         let cc3 = std::sync::Arc::clone(&cc3);
-        let nonce = std::sync::Arc::clone(&nonce);
 
         let name = name.clone();
         let account_id = attestor.account_id();
@@ -526,14 +521,17 @@ async fn main() -> anyhow::Result<()> {
         let mut attempt = 0;
 
         futures_unregister.spawn(async move {
-            let mut nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            let mut nonce_local = cc3
+                .get_account_nonce(&attestor)
+                .await
+                .context("Failed to get attestor nonce")?;
             while let Err(err) = cc3.attestor_unregister(&attestor, Some(nonce_local)).await {
                 attempt += 1;
                 if attempt >= MAX_ATTEMPTS {
                     anyhow::bail!("Failed to un-register attestor {name} - {account_id}: {err}");
                 }
 
-                nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                nonce_local = nonce_local.saturating_add(1);
             }
 
             tracing::debug!(nonce_local, "OK - unregister");
