@@ -29,6 +29,7 @@ import type {
     PalletAttestationAttestorElectionPolicy,
     PalletAttestationClearOrRevertCheckpointPruningState,
     PalletAttestationLedgerAttestorLedger,
+    PalletAttestationRetiredAttestorBlsKeyEntry,
     PalletBagsListListBag,
     PalletBagsListListNode,
     PalletBalancesAccountData,
@@ -289,6 +290,30 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * BLS public keys kept after [`unregister_attestor`](Pallet::unregister_attestor) so
+             * aggregated attestations that still list this controller can be verified until the unbond
+             * delay elapses. Purged in [`withdraw_unbonded`](Pallet::withdraw_unbonded) once
+             * `purge_at_era` is reached.
+             **/
+            retiredAttestorBlsKeys: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<PalletAttestationRetiredAttestorBlsKeyEntry>>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
+             * Stash accounts with pending [`RetiredAttestorBlsKeys`] entries (for pruning on withdraw).
+             **/
+            retiredAttestorKeysByStash: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Vec<ITuple<[u64, AccountId32]>>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
             targetSampleSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**

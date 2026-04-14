@@ -3078,7 +3078,15 @@ export default {
         _enum: ['Active', 'Idle', 'Waiting'],
     },
     /**
-     * Lookup411: pallet_attestation::ledger::AttestorLedger<T>
+     * Lookup409: pallet_attestation::pallet::RetiredAttestorBlsKeyEntry<sp_core::crypto::AccountId32>
+     **/
+    PalletAttestationRetiredAttestorBlsKeyEntry: {
+        blsPublicKey: '[u8;48]',
+        purgeAtEra: 'u32',
+        stash: 'AccountId32',
+    },
+    /**
+     * Lookup414: pallet_attestation::ledger::AttestorLedger<T>
      **/
     PalletAttestationLedgerAttestorLedger: {
         stash: 'AccountId32',
@@ -3087,21 +3095,21 @@ export default {
         unlocking: 'Vec<PalletAttestationLedgerUnlockChunk>',
     },
     /**
-     * Lookup413: pallet_attestation::ledger::UnlockChunk<Balance>
+     * Lookup416: pallet_attestation::ledger::UnlockChunk<Balance>
      **/
     PalletAttestationLedgerUnlockChunk: {
         value: 'Compact<u128>',
         era: 'Compact<u32>',
     },
     /**
-     * Lookup415: pallet_attestation::clear_or_revert::CheckpointPruningState
+     * Lookup418: pallet_attestation::clear_or_revert::CheckpointPruningState
      **/
     PalletAttestationClearOrRevertCheckpointPruningState: {
         stopHeight: 'u64',
         nextPivot: 'u64',
     },
     /**
-     * Lookup416: pallet_attestation::pallet::Error<T>
+     * Lookup419: pallet_attestation::pallet::Error<T>
      **/
     PalletAttestationError: {
         _enum: [
@@ -3142,6 +3150,7 @@ export default {
             'AttestorNotActive',
             'AttestorWithInvalidPublicKey',
             'MajorityNotReached',
+            'RetiredAttestorPendingFull',
             'AttestorAlreadyAuthorized',
             'NotPreAuthorizedToRegister',
             'AttestorNotAuthorized',
@@ -3161,7 +3170,7 @@ export default {
         ],
     },
     /**
-     * Lookup417: supported_chains_primitives::SupportedChain
+     * Lookup420: supported_chains_primitives::SupportedChain
      **/
     SupportedChainsPrimitivesSupportedChain: {
         chainId: 'u64',
@@ -3170,63 +3179,63 @@ export default {
         maturityStrategy: 'Text',
     },
     /**
-     * Lookup419: pallet_supported_chains::pallet::Error<T>
+     * Lookup422: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
         _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic', 'InvalidMaturityStrategy'],
     },
     /**
-     * Lookup420: pallet_randomness::pallet::Error<T>
+     * Lookup423: pallet_randomness::pallet::Error<T>
      **/
     PalletRandomnessError: 'Null',
     /**
-     * Lookup422: pallet_membership::pallet::Error<T, I>
+     * Lookup425: pallet_membership::pallet::Error<T, I>
      **/
     PalletMembershipError: {
         _enum: ['AlreadyMember', 'NotMember', 'TooManyMembers'],
     },
     /**
-     * Lookup425: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
+     * Lookup428: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
      **/
     FrameSystemExtensionsCheckNonZeroSender: 'Null',
     /**
-     * Lookup426: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
+     * Lookup429: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
      **/
     FrameSystemExtensionsCheckSpecVersion: 'Null',
     /**
-     * Lookup427: frame_system::extensions::check_tx_version::CheckTxVersion<T>
+     * Lookup430: frame_system::extensions::check_tx_version::CheckTxVersion<T>
      **/
     FrameSystemExtensionsCheckTxVersion: 'Null',
     /**
-     * Lookup428: frame_system::extensions::check_genesis::CheckGenesis<T>
+     * Lookup431: frame_system::extensions::check_genesis::CheckGenesis<T>
      **/
     FrameSystemExtensionsCheckGenesis: 'Null',
     /**
-     * Lookup431: frame_system::extensions::check_nonce::CheckNonce<T>
+     * Lookup434: frame_system::extensions::check_nonce::CheckNonce<T>
      **/
     FrameSystemExtensionsCheckNonce: 'Compact<u32>',
     /**
-     * Lookup432: frame_system::extensions::check_weight::CheckWeight<T>
+     * Lookup435: frame_system::extensions::check_weight::CheckWeight<T>
      **/
     FrameSystemExtensionsCheckWeight: 'Null',
     /**
-     * Lookup433: pallet_transaction_payment::ChargeTransactionPayment<T>
+     * Lookup436: pallet_transaction_payment::ChargeTransactionPayment<T>
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup434: frame_metadata_hash_extension::CheckMetadataHash<T>
+     * Lookup437: frame_metadata_hash_extension::CheckMetadataHash<T>
      **/
     FrameMetadataHashExtensionCheckMetadataHash: {
         mode: 'FrameMetadataHashExtensionMode',
     },
     /**
-     * Lookup435: frame_metadata_hash_extension::Mode
+     * Lookup438: frame_metadata_hash_extension::Mode
      **/
     FrameMetadataHashExtensionMode: {
         _enum: ['Disabled', 'Enabled'],
     },
     /**
-     * Lookup437: creditcoin3_runtime::Runtime
+     * Lookup440: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };
