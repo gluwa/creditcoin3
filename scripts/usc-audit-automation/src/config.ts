@@ -9,6 +9,7 @@ import { parseArgs } from "@std/cli/parse-args";
 export interface EthRpcConfig {
   chainId: number;
   chainKey?: number;
+  chainName?: string;
   url: string;
 }
 
@@ -83,7 +84,9 @@ export function loadConfig(): AuditConfig {
   }
 
   const ethRpcRaw = obj.ethRpc as
-    | Array<{ chainId: number; chainKey?: number; url: string }>
+    | Array<
+      { chainId: number; chainKey?: number; chainName?: string; url: string }
+    >
     | undefined;
   const sepoliaUrl = Deno.env.get("SEPOLIA_RPC_URL");
   const bscUrl = Deno.env.get("BSC_RPC_URL");
@@ -91,7 +94,12 @@ export function loadConfig(): AuditConfig {
     let url = r.url;
     if (r.chainId === 11155111 && sepoliaUrl) url = sepoliaUrl;
     if (r.chainId === 97 && bscUrl) url = bscUrl;
-    return { chainId: r.chainId, chainKey: r.chainKey, url };
+    return {
+      chainId: r.chainId,
+      chainKey: r.chainKey,
+      chainName: r.chainName,
+      url,
+    };
   });
 
   let slackWebhookUrl: string | undefined;
