@@ -270,7 +270,8 @@ async function main(): Promise<void> {
     }
 
     const discovered = supportedChains.find((c) =>
-      c.chainId === ethRpc.chainId
+      c.chainId === ethRpc.chainId &&
+      (ethRpc.chainKey == null || c.chainKey === ethRpc.chainKey)
     );
     const chainKey = discovered?.chainKey ?? ethRpc.chainKey;
     if (chainKey == null) {
@@ -284,7 +285,7 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const chainName = getChainName(ethRpc.chainId);
+    const chainName = ethRpc.chainName ?? getChainName(ethRpc.chainId);
     const { report, hasErrors } = await runChecksForChain(
       config,
       ethRpc.chainId,
