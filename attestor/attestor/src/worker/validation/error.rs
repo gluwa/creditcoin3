@@ -68,10 +68,9 @@ impl std::fmt::Display for InvalidCause {
                 f,
                 "Invalid continuity proof tail digest, expected {expected}, got {actual}"
             ),
-            Self::InconsistentContinuityProofs => write!(
-                f,
-                "Quorum votes contain inconsistent continuity proofs"
-            ),
+            Self::InconsistentContinuityProofs => {
+                write!(f, "Quorum votes contain inconsistent continuity proofs")
+            }
         }
     }
 }

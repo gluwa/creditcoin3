@@ -30,6 +30,22 @@ use cc_client::AccountId32;
 use sp_core::H256;
 use std::sync::Arc;
 
+/// Compute the mock chain's digest at block `n`, starting from the genesis
+/// checkpoint digest (all-zeros) using the same `Block::hash_payload` (Keccak256)
+/// that the production code uses. This ensures mock checkpoint/attestation digests
+/// are consistent with what `build_continuity_blocks` produces.
+///
+/// Mock roots are `H256::from_low_u64_be(n + 2000)`, matching
+/// `MockEthRpcProvider::build_continuity_blocks`.
+pub fn mock_chain_digest(n: u64) -> H256 {
+    let mut digest = H256::zero(); // genesis digest
+    for block_num in 1..=n {
+        let root = H256::from_low_u64_be(block_num + 2000);
+        digest = Block::hash_payload(&block_num, &root, &digest);
+    }
+    digest
+}
+
 /// Mock Creditcoin3 RPC provider for testing.
 ///
 /// Returns deterministic fake attestations and checkpoints without requiring
@@ -72,17 +88,23 @@ impl CcRpcProvider for MockCcRpcProvider {
         &self,
         chain_key: u64,
     ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
-        let mk_attestation = |header_number: u64| SignedAttestation {
-            attestation: AttestationData {
-                chain_key,
-                header_number,
-                header_hash: H256::from_low_u64_be(header_number),
-                root: H256::from_low_u64_be(header_number + 1000),
-                prev_digest: None,
-            },
-            signature: [0u8; 96],
-            attestors: vec![],
-            continuity_proof: Default::default(),
+        // Attestations every 10 blocks. Use chain-consistent root and prev_digest so
+        // that attestation.digest() matches the value produced by build_continuity_blocks.
+        let mk_attestation = |header_number: u64| {
+            let root = H256::from_low_u64_be(header_number + 2000);
+            let prev_digest = mock_chain_digest(header_number.saturating_sub(1));
+            SignedAttestation {
+                attestation: AttestationData {
+                    chain_key,
+                    header_number,
+                    header_hash: H256::from_low_u64_be(header_number),
+                    root,
+                    prev_digest: Some(prev_digest),
+                },
+                signature: [0u8; 96],
+                attestors: vec![],
+                continuity_proof: Default::default(),
+            }
         };
         // Attestations every 10 blocks (matching DefaultAttestationInterval = 10)
         // Range covers 10..=1000 to match checkpoint mock coverage
@@ -91,10 +113,11 @@ impl CcRpcProvider for MockCcRpcProvider {
 
     async fn get_last_checkpoint(&self, _chain_key: u64) -> Result<Option<AttestationCheckpoint>> {
         // Checkpoints happen every 100 blocks (10 attestations * 10 interval)
-        // For testing, we use checkpoint at block 0 (genesis)
+        // For testing, we use checkpoint at block 0 (genesis).
+        // digest = mock_chain_digest(0) = H256::zero() (all-zeros, the genesis digest)
         Ok(Some(AttestationCheckpoint {
             block_number: 0,
-            digest: H256::from_low_u64_be(0),
+            digest: mock_chain_digest(0),
         }))
     }
 
@@ -103,10 +126,15 @@ impl CcRpcProvider for MockCcRpcProvider {
         _chain_key: u64,
     ) -> Result<Vec<AttestationCheckpoint>> {
         // For testing, provide checkpoints at regular intervals (every 100 blocks).
+        // Digests are computed from the same mock chain as build_continuity_blocks so
+        // that the upper boundary digest verification in build_proof_from_roots passes.
         Ok((0..=10)
-            .map(|i| AttestationCheckpoint {
-                block_number: i * 100,
-                digest: H256::from_low_u64_be(i),
+            .map(|i| {
+                let block_number = i * 100;
+                AttestationCheckpoint {
+                    block_number,
+                    digest: mock_chain_digest(block_number),
+                }
             })
             .collect())
     }
@@ -116,13 +144,15 @@ impl CcRpcProvider for MockCcRpcProvider {
         _chain_key: u64,
         block_number: u64,
     ) -> Result<Option<AttestationCheckpoint>> {
-        // Mock implementation: return checkpoint if it exists in our mock data
-        match block_number {
-            0 => Ok(Some(AttestationCheckpoint {
-                block_number: 0,
-                digest: H256::from_low_u64_be(0),
-            })),
-            _ => Ok(None),
+        // Mock implementation: return checkpoint if it exists in our mock data.
+        // Only multiples of 100 have checkpoints (matching get_checkpoints_for_chain).
+        if block_number % 100 == 0 && block_number <= 1000 {
+            Ok(Some(AttestationCheckpoint {
+                block_number,
+                digest: mock_chain_digest(block_number),
+            }))
+        } else {
+            Ok(None)
         }
     }
 
@@ -131,8 +161,8 @@ impl CcRpcProvider for MockCcRpcProvider {
     }
 
     async fn fetch_last_digest(&self, _chain_key: u64) -> Result<Option<H256>> {
-        // Mock returns digest for block 30 (highest attestation)
-        Ok(Some(H256::from_low_u64_be(30)))
+        // Mock returns digest for block 1000 (highest attestation)
+        Ok(Some(mock_chain_digest(1000)))
     }
 
     async fn get_attestation_by_digest(
@@ -140,24 +170,13 @@ impl CcRpcProvider for MockCcRpcProvider {
         chain_key: u64,
         digest: H256,
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
-        // Extract header_number from the mock digest format
-        let header_number =
-            u64::from_be_bytes(digest.as_bytes()[24..32].try_into().unwrap_or([0; 8]));
-        if header_number == 0 {
-            return Ok(None);
-        }
-        Ok(Some(SignedAttestation {
-            attestation: AttestationData {
-                chain_key,
-                header_number,
-                header_hash: H256::from_low_u64_be(header_number),
-                root: H256::from_low_u64_be(header_number + 1000),
-                prev_digest: None,
-            },
-            signature: [0u8; 96],
-            attestors: vec![],
-            continuity_proof: Default::default(),
-        }))
+        // Search mock attestations for a matching digest.
+        // Attestations are at blocks 10, 20, ..., 1000.
+        // The digest is computed via attestation.digest() which uses compute_digest_for.
+        let attestations = self.get_attestations_for_chain(chain_key).await?;
+        Ok(attestations
+            .into_iter()
+            .find(|a| a.attestation.digest() == digest))
     }
 
     async fn get_attestation_interval(&self, _chain_key: u64) -> Result<Option<u64>> {
@@ -205,11 +224,10 @@ impl EthRpcProvider for MockEthRpcProvider {
         let mut blocks = Vec::new();
         for n in start..=end {
             let root = H256::from_low_u64_be(n + 2000);
-            // Fake digest: keccak-like by XORing bytes (not cryptographically accurate, just deterministic)
-            let mut bytes = [0u8; 32];
-            bytes[..16].copy_from_slice(&prev.as_bytes()[..16]);
-            bytes[16..24].copy_from_slice(&(n.to_be_bytes()));
-            let digest = H256::from(bytes);
+            // Use the same Keccak256 hash_payload as production code so that mock
+            // block digests are consistent with checkpoint/attestation digests from
+            // MockCcRpcProvider (which also use mock_chain_digest / Block::hash_payload).
+            let digest = Block::hash_payload(&n, &root, &prev);
             let block = Block {
                 block_number: n,
                 root,

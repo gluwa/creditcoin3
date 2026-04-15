@@ -254,8 +254,7 @@ pub mod pallet {
     /// O(1) auxiliary counter for the number of registered attestors per chain.
     /// Incremented in `register_attestor`, decremented in `unregister_attestor`.
     #[pallet::storage]
-    pub type AttestorsCount<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
+    pub type AttestorsCount<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn max_invulnerables)]

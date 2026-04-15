@@ -683,7 +683,11 @@ impl WorkerAttestationValidation {
                 .iter()
                 .any(|v| &v.continuity_proof != reference_proof)
             {
-                tracing::error!(?digest, height, "⛔ Quorum votes contain inconsistent continuity proofs");
+                tracing::error!(
+                    ?digest,
+                    height,
+                    "⛔ Quorum votes contain inconsistent continuity proofs"
+                );
                 return Err(Interrupt::Cont(Error::InvalidAttestation(
                     InvalidCause::InconsistentContinuityProofs,
                 )));
