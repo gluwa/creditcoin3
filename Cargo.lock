@@ -2884,6 +2884,7 @@ dependencies = [
  "log",
  "moonbeam-evm-tracer",
  "moonbeam-rpc-primitives-debug",
+ "pallet-assets",
  "pallet-attest-coin-rewards",
  "pallet-attestation",
  "pallet-authorship",
@@ -8943,6 +8944,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-assets"
+version = "40.0.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?branch=stable2409#298f676c91d64f15f38ea7fd78f125c5889ab09c"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "impl-trait-for-tuples",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-attest-coin-rewards"
 version = "0.1.0"
 dependencies = [
@@ -8970,6 +8987,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
+ "pallet-assets",
  "pallet-authorship",
  "pallet-babe",
  "pallet-balances",
@@ -9156,14 +9174,18 @@ name = "pallet-evm-precompile-attest-coin"
 version = "0.1.0"
 dependencies = [
  "fp-evm",
+ "frame-support",
  "frame-system",
+ "pallet-assets",
  "pallet-attest-coin-rewards",
  "pallet-attestation",
  "pallet-evm",
  "pallet-staking",
  "parity-scale-codec",
+ "precompile-utils",
  "sp-core",
  "sp-io",
+ "sp-runtime",
  "sp-std",
 ]
 
@@ -9181,6 +9203,7 @@ dependencies = [
  "frame-system",
  "log",
  "merkle",
+ "pallet-assets",
  "pallet-attestation",
  "pallet-babe",
  "pallet-balances",
@@ -9224,6 +9247,7 @@ dependencies = [
  "frame-election-provider-support",
  "frame-support",
  "frame-system",
+ "pallet-assets",
  "pallet-attestation",
  "pallet-babe",
  "pallet-balances",

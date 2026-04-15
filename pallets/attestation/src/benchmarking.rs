@@ -34,6 +34,7 @@ pub fn create_funded_user_with_balance<T: Config>(string: &'static str, n: u32) 
 
     let user = account(string, n, SEED);
     asset::set_free_balance::<T>(&user, balance);
+    asset::set_bond_balance::<T>(&user, balance);
     user
 }
 

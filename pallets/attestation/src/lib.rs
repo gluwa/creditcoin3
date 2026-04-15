@@ -46,7 +46,7 @@ pub mod pallet {
             PostDispatchInfo, WeighData,
         },
         pallet_prelude::{OptionQuery, ValueQuery, *},
-        traits::{ConstU32, Currency, LockableCurrency, OnUnbalanced},
+        traits::{tokens::fungibles, ConstU32, Currency, LockableCurrency, OnUnbalanced},
         Blake2_128Concat, Twox64Concat,
     };
     use frame_system::pallet_prelude::*;
@@ -59,9 +59,9 @@ pub mod pallet {
     // Amount of blocks tracked in a single checkpoint bucket
     pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
 
-    /// The balance type of this pallet.
+    /// The balance type of this pallet (native and bond asset use the same width).
     pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
-    pub type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
+    pub type PositiveImbalanceOf<T> = <<T as Config>::NativeCurrency as Currency<
         <T as frame_system::Config>::AccountId,
     >>::PositiveImbalance;
 
@@ -86,13 +86,16 @@ pub mod pallet {
     pub trait Config: frame_system::Config + pallet_balances::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
-        // TODO: when updating polkadot-sdk we should use `InspectLockableCurrency`
-        type Currency: LockableCurrency<
-            Self::AccountId,
-            Moment = BlockNumberFor<Self>,
-            Balance = Self::CurrencyBalance,
-        >;
-        /// Just the `Currency::Balance` type; we have this item to allow us to constrain it to
+        /// Native currency (e.g. CTC) for small operational transfers (e.g. stash → attestor key).
+        type NativeCurrency: Currency<Self::AccountId, Balance = Self::CurrencyBalance>;
+        /// Fungible used for attestor bond (e.g. Attest Coin on `pallet-assets`).
+        type BondFungibles: fungibles::Inspect<Self::AccountId, AssetId = u32, Balance = Self::CurrencyBalance>
+            + fungibles::Mutate<Self::AccountId, AssetId = u32, Balance = Self::CurrencyBalance>;
+        #[pallet::constant]
+        type BondAssetId: Get<u32>;
+        /// Shared account that holds bonded attest coin for all stashes.
+        type BondPoolAccount: Get<Self::AccountId>;
+        /// Just the balance type; we have this item to allow us to constrain it to
         /// `From<u128>`.
         type CurrencyBalance: sp_runtime::traits::AtLeast32BitUnsigned
             + FullCodec
@@ -711,6 +714,8 @@ pub mod pallet {
         InvalidAttestorAccount,
         // Insufficient balance to bond
         InsufficientBalance,
+        /// Moving bond into or out of the pool failed (asset transfer).
+        BondAssetTransferFailed,
         // Not a stash account
         NotStash,
         // No more unlock chunks

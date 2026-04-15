@@ -34,6 +34,7 @@ supported-chains-primitives = { workspace = true }
 
 [dev-dependencies]
 env_logger = { workspace = true }
+pallet-assets = { workspace = true, default-features = false, features = ["std"] }
 extend = "1.2.0"
 frame-election-provider-support = { workspace = true }
 pallet-authorship = { workspace = true }

@@ -21,8 +21,8 @@ use sp_core::{
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
-        BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get, IdentifyAccount,
-        NumberFor, One, OpaqueKeys, PostDispatchInfoOf, StaticLookup, Verify,
+        AccountIdConversion, BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable,
+        Get, IdentifyAccount, NumberFor, One, OpaqueKeys, PostDispatchInfoOf, StaticLookup, Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
@@ -38,8 +38,8 @@ use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, Weigh
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
-        ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
-        OnTimestampSet,
+        AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter,
+        KeyOwnerProofSystem, OnFinalize, OnTimestampSet,
     },
     weights::{
         constants::WEIGHT_REF_TIME_PER_MILLIS, constants::WEIGHT_REF_TIME_PER_NANOS,
@@ -344,6 +344,57 @@ impl pallet_balances::Config for Runtime {
     type RuntimeFreezeReason = RuntimeFreezeReason;
     type FreezeIdentifier = RuntimeFreezeReason;
     type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
+}
+
+/// Attest Coin on `pallet-assets` (18 decimals). Must match genesis + attest-coin precompile mint path.
+pub const ATTEST_COIN_ASSET_ID: u32 = 1;
+
+/// EVM address of the attest-coin precompile (`hash(4052)`).
+pub fn attest_coin_precompile_h160() -> H160 {
+    H160::from_low_u64_be(4052)
+}
+
+/// Substrate `AccountId` of the attest-coin precompile (issuer for [`ATTEST_COIN_ASSET_ID`]).
+pub fn attest_coin_precompile_account() -> AccountId {
+    AddressMapping::into_account_id(attest_coin_precompile_h160())
+}
+
+parameter_types! {
+    pub const AttestationBondPoolPalletId: PalletId = PalletId(*b"att/bond");
+}
+
+/// Shared account holding attest-coin bonds for [`pallet_attestation`].
+///
+/// Must hold **native** balance at genesis (or be funded before first bond): non-sufficient assets
+/// require [`frame_system::Pallet::can_accrue_consumers`] on the receiver, which needs `providers > 0`.
+pub struct AttestationBondPoolAccount;
+impl frame_support::traits::Get<AccountId> for AttestationBondPoolAccount {
+    fn get() -> AccountId {
+        AttestationBondPoolPalletId::get().into_account_truncating()
+    }
+}
+
+pub type AssetsForceOrigin = frame_system::EnsureRoot<AccountId>;
+
+impl pallet_assets::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Balance = Balance;
+    type AssetId = u32;
+    type AssetIdParameter = u32;
+    type Currency = Balances;
+    type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+    type ForceOrigin = AssetsForceOrigin;
+    type AssetDeposit = ConstU128<0>;
+    type MetadataDepositBase = ConstU128<0>;
+    type MetadataDepositPerByte = ConstU128<0>;
+    type ApprovalDeposit = ConstU128<0>;
+    type StringLimit = ConstU32<50>;
+    type AssetAccountDeposit = ConstU128<0>;
+    type RemoveItemsLimit = ConstU32<1000>;
+    type Freezer = ();
+    type Extra = ();
+    type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+    type CallbackHandle = ();
 }
 
 parameter_types! {
@@ -886,7 +937,8 @@ parameter_types! {
     pub const DefaultMaxCatchup: u32 = 500;
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
-    pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
+    /// Default when no per-chain value is stored. Dev chains use 0 so local/zombienet flows need no attest-coin bond; production networks should set per-chain min via governance or sudo.
+    pub const DefaultMinBondRequirement: u128 = 0;
     pub const MaxAttestationsPerBlock: u32 = 10;
     // Attestation retention duration should result in attestations being retained
     // for a period >= proof submission latency.
@@ -921,7 +973,11 @@ impl pallet_attestation::Config for Runtime {
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
-    type Currency = Balances;
+    type NativeCurrency = Balances;
+    type BondFungibles = Assets;
+    /// Must match [`ATTEST_COIN_ASSET_ID`].
+    type BondAssetId = ConstU32<1>;
+    type BondPoolAccount = AttestationBondPoolAccount;
     type CurrencyBalance = Balance;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;
     type MaxUnlockingChunks = ConstU32<5>;
@@ -998,6 +1054,7 @@ construct_runtime!(
         Babe: pallet_babe,
         Timestamp: pallet_timestamp,
         Balances: pallet_balances,
+        Assets: pallet_assets,
         // Authorship has to be before Session
         Authorship: pallet_authorship,
         Staking: pallet_staking,
@@ -1032,9 +1089,14 @@ construct_runtime!(
     }
 );
 
-impl pallet_attestation::CommittedAttestationObserver<AccountId> for AttestCoinCommittedAttestationHook {
+impl pallet_attestation::CommittedAttestationObserver<AccountId>
+    for AttestCoinCommittedAttestationHook
+{
     fn on_committed_eligible(chain_key: ChainKey, eligible_signers: &[AccountId]) {
-        pallet_attest_coin_rewards::Pallet::<Runtime>::reward_commit_signers(chain_key, eligible_signers);
+        pallet_attest_coin_rewards::Pallet::<Runtime>::reward_commit_signers(
+            chain_key,
+            eligible_signers,
+        );
     }
 }
 

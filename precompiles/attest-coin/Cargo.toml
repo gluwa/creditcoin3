@@ -10,13 +10,17 @@ publish = false
 parity-scale-codec = { workspace = true, default-features = false, features = ["derive"] }
 sp-core = { workspace = true }
 sp-io = { workspace = true, default-features = false }
+sp-runtime = { workspace = true, default-features = false }
 sp-std = { workspace = true }
 fp-evm = { workspace = true }
-pallet-evm = { workspace = true, default-features = false }
+frame-support = { workspace = true, default-features = false }
+pallet-evm = { workspace = true, default-features = false, features = ["forbid-evm-reentrancy"] }
+pallet-assets = { workspace = true, default-features = false }
 pallet-attest-coin-rewards = { workspace = true, default-features = false }
 pallet-attestation = { workspace = true, default-features = false }
 pallet-staking = { workspace = true, default-features = false }
 frame-system = { workspace = true }
+precompile-utils = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -24,11 +28,15 @@ std = [
     "parity-scale-codec/std",
     "sp-core/std",
     "sp-io/std",
+    "sp-runtime/std",
     "sp-std/std",
     "fp-evm/std",
+    "frame-support/std",
     "pallet-evm/std",
+    "pallet-assets/std",
     "pallet-attest-coin-rewards/std",
     "pallet-attestation/std",
     "pallet-staking/std",
     "frame-system/std",
+    "precompile-utils/std",
 ]
