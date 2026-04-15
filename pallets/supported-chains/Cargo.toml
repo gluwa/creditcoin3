@@ -8,6 +8,7 @@ repository.workspace = true
 version.workspace = true
 
 [lints.clippy]
+manual_inspect = "allow"
 too_many_arguments = "allow"
 
 [package.metadata.cargo-machete]
