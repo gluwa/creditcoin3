@@ -50,10 +50,6 @@ describe('BlockAttested events', (): void => {
             '4': 0,
         };
 
-        const attestedEventsMemory: {
-            [key: string]: { headerNumber: number; digest: string }[];
-        } = { '2': [], '4': [] };
-
         const electionEvents: { [key: string]: number } = {
             '2': 0,
             '4': 0,
@@ -77,20 +73,8 @@ describe('BlockAttested events', (): void => {
                         if (`${event.section}.${event.method}` === 'attestation.BlockAttested') {
                             // Show what we are busy with
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
-                            const [supportedChainKey, headerNumber, digest] = event.data;
+                            const [supportedChainKey, _headerNumber, _digest] = event.data;
                             const supportedChainKeyStr = (supportedChainKey as U64).toString();
-                            const digestHex = digest.toHex();
-
-                            // Note: We can no longer check attestor count from the event
-                            // The full attestation data is now only available via call handler or storage query
-                            // For testing purposes, we'll just track the event occurrence
-
-                            // Keep in memory for later continuity proof validation
-                            // Note: We can't store the full signed attestation anymore from the event
-                            (attestedEventsMemory[supportedChainKeyStr] ||= []).push({
-                                headerNumber: (headerNumber as U64).toNumber(),
-                                digest: digestHex,
-                            });
 
                             attestedEvents[supportedChainKeyStr]++;
                         }
@@ -138,32 +122,6 @@ describe('BlockAttested events', (): void => {
                 })
                 .catch((error) => reject(new Error(error)));
         }).then(async () => {
-            const prev_digests = [];
-            // Validate continuity proofs for Anvil-1
-            // Note: Continuity proof validation removed as full attestation data
-            // is no longer available in the event. This would need to be done via
-            // storage query or call handler if needed.
-            for (const attestationRecord of attestedEventsMemory[chain_Anvil1_Key]) {
-                prev_digests.push(attestationRecord.digest);
-
-                if (attestationRecord.headerNumber > 0) {
-                    // Note: Continuity proof validation removed as full attestation data
-                    // is no longer available in the event. This would need to be done via
-                    // storage query or call handler if needed.
-                    // See CSUB-1890
-                    // expect(attestationRecord.signed.continuityProof.blocks.length).toBeGreaterThanOrEqual(
-                    //     chain_Anvil1_AttestationInterval - 1,
-                    // );
-                    // const continuityProofValid = validateContinuityProof(prev_digests, attestationRecord.signed);
-                    // expect(continuityProofValid).toBeTruthy();
-                } else {
-                    console.log(
-                        `**** DEBUG: SKIP continuity proof validation for genesis attestation for chain ${chain_Anvil1_Key}`,
-                    );
-                    // expect(attestationRecord.signed.continuityProof.blocks.length).toBe(0);
-                }
-            }
-
             // b/c we always start from scratch in CI expect that there is
             // a checkpoint for the genesis block of the ingested chain
             let checkpointsForGenesis = 0;
