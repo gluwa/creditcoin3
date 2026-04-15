@@ -71,6 +71,19 @@ import type {
     FrameSystemLimitsBlockWeights,
     FrameSystemLimitsWeightsPerClass,
     FrameSystemPhase,
+    PalletAssetsAccountStatus,
+    PalletAssetsApproval,
+    PalletAssetsAssetAccount,
+    PalletAssetsAssetDetails,
+    PalletAssetsAssetMetadata,
+    PalletAssetsAssetStatus,
+    PalletAssetsCall,
+    PalletAssetsError,
+    PalletAssetsEvent,
+    PalletAssetsExistenceReason,
+    PalletAttestCoinRewardsCall,
+    PalletAttestCoinRewardsError,
+    PalletAttestCoinRewardsEvent,
     PalletAttestationAttestorElectionPolicy,
     PalletAttestationCall,
     PalletAttestationClearOrRevertCheckpointPruningState,
@@ -301,6 +314,19 @@ declare module '@polkadot/types/types/registry' {
         FrameSystemLimitsBlockWeights: FrameSystemLimitsBlockWeights;
         FrameSystemLimitsWeightsPerClass: FrameSystemLimitsWeightsPerClass;
         FrameSystemPhase: FrameSystemPhase;
+        PalletAssetsAccountStatus: PalletAssetsAccountStatus;
+        PalletAssetsApproval: PalletAssetsApproval;
+        PalletAssetsAssetAccount: PalletAssetsAssetAccount;
+        PalletAssetsAssetDetails: PalletAssetsAssetDetails;
+        PalletAssetsAssetMetadata: PalletAssetsAssetMetadata;
+        PalletAssetsAssetStatus: PalletAssetsAssetStatus;
+        PalletAssetsCall: PalletAssetsCall;
+        PalletAssetsError: PalletAssetsError;
+        PalletAssetsEvent: PalletAssetsEvent;
+        PalletAssetsExistenceReason: PalletAssetsExistenceReason;
+        PalletAttestCoinRewardsCall: PalletAttestCoinRewardsCall;
+        PalletAttestCoinRewardsError: PalletAttestCoinRewardsError;
+        PalletAttestCoinRewardsEvent: PalletAttestCoinRewardsEvent;
         PalletAttestationAttestorElectionPolicy: PalletAttestationAttestorElectionPolicy;
         PalletAttestationCall: PalletAttestationCall;
         PalletAttestationClearOrRevertCheckpointPruningState: PalletAttestationClearOrRevertCheckpointPruningState;
