@@ -6,6 +6,7 @@
  */
 
 import cors from "cors";
+import { ethers } from "ethers";
 import express from "express";
 import helmet from "helmet";
 import morgan from "morgan";
@@ -14,6 +15,29 @@ import { loadQuoterConfig } from "./config.js";
 import type { QuoterConfig } from "./config.js";
 import type { QuoteRequest, SignedQuote } from "./types.js";
 import { isValidBytes32 } from "../utils.js";
+
+const OUTBOX_ABI = ["function messageRequiresAck(bytes32) view returns (bool)"];
+
+async function fetchRequiresAck(
+  messageId: string,
+  config: QuoterConfig,
+): Promise<boolean> {
+  if (!config.sourceChainRpcUrl || !config.outboxAddress) {
+    throw new Error(
+      "Outbox not configured. Set QUOTER_SOURCE_RPC_URL and QUOTER_OUTBOX_ADDRESS (or pass --source-rpc-url / --outbox).",
+    );
+  }
+  const provider = new ethers.JsonRpcProvider(config.sourceChainRpcUrl);
+  const outbox = new ethers.Contract(
+    config.outboxAddress,
+    OUTBOX_ABI,
+    provider,
+  );
+  const requiresAck = await outbox.messageRequiresAck(messageId);
+  console.log(`Fetched message from Outbox: requiresAck=${requiresAck}`);
+
+  return requiresAck;
+}
 
 const app = express();
 
@@ -28,8 +52,6 @@ app.get("/quote", async (req, res) => {
     const destinationChainIdParam = req.query.destinationChainId as
       | string
       | undefined;
-    const requiresAck =
-      (req.query.requiresAck as string)?.toLowerCase() === "true";
     const gasLimitParam = req.query.gasLimit as string | undefined;
 
     if (!isValidBytes32(messageId)) {
@@ -61,6 +83,12 @@ app.get("/quote", async (req, res) => {
       });
       return;
     }
+
+    const requiresAck = await fetchRequiresAck(messageId, config);
+
+    console.log(
+      `Quote request: messageId=${messageId} destinationChainId=${destinationChainId} requiresAck=${requiresAck} gasLimit=${gasLimitParam ?? "default"}`,
+    );
 
     const request: QuoteRequest = {
       messageId,
@@ -113,4 +141,5 @@ app.listen(port, () => {
   }
   console.log(`  GET /health`);
   console.log(`  payeeAddress: ${config.payeeAddress}`);
+  console.log(`  outboxAddress: ${config.outboxAddress}`);
 });

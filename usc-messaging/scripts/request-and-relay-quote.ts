@@ -63,8 +63,6 @@ const senderKey =
   DEFAULT_PRIVATE_KEY;
 const destinationChainId =
   cliArg("chain-id", "d") ?? process.env.DESTINATION_CHAIN_ID;
-const requiresAck =
-  cliArg("requires-ack", "a") ?? process.env.REQUIRES_ACK ?? "false";
 
 // SimpleRelayer ABI — only the function we need
 const SIMPLE_RELAYER_ABI = [
@@ -105,7 +103,7 @@ async function loadRelayerAddress(): Promise<string> {
 }
 
 async function fetchQuote(baseUrl: string): Promise<QuoteResponse> {
-  const params = new URLSearchParams({ messageId, requiresAck });
+  const params = new URLSearchParams({ messageId });
   if (destinationChainId) params.set("destinationChainId", destinationChainId);
 
   const url = `${baseUrl}/quote?${params}`;
@@ -158,6 +156,8 @@ async function main() {
     const regTx = await relayer.registerQuoter(quoterSigner);
     await regTx.wait();
     console.log(`Registered quoter (tx: ${regTx.hash})`);
+  } else {
+    console.log(`\nQuoter ${quoterSigner} is registered.`);
   }
 
   // 5. Submit the quote to SimpleRelayer.validateAndCollectFee

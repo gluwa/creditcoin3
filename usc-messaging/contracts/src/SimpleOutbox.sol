@@ -17,11 +17,15 @@ contract Outbox {
     event MessageAcknowledged(bytes32 indexed messageId);
 
     // Errors
+    error MessageDoesNotRequireAck(bytes32 messageId);
     error MessageNotFound(bytes32 messageId);
     error MessageAlreadyAcknowledged(bytes32 messageId);
 
     // Mapping of messageId to Message struct for stored messages (e.g. requiresAck = true)
     mapping(bytes32 => Message) public messages;
+
+    // Mapping to track whether a message requires acknowledgment (messageId => requiresAck)
+    mapping(bytes32 => bool) public messageRequiresAck;
 
     // Sequence numbers per Universal Contract used to generate nonces for message IDs
     mapping(address => uint64) public uscSequences;
@@ -38,18 +42,24 @@ contract Outbox {
 
         messages[messageId] =
             Message({emitter: usContract, acknowledged: false, payloadHash: payloadHash});
+        
+        messageRequiresAck[messageId] = requiresAck;
 
         emit MessagePublished(messageId, bytes32(bytes20(usContract)), requiresAck, payload);
     }
 
     function acknowledgeMessage(bytes32 messageId) public {
         Message storage m = messages[messageId];
-
+        
         if (m.emitter == address(0)) {
             revert MessageNotFound(messageId);
         }
         if (m.acknowledged) {
             revert MessageAlreadyAcknowledged(messageId);
+        }
+
+        if (!messageRequiresAck[messageId]) {
+            revert MessageDoesNotRequireAck(messageId);
         }
 
         m.acknowledged = true;

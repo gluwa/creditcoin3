@@ -7,7 +7,12 @@
 
 import dotenv from "dotenv";
 
-import { DEFAULT_DESTINATION_RPC_URL, DEFAULT_QUOTER_PORT } from "../consts.js";
+import {
+  DEFAULT_DESTINATION_RPC_URL,
+  DEFAULT_QUOTER_PORT,
+  DEFAULT_SOURCE_RPC_URL,
+  DEPLOYMENTS_FILE,
+} from "../consts.js";
 import { isValidContractAddress, isValidPrivateKey } from "../utils.js";
 
 const DEFAULT_SIGNER_KEY =
@@ -40,6 +45,10 @@ export interface QuoterConfig {
   destinationChainRpcUrl?: string;
   /** Chain ID derived from destinationChainRpcUrl (set at startup when URL provided) */
   destinationChainId?: number;
+  /** RPC URL for the source chain (where Outbox is deployed) */
+  sourceChainRpcUrl?: string;
+  /** Outbox contract address on the source chain */
+  outboxAddress?: string;
 }
 
 function parseArg(name: string, short?: string): string | undefined {
@@ -73,6 +82,29 @@ export async function loadQuoterConfig(): Promise<QuoterConfig> {
     process.env.QUOTER_DESTINATION_RPC_URL ??
     process.env.QUOTER_RPC_URL ??
     DEFAULT_DESTINATION_RPC_URL;
+
+  const sourceChainRpcUrl =
+    parseArg("--source-rpc-url") ??
+    process.env.QUOTER_SOURCE_RPC_URL ??
+    DEFAULT_SOURCE_RPC_URL;
+
+  let outboxAddress = parseArg("--outbox") ?? process.env.QUOTER_OUTBOX_ADDRESS;
+
+  if (!outboxAddress) {
+    try {
+      const { readFile } = await import("fs/promises");
+      const { existsSync } = await import("fs");
+      const path = await import("path");
+      const deployPath = path.join(process.cwd(), DEPLOYMENTS_FILE);
+      if (existsSync(deployPath)) {
+        const raw = await readFile(deployPath, "utf-8");
+        const d = JSON.parse(raw);
+        if (d.outbox) outboxAddress = d.outbox;
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   const key =
     parseArg("--private-key", "-k") ??
@@ -135,5 +167,7 @@ export async function loadQuoterConfig(): Promise<QuoterConfig> {
     ),
     destinationChainRpcUrl,
     destinationChainId,
+    sourceChainRpcUrl,
+    outboxAddress,
   };
 }

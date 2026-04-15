@@ -66,7 +66,7 @@ async function main(): Promise<void> {
     if (pendingQueue.length === 0 || processing) return;
     processing = true;
     console.log(
-      `[Worker] Processing ${pendingQueue.length} pending message(s)`,
+      `[Delivery] Processing ${pendingQueue.length} pending message(s)`,
     );
 
     // Snapshot the queue so new arrivals during this tick are picked up next time.
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
 
       if (!paidMessages.has(messageId)) {
         console.log(
-          `[Worker] Skipping messageId=${messageId} (not paid yet, will retry)`,
+          `[Delivery] Skipping messageId=${messageId} (not paid yet, will retry)`,
         );
         continue;
       }
@@ -91,14 +91,14 @@ async function main(): Promise<void> {
 
       if (result.success) {
         console.log(
-          `[Worker] Delivered messageId=${messageId} tx=${result.txHash}`,
+          `[Delivery] Delivered messageId=${messageId} tx=${result.txHash}`,
         );
         pendingMessages.delete(messageId);
         pendingQueue.splice(pendingQueue.indexOf(messageId), 1);
         paidMessages.delete(messageId);
       } else {
         console.error(
-          `[Worker] Failed to deliver messageId=${messageId}: ${result.error} — will retry`,
+          `[Delivery] Failed to deliver messageId=${messageId}: ${result.error} — will retry`,
         );
       }
     }
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
 
       if (ackPending.has(messageId)) {
         console.log(
-          `[Inbox] messageId=${messageId} requested ACK, acknowledging on source chain...`,
+          `[ACK] messageId=${messageId} requires ACK, acknowledging on source chain...`,
         );
         await acknowledgeOnSource(
           sourceSigner,
@@ -128,7 +128,7 @@ async function main(): Promise<void> {
         ackPending.delete(messageId);
       } else {
         console.log(
-          `[Inbox] messageId=${messageId} did not request ACK, skipping acknowledgment`,
+          `[ACK] messageId=${messageId} did not require ACK, skipping acknowledgment`,
         );
       }
     },
@@ -155,7 +155,7 @@ async function main(): Promise<void> {
       const msg = req.body as DeliveredMessage;
 
       console.log(
-        `[Attester] Received messageId=${msg.messageId} from attester`,
+        `[HTTP] Received message for delivery messageId=${msg.messageId}`,
       );
 
       if (pendingMessages.has(msg.messageId)) {
@@ -166,7 +166,7 @@ async function main(): Promise<void> {
       pendingMessages.set(msg.messageId, msg);
       pendingQueue.push(msg.messageId);
       console.log(
-        `[Worker] Queued messageId=${msg.messageId} (queue size: ${pendingQueue.length})`,
+        `[HTTP] Queued message messageId=${msg.messageId} (queue size: ${pendingQueue.length})`,
       );
 
       res.status(202).json({ queued: true, messageId: msg.messageId });
