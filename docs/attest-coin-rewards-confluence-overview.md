@@ -7,7 +7,7 @@
 
 ## Summary
 
-**Attest-coin rewards** tie **Creditcoin attestation activity** to a **liquid ERC-20 token on the EVM**. The chain records **reward points per economic actor (stash)**. When that actor is ready to receive tokens, they **claim** through a fixed **EVM entry point (precompile)**. The claim **moves tokens from a treasury balance** held under that entry point—it does **not** mint new token supply as part of the claim.
+**Attest-coin rewards** tie **Creditcoin attestation activity** to a **liquid ERC-20 token on the EVM**. Separately, the chain also supports a **native Substrate asset** (a **fungible asset** tracked by the runtime’s asset system—see **FRAME `pallet-assets`**) used for **bonding** when you bridge ERC-20 in via **deposit**. **Reward points** (for claims) are **not** that Substrate asset balance: the chain records **reward points per economic actor (stash)** in a dedicated ledger. When that actor is ready to receive **liquid** tokens, they **claim** through a fixed **EVM entry point (precompile)**. The claim **moves ERC-20 from a treasury balance** held under that entry point—it does **not** mint new ERC-20 supply as part of the claim.
 
 ---
 
@@ -17,7 +17,8 @@
 |--------|----------------|
 | **Reward points (on-chain ledger)** | A running balance of “what you’ve earned” from attestation, keyed to your **stash** (the account that holds the bond and economic stake). This is **not** the ERC-20 balance by itself. |
 | **The token (EVM)** | The **tradeable** asset lives in a normal **ERC-20 contract**. Users see balances in wallets and DEX tooling like any other token. |
-| **The link** | A successful **claim** subtracts from your **reward points** and triggers a **token transfer** from a **treasury** to your **EVM address**. |
+| **Native Substrate asset (attest coin on `pallet-assets`)** | When you **deposit** ERC-20 through the precompile, the runtime **mints** a matching balance as a **Substrate fungible asset** (configured **asset ID** on chain). That native balance is what **attestation bonding** uses (minimum bond, bond pool)—**not** the reward-points ledger and **not** the same thing as your ERC-20 wallet balance. |
+| **The link (claim)** | A successful **claim** subtracts from your **reward points** and triggers an **ERC-20 transfer** from a **treasury** to your **EVM address**. |
 
 This split lets the protocol **account for work** in the attestation layer while still using **standard EVM tokens** for liquidity.
 
@@ -25,7 +26,7 @@ This split lets the protocol **account for work** in the attestation layer while
 
 ## Bridging into native attest coin (bonding)
 
-Separately from **claims**, users can **deposit** the same ERC-20 into a fixed **precompile** so the runtime **mints** a matching balance on **`pallet-assets`** (the **attest-coin** native representation). That balance is what **attestation bonding** uses when a stash **registers an attestor** (minimum bond rules, shared bond pool, etc.). You **approve** the precompile as spender on the ERC-20, then call **`deposit`** or **`depositTo`** on the precompile; details and chain-genesis requirements (including funding the **bond pool** account) are in the technical specification.
+Separately from **claims**, users can **deposit** the same ERC-20 into a fixed **precompile** so the runtime **mints** a matching balance as a **Substrate fungible asset** managed by **`pallet-assets`** (often referred to as the **native attest-coin asset**; it has a fixed **asset ID** on the network). That **Substrate asset balance** is what **attestation bonding** uses when a stash **registers an attestor** (minimum bond rules, shared bond pool, etc.). You **approve** the precompile as spender on the ERC-20, then call **`deposit`** or **`depositTo`** on the precompile; details and chain-genesis requirements (including funding the **bond pool** account) are in the technical specification.
 
 ### Diagram — deposit, register attestor, bond (and how it relates to rewards and claims)
 
@@ -156,7 +157,8 @@ Reward points are **per stash** and are tracked **separately** from ERC-20 balan
 | **Accrued / reward points** | Off-chain–visible **ledger** balance before claim; not the same as ERC-20 wallet balance until claimed. |
 | **Claim** | One atomic step: **verify authorization**, **update ledger**, **move ERC-20** to the user. |
 | **Treasury** | The **ERC-20 balance** held by the attest-coin precompile address, used to pay claims. |
-| **Deposit / bridge** | Optional flow: move ERC-20 into the precompile so the chain **mints** native attest coin for **staking / bonding** (not the same as **claim**). |
+| **Substrate asset / native attest coin (`pallet-assets`)** | The **on-chain fungible asset** balance used for **bonding** (and related attestation economics). Created when ERC-20 is **deposited** via the precompile (**mint** to a Substrate `AccountId`). Distinct from **reward points** and from **ERC-20** balances. |
+| **Deposit / bridge** | Optional flow: move ERC-20 into the precompile so the runtime **mints Substrate asset units** for **bonding** (not the same as **claim**, which pays **ERC-20** from treasury). |
 
 ---
 
