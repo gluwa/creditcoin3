@@ -1,11 +1,13 @@
 use frame_support::{
     pallet_prelude::*,
-    traits::{ConstU32, Currency, DefensiveSaturating},
+    traits::{
+        tokens::fungibles::Inspect, ConstU32, Currency, DefensiveSaturating, Get,
+    },
     transactional,
 };
 use log::debug;
 use sp_runtime::{
-    traits::{CheckedAdd, CheckedSub, SaturatedConversion, Saturating, Zero},
+    traits::{CheckedAdd, Zero},
     ArithmeticError,
 };
 use sp_staking::StakingInterface;
@@ -198,8 +200,8 @@ impl<T: Config> Pallet<T> {
         // Get some amount to fund the attestor
         let amount: BalanceOf<T> = ONE_TENTH_CTC.into();
 
-        // Fund the attestor key
-        T::Currency::transfer(
+        // Fund the attestor key (native currency for fees / operations).
+        T::NativeCurrency::transfer(
             &stash,
             &attestor_id,
             amount,
@@ -211,19 +213,23 @@ impl<T: Config> Pallet<T> {
         let ledger: AttestorLedger<T> =
             AttestorLedger::new(stash.clone(), Self::min_bond_requirement(chain_key));
 
-        // If bond fails, it means it's already bonded and there is already an attestor(s) registerd by this stash
-        // In this case, we just bond extra to the stash
-        if ledger.bond().is_err() {
-            Self::bond_extra(chain_key, &stash)?;
-        } else {
-            // Would fail if account has no provider.
-            frame_system::Pallet::<T>::inc_consumers(&stash)?;
+        // First successful `bond()` creates the ledger; further attestors on the same stash hit
+        // `AlreadyBonded` and only add stake via `bond_extra`. Any other error (e.g. transfer
+        // failure) must propagate — do not call `bond_extra` without an existing ledger.
+        match ledger.bond() {
+            Ok(()) => {
+                // Would fail if account has no provider.
+                frame_system::Pallet::<T>::inc_consumers(&stash)?;
 
-            // Emit event
-            Self::deposit_event(Event::<T>::Bonded {
-                stash,
-                amount: Self::min_bond_requirement(chain_key),
-            });
+                Self::deposit_event(Event::<T>::Bonded {
+                    stash,
+                    amount: Self::min_bond_requirement(chain_key),
+                });
+            }
+            Err(Error::<T>::AlreadyBonded) => {
+                Self::bond_extra(chain_key, &stash)?;
+            }
+            Err(e) => return Err(e.into()),
         }
 
         // Emit event
@@ -538,7 +544,7 @@ impl<T: Config> Pallet<T> {
         Self::purge_retired_bls_keys_for_stash(&stash, current_era);
         let new_total = ledger.total_staked;
 
-        let ed = T::Currency::minimum_balance();
+        let ed = T::BondFungibles::minimum_balance(T::BondAssetId::get());
         if ledger.unlocking.is_empty() && (ledger.active < ed || ledger.active.is_zero()) {
             // This account must have called `unbond()` with some value that caused the active
             // portion to fall below existential deposit + will have no more unlocking chunks
@@ -571,11 +577,8 @@ impl<T: Config> Pallet<T> {
 
         let mut ledger = Self::ledger(stash.clone()).ok_or(Error::<T>::NotStash)?;
 
-        let extra = bond.min(
-            T::Currency::free_balance(stash)
-                .checked_sub(&ledger.total_staked)
-                .ok_or(ArithmeticError::Overflow)?,
-        );
+        let liquid = T::BondFungibles::balance(T::BondAssetId::get(), stash);
+        let extra = bond.min(liquid);
 
         // Update total staked and active amount
         ledger.total_staked = ledger
@@ -693,35 +696,16 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Get the locked balance of an account
-    /// This is the total amount of balance that is locked by this module
+    /// Bonded attest coin for this stash (tracked in the ledger; funds sit in the bond pool).
     pub fn get_locked_balance(account_id: &T::AccountId) -> BalanceOf<T> {
-        let balance_locks = pallet_balances::Pallet::<T>::locks(account_id);
-
-        let mut locked_balance = BalanceOf::<T>::zero();
-        // loop over balance accumulate locked balance
-        for lock in balance_locks {
-            if lock.id == crate::ledger::BOND_LOCK_ID {
-                locked_balance +=
-                    BalanceOf::<T>::saturated_from(lock.amount.saturated_into::<u128>());
-            }
-        }
-
-        locked_balance
+        Self::ledger(account_id)
+            .map(|l| l.total_staked)
+            .unwrap_or_else(Zero::zero)
     }
 
-    /// Get the free balance of an account
-    /// This is the total balance minus the locked balance
+    /// Liquid attest coin on the stash account (not yet moved to the bond pool).
     pub fn get_free_balance(account_id: &T::AccountId) -> BalanceOf<T> {
-        // This is the existential deposit
-        let min_b = T::Currency::minimum_balance();
-        // Free balance of the account
-        let free_b = T::Currency::free_balance(account_id);
-        // Locked balance of the account
-        let locked_balance = Self::get_locked_balance(account_id);
-
-        // Free balance is the total balance minus the minimum balance and the locked balance
-        free_b.saturating_sub(min_b).saturating_sub(locked_balance)
+        T::BondFungibles::balance(T::BondAssetId::get(), account_id)
     }
 
     pub fn apply_interval_updates() {

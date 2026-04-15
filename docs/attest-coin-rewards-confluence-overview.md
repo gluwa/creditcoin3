@@ -23,6 +23,77 @@ This split lets the protocol **account for work** in the attestation layer while
 
 ---
 
+## Bridging into native attest coin (bonding)
+
+Separately from **claims**, users can **deposit** the same ERC-20 into a fixed **precompile** so the runtime **mints** a matching balance on **`pallet-assets`** (the **attest-coin** native representation). That balance is what **attestation bonding** uses when a stash **registers an attestor** (minimum bond rules, shared bond pool, etc.). You **approve** the precompile as spender on the ERC-20, then call **`deposit`** or **`depositTo`** on the precompile; details and chain-genesis requirements (including funding the **bond pool** account) are in the technical specification.
+
+### Diagram — deposit, register attestor, bond (and how it relates to rewards and claims)
+
+The diagram below is **one page** view: **left column** is how you get **native attest coin** and **post bond**; **right column** is the **separate reward ledger** and how you **receive liquid ERC-20** later. **Deposit** and **claim** both touch the same precompile address on the EVM, but they do **different** things (mint native vs. transfer ERC-20 out of treasury).
+
+```mermaid
+flowchart TB
+    subgraph evm_token [EVM — ERC-20]
+        T[Token contract]
+        APP[User approves precompile as spender]
+        PC[Attest-coin precompile fixed address]
+        APP --> T
+    end
+
+    subgraph deposit_path [1. Deposit — bridge into native]
+        D1[Call deposit or depositTo on precompile]
+        D2[Precompile transferFrom user to precompile treasury]
+        D3[Runtime mints attest coin on pallet-assets]
+        D1 --> D2 --> D3
+    end
+
+    T --> D2
+    PC --> D1
+
+    subgraph stash [Substrate side — who holds the mint]
+        M[Mapped AccountId — caller or beneficiary32]
+        D3 --> M
+    end
+
+    subgraph bond_path [2. Register attestor — lock bond]
+        R1[Extrinsic registerAttestor]
+        R2[Bond meets minimum rules]
+        R3[Attest coin moves vs shared bond pool account]
+        R1 --> R2 --> R3
+    end
+
+    M --> R1
+
+    subgraph rewards [3. Rewards — runtime ledger not ERC-20 balance]
+        A1[Successful commit_attestation]
+        A2[Eligible signers resolved to stash]
+        A3[Accrued reward points on stash]
+        A1 --> A2 --> A3
+    end
+
+    R2 -.->|"typically while registered and active"| A1
+
+    subgraph claim_path [4. Claim — liquid token payout]
+        C1[Stash or controller signs claim message sr25519]
+        C2[Same user submits claim tx from EVM recipient]
+        C3[Accrued debited nonce bumped]
+        C4[ERC-20 transfer from precompile treasury to user]
+        C1 --> C2 --> C3 --> C4
+    end
+
+    A3 --> C1
+    PC --> C2
+    T --> C4
+```
+
+**How to read it**
+
+- **Steps 1–2** are the **bonding preparation** path: ERC-20 in the wallet → **native attest coin** on the chain → **register attestor** locks bond according to attestation rules and the **bond pool** (genesis must fund that pool account; see technical spec).
+- **Step 3** is **independent**: reward **points** accrue to the **stash** when your role counts on a committed attestation; this is **not** your ERC-20 wallet balance until you **claim**.
+- **Step 4** converts **points** into **ERC-20** via a signed authorization; the token **leaves** the precompile’s ERC-20 balance (treasury). **No new ERC-20 supply** is minted on claim.
+
+---
+
 ## How rewards build up
 
 1. **Attestation success** — When an attestation is committed and your role counts as an **eligible signer**, the network can **credit reward points to your stash** (via the configured per-signer rule). Multiple attestor identities can map to the **same stash**; points accrue to that **one** stash.
@@ -73,8 +144,8 @@ Reward points are **per stash** and are tracked **separately** from ERC-20 balan
 
 ## Out of scope in this overview
 
-- Exact byte layouts, contract addresses, gas, and RPC methods — see the **technical specification** in the repository.
-- Future ideas such as **native-asset** representation on Substrate when depositing to the treasury—possible product direction, not required for the basic claim path described here.
+- Exact byte layouts, contract addresses, gas, weight, and RPC methods — see the **technical specification** in the repository.
+- Low-level **`pallet-assets`** / bond-pool account rules — covered in the spec (**deposit**, **`registerAttestor`**, genesis).
 
 ---
 
@@ -85,7 +156,8 @@ Reward points are **per stash** and are tracked **separately** from ERC-20 balan
 | **Accrued / reward points** | Off-chain–visible **ledger** balance before claim; not the same as ERC-20 wallet balance until claimed. |
 | **Claim** | One atomic step: **verify authorization**, **update ledger**, **move ERC-20** to the user. |
 | **Treasury** | The **ERC-20 balance** held by the attest-coin precompile address, used to pay claims. |
+| **Deposit / bridge** | Optional flow: move ERC-20 into the precompile so the chain **mints** native attest coin for **staking / bonding** (not the same as **claim**). |
 
 ---
 
-*For implementation details (precompile address, function signatures, signing layout, settlement hooks), see `docs/attest-coin-rewards-precompile-spec.md` in this repository.*
+*For implementation details (precompile address, function signatures, signing layout, settlement hooks, **deposit**, bond pool), see `docs/attest-coin-rewards-precompile-spec.md` in this repository.*

@@ -45,6 +45,7 @@ frame-try-runtime = { workspace = true, optional = true }
 pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-bags-list = { workspace = true }
+pallet-assets = { workspace = true }
 pallet-balances = { workspace = true, features = ["insecure_zero_ed"] }
 pallet-fast-unstake = { workspace = true }
 pallet-grandpa = { workspace = true }
@@ -176,6 +177,7 @@ std = [
     "pallet-authorship/std",
     "pallet-babe/std",
     "pallet-bags-list/std",
+    "pallet-assets/std",
     "pallet-balances/std",
     "pallet-fast-unstake/std",
     "pallet-grandpa/std",

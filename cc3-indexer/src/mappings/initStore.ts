@@ -56,11 +56,11 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         const electionPolicyValue = electionPolicy.toString();
 
         // Need this for devnet as this storage item was upgraded during it's lifetime
-        let minBondRequirement = BigInt(100000000000000000000); // u128, default to 100000000000000000000 if not set
+        let minBondRequirement = BigInt(0); // matches runtime `DefaultMinBondRequirement` when query fails
         try {
             minBondRequirement = (await att.minBondRequirement(chainKey)).toBigInt(); // u128
         } catch {
-            logger.warn(`minBondRequirement not found for chainKey ${chainKey}, defaulting to 100000000000000000000`);
+            logger.warn(`minBondRequirement not found for chainKey ${chainKey}, defaulting to 0`);
         }
 
         const supported = SupportedChain.create({
