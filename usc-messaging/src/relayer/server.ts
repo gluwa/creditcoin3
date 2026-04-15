@@ -135,10 +135,11 @@ async function main(): Promise<void> {
   );
 
   // Payment listener: polls SimpleRelayer for MessagePaid events.
+  const sourceDestBlock = await sourceProvider.getBlockNumber();
   const stopRelayerListener = listenRelayer(
-    provider,
+    sourceProvider,
     config.relayerContractAddress,
-    destBlock,
+    sourceDestBlock,
     config.deliveryIntervalMs,
     async (messageId: string) => {
       console.log(`[Relayer] MessagePaid messageId=${messageId}`);

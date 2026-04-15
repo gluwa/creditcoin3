@@ -53,23 +53,23 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
 
   const rpcUrl =
     parseArg("--rpc-url", "-r") ??
-    process.env.RELAYER_RPC_URL ??
+    process.env.DESTINATION_CHAIN_RPC_URL ??
     DEFAULT_DESTINATION_RPC_URL;
 
   const sourceRpcUrl =
     parseArg("--source-rpc-url") ??
-    process.env.RELAYER_SOURCE_RPC_URL ??
+    process.env.CREDITCOIN_RPC_URL ??
     DEFAULT_SOURCE_RPC_URL;
 
   const key =
-    parseArg("--private-key", "-k") ?? process.env.RELAYER_PRIVATE_KEY;
+    parseArg("--private-key", "-k") ?? process.env.DESTINATION_CHAIN_PRIVATE_KEY;
 
-  const inbox = parseArg("--inbox", "-i") ?? process.env.RELAYER_INBOX_ADDRESS;
+  const inbox = parseArg("--inbox", "-i") ?? process.env.INBOX_ADDR;
   const outbox =
-    parseArg("--outbox", "-o") ?? process.env.RELAYER_OUTBOX_ADDRESS;
+    parseArg("--outbox", "-o") ?? process.env.OUTBOX_ADDR;
   const relayer =
     parseArg("--relayer-contract", "-c") ??
-    process.env.RELAYER_CONTRACT_ADDRESS;
+    process.env.RELAYER_CONTRACT_ADDR;
 
   const httpPort = parseInt(
     parseArg("--http-port") ??
@@ -109,25 +109,25 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
 
   if (!isValidPrivateKey(key)) {
     throw new Error(
-      "Invalid or missing private key. Pass --private-key 0x<64 hex chars> or set RELAYER_PRIVATE_KEY.",
+      "Invalid or missing private key. Pass --private-key 0x<64 hex chars> or set DESTINATION_CHAIN_PRIVATE_KEY.",
     );
   }
 
   if (!isValidContractAddress(inboxAddress)) {
     throw new Error(
-      "Invalid or missing inbox address. Pass --inbox 0x<40 hex chars> or set RELAYER_INBOX_ADDRESS.",
+      "Invalid or missing inbox address. Pass --inbox 0x<40 hex chars> or set INBOX_ADDR.",
     );
   }
 
   if (!isValidContractAddress(outboxAddress)) {
     throw new Error(
-      "Invalid or missing outbox address. Pass --outbox 0x<40 hex chars> or set RELAYER_OUTBOX_ADDRESS.",
+      "Invalid or missing outbox address. Pass --outbox 0x<40 hex chars> or set OUTBOX_ADDR.",
     );
   }
 
   if (!isValidContractAddress(relayerContractAddress)) {
     throw new Error(
-      "Invalid or missing relayer contract address. Pass --relayer-contract 0x<40 hex chars> or set RELAYER_CONTRACT_ADDRESS.",
+      "Invalid or missing relayer contract address. Pass --relayer-contract 0x<40 hex chars> or set RELAYER_CONTRACT_ADDR.",
     );
   }
 

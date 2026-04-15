@@ -24,9 +24,9 @@ Options are resolved in order: **CLI arg → environment variable → default**.
 
 | CLI arg                 | Environment variable           | Default                   | Description                              |
 |-------------------------|-------------------------------|---------------------------|------------------------------------------|
-| `--outbox` / `-o`       | `ATTESTER_OUTBOX_ADDRESS`     | —                         | Outbox contract address (required)       |
-| `--private-key` / `-k`  | `RELAYER_PRIVATE_KEY`         | —                         | Private key used to sign messages (required) |
-| `--source-rpc-url`      | `ATTESTER_SOURCE_RPC_URL`     | `http://127.0.0.1:9944`   | Source chain RPC endpoint                |
+| `--outbox` / `-o`       | `OUTBOX_ADDR`     | —                         | Outbox contract address (required)       |
+| `--private-key` / `-k`  | `DESTINATION_CHAIN_PRIVATE_KEY`         | —                         | Private key used to sign messages (required) |
+| `--source-rpc-url`      | `CREDITCOIN_RPC_URL`     | `http://127.0.0.1:9944`   | Source chain RPC endpoint                |
 | `--relayer-url`         | `ATTESTER_RELAYER_URL`        | `http://127.0.0.1:3301`   | Relayer HTTP base URL                    |
 | `--poll-interval`       | `ATTESTER_POLL_INTERVAL_MS`   | `5000`                    | Event polling interval in milliseconds   |
 

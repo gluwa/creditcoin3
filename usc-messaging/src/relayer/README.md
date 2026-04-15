@@ -27,11 +27,11 @@ Options are resolved in order: **CLI arg → environment variable → default**.
 
 | CLI arg                   | Environment variable              | Default                   | Description                                   |
 |---------------------------|----------------------------------|---------------------------|-----------------------------------------------|
-| `--inbox` / `-i`          | `RELAYER_INBOX_ADDRESS`          | —                         | SimpleInbox contract address (required)       |
-| `--outbox` / `-o`         | `RELAYER_OUTBOX_ADDRESS`         | —                         | Outbox contract address for ACK (required)    |
-| `--private-key` / `-k`    | `RELAYER_PRIVATE_KEY`            | —                         | Private key for signing txs (required)        |
-| `--rpc-url` / `-r`        | `RELAYER_RPC_URL`                | `http://127.0.0.1:8545`   | Destination chain RPC endpoint                |
-| `--source-rpc-url`        | `RELAYER_SOURCE_RPC_URL`         | `http://127.0.0.1:9944`   | Source chain RPC endpoint (for ACK)           |
+| `--inbox` / `-i`          | `INBOX_ADDR`          | —                         | SimpleInbox contract address (required)       |
+| `--outbox` / `-o`         | `OUTBOX_ADDR`         | —                         | Outbox contract address for ACK (required)    |
+| `--private-key` / `-k`    | `DESTINATION_CHAIN_PRIVATE_KEY`            | —                         | Private key for signing txs (required)        |
+| `--rpc-url` / `-r`        | `DESTINATION_CHAIN_RPC_URL`                | `http://127.0.0.1:8545`   | Destination chain RPC endpoint                |
+| `--source-rpc-url`        | `CREDITCOIN_RPC_URL`         | `http://127.0.0.1:9944`   | Source chain RPC endpoint (for ACK)           |
 | `--delivery-interval`     | `RELAYER_DELIVERY_INTERVAL_MS`   | `5000`                    | Worker tick interval in milliseconds          |
 | `--http-port`             | `RELAYER_HTTP_PORT`              | `3301`                    | HTTP port for POST /deliver (0 = disabled)    |
 

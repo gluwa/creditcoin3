@@ -75,7 +75,7 @@ Maybe we can implement it as an HTTP server or just as a simple listener and use
 
 Of all the components the `SimpleQuoter` and `DummyRelayerContract` don't seem to fit easily in the POC. Since there doesn't seem to be a way for the relayers to actually know if a given message has been "paid" for.
 
-One approach that comes to mind is that the caller would first call the `deliverMessage` in `SimpleOutboxContract` and the note the `messageId` emited, with that he would call the `SimpleQuoter` which would attach a quote to that messageId valid for 
+One approach that comes to mind is that the caller would first call the `deliverMessage` in `SimpleOutboxContract` and the note the `messageId` emited, with that he would call the `SimpleQuoter` which would attach a quote to that messageId valid for
 a given number of blocks. Then submit that quote to the `DummyRelayerContract` which would then emit an event that the `SimpleRelayer` would read marking that messageId as paid, so that when the message has been voted the relayers know they can attempte delivery.
 
 Regarding `ack` flows it seems necessary for the attesters/relayers or whatever other component to list to the `SimpleInboxContract` for the `MessageDelivered` event and then from that call the `SimpleOutboxContract.acknowledge` function.
