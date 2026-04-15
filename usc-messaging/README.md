@@ -1,24 +1,128 @@
 # USC Messaging
 
-USC Write-Ability Layer components: **quoter**, relayer client, and related messaging infrastructure.
+USC Write-Ability
 
-## Structure
+## Full Demonstration Steps
+### 0. Install dependencies and Set Environment Vars
+
+- Anvil
+- Forge
+- npm install
+
+**.env setup**:
+
+Next you'll need to set up your environment variables. This should be straightforward.
+For a typical setup with local chains just copy `.env.example`:
+```bash
+cp .env.example .env
+```
+
+TODO: Use Sepolia and Creditcoin3 Testnet as the chains for this demo. Then fund
+accounts using faucets.
+
+The private keys in this .env.example are well known dev keys, but you will still have 
+to fund the address corresponding to `CREDITCOIN_CHAIN_PRIVATE_KEY` manually:
+
+TODO: How to fund creditcoin evm address on local chain
+
+### 1. Run Local Chains
+
+First we spin up a local anvil destination chain:
+```bash
+anvil --block-time 6
+```
+
+Then we build and launch our local Creditcoin chain:
+```bash
+cd ..
+cargo build --features=fast-runtime --release
+./target/release/creditcoin3-node --dev --tmp
+```
+
+### 2. Deploy Write-ability Contracts
+
+We want to deploy several contracts in this step:
+1. The sample `dApp contract`. This contract lives on Creditcoin and will request to send writability messages
+2. The `outbox contract`. This contract lives on Creditcoin and is where message requests are submitted and processed
+3. The `inbox contract`. This contract lives on the destination chain. It processes incoming messages from Creditcoin.
+4. The `destination contract`. This contract lives on the destination chain. It acts as the endpoint where a dApp was attempting to send its messages.
+
+We have simplified the deployment of these contracts with a single script:
+```bash
+cd usc-messaging/contracts
+./script/deploy.sh
+```
+
+This script also saves the addresses of all deployed contracts in `.env` for
+later use.
+
+### 3. Run mock Attestor, Relayer, and DApp Message Acknowledgement worker
+First start the attestor:
+```bash
+cd ..
+npm run dev:attester
+```
+
+Then start the relayer:
+```bash
+npm run dev:relayer
+```
+
+```bash
+npx tsx scripts/dApp-ack-worker.ts
+```
+
+### 4. Submit message request to dApp contract
+To submit our message, run the following:
+```bash
+npx tsx scripts/publish-message.ts
+```
+
+### 5. Watch for automated message signing, sending, and acknowledgement
+
+The first component to pick up your message will be the attestor. It will 
+detect a `MessagePublished` event and print something like:
 
 ```
-usc-messaging/
-├── src/
-│   ├── quoter/          # Quotation service
-│   └── relayer/         # Relayer client (delivers to inbox)
-├── contracts/           # Foundry (Solidity)
-│   ├── src/             # SimpleInbox, DummyRelayerContract, TestDestination, etc.
-│   └── script/Deploy.s.sol
-├── scripts/
-│   ├── deploy.sh
-│   └── seed-message.ts
-├── deployments.json     # Written by deploy (inbox, destination, relayer addresses)
-├── messages.json        # Mock P2P ready messages (relayer consumes)
-└── package.json
+[Outbox] MessagePublished messageId=0x933df8cd4be30caa6aad59374988f9f4a917f69d4cf56b19f706549d67b5f376 emitter=0x1cf3a2eeead7c152bb79fbbe767669ebfd6fb0b7000000000000000000000000
+[Relayer] POST http://127.0.0.1:3301/deliver messageId=0x933df8cd4be30caa6aad59374988f9f4a917f69d4cf56b19f706549d67b5f376
+[Relayer] messageId=0x933df8cd4be30caa6aad59374988f9f4a917f69d4cf56b19f706549d67b5f376 successfully notified to relayer
 ```
+
+Next the relayer will log its message delivery process:
+
+```
+[Attester] Received messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 from attester
+[Worker] Queued messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 (queue size: 1)
+[Worker] Processing 1 pending message(s)
+[Inbox] MessageDelivered messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753
+[Inbox] messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 did not request ACK, skipping acknowledgment
+[Worker] Delivered messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 tx=0x5297dfe7832db6e83446b3c331f39121649f3ba13873a134bc47a804608716b0
+```
+
+Then the `dApp-ack-worker` picks up on the `MessageReceived` event emitted by the destination contract.
+It it forwards the acknowledgement and logs the process:
+```
+MessageReceived
+  messageId: 0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753
+  emitter:   0x767669EbFd6FB0b7000000000000000000000000
+  payload:   0x68656c6c6f20777269746162696c697479
+  txHash:    0x5297dfe7832db6e83446b3c331f39121649f3ba13873a134bc47a804608716b0
+markDelivered tx sent: 0x65ae778f1639d7e1bc27dfd2d0efc28fe9ca1c53520307c5fa4e9cfd91d565f9
+markDelivered confirmed in block 7889
+```
+
+Finally, our `publish-message` script listens for the `MessageDelivered` event
+emitted from our simpleDApp contract on Creditcoin. 
+```
+⏳ Waiting for MessageDelivered events...
+📬 MessageDelivered event received!
+🆔 messageId: 0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753
+```
+
+These logs demonstrate that our message delivery and acknowldegement by the dApp contract
+were successful!
+
 
 ## Quoter
 
@@ -98,53 +202,14 @@ See `usc-write-ability-research/documents/requirements/03-quotation-requirements
 
 ---
 
-## Relayer Client
-
-Off-chain client that picks up "ready" messages (mock P2P) and delivers them to the SimpleInbox.
-
-### Quick Start
-
-```bash
-# 1. Deploy contracts (Anvil must be running)
-anvil &
-npm run deploy
-
-# 2. Seed a sample message
-npm run seed-message
-
-# 3. Start relayer (reads deployments.json for inbox address)
-npm run dev:relayer
-```
-
 The relayer watches `messages.json` and POST `/deliver` for messages. After deploy, `deployments.json` contains `inbox`, `destination`, `relayer` addresses.
 
 ### Relayer Config
 
 | Env / CLI | Default | Description |
 |-----------|---------|-------------|
-| `RELAYER_RPC_URL` / `--rpc-url` | http://127.0.0.1:8545 | Destination chain RPC |
-| `RELAYER_INBOX_ADDRESS` / `--inbox` | from deployments.json | SimpleInbox address |
-| `RELAYER_PRIVATE_KEY` | (Anvil #1) | Key that pays gas |
+| `DESTINATION_CHAIN_RPC_URL` / `--rpc-url` | http://127.0.0.1:8545 | Destination chain RPC |
+| `INBOX_ADDR` / `--inbox` | from deployments.json | SimpleInbox address |
+| `DESTINATION_CHAIN_PRIVATE_KEY` | (Anvil #1) | Key that pays gas |
 | `RELAYER_MESSAGES_FILE` | ./messages.json | Mock P2P messages file |
 | `RELAYER_HTTP_PORT` | 3301 | POST /deliver endpoint |
-
----
-
-## PoC Flow (End-to-End)
-
-1. **Start Anvil**: `anvil`
-2. **Deploy**: `npm run deploy` → writes `deployments.json`
-3. **Start Quoter**: `npm run dev:quoter -- --rpc-url http://127.0.0.1:8545`
-4. **Seed message**: `npm run seed-message` → creates `messages.json`
-5. **Start Relayer**: `npm run dev:relayer` → delivers to inbox, TestDestination receives
-
-Optional: POST a message directly to the relayer:
-
-```bash
-curl -X POST http://localhost:3301/deliver -H "Content-Type: application/json" -d '{
-  "messageId": "0x0000000000000000000000000000000000000000000000000000000000000002",
-  "emitterAddress": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-  "destinationContract": "<from deployments.json>",
-  "payloadData": "0x"
-}'
-```

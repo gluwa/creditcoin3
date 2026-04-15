@@ -1,53 +1,108 @@
 #!/usr/bin/env bash
-# Deploy USC contracts via forge create (no git submodules).
-# Usage: ./script/deploy.sh [rpc_url]
-set -e
+# Deploy USC contracts via forge create, reading from the repo .env
+# and writing deployed addresses back into that same .env.
+#
+# Usage:
+#   ./script/deploy.sh
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTRACTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-RPC_URL="${1:-${RPC_URL:-http://127.0.0.1:8545}}"
-PRIVATE_KEY="${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
-PAYEE="${PAYEE_ADDRESS:-0x0000000000000000000000000000000000000001}"
-
-SOURCE_RPC_URL="${SOURCE_RPC_URL:-http://127.0.0.1:9944}"
-SOURCE_PRIVATE_KEY="${SOURCE_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
-SOURCE_CHAIN_ID="${SOURCE_CHAIN_ID:-42}"
-LOCAL_CHAIN_KEY="${LOCAL_CHAIN_KEY:-0x0000000000000000000000000000000000000000000000000000000000000001}"
+REPO_ROOT="$(cd "$CONTRACTS_DIR/.." && pwd)"
+ENV_FILE="$REPO_ROOT/.env"
 
 cd "$CONTRACTS_DIR"
 
+# Load .env if present
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
+# Hard coded or derived values
+SOURCE_CHAIN_ID="${SOURCE_CHAIN_ID:-42}"
+LOCAL_CHAIN_KEY="${LOCAL_CHAIN_KEY:-0x0000000000000000000000000000000000000000000000000000000000000001}"
+PAYEE="$(cast wallet address --private-key "$CREDITCOIN_CHAIN_PRIVATE_KEY")"
+
 deploy_to_destination() {
-  local out
-  out=$(forge create "$1" --rpc-url "$RPC_URL" --private-key "$PRIVATE_KEY" "$2" 2>&1)
-  echo "$out" | grep -oE "Deployed to destination chain at: 0x[a-fA-F0-9]{40}" | cut -d' ' -f5
+  local out addr
+  out=$(forge create --rpc-url "$DESTINATION_CHAIN_RPC_URL" --private-key "$DESTINATION_CHAIN_PRIVATE_KEY" --broadcast "$@" 2>&1)
+  echo "$out" >&2
+  addr=$(echo "$out" | grep -oE "Deployed to: 0x[a-fA-F0-9]{40}" | awk '{print $3}')
+  [ -n "$addr" ] || { echo "Failed to parse deployed address for $1" >&2; exit 1; }
+  echo "$addr"
 }
 
 deploy_to_source() {
-  local out
-  out=$(forge create "$1" --rpc-url "$SOURCE_RPC_URL" --private-key "$SOURCE_PRIVATE_KEY" "$2" 2>&1)
-  echo "$out" | grep -oE "Deployed to source chain at: 0x[a-fA-F0-9]{40}" | cut -d' ' -f5
+  local out addr
+  out=$(forge create --rpc-url "$CREDITCOIN_RPC_URL" --private-key "$CREDITCOIN_CHAIN_PRIVATE_KEY" --broadcast "$@" 2>&1)
+  echo "$out" >&2
+  addr=$(echo "$out" | grep -oE "Deployed to: 0x[a-fA-F0-9]{40}" | awk '{print $3}')
+  [ -n "$addr" ] || { echo "Failed to parse deployed address for $1" >&2; exit 1; }
+  echo "$addr"
 }
 
-echo "Deploying to $RPC_URL..."
+update_env_var() {
+  local key="$1"
+  local value="$2"
 
-VALIDATOR=$(deploy_to_destination "src/DummyVoteValidator.sol:DummyVoteValidator" "")
-DESTINATION=$(deploy_to_destination "src/TestDestination.sol:TestDestination" "")
-RELAYER=$(deploy_to_destination "src/DummyRelayerContract.sol:DummyRelayerContract" "--constructor-args $PAYEE")
+  python3 - "$ENV_FILE" "$key" "$value" <<'PY'
+import re
+import sys
+from pathlib import Path
 
-OUTBOX=$(deploy_to_source "src/SimpleOutbox.sol:Outbox" "")
+env_path = Path(sys.argv[1])
+key = sys.argv[2]
+value = sys.argv[3]
 
-INBOX_ARGS=$(cast abi-encode "constructor(address,uint256,bytes32)" "$VALIDATOR" "$SOURCE_CHAIN_ID" "$LOCAL_CHAIN_KEY")
-INBOX=$(deploy_to_destination "src/SimpleInbox.sol:SimpleInbox" "--constructor-args $INBOX_ARGS")
+if env_path.exists():
+    text = env_path.read_text()
+else:
+    text = ""
 
-DEPLOY_JSON=$(cat <<EOF
-{"validator":"$VALIDATOR","inbox":"$INBOX","outbox":"$OUTBOX","destination":"$DESTINATION","relayer":"$RELAYER"}
-EOF
-)
-echo "$DEPLOY_JSON" > ../deployments.json
+pattern = re.compile(rf'^{re.escape(key)}=.*$', re.MULTILINE)
+new_line = f'{key}="{value}"'
+
+if pattern.search(text):
+    text = pattern.sub(new_line, text)
+else:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += new_line + "\n"
+
+env_path.write_text(text)
+PY
+}
+
+echo "Deploying to source: $CREDITCOIN_RPC_URL, destination: $DESTINATION_CHAIN_RPC_URL..."
+
+# Source chain
+RELAYER=$(deploy_to_source "src/DummyRelayerContract.sol:DummyRelayerContract" \
+  --constructor-args "$PAYEE")
+OUTBOX=$(deploy_to_source "src/SimpleOutbox.sol:Outbox")
+DAPP=$(deploy_to_source "src/SimpleDApp.sol:SimpleDApp" \
+  --constructor-args "$OUTBOX")
+
+# Destination chain
+VALIDATOR=$(deploy_to_destination "src/DummyVoteValidator.sol:DummyVoteValidator")
+DESTINATION=$(deploy_to_destination "src/TestDestination.sol:TestDestination")
+INBOX=$(deploy_to_destination "src/SimpleInbox.sol:SimpleInbox" \
+  --constructor-args "$VALIDATOR" "$SOURCE_CHAIN_ID" "$LOCAL_CHAIN_KEY")
+
+# Write addresses back into .env
+update_env_var "INBOX_ADDR" "$INBOX"
+update_env_var "VOTE_VALIDATOR_ADDR" "$VALIDATOR"
+update_env_var "DESTINATION_CONTRACT_ADDR" "$DESTINATION"
+update_env_var "OUTBOX_ADDR" "$OUTBOX"
+update_env_var "RELAYER_CONTRACT_ADDR" "$RELAYER"
+update_env_var "DAPP_CONTRACT_ADDR" "$DAPP"
 
 echo "DummyVoteValidator: $VALIDATOR"
 echo "SimpleInbox: $INBOX"
-echo "Outbox: $OUTBOX"
+echo "SimpleOutbox: $OUTBOX"
+echo "SimpleDApp: $DAPP"
 echo "TestDestination: $DESTINATION"
 echo "DummyRelayerContract: $RELAYER"
-echo "Wrote ../deployments.json"
+echo "Updated $ENV_FILE"

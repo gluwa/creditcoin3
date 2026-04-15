@@ -46,14 +46,14 @@ export async function loadAttesterConfig(): Promise<AttesterConfig> {
 
   const sourceRpcUrl =
     parseArg("--source-rpc-url") ??
-    process.env.ATTESTER_SOURCE_RPC_URL ??
+    process.env.CREDITCOIN_RPC_URL ??
     DEFAULT_SOURCE_RPC_URL;
 
   const key =
-    parseArg("--private-key", "-k") ?? process.env.ATTESTER_PRIVATE_KEY;
+    parseArg("--private-key", "-k") ?? process.env.DESTINATION_CHAIN_PRIVATE_KEY;
 
   const outbox =
-    parseArg("--outbox", "-o") ?? process.env.ATTESTER_OUTBOX_ADDRESS;
+    parseArg("--outbox", "-o") ?? process.env.OUTBOX_ADDR;
 
   const relayerUrl =
     parseArg("--relayer-url") ??
@@ -90,13 +90,13 @@ export async function loadAttesterConfig(): Promise<AttesterConfig> {
 
   if (!isValidContractAddress(outboxAddress)) {
     throw new Error(
-      "Invalid or missing outbox address. Pass --outbox 0x<40 hex chars> or set ATTESTER_OUTBOX_ADDRESS.",
+      "Invalid or missing outbox address. Pass --outbox 0x<40 hex chars> or set OUTBOX_ADDR.",
     );
   }
 
   if (!isValidPrivateKey(key)) {
     throw new Error(
-      "Invalid or missing private key. Pass --private-key 0x<64 hex chars> or set RELAYER_PRIVATE_KEY.",
+      "Invalid or missing private key. Pass --private-key 0x<64 hex chars> or set DESTINATION_CHAIN_PRIVATE_KEY.",
     );
   }
 
