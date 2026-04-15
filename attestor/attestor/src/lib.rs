@@ -392,6 +392,8 @@ impl Attestor {
         let config = self
             .config
             .p2p
+            .with_cc3(client_cc3.clone())
+            .with_api_calls(cc_client::Client::runtime_api())
             .with_keypair(keypair_p2p)
             .with_receiver_p2p(receiver_p2p)
             .with_sender_validation(sender_validation.clone())
