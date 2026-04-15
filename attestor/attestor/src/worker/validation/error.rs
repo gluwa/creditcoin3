@@ -34,7 +34,6 @@ pub enum InvalidCause {
     Unsupported(attestor_primitives::ChainKey),
     Duplicate,
     InvalidVrf,
-    InvalidBls,
     EmptyContinuityProof,
     EmptyPrevDigest,
     InvalidContinuityHeadDigest {
@@ -55,7 +54,6 @@ impl std::fmt::Display for InvalidCause {
             Self::Unsupported(chain_key) => write!(f, "Usupported source chain: {chain_key}"),
             Self::Duplicate => write!(f, "Attestation already exists in the runtime"),
             Self::InvalidVrf => write!(f, "Invalid attestation VRF"),
-            Self::InvalidBls => write!(f, "Invalid attestation BLS"),
             Self::EmptyContinuityProof => write!(f, "Empty attestation continuity proof"),
             Self::EmptyPrevDigest => write!(f, "Empty previous digest"),
             Self::InvalidContinuityHeadDigest { actual, expected } => write!(
