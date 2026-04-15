@@ -170,6 +170,7 @@ impl<T: Config> Pallet<T> {
                 stash: stash.clone(),
             },
         );
+        AttestorsCount::<T>::mutate(chain_key, |c| *c = c.saturating_add(1));
 
         // Make sure the stash can pay for the registration
         let stash_balance = Self::get_free_balance(&stash);
@@ -314,6 +315,7 @@ impl<T: Config> Pallet<T> {
 
         // Remove the attestor (BLS key may remain in [`RetiredAttestorBlsKeys`] until unbond ends)
         Attestors::<T>::remove(chain_key, &attestor_id);
+        AttestorsCount::<T>::mutate(chain_key, |c| *c = c.saturating_sub(1));
 
         Self::deposit_event(Event::<T>::AttestorUnregistered(chain_key, attestor_id));
 
@@ -748,10 +750,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn attestor_list_has_space(chain_key: ChainKey) -> bool {
-        let count = Attestors::<T>::iter_prefix_values(chain_key)
-            .collect::<Vec<_>>()
-            .len() as u32;
-        count < MaxAttestors::<T>::get(chain_key)
+        AttestorsCount::<T>::get(chain_key) < MaxAttestors::<T>::get(chain_key)
     }
 
     pub fn get(

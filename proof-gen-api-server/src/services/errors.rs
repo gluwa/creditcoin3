@@ -92,6 +92,12 @@ pub enum ServiceError {
         requested_block: u64,
         current_block: u64,
     },
+    #[error("Block {requested_block} has not reached the required {required_confirmations} confirmations yet (current head: {current_block}). Please retry after more blocks are produced.")]
+    BlockNotConfirmed {
+        requested_block: u64,
+        current_block: u64,
+        required_confirmations: u64,
+    },
     #[error("Batch request should contain at least one proof query")]
     EmptyProofQueries,
     #[error("Batch request cannot contain more than 10 proof queries")]
@@ -118,6 +124,7 @@ impl ServiceError {
             ServiceError::RpcUnavailable { .. }
                 | ServiceError::BlockNotReady { .. }
                 | ServiceError::BlockNotOnSourceChain { .. }
+                | ServiceError::BlockNotConfirmed { .. }
         )
     }
     pub fn code(&self) -> &'static str {
@@ -135,6 +142,7 @@ impl ServiceError {
             ServiceError::BlockNotReady { .. } => "BlockNotReady",
             ServiceError::BlockBeforeOrAtGenesis { .. } => "BlockBeforeOrAtGenesis",
             ServiceError::BlockNotOnSourceChain { .. } => "BlockNotOnSourceChain",
+            ServiceError::BlockNotConfirmed { .. } => "BlockNotConfirmed",
             ServiceError::EmptyProofQueries => "EmptyProofQueries",
             ServiceError::TooManyProofQueries => "TooManyProofQueries",
             ServiceError::TooManyTxQueriesInProofQuery => "TooManyTxQueriesInProofQuery",
@@ -162,7 +170,8 @@ impl ServiceError {
             Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::TxHashNotFound { .. }
             | Self::BlockNotReady { .. }
-            | Self::BlockNotOnSourceChain { .. } => StatusCode::NOT_FOUND,
+            | Self::BlockNotOnSourceChain { .. }
+            | Self::BlockNotConfirmed { .. } => StatusCode::NOT_FOUND,
             Self::MerkleError { .. } | Self::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -275,6 +284,7 @@ impl GetErrorType for ServiceError {
             ServiceError::BlockNotReady { .. } => ErrorType::BlockNotReady,
             ServiceError::BlockBeforeOrAtGenesis { .. } => ErrorType::BlockBeforeOrAtGenesis,
             ServiceError::BlockNotOnSourceChain { .. } => ErrorType::BlockNotOnSourceChain,
+            ServiceError::BlockNotConfirmed { .. } => ErrorType::BlockNotConfirmed,
             ServiceError::EmptyProofQueries => ErrorType::EmptyProofQueries,
             ServiceError::TooManyProofQueries => ErrorType::TooManyProofQueries,
             ServiceError::TooManyTxQueriesInProofQuery => ErrorType::TooManyTxQueriesInProofQuery,

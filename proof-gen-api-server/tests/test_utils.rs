@@ -202,7 +202,8 @@ mod anvil_integration {
         }
 
         let service = Arc::new(
-            ContinuityService::new(builders, NoopMetrics::new(), 10, 1_000)
+            // Use 0 confirmations in tests so mock blocks are immediately usable.
+            ContinuityService::new(builders, NoopMetrics::new(), 10, 1_000, 0)
                 .await
                 .expect("service init"),
         );

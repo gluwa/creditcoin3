@@ -26,3 +26,7 @@ max_batch_size: 10
 # Maximum allowed block span (highest − lowest block) in a single batch request.
 # Prevents small batches from forcing proof generation over extremely large ranges.
 max_batch_span: 1000
+# Number of EVM block confirmations required before a block is included in a
+# continuity proof. Mitigates exposure to shallow chain reorgs.
+# Default: 12 (≈ Ethereum PoS soft-finality target). Set to 0 to disable.
+eth_block_confirmations: 12

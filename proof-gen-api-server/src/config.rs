@@ -16,6 +16,12 @@ pub const DEFAULT_MAX_BATCH_SIZE: NonZeroUsize = match NonZeroUsize::new(10) {
 /// from forcing proof generation over an extremely large block range.
 pub const DEFAULT_MAX_BATCH_SPAN: u64 = 1_000;
 
+/// Default number of EVM block confirmations to wait before considering a
+/// block safe to include in a continuity proof. This mirrors the attestor's
+/// block-delayed approach and mitigates shallow reorg exposure.
+/// 12 blocks ≈ Ethereum PoS soft-finality target.
+pub const DEFAULT_ETH_BLOCK_CONFIRMATIONS: u64 = 12;
+
 /// One source chain (EVM) served by this process, keyed on Creditcoin3.
 #[derive(Debug, Clone)]
 pub struct ChainConfig {
@@ -36,6 +42,9 @@ pub struct Config {
     pub redis_cluster_mode: bool,
     pub max_batch_size: NonZeroUsize,
     pub max_batch_span: u64,
+    /// Number of EVM block confirmations required before a block is included
+    /// in a continuity proof (reorg mitigation).
+    pub eth_block_confirmations: u64,
 }
 
 impl Config {
@@ -55,6 +64,7 @@ impl Config {
             redis_cluster_mode: false,
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
             max_batch_span: DEFAULT_MAX_BATCH_SPAN,
+            eth_block_confirmations: DEFAULT_ETH_BLOCK_CONFIRMATIONS,
         }
     }
 
@@ -95,6 +105,8 @@ pub struct ConfigFile {
     pub max_batch_size: NonZeroUsize,
     #[serde(default = "default_max_batch_span")]
     pub max_batch_span: u64,
+    #[serde(default = "default_eth_block_confirmations")]
+    pub eth_block_confirmations: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,6 +123,10 @@ fn default_max_batch_size() -> NonZeroUsize {
 
 fn default_max_batch_span() -> u64 {
     DEFAULT_MAX_BATCH_SPAN
+}
+
+fn default_eth_block_confirmations() -> u64 {
+    DEFAULT_ETH_BLOCK_CONFIRMATIONS
 }
 
 impl ConfigFile {
@@ -140,6 +156,7 @@ impl ConfigFile {
             redis_cluster_mode: self.redis_cluster_mode,
             max_batch_size: self.max_batch_size,
             max_batch_span: self.max_batch_span,
+            eth_block_confirmations: self.eth_block_confirmations,
         })
     }
 }

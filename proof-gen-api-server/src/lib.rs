@@ -269,6 +269,7 @@ impl Server {
             metrics.clone(),
             self.config.max_batch_size.get(),
             self.config.max_batch_span,
+            self.config.eth_block_confirmations,
         )
         .await?;
 

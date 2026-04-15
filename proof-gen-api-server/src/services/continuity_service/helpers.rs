@@ -43,7 +43,8 @@ impl ContinuityService {
 
         // Step 1: Resolve boundaries from local caches.
         // Try attestation bounds first (more granular), then fall back to checkpoint bounds.
-        let (lower, lower_digest, upper) = if let Some(bounds) = self
+        // Returns (lower_block, lower_digest, upper_block, upper_digest).
+        let (lower, lower_digest, upper, upper_digest) = if let Some(bounds) = self
             .get_attestation_boundaries(chain, min_query, max_query)
             .await
         {
@@ -74,7 +75,7 @@ impl ContinuityService {
         };
 
         // Step 2: Build directly from eth provider (archiver or chain).
-        self.build_proof_from_roots(chain, min_query, lower, lower_digest, upper)
+        self.build_proof_from_roots(chain, min_query, lower, lower_digest, upper, upper_digest)
             .await
     }
 
@@ -82,6 +83,11 @@ impl ContinuityService {
     /// pre-resolved checkpoint boundaries. The `lower_checkpoint_digest` is
     /// the on-chain digest at the lower checkpoint block — this anchors the
     /// proof's digest chain to a known on-chain value.
+    ///
+    /// After building the proof, the digest computed at the upper boundary is
+    /// verified against the cached on-chain `upper_checkpoint_digest` to
+    /// confirm that the proof actually connects to the real upper attestation
+    /// or checkpoint entry (audit finding: upper boundary digest verification).
     async fn build_proof_from_roots(
         &self,
         chain_state: &Arc<ChainState>,
@@ -89,11 +95,13 @@ impl ContinuityService {
         lower_checkpoint: u64,
         lower_checkpoint_digest: sp_core::H256,
         upper_checkpoint: u64,
+        upper_checkpoint_digest: sp_core::H256,
     ) -> Result<ContinuityProof, ServiceError> {
         tracing::info!(
             lower_checkpoint,
             ?lower_checkpoint_digest,
             upper_checkpoint,
+            ?upper_checkpoint_digest,
             min_query,
             "building proof from eth provider roots"
         );
@@ -110,6 +118,31 @@ impl ContinuityService {
             .map_err(|err| ServiceError::Internal {
                 message: format!("failed to build continuity blocks: {err}"),
             })?;
+
+        // Audit finding: verify the upper boundary digest.
+        // The digest computed from the full block range [build_from, upper_checkpoint]
+        // must match the cached on-chain upper digest, confirming the proof connects
+        // to the real attestation/checkpoint entry and not just the block number.
+        if !blocks.is_empty() {
+            let computed_upper_digest = blocks
+                .last()
+                .map(|b| b.digest())
+                .unwrap_or(lower_checkpoint_digest);
+            if computed_upper_digest != upper_checkpoint_digest {
+                tracing::error!(
+                    upper_checkpoint,
+                    ?computed_upper_digest,
+                    ?upper_checkpoint_digest,
+                    "upper boundary digest mismatch — possible EVM reorg or stale cache"
+                );
+                return Err(ServiceError::Internal {
+                    message: format!(
+                        "upper boundary digest mismatch at block {upper_checkpoint}: \
+                         computed {computed_upper_digest:?}, expected {upper_checkpoint_digest:?}"
+                    ),
+                });
+            }
+        }
 
         let lower_endpoint_digest = blocks
             .iter()
@@ -342,7 +375,8 @@ mod tests {
             cc_provider,
             eth_provider,
         ));
-        ContinuityService::new(vec![builder], NoopMetrics::new(), 10, max_batch_span)
+        // Use 0 confirmations in tests so mock blocks are immediately usable.
+        ContinuityService::new(vec![builder], NoopMetrics::new(), 10, max_batch_span, 0)
             .await
             .expect("service init should succeed with mocks")
     }
@@ -398,13 +432,13 @@ mod tests {
         let chain = svc.chain_state(2).unwrap();
         let att_bounds = svc.get_attestation_boundaries(chain, 15, 15).await;
         assert!(att_bounds.is_some(), "attestation bounds should exist");
-        let (lower, _, upper) = att_bounds.unwrap();
+        let (lower, _, upper, _) = att_bounds.unwrap();
         assert_eq!(lower, 10);
         assert_eq!(upper, 20);
 
         let cp_bounds = svc.get_checkpoint_boundaries(chain, 15, 15).await;
         assert!(cp_bounds.is_some(), "checkpoint bounds should exist");
-        let (lower, _, upper) = cp_bounds.unwrap();
+        let (lower, _, upper, _) = cp_bounds.unwrap();
         assert_eq!(lower, 0);
         assert_eq!(upper, 100);
     }
@@ -420,7 +454,7 @@ mod tests {
         let chain = svc.chain_state(2).unwrap();
         let bounds = svc.get_attestation_boundaries(chain, 11, 11).await;
         assert!(bounds.is_some());
-        let (lower, lower_digest, upper) = bounds.unwrap();
+        let (lower, lower_digest, upper, _) = bounds.unwrap();
         assert_eq!(lower, 10);
         assert_eq!(upper, 20);
         // The digest should be the mock attestation's digest at block 10

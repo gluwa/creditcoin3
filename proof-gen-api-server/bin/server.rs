@@ -95,6 +95,14 @@ pub struct ProofGenApiServer {
         help = "Maximum allowed block span (highest - lowest block) in a single batch request. Prevents small batches from forcing proof generation over extremely large ranges."
     )]
     max_batch_span: u64,
+
+    #[arg(
+        long,
+        default_value = "12",
+        env = "ETH_BLOCK_CONFIRMATIONS",
+        help = "Number of EVM block confirmations required before a block is included in a continuity proof (reorg mitigation). Default: 12 (~Ethereum PoS soft-finality). Set to 0 to disable."
+    )]
+    eth_block_confirmations: u64,
 }
 
 #[tokio::main]
@@ -149,6 +157,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 c.max_batch_span = n;
             }
         }
+        // ETH_BLOCK_CONFIRMATIONS env/CLI overrides YAML when explicitly set.
+        if let Ok(raw) = env::var("ETH_BLOCK_CONFIRMATIONS") {
+            if let Ok(n) = raw.parse::<u64>() {
+                c.eth_block_confirmations = n;
+            }
+        }
         c
     } else {
         // Legacy single-chain mode: chain key from CHAIN_KEY env (default 2).
@@ -171,6 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             max_batch_size: args.max_batch_size,
             max_batch_span: args.max_batch_span,
+            eth_block_confirmations: args.eth_block_confirmations,
         }
     };
 

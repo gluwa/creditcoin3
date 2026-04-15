@@ -161,6 +161,9 @@ pub struct ContinuityService {
     /// request.  Prevents a small batch from forcing proof generation over an
     /// extremely large block range.
     max_batch_span: u64,
+    /// Minimum number of EVM block confirmations required before a block is
+    /// considered safe to include in a continuity proof (reorg mitigation).
+    eth_block_confirmations: u64,
 }
 
 impl ContinuityService {
@@ -173,6 +176,7 @@ impl ContinuityService {
         metrics: Metrics,
         max_batch_size: usize,
         max_batch_span: u64,
+        eth_block_confirmations: u64,
     ) -> anyhow::Result<Self> {
         if builders.is_empty() {
             anyhow::bail!("ContinuityService requires at least one ContinuityBuilder");
@@ -277,6 +281,7 @@ impl ContinuityService {
             metrics,
             max_batch_size,
             max_batch_span,
+            eth_block_confirmations,
         })
     }
 
@@ -351,6 +356,25 @@ impl ContinuityService {
             return Err(ServiceError::BlockNotOnSourceChain {
                 requested_block: header_number,
                 current_block,
+            });
+        }
+
+        // Reorg mitigation: require a minimum number of confirmations before including
+        // a block in a continuity proof. This mirrors the attestor's block-delayed approach.
+        let safe_block = current_block.saturating_sub(self.eth_block_confirmations);
+        if let Some(&header_number) = header_numbers.iter().find(|h| **h > safe_block) {
+            tracing::warn!(
+                requested_block = header_number,
+                current_block,
+                safe_block,
+                required_confirmations = self.eth_block_confirmations,
+                chain_key,
+                "Requested block has not reached required confirmations"
+            );
+            return Err(ServiceError::BlockNotConfirmed {
+                requested_block: header_number,
+                current_block,
+                required_confirmations: self.eth_block_confirmations,
             });
         }
 
@@ -457,37 +481,37 @@ impl ContinuityService {
 
     /// Look up attestation boundaries around a query range from the local cache.
     /// Attestations are more granular than checkpoints, so these provide tighter bounds.
-    /// Returns `(lower_block, lower_digest, upper_block)` or `None` if not found.
+    /// Returns `(lower_block, lower_digest, upper_block, upper_digest)` or `None` if not found.
     pub async fn get_attestation_boundaries(
         &self,
         chain: &Arc<ChainState>,
         min_query: u64,
         max_query: u64,
-    ) -> Option<(u64, H256, u64)> {
+    ) -> Option<(u64, H256, u64, H256)> {
         let cache = chain.attestation_cache.read().await;
 
         // Lower: greatest attestation strictly before min_query.
         let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
 
-        // Upper: smallest attestation ≥ max_query
-        let upper = cache.range(max_query..).next().map(|(&k, _)| k);
+        // Upper: smallest attestation ≥ max_query (returns both block and digest)
+        let upper = cache.range(max_query..).next().map(|(&k, &v)| (k, v));
 
         match (lower, upper) {
-            (Some((lower_block, lower_digest)), Some(upper_block)) => {
-                Some((lower_block, lower_digest, upper_block))
+            (Some((lower_block, lower_digest)), Some((upper_block, upper_digest))) => {
+                Some((lower_block, lower_digest, upper_block, upper_digest))
             }
             _ => None,
         }
     }
 
     /// Look up checkpoint boundaries around a query range from the local cache.
-    /// Returns `(lower_block, lower_digest, upper_block)` or `None` if not found.
+    /// Returns `(lower_block, lower_digest, upper_block, upper_digest)` or `None` if not found.
     pub async fn get_checkpoint_boundaries(
         &self,
         chain: &Arc<ChainState>,
         min_query: u64,
         max_query: u64,
-    ) -> Option<(u64, H256, u64)> {
+    ) -> Option<(u64, H256, u64, H256)> {
         let cache = chain.checkpoint_cache.read().await;
 
         // Lower: greatest checkpoint strictly before min_query.
@@ -495,12 +519,12 @@ impl ContinuityService {
         // includes the queried block (it builds from lower_checkpoint + 1).
         let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
 
-        // Upper: smallest checkpoint ≥ max_query
-        let upper = cache.range(max_query..).next().map(|(&k, _)| k);
+        // Upper: smallest checkpoint ≥ max_query (returns both block and digest)
+        let upper = cache.range(max_query..).next().map(|(&k, &v)| (k, v));
 
         match (lower, upper) {
-            (Some((lower_block, lower_digest)), Some(upper_block)) => {
-                Some((lower_block, lower_digest, upper_block))
+            (Some((lower_block, lower_digest)), Some((upper_block, upper_digest))) => {
+                Some((lower_block, lower_digest, upper_block, upper_digest))
             }
             _ => None,
         }

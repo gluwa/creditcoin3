@@ -216,7 +216,7 @@ impl Client {
 
     /// Fetches the babe randomness from 2 epochs ago
     /// Returns the random a time + the current block number (where it was calculated from)
-    pub async fn fetch_babe_randomness_two_epoch_ego(&self) -> Result<(Randomness, u64), Error> {
+    pub async fn fetch_babe_randomness_two_epoch_ago(&self) -> Result<(Randomness, u64), Error> {
         let epoch_index = self
             .api()
             .storage()

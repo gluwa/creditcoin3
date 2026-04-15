@@ -456,6 +456,7 @@ mod labels {
         BlockNotReady,
         BlockBeforeOrAtGenesis,
         BlockNotOnSourceChain,
+        BlockNotConfirmed,
         RpcUnavailable,
         MerkleError,
         InvalidParameter,
