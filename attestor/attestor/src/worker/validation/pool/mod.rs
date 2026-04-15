@@ -1738,8 +1738,12 @@ impl AttestationVote {
 
 impl std::cmp::PartialEq for AttestationVote {
     fn eq(&self, other: &Self) -> bool {
-        self.attestation.header_number() == other.attestation.header_number()
-            && self.attestation.digest() == other.attestation.digest()
+        // Attestation header number is implied in the digest computation and so does not need to
+        // be checked manually as changing it would result in a different digest. The header hash
+        // is NOT part of digest computation however and needs to be checked manually.
+        self.attestation.digest() == other.attestation.digest()
+            && self.attestation.attestation_data.header_hash
+                == other.attestation.attestation_data.header_hash
     }
 }
 
@@ -1747,8 +1751,8 @@ impl std::cmp::Eq for AttestationVote {}
 
 impl std::hash::Hash for AttestationVote {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.attestation.header_number().hash(state);
         self.attestation.digest().hash(state);
+        self.attestation.attestation_data.header_hash.hash(state);
     }
 }
 
