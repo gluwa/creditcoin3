@@ -141,15 +141,15 @@ Operationally, **every** attestor may **cast** a vote (off-chain or network goss
 
 ### 2.2 Principles
 
-1. **Define the reward unit**  
+1. **Define the reward unit**
    Clarify what is rewarded: e.g. “eligible vote cast,” “signature verified,” “weight in committee,” etc. The spec should match **cryptographic or protocol** definitions, not only “included in block.”
 
-2. **Separate observability from inclusion**  
+2. **Separate observability from inclusion**
    If the runtime only sees a sample, either:
-   - **Bring more evidence on-chain** (aggregates, commitments, Merkle batches) when cost allows, or  
+   - **Bring more evidence on-chain** (aggregates, commitments, Merkle batches) when cost allows, or
    - **Use statistical fairness** over time (below).
 
-3. **Avoid raw inclusion as the only score**  
+3. **Avoid raw inclusion as the only score**
    Tie accrual to **long-horizon** metrics so short-run sampling noise averages out.
 
 ### 2.3 Mechanisms (combinable)
@@ -228,16 +228,16 @@ Below are **mutually comparable proposals**; pick one primary model and optional
 
 ### 3.1 Views (implemented)
 
-- **`accrued(bytes32 stash)`**  
-  Returns **`Accrued[stash]`** from **`pallet-attest-coin-rewards`** (unclaimed runtime units).  
+- **`accrued(bytes32 stash)`**
+  Returns **`Accrued[stash]`** from **`pallet-attest-coin-rewards`** (unclaimed runtime units).
   Selector: **`0xf92f23a7`** (see `precompiles/attest-coin`).
 
 ### 3.2 Mutations — claim (implemented)
 
-- **`claim(bytes32 stash, uint256 nonce, uint256 chainKey, uint256 amount, address evmRecipient, bytes32 sigHi, bytes32 sigLo)`**  
-  - **`evmRecipient == msg.sender`** (required).  
-  - **sr25519** signature over **`claim_signing_message`** (§0.5).  
-  - On success: **`commit_claim`** (debit `Accrued`, bump nonce), then ERC-20 **`transfer(evmRecipient, amount)`** from treasury.  
+- **`claim(bytes32 stash, uint256 nonce, uint256 chainKey, uint256 amount, address evmRecipient, bytes32 sigHi, bytes32 sigLo)`**
+  - **`evmRecipient == msg.sender`** (required).
+  - **sr25519** signature over **`claim_signing_message`** (§0.5).
+  - On success: **`commit_claim`** (debit `Accrued`, bump nonce), then ERC-20 **`transfer(evmRecipient, amount)`** from treasury.
   - Selector: **`0x1ffb7a3d`**.
 
 ### 3.3 Mutations — deposit (implemented)
@@ -265,16 +265,16 @@ Earlier drafts described **`claim(uint256)`** + ERC-20 **`mint`**. That has been
 
 ### 4.2 Recommended model
 
-1. **Registration extrinsic (Creditcoin native)** (optional product feature)  
+1. **Registration extrinsic (Creditcoin native)** (optional product feature)
    `link_evm_beneficiary(evm_address)` signed by the **account that controls rewards**—typically the **stash** when **`Accrued[stash]`** is used (§2.0.1), not each separate attestor identity. Stored in pallet storage if implemented.
 
-2. **Claim path A — Creditcoin-native first**  
+2. **Claim path A — Creditcoin-native first**
    Extrinsic **`claim_rewards_attest_coin()`** (if added): signed by the **`AccountId`** that owns **`Accrued`**, then runtime performs the EVM leg. Not required if **§0** EVM path is sufficient.
 
-3. **Claim path B — EVM transaction after link**  
+3. **Claim path B — EVM transaction after link**
    User sends tx from **linked H160**; precompile checks `AddressMapping` / link table. **§0** uses **signed preimage** instead of link-table checks.
 
-4. **Claim path C — signature inside precompile (implemented)**  
+4. **Claim path C — signature inside precompile (implemented)**
    **EVM transaction** to the precompile with **`claim(...)`** and **sr25519** over **§0.5**. **Stash** (or **controller**) signs; **`evmRecipient == msg.sender`**.
 
 ### 4.3 Security notes
