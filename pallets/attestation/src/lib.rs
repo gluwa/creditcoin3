@@ -46,7 +46,7 @@ pub mod pallet {
             PostDispatchInfo, WeighData,
         },
         pallet_prelude::{OptionQuery, ValueQuery, *},
-        traits::{tokens::fungibles, ConstU32, Currency, LockableCurrency, OnUnbalanced},
+        traits::{tokens::fungibles, ConstU32, Currency, OnUnbalanced},
         Blake2_128Concat, Twox64Concat,
     };
     use frame_system::pallet_prelude::*;
