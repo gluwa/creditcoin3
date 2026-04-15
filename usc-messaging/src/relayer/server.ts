@@ -11,7 +11,7 @@ import { ethers } from "ethers";
 import express from "express";
 import { loadRelayerConfig } from "./config.js";
 import { deliverMessage } from "./deliver.js";
-import { listenInbox, type StopFn } from "./listeners.js";
+import { listenInbox, listenRelayer, type StopFn } from "./listeners.js";
 import type { DeliveredMessage } from "./types.js";
 
 const OUTBOX_ABI = ["function acknowledgeMessage(bytes32 messageId) public"];
@@ -56,6 +56,7 @@ async function main(): Promise<void> {
   const pendingMessages = new Map<string, DeliveredMessage>();
   const pendingQueue: string[] = [];
   const ackPending = new Set<string>();
+  const paidMessages = new Set<string>();
 
   // Guarded flag to prevent concurrent delivery worker runs.
   let processing = false;
@@ -75,6 +76,13 @@ async function main(): Promise<void> {
       const msg = pendingMessages.get(messageId);
       if (!msg) continue; // already removed by a concurrent tick (safety guard)
 
+      if (!paidMessages.has(messageId)) {
+        console.log(
+          `[Worker] Skipping messageId=${messageId} (not paid yet, will retry)`,
+        );
+        continue;
+      }
+
       if (msg.requiresAck) {
         ackPending.add(messageId);
       }
@@ -87,6 +95,7 @@ async function main(): Promise<void> {
         );
         pendingMessages.delete(messageId);
         pendingQueue.splice(pendingQueue.indexOf(messageId), 1);
+        paidMessages.delete(messageId);
       } else {
         console.error(
           `[Worker] Failed to deliver messageId=${messageId}: ${result.error} — will retry`,
@@ -122,6 +131,18 @@ async function main(): Promise<void> {
           `[Inbox] messageId=${messageId} did not request ACK, skipping acknowledgment`,
         );
       }
+    },
+  );
+
+  // Payment listener: polls SimpleRelayer for MessagePaid events.
+  const stopRelayerListener = listenRelayer(
+    provider,
+    config.relayerContractAddress,
+    destBlock,
+    config.deliveryIntervalMs,
+    async (messageId: string) => {
+      console.log(`[Relayer] MessagePaid messageId=${messageId}`);
+      paidMessages.add(messageId);
     },
   );
 
@@ -167,9 +188,10 @@ async function main(): Promise<void> {
   console.log(`  Source RPC:      ${config.sourceRpcUrl}`);
   console.log(`  Inbox:           ${config.inboxAddress}`);
   console.log(`  Outbox:          ${config.outboxAddress}`);
+  console.log(`  Relayer contract: ${config.relayerContractAddress}`);
   console.log(`  Delivery interval: ${config.deliveryIntervalMs}ms`);
 
-  const stopFns: StopFn[] = [stopInboxListener];
+  const stopFns: StopFn[] = [stopInboxListener, stopRelayerListener];
 
   const shutdown = () => {
     console.log("\nRelayer shutting down...");

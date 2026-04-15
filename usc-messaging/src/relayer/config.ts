@@ -27,6 +27,8 @@ export interface RelayerConfig {
   sourceRpcUrl: string;
   /** Outbox contract address on source chain (used for ACK) */
   outboxAddress: string;
+  /** SimpleRelayer contract address on destination chain (used for payment gating) */
+  relayerContractAddress: string;
   /** How often (ms) the delivery worker attempts to process the pending queue */
   deliveryIntervalMs: number;
   /** HTTP port for receiving messages from attesters (0 = disabled) */
@@ -65,6 +67,9 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
   const inbox = parseArg("--inbox", "-i") ?? process.env.RELAYER_INBOX_ADDRESS;
   const outbox =
     parseArg("--outbox", "-o") ?? process.env.RELAYER_OUTBOX_ADDRESS;
+  const relayer =
+    parseArg("--relayer-contract", "-c") ??
+    process.env.RELAYER_CONTRACT_ADDRESS;
 
   const httpPort = parseInt(
     parseArg("--http-port") ??
@@ -80,10 +85,11 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
     10,
   );
 
-  // Resolve inbox and outbox addresses: CLI/env first, then deployments.json fallback.
+  // Resolve addresses: CLI/env first, then deployments.json fallback.
   let inboxAddress = inbox;
   let outboxAddress = outbox;
-  if (!inboxAddress || !outboxAddress) {
+  let relayerContractAddress = relayer;
+  if (!inboxAddress || !outboxAddress || !relayerContractAddress) {
     try {
       const { readFile } = await import("fs/promises");
       const { existsSync } = await import("fs");
@@ -94,6 +100,7 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
         const d = JSON.parse(raw);
         if (!inboxAddress) inboxAddress = d.inbox;
         if (!outboxAddress) outboxAddress = d.outbox;
+        if (!relayerContractAddress) relayerContractAddress = d.relayer;
       }
     } catch {
       // ignore
@@ -118,12 +125,19 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
     );
   }
 
+  if (!isValidContractAddress(relayerContractAddress)) {
+    throw new Error(
+      "Invalid or missing relayer contract address. Pass --relayer-contract 0x<40 hex chars> or set RELAYER_CONTRACT_ADDRESS.",
+    );
+  }
+
   return {
     rpcUrl,
     sourceRpcUrl,
     privateKey: key.startsWith("0x") ? key : `0x${key}`,
     inboxAddress,
     outboxAddress,
+    relayerContractAddress,
     deliveryIntervalMs,
     httpPort,
   };
