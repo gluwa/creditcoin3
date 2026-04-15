@@ -11,6 +11,99 @@ export type __AugmentedError<ApiType extends ApiTypes> = AugmentedError<ApiType>
 
 declare module '@polkadot/api-base/types/errors' {
     interface AugmentedErrors<ApiType extends ApiTypes> {
+        assets: {
+            /**
+             * The asset-account already exists.
+             **/
+            AlreadyExists: AugmentedError<ApiType>;
+            /**
+             * The asset is not live, and likely being destroyed.
+             **/
+            AssetNotLive: AugmentedError<ApiType>;
+            /**
+             * The asset ID must be equal to the [`NextAssetId`].
+             **/
+            BadAssetId: AugmentedError<ApiType>;
+            /**
+             * Invalid metadata given.
+             **/
+            BadMetadata: AugmentedError<ApiType>;
+            /**
+             * Invalid witness data given.
+             **/
+            BadWitness: AugmentedError<ApiType>;
+            /**
+             * Account balance must be greater than or equal to the transfer amount.
+             **/
+            BalanceLow: AugmentedError<ApiType>;
+            /**
+             * Callback action resulted in error
+             **/
+            CallbackFailed: AugmentedError<ApiType>;
+            /**
+             * The origin account is frozen.
+             **/
+            Frozen: AugmentedError<ApiType>;
+            /**
+             * The asset status is not the expected status.
+             **/
+            IncorrectStatus: AugmentedError<ApiType>;
+            /**
+             * The asset ID is already taken.
+             **/
+            InUse: AugmentedError<ApiType>;
+            /**
+             * The asset is a live asset and is actively being used. Usually emit for operations such
+             * as `start_destroy` which require the asset to be in a destroying state.
+             **/
+            LiveAsset: AugmentedError<ApiType>;
+            /**
+             * Minimum balance should be non-zero.
+             **/
+            MinBalanceZero: AugmentedError<ApiType>;
+            /**
+             * The account to alter does not exist.
+             **/
+            NoAccount: AugmentedError<ApiType>;
+            /**
+             * The asset-account doesn't have an associated deposit.
+             **/
+            NoDeposit: AugmentedError<ApiType>;
+            /**
+             * The signing account has no permission to do the operation.
+             **/
+            NoPermission: AugmentedError<ApiType>;
+            /**
+             * The asset should be frozen before the given operation.
+             **/
+            NotFrozen: AugmentedError<ApiType>;
+            /**
+             * No approval exists that would allow the transfer.
+             **/
+            Unapproved: AugmentedError<ApiType>;
+            /**
+             * Unable to increment the consumer reference counters on the account. Either no provider
+             * reference exists to allow a non-zero balance of a non-self-sufficient asset, or one
+             * fewer then the maximum number of consumers has been reached.
+             **/
+            UnavailableConsumer: AugmentedError<ApiType>;
+            /**
+             * The given asset ID is unknown.
+             **/
+            Unknown: AugmentedError<ApiType>;
+            /**
+             * The operation would result in funds being burned.
+             **/
+            WouldBurn: AugmentedError<ApiType>;
+            /**
+             * The source account would not survive the transfer and it needs to stay alive.
+             **/
+            WouldDie: AugmentedError<ApiType>;
+            /**
+             * Generic error
+             **/
+            [key: string]: AugmentedError<ApiType>;
+        };
         attestation: {
             /**
              * The call the urnegister_invulnerable failed because the address is not invulnerable
@@ -47,11 +140,9 @@ declare module '@polkadot/api-base/types/errors' {
             AttestorNotIdle: AugmentedError<ApiType>;
             AttestorWithInvalidPublicKey: AugmentedError<ApiType>;
             /**
-             * The BLS public key supplied is already registered to another attestor controller
-             * on this chain (active or retired). BLS keys must be unique per chain so the
-             * aggregation quorum reflects independent signers.
+             * Moving bond into or out of the pool failed (asset transfer).
              **/
-            BlsKeyAlreadyRegistered: AugmentedError<ApiType>;
+            BondAssetTransferFailed: AugmentedError<ApiType>;
             /**
              * The chain is not supported
              **/
@@ -74,13 +165,6 @@ declare module '@polkadot/api-base/types/errors' {
             EmptyCheckpointPatch: AugmentedError<ApiType>;
             EmptyContinuityProof: AugmentedError<ApiType>;
             InsufficientBalance: AugmentedError<ApiType>;
-            /**
-             * The attestation lists enough distinct controller accounts but they map to fewer
-             * distinct BLS public keys than the threshold. Without this check a single BLS
-             * signer could satisfy the threshold by being aliased under multiple controller
-             * accounts.
-             **/
-            InsufficientUniqueSigners: AugmentedError<ApiType>;
             /**
              * The call to attest_block failed, the block's cryptographic committments were invalid
              **/
@@ -134,6 +218,28 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
             TriedToRevertDuringOngoingReversion: AugmentedError<ApiType>;
+            /**
+             * Generic error
+             **/
+            [key: string]: AugmentedError<ApiType>;
+        };
+        attestCoinRewards: {
+            /**
+             * Claim nonce does not match on-chain counter.
+             **/
+            BadClaimNonce: AugmentedError<ApiType>;
+            /**
+             * Claim exceeds accrued points.
+             **/
+            InsufficientAccrued: AugmentedError<ApiType>;
+            /**
+             * Not a bonded attestor stash (`pallet_attestation::Ledger`).
+             **/
+            NotStash: AugmentedError<ApiType>;
+            /**
+             * No ERC-20 configured yet.
+             **/
+            TokenNotConfigured: AugmentedError<ApiType>;
             /**
              * Generic error
              **/

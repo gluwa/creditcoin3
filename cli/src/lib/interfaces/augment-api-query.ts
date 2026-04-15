@@ -26,6 +26,10 @@ import type {
     FrameSystemEventRecord,
     FrameSystemLastRuntimeUpgradeInfo,
     FrameSystemPhase,
+    PalletAssetsApproval,
+    PalletAssetsAssetAccount,
+    PalletAssetsAssetDetails,
+    PalletAssetsAssetMetadata,
     PalletAttestationAttestorElectionPolicy,
     PalletAttestationClearOrRevertCheckpointPruningState,
     PalletAttestationLedgerAttestorLedger,
@@ -81,6 +85,70 @@ export type __QueryableStorageEntry<ApiType extends ApiTypes> = QueryableStorage
 
 declare module '@polkadot/api-base/types/storage' {
     interface AugmentedQueries<ApiType extends ApiTypes> {
+        assets: {
+            /**
+             * The holdings of a specific account for a specific asset.
+             **/
+            account: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u32 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<PalletAssetsAssetAccount>>,
+                [u32, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u32, AccountId32]>;
+            /**
+             * Approved balance transfers. First balance is the amount approved for transfer. Second
+             * is the amount of `T::Currency` reserved for storing this.
+             * First key is the asset ID, second key is the owner and third key is the delegate.
+             **/
+            approvals: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u32 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                    arg3: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<PalletAssetsApproval>>,
+                [u32, AccountId32, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u32, AccountId32, AccountId32]>;
+            /**
+             * Details of an asset.
+             **/
+            asset: AugmentedQuery<
+                ApiType,
+                (arg: u32 | AnyNumber | Uint8Array) => Observable<Option<PalletAssetsAssetDetails>>,
+                [u32]
+            > &
+                QueryableStorageEntry<ApiType, [u32]>;
+            /**
+             * Metadata of an asset.
+             **/
+            metadata: AugmentedQuery<
+                ApiType,
+                (arg: u32 | AnyNumber | Uint8Array) => Observable<PalletAssetsAssetMetadata>,
+                [u32]
+            > &
+                QueryableStorageEntry<ApiType, [u32]>;
+            /**
+             * The asset ID enforced for the next asset creation, if any present. Otherwise, this storage
+             * item has no effect.
+             *
+             * This can be useful for setting up constraints for IDs of the new assets. For example, by
+             * providing an initial [`NextAssetId`] and using the [`crate::AutoIncAssetId`] callback, an
+             * auto-increment model can be applied to all new asset IDs.
+             *
+             * The initial next asset ID can be set using the [`GenesisConfig`] or the
+             * [SetNextAssetId](`migration::next_asset_id::SetNextAssetId`) migration.
+             **/
+            nextAssetId: AugmentedQuery<ApiType, () => Observable<Option<u32>>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
         attestation: {
             activeAttestors: AugmentedQuery<
                 ApiType,
@@ -350,6 +418,32 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [AccountId32]>;
             targetSampleSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
+        attestCoinRewards: {
+            accrued: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<u128>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            /**
+             * ERC-20 contract address (treasury tokens sit here; claims use `transfer`, not `mint`).
+             **/
+            attestCoinErc20: AugmentedQuery<ApiType, () => Observable<Option<H160>>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
+             * Monotonic claim nonce per stash (for sr25519-signed EVM claims).
+             **/
+            claimNonce: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<u64>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
             /**
              * Generic query
              **/
