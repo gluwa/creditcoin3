@@ -24,7 +24,7 @@ async function fetchRequiresAck(
 ): Promise<boolean> {
   if (!config.sourceChainRpcUrl || !config.outboxAddress) {
     throw new Error(
-      "Outbox not configured. Set QUOTER_SOURCE_RPC_URL and QUOTER_OUTBOX_ADDRESS (or pass --source-rpc-url / --outbox).",
+      "Outbox not configured. Set CREDITCOIN_RPC_URL and OUTBOX_ADDR (or pass --source-rpc-url / --outbox).",
     );
   }
   const provider = new ethers.JsonRpcProvider(config.sourceChainRpcUrl);

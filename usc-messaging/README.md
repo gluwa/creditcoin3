@@ -43,23 +43,25 @@ cargo build --features=fast-runtime --release
 
 We want to deploy several contracts in this step:
 1. The sample `dApp contract`. This contract lives on Creditcoin and will request to send writability messages
-2. The `outbox contract`. This contract lives on Creditcoin and is where message requests are submitted and processed
-3. The `inbox contract`. This contract lives on the destination chain. It processes incoming messages from Creditcoin.
-4. The `destination contract`. This contract lives on the destination chain. It acts as the endpoint where a dApp was attempting to send its messages.
+2. The `relayer contract`. This contract lives on Creditcoin and processes quotes + payments for messages.
+3. The `outbox contract`. This contract lives on Creditcoin and is where message requests are submitted and processed
+4. The `inbox contract`. This contract lives on the destination chain. It processes incoming messages from Creditcoin.
+5. The `vote validator contract`. This contract lives on the destination chain and validates attestor votes on messages
+  forwarded from the inbox.
+6. The `destination contract`. This contract lives on the destination chain. It acts as the endpoint where a dApp was attempting to send its messages.
 
 We have simplified the deployment of these contracts with a single script:
 ```bash
-cd usc-messaging/contracts
-./script/deploy.sh
+cd usc-messaging
+npx tsx scripts/deploy.ts
 ```
 
 This script also saves the addresses of all deployed contracts in `.env` for
 later use.
 
-### 3. Run mock Attestor, Relayer, and DApp Message Acknowledgement worker
+### 3. Run mock Attestor, Relayer, Quoter, and DApp Message Acknowledgement worker
 First start the attestor:
 ```bash
-cd ..
 npm run dev:attester
 ```
 
@@ -68,19 +70,25 @@ Then start the relayer:
 npm run dev:relayer
 ```
 
+Then start the Quoter:
 ```bash
-npx tsx scripts/dApp-ack-worker.ts
+npm run dev:quoter
+```
+
+Finally, start the dApp's acknowledgement worker:
+```bash
+npx tsx src/dApp-ack-worker/dApp-ack-worker.ts
 ```
 
 ### 4. Submit message request to dApp contract
 To submit our message, run the following:
 ```bash
-npx tsx scripts/publish-message.ts
+npx tsx scripts/publish-message/publish-message.ts
 ```
 
 ### 5. Watch for automated message signing, sending, and acknowledgement
 
-The first component to pick up your message will be the attestor. It will 
+1. The first component to pick up your message will be the attestor. It will 
 detect a `MessagePublished` event and print something like:
 
 ```
@@ -89,7 +97,7 @@ detect a `MessagePublished` event and print something like:
 [Relayer] messageId=0x933df8cd4be30caa6aad59374988f9f4a917f69d4cf56b19f706549d67b5f376 successfully notified to relayer
 ```
 
-Next the relayer will log its message delivery process:
+2. Next the attester notifies the relayer, which logs its message delivery process:
 
 ```
 [Attester] Received messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 from attester
@@ -100,7 +108,10 @@ Next the relayer will log its message delivery process:
 [Worker] Delivered messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 tx=0x5297dfe7832db6e83446b3c331f39121649f3ba13873a134bc47a804608716b0
 ```
 
-Then the `dApp-ack-worker` picks up on the `MessageReceived` event emitted by the destination contract.
+3. The inbox contract forwards the message to its designated destination contract. The destination
+contract emits a `MessageReceived` event.
+
+4. Then the `dApp-ack-worker` picks up on the `MessageReceived` event emitted by the destination contract.
 It it forwards the acknowledgement and logs the process:
 ```
 MessageReceived
@@ -112,7 +123,7 @@ markDelivered tx sent: 0x65ae778f1639d7e1bc27dfd2d0efc28fe9ca1c53520307c5fa4e9cf
 markDelivered confirmed in block 7889
 ```
 
-Finally, our `publish-message` script listens for the `MessageDelivered` event
+5. Finally, our `publish-message` script listens for the `MessageDelivered` event
 emitted from our simpleDApp contract on Creditcoin. 
 ```
 ⏳ Waiting for MessageDelivered events...
@@ -183,11 +194,8 @@ Response (JSON):
 | Env var                    | Default                         | Description                    |
 |----------------------------|---------------------------------|--------------------------------|
 | `QUOTER_PORT`              | 3300                            | HTTP server port               |
-| `QUOTER_SIGNER_PRIVATE_KEY` | (dev key)                      | EOA key for signing quotes     |
-| `QUOTER_PAYEE_ADDRESS`    | 0x0...1                         | Relayer pool address           |
 | `QUOTER_PAYMENT_TOKEN`    | 0x0                             | address(0) = native currency   |
 | `QUOTER_EXPIRY_SECONDS`   | 3600                            | Quote validity                 |
-| `QUOTER_DESTINATION_RPC_URL` | -                            | RPC for gas price (optional)   |
 
 **CLI args** (override env): `--payee-address 0x...`, `--payment-token 0x...`, `--rpc-url https://...` (or `-p`, `-t`, `-r`)
 

@@ -69,7 +69,7 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
     parseArg("--outbox", "-o") ?? process.env.OUTBOX_ADDR;
   const relayer =
     parseArg("--relayer-contract", "-c") ??
-    process.env.RELAYER_CONTRACT_ADDRESS;
+    process.env.RELAYER_CONTRACT_ADDR;
 
   const httpPort = parseInt(
     parseArg("--http-port") ??
@@ -127,7 +127,7 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
 
   if (!isValidContractAddress(relayerContractAddress)) {
     throw new Error(
-      "Invalid or missing relayer contract address. Pass --relayer-contract 0x<40 hex chars> or set RELAYER_CONTRACT_ADDRESS.",
+      "Invalid or missing relayer contract address. Pass --relayer-contract 0x<40 hex chars> or set RELAYER_CONTRACT_ADDR.",
     );
   }
 

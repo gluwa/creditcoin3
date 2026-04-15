@@ -23,6 +23,7 @@ contract SimpleDApp {
     mapping(bytes32 => bool) public messageDelivered;
 
     event MessageDelivered(bytes32 indexed messageId);
+    event MessageDispatched(bytes32 indexed messageId);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");
@@ -47,6 +48,7 @@ contract SimpleDApp {
         messageId = outbox.publishMessage(requiresAck, payload);
 
         messagePublished[messageId] = true;
+        emit MessageDispatched(messageId);
     }
 
     function markDelivered(bytes32 messageId) external onlyOwner {

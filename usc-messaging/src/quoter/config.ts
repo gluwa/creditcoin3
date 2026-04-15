@@ -11,13 +11,16 @@ import {
   DEFAULT_DESTINATION_RPC_URL,
   DEFAULT_QUOTER_PORT,
   DEFAULT_SOURCE_RPC_URL,
-  DEPLOYMENTS_FILE,
 } from "../consts.js";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { isValidContractAddress, isValidPrivateKey } from "../utils.js";
+import { fileURLToPath } from "node:url";
 
-const DEFAULT_SIGNER_KEY =
-  "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-const DEFAULT_PAYEE = "0x0000000000000000000000000000000000000001";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REPO_ROOT = path.resolve(__dirname, "..");
+
 const DEFAULT_PAYMENT_TOKEN = "0x0000000000000000000000000000000000000000";
 const DEFAULT_EXPIRY_SECONDS = "3600";
 const DEFAULT_RELAY_GAS_LIMIT = "300000";
@@ -64,13 +67,46 @@ function parseArg(name: string, short?: string): string | undefined {
   return undefined;
 }
 
+function runCommand(cmd: string, args: string[], cwd: string): string {
+  try {
+    const output = execFileSync(cmd, args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return output;
+  } catch (err: any) {
+    const stdout = err?.stdout ? String(err.stdout) : "";
+    const stderr = err?.stderr ? String(err.stderr) : "";
+    const combined = [stdout, stderr].filter(Boolean).join("\n");
+    throw new Error(`Command failed: ${cmd} ${args.join(" ")}\n${combined}`);
+  }
+}
+
+function getPayeeAddress(): string {
+  const privateKey = requireEnv("CREDITCOIN_CHAIN_PRIVATE_KEY");
+  const output = runCommand(
+    "cast",
+    ["wallet", "address", "--private-key", privateKey],
+    REPO_ROOT
+  );
+  return output.trim();
+}
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing ${name}`);
+  }
+  return value;
+}
+
 export async function loadQuoterConfig(): Promise<QuoterConfig> {
   dotenv.config({ override: true });
 
   const payeeAddress =
     parseArg("--payee-address", "-p") ??
-    process.env.QUOTER_PAYEE_ADDRESS ??
-    DEFAULT_PAYEE;
+    getPayeeAddress();
 
   const paymentToken =
     parseArg("--payment-token", "-t") ??
@@ -79,37 +115,19 @@ export async function loadQuoterConfig(): Promise<QuoterConfig> {
 
   const destinationChainRpcUrl =
     parseArg("--rpc-url", "-r") ??
-    process.env.QUOTER_DESTINATION_RPC_URL ??
-    process.env.QUOTER_RPC_URL ??
+    process.env.DESTINATION_CHAIN_RPC_URL ??
     DEFAULT_DESTINATION_RPC_URL;
 
   const sourceChainRpcUrl =
     parseArg("--source-rpc-url") ??
-    process.env.QUOTER_SOURCE_RPC_URL ??
+    process.env.CREDITCOIN_RPC_URL ??
     DEFAULT_SOURCE_RPC_URL;
 
-  let outboxAddress = parseArg("--outbox") ?? process.env.QUOTER_OUTBOX_ADDRESS;
-
-  if (!outboxAddress) {
-    try {
-      const { readFile } = await import("fs/promises");
-      const { existsSync } = await import("fs");
-      const path = await import("path");
-      const deployPath = path.join(process.cwd(), DEPLOYMENTS_FILE);
-      if (existsSync(deployPath)) {
-        const raw = await readFile(deployPath, "utf-8");
-        const d = JSON.parse(raw);
-        if (d.outbox) outboxAddress = d.outbox;
-      }
-    } catch {
-      // ignore
-    }
-  }
+  let outboxAddress = parseArg("--outbox") ?? requireEnv("OUTBOX_ADDR");
 
   const key =
     parseArg("--private-key", "-k") ??
-    process.env.QUOTER_SIGNER_PRIVATE_KEY ??
-    DEFAULT_SIGNER_KEY;
+    requireEnv("CREDITCOIN_CHAIN_PRIVATE_KEY");
 
   const port = parseInt(
     parseArg("--port") ?? process.env.QUOTER_PORT ?? DEFAULT_QUOTER_PORT,
@@ -118,7 +136,7 @@ export async function loadQuoterConfig(): Promise<QuoterConfig> {
 
   if (!isValidContractAddress(payeeAddress)) {
     throw new Error(
-      `Invalid payee address: ${payeeAddress}. Pass --payee-address 0x<40 hex chars> or set QUOTER_PAYEE_ADDRESS.`,
+      `Invalid payee address: ${payeeAddress}.`,
     );
   }
   if (!isValidContractAddress(paymentToken)) {
@@ -128,7 +146,7 @@ export async function loadQuoterConfig(): Promise<QuoterConfig> {
   }
   if (!isValidPrivateKey(key)) {
     throw new Error(
-      "Invalid or missing private key. Pass --private-key 0x<64 hex chars> or set QUOTER_SIGNER_PRIVATE_KEY.",
+      "Invalid or missing private key. Pass --private-key 0x<64 hex chars> or set CREDITCOIN_CHAIN_PRIVATE_KEY.",
     );
   }
 
