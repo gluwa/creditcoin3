@@ -1,6 +1,6 @@
 # Attest-coin rewards — overview (Confluence)
 
-**Audience:** product, operations, and partners who need the “what and why” without implementation detail.  
+**Audience:** product, operations, and partners who need the “what and why” without implementation detail.
 **Companion:** engineers should use the repository technical specification for exact interfaces and behavior.
 
 ---
