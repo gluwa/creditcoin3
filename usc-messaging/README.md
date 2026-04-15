@@ -20,7 +20,7 @@ cp .env.example .env
 TODO: Use Sepolia and Creditcoin3 Testnet as the chains for this demo. Then fund
 accounts using faucets.
 
-The private keys in this .env.example are well known dev keys, but you will still have 
+The private keys in this .env.example are well known dev keys, but you will still have
 to fund the address corresponding to `CREDITCOIN_CHAIN_PRIVATE_KEY` manually:
 
 TODO: How to fund creditcoin evm address on local chain
@@ -88,7 +88,7 @@ npx tsx scripts/publish-message/publish-message.ts
 
 ### 5. Watch for automated message signing, sending, and acknowledgement
 
-1. The first component to pick up your message will be the attestor. It will 
+1. The first component to pick up your message will be the attestor. It will
 detect a `MessagePublished` event and print something like:
 
 ```
@@ -124,7 +124,7 @@ markDelivered confirmed in block 7889
 ```
 
 5. Finally, our `publish-message` script listens for the `MessageDelivered` event
-emitted from our simpleDApp contract on Creditcoin. 
+emitted from our simpleDApp contract on Creditcoin.
 ```
 ⏳ Waiting for MessageDelivered events...
 📬 MessageDelivered event received!

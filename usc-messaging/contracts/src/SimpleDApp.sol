@@ -1,7 +1,7 @@
 // This contract plays the role of a dApp contract deployed on Creditcoin
-// by a builder team. DApp contracts could trigger message passing via 
+// by a builder team. DApp contracts could trigger message passing via
 // writability for many reasons, but in our example we model the simplest
-// possible reason. An end user makes a dApp contract call directly 
+// possible reason. An end user makes a dApp contract call directly
 // requesting cross chain messaging.
 
 // SPDX-License-Identifier: MIT

@@ -42,7 +42,7 @@ const DEFAULT_MESSAGE_ID =
 
 const messageId =
   cliArg("message-id", "m") ?? DEFAULT_MESSAGE_ID;
-const quoterUrl = cliArg("quoter-url", "q") ?? 
+const quoterUrl = cliArg("quoter-url", "q") ??
   `http://127.0.0.1:${process.env.QUOTER_PORT ?? "3300"}`;
 const sourceRpcUrl = requireEnv("CREDITCOIN_RPC_URL");
 const quoterSourceChainKey = requireEnv("CREDITCOIN_CHAIN_PRIVATE_KEY");

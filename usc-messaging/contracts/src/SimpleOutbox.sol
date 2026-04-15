@@ -42,7 +42,7 @@ contract Outbox {
 
         messages[messageId] =
             Message({emitter: usContract, acknowledged: false, payloadHash: payloadHash});
-        
+
         messageRequiresAck[messageId] = requiresAck;
 
         emit MessagePublished(messageId, bytes32(bytes20(usContract)), requiresAck, payload);
@@ -50,7 +50,7 @@ contract Outbox {
 
     function acknowledgeMessage(bytes32 messageId) public {
         Message storage m = messages[messageId];
-        
+
         if (m.emitter == address(0)) {
             revert MessageNotFound(messageId);
         }
