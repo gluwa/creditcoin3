@@ -61,6 +61,7 @@ pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
 pallet-staking-reward-curve = { workspace = true, default-features = false }
 pallet-supported-chains = { workspace = true }
+pallet-assets = { workspace = true, default-features = false, features = ["std"] }
 precompile-utils = { workspace = true, features = ["std", "testing"] }
 serde = { workspace = true }
 sp-staking = { workspace = true }
@@ -85,6 +86,7 @@ std = [
     "sp-std/std",
     "pallet-supported-chains/std",
     "pallet-attestation/std",
+    "pallet-assets/std",
     "attestor-primitives/std",
     "pallet-babe/std",
     "utils/std",

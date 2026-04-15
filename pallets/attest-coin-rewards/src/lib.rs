@@ -124,7 +124,8 @@ pub mod pallet {
 
             let mut credited = 0u32;
             for attestor_id in eligible_signers {
-                if let Some(att) = pallet_attestation::Pallet::<T>::attestors(chain_key, attestor_id)
+                if let Some(att) =
+                    pallet_attestation::Pallet::<T>::attestors(chain_key, attestor_id)
                 {
                     let stash = att.stash;
                     Accrued::<T>::mutate(&stash, |a| *a += per);

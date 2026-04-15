@@ -1,4 +1,5 @@
-//! Attest-coin precompile: `accrued(bytes32)` view and `claim(...)` with sr25519 + ERC-20 `transfer` from treasury.
+//! Attest-coin precompile: `accrued(bytes32)`, `claim(...)`, `deposit(uint256)`, and
+//! `depositTo(uint256,bytes32)` (ERC-20 → `pallet-assets` mint to caller-mapped or explicit Substrate account).
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -7,12 +8,17 @@ use fp_evm::{
     Context, ExitError, ExitReason, ExitRevert, ExitSucceed, Precompile, PrecompileFailure,
     PrecompileHandle, PrecompileOutput, PrecompileResult,
 };
+use frame_support::dispatch::{GetDispatchInfo, PostDispatchInfo};
 use pallet_attest_coin_rewards::Pallet as Rewards;
-use pallet_evm::AddressMapping;
+use pallet_evm::{AddressMapping, GasWeightMapping};
 use pallet_staking::Bonded;
 use parity_scale_codec::Encode;
+use precompile_utils::evm::handle::using_precompile_handle;
+use precompile_utils::prelude::RuntimeHelper;
+use precompile_utils::substrate::TryDispatchError;
 use sp_core::{sr25519, H160, U256};
 use sp_io::crypto::sr25519_verify;
+use sp_runtime::traits::{Dispatchable, StaticLookup};
 use sp_std::vec::Vec;
 
 /// `accrued(bytes32)`
@@ -21,6 +27,14 @@ const SEL_ACCRUED: [u8; 4] = [0xf9, 0x2f, 0x23, 0xa7];
 const SEL_CLAIM: [u8; 4] = [0x1f, 0xfb, 0x7a, 0x3d];
 /// ERC-20 `transfer(address,uint256)`
 const SEL_TRANSFER: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
+/// ERC-20 `transferFrom(address,address,uint256)`
+const SEL_TRANSFER_FROM: [u8; 4] = [0x23, 0xb8, 0x72, 0xdd];
+/// `deposit(uint256)` — bridge ERC-20 into Substrate `pallet-assets` (mint to EVM caller’s mapped account).
+const SEL_DEPOSIT: [u8; 4] = [0xb6, 0xb5, 0x5f, 0x25];
+/// `depositTo(uint256,bytes32)` — same as [`SEL_DEPOSIT`] but mints to an explicit 32-byte `AccountId`.
+const SEL_DEPOSIT_TO: [u8; 4] = [0xc6, 0xbc, 0x97, 0x5d];
+/// Must match runtime `ATTEST_COIN_ASSET_ID` and chain genesis.
+const ATTEST_COIN_ASSET_ID: u32 = 1;
 
 pub struct AttestCoinPrecompile<Runtime>(PhantomData<Runtime>);
 
@@ -39,11 +53,17 @@ impl<Runtime> Default for AttestCoinPrecompile<Runtime> {
 impl<Runtime> Precompile for AttestCoinPrecompile<Runtime>
 where
     Runtime: pallet_evm::Config
+        + pallet_assets::Config
         + pallet_attest_coin_rewards::Config
         + pallet_attestation::Config
         + pallet_staking::Config,
     Runtime::AccountId: From<[u8; 32]> + Encode,
+    Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
+    Runtime::RuntimeCall: From<pallet_assets::Call<Runtime>>,
+    <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin: From<Option<Runtime::AccountId>>,
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
+    <Runtime as pallet_assets::Config>::AssetIdParameter: From<u32>,
+    <Runtime as pallet_assets::Config>::Balance: From<u128>,
 {
     fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
         let input = handle.input().to_vec();
@@ -57,6 +77,8 @@ where
         match sel {
             SEL_ACCRUED => Self::accrued(handle, &input[4..]),
             SEL_CLAIM => Self::claim(handle, &input[4..]),
+            SEL_DEPOSIT => Self::deposit(handle, &input[4..]),
+            SEL_DEPOSIT_TO => Self::deposit_to(handle, &input[4..]),
             _ => Err(PrecompileFailure::Error {
                 exit_status: ExitError::Other("unknown selector".into()),
             }),
@@ -67,11 +89,17 @@ where
 impl<Runtime> AttestCoinPrecompile<Runtime>
 where
     Runtime: pallet_evm::Config
+        + pallet_assets::Config
         + pallet_attest_coin_rewards::Config
         + pallet_attestation::Config
         + pallet_staking::Config,
     Runtime::AccountId: From<[u8; 32]> + Encode,
+    Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
+    Runtime::RuntimeCall: From<pallet_assets::Call<Runtime>>,
+    <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin: From<Option<Runtime::AccountId>>,
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
+    <Runtime as pallet_assets::Config>::AssetIdParameter: From<u32>,
+    <Runtime as pallet_assets::Config>::Balance: From<u128>,
 {
     fn accrued(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
         handle.record_cost(3_000)?;
@@ -192,6 +220,148 @@ where
             output: Vec::new(),
         })
     }
+
+    /// Mint attest coin to the Substrate account mapped from the EVM caller (`AddressMapping`).
+    fn deposit(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
+        let caller_h160 = handle.context().caller;
+        let beneficiary = Runtime::AddressMapping::into_account_id(caller_h160);
+        Self::deposit_with_beneficiary(handle, rest, beneficiary)
+    }
+
+    /// Mint attest coin to an explicit 32-byte `AccountId` (e.g. sr25519 stash), still pulling ERC-20 from the caller.
+    fn deposit_to(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
+        if rest.len() < 64 {
+            return Err(bad_input());
+        }
+        let mut raw = [0u8; 32];
+        raw.copy_from_slice(&rest[32..64]);
+        if raw == [0u8; 32] {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"zero beneficiary".to_vec(),
+            });
+        }
+        let beneficiary = Runtime::AccountId::from(raw);
+        Self::deposit_with_beneficiary(handle, &rest[0..32], beneficiary)
+    }
+
+    fn deposit_with_beneficiary(
+        handle: &mut impl PrecompileHandle,
+        amount_word: &[u8],
+        beneficiary: Runtime::AccountId,
+    ) -> PrecompileResult {
+        handle.record_cost(120_000)?;
+        if amount_word.len() < 32 {
+            return Err(bad_input());
+        }
+        let amount_u256 = U256::from_big_endian(&amount_word[0..32]);
+        if amount_u256.is_zero() {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"zero amount".to_vec(),
+            });
+        }
+        let amount_u128 = u256_to_u128_balance(amount_u256)?;
+
+        let token = match Rewards::<Runtime>::erc20_token() {
+            Some(t) => t,
+            None => {
+                return Err(PrecompileFailure::Revert {
+                    exit_status: ExitRevert::Reverted,
+                    output: b"token not configured".to_vec(),
+                });
+            }
+        };
+
+        let caller_h160 = handle.context().caller;
+        let precompile_h160 = handle.code_address();
+
+        let mut transfer_from_data = Vec::with_capacity(4 + 32 + 32 + 32);
+        transfer_from_data.extend_from_slice(&SEL_TRANSFER_FROM);
+        transfer_from_data.extend_from_slice(&encode_address(caller_h160.as_fixed_bytes()));
+        transfer_from_data.extend_from_slice(&encode_address(precompile_h160.as_fixed_bytes()));
+        transfer_from_data.extend_from_slice(&encode_u256(amount_u256));
+
+        // `msg.sender` on the token must be the approved spender (`approve(precompile, …)`).
+        // This matches `claim`'s `transfer` subcall (`caller = code_address`), not the EOA.
+        let sub_context = Context {
+            caller: handle.code_address(),
+            address: token,
+            apparent_value: U256::zero(),
+        };
+        let gas = handle.remaining_gas().saturating_mul(9) / 10;
+        let (reason, ret) = handle.call(
+            token,
+            None,
+            transfer_from_data,
+            Some(gas),
+            false,
+            &sub_context,
+        );
+        if !matches!(reason, ExitReason::Succeed(_)) {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: ret,
+            });
+        }
+
+        let issuer = Runtime::AddressMapping::into_account_id(precompile_h160);
+
+        try_dispatch_deposit_mint::<Runtime, _>(
+            handle,
+            Some(issuer).into(),
+            pallet_assets::Call::<Runtime>::mint {
+                id: ATTEST_COIN_ASSET_ID.into(),
+                beneficiary: Runtime::Lookup::unlookup(beneficiary),
+                amount: amount_u128.into(),
+            },
+        )
+        .map_err(PrecompileFailure::from)?;
+
+        Ok(PrecompileOutput {
+            exit_status: ExitSucceed::Returned,
+            output: Vec::new(),
+        })
+    }
+}
+
+/// Like [`RuntimeHelper::try_dispatch`], but does **not** reserve `dispatch_info.weight.proof_size()` on
+/// the EVM handle. Otherwise Substrate benchmark PoV for `pallet_assets::mint` is stacked on top of the
+/// same transaction’s Frontier proof meter and exhausts gas (`gasUsed == gasLimit`).
+fn try_dispatch_deposit_mint<Runtime, Call>(
+    handle: &mut impl PrecompileHandle,
+    origin: <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin,
+    call: Call,
+) -> Result<PostDispatchInfo, TryDispatchError>
+where
+    Runtime: pallet_evm::Config,
+    Runtime::RuntimeCall: From<Call> + Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
+{
+    let call = Runtime::RuntimeCall::from(call);
+    let dispatch_info = call.get_dispatch_info();
+
+    let remaining_gas = handle.remaining_gas();
+    let required_gas =
+        <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(dispatch_info.weight);
+    if required_gas > remaining_gas {
+        return Err(TryDispatchError::Evm(ExitError::OutOfGas));
+    }
+
+    handle
+        .record_external_cost(None, None, Some(0u64))
+        .map_err(TryDispatchError::Evm)?;
+
+    let post_dispatch_info = using_precompile_handle(handle, || call.dispatch(origin))
+        .map_err(|e| TryDispatchError::Substrate(e.error))?;
+
+    RuntimeHelper::<Runtime>::refund_weight_v2_cost(
+        handle,
+        dispatch_info.weight,
+        post_dispatch_info.actual_weight,
+    )
+    .map_err(TryDispatchError::Evm)?;
+
+    Ok(post_dispatch_info)
 }
 
 fn account_id_to_sr25519_public<AccountId: Encode>(acct: &AccountId) -> Option<sr25519::Public> {
@@ -260,6 +430,20 @@ fn u256_to_u64(u: U256) -> Result<u64, PrecompileFailure> {
         });
     }
     Ok(u64::from_be_bytes(be[24..32].try_into().expect("8 bytes")))
+}
+
+fn u256_to_u128_balance(u: U256) -> Result<u128, PrecompileFailure> {
+    let mut be = [0u8; 32];
+    u.to_big_endian(&mut be);
+    if be.iter().take(16).any(|b| *b != 0) {
+        return Err(PrecompileFailure::Revert {
+            exit_status: ExitRevert::Reverted,
+            output: b"amount too large".to_vec(),
+        });
+    }
+    Ok(u128::from_be_bytes(
+        be[16..32].try_into().expect("16 bytes"),
+    ))
 }
 
 fn u256_to_reward_points<Runtime: pallet_attest_coin_rewards::Config>(

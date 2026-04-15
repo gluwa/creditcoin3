@@ -5,7 +5,7 @@ use frame_election_provider_support::{
     onchain, SequentialPhragmen,
 };
 use frame_support::pallet_prelude::ConstU32;
-use frame_support::traits::{ConstU64, KeyOwnerProofSystem};
+use frame_support::traits::{AsEnsureOriginWithArg, ConstU128, ConstU64, KeyOwnerProofSystem};
 use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
 use pallet_babe::AuthorityId;
 use pallet_evm::{
@@ -61,6 +61,8 @@ pub enum Account {
     Charlie,
     Bogus,
     Precompile,
+    /// Holds [`pallet_attestation`] bond attest coin in tests.
+    AttestationBondPool,
 }
 
 impl Default for Account {
@@ -88,6 +90,7 @@ impl From<Account> for H160 {
             Account::Bob => H160::repeat_byte(0xBB),
             Account::Charlie => H160::repeat_byte(0xCC),
             Account::Precompile => H160::from_low_u64_be(PRECOMPILE_ADDRESS),
+            Account::AttestationBondPool => H160::from_low_u64_be(9998),
             Account::Bogus => Default::default(),
         }
     }
@@ -190,6 +193,34 @@ impl pallet_balances::Config for Runtime {
     type FreezeIdentifier = ();
     type MaxFreezes = ();
     type RuntimeFreezeReason = RuntimeFreezeReason;
+}
+
+pub struct AttestationBondPoolAccountGetter;
+impl frame_support::traits::Get<Account> for AttestationBondPoolAccountGetter {
+    fn get() -> Account {
+        Account::AttestationBondPool
+    }
+}
+
+impl pallet_assets::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Balance = Balance;
+    type AssetId = u32;
+    type AssetIdParameter = u32;
+    type Currency = Balances;
+    type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+    type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+    type AssetDeposit = ConstU128<0>;
+    type MetadataDepositBase = ConstU128<0>;
+    type MetadataDepositPerByte = ConstU128<0>;
+    type ApprovalDeposit = ConstU128<0>;
+    type StringLimit = ConstU32<50>;
+    type AssetAccountDeposit = ConstU128<0>;
+    type RemoveItemsLimit = ConstU32<1000>;
+    type Freezer = ();
+    type Extra = ();
+    type WeightInfo = ();
+    type CallbackHandle = ();
 }
 
 use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBuilder};
@@ -388,7 +419,7 @@ parameter_types! {
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
     pub const DefaultAttestationInterval: u64 = 10;
     pub const DefaultTargetSampleSize: u32 = 3;
-    pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
+    pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units (match attestation mock)
     pub const MaxUnlockingChunks: u32 = 10;
     pub const MaxAttestationsPerBlock: u32 = 10;
     pub const BondingDuration: EraIndex = 3;
@@ -407,7 +438,10 @@ impl pallet_attestation::Config for Runtime {
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;
-    type Currency = Balances;
+    type NativeCurrency = Balances;
+    type BondFungibles = Assets;
+    type BondAssetId = ConstU32<1>;
+    type BondPoolAccount = AttestationBondPoolAccountGetter;
     type CurrencyBalance = Balance;
     type MaxUnlockingChunks = MaxUnlockingChunks;
     type BondingDuration = BondingDuration;
@@ -426,6 +460,7 @@ construct_runtime!(
     pub enum Runtime {
         System: frame_system,
         Balances: pallet_balances,
+        Assets: pallet_assets,
         Evm: pallet_evm,
         Timestamp: pallet_timestamp,
         SupportedChains: pallet_supported_chains,
@@ -462,6 +497,20 @@ impl ExtBuilder {
         }
         .assimilate_storage(&mut t)
         .expect("Pallet balances storage can be assimilated");
+
+        let attest_coin: Balance = 10_000_000_000_000_000_000_000;
+        pallet_assets::GenesisConfig::<Runtime> {
+            assets: vec![(1, Account::Alice, false, 1)],
+            metadata: vec![(1, b"AC".to_vec(), b"AC".to_vec(), 18)],
+            accounts: vec![
+                (1, Account::Alice, attest_coin),
+                (1, Account::Bob, attest_coin),
+                (1, Account::Charlie, attest_coin),
+            ],
+            next_asset_id: Some(2),
+        }
+        .assimilate_storage(&mut t)
+        .expect("Pallet assets genesis");
 
         let chains = pallet_supported_chains::GenesisConfig::<Runtime> {
             supported_chains: vec![(

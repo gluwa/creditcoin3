@@ -16,7 +16,7 @@ This section is the **source of truth** for what the runtime + precompile implem
 |--------|------|
 | **ERC-20 (EVM)** | The liquid token. **Supply is not minted by the precompile on claim.** Claims move tokens **out of the precompile’s ERC-20 balance** via standard **`transfer`**, with the subcall’s `msg.sender` equal to the precompile address (treasury **holds** the ERC-20). |
 | **Runtime (`pallet-attest-coin-rewards`)** | Tracks **`Accrued[stash]`** (reward **units**, same decimal semantics as the ERC-20, typically 1e18-style), **`ClaimNonce[stash]`**, and the configured **ERC-20 contract address** (`set_attest_coin_token`, root). **`Accrued` increases when eligible attestors appear on a successful `commit_attestation`** (see **§0.2**). Optional **`force_settle`** (root) splits a separate test/ops pool across all **`Ledger`** stashes. Separate from ERC-20 `totalSupply`. |
-| **Deposit → substrate mint (future)** | *Product direction:* at **ERC-20 inception**, nothing is minted on Substrate; when value is **deposited into the precompile** (treasury), a matching **native** representation may be minted (e.g. `pallet-assets`). *Not required for the claim path below.* |
+| **Deposit → `pallet-assets` mint (implemented)** | Users **approve** the precompile H160, then call **`deposit(amount)`** or **`depositTo(amount, beneficiary32)`** on the precompile. The precompile **`transferFrom`s** ERC-20 from the user to the precompile treasury, then dispatches **`pallet_assets::mint`** for the configured **attest-coin asset ID** (issuer = mapped precompile `AccountId`) to the **mapped EVM caller** or an explicit **32-byte `AccountId`**. See **§0.8**. Independent of the **claim** path (no `Accrued` debit). |
 
 ### 0.2 Reward flow (implemented)
 
@@ -63,14 +63,36 @@ Canonical byte string (must match wallets and the runtime bit-for-bit):
 
 ### 0.6 EVM subcall (ERC-20)
 
+**Claim path — `transfer`**
+
 - Uses **`transfer(address,uint256)`** (`0xa9059cbb`), **not** `mint`.
 - Nested **`CALL`** uses `Context { caller: precompile_address, address: token, apparent_value: 0 }` so **`msg.sender`** on the token is the precompile (treasury must hold balance).
 
-**Frontier note:** `fp-evm` / `evm` 0.42 exposes `PrecompileHandle::call(..., context: &Context)`; the **precompile** sets **`context.caller`** to its **`code_address()`** so the ERC-20 sees the precompile as `msg.sender`. Keep nesting shallow (precompile → token only). Claims must use a normal **`CALL`**, not **`STATICCALL`**, so `transfer` can execute.
+**Deposit path — `transferFrom`**
+
+- Uses **`transferFrom(address,address,uint256)`** (`0x23b872dd`). The user must **`approve(precompile, amount)`** so the **spender** on the token is the precompile.
+- The nested **`CALL`** must use the **same** `Context.caller` rule as the claim path: **`caller: precompile_address`** (not the user’s EOA). Otherwise `msg.sender` on the token would be the user and **`allowance[user][msg.sender]`** would not match **`allowance[user][precompile]`**, and **`transferFrom` would revert**.
+
+**Frontier note:** `fp-evm` / `evm` 0.42 exposes `PrecompileHandle::call(..., context: &Context)`; the **precompile** sets **`context.caller`** to its **`code_address()`** so the ERC-20 sees the precompile as `msg.sender` for both **`transfer`** and **`transferFrom`**. Keep nesting shallow (precompile → token only). Claims must use a normal **`CALL`**, not **`STATICCALL`**, so `transfer` can execute.
 
 ### 0.7 Views
 
 - **`accrued(bytes32)`** — `bytes32` is the raw **32-byte** `AccountId` (left-padded as usual in ABI). Returns unclaimed **runtime** accrued units (see **§3** and implementation).
+
+### 0.8 Deposit (`deposit` / `depositTo`) and Substrate mint
+
+- **`deposit(uint256 amount)`** — Mints **attest coin** on `pallet-assets` to the **EVM caller’s** mapped Substrate `AccountId` (`AddressMapping`).
+- **`depositTo(uint256 amount, bytes32 beneficiary)`** — Same ERC-20 pull, but mints to **`beneficiary`** interpreted as a raw **32-byte `AccountId`** (e.g. sr25519 stash). `beneficiary` must not be zero.
+- **Selectors:** `deposit` → **`0xb6b55f25`**; `depositTo` → **`0xc6bc975d`** (see `precompiles/attest-coin`, ABI in `cli/.../artifacts/attest_coin_precompile.json`).
+- **Runtime:** after a successful **`transferFrom`**, the precompile dispatches **`pallet_assets::mint`** with **`id = ATTEST_COIN_ASSET_ID`** (runtime constant, genesis-aligned), issuer origin = mapped precompile account. Mint dispatch uses a dedicated path that avoids stacking **proof-size** metering in a way that exhausts EVM gas on Frontier (implementation detail in `pallet-evm-precompile-attest-coin`).
+- **Claim vs deposit:** **`claim`** debits **`Accrued`** and uses ERC-20 **`transfer`** out of treasury; **`deposit`** credits **`pallet-assets`** and uses **`transferFrom`** into treasury. Both are separate operations on the same precompile address.
+
+### 0.9 Attestation bond pool account (genesis)
+
+- **`pallet_attestation`** moves bonded attest coin between stashes and a shared **`BondPoolAccount`** (`AttestationBondPoolAccount` in `runtime/src/lib.rs`, `PalletId(*b"att/bond")`).
+- Attest coin on `pallet-assets` is **non-sufficient**. Creating a **new** asset holder account requires **`frame_system::can_accrue_consumers(dest, 2)`**, which needs the destination to already have a **provider** on the system account (see `pallet_assets::can_increase`).
+- **Therefore** the bond pool **`AccountId`** must be **endowed with native balance in chain genesis** (same endowment pattern as other funded accounts) so the first inbound attest-coin transfer during **`registerAttestor`** can succeed. Implemented in **`node/src/chain_spec.rs`** (devnet + testnet genesis: **`AttestationBondPoolAccount::get()`** in the balances set).
+- **Operational note:** Long-lived dev nodes started **before** this genesis change may need a **one-time** sudo funding of the bond pool or a **chain reset** to pick up the updated spec.
 
 ---
 
@@ -79,7 +101,7 @@ Canonical byte string (must match wallets and the runtime bit-for-bit):
 | Constraint | Implication |
 |------------|-------------|
 | Token is a **normal ERC20** deployed off-the-shelf (e.g. OpenZeppelin). | Balances live under the token contract’s H160; **Creditcoin’s native runtime** cannot change them without an **allowed** on-chain entrypoint (`mint`, `transferFrom` treasury, etc.). |
-| **No `pallet_assets` required for the claim path** | Canonical reward **accrual** lives in **FRAME storage** (`pallet-attest-coin-rewards`); the ERC-20 is the **liquid** representation after **`transfer`** from treasury. Optional future **native** asset mint on deposit is described in **§0.1**. |
+| **`pallet_assets` usage** | **Claim path** does not require `pallet-assets` (rewards are **`Accrued`** + ERC-20 **`transfer`**). **Deposit path** and **attestation bonding** use the configured **attest-coin asset** on `pallet-assets` (mint on deposit; bond pool transfers on **`registerAttestor`** / ledger updates). See **§0.8–§0.9**. |
 | **Treasury funding** | The precompile **H160** must **hold** ERC-20 balance (minted or transferred to it at inception / by governance). Routine claims **do not mint**; they **`transfer`** out. |
 | Attestors use **native Creditcoin account keys** first | Claim flow binds **stash** (and optionally **controller**) via **sr25519** over **§0.5**; **`evmRecipient`** in the preimage must match **`msg.sender`** on the EVM tx. Rewards accrue to the **stash** when one stash backs **multiple** attestor identities (**§2.0.1**). |
 
@@ -202,7 +224,7 @@ Below are **mutually comparable proposals**; pick one primary model and optional
 
 ## 3. Precompile API (recommended surface)
 
-**Implemented surface** is fixed in **§0.4–§0.7**. The list below is the **normative** ABI for integrators.
+**Implemented surface** is fixed in **§0.4–§0.9**. The list below is the **normative** ABI for integrators.
 
 ### 3.1 Views (implemented)
 
@@ -210,7 +232,7 @@ Below are **mutually comparable proposals**; pick one primary model and optional
   Returns **`Accrued[stash]`** from **`pallet-attest-coin-rewards`** (unclaimed runtime units).  
   Selector: **`0xf92f23a7`** (see `precompiles/attest-coin`).
 
-### 3.2 Mutations (implemented)
+### 3.2 Mutations — claim (implemented)
 
 - **`claim(bytes32 stash, uint256 nonce, uint256 chainKey, uint256 amount, address evmRecipient, bytes32 sigHi, bytes32 sigLo)`**  
   - **`evmRecipient == msg.sender`** (required).  
@@ -218,11 +240,17 @@ Below are **mutually comparable proposals**; pick one primary model and optional
   - On success: **`commit_claim`** (debit `Accrued`, bump nonce), then ERC-20 **`transfer(evmRecipient, amount)`** from treasury.  
   - Selector: **`0x1ffb7a3d`**.
 
-### 3.3 Not implemented in precompile (optional / future)
+### 3.3 Mutations — deposit (implemented)
+
+- **`deposit(uint256 amount)`** — **`transferFrom`** (user → precompile) then **`pallet_assets::mint`** to the caller’s mapped Substrate account. Selector: **`0xb6b55f25`** (§0.8).
+- **`depositTo(uint256 amount, bytes32 beneficiary)`** — Same **`transferFrom`**, mint to **`beneficiary`** as raw **`AccountId`**. Selector: **`0xc6bc975d`** (§0.8).
+- **Integrators:** **`approve(precompile_address, amount)`** on the ERC-20 **before** calling; subcall **`msg.sender`** on the token is the **precompile**, not the user (§0.6).
+
+### 3.4 Not implemented in precompile (optional / future)
 
 - **`claimableRewards`**, **`vestingInfo`**, **`claimTo`**, **vesting** — not part of the current precompile; can be added later without changing §0.5 preimage if versioned with a new prefix.
 
-### 3.4 Historical note (mint-on-claim)
+### 3.5 Historical note (mint-on-claim)
 
 Earlier drafts described **`claim(uint256)`** + ERC-20 **`mint`**. That has been **replaced** by **§0** (**treasury + `transfer` + signed claim**).
 
@@ -261,13 +289,14 @@ Earlier drafts described **`claim(uint256)`** + ERC-20 **`mint`**. That has been
 
 | Topic | Recommendation / **chosen (§0)** |
 |-------|----------------|
-| Architecture | ERC-20 **treasury at precompile**; claim uses **`transfer`**, not mint. Optional future: **deposit → precompile** ↔ **native asset** mint (see §0.1). |
+| Architecture | ERC-20 **treasury at precompile**; **claim** uses **`transfer`**, not mint. **Deposit** uses **`transferFrom`** + **`pallet_assets::mint`** (§0.8). |
 | Vote weight | **Unweighted** committee semantics in attestation; **per-commit** credit **`RewardPerEligibleSigner`** per **eligible** signer → **stash**; §2.3+ for future fairness tuning. |
 | Token | Plain ERC-20; treasury must **hold** balance; **mint** to precompile only for funding (governance / inception), not per-claim inflation. |
 | Accrual | **`Accrued[stash]`** on each successful **`commit_attestation`** (hook); **`ClaimNonce`** per stash for EVM claims. Optional **`force_settle`** = equal split of **`EpochRewardPool`** over **`Ledger`** (tests / sudo). |
 | Fairness | §2.0–2.3 + budget / caps (still governance); constant per-signer accrual is the current baseline. |
-| Precompile | **View**: `accrued(bytes32)`; **Mutate**: **`claim(...)`** + **sr25519** + **`transfer`**. |
-| Inner ERC-20 call | Precompile **`CALL`** with **`caller = precompile`**, **`transfer`** (see §0.6). |
+| Precompile | **View**: `accrued(bytes32)`; **Mutate**: **`claim`** / **`deposit`** / **`depositTo`** (§3). |
+| Inner ERC-20 call | Precompile **`CALL`** with **`caller = precompile`**: **`transfer`** (claim) or **`transferFrom`** (deposit) — §0.6. |
+| Bond pool | **`AttestationBondPoolAccount`** must be **native-funded in genesis** (§0.9) for **`registerAttestor`** bonding. |
 | EVM claim | **Signed claim** (**§0.4–0.5**); **stash or controller** sr25519; **`evmRecipient == msg.sender`**. |
 
 ---
@@ -286,6 +315,9 @@ The suite **`cli/src/test/blockchain-tests/precompiles/attest-coin-rewards.test.
 1. **`//Alice` is the stash** (well-known dev key); a **separate** funded account is the **attestor operator** (`registerAttestor(chain_key, attestor)` — stash and operator must differ). Then deploy mock ERC-20, mint to the precompile, **`sudo`** `setAttestCoinToken`.
 2. Calls **`sudo`** **`attestCoinRewards.forceSettle()`** so **`Accrued`** is non-zero without submitting a BLS **`commit_attestation`** (uses **`EpochRewardPool`** / **`do_settlement`**).
 3. Reads **`accrued(bytes32)`** via ethers and runs **`claim`** with an sr25519 signature over **`claim_signing_message`**.
+4. **`deposit` / `depositTo`:** Approves the precompile, bridges ERC-20 into **`pallet-assets`** (mint to mapped account or explicit **`bytes32`** stash), and (in one case) sets **`setMinBondRequirement`**, funds a new stash via **`depositTo`**, then **`registerAttestor`** — requires genesis to endow **`AttestationBondPoolAccount`** (§0.9). Use a **high enough EVM `gasLimit`** on deposit txs (see test constant **`DEPOSIT_PRECOMPILE_GAS`**).
+
+**Node binary:** Rebuild **`creditcoin3-node`** after runtime/precompile or genesis changes so the running chain matches tests.
 
 **CI alignment (`integration-test-blockchain` in `.github/workflows/ci.yml`):** the job starts **one** Anvil on port **8141** and **`attestor_zombienet`** with **`--chain-key=2`** (Anvil1). The test uses **`chain_key = 2`** (`chain_Anvil1_Key`) for **`registerAttestor`** and for the **`chainKey`** field in **`claim` / signing preimage**, so it matches that setup. You do **not** need to wait for Babe epochs or for **`commit_attestation`** in this test: **`forceSettle`** credits **`Accrued`** in the same block as the sudo call. Waiting for attestor activity is only required if you add assertions on **commit-time** rewards (**§6.3**).
 
@@ -337,13 +369,14 @@ If you only need to sanity-check **`Accrued`** without BLS infrastructure, use *
 - [x] **Frontier:** precompile → ERC-20 nested **`CALL`** with controlled **`Context.caller`** (**§0.6**); **transfer** instead of mint for claims.
 - [x] **Decimals / units:** reward **`RewardPoints`** and ERC-20 use the same **1e18-style** numeric range in implementation (fits `u128`); enforce in policy.
 - [x] **EVM claim binding:** **`evmRecipient == msg.sender`** + preimage includes **stash / nonce / chain_key / amount / recipient bytes**.
+- [x] **Deposit → `pallet-assets`:** **`deposit` / `depositTo`** + ERC-20 **`transferFrom`** with **`caller = precompile`** (§0.6–0.8).
+- [x] **Bond pool genesis:** **`AttestationBondPoolAccount`** in balances genesis (§0.9).
 
 ### 7.2 Still open (governance / product)
 
 - [ ] **Equal-stake** vs future **weighted** votes (§2.0).
 - [ ] **Issuance budget:** cap **`RewardPerEligibleSigner`** or total per period so commits do not overshoot treasury policy.
 - [ ] **Exact fairness** formula vs attestation sampling (§2.3–2.5).
-- [ ] **Deposit → `pallet-assets` mint** when ERC-20 is deposited to precompile (§0.1) — not yet wired in code.
 - [ ] **Governance:** `set_attest_coin_token` (root today); emergency pause; treasury top-up policy.
 - [ ] **Gas / weight** limits for batched claims; **benchmark** `commit_attestation` with the reward hook enabled.
 
