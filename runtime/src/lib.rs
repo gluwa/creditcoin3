@@ -80,6 +80,8 @@ use supported_chains_primitives::{provider::SupportedChainsProvider, MATURITY_EV
 mod precompiles;
 pub use precompiles::{used_addresses, GluwaPrecompiles};
 
+mod migrations;
+
 /// Type of block number.
 pub type BlockNumber = u32;
 
@@ -222,8 +224,12 @@ impl frame_system::Config for Runtime {
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
     type MultiBlockMigrator = ();
-    type SingleBlockMigrations =
-        (pallet_attestation::MigrateAttestationContinuityProofV0ToV1<Runtime>,);
+    type SingleBlockMigrations = (
+        pallet_attestation::MigrateAttestationContinuityProofV0ToV1<Runtime>,
+        migrations::v1_init_supported_chains::Migration<Runtime>,
+        migrations::v1_init_attestation::Migration<Runtime>,
+        migrations::v1_init_operators::Migration<Runtime>,
+    );
     type PreInherents = ();
     type PostInherents = ();
     type PostTransactions = ();
