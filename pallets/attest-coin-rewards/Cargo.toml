@@ -6,6 +6,9 @@ authors = { workspace = true }
 license = { workspace = true }
 publish = false
 
+[lints.clippy]
+manual_inspect = "allow"
+
 [dependencies]
 parity-scale-codec = { workspace = true, default-features = false, features = ["derive", "max-encoded-len"] }
 scale-info = { workspace = true, default-features = false, features = ["derive"] }

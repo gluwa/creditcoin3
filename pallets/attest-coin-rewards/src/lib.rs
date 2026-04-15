@@ -116,6 +116,11 @@ pub mod pallet {
         /// Credit [`Config::RewardPerEligibleSigner`] to each **stash** for the given **eligible**
         /// attestor operator accounts (from [`pallet_attestation`]). Called from the runtime hook
         /// after [`pallet_attestation::Pallet::commit_attestation`].
+        ///
+        /// [`Event::CommitSignersRewarded`] is emitted only when [`Config::RewardPerEligibleSigner`]
+        /// is non-zero, at least one stash is credited, **and** [`AttestCoinErc20`] is set (reward
+        /// program considered active for claims). Accrual still runs when the token is unset so
+        /// points can accumulate before governance configures the ERC-20.
         pub fn reward_commit_signers(chain_key: ChainKey, eligible_signers: &[T::AccountId]) {
             let per = T::RewardPerEligibleSigner::get();
             if per.is_zero() || eligible_signers.is_empty() {
@@ -133,7 +138,7 @@ pub mod pallet {
                 }
             }
 
-            if credited > 0 {
+            if credited > 0 && AttestCoinErc20::<T>::get().is_some() {
                 Self::deposit_event(Event::CommitSignersRewarded {
                     chain_key,
                     signers: credited,
@@ -143,13 +148,20 @@ pub mod pallet {
         }
 
         /// Equal split of [`Config::EpochRewardPool`] across every stash with an attestation ledger entry.
+        ///
+        /// Does nothing (and emits no [`Event::EpochRewardsAccrued`]) when [`Config::EpochRewardPool`]
+        /// is zero or there are no ledger stashes.
         pub fn do_settlement(at_block: BlockNumberFor<T>) {
+            let pool_rp = T::EpochRewardPool::get();
+            if pool_rp.is_zero() {
+                return;
+            }
             let stashes: Vec<T::AccountId> = pallet_attestation::Ledger::<T>::iter_keys().collect();
             let n = stashes.len() as u128;
             if n == 0 {
                 return;
             }
-            let pool: u128 = T::EpochRewardPool::get().into();
+            let pool: u128 = pool_rp.into();
             let per_u128 = pool.saturating_div(n);
             let per = T::RewardPoints::from(per_u128);
             for stash in stashes.iter() {
