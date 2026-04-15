@@ -102,6 +102,10 @@ pub struct Config {
     #[default(false)]
     no_mdns: bool,
     #[specify_later]
+    cc3: cc_client::Client,
+    #[specify_later]
+    api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
+    #[specify_later]
     keypair: libp2p::identity::Keypair,
     #[specify_later]
     receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
@@ -116,6 +120,10 @@ pub struct Config {
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
 
 pub(crate) struct WorkerP2P {
+    // CC3 connection
+    cc3: cc_client::Client,
+    api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
+
     // P2P DATA
     swarm: libp2p::Swarm<behavior::P2PBehavior>,
     can_broadcast: bool,
@@ -182,6 +190,9 @@ impl WorkerP2P {
         let listen_addr = format!("/ip4/0.0.0.0/tcp/{}", config.port).parse()?;
 
         Ok(Self {
+            cc3: config.cc3,
+            api_calls: config.api_calls,
+
             swarm,
             can_broadcast: false,
             topic,
@@ -226,7 +237,7 @@ impl super::Worker for WorkerP2P {
                     self.handle_event_attestation(attestation).await.map_err(Interrupt::Cont)?;
                 }
                 event = self.swarm.select_next_some() => {
-                    self.handle_event_p2p(event).await.map_err(Interrupt::Cont)?;
+                    self.handle_event_p2p(event).await?;
                 }
             }
         }
@@ -271,7 +282,7 @@ impl WorkerP2P {
     async fn handle_event_p2p(
         &mut self,
         event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Interrupt<Error>> {
         use parity_scale_codec::Decode as _;
 
         match event {
@@ -379,8 +390,8 @@ impl WorkerP2P {
                 let decode = common::types::Attestation::decode(&mut message.data.as_ref());
                 let Ok(attestation) = decode else {
                     tracing::error!(peer_id = %propagation_source, "⛔ Received invalid attestation");
-                    self.metrics.increase_invalid_gossipsub_count();
 
+                    self.metrics.increase_invalid_gossipsub_count();
                     self.swarm
                         .behaviour_mut()
                         .gossipsub
@@ -394,12 +405,14 @@ impl WorkerP2P {
                 };
 
                 let digest = attestation.digest();
+                let height = attestation.header_number();
+                let attestor_id = attestation.attestor_id();
 
                 tracing::info!(
                     peer_id = %propagation_source,
                     ?digest,
-                    height = attestation.header_number(),
-                    attestor_id = %attestation.attestor,
+                    height,
+                    %attestor_id,
                     "📩 Received attestation"
                 );
 
@@ -423,6 +436,33 @@ impl WorkerP2P {
 
                     return Ok(());
                 }
+
+                match self.validate_attestation(&attestation).await {
+                    Err(Interrupt::Cont(err)) => {
+                        tracing::error!(?err, "⛔ Invalid attestation");
+
+                        self.metrics.increase_invalid_gossipsub_count();
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .report_message_validation_result(
+                                &message_id,
+                                &propagation_source,
+                                libp2p::gossipsub::MessageAcceptance::Reject,
+                            );
+
+                        return Ok(());
+                    }
+                    Err(Interrupt::Stop) => return Err(Interrupt::Stop),
+                    _ => {
+                        tracing::debug!(
+                            ?digest,
+                            height,
+                            %attestor_id,
+                            "Valid attestation BLS signature"
+                        );
+                    }
+                };
 
                 match self.sender_validation.send(attestation).transpose() {
                     // CASE 1] ACCEPT
@@ -628,5 +668,114 @@ impl WorkerP2P {
         };
 
         Ok(())
+    }
+
+    /// Verifies attestor eligibility and attestation bls signature before submitting to the
+    /// [attestation pool].
+    ///
+    /// [attestation pool]: crate::worker::validation::pool
+    async fn validate_attestation(
+        &mut self,
+        attestation: &common::types::Attestation,
+    ) -> Result<(), Interrupt<Error>> {
+        use bls_signatures::Serialize as _;
+        let mut runtime_api = match self.cc3.api().runtime_api().at_latest().await {
+            Ok(runtime_api) => runtime_api,
+            Err(err) => self.reconnect(Error::Subxt(err)).await?,
+        };
+
+        let digest = attestation.digest();
+        let height = attestation.header_number();
+        let attestor_id = attestation.attestor.account_id();
+
+        tracing::debug!(
+            ?digest,
+            height,
+            %attestor_id,
+            "Checking attestor eligibility"
+        );
+
+        let pubkey = loop {
+            let attestor: &[u8; 32] = attestor_id.as_ref();
+            let call = self
+                .api_calls
+                .attestor_api()
+                .attestor_bls_pubkey(attestation.chain_key(), (*attestor).into());
+            match runtime_api
+                .call(call)
+                .await
+                .map(|pubkey| pubkey.map(|bytes| bls_signatures::PublicKey::from_bytes(&bytes)))
+            {
+                Ok(Some(Ok(pubkey))) => break pubkey,
+                Ok(Some(Err(..))) => {
+                    return Err(Interrupt::Cont(Error::InvalidAttestation(
+                        InvalidCause::InvalidBls,
+                    )))
+                }
+                Ok(None) => {
+                    return Err(Interrupt::Cont(Error::InvalidAttestation(
+                        InvalidCause::Unregistered,
+                    )))
+                }
+                Err(err) => {
+                    runtime_api = self.reconnect(Error::Subxt(err)).await?;
+                }
+            }
+        };
+
+        let msg = attestation.attestation_data.serialize();
+        if pubkey.verify(attestation.signature_bls.0, &msg) {
+            Ok(())
+        } else {
+            Err(Interrupt::Cont(Error::InvalidAttestation(
+                InvalidCause::InvalidBls,
+            )))
+        }
+    }
+
+    async fn reconnect(
+        &mut self,
+        err: Error,
+    ) -> Result<
+        subxt::runtime_api::RuntimeApi<
+            subxt::SubstrateConfig,
+            subxt::OnlineClient<subxt::SubstrateConfig>,
+        >,
+        Interrupt<Error>,
+    > {
+        tracing::warn!(?err, "🛜 CC3 connection lost");
+
+        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+            .max_delay(std::time::Duration::from_millis(5_000))
+            .map(tokio_retry::strategy::jitter);
+        let reconnect = || {
+            tracing::warn!("🛜 Reconnecting to CC3...");
+
+            let mut cc3 = self.cc3.clone();
+            async move {
+                cc3.reconnect().await.map_err(|err| {
+                    tracing::error!(?err, "Failed to reconnect to CC3");
+                    Error::Client(err)
+                })?;
+
+                let runtime_api = cc3.api().runtime_api().at_latest().await.map_err(|err| {
+                    tracing::error!(?err, "Failed to reconnect to CC3");
+                    Error::Subxt(err)
+                })?;
+
+                Ok::<_, Error>((cc3, runtime_api))
+            }
+        };
+        tokio::select! {
+            retry = tokio_retry::Retry::spawn(strategy, reconnect) => {
+                let (cc3, runtime_api) = retry.expect("Unbounded retry cannot error");
+                self.cc3 = cc3;
+
+                Ok(runtime_api)
+            }
+            _ = tokio::signal::ctrl_c() => {
+                Err(Interrupt::Stop)
+            }
+        }
     }
 }
