@@ -45,6 +45,9 @@ get_precompile_info() {
         "SubstrateTransferPrecompile")
             echo "substrate_transfer:SubstrateTransfer"
             ;;
+        "AttestCoinPrecompile")
+            echo "attest_coin:AttestCoin"
+            ;;
         *)
             echo ""
             ;;
