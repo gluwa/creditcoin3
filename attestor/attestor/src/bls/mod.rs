@@ -10,11 +10,9 @@ use user::prelude::*;
 /// message validation in the [p2p worker].
 ///
 /// [p2p worker]: crate::worker::p2p
-pub struct BlsStore(tokio::sync::Mutex<BlsStoreInner>);
-
-struct BlsStoreInner {
+pub struct BlsStore {
     chain_key: attestor_primitives::ChainKey,
-    keys: std::collections::HashMap<[u8; 32], bls_signatures::PublicKey>,
+    keys: tokio::sync::Mutex<std::collections::HashMap<[u8; 32], bls_signatures::PublicKey>>,
 }
 
 impl BlsStore {
@@ -56,10 +54,10 @@ impl BlsStore {
             };
         }
 
-        Ok(Self(tokio::sync::Mutex::new(BlsStoreInner {
+        Ok(Self {
             chain_key,
-            keys,
-        })))
+            keys: tokio::sync::Mutex::new(keys),
+        })
     }
 
     pub async fn note_attestors_elected(
@@ -69,11 +67,10 @@ impl BlsStore {
     ) -> Result<(), Interrupt<Error>> {
         use bls_signatures::Serialize as _;
 
-        let mut inner = self.0.lock().await;
         let mut keys_new = std::collections::HashMap::<[u8; 32], _>::with_capacity(attestors.len());
 
         let api_calls = cc_client::Client::runtime_api();
-        let chain_key = inner.chain_key;
+        let chain_key = self.chain_key;
 
         let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(cc3)
             .await
@@ -104,7 +101,7 @@ impl BlsStore {
         }
 
         // WARNING: only update bls keys if the previous fetch was successful.
-        std::mem::swap(&mut inner.keys, &mut keys_new);
+        std::mem::swap(&mut *self.keys.lock().await, &mut keys_new);
 
         Ok(())
     }
@@ -113,6 +110,6 @@ impl BlsStore {
         &self,
         attestor: impl AsRef<[u8; 32]>,
     ) -> Option<bls_signatures::PublicKey> {
-        self.0.lock().await.keys.get(attestor.as_ref()).cloned()
+        self.keys.lock().await.get(attestor.as_ref()).cloned()
     }
 }
