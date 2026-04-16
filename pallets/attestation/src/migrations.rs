@@ -18,7 +18,7 @@ use sp_runtime::AccountId32;
 use sp_runtime::TryRuntimeError;
 use sp_std::{marker::PhantomData, vec::Vec};
 
-use crate::pallet::{Attestations, Config, Pallet};
+use crate::pallet::{Attestations, Attestors, AttestorsCount, Config, Pallet};
 use attestor_primitives::{
     block::ContinuityProof, AttestationData, BlsSignature, Digest, SignedAttestation,
 };
@@ -174,6 +174,101 @@ where
         }
 
         log::info!("post_upgrade: verified {post_count} attestations migrated successfully");
+        Ok(())
+    }
+}
+
+/// Migration V1 -> V2: Backfill `AttestorsCount` from the `Attestors` map.
+///
+/// `AttestorsCount` was introduced as an O(1) counter in place of a full
+/// `iter_prefix_values` scan in `attestor_list_has_space`. The storage item
+/// defaults to `0` via `ValueQuery`, so a live chain upgraded from V1 would
+/// have the counter stuck at zero for all pre-existing attestors until new
+/// registrations / unregistrations self-correct it. This migration iterates
+/// the `Attestors` double-map and writes the per-chain-key count into
+/// `AttestorsCount`.
+pub struct MigrateAttestorsCountV1ToV2<T>(PhantomData<T>);
+
+impl<T: Config> OnRuntimeUpgrade for MigrateAttestorsCountV1ToV2<T> {
+    fn on_runtime_upgrade() -> Weight {
+        let on_chain = Pallet::<T>::on_chain_storage_version();
+        let target = StorageVersion::new(2);
+
+        if on_chain != StorageVersion::new(1) {
+            log::info!("AttestorsCount migration: on_chain={on_chain:?} is not v1, skipping");
+            return T::DbWeight::get().reads(1);
+        }
+
+        log::info!("AttestorsCount migration: backfilling AttestorsCount from Attestors map");
+
+        let mut chain_counts: sp_std::collections::btree_map::BTreeMap<u64, u32> =
+            sp_std::collections::btree_map::BTreeMap::new();
+        let mut read_count: u64 = 0;
+
+        for (chain_key, _account, _attestor) in Attestors::<T>::iter() {
+            *chain_counts.entry(chain_key).or_insert(0) += 1;
+            read_count += 1;
+        }
+
+        let write_count = chain_counts.len() as u64;
+        for (chain_key, count) in chain_counts {
+            AttestorsCount::<T>::insert(chain_key, count);
+        }
+
+        target.put::<Pallet<T>>();
+
+        log::info!(
+            "AttestorsCount migration: wrote counts for {write_count} chain(s), \
+             {read_count} attestors read"
+        );
+
+        T::DbWeight::get().reads_writes(read_count + 1, write_count + 1)
+    }
+
+    #[cfg(feature = "try-runtime")]
+    fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
+        let on_chain = Pallet::<T>::on_chain_storage_version();
+        if on_chain != StorageVersion::new(1) {
+            return Ok(Vec::new());
+        }
+
+        let mut counts: sp_std::collections::btree_map::BTreeMap<u64, u32> =
+            sp_std::collections::btree_map::BTreeMap::new();
+        for (chain_key, _account, _attestor) in Attestors::<T>::iter() {
+            *counts.entry(chain_key).or_insert(0) += 1;
+        }
+        let counts_vec: Vec<(u64, u32)> = counts.into_iter().collect();
+        log::info!(
+            "pre_upgrade: found {} chains with attestors",
+            counts_vec.len()
+        );
+        Ok(counts_vec.encode())
+    }
+
+    #[cfg(feature = "try-runtime")]
+    fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
+        if state.is_empty() {
+            return Ok(());
+        }
+
+        let expected: Vec<(u64, u32)> = DecodeAll::decode_all(&mut &state[..])
+            .map_err(|_| "failed to decode pre_upgrade AttestorsCount state")?;
+
+        for (chain_key, expected_count) in expected {
+            let actual = AttestorsCount::<T>::get(chain_key);
+            ensure!(
+                actual == expected_count,
+                "post_upgrade: AttestorsCount mismatch for chain_key {chain_key}: \
+                 expected {expected_count}, got {actual}"
+            );
+        }
+
+        let on_chain = Pallet::<T>::on_chain_storage_version();
+        ensure!(
+            on_chain == StorageVersion::new(2),
+            "post_upgrade: storage version not updated to v2 (on_chain={on_chain:?})"
+        );
+
         Ok(())
     }
 }

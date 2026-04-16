@@ -284,6 +284,57 @@ mod tests {
     use continuity::{mocks::make_mock_providers, ContinuityBuilder, ContinuityConfig};
     use std::sync::Arc;
 
+    /// Returns blocks with a deliberately wrong final digest to trigger the upper
+    /// boundary digest mismatch error in `build_proof_from_roots`.
+    struct BadDigestEthProvider;
+
+    #[async_trait]
+    impl EthRpcProvider for BadDigestEthProvider {
+        async fn build_continuity_blocks(
+            &self,
+            lower_digest: H256,
+            start: u64,
+            end: u64,
+        ) -> Result<Vec<Block>> {
+            let mut prev = lower_digest;
+            let mut blocks = Vec::new();
+            for n in start..=end {
+                // Use a root that differs from the mock CC provider's root so that the
+                // computed upper boundary digest diverges from the cached on-chain value.
+                let root = H256::from_low_u64_be(n + 9999);
+                let digest = Block::hash_payload(&n, &root, &prev);
+                let block = Block {
+                    block_number: n,
+                    root,
+                    prev_digest: prev,
+                    digest,
+                };
+                prev = digest;
+                blocks.push(block);
+            }
+            Ok(blocks)
+        }
+        async fn get_block_tx_bytes(&self, _block_number: u64) -> Result<Vec<Vec<u8>>> {
+            Ok(vec![])
+        }
+        async fn get_tx_hash_by_index(
+            &self,
+            _block_number: u64,
+            _tx_index: u64,
+        ) -> Result<Option<H256>> {
+            Ok(None)
+        }
+        async fn get_tx_position_by_hash(&self, _tx_hash: H256) -> Result<Option<(u64, u64)>> {
+            Ok(None)
+        }
+        async fn get_last_block(&self) -> Result<u64> {
+            Ok(1000)
+        }
+        async fn get_chain_id(&self) -> Result<u64> {
+            Ok(31337)
+        }
+    }
+
     struct FoundEthProvider;
 
     #[async_trait]
@@ -675,5 +726,41 @@ mod tests {
                 "single-block batch should never fail span check, got {err:?}"
             );
         }
+    }
+
+    /// Verify that `build_proof_from_roots` rejects proofs whose computed upper-boundary digest
+    /// does not match the on-chain cached value (audit finding: upper boundary digest verification).
+    #[tokio::test]
+    async fn upper_boundary_digest_mismatch_returns_internal_error() {
+        // BadDigestEthProvider returns blocks built with a different root formula than
+        // MockCcRpcProvider uses for attestation digests, so the computed upper digest
+        // will diverge from the cached on-chain value.
+        let chain_key = 2;
+        let (cc_provider, _) = make_mock_providers(chain_key);
+        let bad_eth = Arc::new(BadDigestEthProvider);
+        let builder = Arc::new(ContinuityBuilder::new_with_providers(
+            ContinuityConfig::builder()
+                .cc3_rpc_url("ws://mock")
+                .eth_rpc_url("http://mock")
+                .chain_key(chain_key)
+                .attestation_interval(10)
+                .checkpoint_interval(10)
+                .build(),
+            cc_provider,
+            bad_eth,
+        ));
+        let svc = ContinuityService::new(vec![builder], NoopMetrics::new(), 10, 1_000, 0)
+            .await
+            .expect("service init should succeed");
+
+        // Query a block that falls inside the mock attestation range (e.g. block 15,
+        // bounded by attestations at 10 and 20). BadDigestEthProvider will return
+        // blocks with incorrect roots, so the upper boundary digest must mismatch.
+        let chain = svc.chain_state(chain_key).unwrap();
+        let result = svc.build_continuity(chain, &[15]).await;
+        assert!(
+            matches!(result, Err(ServiceError::Internal { .. })),
+            "expected Internal error for upper boundary digest mismatch, got {result:?}"
+        );
     }
 }

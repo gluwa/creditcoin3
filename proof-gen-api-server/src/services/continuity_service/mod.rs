@@ -346,7 +346,8 @@ impl ContinuityService {
                     message: format!("Failed to get current block height from source chain: {e}"),
                 })?;
 
-        if let Some(&header_number) = header_numbers.iter().find(|h| **h > current_block) {
+        // `header_numbers` is sorted by the caller; `last()` is the maximum.
+        if let Some(&header_number) = header_numbers.last().filter(|&&h| h > current_block) {
             tracing::warn!(
                 requested_block = header_number,
                 current_block,
@@ -362,7 +363,7 @@ impl ContinuityService {
         // Reorg mitigation: require a minimum number of confirmations before including
         // a block in a continuity proof. This mirrors the attestor's block-delayed approach.
         let safe_block = current_block.saturating_sub(self.eth_block_confirmations);
-        if let Some(&header_number) = header_numbers.iter().find(|h| **h > safe_block) {
+        if let Some(&header_number) = header_numbers.last().filter(|&&h| h > safe_block) {
             tracing::warn!(
                 requested_block = header_number,
                 current_block,
@@ -493,11 +494,11 @@ impl ContinuityService {
         // Lower: greatest attestation strictly before min_query.
         let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
 
-        // Upper: smallest attestation ≥ max_query (returns both block and digest)
-        let upper = cache.range(max_query..).next().map(|(&k, &v)| (k, v));
+        // Upper: smallest attestation ≥ max_query.
+        let upper = cache.range(max_query..).next();
 
         match (lower, upper) {
-            (Some((lower_block, lower_digest)), Some((upper_block, upper_digest))) => {
+            (Some((lower_block, lower_digest)), Some((&upper_block, &upper_digest))) => {
                 Some((lower_block, lower_digest, upper_block, upper_digest))
             }
             _ => None,
@@ -519,11 +520,11 @@ impl ContinuityService {
         // includes the queried block (it builds from lower_checkpoint + 1).
         let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
 
-        // Upper: smallest checkpoint ≥ max_query (returns both block and digest)
-        let upper = cache.range(max_query..).next().map(|(&k, &v)| (k, v));
+        // Upper: smallest checkpoint ≥ max_query.
+        let upper = cache.range(max_query..).next();
 
         match (lower, upper) {
-            (Some((lower_block, lower_digest)), Some((upper_block, upper_digest))) => {
+            (Some((lower_block, lower_digest)), Some((&upper_block, &upper_digest))) => {
                 Some((lower_block, lower_digest, upper_block, upper_digest))
             }
             _ => None,
@@ -724,17 +725,19 @@ impl ContinuityService {
     ) -> ServiceResult<BatchedContinuityResponse> {
         let chain_key = chain.builder.config.chain_key;
 
-        // Extract unique header numbers for validation and proof building
-        let header_numbers = queries
+        // Extract and sort header numbers for validation and proof building.
+        // Sorting once allows O(1) min/max access via first()/last() throughout.
+        let mut header_numbers = queries
             .iter()
             .map(|q| q.header_number)
             .collect::<Vec<u64>>();
+        header_numbers.sort_unstable();
         // Validate that the requested blocks can be processed
         let _current_block = self.validate_blocks(chain, &header_numbers).await?;
 
         // We can safely unwrap header_numbers here because the API layer guarantees at least one query is present.
-        let from_header = *header_numbers.iter().min().unwrap();
-        let to_header = *header_numbers.iter().max().unwrap();
+        let from_header = *header_numbers.first().unwrap();
+        let to_header = *header_numbers.last().unwrap();
 
         // Enforce maximum batch span to prevent extremely expensive proof
         // generation when a small batch contains widely separated block heights.

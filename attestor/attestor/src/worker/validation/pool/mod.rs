@@ -433,11 +433,18 @@ impl AttestationPoolInner {
             let height = fork.attestation.header_number();
             let digest = fork.attestation.digest();
             let header_hash = fork.attestation.attestation_data.header_hash;
+            let proof = &fork.attestation.continuity_proof;
+            let start_block = fork
+                .attestation
+                .header_number()
+                .saturating_sub(proof.len() as u64);
+            let proof_digest = proof.compute_continuity_digest(start_block);
 
             let permit = Permit(CompoundInfo {
                 height,
                 digest,
                 header_hash,
+                proof_digest,
             });
 
             // Only update metrics the first time quorum is reached at that height
@@ -535,6 +542,11 @@ struct KeyDigestPending {
 /// attestation digest alone is not a guarantee of uniqueness, and must be paired with the header
 /// hash to avoid collisions.
 ///
+/// Additionally, the continuity proof bytes are not committed to by the attestation digest. We
+/// pair in a `proof_digest` (computed via [`ContinuityProof::compute_continuity_digest`]) so that
+/// attestors carrying different continuity proofs for the same block/digest can never merge toward
+/// quorum.
+///
 /// [digest computation]: attestor_primitives::Attestation::digest
 /// [`AttestationData`]:  attestor_primitives::AttestationData
 /// [attestation data serialization]: attestor_primitives::AttestationData::serialize
@@ -542,6 +554,8 @@ struct KeyDigestPending {
 struct CompoundDigest {
     digest: attestor_primitives::Digest,
     header_hash: attestor_primitives::Digest,
+    /// Hash of the continuity proof chain (prevents quorum on competing proofs).
+    proof_digest: attestor_primitives::Digest,
 }
 
 impl CompoundDigest {
@@ -549,6 +563,7 @@ impl CompoundDigest {
         Self {
             digest: attestor_primitives::Digest::zero(),
             header_hash: attestor_primitives::Digest::zero(),
+            proof_digest: attestor_primitives::Digest::zero(),
         }
     }
 
@@ -556,6 +571,7 @@ impl CompoundDigest {
         Self {
             digest: attestor_primitives::Digest::from([u8::MAX; 32]),
             header_hash: attestor_primitives::Digest::from([u8::MAX; 32]),
+            proof_digest: attestor_primitives::Digest::from([u8::MAX; 32]),
         }
     }
 }
@@ -574,6 +590,8 @@ struct CompoundInfo {
     height: common::types::Height,
     digest: attestor_primitives::Digest,
     header_hash: attestor_primitives::Digest,
+    /// Hash of the continuity proof chain (prevents quorum on competing proofs).
+    proof_digest: attestor_primitives::Digest,
 }
 
 impl From<CompoundInfo> for CompoundDigest {
@@ -581,6 +599,7 @@ impl From<CompoundInfo> for CompoundDigest {
         Self {
             digest: info.digest,
             header_hash: info.header_hash,
+            proof_digest: info.proof_digest,
         }
     }
 }
@@ -665,12 +684,16 @@ impl AttestationPoolForks {
         let digest = attestation.digest();
         let attestor = attestation.attestor_id();
         let header_hash = attestation.attestation_data.header_hash;
+        let proof = &attestation.continuity_proof;
+        let start_block = height.saturating_sub(proof.len() as u64);
+        let proof_digest = proof.compute_continuity_digest(start_block);
 
         tracing::debug!("Checking for known invalids");
 
         let digest = CompoundDigest {
             digest,
             header_hash,
+            proof_digest,
         };
 
         let key_digest = KeyDigest { height, digest };
@@ -1952,10 +1975,12 @@ mod constants {
     pub const DIGEST_0: CompoundDigest = CompoundDigest {
         digest: sp_core::H256(*b"digest_0________________________"),
         header_hash: attestor_primitives::Digest::zero(),
+        proof_digest: attestor_primitives::Digest::zero(),
     };
     pub const DIGEST_1: CompoundDigest = CompoundDigest {
         digest: sp_core::H256(*b"digest_1________________________"),
         header_hash: attestor_primitives::Digest::zero(),
+        proof_digest: attestor_primitives::Digest::zero(),
     };
 
     pub const TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
@@ -2120,10 +2145,14 @@ mod fixtures {
         #[with(_attestors.clone(), _header_number, _prev_digest, _header_hash)]
         attestation: AttestationVote,
     ) -> Permit {
+        let att = &attestation.attestation;
+        let proof = &att.continuity_proof;
+        let start_block = att.header_number().saturating_sub(proof.len() as u64);
         Permit(CompoundInfo {
-            height: attestation.attestation.header_number(),
-            digest: attestation.attestation.digest(),
-            header_hash: attestation.attestation.attestation_data.header_hash,
+            height: att.header_number(),
+            digest: att.digest(),
+            header_hash: att.attestation_data.header_hash,
+            proof_digest: proof.compute_continuity_digest(start_block),
         })
     }
 }
@@ -2216,11 +2245,15 @@ mod test {
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
 
+        let att0 = &attestation_0.attestation;
+        let proof0 = &att0.continuity_proof;
+        let start0 = att0.header_number().saturating_sub(proof0.len() as u64);
         assert!(inner.forks.votes_invalid.contains(&KeyDigest {
-            height: attestation_0.attestation.header_number(),
+            height: att0.header_number(),
             digest: CompoundDigest {
-                digest: attestation_0.attestation.digest(),
-                header_hash: attestation_0.attestation.attestation_data.header_hash
+                digest: att0.digest(),
+                header_hash: att0.attestation_data.header_hash,
+                proof_digest: proof0.compute_continuity_digest(start0),
             }
         }));
     }

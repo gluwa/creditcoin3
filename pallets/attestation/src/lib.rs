@@ -1,6 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-pub use migrations::MigrateAttestationContinuityProofV0ToV1;
+pub use migrations::{MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsCountV1ToV2};
 pub use pallet::*;
 
 #[allow(clippy::unnecessary_cast)]
@@ -498,7 +498,7 @@ pub mod pallet {
     >;
 
     /// The in-code storage version.
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
