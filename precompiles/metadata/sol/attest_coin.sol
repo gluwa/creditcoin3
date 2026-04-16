@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+/// @dev Attest-coin precompile (`runtime` `hash(4052)`).
+address constant ATTEST_COIN_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000000fD4;
+
 /// @dev Attest-coin precompile at `0x0000000000000000000000000000000000000fD4` (runtime hash 4052).
 interface IAttestCoinPrecompile {
     /// @notice Returns the accrued reward points (1e18 precision) for the given Substrate stash account.
