@@ -102,9 +102,7 @@ pub struct Config {
     #[default(false)]
     no_mdns: bool,
     #[specify_later]
-    cc3: cc_client::Client,
-    #[specify_later]
-    api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
+    bls: std::sync::Arc<crate::bls::BlsStore>,
     #[specify_later]
     keypair: libp2p::identity::Keypair,
     #[specify_later]
@@ -120,10 +118,6 @@ pub struct Config {
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
 
 pub(crate) struct WorkerP2P {
-    // CC3 connection
-    cc3: cc_client::Client,
-    api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
-
     // P2P DATA
     swarm: libp2p::Swarm<behavior::P2PBehavior>,
     can_broadcast: bool,
@@ -131,6 +125,8 @@ pub(crate) struct WorkerP2P {
     listen_addr: libp2p::Multiaddr,
 
     chain_key: attestor_primitives::ChainKey,
+    // CC3 CONNECTION
+    bls: std::sync::Arc<crate::bls::BlsStore>,
 
     // METRICS
     metrics: common::types::Metrics,
@@ -141,7 +137,7 @@ pub(crate) struct WorkerP2P {
 }
 
 impl WorkerP2P {
-    pub(crate) fn new(config: Config) -> anyhow::Result<Self> {
+    pub(crate) async fn new(config: Config) -> anyhow::Result<Self> {
         let enable_mdns = !config.no_mdns;
         let mut swarm = libp2p::SwarmBuilder::with_existing_identity(config.keypair)
             .with_tokio()
@@ -190,15 +186,13 @@ impl WorkerP2P {
         let listen_addr = format!("/ip4/0.0.0.0/tcp/{}", config.port).parse()?;
 
         Ok(Self {
-            cc3: config.cc3,
-            api_calls: config.api_calls,
-
             swarm,
             can_broadcast: false,
             topic,
             listen_addr,
 
             chain_key: config.chain_key,
+            bls: config.bls,
 
             metrics: config.metrics,
 
@@ -678,12 +672,6 @@ impl WorkerP2P {
         &mut self,
         attestation: &common::types::Attestation,
     ) -> Result<(), Interrupt<Error>> {
-        use bls_signatures::Serialize as _;
-        let mut runtime_api = match self.cc3.api().runtime_api().at_latest().await {
-            Ok(runtime_api) => runtime_api,
-            Err(err) => self.reconnect(Error::Subxt(err)).await?,
-        };
-
         let digest = attestation.digest();
         let height = attestation.header_number();
         let attestor_id = attestation.attestor.account_id();
@@ -695,32 +683,10 @@ impl WorkerP2P {
             "Checking attestor eligibility"
         );
 
-        let pubkey = loop {
-            let attestor: &[u8; 32] = attestor_id.as_ref();
-            let call = self
-                .api_calls
-                .attestor_api()
-                .attestor_bls_pubkey(attestation.chain_key(), (*attestor).into());
-            match runtime_api
-                .call(call)
-                .await
-                .map(|pubkey| pubkey.map(|bytes| bls_signatures::PublicKey::from_bytes(&bytes)))
-            {
-                Ok(Some(Ok(pubkey))) => break pubkey,
-                Ok(Some(Err(..))) => {
-                    return Err(Interrupt::Cont(Error::InvalidAttestation(
-                        InvalidCause::InvalidBls,
-                    )))
-                }
-                Ok(None) => {
-                    return Err(Interrupt::Cont(Error::InvalidAttestation(
-                        InvalidCause::Unregistered,
-                    )))
-                }
-                Err(err) => {
-                    runtime_api = self.reconnect(Error::Subxt(err)).await?;
-                }
-            }
+        let Some(pubkey) = self.bls.pubkey(attestor_id).await else {
+            return Err(Interrupt::Cont(Error::InvalidAttestation(
+                InvalidCause::Unregistered,
+            )));
         };
 
         let msg = attestation.attestation_data.serialize();
@@ -730,52 +696,6 @@ impl WorkerP2P {
             Err(Interrupt::Cont(Error::InvalidAttestation(
                 InvalidCause::InvalidBls,
             )))
-        }
-    }
-
-    async fn reconnect(
-        &mut self,
-        err: Error,
-    ) -> Result<
-        subxt::runtime_api::RuntimeApi<
-            subxt::SubstrateConfig,
-            subxt::OnlineClient<subxt::SubstrateConfig>,
-        >,
-        Interrupt<Error>,
-    > {
-        tracing::warn!(?err, "🛜 CC3 connection lost");
-
-        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-            .max_delay(std::time::Duration::from_millis(5_000))
-            .map(tokio_retry::strategy::jitter);
-        let reconnect = || {
-            tracing::warn!("🛜 Reconnecting to CC3...");
-
-            let mut cc3 = self.cc3.clone();
-            async move {
-                cc3.reconnect().await.map_err(|err| {
-                    tracing::error!(?err, "Failed to reconnect to CC3");
-                    Error::Client(err)
-                })?;
-
-                let runtime_api = cc3.api().runtime_api().at_latest().await.map_err(|err| {
-                    tracing::error!(?err, "Failed to reconnect to CC3");
-                    Error::Subxt(err)
-                })?;
-
-                Ok::<_, Error>((cc3, runtime_api))
-            }
-        };
-        tokio::select! {
-            retry = tokio_retry::Retry::spawn(strategy, reconnect) => {
-                let (cc3, runtime_api) = retry.expect("Unbounded retry cannot error");
-                self.cc3 = cc3;
-
-                Ok(runtime_api)
-            }
-            _ = tokio::signal::ctrl_c() => {
-                Err(Interrupt::Stop)
-            }
         }
     }
 }
