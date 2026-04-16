@@ -438,13 +438,13 @@ impl AttestationPoolInner {
                 .attestation
                 .header_number()
                 .saturating_sub(proof.len() as u64);
-            let proof_digest = proof.compute_continuity_digest(start_block);
+            let continuity_digest = proof.compute_continuity_digest(start_block);
 
             let permit = Permit(CompoundInfo {
                 height,
                 digest,
                 header_hash,
-                proof_digest,
+                continuity_digest,
             });
 
             // Only update metrics the first time quorum is reached at that height
@@ -543,7 +543,7 @@ struct KeyDigestPending {
 /// hash to avoid collisions.
 ///
 /// Additionally, the continuity proof bytes are not committed to by the attestation digest. We
-/// pair in a `proof_digest` (computed via [`ContinuityProof::compute_continuity_digest`]) so that
+/// pair in a `continuity_digest` (computed via [`ContinuityProof::compute_continuity_digest`]) so that
 /// attestors carrying different continuity proofs for the same block/digest can never merge toward
 /// quorum.
 ///
@@ -555,7 +555,7 @@ struct CompoundDigest {
     digest: attestor_primitives::Digest,
     header_hash: attestor_primitives::Digest,
     /// Hash of the continuity proof chain (prevents quorum on competing proofs).
-    proof_digest: attestor_primitives::Digest,
+    continuity_digest: attestor_primitives::Digest,
 }
 
 impl CompoundDigest {
@@ -563,7 +563,7 @@ impl CompoundDigest {
         Self {
             digest: attestor_primitives::Digest::zero(),
             header_hash: attestor_primitives::Digest::zero(),
-            proof_digest: attestor_primitives::Digest::zero(),
+            continuity_digest: attestor_primitives::Digest::zero(),
         }
     }
 
@@ -571,7 +571,7 @@ impl CompoundDigest {
         Self {
             digest: attestor_primitives::Digest::from([u8::MAX; 32]),
             header_hash: attestor_primitives::Digest::from([u8::MAX; 32]),
-            proof_digest: attestor_primitives::Digest::from([u8::MAX; 32]),
+            continuity_digest: attestor_primitives::Digest::from([u8::MAX; 32]),
         }
     }
 }
@@ -585,7 +585,7 @@ struct CompoundInfo {
     digest: attestor_primitives::Digest,
     header_hash: attestor_primitives::Digest,
     /// Hash of the continuity proof chain (prevents quorum on competing proofs).
-    proof_digest: attestor_primitives::Digest,
+    continuity_digest: attestor_primitives::Digest,
 }
 
 impl From<CompoundInfo> for CompoundDigest {
@@ -593,7 +593,7 @@ impl From<CompoundInfo> for CompoundDigest {
         Self {
             digest: info.digest,
             header_hash: info.header_hash,
-            proof_digest: info.proof_digest,
+            continuity_digest: info.continuity_digest,
         }
     }
 }
@@ -679,15 +679,26 @@ impl AttestationPoolForks {
         let attestor = attestation.attestor_id();
         let header_hash = attestation.attestation_data.header_hash;
         let proof = &attestation.continuity_proof;
-        let start_block = height.saturating_sub(proof.len() as u64);
-        let proof_digest = proof.compute_continuity_digest(start_block);
+        // A proof whose length exceeds the attestation height would reach before genesis.
+        // Saturating arithmetic would silently clamp to 0; reject explicitly instead.
+        if proof.len() as u64 > height {
+            tracing::error!(
+                %attestor,
+                height,
+                proof_len = proof.len(),
+                "⛔ Continuity proof length exceeds attestation height (reaches before genesis)"
+            );
+            return Err(Error::InvalidProof(attestor, height));
+        }
+        let start_block = height - proof.len() as u64;
+        let continuity_digest = proof.compute_continuity_digest(start_block);
 
         tracing::debug!("Checking for known invalids");
 
         let digest = CompoundDigest {
             digest,
             header_hash,
-            proof_digest,
+            continuity_digest,
         };
 
         let key_digest = KeyDigest { height, digest };
@@ -1969,12 +1980,12 @@ mod constants {
     pub const DIGEST_0: CompoundDigest = CompoundDigest {
         digest: sp_core::H256(*b"digest_0________________________"),
         header_hash: attestor_primitives::Digest::zero(),
-        proof_digest: attestor_primitives::Digest::zero(),
+        continuity_digest: attestor_primitives::Digest::zero(),
     };
     pub const DIGEST_1: CompoundDigest = CompoundDigest {
         digest: sp_core::H256(*b"digest_1________________________"),
         header_hash: attestor_primitives::Digest::zero(),
-        proof_digest: attestor_primitives::Digest::zero(),
+        continuity_digest: attestor_primitives::Digest::zero(),
     };
 
     pub const TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
@@ -2146,7 +2157,7 @@ mod fixtures {
             height: att.header_number(),
             digest: att.digest(),
             header_hash: att.attestation_data.header_hash,
-            proof_digest: proof.compute_continuity_digest(start_block),
+            continuity_digest: proof.compute_continuity_digest(start_block),
         })
     }
 }
@@ -2161,16 +2172,17 @@ mod test {
     use super::fixtures::*;
     use super::*;
 
-    /// Build the [`CompoundDigest`] for a test attestation.
-    fn compound(attestation: &common::types::Attestation) -> CompoundDigest {
-        let proof = &attestation.continuity_proof;
-        let start_block = attestation
-            .header_number()
-            .saturating_sub(proof.len() as u64);
-        CompoundDigest {
-            digest: attestation.digest(),
-            header_hash: attestation.attestation_data.header_hash,
-            proof_digest: proof.compute_continuity_digest(start_block),
+    impl From<&common::types::Attestation> for CompoundDigest {
+        fn from(attestation: &common::types::Attestation) -> Self {
+            let proof = &attestation.continuity_proof;
+            let start_block = attestation
+                .header_number()
+                .saturating_sub(proof.len() as u64);
+            CompoundDigest {
+                digest: attestation.digest(),
+                header_hash: attestation.attestation_data.header_hash,
+                continuity_digest: proof.compute_continuity_digest(start_block),
+            }
         }
     }
 
@@ -2257,11 +2269,7 @@ mod test {
         let start0 = att0.header_number().saturating_sub(proof0.len() as u64);
         assert!(inner.forks.votes_invalid.contains(&KeyDigest {
             height: att0.header_number(),
-            digest: CompoundDigest {
-                digest: att0.digest(),
-                header_hash: att0.attestation_data.header_hash,
-                proof_digest: proof0.compute_continuity_digest(start0),
-            }
+            digest: CompoundDigest::from(att0),
         }));
     }
 
@@ -2294,7 +2302,7 @@ mod test {
             inner
                 .forks
                 .forks_by_digest
-                .get(&compound(&attestation_0.attestation))
+                .get(&CompoundDigest::from(&attestation_0.attestation))
                 .unwrap(),
             &attestation_0
         );
@@ -2303,7 +2311,7 @@ mod test {
             inner
                 .forks
                 .forks_by_digest
-                .get(&compound(&attestation_1.attestation))
+                .get(&CompoundDigest::from(&attestation_1.attestation))
                 .unwrap(),
             &attestation_1
         );
@@ -2311,13 +2319,13 @@ mod test {
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 1,
-            digest: compound(&attestation_0.attestation),
+            digest: CompoundDigest::from(&attestation_0.attestation),
         }));
 
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 1,
-            digest: compound(&attestation_1.attestation),
+            digest: CompoundDigest::from(&attestation_1.attestation),
         }));
     }
 
@@ -2415,7 +2423,7 @@ mod test {
                 .contains(&KeyTailPending {
                     prev_digest_tail: PrevDigestTail(DIGEST_1.digest),
                     height: 2,
-                    digest: compound(&attestation_pending.attestation),
+                    digest: CompoundDigest::from(&attestation_pending.attestation),
                 }));
         }
 
@@ -2620,12 +2628,12 @@ mod test {
         assert!(inner.forks.forks_by_height.contains(&KeyHeight {
             height: 1,
             size: 2,
-            digest: compound(&attestation_0.attestation),
+            digest: CompoundDigest::from(&attestation_0.attestation),
         }));
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 2,
             height: 1,
-            digest: compound(&attestation_0.attestation),
+            digest: CompoundDigest::from(&attestation_0.attestation),
         }));
     }
 
@@ -2690,22 +2698,22 @@ mod test {
             assert!(!inner
                 .forks
                 .forks_by_digest
-                .contains_key(&compound(&attestation_2.attestation)));
+                .contains_key(&CompoundDigest::from(&attestation_2.attestation)));
             assert!(inner
                 .forks
                 .forks_by_digest
-                .contains_key(&compound(&attestation_3.attestation)));
+                .contains_key(&CompoundDigest::from(&attestation_3.attestation)));
             assert_eq!(inner.forks.forks_by_height.len(), 1);
             assert_eq!(inner.forks.forks_by_size.len(), 1);
             assert!(inner.forks.forks_by_height.contains(&KeyHeight {
                 height: 1,
                 size: 3,
-                digest: compound(&attestation_0.attestation),
+                digest: CompoundDigest::from(&attestation_0.attestation),
             }));
             assert!(inner.forks.forks_by_size.contains(&KeySize {
                 size: 3,
                 height: 1,
-                digest: compound(&attestation_0.attestation),
+                digest: CompoundDigest::from(&attestation_0.attestation),
             }));
         }
     }
@@ -2761,12 +2769,12 @@ mod test {
         assert!(inner.forks.forks_by_height.contains(&KeyHeight {
             height: 1,
             size: 2,
-            digest: compound(&attestation_0.attestation),
+            digest: CompoundDigest::from(&attestation_0.attestation),
         }));
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 2,
             height: 1,
-            digest: compound(&attestation_0.attestation),
+            digest: CompoundDigest::from(&attestation_0.attestation),
         }));
     }
 
