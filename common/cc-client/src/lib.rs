@@ -40,6 +40,7 @@ use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
 )]
 pub mod cc3 {}
 
+pub mod api;
 pub mod attestation;
 pub mod signer;
 
