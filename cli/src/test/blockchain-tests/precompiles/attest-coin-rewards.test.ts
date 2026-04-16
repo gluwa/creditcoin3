@@ -69,8 +69,8 @@ function toLeU64(n: bigint): Buffer {
     let v = n;
     const b = Buffer.alloc(8);
     for (let i = 0; i < 8; i++) {
-        b[i] = Number(v & 0xffn);
-        v >>= 8n;
+        b[i] = Number(v % 256n);
+        v /= 256n;
     }
     return b;
 }
@@ -79,8 +79,8 @@ function toLeU128(n: bigint): Buffer {
     let v = n;
     const b = Buffer.alloc(16);
     for (let i = 0; i < 16; i++) {
-        b[i] = Number(v & 0xffn);
-        v >>= 8n;
+        b[i] = Number(v % 256n);
+        v /= 256n;
     }
     return b;
 }
@@ -115,7 +115,7 @@ async function signSendInBlock(signer: KeyringPair, tx: SubmittableExtrinsic<'pr
             }
             settled = true;
             if (r.dispatchError) {
-                reject(r.dispatchError);
+                reject(new Error(r.dispatchError.toString()));
             } else {
                 resolve();
             }
