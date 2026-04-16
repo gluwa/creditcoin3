@@ -2,6 +2,7 @@
 pub enum Error {
     JoinError(tokio::task::JoinError),
     WorkerError(Box<dyn std::error::Error + Sync + Send>),
+    BlsError(crate::bls::Error),
     InitError(anyhow::Error),
     RpcError(cc_client::Error),
     CC3Error(crate::stream_legacy::cc3::Error),
@@ -25,6 +26,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::JoinError(err) => write!(f, "{err}"),
             Error::WorkerError(err) => write!(f, "{err}"),
+            Error::BlsError(err) => write!(f, "{err}"),
             Error::InitError(err) => write!(f, "Failed to intialize: {err}"),
             Error::CC3Error(err) => write!(f, "Error polling CC3 stream: {err}"),
             Error::RpcError(err) => write!(f, "Error calling CC3 client: {err}"),
