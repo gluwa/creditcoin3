@@ -9026,7 +9026,6 @@ dependencies = [
  "frame-system",
  "pallet-attestation",
  "parity-scale-codec",
- "scale-info",
  "sp-core",
  "sp-runtime",
  "sp-std",
