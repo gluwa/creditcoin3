@@ -680,17 +680,9 @@ impl AttestationPoolForks {
         let header_hash = attestation.attestation_data.header_hash;
         let proof = &attestation.continuity_proof;
         // A proof whose length exceeds the attestation height would reach before genesis.
-        // Saturating arithmetic would silently clamp to 0; reject explicitly instead.
-        if proof.len() as u64 > height {
-            tracing::error!(
-                %attestor,
-                height,
-                proof_len = proof.len(),
-                "⛔ Continuity proof length exceeds attestation height (reaches before genesis)"
-            );
-            return Err(Error::InvalidProof(attestor, height));
-        }
-        let start_block = height - proof.len() as u64;
+        let start_block = height
+            .checked_sub(proof.len() as u64)
+            .ok_or(Error::InvalidProof(attestor.clone(), height))?;
         let continuity_digest = proof.compute_continuity_digest(start_block);
 
         tracing::debug!("Checking for known invalids");
@@ -2265,11 +2257,9 @@ mod test {
         let inner = pool.expect_open();
 
         let att0 = &attestation_0.attestation;
-        let proof0 = &att0.continuity_proof;
-        let start0 = att0.header_number().saturating_sub(proof0.len() as u64);
         assert!(inner.forks.votes_invalid.contains(&KeyDigest {
             height: att0.header_number(),
-            digest: CompoundDigest::from(att0),
+            digest: att0.into(),
         }));
     }
 
