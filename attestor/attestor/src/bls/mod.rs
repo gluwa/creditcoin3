@@ -21,42 +21,9 @@ impl BlsStore {
         chain_key: attestor_primitives::ChainKey,
         attestors: &[cc_client::AccountId32],
     ) -> Result<Self, Interrupt<Error>> {
-        use bls_signatures::Serialize as _;
-
-        let api_calls = cc_client::Client::runtime_api();
-        let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(cc3)
-            .await
-            .map_interrupt(Error::Client)?;
-
-        let mut keys = std::collections::HashMap::with_capacity(attestors.len());
-
-        for attestor_id in attestors {
-            let call = || {
-                let attestor: &[u8; 32] = attestor_id.as_ref();
-                api_calls
-                    .attestor_api()
-                    .attestor_bls_pubkey(chain_key, (*attestor).into())
-            };
-
-            match runtime_api
-                .call(call)
-                .await
-                .map_interrupt(Error::Client)?
-                .map(|bytes| bls_signatures::PublicKey::from_bytes(&bytes))
-            {
-                Some(Ok(pubkey)) => keys.insert(*attestor_id.as_ref(), pubkey),
-                Some(Err(..)) => {
-                    return Err(Interrupt::Cont(Error::InvalidBls(attestor_id.clone())));
-                }
-                None => {
-                    return Err(Interrupt::Cont(Error::Unregistered(attestor_id.clone())));
-                }
-            };
-        }
-
         Ok(Self {
             chain_key,
-            keys: tokio::sync::Mutex::new(keys),
+            keys: tokio::sync::Mutex::new(keys(cc3, chain_key, attestors).await?),
         })
     }
 
@@ -65,43 +32,12 @@ impl BlsStore {
         cc3: &mut cc_client::Client,
         attestors: &[cc_client::AccountId32],
     ) -> Result<(), Interrupt<Error>> {
-        use bls_signatures::Serialize as _;
-
-        let mut keys_new = std::collections::HashMap::<[u8; 32], _>::with_capacity(attestors.len());
-
-        let api_calls = cc_client::Client::runtime_api();
-        let chain_key = self.chain_key;
-
-        let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(cc3)
-            .await
-            .map_interrupt(Error::Client)?;
-
-        for attestor_id in attestors {
-            let call = || {
-                let attestor: &[u8; 32] = attestor_id.as_ref();
-                api_calls
-                    .attestor_api()
-                    .attestor_bls_pubkey(chain_key, (*attestor).into())
-            };
-
-            match runtime_api
-                .call(call)
-                .await
-                .map_interrupt(Error::Client)?
-                .map(|bytes| bls_signatures::PublicKey::from_bytes(&bytes))
-            {
-                Some(Ok(pubkey)) => keys_new.insert(*attestor_id.as_ref(), pubkey),
-                Some(Err(..)) => {
-                    return Err(Interrupt::Cont(Error::InvalidBls(attestor_id.clone())));
-                }
-                None => {
-                    return Err(Interrupt::Cont(Error::Unregistered(attestor_id.clone())));
-                }
-            };
-        }
-
-        // WARNING: only update bls keys if the previous fetch was successful.
-        std::mem::swap(&mut *self.keys.lock().await, &mut keys_new);
+        // NOTE: bls keys are updated atomically only if the new keys could be fetched
+        // successfully.
+        let _ = std::mem::replace(
+            &mut *self.keys.lock().await,
+            keys(cc3, self.chain_key, attestors).await?,
+        );
 
         Ok(())
     }
@@ -112,4 +48,43 @@ impl BlsStore {
     ) -> Option<bls_signatures::PublicKey> {
         self.keys.lock().await.get(attestor.as_ref()).cloned()
     }
+}
+
+async fn keys(
+    cc3: &mut cc_client::Client,
+    chain_key: attestor_primitives::ChainKey,
+    attestors: &[cc_client::AccountId32],
+) -> Result<std::collections::HashMap<[u8; 32], bls_signatures::PublicKey>, Interrupt<Error>> {
+    use bls_signatures::Serialize as _;
+
+    let mut keys_new = std::collections::HashMap::with_capacity(attestors.len());
+    let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(cc3)
+        .await
+        .map_interrupt(Error::Client)?;
+
+    for attestor_id in attestors {
+        let call = || {
+            let attestor: &[u8; 32] = attestor_id.as_ref();
+            cc_client::Client::runtime_api()
+                .attestor_api()
+                .attestor_bls_pubkey(chain_key, (*attestor).into())
+        };
+
+        match runtime_api
+            .call(call)
+            .await
+            .map_interrupt(Error::Client)?
+            .map(|bytes| bls_signatures::PublicKey::from_bytes(&bytes))
+        {
+            Some(Ok(pubkey)) => keys_new.insert(*attestor_id.as_ref(), pubkey),
+            Some(Err(..)) => {
+                return Err(Interrupt::Cont(Error::InvalidBls(attestor_id.clone())));
+            }
+            None => {
+                return Err(Interrupt::Cont(Error::Unregistered(attestor_id.clone())));
+            }
+        };
+    }
+
+    Ok(keys_new)
 }
