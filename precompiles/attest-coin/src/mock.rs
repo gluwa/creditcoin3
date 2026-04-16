@@ -40,6 +40,7 @@ pub const ERC20_ADDRESS: H160 = H160([
 ]);
 
 /// Helper to create an AccountId32 from a u8 prefix (padded to 32 bytes).
+#[allow(dead_code)]
 pub fn account(prefix: u8) -> AccountId32 {
     AccountId32::from([prefix; 32])
 }
@@ -410,6 +411,7 @@ pub(crate) struct ExtBuilder {
 }
 
 impl ExtBuilder {
+    #[allow(dead_code)]
     pub(crate) fn with_balances(mut self, balances: Vec<(AccountId, Balance)>) -> Self {
         self.extra_balances = balances;
         self

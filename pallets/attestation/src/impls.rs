@@ -1,8 +1,6 @@
 use frame_support::{
     pallet_prelude::*,
-    traits::{
-        tokens::fungibles::Inspect, ConstU32, Currency, DefensiveSaturating, Get,
-    },
+    traits::{tokens::fungibles::Inspect, ConstU32, Currency, DefensiveSaturating, Get},
     transactional,
 };
 use log::debug;
