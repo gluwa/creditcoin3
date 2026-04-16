@@ -2248,6 +2248,7 @@ mod test {
 
         assert_eq!(inner.forks.votes.len(), 2);
         assert_eq!(inner.forks.forks_by_digest.len(), 2);
+        assert_eq!(inner.forks.forks_by_size.len(), 2);
 
         assert_eq!(
             inner
@@ -2272,6 +2273,24 @@ mod test {
                 .unwrap(),
             &attestation_1
         );
+
+        assert!(inner.forks.forks_by_size.contains(&KeySize {
+            size: 1,
+            height: 1,
+            digest: CompoundDigest {
+                digest: attestation_0.attestation.digest(),
+                header_hash: attestation_0.attestation.attestation_data.header_hash
+            }
+        }));
+
+        assert!(inner.forks.forks_by_size.contains(&KeySize {
+            size: 1,
+            height: 1,
+            digest: CompoundDigest {
+                digest: attestation_1.attestation.digest(),
+                header_hash: attestation_1.attestation.attestation_data.header_hash
+            }
+        }));
     }
 
     #[tokio::test]
