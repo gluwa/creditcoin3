@@ -8,25 +8,35 @@ const DESTINATION_PRIVATE_KEY = process.env.DESTINATION_CHAIN_PRIVATE_KEY;
 const SOURCE_PRIVATE_KEY = process.env.CREDITCOIN_CHAIN_PRIVATE_KEY;
 const DESTINATION_CONTRACT_ADDR = process.env.DESTINATION_CONTRACT_ADDR;
 const DAPP_CONTRACT_ADDR = process.env.DAPP_CONTRACT_ADDR;
-const POLL_INTERVAL_MS = Number(process.env.DELIVERY_POLL_INTERVAL_MS ?? "2000");
+const POLL_INTERVAL_MS = Number(
+  process.env.DELIVERY_POLL_INTERVAL_MS ?? "2000",
+);
 
 if (!DESTINATION_RPC_URL) throw new Error("Missing DESTINATION_CHAIN_RPC_URL");
 if (!SOURCE_RPC_URL) throw new Error("Missing CREDITCOIN_RPC_URL");
-if (!DESTINATION_PRIVATE_KEY) throw new Error("Missing DESTINATION_CHAIN_PRIVATE_KEY");
-if (!SOURCE_PRIVATE_KEY) throw new Error("Missing CREDITCOIN_CHAIN_PRIVATE_KEY");
-if (!DESTINATION_CONTRACT_ADDR) throw new Error("Missing DESTINATION_CONTRACT_ADDR");
+if (!DESTINATION_PRIVATE_KEY)
+  throw new Error("Missing DESTINATION_CHAIN_PRIVATE_KEY");
+if (!SOURCE_PRIVATE_KEY)
+  throw new Error("Missing CREDITCOIN_CHAIN_PRIVATE_KEY");
+if (!DESTINATION_CONTRACT_ADDR)
+  throw new Error("Missing DESTINATION_CONTRACT_ADDR");
 if (!DAPP_CONTRACT_ADDR) throw new Error("Missing DAPP_CONTRACT_ADDR");
 
-const dappAbi = [
-  "function markDelivered(bytes32 messageId) external",
-];
+const dappAbi = ["function markDelivered(bytes32 messageId) external"];
 
 async function main() {
   const destinationProvider = new ethers.JsonRpcProvider(DESTINATION_RPC_URL);
   const sourceProvider = new ethers.JsonRpcProvider(SOURCE_RPC_URL);
 
-  const dappOwnerWallet = new ethers.Wallet(SOURCE_PRIVATE_KEY!, sourceProvider);
-  const dapp = new ethers.Contract(DAPP_CONTRACT_ADDR!, dappAbi, dappOwnerWallet);
+  const dappOwnerWallet = new ethers.Wallet(
+    SOURCE_PRIVATE_KEY!,
+    sourceProvider,
+  );
+  const dapp = new ethers.Contract(
+    DAPP_CONTRACT_ADDR!,
+    dappAbi,
+    dappOwnerWallet,
+  );
 
   const seenMessageIds = new Set<string>();
 

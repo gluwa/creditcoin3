@@ -40,7 +40,11 @@ export function listenDestinationContract(
 
       if (latest > lastBlock) {
         const filter = contract.filters.MessageReceived();
-        const events = await contract.queryFilter(filter, lastBlock + 1, latest);
+        const events = await contract.queryFilter(
+          filter,
+          lastBlock + 1,
+          latest,
+        );
 
         for (const event of events) {
           const log = event as ethers.EventLog;

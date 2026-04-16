@@ -50,10 +50,10 @@ export async function loadAttesterConfig(): Promise<AttesterConfig> {
     DEFAULT_SOURCE_RPC_URL;
 
   const key =
-    parseArg("--private-key", "-k") ?? process.env.DESTINATION_CHAIN_PRIVATE_KEY;
+    parseArg("--private-key", "-k") ??
+    process.env.DESTINATION_CHAIN_PRIVATE_KEY;
 
-  const outbox =
-    parseArg("--outbox", "-o") ?? process.env.OUTBOX_ADDR;
+  const outbox = parseArg("--outbox", "-o") ?? process.env.OUTBOX_ADDR;
 
   const relayerUrl =
     parseArg("--relayer-url") ??

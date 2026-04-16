@@ -131,9 +131,8 @@ async function main() {
   const receipt = await tx.wait();
   console.log("✅ Confirmed in block:", receipt.blockNumber);
 
-  console.log("⏳ Waiting for MessageDelivered events...");
   const heartbeat = setInterval(() => {
-  console.log("⏳ Still waiting for MessageDelivered...");
+    console.log("⏳ Waiting for MessageDelivered...");
   }, 10_000);
 
   process.on("SIGINT", () => {

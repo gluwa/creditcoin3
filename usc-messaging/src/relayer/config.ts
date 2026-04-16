@@ -62,14 +62,13 @@ export async function loadRelayerConfig(): Promise<RelayerConfig> {
     DEFAULT_SOURCE_RPC_URL;
 
   const key =
-    parseArg("--private-key", "-k") ?? process.env.DESTINATION_CHAIN_PRIVATE_KEY;
+    parseArg("--private-key", "-k") ??
+    process.env.DESTINATION_CHAIN_PRIVATE_KEY;
 
   const inbox = parseArg("--inbox", "-i") ?? process.env.INBOX_ADDR;
-  const outbox =
-    parseArg("--outbox", "-o") ?? process.env.OUTBOX_ADDR;
+  const outbox = parseArg("--outbox", "-o") ?? process.env.OUTBOX_ADDR;
   const relayer =
-    parseArg("--relayer-contract", "-c") ??
-    process.env.RELAYER_CONTRACT_ADDR;
+    parseArg("--relayer-contract", "-c") ?? process.env.RELAYER_CONTRACT_ADDR;
 
   const httpPort = parseInt(
     parseArg("--http-port") ??

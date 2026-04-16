@@ -88,7 +88,7 @@ function getPayeeAddress(): string {
   const output = runCommand(
     "cast",
     ["wallet", "address", "--private-key", privateKey],
-    REPO_ROOT
+    REPO_ROOT,
   );
   return output.trim();
 }
@@ -104,9 +104,7 @@ function requireEnv(name: string): string {
 export async function loadQuoterConfig(): Promise<QuoterConfig> {
   dotenv.config({ override: true });
 
-  const payeeAddress =
-    parseArg("--payee-address", "-p") ??
-    getPayeeAddress();
+  const payeeAddress = parseArg("--payee-address", "-p") ?? getPayeeAddress();
 
   const paymentToken =
     parseArg("--payment-token", "-t") ??
@@ -135,9 +133,7 @@ export async function loadQuoterConfig(): Promise<QuoterConfig> {
   );
 
   if (!isValidContractAddress(payeeAddress)) {
-    throw new Error(
-      `Invalid payee address: ${payeeAddress}.`,
-    );
+    throw new Error(`Invalid payee address: ${payeeAddress}.`);
   }
   if (!isValidContractAddress(paymentToken)) {
     throw new Error(
