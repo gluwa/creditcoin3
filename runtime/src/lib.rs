@@ -996,15 +996,12 @@ impl pallet_attestation::Config for Runtime {
 parameter_types! {
     /// Reward units (1e18 scale) per **eligible** signer on each successful `commit_attestation`.
     pub const AttestCoinRewardPerEligibleSigner: Balance = 1_000_000_000_000_000_000u128;
-    /// Pool for [`pallet_attest_coin_rewards::Pallet::force_settle`] (split across all ledger stashes).
-    pub const AttestCoinEpochRewardPool: Balance = 10_000_000_000_000_000_000u128;
 }
 
 impl pallet_attest_coin_rewards::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RewardPoints = Balance;
     type RewardPerEligibleSigner = AttestCoinRewardPerEligibleSigner;
-    type EpochRewardPool = AttestCoinEpochRewardPool;
 }
 
 parameter_types! {

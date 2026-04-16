@@ -27,6 +27,7 @@ mod continuity;
 pub mod extensions;
 mod impls;
 mod ledger;
+pub use ledger::AttestorLedger;
 pub mod migrations;
 
 pub use extensions::PrevalidateAttestationCommit;
