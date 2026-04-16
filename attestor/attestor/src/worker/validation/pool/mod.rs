@@ -2292,7 +2292,7 @@ mod test {
             inner
                 .forks
                 .forks_by_digest
-                .get(&CompoundDigest::from(&attestation_0.attestation))
+                .get(&(&attestation_0.attestation).into())
                 .unwrap(),
             &attestation_0
         );
@@ -2301,7 +2301,7 @@ mod test {
             inner
                 .forks
                 .forks_by_digest
-                .get(&CompoundDigest::from(&attestation_1.attestation))
+                .get(&(&attestation_1.attestation).into())
                 .unwrap(),
             &attestation_1
         );
@@ -2309,13 +2309,13 @@ mod test {
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 1,
-            digest: CompoundDigest::from(&attestation_0.attestation),
+            digest: (&attestation_0.attestation).into(),
         }));
 
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 1,
-            digest: CompoundDigest::from(&attestation_1.attestation),
+            digest: (&attestation_1.attestation).into(),
         }));
     }
 
@@ -2413,7 +2413,7 @@ mod test {
                 .contains(&KeyTailPending {
                     prev_digest_tail: PrevDigestTail(DIGEST_1.digest),
                     height: 2,
-                    digest: CompoundDigest::from(&attestation_pending.attestation),
+                    digest: (&attestation_pending.attestation).into(),
                 }));
         }
 
@@ -2618,12 +2618,12 @@ mod test {
         assert!(inner.forks.forks_by_height.contains(&KeyHeight {
             height: 1,
             size: 2,
-            digest: CompoundDigest::from(&attestation_0.attestation),
+            digest: (&attestation_0.attestation).into(),
         }));
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 2,
             height: 1,
-            digest: CompoundDigest::from(&attestation_0.attestation),
+            digest: (&attestation_0.attestation).into(),
         }));
     }
 
@@ -2688,22 +2688,22 @@ mod test {
             assert!(!inner
                 .forks
                 .forks_by_digest
-                .contains_key(&CompoundDigest::from(&attestation_2.attestation)));
+                .contains_key(&(&attestation_2.attestation).into()));
             assert!(inner
                 .forks
                 .forks_by_digest
-                .contains_key(&CompoundDigest::from(&attestation_3.attestation)));
+                .contains_key(&(&attestation_3.attestation).into()));
             assert_eq!(inner.forks.forks_by_height.len(), 1);
             assert_eq!(inner.forks.forks_by_size.len(), 1);
             assert!(inner.forks.forks_by_height.contains(&KeyHeight {
                 height: 1,
                 size: 3,
-                digest: CompoundDigest::from(&attestation_0.attestation),
+                digest: (&attestation_0.attestation).into(),
             }));
             assert!(inner.forks.forks_by_size.contains(&KeySize {
                 size: 3,
                 height: 1,
-                digest: CompoundDigest::from(&attestation_0.attestation),
+                digest: (&attestation_0.attestation).into(),
             }));
         }
     }
@@ -2759,12 +2759,12 @@ mod test {
         assert!(inner.forks.forks_by_height.contains(&KeyHeight {
             height: 1,
             size: 2,
-            digest: CompoundDigest::from(&attestation_0.attestation),
+            digest: (&attestation_0.attestation).into(),
         }));
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 2,
             height: 1,
-            digest: CompoundDigest::from(&attestation_0.attestation),
+            digest: (&attestation_0.attestation).into(),
         }));
     }
 
