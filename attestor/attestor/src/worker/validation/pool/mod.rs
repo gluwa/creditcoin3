@@ -576,12 +576,6 @@ impl CompoundDigest {
     }
 }
 
-impl From<CompoundDigest> for attestor_primitives::Digest {
-    fn from(digest: CompoundDigest) -> Self {
-        digest.digest
-    }
-}
-
 /// Identifying wrapper around [`AttestationInfo`], similar to [`CompoundDigest`].
 ///
 /// [`AttestationInfo`]: stream::util::AttestationInfo
@@ -698,7 +692,7 @@ impl AttestationPoolForks {
 
         let key_digest = KeyDigest { height, digest };
         if self.votes_invalid.contains(&key_digest) {
-            return Err(Error::InvalidDigest(attestor, height, digest.into()));
+            return Err(Error::InvalidDigest(attestor, height, digest.digest));
         }
 
         tracing::debug!("Validating attestation height");
@@ -2007,8 +2001,8 @@ mod fixtures {
                 common::types::Attestation {
                     attestation_data: attestor_primitives::AttestationData {
                         header_number,
-                        prev_digest: Some(prev_digest.into()),
-                        header_hash: header_hash.into(),
+                        prev_digest: Some(prev_digest.digest),
+                        header_hash: header_hash.digest,
                         ..Default::default()
                     },
                     attestor,
@@ -2018,7 +2012,7 @@ mod fixtures {
                             .sign(b"0xdeadbeef"),
                     ),
                     continuity_proof: attestor_primitives::block::ContinuityProof::new(
-                        prev_digest.into(),
+                        prev_digest.digest,
                         vec![attestor_primitives::Digest::default()],
                     ),
                 }
@@ -2126,7 +2120,7 @@ mod fixtures {
             .with_quorum(validate_quorum.target_quorum)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
             .with_start_attestation(Some(stream::util::AttestationInfo {
-                digest: DIGEST_0.into(),
+                digest: DIGEST_0.digest,
                 height: common::types::Height::MIN,
             }))
             .with_start_height(1u64)
@@ -2419,14 +2413,14 @@ mod test {
                 .forks
                 .pending_by_prev_digest_tail
                 .contains(&KeyTailPending {
-                    prev_digest_tail: PrevDigestTail(DIGEST_1.into()),
+                    prev_digest_tail: PrevDigestTail(DIGEST_1.digest),
                     height: 2,
                     digest: compound(&attestation_pending.attestation),
                 }));
         }
 
         sx.note_attestation_finalization(stream::util::AttestationInfo {
-            digest: DIGEST_1.into(),
+            digest: DIGEST_1.digest,
             height: 1,
         })
         .unwrap();
@@ -2994,7 +2988,7 @@ mod test {
         // ------------------------------------------------------------------------
         let reversion_info = stream::util::AttestationInfo {
             height: 50,
-            digest: DIGEST_1.into(),
+            digest: DIGEST_1.digest,
         };
 
         sx.note_attestation_chain_reversion(reversion_info);
@@ -3021,7 +3015,7 @@ mod test {
             assert!(inner.forks.quorums_by_height.is_empty());
 
             // Reversion should set the new finalized digest
-            assert_eq!(inner.forks.last_finalized_digest, Some(DIGEST_1.into()));
+            assert_eq!(inner.forks.last_finalized_digest, Some(DIGEST_1.digest));
 
             // Valid queue reset
             assert!(inner.valid.quorums_valid.is_empty());

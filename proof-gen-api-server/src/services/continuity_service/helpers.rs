@@ -123,25 +123,34 @@ impl ContinuityService {
         // The digest computed from the full block range [build_from, upper_checkpoint]
         // must match the cached on-chain upper digest, confirming the proof connects
         // to the real attestation/checkpoint entry and not just the block number.
-        if !blocks.is_empty() {
-            let computed_upper_digest = blocks
-                .last()
-                .map(|b| b.digest())
-                .unwrap_or(lower_checkpoint_digest);
-            if computed_upper_digest != upper_checkpoint_digest {
-                tracing::error!(
-                    upper_checkpoint,
-                    ?computed_upper_digest,
-                    ?upper_checkpoint_digest,
-                    "upper boundary digest mismatch — possible EVM reorg or stale cache"
-                );
-                return Err(ServiceError::Internal {
-                    message: format!(
-                        "upper boundary digest mismatch at block {upper_checkpoint}: \
-                         computed {computed_upper_digest:?}, expected {upper_checkpoint_digest:?}"
-                    ),
-                });
-            }
+        //
+        // An empty `blocks` response is unexpected: boundary resolution guarantees
+        // `lower_checkpoint < upper_checkpoint`, so at least one block must exist
+        // in [build_from, upper_checkpoint]. An empty result indicates a provider
+        // error or unexpected gap — fail fast rather than silently bypass the check.
+        if blocks.is_empty() {
+            return Err(ServiceError::Internal {
+                message: format!(
+                    "eth provider returned no blocks for range [{build_from}, {upper_checkpoint}]; \
+                     cannot verify upper boundary digest"
+                ),
+            });
+        }
+
+        let computed_upper_digest = blocks.last().expect("checked non-empty").digest();
+        if computed_upper_digest != upper_checkpoint_digest {
+            tracing::error!(
+                upper_checkpoint,
+                ?computed_upper_digest,
+                ?upper_checkpoint_digest,
+                "upper boundary digest mismatch — possible EVM reorg or stale cache"
+            );
+            return Err(ServiceError::Internal {
+                message: format!(
+                    "upper boundary digest mismatch at block {upper_checkpoint}: \
+                     computed {computed_upper_digest:?}, expected {upper_checkpoint_digest:?}"
+                ),
+            });
         }
 
         let lower_endpoint_digest = blocks

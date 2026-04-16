@@ -322,6 +322,13 @@ impl ContinuityService {
         let chain_key = chain.builder.config.chain_key;
         let genesis_block = chain.attestation_genesis_block.load(Ordering::Acquire);
 
+        // Callers must sort `header_numbers` ascending before calling this function so that
+        // the O(1) `last()` checks below are correct.
+        debug_assert!(
+            header_numbers.windows(2).all(|w| w[0] <= w[1]),
+            "validate_blocks: header_numbers must be sorted ascending"
+        );
+
         // Check genesis bound
         if let Some(&header_number) = header_numbers.iter().find(|h| **h <= genesis_block) {
             tracing::warn!(
