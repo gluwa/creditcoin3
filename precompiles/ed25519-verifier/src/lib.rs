@@ -1,10 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use core::marker::PhantomData;
+use ed25519_dalek::{Signature, VerifyingKey};
 use fp_evm::PrecompileHandle;
 use precompile_utils::prelude::*;
-use sp_core::{ed25519, ConstU32, H256};
-use sp_io::crypto::ed25519_verify;
+use sp_core::{ConstU32, H256};
 use sp_std::vec::Vec;
 
 #[cfg(test)]
@@ -32,7 +32,10 @@ impl<Runtime> Ed25519VerifierPrecompile<Runtime>
 where
     Runtime: pallet_evm::Config,
 {
-    /// Verifies an ed25519 signature.
+    /// Verifies an ed25519 signature using strict verification.
+    ///
+    /// Uses ed25519-dalek's `verify_strict` which rejects small-order public keys
+    /// and signature R components, preventing signature forgery attacks with weak keys.
     ///
     /// # Arguments
     /// * `message` - The message that was signed
@@ -62,15 +65,17 @@ where
             return Err(revert("Invalid signature length: must be exactly 64 bytes"));
         }
 
-        let mut sig_raw = [0u8; 64];
-        sig_raw.copy_from_slice(&signature_bytes);
-        let sig = ed25519::Signature::from_raw(sig_raw);
+        let verifying_key = match VerifyingKey::from_bytes(&public_key.0) {
+            Ok(vk) => vk,
+            Err(_) => return Ok(false),
+        };
 
-        // Convert public key to ed25519::Public
-        let public = ed25519::Public::from_raw(public_key.0);
+        let sig = Signature::from_slice(&signature_bytes)
+            .map_err(|_| revert("Invalid signature format"))?;
 
-        // Verify the signature
-        let is_valid = ed25519_verify(&sig, &message_bytes, &public);
+        // Use verify_strict which rejects small-order public keys and R components,
+        // preventing signature forgery with weak/small-order keys (ZIP-215 vulnerability)
+        let is_valid = verifying_key.verify_strict(&message_bytes, &sig).is_ok();
 
         Ok(is_valid)
     }
