@@ -1,4 +1,5 @@
 pub mod attestation;
+pub mod bls;
 pub mod common;
 pub mod stream_legacy;
 pub mod worker;
@@ -85,7 +86,7 @@ impl Attestor {
             }
         }
 
-        let client_cc3 = cc_client::Client::new(
+        let mut client_cc3 = cc_client::Client::new(
             self.config.stream.url_cc3.as_ref().as_ref(),
             secret_str.as_str(),
         )
@@ -212,6 +213,21 @@ impl Attestor {
                     return Err(err);
                 }
             };
+
+        // -----------------------------------* BLS key set *----------------------------------- //
+
+        let bls = match bls::BlsStore::new(&mut client_cc3, self.config.chain_key, &attestors).await
+        {
+            Ok(bls) => std::sync::Arc::new(bls),
+            Err(Interrupt::Stop) => {
+                tracing::info!("🔌 Received shutdown signal");
+                return Ok(());
+            }
+            Err(Interrupt::Cont(err)) => {
+                tracing::error!(%err, "⛔ Failed to retrieve active attestor bls set");
+                return Err(Error::BlsError(err));
+            }
+        };
 
         // ---------------------------------* Chain configuration *--------------------------------
 
@@ -392,15 +408,16 @@ impl Attestor {
         let config = self
             .config
             .p2p
-            .with_cc3(client_cc3.clone())
-            .with_api_calls(cc_client::Client::runtime_api())
+            .with_bls(std::sync::Arc::clone(&bls))
             .with_keypair(keypair_p2p)
             .with_receiver_p2p(receiver_p2p)
             .with_sender_validation(sender_validation.clone())
             .with_chain_key(chain_key)
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
-        let p2p = worker::p2p::WorkerP2P::new(config).map_err(Error::InitError)?;
+        let p2p = worker::p2p::WorkerP2P::new(config)
+            .await
+            .map_err(Error::InitError)?;
         let mut handle_p2p = Some(monitor.spawn(p2p));
 
         // --------------------------------------* Genesis *------------------------------------ //
@@ -441,6 +458,8 @@ impl Attestor {
         let config = worker::production::ConfigBuilder::new()
             .with_stream_attestation(stream_attestation)
             .with_stream_cc3(stream_cc3_production)
+            .with_cc3(client_cc3.clone())
+            .with_bls(bls)
             .with_sender_p2p(sender_p2p)
             .with_sender_validation(sender_validation)
             .with_interval_attestation(interval_attestation)
@@ -449,8 +468,7 @@ impl Attestor {
             .with_account_id(account_id)
             .with_metrics(metrics)
             .build();
-        let production = worker::production::WorkerAttestationProduction::new(config)
-            .map_err(Error::InitError)?;
+        let production = worker::production::WorkerAttestationProduction::new(config);
         let mut handle_production = Some(monitor.spawn(production));
 
         tracing::info!("✅ All services online!");

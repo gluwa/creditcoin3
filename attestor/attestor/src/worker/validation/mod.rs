@@ -118,7 +118,7 @@ pub struct Config {
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
 
 pub(crate) struct WorkerAttestationValidation {
-    // CHAIN LISTENERS
+    // CC3
     stream_cc3: crate::stream_legacy::cc3::StreamCC3,
     cc3: cc_client::Client,
 
@@ -510,10 +510,9 @@ impl WorkerAttestationValidation {
 
         let now = std::time::Instant::now();
 
-        let mut runtime_api = match self.cc3.api().runtime_api().at_latest().await {
-            Ok(runtime_api) => runtime_api,
-            Err(err) => self.reconnect(Error::Subxt(err)).await?,
-        };
+        let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(&mut self.cc3)
+            .await
+            .map_interrupt(Error::Client)?;
 
         // -----------------------------------* Pre-validation *-----------------------------------
 
@@ -521,16 +520,13 @@ impl WorkerAttestationValidation {
         //
         // This ensures we are not dealing with a duplicate vote or an invalid source chain.
 
-        let is_chain_supported = loop {
-            let call = self
-                .api_calls
+        let call = || {
+            self.api_calls
                 .supported_chains_api()
-                .is_chain_supported(chain_key);
-            match runtime_api.call(call).await {
-                Ok(is_chain_supported) => break is_chain_supported,
-                Err(err) => runtime_api = self.reconnect(Error::Subxt(err)).await?,
-            };
+                .is_chain_supported(chain_key)
         };
+
+        let is_chain_supported = runtime_api.call(call).await.map_interrupt(Error::Client)?;
 
         if !is_chain_supported {
             tracing::error!(?digest, height, chain_key, "⛔ Unsupported source chain");
@@ -539,17 +535,15 @@ impl WorkerAttestationValidation {
             )));
         }
 
-        let is_duplicate = loop {
-            let call = self.api_calls.attestor_api().contains_digest(
+        let call = || {
+            self.api_calls.attestor_api().contains_digest(
                 chain_key,
                 cc_client::H256(digest.0),
                 height,
-            );
-            match runtime_api.call(call).await {
-                Ok(is_duplicate) => break is_duplicate,
-                Err(err) => runtime_api = self.reconnect(Error::Subxt(err)).await?,
-            };
+            )
         };
+
+        let is_duplicate = runtime_api.call(call).await.map_interrupt(Error::Client)?;
 
         if is_duplicate {
             tracing::debug!(?digest, height, "Attestation already exists");
@@ -595,13 +589,9 @@ impl WorkerAttestationValidation {
             )));
         }
 
-        let digest_last_finalized = loop {
-            let call = self.api_calls.attestor_api().last_digest(chain_key);
-            match runtime_api.call(call).await {
-                Ok(digest_last_finalized) => break digest_last_finalized,
-                Err(err) => runtime_api = self.reconnect(Error::Subxt(err)).await?,
-            };
-        };
+        let call = || self.api_calls.attestor_api().last_digest(chain_key);
+
+        let digest_last_finalized = runtime_api.call(call).await.map_interrupt(Error::Client)?;
 
         let digest_last_finalized = digest_last_finalized.unwrap_or_else(|| {
             tracing::debug!(
@@ -1031,23 +1021,14 @@ impl WorkerAttestationValidation {
         Ok(())
     }
 
-    async fn reconnect(
-        &mut self,
-        err: Error,
-    ) -> Result<
-        subxt::runtime_api::RuntimeApi<
-            subxt::SubstrateConfig,
-            subxt::OnlineClient<subxt::SubstrateConfig>,
-        >,
-        Interrupt<Error>,
-    > {
-        tracing::warn!(?err, "🛜 CC3 connection lost");
+    async fn reconnect(&mut self, err: Error) -> Result<(), Interrupt<Error>> {
+        tracing::warn!(?err, "CC3 connection lost");
 
         let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
             .max_delay(std::time::Duration::from_millis(5_000))
             .map(tokio_retry::strategy::jitter);
         let reconnect = || {
-            tracing::warn!("🛜 Reconnecting to CC3...");
+            tracing::warn!("Reconnecting to CC3...");
 
             let mut cc3 = self.cc3.clone();
             async move {
@@ -1055,21 +1036,13 @@ impl WorkerAttestationValidation {
                     tracing::error!(?err, "Failed to reconnect to CC3");
                     Error::Client(err)
                 })?;
-
-                let runtime_api = cc3.api().runtime_api().at_latest().await.map_err(|err| {
-                    tracing::error!(?err, "Failed to reconnect to CC3");
-                    Error::Subxt(err)
-                })?;
-
-                Ok::<_, Error>((cc3, runtime_api))
+                Ok::<_, Error>(cc3)
             }
         };
         tokio::select! {
             retry = tokio_retry::Retry::spawn(strategy, reconnect) => {
-                let (cc3, runtime_api) = retry.expect("Unbounded retry cannot error");
-                self.cc3 = cc3;
-
-                Ok(runtime_api)
+                self.cc3 = retry.expect("Unbounded retry cannot error");
+                Ok(())
             }
             _ = tokio::signal::ctrl_c() => {
                 Err(Interrupt::Stop)
