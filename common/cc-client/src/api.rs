@@ -1,4 +1,3 @@
-use super::*;
 use user::prelude::*;
 
 /// Auto-reconnecting substrate [`RuntimeApi`].
@@ -8,7 +7,7 @@ use user::prelude::*;
 ///
 /// [`RuntimeApi`]: subxt::runtime_api::RuntimeApi
 pub struct ReconnectingRuntimeApi<'a> {
-    client: &'a mut Client,
+    client: &'a mut crate::Client,
     runtime_api: subxt::runtime_api::RuntimeApi<
         subxt::SubstrateConfig,
         subxt::OnlineClient<subxt::SubstrateConfig>,
@@ -16,7 +15,7 @@ pub struct ReconnectingRuntimeApi<'a> {
 }
 
 impl<'a> ReconnectingRuntimeApi<'a> {
-    pub async fn new(client: &'a mut crate::Client) -> Result<Self, Interrupt<Error>> {
+    pub async fn new(client: &'a mut crate::Client) -> Result<Self, Interrupt<crate::Error>> {
         let runtime_api = match client.api().runtime_api().at_latest().await {
             Ok(runtime_api) => runtime_api,
             Err(err) => {
@@ -35,7 +34,7 @@ impl<'a> ReconnectingRuntimeApi<'a> {
     pub async fn call<Call: subxt::runtime_api::Payload>(
         &mut self,
         call: impl Fn() -> Call,
-    ) -> Result<Call::ReturnType, Interrupt<Error>> {
+    ) -> Result<Call::ReturnType, Interrupt<crate::Error>> {
         loop {
             match self.runtime_api.call(call()).await {
                 Ok(res) => break Ok(res),
@@ -50,17 +49,17 @@ impl<'a> ReconnectingRuntimeApi<'a> {
 }
 
 async fn reconnect(
-    client: &Client,
+    client: &crate::Client,
     err: subxt::Error,
 ) -> Result<
     (
-        Client,
+        crate::Client,
         subxt::runtime_api::RuntimeApi<
             subxt::SubstrateConfig,
             subxt::OnlineClient<subxt::SubstrateConfig>,
         >,
     ),
-    Interrupt<Error>,
+    Interrupt<crate::Error>,
 > {
     tracing::warn!(?err, "CC3 connection lost");
 
@@ -79,10 +78,10 @@ async fn reconnect(
 
             let runtime_api = cc3.api().runtime_api().at_latest().await.map_err(|err| {
                 tracing::error!(?err, "Failed to reconnect to CC3");
-                Error::SubxtError(err)
+                crate::Error::SubxtError(err)
             })?;
 
-            Ok::<_, Error>((cc3, runtime_api))
+            Ok::<_, crate::Error>((cc3, runtime_api))
         }
     };
     tokio::select! {
