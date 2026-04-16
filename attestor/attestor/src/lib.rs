@@ -28,7 +28,6 @@ pub struct Config {
 
     p2p: worker::p2p::ConfigIncomplete,
     api: worker::api::ConfigIncomplete,
-    pool: worker::validation::pool::ConfigIncomplete,
 }
 
 // ---------------------------------------- [ Main loop ] -------------------------------------- //
@@ -340,9 +339,7 @@ impl Attestor {
             tokio::sync::broadcast::channel(common::constants::CAPACITY_CHANNEL);
 
         // attestation production / p2p sync -> attestation validation
-        let config = self
-            .config
-            .pool
+        let config = worker::validation::pool::ConfigBuilder::new()
             .with_attestors(attestors)
             .with_quorum(quorum)
             .with_start_height(start_height)

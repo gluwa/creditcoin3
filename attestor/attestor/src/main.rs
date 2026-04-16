@@ -19,7 +19,6 @@ struct Config {
     p2p_port: u16, // Defaults to 9000 if not specified
     eth_url: attestor::stream_legacy::RpcSecret,
     cc3_url: attestor::stream_legacy::RpcSecret,
-    pool_capacity: std::num::NonZeroUsize,
     start_height: Option<common::types::Height>,
     attestation_interval: Option<std::num::NonZero<common::types::Height>>,
     no_mdns: bool,
@@ -37,8 +36,6 @@ struct ConfigFile {
     eth: ConfigFileEth,
     #[serde(default)]
     cc3: ConfigFileCC3,
-    #[serde(default)]
-    pool: ConfigFilePool,
     #[serde(default)]
     attestation: ConfigAttestation,
 }
@@ -79,11 +76,6 @@ struct ConfigFileEth {
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigFileCC3 {
     url: Option<url::Url>,
-}
-
-#[derive(Debug, Default, serde::Deserialize)]
-struct ConfigFilePool {
-    capacity: Option<std::num::NonZeroUsize>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -247,18 +239,6 @@ impl Config {
                     .action(clap::ArgAction::SetTrue)
             )
             .arg(
-                clap::arg!(--"pool-capacity" <SIZE>)
-                    .help("Maximum number of pending attestation")
-                    .long_help(
-                        "Maximum number of pending attestation. \
-                        Once this count has been reached, the attestor will automatically start \
-                        evicting attestations to make space for new votes",
-                    )
-                    .env("ATTESTOR_POOL_CAPACITY")
-                    .required(config_file.pool.capacity.is_none())
-                    .value_parser(clap::value_parser!(std::num::NonZeroUsize)),
-            )
-            .arg(
                 clap::arg!(--"start-height" <HEIGHT>)
                     .help("Initial height from which the attestor starts producing attestations")
                     .long_help(
@@ -391,14 +371,6 @@ impl Config {
             attestor::stream_legacy::RpcSecret::new_opaque(cc3_url)
         };
 
-        let pool_capacity = match matches.get_one::<std::num::NonZeroUsize>("pool-capacity") {
-            Some(pool_capacity) => *pool_capacity,
-            None => config_file
-                .pool
-                .capacity
-                .expect("Pool capacity is set either in config or by clap"),
-        };
-
         let start_height = matches
             .get_one::<common::types::Height>("start-height")
             .cloned()
@@ -422,7 +394,6 @@ impl Config {
             p2p_port,
             eth_url,
             cc3_url,
-            pool_capacity,
             start_height,
             attestation_interval,
             no_mdns,
@@ -507,10 +478,6 @@ async fn main() -> anyhow::Result<()> {
                 .with_public_addr(args.public_addr)
                 .with_port(args.p2p_port)
                 .with_no_mdns(args.no_mdns),
-        )
-        .with_pool(
-            attestor::worker::validation::pool::ConfigBuilder::new()
-                .with_max_size(args.pool_capacity),
         )
         .with_attestation(
             attestor::attestation::ConfigBuilder::new()
