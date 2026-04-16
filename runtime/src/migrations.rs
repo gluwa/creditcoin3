@@ -188,17 +188,18 @@ pub mod v1_init_operators {
                     "f49493c655bf40a6af007f4f6285f5bf71a8925893b93b4c6526c6c7e874cd47"
                 ));
 
-                let members: BoundedVec<T::AccountId, T::MaxMembers> =
-                    match BoundedVec::try_from(vec![operator.into()]) {
-                        Ok(v) => v,
-                        Err(_) => {
-                            log::error!(
-                                target: "runtime::migrations",
-                                "v1_init_operators: MaxMembers is 0 — skipping operator initialization"
-                            );
-                            return T::DbWeight::get().reads(1);
-                        }
-                    };
+                let members: BoundedVec<T::AccountId, T::MaxMembers> = match BoundedVec::try_from(
+                    vec![operator.into()],
+                ) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        log::error!(
+                            target: "runtime::migrations",
+                            "v1_init_operators: MaxMembers is 0 — skipping operator initialization"
+                        );
+                        return T::DbWeight::get().reads(1);
+                    }
+                };
                 Members::<T, OperatorsInstance>::put(members);
 
                 log::info!(
