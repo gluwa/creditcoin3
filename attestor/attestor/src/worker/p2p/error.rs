@@ -2,8 +2,6 @@ use crate::prelude::*;
 
 #[derive(Debug)]
 pub enum Error {
-    Client(cc_client::Error),
-    Subxt(subxt::Error),
     InvalidAttestation(InvalidCause),
     PublishError(
         common::types::Height,
@@ -16,8 +14,6 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Client(err) => write!(f, "{err}"),
-            Self::Subxt(err) => write!(f, "{err}"),
             Self::InvalidAttestation(cause) => write!(f, "Invalid attestation: {cause}"),
             Self::PublishError(height, digest, err) => write!(
                 f,
