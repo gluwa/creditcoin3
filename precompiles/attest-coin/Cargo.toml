@@ -19,8 +19,27 @@ pallet-assets = { workspace = true, default-features = false }
 pallet-attest-coin-rewards = { workspace = true, default-features = false }
 pallet-attestation = { workspace = true, default-features = false }
 pallet-staking = { workspace = true, default-features = false }
+pallet-supported-chains = { workspace = true, default-features = false }
 frame-system = { workspace = true }
 precompile-utils = { workspace = true, default-features = false }
+
+[dev-dependencies]
+attestor-primitives = { workspace = true }
+derive_more = { workspace = true }
+env_logger = { workspace = true }
+frame-election-provider-support = { workspace = true }
+pallet-assets = { workspace = true, default-features = false, features = ["std"] }
+pallet-babe = { workspace = true, features = ["std"] }
+pallet-balances = { workspace = true }
+pallet-session = { workspace = true }
+pallet-staking = { workspace = true }
+pallet-staking-reward-curve = { workspace = true, default-features = false }
+pallet-timestamp = { workspace = true }
+precompile-utils = { workspace = true, features = ["std", "testing"] }
+scale-info = { workspace = true, features = ["derive"] }
+serde = { workspace = true }
+sp-staking = { workspace = true }
+supported-chains-primitives = { workspace = true }
 
 [features]
 default = ["std"]
@@ -37,6 +56,7 @@ std = [
     "pallet-attest-coin-rewards/std",
     "pallet-attestation/std",
     "pallet-staking/std",
+    "pallet-supported-chains/std",
     "frame-system/std",
     "precompile-utils/std",
 ]
