@@ -3,6 +3,11 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;
+
 use core::marker::PhantomData;
 use fp_evm::{
     Context, ExitError, ExitReason, ExitRevert, ExitSucceed, Precompile, PrecompileFailure,
@@ -33,7 +38,13 @@ const SEL_TRANSFER_FROM: [u8; 4] = [0x23, 0xb8, 0x72, 0xdd];
 const SEL_DEPOSIT: [u8; 4] = [0xb6, 0xb5, 0x5f, 0x25];
 /// `depositTo(uint256,bytes32)` — same as [`SEL_DEPOSIT`] but mints to an explicit 32-byte `AccountId`.
 const SEL_DEPOSIT_TO: [u8; 4] = [0xc6, 0xbc, 0x97, 0x5d];
-/// Must match runtime `ATTEST_COIN_ASSET_ID` and chain genesis.
+/// The asset ID for attest coin in `pallet-assets`.
+///
+/// **Must match the chain-spec asset ID** used at genesis (and in any runtime upgrade migration).
+/// At genesis the asset is created via the chain-spec `pallet_assets` genesis config.
+/// During runtime upgrades, if the asset does not yet exist, create it with:
+/// `pallet_assets::Pallet::force_create(root, ATTEST_COIN_ASSET_ID.into(), issuer, false, 1)`
+/// in a storage migration before any precompile call that mints or transfers the asset.
 const ATTEST_COIN_ASSET_ID: u32 = 1;
 
 pub struct AttestCoinPrecompile<Runtime>(PhantomData<Runtime>);
@@ -56,7 +67,8 @@ where
         + pallet_assets::Config
         + pallet_attest_coin_rewards::Config
         + pallet_attestation::Config
-        + pallet_staking::Config,
+        + pallet_staking::Config
+        + pallet_supported_chains::Config,
     Runtime::AccountId: From<[u8; 32]> + Encode,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
     Runtime::RuntimeCall: From<pallet_assets::Call<Runtime>>,
@@ -92,7 +104,8 @@ where
         + pallet_assets::Config
         + pallet_attest_coin_rewards::Config
         + pallet_attestation::Config
-        + pallet_staking::Config,
+        + pallet_staking::Config
+        + pallet_supported_chains::Config,
     Runtime::AccountId: From<[u8; 32]> + Encode,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
     Runtime::RuntimeCall: From<pallet_assets::Call<Runtime>>,
@@ -118,6 +131,12 @@ where
         })
     }
 
+    /// Transfer accrued attest-coin rewards to the EVM caller.
+    ///
+    /// The precompile must already hold an ERC-20 balance of the token configured via
+    /// [`pallet_attest_coin_rewards::AttestCoinErc20`] (funded by the protocol treasury).
+    /// The claim executes `ERC-20.transfer(evm_recipient, amount)` with
+    /// `sub_context.caller = code_address` so the transfer is sent from the precompile's own balance.
     fn claim(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
         // claim(bytes32,uint256,uint256,uint256,address,bytes32,bytes32) — 7 × 32 bytes after selector
         handle.record_cost(120_000)?;
@@ -151,6 +170,13 @@ where
 
         let nonce_u64 = u256_to_u64(nonce_u256)?;
         let chain_key = u256_to_u64(chain_u256)?;
+
+        if !pallet_supported_chains::SupportedChains::<Runtime>::contains_key(chain_key) {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"unsupported chain key".to_vec(),
+            });
+        }
         let amount_pts = u256_to_reward_points::<Runtime>(amount_u256)?;
         let amount_u128: u128 = amount_pts.into();
 
@@ -222,6 +248,11 @@ where
     }
 
     /// Mint attest coin to the Substrate account mapped from the EVM caller (`AddressMapping`).
+    ///
+    /// **Before calling this function**, the user must call `approve(precompile_address, amount)`
+    /// on the ERC-20 contract, where `precompile_address` is this attest-coin precompile's deployed
+    /// address. The precompile uses `transferFrom(caller, precompile, amount)` internally, with
+    /// `sub_context.caller = code_address` so the precompile is the approved spender.
     fn deposit(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
         let caller_h160 = handle.context().caller;
         let beneficiary = Runtime::AddressMapping::into_account_id(caller_h160);
@@ -229,6 +260,11 @@ where
     }
 
     /// Mint attest coin to an explicit 32-byte `AccountId` (e.g. sr25519 stash), still pulling ERC-20 from the caller.
+    ///
+    /// **Before calling this function**, the user must call `approve(precompile_address, amount)`
+    /// on the ERC-20 contract, where `precompile_address` is this attest-coin precompile's deployed
+    /// address. The precompile uses `transferFrom(caller, precompile, amount)` with
+    /// `sub_context.caller = code_address` (precompile as the approved spender).
     fn deposit_to(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
         if rest.len() < 64 {
             return Err(bad_input());
@@ -245,6 +281,12 @@ where
         Self::deposit_with_beneficiary(handle, &rest[0..32], beneficiary)
     }
 
+    /// Internal implementation for [`Self::deposit`] and [`Self::deposit_to`].
+    ///
+    /// Executes `ERC-20.transferFrom(caller, precompile, amount)` via a sub-call where
+    /// `sub_context.caller = code_address` — making the precompile the approved spender in the
+    /// ERC-20 `transferFrom` call. The user must have called `approve(precompile_address, amount)`
+    /// on the ERC-20 before invoking `deposit`/`depositTo`.
     fn deposit_with_beneficiary(
         handle: &mut impl PrecompileHandle,
         amount_word: &[u8],
