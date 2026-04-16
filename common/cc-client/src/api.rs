@@ -1,6 +1,12 @@
 use super::*;
 use user::prelude::*;
 
+/// Auto-reconnecting substrate [`RuntimeApi`].
+///
+/// Will attempt to restore connection on any failed runtime call. Reconnection attempts are
+/// unbounded and can only be aborted via manual user cancellation (Ctrl-C).
+///
+/// [`RuntimeApi`]: subxt::runtime_api::RuntimeApi
 pub struct ReconnectingRuntimeApi<'a> {
     client: &'a mut Client,
     runtime_api: subxt::runtime_api::RuntimeApi<
