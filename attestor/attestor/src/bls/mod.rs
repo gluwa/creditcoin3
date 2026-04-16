@@ -70,11 +70,10 @@ impl BlsStore {
         use bls_signatures::Serialize as _;
 
         let mut inner = self.0.lock().await;
+        let mut keys_new = std::collections::HashMap::<[u8; 32], _>::with_capacity(attestors.len());
+
         let api_calls = cc_client::Client::runtime_api();
         let chain_key = inner.chain_key;
-
-        inner.keys.clear();
-        inner.keys.reserve(attestors.len());
 
         let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(cc3)
             .await
@@ -94,7 +93,7 @@ impl BlsStore {
                 .map_interrupt(Error::Client)?
                 .map(|bytes| bls_signatures::PublicKey::from_bytes(&bytes))
             {
-                Some(Ok(pubkey)) => inner.keys.insert(*attestor_id.as_ref(), pubkey),
+                Some(Ok(pubkey)) => keys_new.insert(*attestor_id.as_ref(), pubkey),
                 Some(Err(..)) => {
                     return Err(Interrupt::Cont(Error::InvalidBls(attestor_id.clone())));
                 }
@@ -103,6 +102,9 @@ impl BlsStore {
                 }
             };
         }
+
+        // WARNING: only update bls keys if the previous fetch was successful.
+        std::mem::swap(&mut inner.keys, &mut keys_new);
 
         Ok(())
     }
