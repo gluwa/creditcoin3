@@ -361,7 +361,7 @@ jobs:
                 --cc3-url=ws://localhost:9944 \
                 --funding-address='//Alice' \
                 --config=./attestor/config.yaml \
-                >/var/tmp/integration-test-attestor-network/zombienet-alice &
+                >/var/tmp/integration-test-attestor-network/zombienet-alice.log &
 
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
 
@@ -377,7 +377,7 @@ jobs:
                 --cc3-url=ws://localhost:9955 \
                 --funding-address='//Alice' \
                 --config=./attestor/config.yaml \
-                >/var/tmp/integration-test-attestor-network/zombienet-bob &
+                >/var/tmp/integration-test-attestor-network/zombienet-bob.log &
 
       - name: Wait for 3 attestors to be registered
         run: |
