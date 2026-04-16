@@ -425,7 +425,7 @@ impl WorkerAttestationProduction {
                         .await
                         .map_interrupt(Error::Bls)?;
 
-                    // 2. Attestor validation
+                    // 3. Attestor validation
                     //
                     // Update the set of legal attestors in the attestation pool.
                     self.sender_validation.note_attestors_elected(attestors);
