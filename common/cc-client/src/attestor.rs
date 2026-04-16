@@ -1,0 +1,95 @@
+/// Identity wrapper around all common attestor signature schemes.
+#[derive(Clone)]
+pub struct Attestor {
+    chain_key: attestor_primitives::ChainKey,
+
+    pub(crate) keypair_subxt: subxt_signer::sr25519::Keypair,
+    pub(crate) keypair_p2p: libp2p::identity::Keypair,
+
+    pub(crate) pair_vrf: sp_core::sr25519::Pair,
+    pub(crate) bls_key: bls_signatures::PrivateKey,
+}
+
+impl Attestor {
+    /// Initializes all attestor signature schemes from a single secret key phrase.
+    pub fn new(
+        secret: crate::secret::Secret,
+        chain_key: attestor_primitives::ChainKey,
+    ) -> anyhow::Result<Self> {
+        use secrecy::ExposeSecret as _;
+        use sp_core::Pair as _;
+        use std::str::FromStr as _;
+
+        let seed = subxt_signer::SecretUri::from_str(secret.private_key().expose_secret())?;
+        let keypair_subxt = subxt_signer::sr25519::Keypair::from_uri(&seed)?;
+
+        let seed = secret.private_key();
+        let pair_vrf = sp_core::sr25519::Pair::from_string(seed.expose_secret(), None)?;
+
+        let mut seed: [u8; 32] = secret.try_into()?;
+        let bls_key = bls_signatures::PrivateKey::new(seed);
+        let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut seed)?;
+
+        anyhow::Ok(Self {
+            chain_key,
+
+            keypair_subxt,
+            keypair_p2p,
+
+            pair_vrf,
+            bls_key,
+        })
+    }
+
+    #[must_use]
+    pub fn chain_key(&self) -> attestor_primitives::ChainKey {
+        self.chain_key
+    }
+
+    #[must_use]
+    pub fn attestor_id(&self) -> attestor_primitives::AttestorId {
+        attestor_primitives::AttestorId::from_public(self.keypair_subxt.public_key().0)
+    }
+
+    #[must_use]
+    pub fn account_id(&self) -> subxt::utils::AccountId32 {
+        subxt::utils::AccountId32(self.keypair_subxt.public_key().0)
+    }
+
+    #[must_use]
+    pub fn bls_pubkey(&self) -> attestor_primitives::BlsPublicKey {
+        self.bls_key.public_key().as_affine().to_compressed()
+    }
+
+    #[must_use]
+    pub fn bls_proof_of_possession(&self) -> attestor_primitives::BlsSignature {
+        Into::<bls12_381::G2Affine>::into(self.bls_key.sign(self.bls_pubkey())).to_compressed()
+    }
+
+    #[must_use]
+    pub fn peer_id(&self) -> libp2p::PeerId {
+        libp2p::PeerId::from_public_key(&self.keypair_p2p.public())
+    }
+
+    #[must_use]
+    pub fn peer_keypair(&self) -> libp2p::identity::Keypair {
+        self.keypair_p2p.clone()
+    }
+
+    #[must_use]
+    pub fn sign_sr25519(&self, data: &[u8]) -> subxt_signer::sr25519::Signature {
+        self.keypair_subxt.sign(data)
+    }
+
+    #[must_use]
+    pub fn sign_bls(&self, data: &[u8]) -> bls_signatures::Signature {
+        self.bls_key.sign(data)
+    }
+}
+
+impl PartialEq for Attestor {
+    fn eq(&self, other: &Self) -> bool {
+        self.attestor_id() == other.attestor_id()
+    }
+}
+impl Eq for Attestor {}

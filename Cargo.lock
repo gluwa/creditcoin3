@@ -1572,7 +1572,6 @@ dependencies = [
  "url",
  "usc-abi-encoding",
  "user",
- "zeroize",
 ]
 
 [[package]]
@@ -1606,7 +1605,6 @@ dependencies = [
  "chrono",
  "clap",
  "eth",
- "rand 0.8.5",
  "subxt",
  "subxt-signer",
  "tokio",
@@ -2221,6 +2219,12 @@ version = "3.109.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
+ "bip39",
+ "bls-signatures",
+ "bls12_381",
+ "hex",
+ "libp2p 0.56.0",
+ "secrecy 0.10.3",
  "serde",
  "sp-core",
  "subxt",
@@ -2229,8 +2233,10 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "url",
  "usc-abi-encoding",
  "vrf",
+ "zeroize",
 ]
 
 [[package]]
@@ -14791,7 +14797,6 @@ version = "3.109.0"
 dependencies = [
  "attestor-primitives",
  "bip39",
- "bls-signatures",
  "builder",
  "cc-client",
  "clap",

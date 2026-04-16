@@ -341,7 +341,7 @@ impl ConfigBuilder {
             .chain_key
             .ok_or_else(|| anyhow::anyhow!("chain_key is required"))?;
 
-        let cc3_client = Client::new_read_only(cc3_rpc_url)
+        let cc3_client = Client::new(cc3_rpc_url)
             .await
             .context("Failed to create CC3 client")?;
 
