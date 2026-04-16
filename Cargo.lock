@@ -9231,20 +9231,34 @@ dependencies = [
 name = "pallet-evm-precompile-attest-coin"
 version = "0.1.0"
 dependencies = [
+ "attestor-primitives",
+ "derive_more 0.99.19",
+ "env_logger 0.11.8",
  "fp-evm",
+ "frame-election-provider-support",
  "frame-support",
  "frame-system",
  "pallet-assets",
  "pallet-attest-coin-rewards",
  "pallet-attestation",
+ "pallet-babe",
+ "pallet-balances",
  "pallet-evm",
+ "pallet-session",
  "pallet-staking",
+ "pallet-staking-reward-curve",
+ "pallet-supported-chains",
+ "pallet-timestamp",
  "parity-scale-codec",
  "precompile-utils",
+ "scale-info",
+ "serde",
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "sp-staking",
  "sp-std",
+ "supported-chains-primitives",
 ]
 
 [[package]]
