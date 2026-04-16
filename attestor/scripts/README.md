@@ -115,3 +115,64 @@ No special steps here. Simply register and run attestors as normal for the chain
 imported checkpoints to.
 
 The resulting attestor sync process should take a much shorter time than it otherwise would.
+
+## Importing Checkpoints from a CSV File
+
+`ImportCheckpointsFromCsv.js` is an alternative to the export-then-import workflow above.
+Use it when you already have checkpoints in a CSV file (e.g. produced by a checkpoint-builder
+tool) and want to import them directly into a chain without needing a live source chain to
+export from.
+
+### CSV Format
+
+Each row is `block_number,digest_hex`. An optional header line is supported and will be
+skipped automatically.
+
+```
+block_number,digest_hex
+1000,0x6cfd0730ec3bd606df4a125c004105ba21dbf06a004464e102de156d992ef04b
+2000,0xd63f51622a13d598a341266e72a253556ed1f681495006a47b739404c3ea6a90
+```
+
+### Configuration
+
+Configuration can be provided via CLI arguments or environment variables. CLI arguments take
+priority over environment variables.
+
+| CLI argument  | Env variable              | Description                                        |
+|---------------|---------------------------|----------------------------------------------------|
+| `--file`      | `CHECKPOINTS_FILE`        | Path to the CSV file                               |
+| `--rpc`       | `DESTINATION_CHAIN`       | WebSocket URL of the target chain                  |
+| `--chain-key` | `CHAIN_KEY_ON_DESTINATION`| Chain key to import checkpoints into               |
+| *(none)*      | `MNEMONIC`                | Sudo account mnemonic (required, env var only)     |
+
+### Usage
+
+Via CLI arguments:
+
+```sh
+node ImportCheckpointsFromCsv.js --file checkpoints.csv --rpc ws://127.0.0.1:9944 --chain-key 2
+```
+
+Via `.env` file — add to `attestor/scripts/.env`:
+
+```
+MNEMONIC="//Alice"
+DESTINATION_CHAIN="ws://127.0.0.1:9944"
+CHAIN_KEY_ON_DESTINATION=2
+CHECKPOINTS_FILE=checkpoints.csv
+```
+
+Then run:
+
+```sh
+node ImportCheckpointsFromCsv.js
+```
+
+Pass `--dev` to reduce the retry delay from 15 s to 6 s, useful when testing locally:
+
+```sh
+node ImportCheckpointsFromCsv.js --dev
+```
+
+Checkpoints are submitted in batches of 100 via a `sudo(attestation.importCheckpoints(...))` call.

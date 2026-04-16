@@ -2336,6 +2336,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "checkpoint-builder"
+version = "3.121.0"
+dependencies = [
+ "anyhow",
+ "attestor-primitives",
+ "chrono",
+ "clap",
+ "dotenvy",
+ "hex",
+ "reqwest",
+ "serde",
+ "sled",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11305,6 +11324,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2 0.4.9",
