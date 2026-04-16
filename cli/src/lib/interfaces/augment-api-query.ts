@@ -144,6 +144,12 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
+             * O(1) auxiliary counter for the number of registered attestors per chain.
+             * Incremented in `register_attestor`, decremented in `unregister_attestor`.
+             **/
+            attestorsCount: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
             authorizedAttestors: AugmentedQuery<
                 ApiType,
                 (arg1: u64 | AnyNumber | Uint8Array, arg2: AccountId32 | string | Uint8Array) => Observable<Null>,

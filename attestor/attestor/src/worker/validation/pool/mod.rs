@@ -2167,6 +2167,19 @@ mod test {
     use super::fixtures::*;
     use super::*;
 
+    /// Build the [`CompoundDigest`] for a test attestation.
+    fn compound(attestation: &common::types::Attestation) -> CompoundDigest {
+        let proof = &attestation.continuity_proof;
+        let start_block = attestation
+            .header_number()
+            .saturating_sub(proof.len() as u64);
+        CompoundDigest {
+            digest: attestation.digest(),
+            header_hash: attestation.attestation_data.header_hash,
+            proof_digest: proof.compute_continuity_digest(start_block),
+        }
+    }
+
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
@@ -2287,10 +2300,7 @@ mod test {
             inner
                 .forks
                 .forks_by_digest
-                .get(&CompoundDigest {
-                    digest: attestation_0.attestation.digest(),
-                    header_hash: attestation_0.attestation.attestation_data.header_hash
-                })
+                .get(&compound(&attestation_0.attestation))
                 .unwrap(),
             &attestation_0
         );
@@ -2299,10 +2309,7 @@ mod test {
             inner
                 .forks
                 .forks_by_digest
-                .get(&CompoundDigest {
-                    digest: attestation_1.attestation.digest(),
-                    header_hash: attestation_1.attestation.attestation_data.header_hash
-                })
+                .get(&compound(&attestation_1.attestation))
                 .unwrap(),
             &attestation_1
         );
@@ -2310,19 +2317,13 @@ mod test {
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 1,
-            digest: CompoundDigest {
-                digest: attestation_0.attestation.digest(),
-                header_hash: attestation_0.attestation.attestation_data.header_hash
-            }
+            digest: compound(&attestation_0.attestation),
         }));
 
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 1,
-            digest: CompoundDigest {
-                digest: attestation_1.attestation.digest(),
-                header_hash: attestation_1.attestation.attestation_data.header_hash
-            }
+            digest: compound(&attestation_1.attestation),
         }));
     }
 
@@ -2420,10 +2421,7 @@ mod test {
                 .contains(&KeyTailPending {
                     prev_digest_tail: PrevDigestTail(DIGEST_1.into()),
                     height: 2,
-                    digest: CompoundDigest {
-                        digest: attestation_pending.attestation.digest(),
-                        header_hash: attestation_pending.attestation.attestation_data.header_hash
-                    },
+                    digest: compound(&attestation_pending.attestation),
                 }));
         }
 
@@ -2628,18 +2626,12 @@ mod test {
         assert!(inner.forks.forks_by_height.contains(&KeyHeight {
             height: 1,
             size: 2,
-            digest: CompoundDigest {
-                digest: attestation_0.attestation.digest(),
-                header_hash: attestation_0.attestation.attestation_data.header_hash
-            }
+            digest: compound(&attestation_0.attestation),
         }));
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 2,
             height: 1,
-            digest: CompoundDigest {
-                digest: attestation_0.attestation.digest(),
-                header_hash: attestation_0.attestation.attestation_data.header_hash
-            }
+            digest: compound(&attestation_0.attestation),
         }));
     }
 
@@ -2701,31 +2693,25 @@ mod test {
             let mut pool = rx.common.pool.lock();
             let inner = pool.expect_open();
 
-            assert!(!inner.forks.forks_by_digest.contains_key(&CompoundDigest {
-                digest: attestation_2.attestation.digest(),
-                header_hash: attestation_2.attestation.attestation_data.header_hash
-            }));
-            assert!(inner.forks.forks_by_digest.contains_key(&CompoundDigest {
-                digest: attestation_3.attestation.digest(),
-                header_hash: attestation_3.attestation.attestation_data.header_hash
-            }));
+            assert!(!inner
+                .forks
+                .forks_by_digest
+                .contains_key(&compound(&attestation_2.attestation)));
+            assert!(inner
+                .forks
+                .forks_by_digest
+                .contains_key(&compound(&attestation_3.attestation)));
             assert_eq!(inner.forks.forks_by_height.len(), 1);
             assert_eq!(inner.forks.forks_by_size.len(), 1);
             assert!(inner.forks.forks_by_height.contains(&KeyHeight {
                 height: 1,
                 size: 3,
-                digest: CompoundDigest {
-                    digest: attestation_0.attestation.digest(),
-                    header_hash: attestation_0.attestation.attestation_data.header_hash
-                }
+                digest: compound(&attestation_0.attestation),
             }));
             assert!(inner.forks.forks_by_size.contains(&KeySize {
                 size: 3,
                 height: 1,
-                digest: CompoundDigest {
-                    digest: attestation_0.attestation.digest(),
-                    header_hash: attestation_0.attestation.attestation_data.header_hash
-                }
+                digest: compound(&attestation_0.attestation),
             }));
         }
     }
@@ -2781,18 +2767,12 @@ mod test {
         assert!(inner.forks.forks_by_height.contains(&KeyHeight {
             height: 1,
             size: 2,
-            digest: CompoundDigest {
-                digest: attestation_0.attestation.digest(),
-                header_hash: attestation_0.attestation.attestation_data.header_hash
-            }
+            digest: compound(&attestation_0.attestation),
         }));
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 2,
             height: 1,
-            digest: CompoundDigest {
-                digest: attestation_0.attestation.digest(),
-                header_hash: attestation_0.attestation.attestation_data.header_hash
-            }
+            digest: compound(&attestation_0.attestation),
         }));
     }
 

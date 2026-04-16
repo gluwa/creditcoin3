@@ -71,3 +71,4 @@ bridge-usage-example/lib/*
 ./config.json
 primitives/data/*
 prover/artifacts/*
+alice-data/
