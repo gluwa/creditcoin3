@@ -13,7 +13,7 @@ pub mod v1_init_supported_chains {
     use super::*;
     use attestor_primitives::{ChainEncodingVersion, ChainKey};
     use pallet_supported_chains::{ChainIdAndNameToUniqKey, ChainKeyValue, SupportedChains};
-    use supported_chains_primitives::{SupportedChain, MATURITY_FIXED_DELAY_10};
+    use supported_chains_primitives::{SupportedChain, MATURITY_EVM_SAFE};
 
     pub struct Migration<T>(PhantomData<T>);
 
@@ -36,7 +36,7 @@ pub mod v1_init_supported_chains {
                         chain_id,
                         chain_name: chain_name.clone(),
                         chain_encoding: ChainEncodingVersion::V1,
-                        maturity_strategy: String::from(MATURITY_FIXED_DELAY_10),
+                        maturity_strategy: String::from(MATURITY_EVM_SAFE),
                     },
                 );
                 ChainIdAndNameToUniqKey::<T>::insert(chain_id, chain_name, chain_key);
