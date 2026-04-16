@@ -39,12 +39,6 @@ pub mod pallet {
         /// [`pallet_attestation::Pallet::commit_attestation`].
         #[pallet::constant]
         type RewardPerEligibleSigner: Get<Self::RewardPoints>;
-
-        /// Total points for [`Self::do_settlement`] (e.g. [`crate::Pallet::force_settle`]), split
-        /// equally across every stash in [`pallet_attestation::Ledger`]. Not used by automatic
-        /// block hooks.
-        #[pallet::constant]
-        type EpochRewardPool: Get<Self::RewardPoints>;
     }
 
     #[pallet::storage]
@@ -68,12 +62,6 @@ pub mod pallet {
             signers: u32,
             per_signer: T::RewardPoints,
         },
-        /// Reward points from [`Self::do_settlement`] (tests / manual ops).
-        EpochRewardsAccrued {
-            epoch_block: BlockNumberFor<T>,
-            stashes: u32,
-            per_stash: T::RewardPoints,
-        },
         /// ERC-20 token address configured (governance).
         AttestCoinTokenSet { token: sp_core::H160 },
     }
@@ -93,21 +81,13 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// Set the attest-coin ERC-20 contract. **Root only** (governance / sudo).
+        // TODO: replace with proper benchmarks before mainnet
         #[pallet::weight(Weight::from_parts(25_000, 0))]
         #[pallet::call_index(0)]
         pub fn set_attest_coin_token(origin: OriginFor<T>, token: sp_core::H160) -> DispatchResult {
             ensure_root(origin)?;
             AttestCoinErc20::<T>::put(token);
             Self::deposit_event(Event::AttestCoinTokenSet { token });
-            Ok(())
-        }
-
-        /// Split [`Config::EpochRewardPool`] across all ledger stashes (tests / ops). **Root only.**
-        #[pallet::weight(Weight::from_parts(50_000_000, 0))]
-        #[pallet::call_index(1)]
-        pub fn force_settle(origin: OriginFor<T>) -> DispatchResult {
-            ensure_root(origin)?;
-            Self::do_settlement(frame_system::Pallet::<T>::block_number());
             Ok(())
         }
     }
@@ -145,33 +125,6 @@ pub mod pallet {
                     per_signer: per,
                 });
             }
-        }
-
-        /// Equal split of [`Config::EpochRewardPool`] across every stash with an attestation ledger entry.
-        ///
-        /// Does nothing (and emits no [`Event::EpochRewardsAccrued`]) when [`Config::EpochRewardPool`]
-        /// is zero or there are no ledger stashes.
-        pub fn do_settlement(at_block: BlockNumberFor<T>) {
-            let pool_rp = T::EpochRewardPool::get();
-            if pool_rp.is_zero() {
-                return;
-            }
-            let stashes: Vec<T::AccountId> = pallet_attestation::Ledger::<T>::iter_keys().collect();
-            let n = stashes.len() as u128;
-            if n == 0 {
-                return;
-            }
-            let pool: u128 = pool_rp.into();
-            let per_u128 = pool.saturating_div(n);
-            let per = T::RewardPoints::from(per_u128);
-            for stash in stashes.iter() {
-                Accrued::<T>::mutate(stash, |a| *a += per);
-            }
-            Self::deposit_event(Event::EpochRewardsAccrued {
-                epoch_block: at_block,
-                stashes: stashes.len() as u32,
-                per_stash: per,
-            });
         }
 
         /// Deduct accrued points after a successful EVM mint (called from precompile).
@@ -220,6 +173,10 @@ pub mod pallet {
             let mut m = Vec::with_capacity(PREFIX.len() + 32 + 8 + 8 + 16 + 20);
             m.extend_from_slice(PREFIX);
             let enc = stash.encode();
+            debug_assert!(
+                enc.len() == 32,
+                "stash AccountId encoding must be 32 bytes (AccountId32)"
+            );
             let mut id = [0u8; 32];
             if enc.len() >= 32 {
                 id.copy_from_slice(&enc[..32]);
