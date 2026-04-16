@@ -57,6 +57,24 @@ pub mod v1_init_supported_chains {
                 T::DbWeight::get().reads(1)
             }
         }
+
+        #[cfg(feature = "try-runtime")]
+        fn post_upgrade(_state: sp_std::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
+            let chain_key: attestor_primitives::ChainKey = 1;
+            frame_support::ensure!(
+                SupportedChains::<T>::contains_key(chain_key),
+                "post_upgrade: chain_key=1 (Sepolia) not found in SupportedChains"
+            );
+            frame_support::ensure!(
+                ChainKeyValue::<T>::get() == 2u64,
+                "post_upgrade: ChainKeyValue is not 2"
+            );
+            log::info!(
+                target: "runtime::migrations",
+                "v1_init_supported_chains: post_upgrade checks passed"
+            );
+            Ok(())
+        }
     }
 }
 
@@ -105,6 +123,36 @@ pub mod v1_init_attestation {
                 T::DbWeight::get().reads(1)
             }
         }
+
+        #[cfg(feature = "try-runtime")]
+        fn post_upgrade(_state: sp_std::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
+            let chain_key: ChainKey = 1;
+            frame_support::ensure!(
+                TargetSampleSize::<T>::contains_key(chain_key),
+                "post_upgrade: TargetSampleSize not set for chain_key=1"
+            );
+            frame_support::ensure!(
+                ChainAttestationInterval::<T>::contains_key(chain_key),
+                "post_upgrade: ChainAttestationInterval not set for chain_key=1"
+            );
+            frame_support::ensure!(
+                AttestationCheckpointInterval::<T>::contains_key(chain_key),
+                "post_upgrade: AttestationCheckpointInterval not set for chain_key=1"
+            );
+            frame_support::ensure!(
+                MaxAttestors::<T>::contains_key(chain_key),
+                "post_upgrade: MaxAttestors not set for chain_key=1"
+            );
+            frame_support::ensure!(
+                MaxInvulnerables::<T>::contains_key(chain_key),
+                "post_upgrade: MaxInvulnerables not set for chain_key=1"
+            );
+            log::info!(
+                target: "runtime::migrations",
+                "v1_init_attestation: post_upgrade checks passed"
+            );
+            Ok(())
+        }
     }
 }
 
@@ -134,15 +182,23 @@ pub mod v1_init_operators {
                     "v1_init_operators: running"
                 );
 
-                // propose a single operator account, which can be removed or added to by governance after the fact.
+                // Initial operator account — can be removed or supplemented via governance.
                 // 5HbPgFzxtmmMvonZHL7ykepUqN8cnMFgWci2SRJ6LHMt8dcb
                 let operator = AccountId32::new(hex_literal::hex!(
                     "f49493c655bf40a6af007f4f6285f5bf71a8925893b93b4c6526c6c7e874cd47"
                 ));
 
                 let members: BoundedVec<T::AccountId, T::MaxMembers> =
-                    BoundedVec::try_from(vec![operator.into()])
-                        .expect("single member cannot exceed MaxMembers");
+                    match BoundedVec::try_from(vec![operator.into()]) {
+                        Ok(v) => v,
+                        Err(_) => {
+                            log::error!(
+                                target: "runtime::migrations",
+                                "v1_init_operators: MaxMembers is 0 — skipping operator initialization"
+                            );
+                            return T::DbWeight::get().reads(1);
+                        }
+                    };
                 Members::<T, OperatorsInstance>::put(members);
 
                 log::info!(
@@ -158,6 +214,19 @@ pub mod v1_init_operators {
                 );
                 T::DbWeight::get().reads(1)
             }
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn post_upgrade(_state: sp_std::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
+            frame_support::ensure!(
+                !Members::<T, OperatorsInstance>::get().is_empty(),
+                "post_upgrade: Operators Members storage is empty after migration"
+            );
+            log::info!(
+                target: "runtime::migrations",
+                "v1_init_operators: post_upgrade checks passed"
+            );
+            Ok(())
         }
     }
 }
