@@ -1,5 +1,5 @@
 use crate::mock::*;
-use crate::{AttestCoinPrecompile, SEL_ACCRUED, SEL_CLAIM, SEL_DEPOSIT, SEL_DEPOSIT_TO};
+use crate::{SEL_ACCRUED, SEL_CLAIM, SEL_DEPOSIT, SEL_DEPOSIT_TO};
 use fp_evm::{Context, ExitReason, ExitRevert, ExitSucceed, PrecompileFailure};
 use pallet_attest_coin_rewards::Accrued;
 use precompile_utils::testing::{MockHandle, SubcallOutput};
@@ -103,7 +103,7 @@ fn assert_reverts_with(handle: &mut MockHandle, expected_msg: &[u8]) {
                 core::str::from_utf8(&output)
             );
         }
-        other => panic!("expected Revert, got {:?}", other),
+        other => panic!("expected Revert, got {other:?}"),
     }
 }
 
@@ -222,22 +222,7 @@ fn claim_reverts_bad_signature() {
             },
         );
 
-        let caller = H160::repeat_byte(0xAA);
-        // Use a zero (bad) signature
-        let input = claim_input(
-            stash_raw,
-            0,
-            SUPPORTED_CHAIN_KEY,
-            100,
-            caller,
-            [0u8; 32],
-            [0u8; 32],
-        );
-        let mut handle = make_handle(caller, input);
-        // caller != evm_recipient check happens first
-        // To get to signature check, we need caller == evm_recipient
-        // The evm_recipient in the ABI is at bytes 140-160 of the args (after selector is stripped)
-        // Let's use a caller that matches the encoded evm_recipient = zero address
+        // caller must equal evm_recipient; use zero address so we reach signature verification with a bad sig
         let zero_caller = H160::zero();
         let input2 = claim_input(
             stash_raw,

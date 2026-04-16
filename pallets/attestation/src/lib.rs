@@ -26,6 +26,7 @@ mod clear_or_revert;
 mod continuity;
 mod impls;
 mod ledger;
+pub use ledger::AttestorLedger;
 pub mod migrations;
 
 #[frame_support::pallet]
