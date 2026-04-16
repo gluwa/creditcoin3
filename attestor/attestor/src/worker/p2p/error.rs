@@ -35,15 +35,21 @@ impl std::error::Error for Error {}
 
 #[derive(Debug)]
 pub enum InvalidCause {
-    InvalidBls,
-    Unregistered,
+    InvalidBls(attestor_primitives::Digest),
+    Unregistered(attestor_primitives::AttestorId),
+    Unsupported(attestor_primitives::ChainKey),
 }
 
 impl std::fmt::Display for InvalidCause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidBls => write!(f, "Invalid attestation BLS"),
-            Self::Unregistered => write!(f, "Attestor is not registered on-chain"),
+            Self::InvalidBls(digest) => {
+                write!(f, "Invalid BLS signature for attestation {digest:?}")
+            }
+            Self::Unregistered(attestor_id) => {
+                write!(f, "Attestor {attestor_id} is not registered on-chain")
+            }
+            Self::Unsupported(chain_key) => write!(f, "Unsupported chain key {chain_key}"),
         }
     }
 }
