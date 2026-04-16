@@ -122,6 +122,8 @@ pub(crate) struct WorkerP2P {
     topic: libp2p::gossipsub::IdentTopic,
     listen_addr: libp2p::Multiaddr,
 
+    chain_key: attestor_primitives::ChainKey,
+
     // METRICS
     metrics: common::types::Metrics,
 
@@ -184,6 +186,8 @@ impl WorkerP2P {
             can_broadcast: false,
             topic,
             listen_addr,
+
+            chain_key: config.chain_key,
 
             metrics: config.metrics,
 
@@ -398,6 +402,27 @@ impl WorkerP2P {
                     attestor_id = %attestation.attestor,
                     "📩 Received attestation"
                 );
+
+                // WARNING: while we use the chain_key as the topic id for gossip propagation, this
+                // does not enforce that attestations received correspond to the correct chain key!
+                // A malicious or dysfunctional attestor is still able to send attestation with a
+                // chain key than the gossip topic, so this needs to be checked before pool
+                // insertion.
+                if attestation.chain_key() != self.chain_key {
+                    tracing::error!(peer_id = %propagation_source, "⛔ Unsupported chain key");
+                    self.metrics.increase_invalid_gossipsub_count();
+
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .report_message_validation_result(
+                            &message_id,
+                            &propagation_source,
+                            libp2p::gossipsub::MessageAcceptance::Reject,
+                        );
+
+                    return Ok(());
+                }
 
                 match self.sender_validation.send(attestation).transpose() {
                     // CASE 1] ACCEPT
