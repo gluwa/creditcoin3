@@ -170,8 +170,6 @@ impl Attestor {
             "🔑 BLS public key (set this in fork genesis Attestors if needed)"
         );
 
-        // ------------------------------------* Start Attesting *------------------------------------
-
         match register_bls(
             chain_key,
             &client_cc3,
