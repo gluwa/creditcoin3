@@ -6,6 +6,7 @@ name = "pallet-evm-precompile-ed25519-verifier"
 version = "0.1.0"
 
 [dependencies]
+ed25519-dalek = { workspace = true }
 log = { workspace = true }
 
 # Moonbeam
@@ -27,8 +28,10 @@ sp-std = { workspace = true }
 fp-evm = { workspace = true }
 pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 
+
 [dev-dependencies]
 derive_more = { workspace = true }
+hex-literal = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-timestamp = { workspace = true }
 precompile-utils = { workspace = true, features = ["std", "testing"] }
@@ -37,6 +40,7 @@ serde = { workspace = true }
 [features]
 default = ["std"]
 std = [
+  "ed25519-dalek/std",
   "log/std",
   "precompile-utils/std",
   "fp-evm/std",
