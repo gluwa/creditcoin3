@@ -273,6 +273,37 @@ describe('Precompile: Ed25519Verifier.verify()', (): void => {
             ).rejects.toThrow(/Value is too large for length/);
         });
 
+        test('should return false for small-order/weak public keys', async () => {
+            // These are the 8 small-order points on the ed25519 curve.
+            // With permissive ZIP-215 verification, an attacker could forge signatures
+            // for arbitrary messages using these keys. Strict verification rejects them.
+            const smallOrderKeys = [
+                '0x0000000000000000000000000000000000000000000000000000000000000000',
+                '0x0100000000000000000000000000000000000000000000000000000000000000',
+                '0xecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+                '0xeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+                '0x0000000000000000000000000000000000000000000000000000000000000080',
+                '0x0100000000000000000000000000000000000000000000000000000000000080',
+                '0x26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05',
+                '0xc7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a',
+            ];
+
+            // Forged signature: R = identity point, S = zero scalar
+            const forgedSignature =
+                '0x0100000000000000000000000000000000000000000000000000000000000000' +
+                '0000000000000000000000000000000000000000000000000000000000000000';
+
+            const message = '0x1234';
+
+            for (const weakKey of smallOrderKeys) {
+                const result = await contract.verify(message, forgedSignature, weakKey, {
+                    gasPrice,
+                    gasLimit,
+                });
+                expect(result).toBe(false);
+            }
+        });
+
         test('should revert for message exceeding 3MB limit', async () => {
             // Generate a keypair
             const pair = keyring.addFromMnemonic(mnemonicGenerate());
