@@ -37,8 +37,7 @@ function accountIdToBytes32(accountSs58OrRaw: string | Uint8Array): string {
  * Foundry Anvil account #0 — always pre-funded. Same key as `attestor/scripts/Transfer.js` (`getSigner`).
  * Alith / `CREDITCOIN_EVM_PRIVATE_KEY('alice')` is **not** funded on vanilla Anvil.
  */
-const ANVIL_DEFAULT_ACCOUNT_0_PRIVATE_KEY =
-    '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const ANVIL_DEFAULT_ACCOUNT_0_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 
 /** Foundry Anvil / local EVM — default matches CI `anvil --port 8141`; override with `ANVIL1_HTTP_URL` (e.g. `http://127.0.0.1:8545`). */
 function anvilHttpUrl(): string {
@@ -225,7 +224,9 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         const balBefore = await token.balanceOf(evmWalletCc3.address);
 
         const claimNonceBn = BigInt(
-            ((await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as { toString: () => string }).toString(),
+            (
+                (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as { toString: () => string }
+            ).toString(),
         );
 
         const evmRecipient = ethers.getBytes(evmWalletCc3.address);
@@ -319,10 +320,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         const stashFree = BigInt(stashAcct.unwrap().balance.toString());
         expect(stashFree >= minBond).toBe(true);
 
-        await signSendInBlock(
-            stash,
-            api.tx.attestation.registerAttestor(chain_Anvil1_Key, attestor.address),
-        );
+        await signSendInBlock(stash, api.tx.attestation.registerAttestor(chain_Anvil1_Key, attestor.address));
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         const reg = await api.query.attestation.attestors(chain_Anvil1_Key, attestor.address);
