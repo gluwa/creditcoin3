@@ -3,6 +3,13 @@ mod error;
 pub use error::Error;
 use user::prelude::*;
 
+/// Thread safe lazily evaluated attestor BLS pubkey store.
+///
+/// BLS pubkeys are meant to be updated only on attestor set rotation. This keeps runtime fetches to
+/// a minimum for sections of the code with frequent access to bls keys, such as during gossipsub
+/// message validation in the [p2p worker].
+///
+/// [p2p worker]: crate::worker::p2p
 pub struct BlsStore(tokio::sync::Mutex<BlsStoreInner>);
 
 struct BlsStoreInner {
