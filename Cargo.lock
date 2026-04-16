@@ -2228,8 +2228,10 @@ dependencies = [
  "supported-chains-primitives",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-retry",
  "tracing",
  "usc-abi-encoding",
+ "user",
  "vrf",
 ]
 

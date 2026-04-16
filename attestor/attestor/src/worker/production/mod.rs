@@ -99,6 +99,8 @@ pub use error::*;
 pub struct Config {
     stream_attestation: stream::attestation::StreamAttestation,
     stream_cc3: crate::stream_legacy::cc3::StreamCC3,
+    cc3: cc_client::Client,
+    bls: std::sync::Arc<crate::bls::BlsStore>,
 
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
     sender_validation: crate::worker::validation::pool::AttestationPoolSender,
@@ -117,6 +119,8 @@ pub(crate) struct WorkerAttestationProduction {
     // CHAIN LISTENERS
     stream_attestation: stream::attestation::StreamAttestation,
     stream_cc3: crate::stream_legacy::cc3::StreamCC3,
+    cc3: cc_client::Client,
+    bls: std::sync::Arc<crate::bls::BlsStore>,
 
     // MESSAGE CHANNELS
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
@@ -136,10 +140,12 @@ pub(crate) struct WorkerAttestationProduction {
 }
 
 impl WorkerAttestationProduction {
-    pub(crate) fn new(config: Config) -> anyhow::Result<Self> {
-        Ok(Self {
+    pub(crate) fn new(config: Config) -> Self {
+        Self {
             stream_attestation: config.stream_attestation,
             stream_cc3: config.stream_cc3,
+            cc3: config.cc3,
+            bls: config.bls,
 
             sender_p2p: config.sender_p2p,
             sender_validation: config.sender_validation,
@@ -152,7 +158,7 @@ impl WorkerAttestationProduction {
 
             account_id: config.account_id,
             can_attest: true,
-        })
+        }
     }
 }
 
@@ -410,6 +416,14 @@ impl WorkerAttestationProduction {
                             "🛏️ Waiting for attestor to be elected"
                         );
                     }
+
+                    // 2. Update bls keys
+                    //
+                    // Update the set of BLS keys for use by the p2p worker
+                    self.bls
+                        .note_attestors_elected(&mut self.cc3, &attestors)
+                        .await
+                        .map_interrupt(Error::Bls)?;
 
                     // 2. Attestor validation
                     //
