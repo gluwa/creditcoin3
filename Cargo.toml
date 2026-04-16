@@ -92,6 +92,9 @@ reqwest = { version = "0.12", features = ["multipart", "json"] }
 scale-info = { version = "2.11", default-features = false, features = [
     "derive",
 ] }
+similar-asserts = "1.6.0"
+sqlx = { version = "0.7.4", default-features = false, features = ["macros"] }
+ed25519-dalek = { version = "2.2.0", default-features = false }
 serde = { version = "1.0.197", default-features = false }
 serde_json = { version = "1.0.145", default-features = false }
 serde_yaml = { version = "0.9.34" }
