@@ -410,27 +410,6 @@ impl WorkerP2P {
                     "📩 Received attestation"
                 );
 
-                // WARNING: while we use the chain_key as the topic id for gossip propagation, this
-                // does not enforce that attestations received correspond to the correct chain key!
-                // A malicious or dysfunctional attestor is still able to send attestation with a
-                // chain key than the gossip topic, so this needs to be checked before pool
-                // insertion.
-                if attestation.chain_key() != self.chain_key {
-                    tracing::error!(peer_id = %propagation_source, "⛔ Unsupported chain key");
-                    self.metrics.increase_invalid_gossipsub_count();
-
-                    self.swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .report_message_validation_result(
-                            &message_id,
-                            &propagation_source,
-                            libp2p::gossipsub::MessageAcceptance::Reject,
-                        );
-
-                    return Ok(());
-                }
-
                 match self.validate_attestation(&attestation).await {
                     Err(Interrupt::Cont(err)) => {
                         tracing::error!(?err, "⛔ Invalid attestation");
@@ -672,20 +651,24 @@ impl WorkerP2P {
         &mut self,
         attestation: &common::types::Attestation,
     ) -> Result<(), Interrupt<Error>> {
+        let attestor_id = attestation.attestor_id();
         let digest = attestation.digest();
-        let height = attestation.header_number();
-        let attestor_id = attestation.attestor.account_id();
+        let chain_key = attestation.chain_key();
 
-        tracing::debug!(
-            ?digest,
-            height,
-            %attestor_id,
-            "Checking attestor eligibility"
-        );
-
-        let Some(pubkey) = self.bls.pubkey(attestor_id).await else {
+        // WARNING: while we use the chain_key as the topic id for gossip propagation, this
+        // does not enforce that attestations received correspond to the correct chain key!
+        // A malicious or dysfunctional attestor is still able to send attestation with a
+        // chain key than the gossip topic, so this needs to be checked before pool
+        // insertion.
+        if chain_key != self.chain_key {
             return Err(Interrupt::Cont(Error::InvalidAttestation(
-                InvalidCause::Unregistered,
+                InvalidCause::Unsupported(chain_key),
+            )));
+        }
+
+        let Some(pubkey) = self.bls.pubkey(attestor_id.account_id()).await else {
+            return Err(Interrupt::Cont(Error::InvalidAttestation(
+                InvalidCause::Unregistered(attestor_id),
             )));
         };
 
@@ -694,7 +677,7 @@ impl WorkerP2P {
             Ok(())
         } else {
             Err(Interrupt::Cont(Error::InvalidAttestation(
-                InvalidCause::InvalidBls,
+                InvalidCause::InvalidBls(digest),
             )))
         }
     }
