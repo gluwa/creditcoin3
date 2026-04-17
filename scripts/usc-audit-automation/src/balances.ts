@@ -216,24 +216,32 @@ export async function runBalanceChecks(
       const display = formatDisplay(account);
 
       try {
-        const bal = await fetchBalance(net.baseUrl, account.address, net.rpcUrl);
+        const bal = await fetchBalance(
+          net.baseUrl,
+          account.address,
+          net.rpcUrl,
+        );
         const token = Number(bal) / 10 ** TOKEN_DECIMALS;
         const isLow = bal < THRESHOLD_WEI;
 
         lines.push(
-          `${isLow ? "❌" : "✅"} ${display}: ${token.toFixed(6)} ${TOKEN_SYMBOL}`,
+          `${isLow ? "❌" : "✅"} ${display}: ${
+            token.toFixed(6)
+          } ${TOKEN_SYMBOL}`,
         );
 
         if (isLow) {
           hasLowBalances = true;
-          lowLines.push(`- ${config.uscNetworkName}, \`${display}\`: ${token.toFixed(6)} ${TOKEN_SYMBOL}`);
+          lowLines.push(
+            `- ${config.uscNetworkName}, \`${display}\`: ${
+              token.toFixed(6)
+            } ${TOKEN_SYMBOL}`,
+          );
         }
       } catch (err) {
         hasErrors = true;
         lines.push(
-          `❌ ${display}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
+          `❌ ${display}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }

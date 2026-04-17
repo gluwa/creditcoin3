@@ -148,7 +148,7 @@ function buildReport(
   return {
     ok,
     summary,
-    details: `${detailsTitle}\n${details.join("\n")}`, 
+    details: `${detailsTitle}\n${details.join("\n")}`,
   };
 }
 
@@ -385,7 +385,9 @@ async function main(): Promise<void> {
       }
     }
 
-    console.log("\n✅ Combined summary sent to Slack, details posted in thread");
+    console.log(
+      "\n✅ Combined summary sent to Slack, details posted in thread",
+    );
   } else if (config.noSlack) {
     console.log("\n📋 Slack disabled (--no-slack); reports printed above");
   }
