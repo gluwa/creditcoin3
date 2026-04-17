@@ -427,39 +427,42 @@ impl AttestationPoolInner {
         Ok(removed)
     }
 
-    fn peek(&mut self) -> Option<(Quorum, Permit)> {
-        self.forks.peek().map(|fork| {
-            let quorum = Quorum(fork.votes.clone());
-            let height = fork.attestation.header_number();
-            let digest = fork.attestation.digest();
-            let header_hash = fork.attestation.attestation_data.header_hash;
-            let proof = &fork.attestation.continuity_proof;
-            let start_block = fork
-                .attestation
-                .header_number()
-                .saturating_sub(proof.len() as u64);
-            let continuity_digest = proof.compute_continuity_digest(start_block);
+    fn peek(&mut self) -> Result<Option<(Quorum, Permit)>, Error> {
+        self.forks
+            .peek()
+            .map(|fork| {
+                let quorum = Quorum(fork.votes.clone());
+                let height = fork.attestation.header_number();
+                let digest = fork.attestation.digest();
+                let header_hash = fork.attestation.attestation_data.header_hash;
+                let proof = &fork.attestation.continuity_proof;
+                let attestor = fork.attestation.attestor_id();
+                let start_block = height
+                    .checked_sub(proof.len() as u64)
+                    .ok_or(Error::InvalidProof(attestor, height))?;
+                let continuity_digest = proof.compute_continuity_digest(start_block);
 
-            let permit = Permit(CompoundInfo {
-                height,
-                digest,
-                header_hash,
-                continuity_digest,
-            });
-
-            // Only update metrics the first time quorum is reached at that height
-            if let Some(elapsed) = self.attestation_delay.pop(height) {
-                tracing::debug!(
-                    ?digest,
+                let permit = Permit(CompoundInfo {
                     height,
-                    elapsed_ms = elapsed.as_millis(),
-                    "⏱️ Time from first vote to quorum"
-                );
-                self.metrics.update_attestation_delay_quorum(elapsed);
-            }
+                    digest,
+                    header_hash,
+                    continuity_digest,
+                });
 
-            (quorum, permit)
-        })
+                // Only update metrics the first time quorum is reached at that height
+                if let Some(elapsed) = self.attestation_delay.pop(height) {
+                    tracing::debug!(
+                        ?digest,
+                        height,
+                        elapsed_ms = elapsed.as_millis(),
+                        "⏱️ Time from first vote to quorum"
+                    );
+                    self.metrics.update_attestation_delay_quorum(elapsed);
+                }
+
+                Ok((quorum, permit))
+            })
+            .transpose()
     }
 
     fn mark_valid(&mut self, Permit(info): Permit) {
@@ -1709,13 +1712,17 @@ impl futures::Stream for AttestationPoolReceiver {
     ) -> std::task::Poll<Option<Self::Item>> {
         match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => match inner.peek() {
-                Some((quorum, permit)) => {
+                Ok(Some((quorum, permit))) => {
                     tracing::debug!(height = quorum.header_number(), "Found a quorum");
                     std::task::Poll::Ready(Some((quorum, permit, inner.digest_local)))
                 }
-                None => {
+                Ok(None) => {
                     tracing::debug!("No quorum found, waiting for new attestations...");
                     inner.wakers.push_front(cx.waker().clone());
+                    std::task::Poll::Pending
+                }
+                Err(err) => {
+                    err.log_error(Default::default());
                     std::task::Poll::Pending
                 }
             },
