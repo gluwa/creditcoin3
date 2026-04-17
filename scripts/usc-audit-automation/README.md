@@ -5,8 +5,8 @@ A Deno-based TypeScript tool that runs attestation sanity checks on USC
 [traffic-simulator](../traffic-simulator).
 
 All configuration is loaded from a single JSON file. For CI, env overrides:
-`USC_SLACK_WEBHOOK_URL`, `USC_SLACK_ALERT_GROUP`, `SEPOLIA_RPC_URL`,
-`BSC_RPC_URL`.
+`USC_NOTI_SLACK_BOT_TOKEN`, `USC_NOTI_SLACK_CHANNEL_ID`,
+`USC_SLACK_ALERT_GROUP`, `SEPOLIA_RPC_URL`, `BSC_RPC_URL`.
 
 ## Features
 
@@ -29,7 +29,7 @@ for Node.js packages elsewhere in the repo—both should be committed.
 # Local report only (no Slack)
 deno task start -- --config config-devnet.json --no-slack
 
-# With Slack (add slackWebhookUrl to config)
+# With Slack (add slackBotToken and slackChannelId to config)
 deno task start -- --config config-devnet.json
 ```
 
@@ -51,7 +51,8 @@ variables.
     },
     { "chainId": 97, "chainKey": 3, "url": "wss://bsc-testnet.publicnode.com" }
   ],
-  "slackWebhookUrl": "https://hooks.slack.com/...",
+  "slackBotToken": "xxxx-xxxxxxxxxx-xx...",
+  "slackChannelId": "C09DC0AAD..",
   "slackAlertGroup": "U123456"
 }
 ```
@@ -59,8 +60,8 @@ variables.
 - **uscWsUrl**, **graphqlUrl**: Required
 - **ethRpc**: Array of `{ chainId, chainKey?, url }`; `chainKey` optional
   (discovered from USC if omitted)
-- **slackWebhookUrl**, **slackAlertGroup**: Optional; required only when not
-  using `--no-slack`
+- **slackBotToken**, **slackChannelId**, **slackAlertGroup**: Optional; required
+  only when not using `--no-slack`
 
 **Env overrides (CI)**: `SEPOLIA_RPC_URL` overrides url for chainId 11155111;
 `BSC_RPC_URL` for chainId 97.
