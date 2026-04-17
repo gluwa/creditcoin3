@@ -4,47 +4,100 @@
 
 import { fetchWithTimeout } from "./fetch.ts";
 
+export type BuiltReport = {
+  ok: boolean;
+  summary: string;
+  details: string;
+};
+
 export interface SlackPayload {
-  username: string;
-  icon_emoji: string;
   text: string;
+  blocks?: unknown[];
 }
 
-export function createSlackPayload(
-  reportText: string,
-  hasErrors: boolean,
+export function createSlackPayloads(
+  report: BuiltReport,
   alertGroup?: string,
-): SlackPayload {
-  const codeBlock = "```" + reportText + "```";
-  let text = codeBlock;
-  if (alertGroup && hasErrors) {
+): { summaryPayload: SlackPayload; detailsPayload: SlackPayload } {
+  const codeBlock = "```" + report.summary + "```";
+
+  let summaryText = codeBlock;
+  if (alertGroup && !report.ok) {
     const mention = alertGroup.startsWith("U")
       ? `<@${alertGroup}>`
       : alertGroup.startsWith("S")
       ? `<!subteam^${alertGroup}>`
       : alertGroup;
-    text = `${mention}\n\n${codeBlock}`;
+    summaryText = `${mention}\n\n${codeBlock}`;
   }
 
-  return {
-    username: "usc-audit-automation",
-    icon_emoji: hasErrors ? ":rotating_light:" : ":shield:",
-    text,
+  const summaryPayload: SlackPayload = {
+    text: summaryText,
   };
+
+  let detailsText = "";
+  if (report.details?.trim()) {
+    detailsText = "```" + report.details + "```";
+  }
+  const detailsPayload: SlackPayload = {
+    text: detailsText,
+  };
+
+  return { summaryPayload, detailsPayload };
 }
 
-export async function sendSlackMessage(
-  webhookUrl: string,
+export async function sendSummarySlackMessage(
+  slackBotToken: string,
+  channel: string,
   payload: SlackPayload,
-): Promise<void> {
-  const res = await fetchWithTimeout(webhookUrl, {
+): Promise<string> {
+  const res = await fetchWithTimeout("https://slack.com/api/chat.postMessage", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${slackBotToken}`,
+    },
+    body: JSON.stringify({
+      channel,
+      ...payload,
+    }),
   });
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Slack webhook failed: ${res.status} - ${body}`);
+  const json = await res.json();
+
+  if (!res.ok || !json.ok || !json.ts) {
+    throw new Error(
+      `Slack API failed: status=${res.status}, error=${
+        json.error ?? "unknown_error"
+      }`,
+    );
+  }
+
+  return json.ts; // 👈 needed to reply to this message in a thread
+}
+
+export async function sendThreadSlackMessage(
+  slackBotToken: string,
+  channel: string,
+  threadTs: string,
+  payload: SlackPayload,
+): Promise<void> {
+  const res = await fetchWithTimeout("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${slackBotToken}`,
+    },
+    body: JSON.stringify({
+      channel,
+      thread_ts: threadTs,
+      ...payload,
+    }),
+  });
+
+  const json = await res.json();
+
+  if (!res.ok || !json.ok) {
+    throw new Error(`Slack thread failed: ${json.error ?? res.status}`);
   }
 }
