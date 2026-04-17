@@ -472,7 +472,9 @@ impl ExtBuilder {
 
         let attest_coin: Balance = 10_000_000_000_000_000_000_000;
         pallet_assets::GenesisConfig::<Runtime> {
-            assets: vec![(1, Account::Alice, false, 1)],
+            // `is_sufficient` must be true unless Alice/Bob/Charlie hold native balance first: non-sufficient
+            // asset accounts require `frame_system::can_accrue_consumers`, which needs `providers > 0`.
+            assets: vec![(1, Account::Alice, true, 1)],
             metadata: vec![(1, b"AC".to_vec(), b"AC".to_vec(), 18)],
             accounts: vec![
                 (1, Account::Alice, attest_coin),

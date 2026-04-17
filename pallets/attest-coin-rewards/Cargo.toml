@@ -11,6 +11,7 @@ manual_inspect = "allow"
 
 [dependencies]
 parity-scale-codec = { workspace = true, default-features = false, features = ["derive", "max-encoded-len"] }
+scale-info = { workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 sp-runtime = { workspace = true }
@@ -24,6 +25,7 @@ attestor-primitives = { workspace = true, default-features = false }
 default = ["std"]
 std = [
     "parity-scale-codec/std",
+    "scale-info/std",
     "frame-support/std",
     "frame-system/std",
     "sp-runtime/std",
