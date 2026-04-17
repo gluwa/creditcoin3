@@ -34,6 +34,7 @@ pub enum InvalidCause {
     Unsupported(attestor_primitives::ChainKey),
     Duplicate,
     InvalidVrf,
+    InvalidBls,
     EmptyContinuityProof,
     EmptyPrevDigest,
     InvalidContinuityHeadDigest {
@@ -46,6 +47,8 @@ pub enum InvalidCause {
         actual: cc_client::H256,
         expected: cc_client::H256,
     },
+    /// Quorum votes carry different continuity proofs, which should never happen.
+    InconsistentContinuityProofs,
 }
 
 impl std::fmt::Display for InvalidCause {
@@ -54,6 +57,7 @@ impl std::fmt::Display for InvalidCause {
             Self::Unsupported(chain_key) => write!(f, "Usupported source chain: {chain_key}"),
             Self::Duplicate => write!(f, "Attestation already exists in the runtime"),
             Self::InvalidVrf => write!(f, "Invalid attestation VRF"),
+            Self::InvalidBls => write!(f, "Invalid attestation BLS"),
             Self::EmptyContinuityProof => write!(f, "Empty attestation continuity proof"),
             Self::EmptyPrevDigest => write!(f, "Empty previous digest"),
             Self::InvalidContinuityHeadDigest { actual, expected } => write!(
@@ -64,6 +68,9 @@ impl std::fmt::Display for InvalidCause {
                 f,
                 "Invalid continuity proof tail digest, expected {expected}, got {actual}"
             ),
+            Self::InconsistentContinuityProofs => {
+                write!(f, "Quorum votes contain inconsistent continuity proofs")
+            }
         }
     }
 }

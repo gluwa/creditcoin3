@@ -102,8 +102,6 @@ pub struct Config {
     #[default(false)]
     no_mdns: bool,
     #[specify_later]
-    bls: std::sync::Arc<crate::bls::BlsStore>,
-    #[specify_later]
     keypair: libp2p::identity::Keypair,
     #[specify_later]
     receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
@@ -125,8 +123,6 @@ pub(crate) struct WorkerP2P {
     listen_addr: libp2p::Multiaddr,
 
     chain_key: attestor_primitives::ChainKey,
-    // CC3 CONNECTION
-    bls: std::sync::Arc<crate::bls::BlsStore>,
 
     // METRICS
     metrics: common::types::Metrics,
@@ -137,7 +133,7 @@ pub(crate) struct WorkerP2P {
 }
 
 impl WorkerP2P {
-    pub(crate) async fn new(config: Config) -> anyhow::Result<Self> {
+    pub(crate) fn new(config: Config) -> anyhow::Result<Self> {
         let enable_mdns = !config.no_mdns;
         let mut swarm = libp2p::SwarmBuilder::with_existing_identity(config.keypair)
             .with_tokio()
@@ -192,7 +188,6 @@ impl WorkerP2P {
             listen_addr,
 
             chain_key: config.chain_key,
-            bls: config.bls,
 
             metrics: config.metrics,
 
@@ -231,7 +226,7 @@ impl super::Worker for WorkerP2P {
                     self.handle_event_attestation(attestation).await.map_err(Interrupt::Cont)?;
                 }
                 event = self.swarm.select_next_some() => {
-                    self.handle_event_p2p(event).await?;
+                    self.handle_event_p2p(event).await.map_err(Interrupt::Cont)?;
                 }
             }
         }
@@ -276,7 +271,7 @@ impl WorkerP2P {
     async fn handle_event_p2p(
         &mut self,
         event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
-    ) -> Result<(), Interrupt<Error>> {
+    ) -> Result<(), Error> {
         use parity_scale_codec::Decode as _;
 
         match event {
@@ -384,8 +379,8 @@ impl WorkerP2P {
                 let decode = common::types::Attestation::decode(&mut message.data.as_ref());
                 let Ok(attestation) = decode else {
                     tracing::error!(peer_id = %propagation_source, "⛔ Received invalid attestation");
-
                     self.metrics.increase_invalid_gossipsub_count();
+
                     self.swarm
                         .behaviour_mut()
                         .gossipsub
@@ -399,43 +394,35 @@ impl WorkerP2P {
                 };
 
                 let digest = attestation.digest();
-                let height = attestation.header_number();
-                let attestor_id = attestation.attestor_id();
 
                 tracing::info!(
                     peer_id = %propagation_source,
                     ?digest,
-                    height,
-                    %attestor_id,
+                    height = attestation.header_number(),
+                    attestor_id = %attestation.attestor,
                     "📩 Received attestation"
                 );
 
-                match self.validate_attestation(&attestation).await {
-                    Err(Interrupt::Cont(err)) => {
-                        tracing::error!(?err, "⛔ Invalid attestation");
+                // WARNING: while we use the chain_key as the topic id for gossip propagation, this
+                // does not enforce that attestations received correspond to the correct chain key!
+                // A malicious or dysfunctional attestor is still able to send attestation with a
+                // chain key than the gossip topic, so this needs to be checked before pool
+                // insertion.
+                if attestation.chain_key() != self.chain_key {
+                    tracing::error!(peer_id = %propagation_source, "⛔ Unsupported chain key");
+                    self.metrics.increase_invalid_gossipsub_count();
 
-                        self.metrics.increase_invalid_gossipsub_count();
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .report_message_validation_result(
-                                &message_id,
-                                &propagation_source,
-                                libp2p::gossipsub::MessageAcceptance::Reject,
-                            );
-
-                        return Ok(());
-                    }
-                    Err(Interrupt::Stop) => return Err(Interrupt::Stop),
-                    _ => {
-                        tracing::debug!(
-                            ?digest,
-                            height,
-                            %attestor_id,
-                            "Valid attestation BLS signature"
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .report_message_validation_result(
+                            &message_id,
+                            &propagation_source,
+                            libp2p::gossipsub::MessageAcceptance::Reject,
                         );
-                    }
-                };
+
+                    return Ok(());
+                }
 
                 match self.sender_validation.send(attestation).transpose() {
                     // CASE 1] ACCEPT
@@ -495,7 +482,8 @@ impl WorkerP2P {
                     //
                     // Failures which depend solely on the sender are considered malicious. They are
                     // not propagated to the rest of the network.
-                    Err(err @ crate::worker::validation::pool::Error::Unauthorized(..)) => {
+                    Err(err @ crate::worker::validation::pool::Error::Unauthorized(..))
+                    | Err(err @ crate::worker::validation::pool::Error::InvalidProof(..)) => {
                         err.log_error(digest);
                         self.swarm
                             .behaviour_mut()
@@ -641,44 +629,5 @@ impl WorkerP2P {
         };
 
         Ok(())
-    }
-
-    /// Verifies attestor eligibility and attestation bls signature before submitting to the
-    /// [attestation pool].
-    ///
-    /// [attestation pool]: crate::worker::validation::pool
-    async fn validate_attestation(
-        &mut self,
-        attestation: &common::types::Attestation,
-    ) -> Result<(), Interrupt<Error>> {
-        let attestor_id = attestation.attestor_id();
-        let digest = attestation.digest();
-        let chain_key = attestation.chain_key();
-
-        // WARNING: while we use the chain_key as the topic id for gossip propagation, this
-        // does not enforce that attestations received correspond to the correct chain key!
-        // A malicious or dysfunctional attestor is still able to send attestation with a
-        // chain key than the gossip topic, so this needs to be checked before pool
-        // insertion.
-        if chain_key != self.chain_key {
-            return Err(Interrupt::Cont(Error::InvalidAttestation(
-                InvalidCause::Unsupported(chain_key),
-            )));
-        }
-
-        let Some(pubkey) = self.bls.pubkey(attestor_id.account_id()).await else {
-            return Err(Interrupt::Cont(Error::InvalidAttestation(
-                InvalidCause::Unregistered(attestor_id),
-            )));
-        };
-
-        let msg = attestation.attestation_data.serialize();
-        if pubkey.verify(attestation.signature_bls.0, &msg) {
-            Ok(())
-        } else {
-            Err(Interrupt::Cont(Error::InvalidAttestation(
-                InvalidCause::InvalidBls(digest),
-            )))
-        }
     }
 }
