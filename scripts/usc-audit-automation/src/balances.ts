@@ -17,19 +17,6 @@ export interface BalanceNetworkConfig {
   accounts: BalanceAccountConfig[];
 }
 
-export interface BalanceRow {
-  display: string;
-  token?: number;
-  isLow?: boolean;
-  err?: string;
-}
-
-export interface BalanceReportResult {
-  ok: boolean; // We say ok is false if low balance detected
-  summary: string;
-  details: string;
-}
-
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 const TOKEN_SYMBOL = "CTC";
@@ -196,7 +183,7 @@ export async function runBalanceChecks(
   let hasLowBalances = false;
 
   for (const net of networks) {
-    lines.push(`Balances Details: ${config.uscNetworkName}`);
+    lines.push(`Balances Details: ${net.name}`);
 
     if (!net.baseUrl) {
       hasErrors = true;
@@ -253,24 +240,25 @@ export async function runBalanceChecks(
     lines.push("*Low balance alert*");
     lines.push(`Threshold: ${THRESHOLD_CTC} ${TOKEN_SYMBOL}`);
     lines.push(...lowLines);
-
-    if (config.slackAlertGroup) {
-      const mention = config.slackAlertGroup.startsWith("S")
-        ? `<!subteam^${config.slackAlertGroup}>`
-        : config.slackAlertGroup.startsWith("U")
-        ? `<@${config.slackAlertGroup}>`
-        : config.slackAlertGroup;
-      lines.push("");
-      lines.push(`Notify: ${mention}`);
-    }
   }
 
   const ok = !hasErrors && !hasLowBalances;
   const title = `💸 USC Balance Audit:`;
+
+  let mention = "";
+
+  if (hasLowBalances && config.slackAlertGroup) {
+    mention = config.slackAlertGroup.startsWith("S")
+      ? `<!subteam^${config.slackAlertGroup}>`
+      : config.slackAlertGroup.startsWith("U")
+      ? `<@${config.slackAlertGroup}>`
+      : config.slackAlertGroup;
+  }
+
   const summary = ok
     ? `${title}\n✅ All monitored balances are healthy`
     : hasLowBalances
-    ? `${title}\n❌ One or more monitored balances are below threshold`
+    ? `${title}\n❌ One or more monitored balances are below threshold\n${mention}`
     : `${title}\n❌ One or more balance checks failed`;
 
   return {
