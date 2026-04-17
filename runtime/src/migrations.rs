@@ -1,7 +1,20 @@
-use frame_support::{traits::OnRuntimeUpgrade, weights::Weight};
+use frame_support::{
+    dispatch::DispatchResult, pallet_prelude::Blake2_128Concat, storage::migration, storage_alias,
+    traits::OnRuntimeUpgrade, weights::Weight,
+};
+use parity_scale_codec::{Decode, Encode};
 use scale_info::prelude::string::String;
-use sp_runtime::traits::Get;
+use sp_runtime::traits::{Dispatchable, Get, StaticLookup};
 use sp_std::marker::PhantomData;
+
+use crate::{
+    attest_coin_precompile_account, AccountId, Balance, NativeOrEvmAddressLookup, Runtime,
+    RuntimeCall, RuntimeOrigin, ATTEST_COIN_ASSET_ID,
+};
+
+// Used only by `#[storage_alias]` expansion (rustc does not see it as a normal use).
+#[allow(unused_imports)]
+use crate::Assets as AssetsPallet;
 
 /// Initializes `pallet_supported_chains` storage with the Sepolia Ethereum chain.
 ///
@@ -229,5 +242,134 @@ pub mod v1_init_operators {
             );
             Ok(())
         }
+    }
+}
+
+// --- Attest coin (`pallet-assets` id 1): issuer = precompile; owner/admin/freezer = sudo or precompile.
+
+/// Mirrors [`pallet_assets::types::AssetDetails`] / asset status SCALE layout so we can decode
+/// storage without relying on `pub(super)` field access in the pallet.
+#[derive(Decode, Encode, Eq, PartialEq)]
+enum MirrorAssetStatus {
+    Live,
+    Frozen,
+    Destroying,
+}
+
+#[derive(Decode, Encode)]
+struct MirrorAssetDetails {
+    owner: AccountId,
+    issuer: AccountId,
+    admin: AccountId,
+    freezer: AccountId,
+    supply: Balance,
+    deposit: Balance,
+    min_balance: Balance,
+    is_sufficient: bool,
+    accounts: u32,
+    sufficients: u32,
+    approvals: u32,
+    status: MirrorAssetStatus,
+}
+
+#[storage_alias]
+type AssetMap = StorageMap<AssetsPallet, Blake2_128Concat, u32, MirrorAssetDetails>;
+
+fn sudo_account() -> Option<AccountId> {
+    migration::get_storage_value::<Option<AccountId>>(b"Sudo", b"Key", &[]).flatten()
+}
+
+fn dispatch_root(call: RuntimeCall) -> DispatchResult {
+    call.dispatch(RuntimeOrigin::root())
+        .map(|_| ())
+        .map_err(|e| e.error)
+}
+
+fn apply_roles(
+    precompile: &AccountId,
+    governance: &AccountId,
+    details: &MirrorAssetDetails,
+) -> Weight {
+    let is_frozen = details.status == MirrorAssetStatus::Frozen;
+    let status = RuntimeCall::Assets(pallet_assets::Call::force_asset_status {
+        id: ATTEST_COIN_ASSET_ID,
+        owner: NativeOrEvmAddressLookup::unlookup(governance.clone()),
+        issuer: NativeOrEvmAddressLookup::unlookup(precompile.clone()),
+        admin: NativeOrEvmAddressLookup::unlookup(governance.clone()),
+        freezer: NativeOrEvmAddressLookup::unlookup(governance.clone()),
+        min_balance: details.min_balance,
+        is_sufficient: details.is_sufficient,
+        is_frozen,
+    });
+
+    if let Err(e) = dispatch_root(status) {
+        log::error!(
+            target: "runtime::migrations",
+            "EnsureAttestCoinAssetRoles: force_asset_status failed: {e:?}"
+        );
+        return <Runtime as frame_system::Config>::DbWeight::get().reads_writes(3, 0);
+    }
+
+    log::info!(
+        target: "runtime::migrations",
+        "EnsureAttestCoinAssetRoles: issuer=precompile, owner/admin/freezer=governance"
+    );
+
+    <Runtime as frame_system::Config>::DbWeight::get().reads_writes(4, 4)
+}
+
+/// Sets attest-coin asset roles: issuer = precompile; owner, admin, freezer = sudo or precompile.
+pub struct EnsureAttestCoinAssetRoles<T>(PhantomData<T>);
+
+impl OnRuntimeUpgrade for EnsureAttestCoinAssetRoles<Runtime> {
+    fn on_runtime_upgrade() -> Weight {
+        let precompile = attest_coin_precompile_account();
+        let governance = sudo_account().unwrap_or_else(|| precompile.clone());
+
+        if AssetMap::get(ATTEST_COIN_ASSET_ID).is_none() {
+            let create = RuntimeCall::Assets(pallet_assets::Call::force_create {
+                id: ATTEST_COIN_ASSET_ID,
+                owner: NativeOrEvmAddressLookup::unlookup(precompile.clone()),
+                is_sufficient: false,
+                min_balance: 1u128,
+            });
+            if dispatch_root(create).is_err() {
+                log::error!(
+                    target: "runtime::migrations",
+                    "EnsureAttestCoinAssetRoles: force_create failed for asset {ATTEST_COIN_ASSET_ID}"
+                );
+                return <Runtime as frame_system::Config>::DbWeight::get().reads_writes(2, 0);
+            }
+        }
+
+        let Some(details) = AssetMap::get(ATTEST_COIN_ASSET_ID) else {
+            log::error!(
+                target: "runtime::migrations",
+                "EnsureAttestCoinAssetRoles: asset {ATTEST_COIN_ASSET_ID} still missing after create"
+            );
+            return <Runtime as frame_system::Config>::DbWeight::get().reads_writes(4, 2);
+        };
+
+        if details.status == MirrorAssetStatus::Destroying {
+            log::warn!(
+                target: "runtime::migrations",
+                "EnsureAttestCoinAssetRoles: asset {ATTEST_COIN_ASSET_ID} is Destroying; skipping"
+            );
+            return <Runtime as frame_system::Config>::DbWeight::get().reads(1);
+        }
+
+        if details.issuer == precompile
+            && details.owner == governance
+            && details.admin == governance
+            && details.freezer == governance
+        {
+            log::info!(
+                target: "runtime::migrations",
+                "EnsureAttestCoinAssetRoles: roles already correct, skipping"
+            );
+            return <Runtime as frame_system::Config>::DbWeight::get().reads(1);
+        }
+
+        apply_roles(&precompile, &governance, &details)
     }
 }
