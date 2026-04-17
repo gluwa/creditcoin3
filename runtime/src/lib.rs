@@ -77,10 +77,9 @@ use pallet_transaction_payment::Multiplier;
 use randomness_primitives::provider::RandomnessPalletProvider;
 use supported_chains_primitives::{provider::SupportedChainsProvider, MATURITY_EVM_SAFE};
 
+mod migrations;
 mod precompiles;
 pub use precompiles::{used_addresses, GluwaPrecompiles};
-
-mod migrations;
 
 /// Type of block number.
 pub type BlockNumber = u32;
@@ -231,6 +230,7 @@ impl frame_system::Config for Runtime {
         migrations::v1_init_supported_chains::Migration<Runtime>,
         migrations::v1_init_attestation::Migration<Runtime>,
         migrations::v1_init_operators::Migration<Runtime>,
+        crate::migrations::EnsureAttestCoinAssetRoles<Runtime>,
     );
     type PreInherents = ();
     type PostInherents = ();
