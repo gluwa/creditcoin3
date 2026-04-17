@@ -674,26 +674,6 @@ impl WorkerAttestationValidation {
             .first()
             .expect("Invariant violated: quorum must always contain at least one vote");
 
-        // Audit finding: all votes counted toward quorum must carry an identical continuity proof.
-        // The pool guarantees the same *digest* in each vote, but we also verify the proof bytes
-        // are identical so that no single attestor can sneak in a different Merkle chain.
-        if votes.len() > 1 {
-            let reference_proof = &attestation.continuity_proof;
-            if votes[1..]
-                .iter()
-                .any(|v| &v.continuity_proof != reference_proof)
-            {
-                tracing::error!(
-                    ?digest,
-                    height,
-                    "⛔ Quorum votes contain inconsistent continuity proofs"
-                );
-                return Err(Interrupt::Cont(Error::InvalidAttestation(
-                    InvalidCause::InconsistentContinuityProofs,
-                )));
-            }
-        }
-
         // Every attestation must have a continuity proof except for the first attestation in the
         // chain
         if attestation.continuity_proof.is_empty() && height != self.start_height {

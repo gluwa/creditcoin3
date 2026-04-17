@@ -15,9 +15,6 @@ pub enum Error {
         common::types::Height,
         attestor_primitives::Digest,
     ),
-    /// The continuity proof length exceeds the attestation height, indicating the proof
-    /// reaches before genesis — an invalid attestation that must be rejected.
-    InvalidProof(attestor_primitives::AttestorId, common::types::Height),
 }
 
 impl Error {
@@ -66,14 +63,6 @@ impl Error {
                     "⛔ Unauthorized attestor vote rejected"
                 );
             }
-            Self::InvalidProof(attestor_id, height) => {
-                tracing::error!(
-                    %attestor_id,
-                    ?digest,
-                    height,
-                    "⛔ Continuity proof length exceeds attestation height (reaches before genesis)"
-                );
-            }
         }
     }
 }
@@ -118,14 +107,6 @@ impl std::fmt::Display for Error {
                     "Attestor {address} \
                     for source chain height {height} \
                     with known invalid digest {digest}"
-                )
-            }
-            Error::InvalidProof(address, height) => {
-                write!(
-                    f,
-                    "Attestor {address} \
-                    submitted an attestation at height {height} \
-                    with a continuity proof that reaches before genesis"
                 )
             }
         }

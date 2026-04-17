@@ -427,47 +427,32 @@ impl AttestationPoolInner {
         Ok(removed)
     }
 
-    fn peek(&mut self) -> Result<Option<(Quorum, Permit)>, Error> {
-        let Some(fork) = self.forks.peek() else {
-            return Ok(None);
-        };
+    fn peek(&mut self) -> Option<(Quorum, Permit)> {
+        self.forks.peek().map(|fork| {
+            let quorum = Quorum(fork.votes.clone());
+            let height = fork.attestation.header_number();
+            let digest = fork.attestation.digest();
+            let header_hash = fork.attestation.attestation_data.header_hash;
 
-        let quorum = Quorum(fork.votes.clone());
-        let height = fork.attestation.header_number();
-        let digest = fork.attestation.digest();
-        let header_hash = fork.attestation.attestation_data.header_hash;
-        let proof = &fork.attestation.continuity_proof;
-        let attestor = fork.attestation.attestor_id();
-        let start_block = match height.checked_sub(proof.len() as u64) {
-            Some(s) => s,
-            None => {
-                // The best fork has an invalid proof (proof longer than its height).
-                // Evict it from the pool so we don't loop on this fork forever.
-                self.forks.pop_best();
-                return Err(Error::InvalidProof(attestor, height));
-            }
-        };
-        let continuity_digest = proof.compute_continuity_digest(start_block);
-
-        let permit = Permit(CompoundInfo {
-            height,
-            digest,
-            header_hash,
-            continuity_digest,
-        });
-
-        // Only update metrics the first time quorum is reached at that height
-        if let Some(elapsed) = self.attestation_delay.pop(height) {
-            tracing::debug!(
-                ?digest,
+            let permit = Permit(CompoundInfo {
                 height,
-                elapsed_ms = elapsed.as_millis(),
-                "⏱️ Time from first vote to quorum"
-            );
-            self.metrics.update_attestation_delay_quorum(elapsed);
-        }
+                digest,
+                header_hash,
+            });
 
-        Ok(Some((quorum, permit)))
+            // Only update metrics the first time quorum is reached at that height
+            if let Some(elapsed) = self.attestation_delay.pop(height) {
+                tracing::debug!(
+                    ?digest,
+                    height,
+                    elapsed_ms = elapsed.as_millis(),
+                    "⏱️ Time from first vote to quorum"
+                );
+                self.metrics.update_attestation_delay_quorum(elapsed);
+            }
+
+            (quorum, permit)
+        })
     }
 
     fn mark_valid(&mut self, Permit(info): Permit) {
@@ -550,11 +535,6 @@ struct KeyDigestPending {
 /// attestation digest alone is not a guarantee of uniqueness, and must be paired with the header
 /// hash to avoid collisions.
 ///
-/// Additionally, the continuity proof bytes are not committed to by the attestation digest. We
-/// pair in a `continuity_digest` (computed via [`ContinuityProof::compute_continuity_digest`]) so that
-/// attestors carrying different continuity proofs for the same block/digest can never merge toward
-/// quorum.
-///
 /// [digest computation]: attestor_primitives::Attestation::digest
 /// [`AttestationData`]:  attestor_primitives::AttestationData
 /// [attestation data serialization]: attestor_primitives::AttestationData::serialize
@@ -562,8 +542,6 @@ struct KeyDigestPending {
 struct CompoundDigest {
     digest: attestor_primitives::Digest,
     header_hash: attestor_primitives::Digest,
-    /// Hash of the continuity proof chain (prevents quorum on competing proofs).
-    continuity_digest: attestor_primitives::Digest,
 }
 
 impl CompoundDigest {
@@ -571,7 +549,6 @@ impl CompoundDigest {
         Self {
             digest: attestor_primitives::Digest::zero(),
             header_hash: attestor_primitives::Digest::zero(),
-            continuity_digest: attestor_primitives::Digest::zero(),
         }
     }
 
@@ -579,8 +556,13 @@ impl CompoundDigest {
         Self {
             digest: attestor_primitives::Digest::from([u8::MAX; 32]),
             header_hash: attestor_primitives::Digest::from([u8::MAX; 32]),
-            continuity_digest: attestor_primitives::Digest::from([u8::MAX; 32]),
         }
+    }
+}
+
+impl From<CompoundDigest> for attestor_primitives::Digest {
+    fn from(digest: CompoundDigest) -> Self {
+        digest.digest
     }
 }
 
@@ -592,8 +574,6 @@ struct CompoundInfo {
     height: common::types::Height,
     digest: attestor_primitives::Digest,
     header_hash: attestor_primitives::Digest,
-    /// Hash of the continuity proof chain (prevents quorum on competing proofs).
-    continuity_digest: attestor_primitives::Digest,
 }
 
 impl From<CompoundInfo> for CompoundDigest {
@@ -601,7 +581,6 @@ impl From<CompoundInfo> for CompoundDigest {
         Self {
             digest: info.digest,
             header_hash: info.header_hash,
-            continuity_digest: info.continuity_digest,
         }
     }
 }
@@ -686,24 +665,17 @@ impl AttestationPoolForks {
         let digest = attestation.digest();
         let attestor = attestation.attestor_id();
         let header_hash = attestation.attestation_data.header_hash;
-        let proof = &attestation.continuity_proof;
-        // A proof whose length exceeds the attestation height would reach before genesis.
-        let start_block = height
-            .checked_sub(proof.len() as u64)
-            .ok_or(Error::InvalidProof(attestor.clone(), height))?;
-        let continuity_digest = proof.compute_continuity_digest(start_block);
 
         tracing::debug!("Checking for known invalids");
 
         let digest = CompoundDigest {
             digest,
             header_hash,
-            continuity_digest,
         };
 
         let key_digest = KeyDigest { height, digest };
         if self.votes_invalid.contains(&key_digest) {
-            return Err(Error::InvalidDigest(attestor, height, digest.digest));
+            return Err(Error::InvalidDigest(attestor, height, digest.into()));
         }
 
         tracing::debug!("Validating attestation height");
@@ -908,21 +880,6 @@ impl AttestationPoolForks {
         self.forks_best
             .as_ref()
             .and_then(|best| self.validate_quorum.validate(best).then(|| best.clone()))
-    }
-
-    /// Evict the current best fork (the one `peek` would return) from the pool.
-    ///
-    /// Used when `peek`'s caller detects that the best fork is invalid and needs to be removed
-    /// so the pool advances to the next candidate instead of re-surfacing the same bad fork.
-    fn pop_best(&mut self) {
-        let digest = self
-            .quorums_by_height
-            .first()
-            .map(|k| k.digest)
-            .or_else(|| self.forks_by_size.last().map(|k| k.digest));
-        if let Some(digest) = digest {
-            self.pop(digest);
-        }
     }
 
     fn pop(&mut self, digest: CompoundDigest) {
@@ -1732,21 +1689,12 @@ impl futures::Stream for AttestationPoolReceiver {
     ) -> std::task::Poll<Option<Self::Item>> {
         match &mut *self.common.pool.lock() {
             AttestationPool::Open(inner) => match inner.peek() {
-                Ok(Some((quorum, permit))) => {
+                Some((quorum, permit)) => {
                     tracing::debug!(height = quorum.header_number(), "Found a quorum");
                     std::task::Poll::Ready(Some((quorum, permit, inner.digest_local)))
                 }
-                Ok(None) => {
+                None => {
                     tracing::debug!("No quorum found, waiting for new attestations...");
-                    inner.wakers.push_front(cx.waker().clone());
-                    std::task::Poll::Pending
-                }
-                Err(err) => {
-                    err.log_error(Default::default());
-                    // Register a waker so the stream is re-polled immediately.
-                    // The bad fork was already evicted above; the next best fork may
-                    // already be valid and should not wait for a new attestation to
-                    // trigger a wake.
                     inner.wakers.push_front(cx.waker().clone());
                     std::task::Poll::Pending
                 }
@@ -2004,12 +1952,10 @@ mod constants {
     pub const DIGEST_0: CompoundDigest = CompoundDigest {
         digest: sp_core::H256(*b"digest_0________________________"),
         header_hash: attestor_primitives::Digest::zero(),
-        continuity_digest: attestor_primitives::Digest::zero(),
     };
     pub const DIGEST_1: CompoundDigest = CompoundDigest {
         digest: sp_core::H256(*b"digest_1________________________"),
         header_hash: attestor_primitives::Digest::zero(),
-        continuity_digest: attestor_primitives::Digest::zero(),
     };
 
     pub const TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
@@ -2036,8 +1982,8 @@ mod fixtures {
                 common::types::Attestation {
                     attestation_data: attestor_primitives::AttestationData {
                         header_number,
-                        prev_digest: Some(prev_digest.digest),
-                        header_hash: header_hash.digest,
+                        prev_digest: Some(prev_digest.into()),
+                        header_hash: header_hash.into(),
                         ..Default::default()
                     },
                     attestor,
@@ -2047,7 +1993,7 @@ mod fixtures {
                             .sign(b"0xdeadbeef"),
                     ),
                     continuity_proof: attestor_primitives::block::ContinuityProof::new(
-                        prev_digest.digest,
+                        prev_digest.into(),
                         vec![attestor_primitives::Digest::default()],
                     ),
                 }
@@ -2155,7 +2101,7 @@ mod fixtures {
             .with_quorum(validate_quorum.target_quorum)
             .with_attestation_interval(std::num::NonZero::<common::types::Height>::MIN)
             .with_start_attestation(Some(stream::util::AttestationInfo {
-                digest: DIGEST_0.digest,
+                digest: DIGEST_0.into(),
                 height: common::types::Height::MIN,
             }))
             .with_start_height(1u64)
@@ -2174,23 +2120,10 @@ mod fixtures {
         #[with(_attestors.clone(), _header_number, _prev_digest, _header_hash)]
         attestation: AttestationVote,
     ) -> Permit {
-        let att = &attestation.attestation;
-        let proof = &att.continuity_proof;
-        let height = att.header_number();
-        let attestor = att.attestor_id();
-        let start_block = height.checked_sub(proof.len() as u64).unwrap_or_else(|| {
-            panic!(
-                "fixture: proof length {} exceeds height {} for attestor {:?}",
-                proof.len(),
-                height,
-                attestor
-            )
-        });
         Permit(CompoundInfo {
-            height,
-            digest: att.digest(),
-            header_hash: att.attestation_data.header_hash,
-            continuity_digest: proof.compute_continuity_digest(start_block),
+            height: attestation.attestation.header_number(),
+            digest: attestation.attestation.digest(),
+            header_hash: attestation.attestation.attestation_data.header_hash,
         })
     }
 }
@@ -2204,27 +2137,6 @@ mod test {
     use super::constants::*;
     use super::fixtures::*;
     use super::*;
-
-    impl From<&common::types::Attestation> for CompoundDigest {
-        fn from(attestation: &common::types::Attestation) -> Self {
-            let proof = &attestation.continuity_proof;
-            let height = attestation.header_number();
-            let attestor = attestation.attestor_id();
-            let start_block = height.checked_sub(proof.len() as u64).unwrap_or_else(|| {
-                panic!(
-                    "test CompoundDigest: proof length {} exceeds height {} for attestor {:?}",
-                    proof.len(),
-                    height,
-                    attestor
-                )
-            });
-            CompoundDigest {
-                digest: attestation.digest(),
-                header_hash: attestation.attestation_data.header_hash,
-                continuity_digest: proof.compute_continuity_digest(start_block),
-            }
-        }
-    }
 
     #[tokio::test]
     #[rstest::rstest]
@@ -2304,10 +2216,12 @@ mod test {
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
 
-        let att0 = &attestation_0.attestation;
         assert!(inner.forks.votes_invalid.contains(&KeyDigest {
-            height: att0.header_number(),
-            digest: att0.into(),
+            height: attestation_0.attestation.header_number(),
+            digest: CompoundDigest {
+                digest: attestation_0.attestation.digest(),
+                header_hash: attestation_0.attestation.attestation_data.header_hash
+            }
         }));
     }
 
@@ -2340,7 +2254,10 @@ mod test {
             inner
                 .forks
                 .forks_by_digest
-                .get(&(&attestation_0.attestation).into())
+                .get(&CompoundDigest {
+                    digest: attestation_0.attestation.digest(),
+                    header_hash: attestation_0.attestation.attestation_data.header_hash
+                })
                 .unwrap(),
             &attestation_0
         );
@@ -2349,7 +2266,10 @@ mod test {
             inner
                 .forks
                 .forks_by_digest
-                .get(&(&attestation_1.attestation).into())
+                .get(&CompoundDigest {
+                    digest: attestation_1.attestation.digest(),
+                    header_hash: attestation_1.attestation.attestation_data.header_hash
+                })
                 .unwrap(),
             &attestation_1
         );
@@ -2357,13 +2277,19 @@ mod test {
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 1,
-            digest: (&attestation_0.attestation).into(),
+            digest: CompoundDigest {
+                digest: attestation_0.attestation.digest(),
+                header_hash: attestation_0.attestation.attestation_data.header_hash
+            }
         }));
 
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 1,
-            digest: (&attestation_1.attestation).into(),
+            digest: CompoundDigest {
+                digest: attestation_1.attestation.digest(),
+                header_hash: attestation_1.attestation.attestation_data.header_hash
+            }
         }));
     }
 
@@ -2459,14 +2385,17 @@ mod test {
                 .forks
                 .pending_by_prev_digest_tail
                 .contains(&KeyTailPending {
-                    prev_digest_tail: PrevDigestTail(DIGEST_1.digest),
+                    prev_digest_tail: PrevDigestTail(DIGEST_1.into()),
                     height: 2,
-                    digest: (&attestation_pending.attestation).into(),
+                    digest: CompoundDigest {
+                        digest: attestation_pending.attestation.digest(),
+                        header_hash: attestation_pending.attestation.attestation_data.header_hash
+                    },
                 }));
         }
 
         sx.note_attestation_finalization(stream::util::AttestationInfo {
-            digest: DIGEST_1.digest,
+            digest: DIGEST_1.into(),
             height: 1,
         })
         .unwrap();
@@ -2666,12 +2595,18 @@ mod test {
         assert!(inner.forks.forks_by_height.contains(&KeyHeight {
             height: 1,
             size: 2,
-            digest: (&attestation_0.attestation).into(),
+            digest: CompoundDigest {
+                digest: attestation_0.attestation.digest(),
+                header_hash: attestation_0.attestation.attestation_data.header_hash
+            }
         }));
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 2,
             height: 1,
-            digest: (&attestation_0.attestation).into(),
+            digest: CompoundDigest {
+                digest: attestation_0.attestation.digest(),
+                header_hash: attestation_0.attestation.attestation_data.header_hash
+            }
         }));
     }
 
@@ -2733,25 +2668,31 @@ mod test {
             let mut pool = rx.common.pool.lock();
             let inner = pool.expect_open();
 
-            assert!(!inner
-                .forks
-                .forks_by_digest
-                .contains_key(&(&attestation_2.attestation).into()));
-            assert!(inner
-                .forks
-                .forks_by_digest
-                .contains_key(&(&attestation_3.attestation).into()));
+            assert!(!inner.forks.forks_by_digest.contains_key(&CompoundDigest {
+                digest: attestation_2.attestation.digest(),
+                header_hash: attestation_2.attestation.attestation_data.header_hash
+            }));
+            assert!(inner.forks.forks_by_digest.contains_key(&CompoundDigest {
+                digest: attestation_3.attestation.digest(),
+                header_hash: attestation_3.attestation.attestation_data.header_hash
+            }));
             assert_eq!(inner.forks.forks_by_height.len(), 1);
             assert_eq!(inner.forks.forks_by_size.len(), 1);
             assert!(inner.forks.forks_by_height.contains(&KeyHeight {
                 height: 1,
                 size: 3,
-                digest: (&attestation_0.attestation).into(),
+                digest: CompoundDigest {
+                    digest: attestation_0.attestation.digest(),
+                    header_hash: attestation_0.attestation.attestation_data.header_hash
+                }
             }));
             assert!(inner.forks.forks_by_size.contains(&KeySize {
                 size: 3,
                 height: 1,
-                digest: (&attestation_0.attestation).into(),
+                digest: CompoundDigest {
+                    digest: attestation_0.attestation.digest(),
+                    header_hash: attestation_0.attestation.attestation_data.header_hash
+                }
             }));
         }
     }
@@ -2807,12 +2748,18 @@ mod test {
         assert!(inner.forks.forks_by_height.contains(&KeyHeight {
             height: 1,
             size: 2,
-            digest: (&attestation_0.attestation).into(),
+            digest: CompoundDigest {
+                digest: attestation_0.attestation.digest(),
+                header_hash: attestation_0.attestation.attestation_data.header_hash
+            }
         }));
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 2,
             height: 1,
-            digest: (&attestation_0.attestation).into(),
+            digest: CompoundDigest {
+                digest: attestation_0.attestation.digest(),
+                header_hash: attestation_0.attestation.attestation_data.header_hash
+            }
         }));
     }
 
@@ -3034,7 +2981,7 @@ mod test {
         // ------------------------------------------------------------------------
         let reversion_info = stream::util::AttestationInfo {
             height: 50,
-            digest: DIGEST_1.digest,
+            digest: DIGEST_1.into(),
         };
 
         sx.note_attestation_chain_reversion(reversion_info);
@@ -3061,7 +3008,7 @@ mod test {
             assert!(inner.forks.quorums_by_height.is_empty());
 
             // Reversion should set the new finalized digest
-            assert_eq!(inner.forks.last_finalized_digest, Some(DIGEST_1.digest));
+            assert_eq!(inner.forks.last_finalized_digest, Some(DIGEST_1.into()));
 
             // Valid queue reset
             assert!(inner.valid.quorums_valid.is_empty());
