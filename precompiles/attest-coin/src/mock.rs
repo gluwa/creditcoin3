@@ -374,6 +374,7 @@ impl pallet_attest_coin_rewards::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RewardPoints = u128;
     type RewardPerEligibleSigner = ConstU128<100>;
+    type WeightInfo = pallet_attest_coin_rewards::weights::WeightInfo<Runtime>;
 }
 
 construct_runtime!(
