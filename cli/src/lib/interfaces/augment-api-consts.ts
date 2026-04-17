@@ -96,12 +96,6 @@ declare module '@polkadot/api-base/types/consts' {
         };
         attestCoinRewards: {
             /**
-             * Total points for [`Self::do_settlement`] (e.g. [`crate::Pallet::force_settle`]), split
-             * equally across every stash in [`pallet_attestation::Ledger`]. Not used by automatic
-             * block hooks.
-             **/
-            epochRewardPool: u128 & AugmentedConst<ApiType>;
-            /**
              * Points credited to each **stash** backing an eligible signer on a successful
              * [`pallet_attestation::Pallet::commit_attestation`].
              **/

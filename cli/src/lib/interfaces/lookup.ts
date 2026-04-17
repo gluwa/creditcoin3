@@ -1090,11 +1090,6 @@ export default {
                 signers: 'u32',
                 perSigner: 'u128',
             },
-            EpochRewardsAccrued: {
-                epochBlock: 'u32',
-                stashes: 'u32',
-                perStash: 'u128',
-            },
             AttestCoinTokenSet: {
                 token: 'H160',
             },
@@ -3068,7 +3063,6 @@ export default {
             set_attest_coin_token: {
                 token: 'H160',
             },
-            force_settle: 'Null',
         },
     },
     /**

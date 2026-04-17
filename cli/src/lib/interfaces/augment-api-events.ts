@@ -333,14 +333,6 @@ declare module '@polkadot/api-base/types/events' {
                 { chainKey: u64; signers: u32; perSigner: u128 }
             >;
             /**
-             * Reward points from [`Self::do_settlement`] (tests / manual ops).
-             **/
-            EpochRewardsAccrued: AugmentedEvent<
-                ApiType,
-                [epochBlock: u32, stashes: u32, perStash: u128],
-                { epochBlock: u32; stashes: u32; perStash: u128 }
-            >;
-            /**
              * Generic event
              **/
             [key: string]: AugmentedEvent<ApiType>;

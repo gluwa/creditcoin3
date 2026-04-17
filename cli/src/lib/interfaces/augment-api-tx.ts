@@ -1252,10 +1252,6 @@ declare module '@polkadot/api-base/types/submittable' {
         };
         attestCoinRewards: {
             /**
-             * Split [`Config::EpochRewardPool`] across all ledger stashes (tests / ops). **Root only.**
-             **/
-            forceSettle: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
-            /**
              * Set the attest-coin ERC-20 contract. **Root only** (governance / sudo).
              **/
             setAttestCoinToken: AugmentedSubmittable<

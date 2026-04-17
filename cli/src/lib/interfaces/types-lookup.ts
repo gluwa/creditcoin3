@@ -1415,17 +1415,11 @@ declare module '@polkadot/types/lookup' {
             readonly signers: u32;
             readonly perSigner: u128;
         } & Struct;
-        readonly isEpochRewardsAccrued: boolean;
-        readonly asEpochRewardsAccrued: {
-            readonly epochBlock: u32;
-            readonly stashes: u32;
-            readonly perStash: u128;
-        } & Struct;
         readonly isAttestCoinTokenSet: boolean;
         readonly asAttestCoinTokenSet: {
             readonly token: H160;
         } & Struct;
-        readonly type: 'CommitSignersRewarded' | 'EpochRewardsAccrued' | 'AttestCoinTokenSet';
+        readonly type: 'CommitSignersRewarded' | 'AttestCoinTokenSet';
     }
 
     /** @name PalletSupportedChainsEvent (100) */
@@ -3660,8 +3654,7 @@ declare module '@polkadot/types/lookup' {
         readonly asSetAttestCoinToken: {
             readonly token: H160;
         } & Struct;
-        readonly isForceSettle: boolean;
-        readonly type: 'SetAttestCoinToken' | 'ForceSettle';
+        readonly type: 'SetAttestCoinToken';
     }
 
     /** @name PalletSupportedChainsCall (344) */
