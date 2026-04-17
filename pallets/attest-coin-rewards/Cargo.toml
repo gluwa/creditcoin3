@@ -6,6 +6,10 @@ authors = { workspace = true }
 license = { workspace = true }
 publish = false
 
+# Required for `#[frame_support::pallet]` / `TypeInfo` derives; not visible to static dep scanners.
+[package.metadata.cargo-machete]
+ignored = ["scale-info"]
+
 [lints.clippy]
 manual_inspect = "allow"
 
@@ -21,6 +25,8 @@ sp-core = { workspace = true }
 pallet-attestation = { workspace = true, default-features = false }
 attestor-primitives = { workspace = true, default-features = false }
 
+frame-benchmarking = { workspace = true, optional = true }
+
 [features]
 default = ["std"]
 std = [
@@ -33,4 +39,13 @@ std = [
     "sp-core/std",
     "pallet-attestation/std",
     "attestor-primitives/std",
+    "frame-benchmarking?/std",
+]
+
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "pallet-attestation/runtime-benchmarks",
 ]
