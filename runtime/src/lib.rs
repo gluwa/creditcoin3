@@ -1002,6 +1002,7 @@ impl pallet_attest_coin_rewards::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RewardPoints = Balance;
     type RewardPerEligibleSigner = AttestCoinRewardPerEligibleSigner;
+    type WeightInfo = pallet_attest_coin_rewards::weights::WeightInfo<Runtime>;
 }
 
 parameter_types! {
@@ -1248,6 +1249,7 @@ mod benches {
         [pallet_evm, EVM]
         [pallet_attestation, Attestation]
         [pallet_randomness, Randomness]
+        [pallet_attest_coin_rewards, AttestCoinRewards]
         [pallet_membership, Operators]
     );
 }
