@@ -428,41 +428,46 @@ impl AttestationPoolInner {
     }
 
     fn peek(&mut self) -> Result<Option<(Quorum, Permit)>, Error> {
-        self.forks
-            .peek()
-            .map(|fork| {
-                let quorum = Quorum(fork.votes.clone());
-                let height = fork.attestation.header_number();
-                let digest = fork.attestation.digest();
-                let header_hash = fork.attestation.attestation_data.header_hash;
-                let proof = &fork.attestation.continuity_proof;
-                let attestor = fork.attestation.attestor_id();
-                let start_block = height
-                    .checked_sub(proof.len() as u64)
-                    .ok_or(Error::InvalidProof(attestor, height))?;
-                let continuity_digest = proof.compute_continuity_digest(start_block);
+        let Some(fork) = self.forks.peek() else {
+            return Ok(None);
+        };
 
-                let permit = Permit(CompoundInfo {
-                    height,
-                    digest,
-                    header_hash,
-                    continuity_digest,
-                });
+        let quorum = Quorum(fork.votes.clone());
+        let height = fork.attestation.header_number();
+        let digest = fork.attestation.digest();
+        let header_hash = fork.attestation.attestation_data.header_hash;
+        let proof = &fork.attestation.continuity_proof;
+        let attestor = fork.attestation.attestor_id();
+        let start_block = match height.checked_sub(proof.len() as u64) {
+            Some(s) => s,
+            None => {
+                // The best fork has an invalid proof (proof longer than its height).
+                // Evict it from the pool so we don't loop on this fork forever.
+                self.forks.pop_best();
+                return Err(Error::InvalidProof(attestor, height));
+            }
+        };
+        let continuity_digest = proof.compute_continuity_digest(start_block);
 
-                // Only update metrics the first time quorum is reached at that height
-                if let Some(elapsed) = self.attestation_delay.pop(height) {
-                    tracing::debug!(
-                        ?digest,
-                        height,
-                        elapsed_ms = elapsed.as_millis(),
-                        "⏱️ Time from first vote to quorum"
-                    );
-                    self.metrics.update_attestation_delay_quorum(elapsed);
-                }
+        let permit = Permit(CompoundInfo {
+            height,
+            digest,
+            header_hash,
+            continuity_digest,
+        });
 
-                Ok((quorum, permit))
-            })
-            .transpose()
+        // Only update metrics the first time quorum is reached at that height
+        if let Some(elapsed) = self.attestation_delay.pop(height) {
+            tracing::debug!(
+                ?digest,
+                height,
+                elapsed_ms = elapsed.as_millis(),
+                "⏱️ Time from first vote to quorum"
+            );
+            self.metrics.update_attestation_delay_quorum(elapsed);
+        }
+
+        Ok(Some((quorum, permit)))
     }
 
     fn mark_valid(&mut self, Permit(info): Permit) {
@@ -903,6 +908,21 @@ impl AttestationPoolForks {
         self.forks_best
             .as_ref()
             .and_then(|best| self.validate_quorum.validate(best).then(|| best.clone()))
+    }
+
+    /// Evict the current best fork (the one `peek` would return) from the pool.
+    ///
+    /// Used when `peek`'s caller detects that the best fork is invalid and needs to be removed
+    /// so the pool advances to the next candidate instead of re-surfacing the same bad fork.
+    fn pop_best(&mut self) {
+        let digest = self
+            .quorums_by_height
+            .first()
+            .map(|k| k.digest)
+            .or_else(|| self.forks_by_size.last().map(|k| k.digest));
+        if let Some(digest) = digest {
+            self.pop(digest);
+        }
     }
 
     fn pop(&mut self, digest: CompoundDigest) {
@@ -1723,6 +1743,11 @@ impl futures::Stream for AttestationPoolReceiver {
                 }
                 Err(err) => {
                     err.log_error(Default::default());
+                    // Register a waker so the stream is re-polled immediately.
+                    // The bad fork was already evicted above; the next best fork may
+                    // already be valid and should not wait for a new attestation to
+                    // trigger a wake.
+                    inner.wakers.push_front(cx.waker().clone());
                     std::task::Poll::Pending
                 }
             },
@@ -2151,9 +2176,18 @@ mod fixtures {
     ) -> Permit {
         let att = &attestation.attestation;
         let proof = &att.continuity_proof;
-        let start_block = att.header_number().saturating_sub(proof.len() as u64);
+        let height = att.header_number();
+        let attestor = att.attestor_id();
+        let start_block = height.checked_sub(proof.len() as u64).unwrap_or_else(|| {
+            panic!(
+                "fixture: proof length {} exceeds height {} for attestor {:?}",
+                proof.len(),
+                height,
+                attestor
+            )
+        });
         Permit(CompoundInfo {
-            height: att.header_number(),
+            height,
             digest: att.digest(),
             header_hash: att.attestation_data.header_hash,
             continuity_digest: proof.compute_continuity_digest(start_block),
@@ -2174,9 +2208,16 @@ mod test {
     impl From<&common::types::Attestation> for CompoundDigest {
         fn from(attestation: &common::types::Attestation) -> Self {
             let proof = &attestation.continuity_proof;
-            let start_block = attestation
-                .header_number()
-                .saturating_sub(proof.len() as u64);
+            let height = attestation.header_number();
+            let attestor = attestation.attestor_id();
+            let start_block = height.checked_sub(proof.len() as u64).unwrap_or_else(|| {
+                panic!(
+                    "test CompoundDigest: proof length {} exceeds height {} for attestor {:?}",
+                    proof.len(),
+                    height,
+                    attestor
+                )
+            });
             CompoundDigest {
                 digest: attestation.digest(),
                 header_hash: attestation.attestation_data.header_hash,

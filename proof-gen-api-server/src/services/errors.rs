@@ -170,8 +170,8 @@ impl ServiceError {
             Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::TxHashNotFound { .. }
             | Self::BlockNotReady { .. }
-            | Self::BlockNotOnSourceChain { .. }
-            | Self::BlockNotConfirmed { .. } => StatusCode::NOT_FOUND,
+            | Self::BlockNotOnSourceChain { .. } => StatusCode::NOT_FOUND,
+            Self::BlockNotConfirmed { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::MerkleError { .. } | Self::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
