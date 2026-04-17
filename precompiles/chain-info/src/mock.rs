@@ -500,7 +500,8 @@ impl ExtBuilder {
 
         let attest_coin: Balance = 10_000_000_000_000_000_000_000;
         pallet_assets::GenesisConfig::<Runtime> {
-            assets: vec![(1, Account::Alice, false, 1)],
+            // Non-sufficient assets need funded system accounts before genesis mint; see block-prover mock.
+            assets: vec![(1, Account::Alice, true, 1)],
             metadata: vec![(1, b"AC".to_vec(), b"AC".to_vec(), 18)],
             accounts: vec![
                 (1, Account::Alice, attest_coin),
