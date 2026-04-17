@@ -5,6 +5,10 @@
 
 pub use pallet::*;
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+pub mod weights;
+
 #[frame_support::pallet]
 pub mod pallet {
     use attestor_primitives::ChainKey;
@@ -20,6 +24,8 @@ pub mod pallet {
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_attestation::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        /// Weights for this pallet's dispatchables.
+        type WeightInfo: WeightInfo;
         /// Reward points (same 1e18 precision as the ERC-20). Named separately from `Balances::Balance`.
         type RewardPoints: Parameter
             + Member
@@ -39,6 +45,10 @@ pub mod pallet {
         /// [`pallet_attestation::Pallet::commit_attestation`].
         #[pallet::constant]
         type RewardPerEligibleSigner: Get<Self::RewardPoints>;
+    }
+
+    pub trait WeightInfo {
+        fn set_attest_coin_token() -> Weight;
     }
 
     #[pallet::storage]
@@ -81,9 +91,8 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// Set the attest-coin ERC-20 contract. **Root only** (governance / sudo).
-        // TODO: replace with proper benchmarks before mainnet
-        #[pallet::weight(Weight::from_parts(25_000, 0))]
         #[pallet::call_index(0)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_attest_coin_token())]
         pub fn set_attest_coin_token(origin: OriginFor<T>, token: sp_core::H160) -> DispatchResult {
             ensure_root(origin)?;
             AttestCoinErc20::<T>::put(token);
