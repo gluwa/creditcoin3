@@ -29,6 +29,7 @@ import {
   sendSummarySlackMessage,
   sendThreadSlackMessage,
 } from "./slack.ts";
+import { runBalanceChecks } from "./balances.ts";
 
 const MAX_BLOCK_DIFF = 40;
 const BSC_MAX_BLOCK_DIFF = 499;
@@ -55,7 +56,8 @@ function buildReport(
   graphqlCp: { lastCheckpointHeaderNumber: string } | null,
 ): BuiltReport {
   const details: string[] = [];
-  const title = `🚦 Attestation chain liveness [${chainLabel} - ${chainId}]`;
+  const title = `🚦 Attestation Chain Liveness: ${chainLabel} - ${chainId}`;
+  const detailsTitle = `🚦 Liveness Details: ${chainLabel} - ${chainId}`;
 
   details.push(
     (blockDiffOk ? "✅" : "❌") +
@@ -146,7 +148,7 @@ function buildReport(
   return {
     ok,
     summary,
-    details: details.join("\n"),
+    details: `${detailsTitle}\n${details.join("\n")}`,
   };
 }
 
@@ -157,8 +159,8 @@ async function runChecksForChain(
   chainName: string,
   ethRpcUrl: string,
 ): Promise<BuiltReport> {
-  const chainLabel = `${config.uscNetworkName} - ${chainName}`;
-  const title = `🚦 Attestation chain liveness [${chainLabel} - ${chainId}]`;
+  const chainLabel = `${chainName}`;
+  const title = `🚦 Attestation chain liveness: ${chainLabel} - ${chainId}`;
 
   const lastDigest = await getLastDigest(chainKey);
   if (!lastDigest) {
@@ -336,21 +338,44 @@ async function main(): Promise<void> {
     }
   }
 
+  // Add balances check report
+  if (config.balanceChecks && config.balanceChecks.length > 0) {
+    const balanceReport = await runBalanceChecks(config);
+    reports.push(balanceReport);
+  }
+
   for (const report of reports) {
     console.log("\n" + JSON.stringify(report, null, 2));
+  }
 
-    if (!config.noSlack && config.slackBotToken && config.slackChannelId) {
-      const { summaryPayload, detailsPayload } = createSlackPayloads(
+  if (!config.noSlack && config.slackBotToken && config.slackChannelId) {
+    const combinedSummaryReport = buildCombinedSummaryReport(
+      config.uscNetworkName,
+      reports,
+    );
+
+    const { summaryPayload } = createSlackPayloads(
+      combinedSummaryReport,
+      config.slackAlertGroup,
+    );
+
+    const thread_ts = await sendSummarySlackMessage(
+      config.slackBotToken,
+      config.slackChannelId,
+      summaryPayload,
+    );
+
+    for (const report of reports) {
+      if (!report.details || report.details.trim() === "") {
+        continue;
+      }
+
+      const { detailsPayload } = createSlackPayloads(
         report,
         config.slackAlertGroup,
       );
-      const thread_ts = await sendSummarySlackMessage(
-        config.slackBotToken,
-        config.slackChannelId,
-        summaryPayload,
-      );
-      if (detailsPayload.text != "") {
-        // If details message isn't empty, send it
+
+      if (detailsPayload.text !== "") {
         await sendThreadSlackMessage(
           config.slackBotToken,
           config.slackChannelId,
@@ -358,10 +383,13 @@ async function main(): Promise<void> {
           detailsPayload,
         );
       }
-      console.log("\n✅ Report sent to Slack");
-    } else if (config.noSlack) {
-      console.log("\n📋 Slack disabled (--no-slack); report printed above");
     }
+
+    console.log(
+      "\n✅ Combined summary sent to Slack, details posted in thread",
+    );
+  } else if (config.noSlack) {
+    console.log("\n📋 Slack disabled (--no-slack); reports printed above");
   }
 
   disconnect();
@@ -374,6 +402,22 @@ function getChainName(chainId: number): string {
     1: "Ethereum Mainnet",
   };
   return names[chainId] ?? `Chain ${chainId}`;
+}
+
+function buildCombinedSummaryReport(
+  networkName: string,
+  reports: BuiltReport[],
+): BuiltReport {
+  const ok = reports.every((r) => r.ok);
+  const title = `🛡️ USC Audit Summary [${networkName}]\n`;
+
+  const summaryLines = reports.map((r) => r.summary);
+
+  return {
+    ok,
+    summary: `${title}\n${summaryLines.join("\n\n")}`,
+    details: "",
+  };
 }
 
 main().catch((err) => {
