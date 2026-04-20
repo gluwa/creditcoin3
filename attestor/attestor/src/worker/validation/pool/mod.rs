@@ -420,9 +420,11 @@ impl AttestationPoolInner {
 
             let permit = Permit(CompoundInfo {
                 height,
-                digest,
-                digest_continuity,
-                header_hash,
+                digest: CompoundDigest {
+                    digest,
+                    digest_continuity,
+                    header_hash,
+                },
             });
 
             // Only update metrics the first time quorum is reached at that height
@@ -443,7 +445,7 @@ impl AttestationPoolInner {
     fn mark_valid(&mut self, Permit(info): Permit) {
         self.forks.split_off(info.height);
         self.forks.forks_best = self.forks.find_best();
-        self.digest_local = Some(cc_client::H256::from(info.digest.0));
+        self.digest_local = Some(cc_client::H256::from(info.digest.digest.0));
     }
 
     fn mark_invalid(&mut self, Permit(info): Permit) {
@@ -555,18 +557,12 @@ impl CompoundDigest {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct CompoundInfo {
     height: common::types::Height,
-    digest: attestor_primitives::Digest,
-    digest_continuity: attestor_primitives::Digest,
-    header_hash: attestor_primitives::Digest,
+    digest: CompoundDigest,
 }
 
 impl From<CompoundInfo> for CompoundDigest {
     fn from(info: CompoundInfo) -> Self {
-        Self {
-            digest: info.digest,
-            digest_continuity: info.digest_continuity,
-            header_hash: info.header_hash,
-        }
+        info.digest
     }
 }
 
@@ -645,9 +641,8 @@ impl AttestationPoolForks {
         let attestor = attestation.attestor_id();
         let header_hash = attestation.attestation_data.header_hash;
 
-        let height_prev = height
-            .checked_sub(attestation.continuity_proof.len() as common::types::Height + 1)
-            .ok_or(Error::InvalidContinuityProof(attestor.clone(), height))?;
+        let height_prev =
+            height.saturating_sub(attestation.continuity_proof.len() as common::types::Height + 1);
         let digest_continuity = attestation
             .continuity_proof
             .compute_continuity_digest(height_prev);
@@ -1612,8 +1607,7 @@ impl AttestationVote {
         let height_prev = self
             .attestation
             .header_number()
-            .checked_sub(self.attestation.continuity_proof.len() as common::types::Height + 1)
-            .unwrap();
+            .saturating_sub(self.attestation.continuity_proof.len() as common::types::Height + 1);
         let digest_continuity = self
             .attestation
             .continuity_proof
@@ -1625,6 +1619,14 @@ impl AttestationVote {
             digest,
             digest_continuity,
             header_hash,
+        }
+    }
+
+    #[cfg(test)]
+    fn compound_info(&self) -> CompoundInfo {
+        CompoundInfo {
+            height: self.attestation.header_number(),
+            digest: self.compound_digest(),
         }
     }
 }
@@ -1820,7 +1822,7 @@ impl std::fmt::Display for Permit {
         write!(
             f,
             "{{ height: {}, digest: {} }}",
-            self.0.height, self.0.digest
+            self.0.height, self.0.digest.digest
         )
     }
 }
@@ -2013,24 +2015,7 @@ mod fixtures {
         #[with(_attestors.clone(), _header_number, _prev_digest, _header_hash)]
         attestation: AttestationVote,
     ) -> Permit {
-        let height_prev = attestation
-            .attestation
-            .header_number()
-            .checked_sub(
-                attestation.attestation.continuity_proof.len() as common::types::Height + 1,
-            )
-            .unwrap();
-        let digest_continuity = attestation
-            .attestation
-            .continuity_proof
-            .compute_continuity_digest(height_prev);
-
-        Permit(CompoundInfo {
-            height: attestation.attestation.header_number(),
-            digest: attestation.attestation.digest(),
-            digest_continuity,
-            header_hash: attestation.attestation.attestation_data.header_hash,
-        })
+        Permit(attestation.compound_info())
     }
 }
 
