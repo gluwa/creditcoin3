@@ -1,6 +1,10 @@
 import "dotenv/config";
-import { ethers } from "ethers";
-import { listenDestinationContract } from "./listeners.js";
+import { ethers, Log } from "ethers";
+import {
+  listenDestinationContract,
+  EVENT_TOKENS_BRIDGED,
+  EVENT_TOKENS_BURNED_FOR_BRIDGING,
+} from "./listeners.js";
 
 const DESTINATION_RPC_URL = process.env.DESTINATION_CHAIN_RPC_URL;
 const SOURCE_RPC_URL = process.env.CREDITCOIN_RPC_URL;
@@ -22,7 +26,11 @@ if (!DESTINATION_CONTRACT_ADDR)
   throw new Error("Missing DESTINATION_CONTRACT_ADDR");
 if (!DAPP_CONTRACT_ADDR) throw new Error("Missing DAPP_CONTRACT_ADDR");
 
-const dappAbi = ["function markDelivered(bytes32 messageId) external"];
+const dappAbi = [
+  "function markDelivered(bytes32 messageId) external",
+  "function redeemTokens(uint256 amount, address recipient) external",
+  "event TokensRedeemed(address indexed recipient, uint256 amount)"
+];
 
 async function main() {
   const destinationProvider = new ethers.JsonRpcProvider(DESTINATION_RPC_URL);
@@ -40,7 +48,7 @@ async function main() {
 
   const seenMessageIds = new Set<string>();
 
-  console.log("Listening for destination contract MessageReceived events...");
+  console.log("Listening for destination contract bridge events...");
   console.log(`Destination contract: ${DESTINATION_CONTRACT_ADDR}`);
   console.log(`SimpleDApp: ${DAPP_CONTRACT_ADDR}`);
 
@@ -51,33 +59,80 @@ async function main() {
     DESTINATION_CONTRACT_ADDR!,
     startBlock,
     POLL_INTERVAL_MS,
-    async ({ messageId, emitter, payload, txHash }) => {
-      const id = String(messageId);
+    async (event) => {
+      if (event.eventName === EVENT_TOKENS_BRIDGED) {
+        const id = event.messageId;
 
-      if (seenMessageIds.has(id)) {
-        console.log(`Skipping duplicate messageId: ${id}`);
-        return;
-      }
+        if (seenMessageIds.has(id)) {
+          console.log(`Skipping duplicate bridged messageId: ${id}`);
+          return;
+        }
 
-      seenMessageIds.add(id);
+        seenMessageIds.add(id);
 
-      console.log("MessageReceived");
-      console.log(`  messageId: ${id}`);
-      console.log(`  emitter:   ${emitter}`);
-      console.log(`  payload:   ${payload}`);
-      if (txHash) {
-        console.log(`  txHash:    ${txHash}`);
-      }
+        console.log("TokensBridged");
+        console.log(`  messageId:      ${event.messageId}`);
+        console.log(`  emitterAddress: ${event.emitterAddress}`);
+        console.log(`  recipient:      ${event.recipient}`);
+        console.log(`  amount:         ${event.amount}`);
+        if (event.txHash) {
+          console.log(`  txHash:         ${event.txHash}`);
+        }
 
-      try {
-        const tx = await dapp.markDelivered(messageId);
-        console.log(`markDelivered tx sent: ${tx.hash}`);
+        try {
+          const tx = await dapp.markDelivered(event.messageId);
+          console.log(`markDelivered tx sent: ${tx.hash}`);
 
-        const receipt = await tx.wait();
-        console.log(`markDelivered confirmed in block ${receipt.blockNumber}`);
-      } catch (err) {
-        seenMessageIds.delete(id);
-        console.error(`Failed to markDelivered for ${id}:`, err);
+          const receipt = await tx.wait();
+          console.log(`markDelivered confirmed in block ${receipt.blockNumber}`);
+        } catch (err) {
+          seenMessageIds.delete(id);
+          console.error(`Failed to markDelivered for ${id}:`, err);
+        }
+      } else if (event.eventName === EVENT_TOKENS_BURNED_FOR_BRIDGING) {
+        console.log("TokensBurnedForBridging");
+        console.log(`  from:   ${event.from}`);
+        console.log(`  amount: ${event.amount}`);
+        if (event.txHash) {
+          console.log(`  txHash: ${event.txHash}`);
+        }
+
+        try {
+          const tx = await dapp.redeemTokens(event.amount, event.from);
+          console.log(`redeemTokens tx sent: ${tx.hash}`);
+
+          const receipt = await tx.wait();
+          console.log(`redeemTokens confirmed in block ${receipt.blockNumber}`);
+
+          const redeemedLog = receipt.logs.find((log: Log) => {
+            try {
+              const parsed = dapp.interface.parseLog(log);
+              return parsed?.name === "TokensRedeemed";
+            } catch {
+              return false;
+            }
+          });
+
+          if (!redeemedLog) {
+            console.log("No TokensRedeemed event found in receipt");
+            return;
+          }
+
+          const parsed = dapp.interface.parseLog(redeemedLog);
+          if (!parsed) {
+            console.log("Failed to parse TokensRedeemed log");
+            return;
+          }
+
+          const recipient = String(parsed.args[0]);
+          const amount = parsed.args[1].toString();
+
+          console.log("TokensRedeemed event found");
+          console.log(`  recipient: ${recipient}`);
+          console.log(`  amount:    ${amount}`);
+        } catch (err) {
+          console.error(`Failed to redeemTokens for address: ${event.from}:`, err);
+        }
       }
     },
   );

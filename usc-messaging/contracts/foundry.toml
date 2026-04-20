@@ -3,7 +3,7 @@ fs_permissions = [
     { access = "read-write", path = "./" },
     { access = "read-write", path = "../" },
 ]
-libs = ["lib"]
+libs = ["lib", "../node_modules"]
 out = "out"
 solc = "0.8.24"
 src = "src"

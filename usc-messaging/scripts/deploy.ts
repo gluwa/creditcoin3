@@ -1,10 +1,10 @@
 #!/usr/bin/env tsx
 
 import "dotenv/config";
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { requireEnv, getPayeeAddress, getDestinationAddress, runCommand } from "../src/utils";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,30 +12,6 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "..");
 const CONTRACTS_DIR = path.join(REPO_ROOT, "contracts");
 const ENV_FILE = path.join(REPO_ROOT, ".env");
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing ${name}`);
-  }
-  return value;
-}
-
-function runCommand(cmd: string, args: string[], cwd: string): string {
-  try {
-    const output = execFileSync(cmd, args, {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    return output;
-  } catch (err: any) {
-    const stdout = err?.stdout ? String(err.stdout) : "";
-    const stderr = err?.stderr ? String(err.stderr) : "";
-    const combined = [stdout, stderr].filter(Boolean).join("\n");
-    throw new Error(`Command failed: ${cmd} ${args.join(" ")}\n${combined}`);
-  }
-}
 
 function parseDeployedAddress(output: string, label: string): string {
   const match = output.match(/Deployed to:\s*(0x[a-fA-F0-9]{40})/);
@@ -111,16 +87,6 @@ function updateEnvVar(key: string, value: string): void {
   writeFileSync(ENV_FILE, text, "utf8");
 }
 
-function getPayeeAddress(): string {
-  const privateKey = requireEnv("CREDITCOIN_CHAIN_PRIVATE_KEY");
-  const output = runCommand(
-    "cast",
-    ["wallet", "address", "--private-key", privateKey],
-    CONTRACTS_DIR,
-  );
-  return output.trim();
-}
-
 function getDestinationChainId(): string {
   const rpcUrl = requireEnv("DESTINATION_CHAIN_RPC_URL");
   const output = runCommand(
@@ -140,7 +106,8 @@ async function main(): Promise<void> {
   const creditcoinRpcUrl = requireEnv("CREDITCOIN_RPC_URL");
   const destinationRpcUrl = requireEnv("DESTINATION_CHAIN_RPC_URL");
 
-  const payee = getPayeeAddress();
+  const payee = getPayeeAddress(CONTRACTS_DIR);
+  const destinationPublicKey = getDestinationAddress(CONTRACTS_DIR);
 
   console.log(
     `Deploying to source: ${creditcoinRpcUrl}, destination: ${destinationRpcUrl}...`,
@@ -158,12 +125,13 @@ async function main(): Promise<void> {
   const validator = deployToDestination(
     "src/DummyVoteValidator.sol:DummyVoteValidator",
   );
-  const destination = deployToDestination(
-    "src/TestDestination.sol:TestDestination",
-  );
   const inbox = deployToDestination(
     "src/SimpleInbox.sol:SimpleInbox",
     [validator, sourceChainId, localChainKey],
+  );
+  const destination = deployToDestination(
+    "src/TestDestination.sol:TestDestination",
+    [inbox]
   );
   const destinationChainId = getDestinationChainId();
   console.log(`Destination chainId: ${destinationChainId}`);
@@ -176,6 +144,7 @@ async function main(): Promise<void> {
   updateEnvVar("RELAYER_CONTRACT_ADDR", relayer);
   updateEnvVar("DAPP_CONTRACT_ADDR", dapp);
   updateEnvVar("DESTINATION_CHAIN_ID", destinationChainId);
+  updateEnvVar("DESTINATION_CHAIN_PUBLIC_KEY", destinationPublicKey);
 
   console.log(`DummyVoteValidator: ${validator}`);
   console.log(`SimpleInbox: ${inbox}`);

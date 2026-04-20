@@ -12,7 +12,7 @@ import {
   DEFAULT_SOURCE_RPC_URL,
   DEPLOYMENTS_FILE,
 } from "../consts.js";
-import { isValidContractAddress, isValidPrivateKey } from "../utils.js";
+import { isValidContractAddress, isValidPrivateKey, parseArg } from "../utils.js";
 
 const DEFAULT_DELIVERY_INTERVAL_MS = "5000";
 
@@ -33,19 +33,6 @@ export interface RelayerConfig {
   deliveryIntervalMs: number;
   /** HTTP port for receiving messages from attesters (0 = disabled) */
   httpPort: number;
-}
-
-function parseArg(name: string, short?: string): string | undefined {
-  const args = process.argv.slice(2);
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === name || (short && args[i] === short)) {
-      return args[i + 1];
-    }
-    if (args[i].startsWith(`${name}=`)) {
-      return args[i].slice(name.length + 1);
-    }
-  }
-  return undefined;
 }
 
 export async function loadRelayerConfig(): Promise<RelayerConfig> {

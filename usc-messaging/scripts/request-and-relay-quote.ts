@@ -14,14 +14,7 @@
 
 import "dotenv/config";
 import { ethers } from "ethers";
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing ${name}`);
-  }
-  return value;
-}
+import { requireEnv } from "../src/utils";
 
 // ── CLI arg helpers ──────────────────────────────────────────────────────────
 
