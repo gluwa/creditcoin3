@@ -137,7 +137,7 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
               | Array<string>
               | undefined;
             const chainKey = keyHuman && keyHuman.length > 0
-              ? Number(keyHuman[0])
+              ? Number(keyHuman[0].replaceAll(",", ""))
               : null;
 
             const decoded = value as { toHuman?: () => unknown };
@@ -146,7 +146,7 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
               | undefined;
             if (human) {
               const chainIdStr = (human.chainId ?? human.chain_id) as string;
-              const chainId = Number(chainIdStr.replaceAll(",", "")) ?? 0;
+              const chainId = Number(chainIdStr.replaceAll(",", "")) || 0;
               const nameBytes = human.chainName ?? human.chain_name;
               const chainName = Array.isArray(nameBytes)
                 ? String.fromCharCode(...(nameBytes as number[]))
