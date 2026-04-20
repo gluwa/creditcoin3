@@ -134,6 +134,25 @@ emitted from our simpleDApp contract on Creditcoin.
 These logs demonstrate that our message delivery and acknowldegement by the dApp contract
 were successful!
 
+6. Return Tokens to Creditcoin Chain (Optional)
+```bash
+npx tsx scripts/send-back-funds.ts
+```
+
+Watching the logs of the `dApp-ack-worker`, you shoud see something like:
+
+TokensBurnedForBridging
+  from:   0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+  amount: 50000000000000000000
+  txHash: 0xec26b637bf3f562ada3b45857076e4732d0d6da3d5dd4e1b176e73c67383cd41
+redeemTokens tx sent: 0xcdcdac5bfae9885732fcc68e2385e95f1f7e2d5f03cf33561160c49bcc7b26a0
+redeemTokens confirmed in block 66182
+TokensRedeemed event found
+  recipient: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+  amount:    50000000000000000000
+
+This indicates that we successfully bridged tokens and then bridged them back, completing a round trip!
+Creditcoin -> SourceChain -> back to Creditcoin
 
 ## Quoter
 

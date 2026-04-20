@@ -4,9 +4,13 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EVENT_MESSAGE_DISPATCHED, EVENT_MESSAGE_DELIVERED, listenDAppContract } from "./listeners";
+import { TEST_TOKEN_AMOUNT } from "../../src/consts";
+import { requireEnv } from "../../src/utils";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+
 
 // --- Parse CLI args ---
 function getArg(name: string): string | undefined {
@@ -17,26 +21,19 @@ function getArg(name: string): string | undefined {
   return undefined;
 }
 
-const message = getArg("--message") ?? "hello writability";
 const requiresAck = getArg("--requiresAck") === "true";
 
 // --- Env vars ---
-const RPC_URL = process.env.CREDITCOIN_RPC_URL;
-const PRIVATE_KEY = process.env.CREDITCOIN_CHAIN_PRIVATE_KEY;
-const DAPP_ADDR = process.env.DAPP_CONTRACT_ADDR;
-const DESTINATION_CONTRACT_ADDR = process.env.DESTINATION_CONTRACT_ADDR;
+const CREDITCOIN_RPC_URL = requireEnv("CREDITCOIN_RPC_URL");
+const CREDITCOIN_CHAIN_PRIVATE_KEY = requireEnv("CREDITCOIN_CHAIN_PRIVATE_KEY");
+const DESTINATION_CHAIN_PUBLIC_KEY = requireEnv("DESTINATION_CHAIN_PUBLIC_KEY");
+const DAPP_CONTRACT_ADDR = requireEnv("DAPP_CONTRACT_ADDR");
+const DESTINATION_CONTRACT_ADDR = requireEnv("DESTINATION_CONTRACT_ADDR");
 const POLL_INTERVAL_MS = Number(process.env.DAPP_POLL_INTERVAL_MS ?? "2000");
-
-if (!RPC_URL) throw new Error("Missing CREDITCOIN_RPC_URL");
-if (!PRIVATE_KEY) throw new Error("Missing CREDITCOIN_CHAIN_PRIVATE_KEY");
-if (!DAPP_ADDR) throw new Error("Missing DAPP_CONTRACT_ADDR");
-if (!DESTINATION_CONTRACT_ADDR) {
-  throw new Error("Missing DESTINATION_CONTRACT_ADDR");
-}
 
 // --- ABI ---
 const abi = [
-  "function publishMessage(bool requiresAck, address destinationContract, string message) external returns (bytes32)",
+  "function sendTokens(bool requiresAck, address destinationContract, address recipient, uint256 amount) external returns (bytes32)",
   "event MessageDelivered(bytes32 indexed messageId)",
   "event MessageDispatched(bytes32 indexed messageId)",
 ];
@@ -70,9 +67,9 @@ function runRequestAndRelayQuote(messageId: string): void {
 }
 
 async function main() {
-  const provider = new ethers.JsonRpcProvider(RPC_URL);
-  const wallet = new ethers.Wallet(PRIVATE_KEY!, provider);
-  const contract = new ethers.Contract(DAPP_ADDR!, abi, wallet);
+  const provider = new ethers.JsonRpcProvider(CREDITCOIN_RPC_URL);
+  const wallet = new ethers.Wallet(CREDITCOIN_CHAIN_PRIVATE_KEY!, provider);
+  const contract = new ethers.Contract(DAPP_CONTRACT_ADDR!, abi, wallet);
 
   const startBlock = await provider.getBlockNumber();
   let relayStarted = false;
@@ -80,7 +77,7 @@ async function main() {
   let messageIdStore: string;
   const stopDispatched = listenDAppContract(
     provider,
-    DAPP_ADDR!,
+    DAPP_CONTRACT_ADDR!,
     startBlock,
     POLL_INTERVAL_MS,
     EVENT_MESSAGE_DISPATCHED,
@@ -99,7 +96,7 @@ async function main() {
 
   const stopDelivered = listenDAppContract(
     provider,
-    DAPP_ADDR!,
+    DAPP_CONTRACT_ADDR!,
     startBlock,
     POLL_INTERVAL_MS,
     EVENT_MESSAGE_DELIVERED,
@@ -116,14 +113,16 @@ async function main() {
 
   console.log("👂 Polling for MessageDispatched and MessageDelivered events...");
 
-  console.log("📤 Sending message...");
-  console.log("Message:", message);
-  console.log("requiresAck:", requiresAck);
+  console.log("📤 Sending tokens...");
+  console.log("Recipient: ", DESTINATION_CHAIN_PUBLIC_KEY);
+  console.log("Amount: ", TEST_TOKEN_AMOUNT);
+  console.log("requiresAck: ", requiresAck);
 
-  const tx = await contract.publishMessage(
+  const tx = await contract.sendTokens(
     requiresAck,
     DESTINATION_CONTRACT_ADDR,
-    message,
+    DESTINATION_CHAIN_PUBLIC_KEY,
+    TEST_TOKEN_AMOUNT
   );
 
   console.log("Tx sent:", tx.hash);
