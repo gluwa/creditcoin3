@@ -77,10 +77,13 @@ async function main() {
         return { blockNumber: blockNumber.trim(), digestHex: digestHex.trim() };
     });
 
-    console.log(`Loaded ${entries.length} checkpoints from ${csvFile}`);
+    // Reversing entries so that we insert them from newest to oldest
+    const reversedEntries = entries.reverse();
 
-    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-        const batch = entries.slice(i, i + BATCH_SIZE);
+    console.log(`Loaded ${reversedEntries.length} checkpoints from ${csvFile}`);
+
+    for (let i = 0; i < reversedEntries.length; i += BATCH_SIZE) {
+        const batch = reversedEntries.slice(i, i + BATCH_SIZE);
 
         const checkpointVec = batch.map(({ blockNumber, digestHex }) => {
             return api.createType('AttestorPrimitivesAttestationCheckpoint', {

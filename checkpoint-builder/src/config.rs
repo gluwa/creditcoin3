@@ -467,6 +467,8 @@ impl CheckpointConfig {
             }
         }
 
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
         error_count == 0
     }
 

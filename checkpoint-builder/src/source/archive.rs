@@ -8,8 +8,8 @@ use serde::Deserialize;
 
 use super::{RootInfo, RootSource};
 
-/// Maximum blocks per single API request (archiver enforces < 100_000).
-const MAX_BATCH: u64 = 99_999;
+/// Maximum blocks per single API request (archiver enforces < 1_000).
+const MAX_BATCH: u64 = 1_000;
 
 #[derive(Deserialize)]
 struct RootEntry {
