@@ -331,22 +331,24 @@ impl ContinuityService {
             });
         }
 
-        // Check source chain existence
-        let current_block =
-            chain
-                .builder
-                .get_last_block()
-                .await
-                .map_err(|e| ServiceError::RpcUnavailable {
-                    message: format!("Failed to get current block height from source chain: {e}"),
-                })?;
+        // Check source chain existence, applying block_confirmation_depth for reorg protection.
+        // Blocks within `block_confirmation_depth` of the tip are considered unconfirmed and
+        // are rejected the same way as blocks that don't exist yet.
+        let current_block = chain
+            .builder
+            .get_confirmed_last_block()
+            .await
+            .map_err(|e| ServiceError::RpcUnavailable {
+                message: format!("Failed to get current block height from source chain: {e}"),
+            })?;
 
         if let Some(&header_number) = header_numbers.iter().find(|h| **h > current_block) {
             tracing::warn!(
                 requested_block = header_number,
                 current_block,
                 chain_key,
-                "Requested block does not exist on source chain yet"
+                block_confirmation_depth = chain.builder.config.block_confirmation_depth,
+                "Requested block is not yet confirmed on source chain (within reorg window)"
             );
             return Err(ServiceError::BlockNotOnSourceChain {
                 requested_block: header_number,

@@ -22,6 +22,9 @@ pub struct ChainConfig {
     pub chain_key: u64,
     pub eth_rpc_url: String,
     pub archiver_url: Option<String>,
+    /// Number of blocks to lag behind the EVM chain tip for reorg protection.
+    /// See [`continuity::ContinuityConfig::block_confirmation_depth`].
+    pub block_confirmation_depth: u64,
 }
 
 /// Server configuration after CLI / file resolution.
@@ -50,6 +53,7 @@ impl Config {
                 chain_key,
                 eth_rpc_url: "http://mock".to_string(),
                 archiver_url: None,
+                block_confirmation_depth: 0,
             }],
             redis_url: None,
             redis_cluster_mode: false,
@@ -103,6 +107,10 @@ pub struct ChainConfigFile {
     pub eth_rpc_url: String,
     #[serde(default)]
     pub archiver_url: Option<String>,
+    /// Number of blocks to lag behind the EVM chain tip for reorg protection.
+    /// Defaults to 0 (no lag) for backward compatibility.
+    #[serde(default)]
+    pub block_confirmation_depth: u64,
 }
 
 fn default_max_batch_size() -> NonZeroUsize {
@@ -128,6 +136,7 @@ impl ConfigFile {
                 chain_key: c.chain_key,
                 eth_rpc_url: c.eth_rpc_url,
                 archiver_url: c.archiver_url,
+                block_confirmation_depth: c.block_confirmation_depth,
             });
         }
         Ok(Config {

@@ -15,6 +15,8 @@ chains:
   - chain_key: 2
     eth_rpc_url: "http://localhost:8545"
     # archiver_url: "http://localhost:8080"  # optional per chain
+    # block_confirmation_depth: 0  # Blocks to lag behind chain tip for reorg protection.
+    #                               # Default: 0 (no lag). Set to 12 for Ethereum mainnet.
   # Second local chain (e.g. second Anvil on another port) — uncomment for multi-chain dev/CI:
   - chain_key: 3
     eth_rpc_url: "http://localhost:8546"

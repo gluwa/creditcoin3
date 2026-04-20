@@ -95,6 +95,16 @@ pub struct ProofGenApiServer {
         help = "Maximum allowed block span (highest - lowest block) in a single batch request. Prevents small batches from forcing proof generation over extremely large ranges."
     )]
     max_batch_span: u64,
+
+    #[arg(
+        long,
+        default_value = "0",
+        env = "BLOCK_CONFIRMATION_DEPTH",
+        help = "Number of blocks to lag behind the EVM chain tip when validating block existence. \
+                Blocks within this depth of the tip are rejected to guard against reorgs. \
+                Set to 0 for instant-finality chains. A typical safe value for Ethereum mainnet is 12."
+    )]
+    block_confirmation_depth: u64,
 }
 
 #[tokio::main]
@@ -165,10 +175,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 chain_key,
                 eth_rpc_url: args.eth_rpc_url,
                 archiver_url: args.archiver_url,
+                block_confirmation_depth: args.block_confirmation_depth,
             }],
             redis_url: resolved_redis_url,
             redis_cluster_mode: resolved_redis_cluster_mode,
-
             max_batch_size: args.max_batch_size,
             max_batch_span: args.max_batch_span,
         }
