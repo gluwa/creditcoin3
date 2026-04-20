@@ -5,6 +5,7 @@ pub enum Error {
     Equivocation(attestor_primitives::AttestorId, common::types::Height),
     NoSpaceLeft(attestor_primitives::AttestorId, common::types::Height),
     Unauthorized(attestor_primitives::AttestorId, common::types::Height),
+    InvalidContinuityProof(attestor_primitives::AttestorId, common::types::Height),
     InvalidHeight(
         attestor_primitives::AttestorId,
         common::types::Height,
@@ -20,6 +21,14 @@ pub enum Error {
 impl Error {
     pub fn log_error(self, digest: attestor_primitives::Digest) {
         match self {
+            Self::InvalidContinuityProof(attestor_id, height) => {
+                tracing::debug!(
+                    %attestor_id,
+                    ?digest,
+                    height,
+                    "Continuity proof reaches back before genesis"
+                );
+            }
             Self::InvalidHeight(attestor_id, height, last_finalized) => {
                 tracing::debug!(
                     %attestor_id,
@@ -70,7 +79,7 @@ impl Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Equivocation(address, height) => {
+            Self::Equivocation(address, height) => {
                 write!(
                     f,
                     "Attestor {address} \
@@ -78,14 +87,14 @@ impl std::fmt::Display for Error {
                     for source chain height {height}"
                 )
             }
-            Error::NoSpaceLeft(address, height) => {
+            Self::NoSpaceLeft(address, height) => {
                 write!(
                     f,
                     "Failed to make more space for vote by attestor {address} \
                     for source chain height {height}"
                 )
             }
-            Error::Unauthorized(address, height) => {
+            Self::Unauthorized(address, height) => {
                 write!(
                     f,
                     "Attestor {address} \
@@ -93,7 +102,15 @@ impl std::fmt::Display for Error {
                     for source chain height {height}"
                 )
             }
-            Error::InvalidHeight(address, height, last_finalized) => {
+            Self::InvalidContinuityProof(address, height) => {
+                write!(
+                    f,
+                    "Attestor {address} \
+                    submitted a continuity proof which reaches past genesis
+                    for source chain height {height}"
+                )
+            }
+            Self::InvalidHeight(address, height, last_finalized) => {
                 write!(
                     f,
                     "Attestor {address} \
@@ -101,7 +118,7 @@ impl std::fmt::Display for Error {
                     (last finalized: {last_finalized})"
                 )
             }
-            Error::InvalidDigest(address, height, digest) => {
+            Self::InvalidDigest(address, height, digest) => {
                 write!(
                     f,
                     "Attestor {address} \
