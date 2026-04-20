@@ -13,6 +13,33 @@ export interface SupportedChain {
   chainId: number;
   chainName: string;
   chainKey: number;
+  maturityStrategy: string;
+}
+
+export const DEFAULT_MATURITY_STRATEGY = "FixedDelay: 10";
+
+/**
+ * Maps a maturity strategy string (as stored on-chain) to its block delay.
+ * Mirrors `MaturityStrategy::maturity_delay` in primitives/supported-chains.
+ * Unknown strategies fall back to the default with a warning.
+ */
+export function getMaturityDelay(strategy: string): number {
+  switch (strategy) {
+    case "EvmFinalized":
+      return 64;
+    case "EvmSafe":
+      return 32;
+    case "EvmLatest":
+      return 0;
+    default: {
+      const m = strategy.match(/^FixedDelay:\s*(\d+)$/);
+      if (m) return Number(m[1]);
+      console.warn(
+        `[usc] unknown maturity strategy "${strategy}", falling back to ${DEFAULT_MATURITY_STRATEGY}`,
+      );
+      return 10;
+    }
+  }
 }
 
 export interface LastCheckpoint {
@@ -115,10 +142,19 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
               const chainName = Array.isArray(nameBytes)
                 ? String.fromCharCode(...(nameBytes as number[]))
                 : String(nameBytes ?? "");
+              const maturityStrategy = String(
+                human.maturityStrategy ?? human.maturity_strategy ??
+                  DEFAULT_MATURITY_STRATEGY,
+              );
               if (chainId && chainName) {
                 const chainKey = await getChainKey(chainId, chainName);
                 if (chainKey != null) {
-                  chains.push({ chainId, chainName, chainKey });
+                  chains.push({
+                    chainId,
+                    chainName,
+                    chainKey,
+                    maturityStrategy,
+                  });
                 }
               }
             }
@@ -153,6 +189,7 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
               chainId: 0,
               chainName: `Chain ${chainKey}`,
               chainKey,
+              maturityStrategy: DEFAULT_MATURITY_STRATEGY,
             });
           }
         }

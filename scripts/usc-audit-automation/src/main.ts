@@ -8,12 +8,14 @@
 import { loadConfig } from "./config.ts";
 import {
   connect,
+  DEFAULT_MATURITY_STRATEGY,
   disconnect,
   getAttestationByDigest,
   getAttestationInterval,
   getCheckpointInterval,
   getLastCheckpoint,
   getLastDigest,
+  getMaturityDelay,
   getSupportedChains,
   setVerbose,
 } from "./usc.ts";
@@ -31,22 +33,32 @@ import {
 } from "./slack.ts";
 import { runBalanceChecks } from "./balances.ts";
 
-const MAX_BLOCK_DIFF = 40;
 const BSC_MAX_BLOCK_DIFF = 499;
+const ATTESTATION_LAG_BUFFER_INTERVALS = 3;
 
 function formatNum(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-function getMaxBlockDiff(chainName: string): number {
-  return chainName.includes("BSC") ? BSC_MAX_BLOCK_DIFF : MAX_BLOCK_DIFF;
+function getMaxBlockDiff(
+  chainName: string,
+  maturityStrategy: string,
+  attestationInterval: number,
+): number {
+  const formulaMax = getMaturityDelay(maturityStrategy) +
+    attestationInterval * ATTESTATION_LAG_BUFFER_INTERVALS;
+  return chainName.includes("BSC")
+    ? Math.max(formulaMax, BSC_MAX_BLOCK_DIFF)
+    : formulaMax;
 }
 
 function buildReport(
   chainLabel: string,
   chainId: number,
+  maturityStrategy: string,
   ethBlock: number,
   attBlock: number,
+  maxBlockDiff: number,
   checkpointBlock: number,
   blockByHash: number | null,
   blockDiffOk: boolean,
@@ -56,14 +68,16 @@ function buildReport(
   graphqlCp: { lastCheckpointHeaderNumber: string } | null,
 ): BuiltReport {
   const details: string[] = [];
-  const title = `🚦 Attestation Chain Liveness: ${chainLabel} - ${chainId}`;
-  const detailsTitle = `🚦 Liveness Details: ${chainLabel} - ${chainId}`;
+  const title =
+    `🚦 Attestation Chain Liveness: ${chainLabel} - ${chainId} - ${maturityStrategy}`;
+  const detailsTitle =
+    `🚦 Liveness Details: ${chainLabel} - ${chainId} - ${maturityStrategy}`;
 
   details.push(
     (blockDiffOk ? "✅" : "❌") +
       ` Attestation block heights diff: ${formatNum(ethBlock - attBlock)} (${
         formatNum(ethBlock)
-      }|${formatNum(attBlock)})`,
+      }|${formatNum(attBlock)})|${formatNum(maxBlockDiff)}`,
   );
 
   const headerHashMatch = headerHashOk && blockByHash != null &&
@@ -158,6 +172,7 @@ async function runChecksForChain(
   chainKey: number,
   chainName: string,
   ethRpcUrl: string,
+  maturityStrategy: string,
 ): Promise<BuiltReport> {
   const chainLabel = `${chainName}`;
   const title = `🚦 Attestation chain liveness: ${chainLabel} - ${chainId}`;
@@ -223,7 +238,11 @@ async function runChecksForChain(
   }
 
   const blockDiff = ethBlock - attBlock;
-  const maxBlockDiff = getMaxBlockDiff(chainName);
+  const maxBlockDiff = getMaxBlockDiff(
+    chainName,
+    maturityStrategy,
+    attestationInterval,
+  );
   const blockDiffOk = blockDiff >= 0 && blockDiff <= maxBlockDiff;
 
   const graphqlResult = await queryAttestation(
@@ -236,8 +255,10 @@ async function runChecksForChain(
   const report = buildReport(
     chainLabel,
     chainId,
+    maturityStrategy,
     ethBlock,
     attBlock,
+    maxBlockDiff,
     lastCheckpoint.blockNumber,
     fetchedBlockByHash,
     blockDiffOk,
@@ -275,6 +296,7 @@ async function main(): Promise<void> {
         chainId: c.chainId,
         chainKey: c.chainKey,
         name: c.chainName,
+        maturityStrategy: c.maturityStrategy,
       })),
     );
   }
@@ -316,12 +338,15 @@ async function main(): Promise<void> {
     }
 
     const chainName = ethRpc.chainName ?? getChainName(ethRpc.chainId);
+    const maturityStrategy = discovered?.maturityStrategy ??
+      DEFAULT_MATURITY_STRATEGY;
     const report = await runChecksForChain(
       config,
       ethRpc.chainId,
       chainKey,
       chainName,
       ethRpc.url,
+      maturityStrategy,
     );
     reports.push(report);
   }
