@@ -1686,8 +1686,8 @@ impl ValidateQuorum {
         attestation.signers.len() >= self.target_quorum.into()
     }
 
-    /// Validates that a vote height is admissible: aligned with the attestation interval,
-    /// above the latest finalized height, and within the maximum catch-up window.
+    /// Validates that a vote height is admissible: above the latest finalized height, and within
+    /// the maximum catch-up window.
     fn validate_height(
         &self,
         height: common::types::Height,
@@ -1707,10 +1707,7 @@ impl ValidateQuorum {
             None => height >= self.start_height,
         };
 
-        above_finalized
-            && height >= self.start_height
-            && (height - self.start_height) % self.attestation_interval.get() == 0
-            && height <= upper_bound
+        above_finalized && height >= self.start_height && height <= upper_bound
     }
 
     fn note_attestation_interval_change(
@@ -2654,23 +2651,6 @@ mod test {
     }
 
     // -------------------------------- [ Height Validation Tests ] ------------------------------- //
-
-    #[test]
-    fn validate_height_rejects_misaligned() {
-        let vq = ValidateQuorum::new(
-            std::num::NonZeroUsize::new(2).unwrap(),
-            std::num::NonZero::new(10u64).unwrap(),
-            0,
-            std::num::NonZero::new(500u64).unwrap(),
-        );
-        // Height 7 is not a multiple of interval 10
-        assert!(!vq.validate_height(7, None));
-        assert!(!vq.validate_height(15, None));
-        // Aligned heights are accepted
-        assert!(vq.validate_height(10, None));
-        assert!(vq.validate_height(20, None));
-        assert!(vq.validate_height(0, None));
-    }
 
     #[test]
     fn validate_height_rejects_beyond_catchup_window() {
