@@ -514,14 +514,15 @@ struct KeyDigestPending {
     prev_digest_tail: PrevDigestTail,
 }
 
-/// Attestation [digest computation] does not account for all fields in the [`AttestationData`].
+/// Attestation [digest computation] does not account for all fields in an [`Attestation`].
 /// Namely, the attestation `header_hash` is absent from digest computation yet is still used for
-/// [attestation data serialization], **which is what attestors sign on**. This means the
-/// attestation digest alone is not a guarantee of uniqueness, and must be paired with the header
-/// hash to avoid collisions.
+/// [attestation data serialization], **which is what attestors sign on**. The attestation
+/// continuity proof is absent too, even though it submitted to the runtime alongside the signed
+/// data. This means the attestation digest alone is not a guarantee of uniqueness, and must be
+/// paired with the header hash and continuity proof digest to avoid collisions.
 ///
 /// [digest computation]: attestor_primitives::Attestation::digest
-/// [`AttestationData`]:  attestor_primitives::AttestationData
+/// [`Attestation`]:  common::types::Attestation
 /// [attestation data serialization]: attestor_primitives::AttestationData::serialize
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct CompoundDigest {
@@ -2130,62 +2131,6 @@ mod test {
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
-    async fn attestation_pool_sanity_deduplicate_header_hash(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 2, DIGEST_0, DIGEST_0)]
-        attestation_0: AttestationVote,
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_1], 2, DIGEST_0, DIGEST_1)]
-        attestation_1: AttestationVote,
-        config: Config,
-    ) {
-        let (sx, rx) = attestation_pool(config);
-
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
-
-        let mut pool = rx.common.pool.lock();
-        let inner = pool.expect_open();
-
-        assert_eq!(inner.forks.votes.len(), 2);
-        assert_eq!(inner.forks.forks_by_digest.len(), 2);
-        assert_eq!(inner.forks.forks_by_size.len(), 2);
-
-        assert_eq!(
-            inner
-                .forks
-                .forks_by_digest
-                .get(&attestation_0.compound_digest())
-                .unwrap(),
-            &attestation_0
-        );
-
-        assert_eq!(
-            inner
-                .forks
-                .forks_by_digest
-                .get(&attestation_1.compound_digest())
-                .unwrap(),
-            &attestation_1
-        );
-
-        assert!(inner.forks.forks_by_size.contains(&KeySize {
-            size: 1,
-            height: 2,
-            digest: attestation_0.compound_digest()
-        }));
-
-        assert!(inner.forks.forks_by_size.contains(&KeySize {
-            size: 1,
-            height: 2,
-            digest: attestation_1.compound_digest()
-        }));
-    }
-
-    #[tokio::test]
-    #[rstest::rstest]
-    #[timeout(TIMEOUT)]
     async fn attestation_pool_mark_for_later(
         _logs: (),
         #[from(attestation)]
@@ -2250,6 +2195,61 @@ mod test {
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
+    async fn attestation_pool_sanity_deduplicate_header_hash(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 2, DIGEST_0, DIGEST_0)]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1], 2, DIGEST_0, DIGEST_1)]
+        attestation_1: AttestationVote,
+        config: Config,
+    ) {
+        let (sx, rx) = attestation_pool(config);
+
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+
+        let mut pool = rx.common.pool.lock();
+        let inner = pool.expect_open();
+
+        assert_eq!(inner.forks.votes.len(), 2);
+        assert_eq!(inner.forks.forks_by_digest.len(), 2);
+        assert_eq!(inner.forks.forks_by_size.len(), 2);
+
+        assert_eq!(
+            inner
+                .forks
+                .forks_by_digest
+                .get(&attestation_0.compound_digest())
+                .unwrap(),
+            &attestation_0
+        );
+
+        assert_eq!(
+            inner
+                .forks
+                .forks_by_digest
+                .get(&attestation_1.compound_digest())
+                .unwrap(),
+            &attestation_1
+        );
+
+        assert!(inner.forks.forks_by_size.contains(&KeySize {
+            size: 1,
+            height: 2,
+            digest: attestation_0.compound_digest()
+        }));
+
+        assert!(inner.forks.forks_by_size.contains(&KeySize {
+            size: 1,
+            height: 2,
+            digest: attestation_1.compound_digest()
+        }));
+    }
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
     async fn attestation_pool_sanity_pending(
         _logs: (),
         #[from(attestation)]
@@ -2294,6 +2294,76 @@ mod test {
 
             assert_eq!(inner.forks.forks_best.clone().unwrap(), vote);
         }
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_sanity_deduplicate_continuity_proof(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 3)]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1], 3)]
+        mut attestation_1: AttestationVote,
+        config: Config,
+    ) {
+        let (sx, rx) = attestation_pool(config);
+
+        attestation_1.attestation.continuity_proof =
+            attestor_primitives::block::ContinuityProof::new(
+                attestation_1.attestation.prev_digest().unwrap(),
+                vec![
+                    attestor_primitives::Digest::default(),
+                    attestor_primitives::Digest::default(),
+                ],
+            );
+
+        assert_ne!(
+            attestation_0.attestation.continuity_proof, attestation_1.attestation.continuity_proof,
+            "Attestation continuity proofs must not match for this test"
+        );
+
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+
+        let mut pool = rx.common.pool.lock();
+        let inner = pool.expect_open();
+
+        assert_eq!(inner.forks.votes.len(), 2);
+        assert_eq!(inner.forks.forks_by_digest.len(), 2);
+        assert_eq!(inner.forks.forks_by_size.len(), 2);
+
+        assert_eq!(
+            inner
+                .forks
+                .forks_by_digest
+                .get(&attestation_0.compound_digest())
+                .unwrap(),
+            &attestation_0
+        );
+
+        assert_eq!(
+            inner
+                .forks
+                .forks_by_digest
+                .get(&attestation_1.compound_digest())
+                .unwrap(),
+            &attestation_1
+        );
+
+        assert!(inner.forks.forks_by_size.contains(&KeySize {
+            size: 1,
+            height: 3,
+            digest: attestation_0.compound_digest()
+        }));
+
+        assert!(inner.forks.forks_by_size.contains(&KeySize {
+            size: 1,
+            height: 3,
+            digest: attestation_1.compound_digest()
+        }));
     }
 
     #[tokio::test]
