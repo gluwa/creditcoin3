@@ -1,6 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-pub use migrations::MigrateAttestationContinuityProofV0ToV1;
+pub use migrations::{MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsCountV1ToV2};
 pub use pallet::*;
 
 #[allow(clippy::unnecessary_cast)]
@@ -202,6 +202,15 @@ pub mod pallet {
         T::AccountId,
         Attestor<T::AccountId>,
     >;
+
+    /// Number of registered attestors per chain. Maintained incrementally in
+    /// [`Pallet::try_insert_attestor_and_emit_event`] and
+    /// [`Pallet::remove_attestor_and_emit_event`] so that
+    /// [`Pallet::attestor_list_has_space`] is O(1) rather than O(N) over
+    /// [`Attestors`].
+    #[pallet::storage]
+    #[pallet::getter(fn attestors_count)]
+    pub type AttestorsCount<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn active_attestor_set)]
@@ -493,7 +502,7 @@ pub mod pallet {
     >;
 
     /// The in-code storage version.
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]

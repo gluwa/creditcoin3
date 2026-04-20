@@ -170,6 +170,13 @@ impl<T: Config> Pallet<T> {
                 stash: stash.clone(),
             },
         );
+        // Keep [`AttestorsCount`] in lock-step with [`Attestors`] so
+        // [`attestor_list_has_space`] stays O(1). `saturating_add` guards against
+        // a pathological counter already at `u32::MAX`; the `ensure!` above bounds
+        // actual growth to `MaxAttestors`.
+        AttestorsCount::<T>::mutate(chain_key, |count| {
+            *count = count.saturating_add(1);
+        });
 
         // Make sure the stash can pay for the registration
         let stash_balance = Self::get_free_balance(&stash);
@@ -314,6 +321,12 @@ impl<T: Config> Pallet<T> {
 
         // Remove the attestor (BLS key may remain in [`RetiredAttestorBlsKeys`] until unbond ends)
         Attestors::<T>::remove(chain_key, &attestor_id);
+        // Keep [`AttestorsCount`] in lock-step with [`Attestors`]. `saturating_sub`
+        // defends against drift (e.g. a pre-migration chain whose count was not
+        // populated); the actual decrement pairs with the insert above.
+        AttestorsCount::<T>::mutate(chain_key, |count| {
+            *count = count.saturating_sub(1);
+        });
 
         Self::deposit_event(Event::<T>::AttestorUnregistered(chain_key, attestor_id));
 
@@ -748,10 +761,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn attestor_list_has_space(chain_key: ChainKey) -> bool {
-        let count = Attestors::<T>::iter_prefix_values(chain_key)
-            .collect::<Vec<_>>()
-            .len() as u32;
-        count < MaxAttestors::<T>::get(chain_key)
+        AttestorsCount::<T>::get(chain_key) < MaxAttestors::<T>::get(chain_key)
     }
 
     pub fn get(
