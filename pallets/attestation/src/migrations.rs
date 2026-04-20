@@ -16,9 +16,9 @@ use sp_core::H256;
 use sp_runtime::AccountId32;
 #[cfg(feature = "try-runtime")]
 use sp_runtime::TryRuntimeError;
-use sp_std::{marker::PhantomData, vec::Vec};
+use sp_std::{collections::btree_map::BTreeMap, marker::PhantomData, vec::Vec};
 
-use crate::pallet::{Attestations, Config, Pallet};
+use crate::pallet::{Attestations, AttestorsCount, Config, Pallet};
 use attestor_primitives::{
     block::ContinuityProof, AttestationData, BlsSignature, Digest, SignedAttestation,
 };
@@ -174,6 +174,122 @@ where
         }
 
         log::info!("post_upgrade: verified {post_count} attestations migrated successfully");
+        Ok(())
+    }
+}
+
+/// Migration V1 -> V2: populate [`AttestorsCount`] from existing [`Attestations`-sibling]
+/// [`crate::pallet::Attestors`] entries so [`crate::Pallet::attestor_list_has_space`] can
+/// become O(1).
+///
+/// Safe to run on chains that already have the counter populated: `Attestors` is iterated
+/// once and the resulting per-chain totals overwrite whatever is currently in
+/// [`AttestorsCount`].
+pub struct MigrateAttestorsCountV1ToV2<T>(PhantomData<T>);
+
+impl<T: Config> OnRuntimeUpgrade for MigrateAttestorsCountV1ToV2<T> {
+    fn on_runtime_upgrade() -> Weight {
+        let on_chain = Pallet::<T>::on_chain_storage_version();
+        let target = StorageVersion::new(2);
+
+        if on_chain >= target {
+            log::info!(
+                "AttestorsCount migration: already at v2 or above (on_chain={on_chain:?}), skipping"
+            );
+            return T::DbWeight::get().reads(1);
+        }
+
+        log::info!("AttestorsCount migration: upgrading from {on_chain:?} to {target:?}");
+
+        let mut counts: BTreeMap<attestor_primitives::ChainKey, u32> = BTreeMap::new();
+        let mut read_count = 0u64;
+        for (chain_key, _attestor_id, _attestor) in crate::pallet::Attestors::<T>::iter() {
+            let entry = counts.entry(chain_key).or_insert(0u32);
+            *entry = entry.saturating_add(1);
+            read_count = read_count.saturating_add(1);
+        }
+
+        let write_count = counts.len() as u64;
+        for (chain_key, count) in counts {
+            AttestorsCount::<T>::insert(chain_key, count);
+        }
+
+        target.put::<Pallet<T>>();
+
+        log::info!(
+            "AttestorsCount migration: wrote totals for {write_count} chain(s) after scanning {read_count} attestor entries"
+        );
+
+        T::DbWeight::get().reads_writes(read_count.saturating_add(1), write_count.saturating_add(1))
+    }
+
+    #[cfg(feature = "try-runtime")]
+    fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
+        let on_chain = Pallet::<T>::on_chain_storage_version();
+        let target = StorageVersion::new(2);
+
+        if on_chain >= target {
+            log::info!(
+                "AttestorsCount pre_upgrade: already at v2 or above (on_chain={on_chain:?}), skipping"
+            );
+            return Ok((Vec::<(attestor_primitives::ChainKey, u32)>::new(), false).encode());
+        }
+
+        let mut counts: BTreeMap<attestor_primitives::ChainKey, u32> = BTreeMap::new();
+        for (chain_key, _attestor_id, _attestor) in crate::pallet::Attestors::<T>::iter() {
+            let entry = counts.entry(chain_key).or_insert(0u32);
+            *entry = entry.saturating_add(1);
+        }
+
+        let encoded: Vec<(attestor_primitives::ChainKey, u32)> = counts.into_iter().collect();
+        log::info!(
+            "AttestorsCount pre_upgrade: expecting counts for {} chain(s)",
+            encoded.len()
+        );
+        Ok((encoded, true).encode())
+    }
+
+    #[cfg(feature = "try-runtime")]
+    fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
+        let (expected, should_run): (Vec<(attestor_primitives::ChainKey, u32)>, bool) =
+            DecodeAll::decode_all(&mut &state[..])
+                .map_err(|_| "AttestorsCount post_upgrade: failed to decode pre_upgrade state")?;
+
+        if !should_run {
+            log::info!("AttestorsCount post_upgrade: migration was skipped, nothing to verify");
+            return Ok(());
+        }
+
+        let on_chain = Pallet::<T>::on_chain_storage_version();
+        let current = Pallet::<T>::in_code_storage_version();
+        ensure!(
+            on_chain == current,
+            "AttestorsCount post_upgrade: storage version not updated"
+        );
+
+        for (chain_key, expected_count) in expected {
+            let actual = AttestorsCount::<T>::get(chain_key);
+            ensure!(
+                actual == expected_count,
+                "AttestorsCount post_upgrade: per-chain counter mismatch"
+            );
+        }
+
+        // Also cross-check: every chain present in [`Attestors`] must now have a counter
+        // matching the live prefix size.
+        let mut live_counts: BTreeMap<attestor_primitives::ChainKey, u32> = BTreeMap::new();
+        for (chain_key, _attestor_id, _attestor) in crate::pallet::Attestors::<T>::iter() {
+            let entry = live_counts.entry(chain_key).or_insert(0u32);
+            *entry = entry.saturating_add(1);
+        }
+        for (chain_key, live) in live_counts {
+            ensure!(
+                AttestorsCount::<T>::get(chain_key) == live,
+                "AttestorsCount post_upgrade: counter does not match Attestors prefix length"
+            );
+        }
+
+        log::info!("AttestorsCount post_upgrade: verified counts match Attestors storage");
         Ok(())
     }
 }
