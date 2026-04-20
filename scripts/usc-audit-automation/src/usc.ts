@@ -145,7 +145,8 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
               | Record<string, unknown>
               | undefined;
             if (human) {
-              const chainIdStr = (human.chainId ?? human.chain_id) as string;
+              const chainIdStr =
+                (human.chainId ?? human.chain_id ?? "") as string;
               const chainId = Number(chainIdStr.replaceAll(",", "")) || 0;
               const nameBytes = human.chainName ?? human.chain_name;
               const chainName = Array.isArray(nameBytes)
@@ -156,14 +157,12 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
                   DEFAULT_MATURITY_STRATEGY,
               );
               if (chainId && chainName && chainKey) {
-                if (chainKey != null) {
-                  chains.push({
-                    chainId,
-                    chainName,
-                    chainKey,
-                    maturityStrategy,
-                  });
-                }
+                chains.push({
+                  chainId,
+                  chainName,
+                  chainKey,
+                  maturityStrategy,
+                });
               }
             }
           } catch (e) {
