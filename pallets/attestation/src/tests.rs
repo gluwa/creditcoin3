@@ -1013,6 +1013,89 @@ fn register_attestor_should_error_when_list_is_full() {
 }
 
 #[test]
+fn attestors_count_tracks_register_and_unregister() {
+    ExtBuilder.build_and_execute(|| {
+        let att_1 = Attestor::new(STASH_1, ATTESTOR_1);
+        let att_2 = Attestor::new(STASH_2, ATTESTOR_2);
+
+        assert_eq!(AttestorsCount::<Test>::get(SUPPORTED_CHAIN_KEY), 0);
+
+        assert_ok!(Attestation::register_attestor(
+            att_1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att_1.attestor_id,
+        ));
+        assert_eq!(AttestorsCount::<Test>::get(SUPPORTED_CHAIN_KEY), 1);
+
+        assert_ok!(Attestation::register_attestor(
+            att_2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att_2.attestor_id,
+        ));
+        assert_eq!(AttestorsCount::<Test>::get(SUPPORTED_CHAIN_KEY), 2);
+
+        // Re-registering an existing controller must not bump the counter.
+        assert_noop!(
+            Attestation::register_attestor(
+                att_1.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att_1.attestor_id,
+            ),
+            Error::<Test>::AlreadyAttestor
+        );
+        assert_eq!(AttestorsCount::<Test>::get(SUPPORTED_CHAIN_KEY), 2);
+
+        assert_ok!(Attestation::unregister_attestor(
+            att_1.stash,
+            SUPPORTED_CHAIN_KEY,
+            att_1.attestor_id,
+        ));
+        assert_eq!(AttestorsCount::<Test>::get(SUPPORTED_CHAIN_KEY), 1);
+
+        assert_ok!(Attestation::unregister_attestor(
+            att_2.stash,
+            SUPPORTED_CHAIN_KEY,
+            att_2.attestor_id,
+        ));
+        assert_eq!(AttestorsCount::<Test>::get(SUPPORTED_CHAIN_KEY), 0);
+    })
+}
+
+#[test]
+fn attestor_list_has_space_uses_cached_count() {
+    ExtBuilder.build_and_execute(|| {
+        let root = RuntimeOrigin::root();
+        let att_1 = Attestor::new(STASH_1, ATTESTOR_1);
+        let att_2 = Attestor::new(STASH_2, ATTESTOR_2);
+
+        assert_ok!(Attestation::set_max_attestors(root, SUPPORTED_CHAIN_KEY, 2));
+        assert!(Attestation::attestor_list_has_space(SUPPORTED_CHAIN_KEY));
+
+        assert_ok!(Attestation::register_attestor(
+            att_1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att_1.attestor_id,
+        ));
+        assert!(Attestation::attestor_list_has_space(SUPPORTED_CHAIN_KEY));
+
+        assert_ok!(Attestation::register_attestor(
+            att_2.stash,
+            SUPPORTED_CHAIN_KEY,
+            att_2.attestor_id,
+        ));
+        assert!(!Attestation::attestor_list_has_space(SUPPORTED_CHAIN_KEY));
+
+        // Freeing a slot via unregister must be reflected immediately.
+        assert_ok!(Attestation::unregister_attestor(
+            att_1.stash,
+            SUPPORTED_CHAIN_KEY,
+            att_1.attestor_id,
+        ));
+        assert!(Attestation::attestor_list_has_space(SUPPORTED_CHAIN_KEY));
+    })
+}
+
+#[test]
 fn attest_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
@@ -7351,6 +7434,68 @@ mod force_apply_updates {
                 forced_event.is_some(),
                 "ForcedUpdatesApplied event should be emitted"
             );
+        })
+    }
+}
+
+#[cfg(test)]
+mod migrate_attestors_count_v1_to_v2 {
+    use super::*;
+    use crate::migrations::MigrateAttestorsCountV1ToV2;
+    use attestor_primitives::Attestor as AttestorRecord;
+    use frame_support::traits::{GetStorageVersion, OnRuntimeUpgrade, StorageVersion};
+
+    const OTHER_CHAIN_KEY: ChainKey = 42;
+
+    fn insert_raw(chain_key: ChainKey, account: AccountId) {
+        Attestors::<Test>::insert(
+            chain_key,
+            account,
+            AttestorRecord {
+                bls_public_key: None,
+                status: AttestorStatus::Idle,
+                stash: account,
+            },
+        );
+    }
+
+    #[test]
+    fn populates_counts_from_existing_attestors_and_bumps_version() {
+        ExtBuilder.build_and_execute(|| {
+            // Simulate a pre-migration state: entries in `Attestors` exist but
+            // `AttestorsCount` is empty and the on-chain version is still v1.
+            StorageVersion::new(1).put::<Pallet<Test>>();
+            let _ = AttestorsCount::<Test>::clear(u32::MAX, None);
+
+            insert_raw(SUPPORTED_CHAIN_KEY, ATTESTOR_1);
+            insert_raw(SUPPORTED_CHAIN_KEY, ATTESTOR_2);
+            insert_raw(OTHER_CHAIN_KEY, ATTESTOR_3);
+
+            assert_eq!(AttestorsCount::<Test>::get(SUPPORTED_CHAIN_KEY), 0);
+            assert_eq!(AttestorsCount::<Test>::get(OTHER_CHAIN_KEY), 0);
+
+            MigrateAttestorsCountV1ToV2::<Test>::on_runtime_upgrade();
+
+            assert_eq!(AttestorsCount::<Test>::get(SUPPORTED_CHAIN_KEY), 2);
+            assert_eq!(AttestorsCount::<Test>::get(OTHER_CHAIN_KEY), 1);
+            assert_eq!(
+                Pallet::<Test>::on_chain_storage_version(),
+                StorageVersion::new(2)
+            );
+        })
+    }
+
+    #[test]
+    fn is_a_noop_when_already_at_v2() {
+        ExtBuilder.build_and_execute(|| {
+            StorageVersion::new(2).put::<Pallet<Test>>();
+            let _ = AttestorsCount::<Test>::clear(u32::MAX, None);
+            insert_raw(SUPPORTED_CHAIN_KEY, ATTESTOR_1);
+
+            MigrateAttestorsCountV1ToV2::<Test>::on_runtime_upgrade();
+
+            // Counter must remain untouched because migration skipped.
+            assert_eq!(AttestorsCount::<Test>::get(SUPPORTED_CHAIN_KEY), 0);
         })
     }
 }
