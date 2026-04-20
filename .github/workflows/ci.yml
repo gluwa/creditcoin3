@@ -1259,8 +1259,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-  deploy-runner-attestor-cli:
+  attestor-cli-testing:
     needs:
+      - build-creditcoin-node-for-testing-ci
       - trigger-attestor-cli
     strategy:
       fail-fast: false
@@ -1278,46 +1279,8 @@ jobs:
             secret: valid-proxy
             proxy_type: All
 
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}-attestor-cli"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      WORKFLOW_ID: "${{ github.run_id }}-attestor-cli"
-      proxy: ${{ matrix.proxy }}
-      secret: ${{ matrix.secret }}
-      proxy_type: ${{ matrix.proxy_type }}
-    secrets: inherit
-
-  attestor-cli-testing:
-    needs:
-      - build-creditcoin-node-for-testing-ci
-      - deploy-runner-attestor-cli
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: "no"
-
-          - proxy: "yes"
-            secret: no-funds
-
-          - proxy: "yes"
-            secret: not-a-proxy
-
-          - proxy: "yes"
-            secret: valid-proxy
-            proxy_type: All
-
     name: attestor-cli-testing / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
-    runs-on:
-      [
-        self-hosted,
-        "workflow-${{ github.run_id }}-attestor-cli",
-        "proxy-${{ matrix.proxy }}",
-        "secret-${{ matrix.secret }}",
-        "type-${{ matrix.proxy_type }}",
-      ]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
@@ -1438,34 +1401,6 @@ jobs:
           path: |
             /tmp/attestor-*.std*
             /tmp/creditcoin3-node-*.std*
-
-  rm-gh-runner-attestor-cli:
-    needs:
-      - attestor-cli-testing
-    if: ${{ always() }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: "no"
-
-          - proxy: "yes"
-            secret: no-funds
-
-          - proxy: "yes"
-            secret: not-a-proxy
-
-          - proxy: "yes"
-            secret: valid-proxy
-            proxy_type: All
-
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}-attestor-cli"
-      proxy: ${{ matrix.proxy }}
-      secret: ${{ matrix.secret }}
-      proxy_type: ${{ matrix.proxy_type }}
-    secrets: inherit
 
   regenerate-metadata:
     outputs:
