@@ -517,7 +517,7 @@ struct KeyDigestPending {
 /// Attestation [digest computation] does not account for all fields in an [`Attestation`].
 /// Namely, the attestation `header_hash` is absent from digest computation yet is still used for
 /// [attestation data serialization], **which is what attestors sign on**. The attestation
-/// continuity proof is absent too, even though it submitted to the runtime alongside the signed
+/// continuity proof is absent too, even though it is submitted to the runtime alongside the signed
 /// data. This means the attestation digest alone is not a guarantee of uniqueness, and must be
 /// paired with the header hash and continuity proof digest to avoid collisions.
 ///
@@ -646,7 +646,7 @@ impl AttestationPoolForks {
         let header_hash = attestation.attestation_data.header_hash;
 
         let height_prev = height
-            .checked_sub(attestation.continuity_proof.len() as u64 + 1)
+            .checked_sub(attestation.continuity_proof.len() as common::types::Height + 1)
             .ok_or(Error::InvalidContinuityProof(attestor.clone(), height))?;
         let digest_continuity = attestation
             .continuity_proof

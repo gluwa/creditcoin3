@@ -89,6 +89,5 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
-pretty_assertions = { version = "1.4.1", features = ["unstable"] }
 rstest = { workspace = true }
 tokio-test = { workspace = true }
