@@ -159,9 +159,9 @@ OPTIONS:
 
 CONFIG FILE FORMAT (JSON):
   {
-    "uscWsUrl": "wss://rpc.usc-devnet.creditcoin.network",
-    "uscNetworkName": "Creditcoin USC Devnet",
-    "graphqlUrl": "https://attestations-graphql.usc-devnet.creditcoin.network",
+    "uscWsUrl": "wss://rpc.cc3-devnet.creditcoin.network",
+    "uscNetworkName": "Creditcoin3 Devnet",
+    "graphqlUrl": "https://attestations-graphql.cc3-devnet.creditcoin.network",
     "ethRpc": [
       { "chainId": 11155111, "chainKey": 2, "url": "wss://ethereum-sepolia.publicnode.com" },
       { "chainId": 97, "chainKey": 3, "url": "wss://bsc-testnet.publicnode.com" }
@@ -171,9 +171,9 @@ CONFIG FILE FORMAT (JSON):
     "slackAlertGroup": "U123456",
     "balanceChecks": [
       {
-        "name": "USC Devnet",
-        "baseUrl": "https://blockscout.usc-devnet.creditcoin.network/",
-        "rpcUrl": "https://rpc.usc-devnet.creditcoin.network",
+        "name": "Creditcoin3 Devnet",
+        "baseUrl": "https://creditcoin-devnet.blockscout.com/",
+        "rpcUrl": "https://rpc.cc3-devnet.creditcoin.network",
         "accounts": [
           {
             "address": "0x053e6100c1C9A31e5c8a56156649f0972dCC815e",
