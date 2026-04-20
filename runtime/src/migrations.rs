@@ -245,7 +245,8 @@ pub mod v1_init_operators {
     }
 }
 
-// --- Attest coin (`pallet-assets` id 1): issuer = precompile; owner/admin/freezer = sudo or precompile.
+// --- Attest coin (`pallet-assets` id 1): issuer + admin = precompile (mint/deposit + burn/withdraw);
+//     owner + freezer = sudo or precompile (governance ops; admin must be precompile for precompile `burn`).
 
 /// Mirrors [`pallet_assets::types::AssetDetails`] / asset status SCALE layout so we can decode
 /// storage without relying on `pub(super)` field access in the pallet.
@@ -295,7 +296,7 @@ fn apply_roles(
         id: ATTEST_COIN_ASSET_ID,
         owner: NativeOrEvmAddressLookup::unlookup(governance.clone()),
         issuer: NativeOrEvmAddressLookup::unlookup(precompile.clone()),
-        admin: NativeOrEvmAddressLookup::unlookup(governance.clone()),
+        admin: NativeOrEvmAddressLookup::unlookup(precompile.clone()),
         freezer: NativeOrEvmAddressLookup::unlookup(governance.clone()),
         min_balance: details.min_balance,
         is_sufficient: details.is_sufficient,
@@ -312,13 +313,13 @@ fn apply_roles(
 
     log::info!(
         target: "runtime::migrations",
-        "EnsureAttestCoinAssetRoles: issuer=precompile, owner/admin/freezer=governance"
+        "EnsureAttestCoinAssetRoles: issuer+admin=precompile, owner+freezer=governance"
     );
 
     <Runtime as frame_system::Config>::DbWeight::get().reads_writes(4, 4)
 }
 
-/// Sets attest-coin asset roles: issuer = precompile; owner, admin, freezer = sudo or precompile.
+/// Sets attest-coin asset roles: issuer + admin = precompile; owner + freezer = sudo or precompile.
 pub struct EnsureAttestCoinAssetRoles<T>(PhantomData<T>);
 
 impl OnRuntimeUpgrade for EnsureAttestCoinAssetRoles<Runtime> {
@@ -359,8 +360,8 @@ impl OnRuntimeUpgrade for EnsureAttestCoinAssetRoles<Runtime> {
         }
 
         if details.issuer == precompile
+            && details.admin == precompile
             && details.owner == governance
-            && details.admin == governance
             && details.freezer == governance
         {
             log::info!(

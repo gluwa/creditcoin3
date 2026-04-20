@@ -55,13 +55,15 @@ ethabi = { workspace = true, default-features = false }
 derive_more = { workspace = true }
 env_logger = { workspace = true }
 frame-election-provider-support = { workspace = true }
+pallet-assets = { workspace = true, default-features = false, features = [
+    "std",
+] }
 pallet-attestation = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
 pallet-staking-reward-curve = { workspace = true, default-features = false }
 pallet-supported-chains = { workspace = true }
-pallet-assets = { workspace = true, default-features = false, features = ["std"] }
 precompile-utils = { workspace = true, features = ["std", "testing"] }
 serde = { workspace = true }
 sp-staking = { workspace = true }

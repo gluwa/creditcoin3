@@ -35,4 +35,9 @@ interface IAttestCoinPrecompile {
     /// @dev The caller must first call `approve(precompile_address, amount)` on the ERC-20 contract.
     ///      `beneficiary` must not be the zero bytes32.
     function depositTo(uint256 amount, bytes32 beneficiary) external;
+
+    /// @notice Burn liquid attest coin from the caller's mapped Substrate `pallet-assets` balance and
+    ///         receive the same amount of ERC-20 on the caller's EVM address (inverse of `deposit`).
+    /// @dev Requires the attest-coin asset **admin** to be the precompile account (runtime migration).
+    function withdraw(uint256 amount) external;
 }
