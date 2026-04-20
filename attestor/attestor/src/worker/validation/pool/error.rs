@@ -5,7 +5,6 @@ pub enum Error {
     Equivocation(attestor_primitives::AttestorId, common::types::Height),
     NoSpaceLeft(attestor_primitives::AttestorId, common::types::Height),
     Unauthorized(attestor_primitives::AttestorId, common::types::Height),
-    InvalidContinuityProof(attestor_primitives::AttestorId, common::types::Height),
     InvalidHeight(
         attestor_primitives::AttestorId,
         common::types::Height,
@@ -21,14 +20,6 @@ pub enum Error {
 impl Error {
     pub fn log_error(self, digest: attestor_primitives::Digest) {
         match self {
-            Self::InvalidContinuityProof(attestor_id, height) => {
-                tracing::debug!(
-                    %attestor_id,
-                    ?digest,
-                    height,
-                    "Continuity proof reaches back before genesis"
-                );
-            }
             Self::InvalidHeight(attestor_id, height, last_finalized) => {
                 tracing::debug!(
                     %attestor_id,
@@ -99,14 +90,6 @@ impl std::fmt::Display for Error {
                     f,
                     "Attestor {address} \
                     is not part of the validator set \
-                    for source chain height {height}"
-                )
-            }
-            Self::InvalidContinuityProof(address, height) => {
-                write!(
-                    f,
-                    "Attestor {address} \
-                    submitted a continuity proof which reaches past genesis
                     for source chain height {height}"
                 )
             }
