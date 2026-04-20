@@ -794,7 +794,7 @@ jobs:
         timeout-minutes: 15
         working-directory: ./cli
         run: |
-          node dist/scripts/queryPalletVersions.js wss://rpc.usc-devnet.creditcoin.network 2>/var/tmp/pallet_storage.devnet.stderr | sort > /var/tmp/pallet_storage.devnet
+          node dist/scripts/queryPalletVersions.js wss://rpc.cc3-devnet.creditcoin.network 2>/var/tmp/pallet_storage.devnet.stderr | sort > /var/tmp/pallet_storage.devnet
           DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.devnet /var/tmp/pallet_storage.local | colordiff)
 
           if [ -n "$DIFF_OUTPUT" ]; then

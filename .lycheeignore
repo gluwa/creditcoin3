@@ -24,11 +24,7 @@ https://github.com/gluwa/creditcoin3/pull(.*)
 https://sepolia.infura.io/v3/(.*)
 https://registry.npmjs.org/-/npm/v1/(.*)
 https://github.com/request/request/issues/(.*)
-https://blockscout.usc-testnet2.creditcoin.network/
-https://blockscout.usc-devnet.creditcoin.network/
-https://blockscout.usc-testnet.creditcoin.network/
-https://attestations-graphql.usc-devnet.creditcoin.network/
-https://attestations-graphql.usc-testnet2.creditcoin.network/
-https://attestations-graphql.usc-testnet.creditcoin.network/
+https://blockscout(.*)creditcoin.network/
+https://attestations-graphql(.*)creditcoin.network/
 https://nixos.wiki/wiki/flakes#Enable_flakes_temporarily
 https://opencollective.com/(.*)
