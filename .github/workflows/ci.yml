@@ -318,7 +318,7 @@ jobs:
 
       - name: Start Ethereum simulation with Anvil - 2 chains
         run: |
-          # first install it
+          export FOUNDRY_DIR="$HOME/.foundry"
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
@@ -787,7 +787,6 @@ jobs:
       - name: Start Ethereum simulation with Anvil
         run: |
           export FOUNDRY_DIR="$HOME/.foundry"
-          # first install it
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
@@ -997,11 +996,8 @@ jobs:
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
       - name: Deploy contract via forge create
-        env:
-          # otherwise foundry ends up in ~/.config/.foundry/
-          XDG_CONFIG_HOME: ${{ env.HOME }}
         run: |
-          # first install it
+          export FOUNDRY_DIR="$HOME/.foundry"
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
@@ -1152,7 +1148,6 @@ jobs:
       - name: Start Ethereum simulation with Anvil - several chains
         run: |
           export FOUNDRY_DIR="$HOME/.foundry"
-          # first install it
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
@@ -1442,7 +1437,7 @@ jobs:
 
       - name: Start Ethereum simulation with Anvil
         run: |
-          # first install it
+          export FOUNDRY_DIR="$HOME/.foundry"
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
@@ -1796,7 +1791,6 @@ jobs:
       - name: Start Ethereum simulation with Anvil
         run: |
           export FOUNDRY_DIR="$HOME/.foundry"
-          # first install it
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
