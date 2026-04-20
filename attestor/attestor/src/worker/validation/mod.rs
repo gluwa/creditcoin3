@@ -810,7 +810,7 @@ impl WorkerAttestationValidation {
         use futures::TryStreamExt as _;
 
         let (randomness, epoch_index) = loop {
-            match self.cc3.fetch_babe_randomness_two_epoch_ego().await {
+            match self.cc3.fetch_babe_randomness_two_epoch_ago().await {
                 Ok(babe) => break babe,
                 Err(err) => {
                     self.reconnect(Error::Client(err)).await?;
