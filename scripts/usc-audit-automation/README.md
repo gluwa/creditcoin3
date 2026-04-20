@@ -40,9 +40,9 @@ variables.
 
 ```json
 {
-  "uscWsUrl": "wss://rpc.usc-devnet.creditcoin.network",
-  "uscNetworkName": "Creditcoin USC Devnet",
-  "graphqlUrl": "https://attestations-graphql.usc-devnet.creditcoin.network",
+  "uscWsUrl": "wss://rpc.cc3-devnet.creditcoin.network",
+  "uscNetworkName": "Creditcoin3 Devnet",
+  "graphqlUrl": "https://attestations-graphql.cc3-devnet.creditcoin.network",
   "ethRpc": [
     {
       "chainId": 11155111,
@@ -79,7 +79,7 @@ directory, so it works regardless of current working directory.
 
 ## Pre-configured Files
 
-- `config-devnet.json` - Creditcoin USC Devnet
+- `config-devnet.json` - Creditcoin3 Devnet
 - `config-testnet.json` - Creditcoin USC Testnet
 - `config-testnet-v1.json` - Creditcoin USC Testnet V1 (legacy, old release)
 

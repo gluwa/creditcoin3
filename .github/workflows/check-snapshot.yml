@@ -36,11 +36,11 @@ jobs:
         run: |
           # shellcheck disable=SC2129
           echo "target_chain=devnet" >> "$GITHUB_ENV"
-          echo "boot_node=/dns4/cc3-usc-dev-bootnode-creditcoin-bootnode.westus3.cloudapp.azure.com/tcp/30333/p2p/12D3KooWBmAwcd4PJNJvfV89HwE48nwkRmAgo8Vy3uQEyNNHBox2" >> "$GITHUB_ENV"
-          echo "https_rpc_url=https://rpc.usc-devnet.creditcoin.network" >> "$GITHUB_ENV"
+          echo "boot_node=/dns4/cc3-dev-creditcoin-bootnode.centralus.cloudapp.azure.com/tcp/30333/p2p/12D3KooWFCBMV5VosXByvDGKAr9bcg6iW6p6KjgGZHjJSuszVYq8" >> "$GITHUB_ENV"
+          echo "https_rpc_url=https://rpc.cc3-devnet.creditcoin.network" >> "$GITHUB_ENV"
           RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
-          echo "snapshot_container=usc-devnet" >> "$GITHUB_ENV"
+          echo "snapshot_container=cc3-devnet" >> "$GITHUB_ENV"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_ENV"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
