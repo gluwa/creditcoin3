@@ -43,7 +43,7 @@ impl ContinuityService {
 
         // Step 1: Resolve boundaries from local caches.
         // Try attestation bounds first (more granular), then fall back to checkpoint bounds.
-        let (lower, lower_digest, upper) = if let Some(bounds) = self
+        let (lower, lower_digest, upper, upper_digest) = if let Some(bounds) = self
             .get_attestation_boundaries(chain, min_query, max_query)
             .await
         {
@@ -74,14 +74,19 @@ impl ContinuityService {
         };
 
         // Step 2: Build directly from eth provider (archiver or chain).
-        self.build_proof_from_roots(chain, min_query, lower, lower_digest, upper)
+        self.build_proof_from_roots(chain, min_query, lower, lower_digest, upper, upper_digest)
             .await
     }
 
     /// Build a proof from eth provider roots (archiver or chain) using
     /// pre-resolved checkpoint boundaries. The `lower_checkpoint_digest` is
     /// the on-chain digest at the lower checkpoint block — this anchors the
-    /// proof's digest chain to a known on-chain value.
+    /// proof's digest chain to a known on-chain value. The `upper_checkpoint_digest`
+    /// is the on-chain digest at the upper checkpoint block; after building, the
+    /// digest computed by walking the proof chain up to `upper_checkpoint` is
+    /// verified against this value. A mismatch means the eth provider returned
+    /// roots that do not reconcile with the on-chain upper boundary (stale data,
+    /// reorg, provider bug, etc.) and the proof must be rejected rather than served.
     async fn build_proof_from_roots(
         &self,
         chain_state: &Arc<ChainState>,
@@ -89,11 +94,13 @@ impl ContinuityService {
         lower_checkpoint: u64,
         lower_checkpoint_digest: sp_core::H256,
         upper_checkpoint: u64,
+        upper_checkpoint_digest: sp_core::H256,
     ) -> Result<ContinuityProof, ServiceError> {
         tracing::info!(
             lower_checkpoint,
             ?lower_checkpoint_digest,
             upper_checkpoint,
+            ?upper_checkpoint_digest,
             min_query,
             "building proof from eth provider roots"
         );
@@ -110,6 +117,47 @@ impl ContinuityService {
             .map_err(|err| ServiceError::Internal {
                 message: format!("failed to build continuity blocks: {err}"),
             })?;
+
+        // Verify the built chain reconciles with the on-chain upper boundary digest.
+        // Without this check, the proof's upper end is only tied to the upper *block number*,
+        // and a faulty/stale eth provider could return roots that build a digest chain
+        // unrelated to the real attested/checkpointed state.
+        let computed_upper_digest = blocks
+            .iter()
+            .find(|b| b.n() == upper_checkpoint)
+            .map(|b| b.digest());
+        match computed_upper_digest {
+            Some(d) if d == upper_checkpoint_digest => {}
+            Some(d) => {
+                tracing::error!(
+                    upper_checkpoint,
+                    expected = ?upper_checkpoint_digest,
+                    computed = ?d,
+                    "continuity upper-boundary digest mismatch"
+                );
+                return Err(ServiceError::Internal {
+                    message: format!(
+                        "continuity upper-boundary digest mismatch at block {upper_checkpoint}: \
+                         expected {upper_checkpoint_digest:?}, computed {d:?}"
+                    ),
+                });
+            }
+            None => {
+                tracing::error!(
+                    upper_checkpoint,
+                    build_from,
+                    n_blocks = blocks.len(),
+                    "eth provider returned no block at upper checkpoint boundary"
+                );
+                return Err(ServiceError::Internal {
+                    message: format!(
+                        "eth provider returned no block at upper checkpoint boundary {upper_checkpoint} \
+                         (range {build_from}..={upper_checkpoint}, got {} blocks)",
+                        blocks.len()
+                    ),
+                });
+            }
+        }
 
         let lower_endpoint_digest = blocks
             .iter()
@@ -398,15 +446,25 @@ mod tests {
         let chain = svc.chain_state(2).unwrap();
         let att_bounds = svc.get_attestation_boundaries(chain, 15, 15).await;
         assert!(att_bounds.is_some(), "attestation bounds should exist");
-        let (lower, _, upper) = att_bounds.unwrap();
+        let (lower, _, upper, upper_digest) = att_bounds.unwrap();
         assert_eq!(lower, 10);
         assert_eq!(upper, 20);
+        assert_ne!(
+            upper_digest,
+            H256::zero(),
+            "upper attestation digest should be non-zero"
+        );
 
         let cp_bounds = svc.get_checkpoint_boundaries(chain, 15, 15).await;
         assert!(cp_bounds.is_some(), "checkpoint bounds should exist");
-        let (lower, _, upper) = cp_bounds.unwrap();
+        let (lower, _, upper, upper_digest) = cp_bounds.unwrap();
         assert_eq!(lower, 0);
         assert_eq!(upper, 100);
+        assert_ne!(
+            upper_digest,
+            H256::zero(),
+            "upper checkpoint digest should be non-zero"
+        );
     }
 
     #[tokio::test]
@@ -420,11 +478,17 @@ mod tests {
         let chain = svc.chain_state(2).unwrap();
         let bounds = svc.get_attestation_boundaries(chain, 11, 11).await;
         assert!(bounds.is_some());
-        let (lower, lower_digest, upper) = bounds.unwrap();
+        let (lower, lower_digest, upper, upper_digest) = bounds.unwrap();
         assert_eq!(lower, 10);
         assert_eq!(upper, 20);
         // The digest should be the mock attestation's digest at block 10
         assert_ne!(lower_digest, H256::zero(), "digest should be non-zero");
+        // The upper digest should be the mock attestation's digest at block 20
+        assert_ne!(
+            upper_digest,
+            H256::zero(),
+            "upper digest should be non-zero"
+        );
     }
 
     #[tokio::test]

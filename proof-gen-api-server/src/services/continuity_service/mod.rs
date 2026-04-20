@@ -457,37 +457,45 @@ impl ContinuityService {
 
     /// Look up attestation boundaries around a query range from the local cache.
     /// Attestations are more granular than checkpoints, so these provide tighter bounds.
-    /// Returns `(lower_block, lower_digest, upper_block)` or `None` if not found.
+    /// Returns `(lower_block, lower_digest, upper_block, upper_digest)` or `None` if not found.
+    ///
+    /// The upper digest is the on-chain attested digest at `upper_block`; callers should
+    /// verify the proof's computed digest at `upper_block` matches this value so that
+    /// the continuity chain is anchored to a known on-chain upper attestation.
     pub async fn get_attestation_boundaries(
         &self,
         chain: &Arc<ChainState>,
         min_query: u64,
         max_query: u64,
-    ) -> Option<(u64, H256, u64)> {
+    ) -> Option<(u64, H256, u64, H256)> {
         let cache = chain.attestation_cache.read().await;
 
         // Lower: greatest attestation strictly before min_query.
         let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
 
         // Upper: smallest attestation ≥ max_query
-        let upper = cache.range(max_query..).next().map(|(&k, _)| k);
+        let upper = cache.range(max_query..).next().map(|(&k, &v)| (k, v));
 
         match (lower, upper) {
-            (Some((lower_block, lower_digest)), Some(upper_block)) => {
-                Some((lower_block, lower_digest, upper_block))
+            (Some((lower_block, lower_digest)), Some((upper_block, upper_digest))) => {
+                Some((lower_block, lower_digest, upper_block, upper_digest))
             }
             _ => None,
         }
     }
 
     /// Look up checkpoint boundaries around a query range from the local cache.
-    /// Returns `(lower_block, lower_digest, upper_block)` or `None` if not found.
+    /// Returns `(lower_block, lower_digest, upper_block, upper_digest)` or `None` if not found.
+    ///
+    /// The upper digest is the on-chain checkpoint digest at `upper_block`; callers should
+    /// verify the proof's computed digest at `upper_block` matches this value so that
+    /// the continuity chain is anchored to a known on-chain upper checkpoint.
     pub async fn get_checkpoint_boundaries(
         &self,
         chain: &Arc<ChainState>,
         min_query: u64,
         max_query: u64,
-    ) -> Option<(u64, H256, u64)> {
+    ) -> Option<(u64, H256, u64, H256)> {
         let cache = chain.checkpoint_cache.read().await;
 
         // Lower: greatest checkpoint strictly before min_query.
@@ -496,11 +504,11 @@ impl ContinuityService {
         let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
 
         // Upper: smallest checkpoint ≥ max_query
-        let upper = cache.range(max_query..).next().map(|(&k, _)| k);
+        let upper = cache.range(max_query..).next().map(|(&k, &v)| (k, v));
 
         match (lower, upper) {
-            (Some((lower_block, lower_digest)), Some(upper_block)) => {
-                Some((lower_block, lower_digest, upper_block))
+            (Some((lower_block, lower_digest)), Some((upper_block, upper_digest))) => {
+                Some((lower_block, lower_digest, upper_block, upper_digest))
             }
             _ => None,
         }
