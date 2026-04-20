@@ -30,6 +30,30 @@ use cc_client::AccountId32;
 use sp_core::H256;
 use std::sync::Arc;
 
+/// Canonical mock root for a given block number.
+///
+/// All mock providers share the same `root(n)` convention so that the attestation
+/// cache, checkpoint cache, and `build_continuity_blocks` output produce the same
+/// digest chain, which lets the continuity-service upper-boundary verification
+/// succeed in tests.
+fn mock_root(block_number: u64) -> H256 {
+    H256::from_low_u64_be(block_number + 1000)
+}
+
+/// Canonical mock digest chain: `digest(0) = 0`, `digest(n) = hash_payload(n, root(n), digest(n - 1))`.
+///
+/// The CC3 mock returns attestations / checkpoints with this digest, and the ETH mock's
+/// `build_continuity_blocks` reproduces the same chain when started from the correct
+/// lower digest.
+fn mock_digest_chain(up_to_block: u64) -> H256 {
+    let mut digest = H256::zero();
+    for n in 1..=up_to_block {
+        let root = mock_root(n);
+        digest = Block::hash_payload(&n, &root, &digest);
+    }
+    digest
+}
+
 /// Mock Creditcoin3 RPC provider for testing.
 ///
 /// Returns deterministic fake attestations and checkpoints without requiring
@@ -72,17 +96,29 @@ impl CcRpcProvider for MockCcRpcProvider {
         &self,
         chain_key: u64,
     ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
-        let mk_attestation = |header_number: u64| SignedAttestation {
-            attestation: AttestationData {
-                chain_key,
-                header_number,
-                header_hash: H256::from_low_u64_be(header_number),
-                root: H256::from_low_u64_be(header_number + 1000),
-                prev_digest: None,
-            },
-            signature: [0u8; 96],
-            attestors: vec![],
-            continuity_proof: Default::default(),
+        let mk_attestation = |header_number: u64| {
+            // Chain the attestation's prev_digest so that AttestationData::digest()
+            // returns `mock_digest_chain(header_number)` — i.e. the same digest that
+            // the mock ETH provider computes at this block. This keeps the
+            // attestation cache aligned with `build_continuity_blocks` output and
+            // allows upper-boundary digest verification to succeed in tests.
+            let prev_digest = if header_number == 0 {
+                None
+            } else {
+                Some(mock_digest_chain(header_number - 1))
+            };
+            SignedAttestation {
+                attestation: AttestationData {
+                    chain_key,
+                    header_number,
+                    header_hash: H256::from_low_u64_be(header_number),
+                    root: mock_root(header_number),
+                    prev_digest,
+                },
+                signature: [0u8; 96],
+                attestors: vec![],
+                continuity_proof: Default::default(),
+            }
         };
         // Attestations every 10 blocks (matching DefaultAttestationInterval = 10)
         // Range covers 10..=1000 to match checkpoint mock coverage
@@ -94,7 +130,7 @@ impl CcRpcProvider for MockCcRpcProvider {
         // For testing, we use checkpoint at block 0 (genesis)
         Ok(Some(AttestationCheckpoint {
             block_number: 0,
-            digest: H256::from_low_u64_be(0),
+            digest: mock_digest_chain(0),
         }))
     }
 
@@ -103,10 +139,11 @@ impl CcRpcProvider for MockCcRpcProvider {
         _chain_key: u64,
     ) -> Result<Vec<AttestationCheckpoint>> {
         // For testing, provide checkpoints at regular intervals (every 100 blocks).
+        // Digests are chained so they match the mock ETH provider's output at the same block.
         Ok((0..=10)
             .map(|i| AttestationCheckpoint {
                 block_number: i * 100,
-                digest: H256::from_low_u64_be(i),
+                digest: mock_digest_chain(i * 100),
             })
             .collect())
     }
@@ -120,7 +157,7 @@ impl CcRpcProvider for MockCcRpcProvider {
         match block_number {
             0 => Ok(Some(AttestationCheckpoint {
                 block_number: 0,
-                digest: H256::from_low_u64_be(0),
+                digest: mock_digest_chain(0),
             })),
             _ => Ok(None),
         }
@@ -131,8 +168,9 @@ impl CcRpcProvider for MockCcRpcProvider {
     }
 
     async fn fetch_last_digest(&self, _chain_key: u64) -> Result<Option<H256>> {
-        // Mock returns digest for block 30 (highest attestation)
-        Ok(Some(H256::from_low_u64_be(30)))
+        // Return the chained digest of the highest mock attestation (block 1000) so that
+        // `get_attestation_by_digest` can resolve it back via the canonical chain.
+        Ok(Some(mock_digest_chain(1000)))
     }
 
     async fn get_attestation_by_digest(
@@ -140,24 +178,30 @@ impl CcRpcProvider for MockCcRpcProvider {
         chain_key: u64,
         digest: H256,
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
-        // Extract header_number from the mock digest format
-        let header_number =
-            u64::from_be_bytes(digest.as_bytes()[24..32].try_into().unwrap_or([0; 8]));
-        if header_number == 0 {
-            return Ok(None);
+        // Mock attestations are at heights 10, 20, ..., 1000 with the canonical chained digest.
+        // Scan the schedule and return the matching attestation (if any).
+        for i in 1..=100u64 {
+            let header_number = i * 10;
+            if mock_digest_chain(header_number) == digest {
+                return Ok(Some(SignedAttestation {
+                    attestation: AttestationData {
+                        chain_key,
+                        header_number,
+                        header_hash: H256::from_low_u64_be(header_number),
+                        root: mock_root(header_number),
+                        prev_digest: if header_number == 0 {
+                            None
+                        } else {
+                            Some(mock_digest_chain(header_number - 1))
+                        },
+                    },
+                    signature: [0u8; 96],
+                    attestors: vec![],
+                    continuity_proof: Default::default(),
+                }));
+            }
         }
-        Ok(Some(SignedAttestation {
-            attestation: AttestationData {
-                chain_key,
-                header_number,
-                header_hash: H256::from_low_u64_be(header_number),
-                root: H256::from_low_u64_be(header_number + 1000),
-                prev_digest: None,
-            },
-            signature: [0u8; 96],
-            attestors: vec![],
-            continuity_proof: Default::default(),
-        }))
+        Ok(None)
     }
 
     async fn get_attestation_interval(&self, _chain_key: u64) -> Result<Option<u64>> {
@@ -201,22 +245,14 @@ impl EthRpcProvider for MockEthRpcProvider {
         start: u64,
         end: u64,
     ) -> Result<Vec<Block>> {
+        // Produce the same digest chain as `mock_digest_chain` so that the upper-boundary
+        // digest stored in the attestation/checkpoint cache matches what this chain computes
+        // (that reconciliation is what the continuity service now verifies).
         let mut prev = lower_digest;
-        let mut blocks = Vec::new();
+        let mut blocks = Vec::with_capacity((end.saturating_sub(start) as usize) + 1);
         for n in start..=end {
-            let root = H256::from_low_u64_be(n + 2000);
-            // Fake digest: keccak-like by XORing bytes (not cryptographically accurate, just deterministic)
-            let mut bytes = [0u8; 32];
-            bytes[..16].copy_from_slice(&prev.as_bytes()[..16]);
-            bytes[16..24].copy_from_slice(&(n.to_be_bytes()));
-            let digest = H256::from(bytes);
-            let block = Block {
-                block_number: n,
-                root,
-                prev_digest: prev,
-                digest,
-            };
-            prev = digest;
+            let block = Block::new_from_prev_digest(n, mock_root(n), prev);
+            prev = block.digest();
             blocks.push(block);
         }
         Ok(blocks)
