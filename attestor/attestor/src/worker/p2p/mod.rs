@@ -495,10 +495,7 @@ impl WorkerP2P {
                     //
                     // Failures which depend solely on the sender are considered malicious. They are
                     // not propagated to the rest of the network.
-                    Err(err @ crate::worker::validation::pool::Error::Unauthorized(..))
-                    | Err(
-                        err @ crate::worker::validation::pool::Error::InvalidContinuityProof(..),
-                    ) => {
+                    Err(err @ crate::worker::validation::pool::Error::Unauthorized(..)) => {
                         err.log_error(digest);
                         self.swarm
                             .behaviour_mut()
