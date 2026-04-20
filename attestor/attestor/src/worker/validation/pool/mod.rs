@@ -1605,6 +1605,27 @@ impl AttestationVote {
             "Vote count does not match attestor count"
         );
     }
+
+    #[cfg(test)]
+    fn compound_digest(&self) -> CompoundDigest {
+        let height_prev = self
+            .attestation
+            .header_number()
+            .checked_sub(self.attestation.continuity_proof.len() as common::types::Height + 1)
+            .unwrap();
+        let digest_continuity = self
+            .attestation
+            .continuity_proof
+            .compute_continuity_digest(height_prev);
+        let digest = self.attestation.digest();
+        let header_hash = self.attestation.attestation_data.header_hash;
+
+        CompoundDigest {
+            digest,
+            digest_continuity,
+            header_hash,
+        }
+    }
 }
 
 impl std::cmp::PartialEq for AttestationVote {
@@ -2097,21 +2118,9 @@ mod test {
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
 
-        let height_prev = attestation_0.attestation.header_number()
-            - attestation_0.attestation.continuity_proof.len() as common::types::Height
-            - 1;
-        let digest_continuity = attestation_0
-            .attestation
-            .continuity_proof
-            .compute_continuity_digest(height_prev);
-
         assert!(inner.forks.votes_invalid.contains(&KeyDigest {
             height: attestation_0.attestation.header_number(),
-            digest: CompoundDigest {
-                digest: attestation_0.attestation.digest(),
-                digest_continuity,
-                header_hash: attestation_0.attestation.attestation_data.header_hash
-            }
+            digest: attestation_0.compound_digest()
         }));
     }
 
@@ -2136,22 +2145,6 @@ mod test {
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
 
-        let height_prev = attestation_0.attestation.header_number()
-            - attestation_0.attestation.continuity_proof.len() as common::types::Height
-            - 1;
-        let digest_continuity_0 = attestation_0
-            .attestation
-            .continuity_proof
-            .compute_continuity_digest(height_prev);
-
-        let height_prev = attestation_1.attestation.header_number()
-            - attestation_1.attestation.continuity_proof.len() as common::types::Height
-            - 1;
-        let digest_continuity_1 = attestation_1
-            .attestation
-            .continuity_proof
-            .compute_continuity_digest(height_prev);
-
         assert_eq!(inner.forks.votes.len(), 2);
         assert_eq!(inner.forks.forks_by_digest.len(), 2);
         assert_eq!(inner.forks.forks_by_size.len(), 2);
@@ -2160,11 +2153,7 @@ mod test {
             inner
                 .forks
                 .forks_by_digest
-                .get(&CompoundDigest {
-                    digest: attestation_0.attestation.digest(),
-                    digest_continuity: digest_continuity_0,
-                    header_hash: attestation_0.attestation.attestation_data.header_hash
-                })
+                .get(&attestation_0.compound_digest())
                 .unwrap(),
             &attestation_0
         );
@@ -2173,11 +2162,7 @@ mod test {
             inner
                 .forks
                 .forks_by_digest
-                .get(&CompoundDigest {
-                    digest: attestation_1.attestation.digest(),
-                    digest_continuity: digest_continuity_1,
-                    header_hash: attestation_1.attestation.attestation_data.header_hash
-                })
+                .get(&attestation_1.compound_digest())
                 .unwrap(),
             &attestation_1
         );
@@ -2185,21 +2170,13 @@ mod test {
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 2,
-            digest: CompoundDigest {
-                digest: attestation_0.attestation.digest(),
-                digest_continuity: digest_continuity_0,
-                header_hash: attestation_0.attestation.attestation_data.header_hash
-            }
+            digest: attestation_0.compound_digest()
         }));
 
         assert!(inner.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 2,
-            digest: CompoundDigest {
-                digest: attestation_1.attestation.digest(),
-                digest_continuity: digest_continuity_1,
-                header_hash: attestation_1.attestation.attestation_data.header_hash
-            }
+            digest: attestation_1.compound_digest()
         }));
     }
 
@@ -2288,14 +2265,6 @@ mod test {
             let mut pool = rx.common.pool.lock();
             let inner = pool.expect_open();
 
-            let height_prev = attestation_pending.attestation.header_number()
-                - attestation_pending.attestation.continuity_proof.len() as common::types::Height
-                - 1;
-            let digest_continuity = attestation_pending
-                .attestation
-                .continuity_proof
-                .compute_continuity_digest(height_prev);
-
             assert_eq!(inner.forks.pending_by_digest.len(), 1);
             assert_eq!(inner.forks.pending_by_prev_digest_tail.len(), 1);
             assert_eq!(inner.forks.pending_by_height.len(), 1);
@@ -2305,11 +2274,7 @@ mod test {
                 .contains(&KeyTailPending {
                     prev_digest_tail: PrevDigestTail(DIGEST_1.digest),
                     height: 2,
-                    digest: CompoundDigest {
-                        digest: attestation_pending.attestation.digest(),
-                        digest_continuity,
-                        header_hash: attestation_pending.attestation.attestation_data.header_hash
-                    },
+                    digest: attestation_pending.compound_digest(),
                 }));
         }
 
@@ -2686,36 +2651,34 @@ mod test {
 
         sx.note_attestation_chain_reversion(reversion_info);
 
-        {
-            let mut pool = rx.common.pool.lock();
-            let inner = pool.expect_open();
+        let mut pool = rx.common.pool.lock();
+        let inner = pool.expect_open();
 
-            // Digest local reset
-            assert_eq!(inner.digest_local, None);
+        // Digest local reset
+        assert_eq!(inner.digest_local, None);
 
-            // Forks reset
-            assert!(inner.forks.forks_by_digest.is_empty());
-            assert!(inner.forks.forks_by_height.is_empty());
-            assert!(inner.forks.forks_by_size.is_empty());
-            assert_eq!(inner.forks.forks_best, None);
+        // Forks reset
+        assert!(inner.forks.forks_by_digest.is_empty());
+        assert!(inner.forks.forks_by_height.is_empty());
+        assert!(inner.forks.forks_by_size.is_empty());
+        assert_eq!(inner.forks.forks_best, None);
 
-            assert!(inner.forks.pending_by_digest.is_empty());
-            assert!(inner.forks.pending_by_prev_digest_tail.is_empty());
-            assert!(inner.forks.pending_by_height.is_empty());
+        assert!(inner.forks.pending_by_digest.is_empty());
+        assert!(inner.forks.pending_by_prev_digest_tail.is_empty());
+        assert!(inner.forks.pending_by_height.is_empty());
 
-            assert!(inner.forks.votes.is_empty());
-            assert!(inner.forks.votes_invalid.is_empty());
-            assert!(inner.forks.quorums_by_height.is_empty());
+        assert!(inner.forks.votes.is_empty());
+        assert!(inner.forks.votes_invalid.is_empty());
+        assert!(inner.forks.quorums_by_height.is_empty());
 
-            // Reversion should set the new finalized digest
-            assert_eq!(inner.forks.last_finalized_digest, Some(DIGEST_1.digest));
+        // Reversion should set the new finalized digest
+        assert_eq!(inner.forks.last_finalized_digest, Some(DIGEST_1.digest));
 
-            // Valid queue reset
-            assert!(inner.valid.quorums_valid.is_empty());
+        // Valid queue reset
+        assert!(inner.valid.quorums_valid.is_empty());
 
-            // Delay tracking reset
-            assert!(inner.attestation_delay.time.is_empty());
-        }
+        // Delay tracking reset
+        assert!(inner.attestation_delay.time.is_empty());
     }
 
     // -------------------------------- [ Height Validation Tests ] ------------------------------- //
