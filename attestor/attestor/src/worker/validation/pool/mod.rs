@@ -411,12 +411,11 @@ impl AttestationPoolInner {
             let digest = fork.attestation.digest();
             let header_hash = fork.attestation.attestation_data.header_hash;
 
-            let height_prev =
-                height.saturating_sub(fork.attestation.continuity_proof.len() as u64 + 1);
-            let digest_continuity = fork
-                .attestation
-                .continuity_proof
-                .compute_continuity_digest(height_prev);
+            let digest_continuity = fork.attestation.continuity_proof.compute_continuity_digest(
+                fork.attestation
+                    .continuity_proof
+                    .start_block_number(fork.attestation.header_number()),
+            );
 
             let permit = Permit(CompoundInfo {
                 height,
@@ -641,11 +640,9 @@ impl AttestationPoolForks {
         let attestor = attestation.attestor_id();
         let header_hash = attestation.attestation_data.header_hash;
 
-        let height_prev =
-            height.saturating_sub(attestation.continuity_proof.len() as common::types::Height + 1);
         let digest_continuity = attestation
             .continuity_proof
-            .compute_continuity_digest(height_prev);
+            .compute_continuity_digest(attestation.continuity_proof.start_block_number(height));
 
         tracing::debug!("Checking for known invalids");
 
@@ -1604,16 +1601,14 @@ impl AttestationVote {
 
     #[cfg(test)]
     fn compound_digest(&self) -> CompoundDigest {
-        let height_prev = self
-            .attestation
-            .header_number()
-            .saturating_sub(self.attestation.continuity_proof.len() as common::types::Height + 1);
-        let digest_continuity = self
-            .attestation
-            .continuity_proof
-            .compute_continuity_digest(height_prev);
         let digest = self.attestation.digest();
         let header_hash = self.attestation.attestation_data.header_hash;
+
+        let digest_continuity = self.attestation.continuity_proof.compute_continuity_digest(
+            self.attestation
+                .continuity_proof
+                .start_block_number(self.attestation.header_number()),
+        );
 
         CompoundDigest {
             digest,
