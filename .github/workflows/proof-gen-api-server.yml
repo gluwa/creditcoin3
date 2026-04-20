@@ -31,7 +31,7 @@ jobs:
 
       - name: Install Anvil
         run: |
-          # first install it
+          export FOUNDRY_DIR="$HOME/.foundry"
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
@@ -180,7 +180,7 @@ jobs:
 
       - name: Start Ethereum simulation with Anvil
         run: |
-          # first install it
+          export FOUNDRY_DIR="$HOME/.foundry"
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
@@ -415,7 +415,6 @@ jobs:
       - name: Start Ethereum simulation with Anvil
         run: |
           export FOUNDRY_DIR="$HOME/.foundry"
-          # first install it
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
