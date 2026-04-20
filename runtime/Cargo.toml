@@ -42,10 +42,10 @@ frame-system = { workspace = true }
 frame-system-benchmarking = { workspace = true, optional = true }
 frame-system-rpc-runtime-api = { workspace = true }
 frame-try-runtime = { workspace = true, optional = true }
+pallet-assets = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-bags-list = { workspace = true }
-pallet-assets = { workspace = true }
 pallet-balances = { workspace = true, features = ["insecure_zero_ed"] }
 pallet-fast-unstake = { workspace = true }
 pallet-grandpa = { workspace = true }
@@ -87,8 +87,8 @@ moonbeam-evm-tracer = { workspace = true, optional = true }
 moonbeam-rpc-primitives-debug = { workspace = true }
 
 # Gluwa
-pallet-attestation = { workspace = true }
 pallet-attest-coin-rewards = { workspace = true }
+pallet-attestation = { workspace = true }
 pallet-evm-precompile-attest-coin = { workspace = true }
 pallet-randomness = { workspace = true }
 pallet-supported-chains = { workspace = true }

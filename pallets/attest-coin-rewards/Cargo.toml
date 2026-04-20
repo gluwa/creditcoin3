@@ -1,10 +1,10 @@
 [package]
-name = "pallet-attest-coin-rewards"
-version = "0.1.0"
-edition = "2021"
 authors = { workspace = true }
+edition = "2021"
 license = { workspace = true }
+name = "pallet-attest-coin-rewards"
 publish = false
+version = "0.1.0"
 
 # Required for `#[frame_support::pallet]` / `TypeInfo` derives; not visible to static dep scanners.
 [package.metadata.cargo-machete]
@@ -14,16 +14,19 @@ ignored = ["scale-info"]
 manual_inspect = "allow"
 
 [dependencies]
-parity-scale-codec = { workspace = true, default-features = false, features = ["derive", "max-encoded-len"] }
-scale-info = { workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
+parity-scale-codec = { workspace = true, default-features = false, features = [
+    "derive",
+    "max-encoded-len",
+] }
+scale-info = { workspace = true }
+sp-core = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
-sp-core = { workspace = true }
 
-pallet-attestation = { workspace = true, default-features = false }
 attestor-primitives = { workspace = true, default-features = false }
+pallet-attestation = { workspace = true, default-features = false }
 
 frame-benchmarking = { workspace = true, optional = true }
 

@@ -1,5 +1,6 @@
-//! Attest-coin precompile: `accrued(bytes32)`, `claim(...)`, `deposit(uint256)`, and
-//! `depositTo(uint256,bytes32)` (ERC-20 → `pallet-assets` mint to caller-mapped or explicit Substrate account).
+//! Attest-coin precompile: `accrued(bytes32)`, `claim(...)`, `deposit(uint256)`,
+//! `depositTo(uint256,bytes32)`, and `withdraw(uint256)` (`pallet-assets` burn → ERC-20 to caller;
+//! inverse of deposit). Requires asset **admin** = precompile account (see runtime migration).
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -38,6 +39,8 @@ const SEL_TRANSFER_FROM: [u8; 4] = [0x23, 0xb8, 0x72, 0xdd];
 const SEL_DEPOSIT: [u8; 4] = [0xb6, 0xb5, 0x5f, 0x25];
 /// `depositTo(uint256,bytes32)` — same as [`SEL_DEPOSIT`] but mints to an explicit 32-byte `AccountId`.
 const SEL_DEPOSIT_TO: [u8; 4] = [0xc6, 0xbc, 0x97, 0x5d];
+/// `withdraw(uint256)` — burn Substrate attest coin from caller’s mapped account, send ERC-20 to caller.
+pub const SEL_WITHDRAW: [u8; 4] = [0x2e, 0x1a, 0x7d, 0x4d];
 /// The asset ID for attest coin in `pallet-assets`.
 ///
 /// **Must match the chain-spec asset ID** used at genesis (and in any runtime upgrade migration).
@@ -91,6 +94,7 @@ where
             SEL_CLAIM => Self::claim(handle, &input[4..]),
             SEL_DEPOSIT => Self::deposit(handle, &input[4..]),
             SEL_DEPOSIT_TO => Self::deposit_to(handle, &input[4..]),
+            SEL_WITHDRAW => Self::withdraw(handle, &input[4..]),
             _ => Err(PrecompileFailure::Error {
                 exit_status: ExitError::Other("unknown selector".into()),
             }),
@@ -349,7 +353,7 @@ where
 
         let issuer = Runtime::AddressMapping::into_account_id(precompile_h160);
 
-        try_dispatch_deposit_mint::<Runtime, _>(
+        try_dispatch_attest_coin_no_pov::<Runtime, _>(
             handle,
             Some(issuer).into(),
             pallet_assets::Call::<Runtime>::mint {
@@ -365,12 +369,94 @@ where
             output: Vec::new(),
         })
     }
+
+    /// Burn liquid attest coin from the EVM caller’s mapped Substrate account, then send ERC-20 to the
+    /// caller (inverse of [`Self::deposit`]).
+    ///
+    /// Uses [`pallet_assets::Call::burn`] as **admin** (`Signed` precompile account); runtime must set
+    /// asset admin to the precompile (see attest-coin migration). If the ERC-20 transfer fails, mints
+    /// back to restore the Substrate balance.
+    fn withdraw(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
+        handle.record_cost(120_000)?;
+        if rest.len() < 32 {
+            return Err(bad_input());
+        }
+        let amount_u256 = U256::from_big_endian(&rest[0..32]);
+        if amount_u256.is_zero() {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"zero amount".to_vec(),
+            });
+        }
+        let amount_u128 = u256_to_u128_balance(amount_u256)?;
+
+        let token = match Rewards::<Runtime>::erc20_token() {
+            Some(t) => t,
+            None => {
+                return Err(PrecompileFailure::Revert {
+                    exit_status: ExitRevert::Reverted,
+                    output: b"token not configured".to_vec(),
+                });
+            }
+        };
+
+        let caller_h160 = handle.context().caller;
+        let beneficiary = Runtime::AddressMapping::into_account_id(caller_h160);
+        let precompile_h160 = handle.code_address();
+        let admin = Runtime::AddressMapping::into_account_id(precompile_h160);
+
+        try_dispatch_attest_coin_no_pov::<Runtime, _>(
+            handle,
+            Some(admin.clone()).into(),
+            pallet_assets::Call::<Runtime>::burn {
+                id: ATTEST_COIN_ASSET_ID.into(),
+                who: Runtime::Lookup::unlookup(beneficiary.clone()),
+                amount: amount_u128.into(),
+            },
+        )
+        .map_err(PrecompileFailure::from)?;
+
+        let mut transfer_data = Vec::with_capacity(4 + 32 + 32);
+        transfer_data.extend_from_slice(&SEL_TRANSFER);
+        transfer_data.extend_from_slice(&encode_address(caller_h160.as_fixed_bytes()));
+        transfer_data.extend_from_slice(&encode_u256(amount_u256));
+
+        let sub_context = Context {
+            caller: handle.code_address(),
+            address: token,
+            apparent_value: U256::zero(),
+        };
+        let gas = handle.remaining_gas().saturating_mul(9) / 10;
+        let (reason, ret) = handle.call(token, None, transfer_data, Some(gas), false, &sub_context);
+
+        if !matches!(reason, ExitReason::Succeed(_)) {
+            try_dispatch_attest_coin_no_pov::<Runtime, _>(
+                handle,
+                Some(admin).into(),
+                pallet_assets::Call::<Runtime>::mint {
+                    id: ATTEST_COIN_ASSET_ID.into(),
+                    beneficiary: Runtime::Lookup::unlookup(beneficiary),
+                    amount: amount_u128.into(),
+                },
+            )
+            .map_err(PrecompileFailure::from)?;
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: ret,
+            });
+        }
+
+        Ok(PrecompileOutput {
+            exit_status: ExitSucceed::Returned,
+            output: Vec::new(),
+        })
+    }
 }
 
 /// Like [`RuntimeHelper::try_dispatch`], but does **not** reserve `dispatch_info.weight.proof_size()` on
-/// the EVM handle. Otherwise Substrate benchmark PoV for `pallet_assets::mint` is stacked on top of the
+/// the EVM handle. Otherwise Substrate benchmark PoV for `pallet_assets` dispatch is stacked on top of the
 /// same transaction’s Frontier proof meter and exhausts gas (`gasUsed == gasLimit`).
-fn try_dispatch_deposit_mint<Runtime, Call>(
+fn try_dispatch_attest_coin_no_pov<Runtime, Call>(
     handle: &mut impl PrecompileHandle,
     origin: <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin,
     call: Call,
