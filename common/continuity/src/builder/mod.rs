@@ -593,6 +593,16 @@ impl ContinuityBuilder {
         self.eth_provider.get_last_block().await
     }
 
+    /// Get the confirmed source chain block height, accounting for reorg protection.
+    ///
+    /// Returns `get_last_block() - block_confirmation_depth`, saturating at 0.
+    /// Use this instead of [`get_last_block`] when validating that a requested block
+    /// exists on-chain, to avoid accepting blocks that may still be reorganised away.
+    pub async fn get_confirmed_last_block(&self) -> Result<u64> {
+        let tip = self.eth_provider.get_last_block().await?;
+        Ok(tip.saturating_sub(self.config.block_confirmation_depth))
+    }
+
     /// Get the source chain ID.
     ///
     /// Useful for health checks and chain validation.

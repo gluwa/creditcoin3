@@ -226,7 +226,17 @@ impl Server {
             .attestation_interval(attestation_interval)
             .checkpoint_interval(checkpoint_interval)
             .last_checkpoint_block(last_checkpoint_block)
+            .block_confirmation_depth(chain.block_confirmation_depth)
             .build();
+
+        if chain.block_confirmation_depth > 0 {
+            debug!(
+                chain_key,
+                block_confirmation_depth = chain.block_confirmation_depth,
+                "⛓️  EVM reorg protection: accepting blocks only up to {} blocks behind chain tip",
+                chain.block_confirmation_depth
+            );
+        }
 
         let eth_provider: continuity::rpc::SharedEthProvider =
             if let Some(ref archiver_url) = chain.archiver_url {
