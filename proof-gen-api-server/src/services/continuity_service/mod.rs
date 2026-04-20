@@ -334,15 +334,14 @@ impl ContinuityService {
         // Check source chain existence, applying block_confirmation_depth for reorg protection.
         // Blocks within `block_confirmation_depth` of the tip are considered unconfirmed and
         // are rejected the same way as blocks that don't exist yet.
-        let tip_block = chain
+        // get_confirmed_last_block() returns (tip, confirmed) in a single RPC call.
+        let (tip_block, confirmed_block) = chain
             .builder
-            .get_last_block()
+            .get_confirmed_last_block()
             .await
             .map_err(|e| ServiceError::RpcUnavailable {
                 message: format!("Failed to get current block height from source chain: {e}"),
             })?;
-        let confirmed_block = tip_block
-            .saturating_sub(chain.builder.config.block_confirmation_depth);
 
         if let Some(&header_number) = header_numbers.iter().find(|h| **h > confirmed_block) {
             tracing::warn!(
