@@ -55,6 +55,7 @@ function getMaxBlockDiff(
 function buildReport(
   chainLabel: string,
   chainId: number,
+  chainKey: number,
   maturityStrategy: string,
   ethBlock: number,
   attBlock: number,
@@ -69,15 +70,15 @@ function buildReport(
 ): BuiltReport {
   const details: string[] = [];
   const title =
-    `🚦 Attestation Chain Liveness: ${chainLabel} - ${chainId} - ${maturityStrategy}`;
+    `🚦 Attestation Chain Liveness: ${chainLabel} - ${chainId} - ${chainKey}`;
   const detailsTitle =
-    `🚦 Liveness Details: ${chainLabel} - ${chainId} - ${maturityStrategy}`;
+    `🚦 Liveness Details: ${chainLabel} - ${chainId} - ${chainKey} - ${maturityStrategy}`;
 
   details.push(
     (blockDiffOk ? "✅" : "❌") +
       ` Attestation block heights diff: ${formatNum(ethBlock - attBlock)} (${
         formatNum(ethBlock)
-      }|${formatNum(attBlock)})|${formatNum(maxBlockDiff)}`,
+      }|${formatNum(attBlock)}|${formatNum(maxBlockDiff)})`,
   );
 
   const headerHashMatch = headerHashOk && blockByHash != null &&
@@ -255,6 +256,7 @@ async function runChecksForChain(
   const report = buildReport(
     chainLabel,
     chainId,
+    chainKey,
     maturityStrategy,
     ethBlock,
     attBlock,

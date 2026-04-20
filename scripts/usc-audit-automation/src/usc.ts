@@ -130,14 +130,23 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
         const entries = await (storage[storageName] as {
           entries: () => Promise<[unknown, unknown][]>;
         }).entries();
-        for (const [, value] of entries) {
+        for (const [key, value] of entries) {
           try {
+            const decodedKey = key as { toHuman?: () => unknown };
+            const keyHuman = decodedKey?.toHuman?.() as
+              | Array<string>
+              | undefined;
+            const chainKey = keyHuman && keyHuman.length > 0
+              ? Number(keyHuman[0])
+              : null;
+
             const decoded = value as { toHuman?: () => unknown };
             const human = decoded?.toHuman?.() as
               | Record<string, unknown>
               | undefined;
             if (human) {
-              const chainId = Number(human.chainId ?? human.chain_id ?? 0);
+              const chainIdStr = (human.chainId ?? human.chain_id) as string;
+              const chainId = Number(chainIdStr.replaceAll(",", "")) ?? 0;
               const nameBytes = human.chainName ?? human.chain_name;
               const chainName = Array.isArray(nameBytes)
                 ? String.fromCharCode(...(nameBytes as number[]))
@@ -146,8 +155,7 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
                 human.maturityStrategy ?? human.maturity_strategy ??
                   DEFAULT_MATURITY_STRATEGY,
               );
-              if (chainId && chainName) {
-                const chainKey = await getChainKey(chainId, chainName);
+              if (chainId && chainName && chainKey) {
                 if (chainKey != null) {
                   chains.push({
                     chainId,
@@ -200,41 +208,6 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
   }
 
   return chains;
-}
-
-async function getChainKey(
-  chainId: number,
-  chainName: string,
-): Promise<number | null> {
-  const a = getApi();
-  try {
-    const attestationPallet = findPallet(a, "attestation");
-    if (!attestationPallet) return null;
-
-    const storage = (a.query as Record<string, Record<string, unknown>>)[
-      attestationPallet
-    ] as Record<string, unknown>;
-    const mapName = storage
-      ? findStorageKey(storage, "chain", "key")
-      : undefined;
-    if (!mapName || !storage) return null;
-
-    const nameBytes = Array.from(chainName).map((c) => c.charCodeAt(0));
-    const result =
-      await (storage[mapName] as (a: number, b: number[]) => Promise<unknown>)(
-        chainId,
-        nameBytes,
-      );
-    const val = result as {
-      toNumber?: () => number;
-      unwrap?: () => { toNumber?: () => number };
-    };
-    const n = val?.toNumber?.() ?? val?.unwrap?.()?.toNumber?.() ?? Number(val);
-    return typeof n === "number" && !isNaN(n) ? n : null;
-  } catch (e) {
-    if (verboseLogging) console.warn("[usc] error:", e);
-    return null;
-  }
 }
 
 export async function getLastDigest(chainKey: number): Promise<string | null> {
