@@ -18,6 +18,9 @@ const ATTEST_COIN_PRECOMPILE = '0x0000000000000000000000000000000000000fd5';
 /** Headroom for ERC-20 subcall + precompile `mint` dispatch (runtime avoids double-counting PoV vs `try_dispatch`). */
 const DEPOSIT_PRECOMPILE_GAS = 8_000_000n;
 
+/** Headroom for `pallet-assets` `burn` dispatch + ERC-20 `transfer` subcall (+ rollback mint on failure). */
+const WITHDRAW_PRECOMPILE_GAS = 8_000_000n;
+
 /** Matches `pallet_evm::HashedAddressMapping::<BlakeTwo256>::into_account_id` (prefix `evm:` + 20-byte address). */
 function substrateAccountIdFromEvmAddress(evmAddress: string): Uint8Array {
     const addr = getBytes(evmAddress);
@@ -179,11 +182,8 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         const mintTx = await tokenCc3.mint(ATTEST_COIN_PRECOMPILE, ethers.parseEther('1000000'));
         await mintTx.wait();
 
-        // Sequential sudo txs must be awaited; parallel `signAndSend` from the same account races the mempool
-        // (1014: Priority is too low … replace another transaction already in the pool).
         await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddressCc3));
         await forElapsedBlocks(api, { minBlocks: 1 });
-        await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.forceSettle());
 
         // Substrate `Accrued` / `ClaimNonce` persist on a long-lived dev node; this run’s ERC-20 is newly deployed with a
         // fixed mint. Top up the precompile so `transfer` can cover **all** current accrued points (not just this epoch).
@@ -276,6 +276,86 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         expect(acctAfter.isSome).toBe(true);
         const bal1 = BigInt(acctAfter.unwrap().balance.toString());
         expect(bal1 - bal0).toEqual(depositAmt);
+    }, 120_000);
+
+    test('withdraw burns pallet-assets attest coin and sends ERC-20 back to caller', async () => {
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, evmWalletCc3);
+        const assetId = 1;
+
+        // First deposit some attest coin so the EVM caller's mapped substrate account has a balance
+        // that we can subsequently withdraw back out as ERC-20.
+        const amount = parseEther('5');
+        await (await token.mint(evmWalletCc3.address, amount)).wait();
+        await (await token.approve(ATTEST_COIN_PRECOMPILE, amount)).wait();
+
+        const mapped = substrateAccountIdFromEvmAddress(evmWalletCc3.address);
+
+        const acctBefore = await (api.query as any).assets.account(assetId, mapped);
+        const palletBalBefore = acctBefore.isSome ? BigInt(acctBefore.unwrap().balance.toString()) : 0n;
+
+        await (
+            await precompile.deposit(amount, {
+                gasLimit: DEPOSIT_PRECOMPILE_GAS,
+            })
+        ).wait();
+
+        const acctAfterDeposit = await (api.query as any).assets.account(assetId, mapped);
+        expect(acctAfterDeposit.isSome).toBe(true);
+        const palletBalAfterDeposit = BigInt(acctAfterDeposit.unwrap().balance.toString());
+        expect(palletBalAfterDeposit - palletBalBefore).toEqual(amount);
+
+        // Ensure the precompile treasury can cover the withdraw `transfer`.
+        const treasuryBal: bigint = await token.balanceOf(ATTEST_COIN_PRECOMPILE);
+        if (treasuryBal < amount) {
+            await (await token.mint(ATTEST_COIN_PRECOMPILE, amount - treasuryBal)).wait();
+        }
+
+        const erc20Before: bigint = await token.balanceOf(evmWalletCc3.address);
+
+        const tx = await precompile.withdraw(amount, { gasLimit: WITHDRAW_PRECOMPILE_GAS });
+        const receipt = await tx.wait();
+        expect(receipt?.status).toEqual(1);
+
+        // Substrate balance decreased by exactly `amount`.
+        const acctAfterWithdraw = await (api.query as any).assets.account(assetId, mapped);
+        const palletBalAfterWithdraw = acctAfterWithdraw.isSome
+            ? BigInt(acctAfterWithdraw.unwrap().balance.toString())
+            : 0n;
+        expect(palletBalAfterDeposit - palletBalAfterWithdraw).toEqual(amount);
+
+        // ERC-20 balance increased by exactly `amount`.
+        const erc20After: bigint = await token.balanceOf(evmWalletCc3.address);
+        expect(erc20After - erc20Before).toEqual(amount);
+    }, 180_000);
+
+    test('withdraw reverts with zero amount', async () => {
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        // The precompile returns the raw bytes `"zero amount"` (no Solidity `Error(string)` selector),
+        // so ethers cannot decode a reason — match the hex payload (`hex("zero amount")`) directly.
+        await expect(precompile.withdraw.staticCall(0n, { gasLimit: WITHDRAW_PRECOMPILE_GAS })).rejects.toThrow(
+            /0x7a65726f20616d6f756e74/,
+        );
+    }, 60_000);
+
+    test('withdraw reverts when caller has insufficient pallet-assets balance', async () => {
+        // Use a fresh EVM wallet whose mapped substrate account has never held any attest coin.
+        const freshWallet = ethers.Wallet.createRandom().connect(creditcoinEvm);
+
+        // Fund native EVM balance so the fresh wallet can pay gas.
+        const fundTx = await evmWalletCc3.sendTransaction({
+            to: freshWallet.address,
+            value: parseEther('100'),
+        });
+        await fundTx.wait();
+
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, freshWallet);
+
+        // `pallet_assets::burn` on an account with no balance dispatches an error which surfaces as
+        // an EVM revert from the precompile.
+        await expect(
+            precompile.withdraw.staticCall(parseEther('1'), { gasLimit: WITHDRAW_PRECOMPILE_GAS }),
+        ).rejects.toThrow();
     }, 120_000);
 
     /**

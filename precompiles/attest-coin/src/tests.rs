@@ -1,7 +1,10 @@
 use crate::mock::*;
-use crate::{SEL_ACCRUED, SEL_CLAIM, SEL_DEPOSIT, SEL_DEPOSIT_TO};
+use crate::{SEL_ACCRUED, SEL_CLAIM, SEL_DEPOSIT, SEL_DEPOSIT_TO, SEL_WITHDRAW};
 use fp_evm::{Context, ExitReason, ExitRevert, ExitSucceed, PrecompileFailure};
+use frame_support::assert_ok;
+use pallet_assets::Pallet as AssetsPallet;
 use pallet_attest_coin_rewards::Accrued;
+use pallet_evm::AddressMapping;
 use precompile_utils::testing::{MockHandle, SubcallOutput};
 use sp_core::{sr25519, Pair, H160, U256};
 
@@ -61,6 +64,14 @@ fn deposit_to_input(amount: u128, beneficiary: [u8; 32]) -> Vec<u8> {
     v.extend_from_slice(&SEL_DEPOSIT_TO);
     v.extend_from_slice(&encode_u256(amount));
     v.extend_from_slice(&beneficiary);
+    v
+}
+
+/// Build raw input for `withdraw(uint256)`.
+fn withdraw_input(amount: u128) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(&SEL_WITHDRAW);
+    v.extend_from_slice(&encode_u256(amount));
     v
 }
 
@@ -477,4 +488,80 @@ fn deposit_succeeds_with_successful_subcall() {
         // The important thing is the function reaches the mint dispatch (token was configured, amount > 0).
         let _ = execute(&mut handle); // may succeed or fail depending on pallet state
     });
+}
+
+// ── withdraw tests ────────────────────────────────────────────────────────────
+
+#[test]
+fn withdraw_reverts_token_not_configured() {
+    ExtBuilder::default().build().execute_with(|| {
+        let caller = H160::repeat_byte(0xAA);
+        let input = withdraw_input(1_000);
+        let mut handle = make_handle(caller, input);
+        assert_reverts_with(&mut handle, b"token not configured");
+    });
+}
+
+#[test]
+fn withdraw_reverts_zero_amount() {
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+        let caller = H160::repeat_byte(0xAA);
+        let input = withdraw_input(0);
+        let mut handle = make_handle(caller, input);
+        assert_reverts_with(&mut handle, b"zero amount");
+    });
+}
+
+#[test]
+fn withdraw_succeeds_when_burn_and_transfer_ok() {
+    let caller = H160::repeat_byte(0xAA);
+    let substrate = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
+
+    // Non-sufficient assets require the receiver to have a provider (native balance) on the account.
+    ExtBuilder::default()
+        .with_balances(vec![(substrate.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+            let precompile_acct =
+                <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(precompile_addr());
+
+            assert_ok!(AssetsPallet::<Runtime>::force_asset_status(
+                frame_system::RawOrigin::Root.into(),
+                1,
+                alice(),
+                precompile_acct.clone(),
+                precompile_acct.clone(),
+                alice(),
+                1,
+                false,
+                false,
+            ));
+
+            assert_ok!(AssetsPallet::<Runtime>::transfer(
+                RuntimeOrigin::signed(alice()),
+                1,
+                substrate.clone(),
+                10_000,
+            ));
+
+            let input = withdraw_input(1_000);
+            let mut handle = make_handle(caller, input);
+            handle.subcall_handle = Some(Box::new(|_subcall| SubcallOutput {
+                reason: ExitReason::Succeed(ExitSucceed::Returned),
+                output: {
+                    let mut out = [0u8; 32];
+                    out[31] = 1;
+                    out.to_vec()
+                },
+                cost: 0,
+                logs: vec![],
+            }));
+
+            let result = execute(&mut handle);
+            assert!(result.is_ok(), "expected withdraw ok, got {result:?}");
+        });
 }
