@@ -27,7 +27,7 @@ impl Error {
                     height,
                     last_finalized,
                     "Ignoring attestation with inadmissible height \
-                    (misaligned, at or below finalized, or beyond catch-up window)"
+                    (at or below finalized, or beyond catch-up window)"
                 );
             }
             Self::InvalidDigest(attestor_id, height, known_invalid_digest) => {
