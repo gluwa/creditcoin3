@@ -175,45 +175,6 @@ jobs:
             # metadata-cmp-with-mainnet.txt
             metadata-cmp-with-testnet.txt
 
-  rm-gh-runner-integration-test-cli:
-    needs:
-      - integration-test-cli
-    if: ${{ always() }}
-
-    # WARNING: same matrix as integration-test-cli job
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # runners for integration-test-cli-jobs
-          - proxy: "no"
-
-          - proxy: "yes"
-            secret: no-funds
-
-          - proxy: "yes"
-            secret: not-a-proxy
-
-          - proxy: "yes"
-            secret: valid-proxy
-            proxy_type: Staking
-
-          - proxy: "yes"
-            secret: valid-proxy
-            proxy_type: NonTransfer
-
-          - proxy: "yes"
-            secret: valid-proxy
-            proxy_type: All
-
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: ${{ matrix.proxy }}
-      secret: ${{ matrix.secret }}
-      proxy_type: ${{ matrix.proxy_type }}
-    secrets: inherit
-
   rm-gh-runner-attestator-network:
     needs:
       - integration-test-attestator-network
@@ -535,43 +496,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-  deploy-runner-integration-test-cli:
-    needs:
-      - trigger-integration-test-cli
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: "no"
-
-          - proxy: "yes"
-            secret: no-funds
-
-          - proxy: "yes"
-            secret: not-a-proxy
-
-          - proxy: "yes"
-            secret: valid-proxy
-            proxy_type: Staking
-
-          - proxy: "yes"
-            secret: valid-proxy
-            proxy_type: NonTransfer
-
-          - proxy: "yes"
-            secret: valid-proxy
-            proxy_type: All
-
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: ${{ matrix.proxy }}
-      secret: ${{ matrix.secret }}
-      proxy_type: ${{ matrix.proxy_type }}
-    secrets: inherit
-
   integration-test-cli:
     strategy:
       fail-fast: false
@@ -600,15 +524,8 @@ jobs:
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
       - build-creditcoin-node-for-testing-ci
-      - deploy-runner-integration-test-cli
-    runs-on:
-      [
-        self-hosted,
-        "workflow-${{ github.run_id }}",
-        "proxy-${{ matrix.proxy }}",
-        "secret-${{ matrix.secret }}",
-        "type-${{ matrix.proxy_type }}",
-      ]
+      - trigger-integration-test-cli
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
@@ -1530,7 +1447,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # runners for integration-test-cli-jobs
           - proxy: "no"
 
           - proxy: "yes"
