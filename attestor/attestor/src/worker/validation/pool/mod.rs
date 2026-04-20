@@ -1628,12 +1628,39 @@ impl AttestationVote {
 
 impl std::cmp::PartialEq for AttestationVote {
     fn eq(&self, other: &Self) -> bool {
+        let matching_digest = || self.attestation.digest() == other.attestation.digest();
+
+        let matching_header = || {
+            self.attestation.attestation_data.header_hash
+                == other.attestation.attestation_data.header_hash
+        };
+
+        let matching_continuity = || {
+            let start_self = self
+                .attestation
+                .continuity_proof
+                .start_block_number(self.attestation.header_number());
+            let continuity_digest_self = self
+                .attestation
+                .continuity_proof
+                .compute_continuity_digest(start_self);
+
+            let start_other = other
+                .attestation
+                .continuity_proof
+                .start_block_number(other.attestation.header_number());
+            let continuity_digest_other = other
+                .attestation
+                .continuity_proof
+                .compute_continuity_digest(start_other);
+
+            continuity_digest_self == continuity_digest_other
+        };
+
         // Attestation header number is implied in the digest computation and so does not need to
         // be checked manually as changing it would result in a different digest. The header hash
-        // is NOT part of digest computation however and needs to be checked manually.
-        self.attestation.digest() == other.attestation.digest()
-            && self.attestation.attestation_data.header_hash
-                == other.attestation.attestation_data.header_hash
+        // and continuity proof are NOT part of digest computation and needs to be checked manually
+        matching_digest() && matching_header() && matching_continuity()
     }
 }
 
@@ -1643,6 +1670,17 @@ impl std::hash::Hash for AttestationVote {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.attestation.digest().hash(state);
         self.attestation.attestation_data.header_hash.hash(state);
+
+        let start = self
+            .attestation
+            .continuity_proof
+            .start_block_number(self.attestation.header_number());
+        let digest_continuity = self
+            .attestation
+            .continuity_proof
+            .compute_continuity_digest(start);
+
+        digest_continuity.hash(state);
     }
 }
 
