@@ -1,6 +1,6 @@
 pub mod attestation;
 pub mod bls;
-pub mod stream_legacy;
+pub mod secret;
 pub mod worker;
 
 mod error;
@@ -18,7 +18,7 @@ pub struct Config {
     name: String,
     chain_key: attestor_primitives::ChainKey,
 
-    stream: stream_legacy::Config,
+    stream: secret::Config,
     attestation: attestation::Config,
 
     p2p: worker::p2p::ConfigIncomplete,
@@ -513,8 +513,8 @@ impl Attestor {
 }
 
 async fn wait_for_endpoints(
-    url_eth: &stream_legacy::RpcSecret,
-    url_cc3: &stream_legacy::RpcSecret,
+    url_eth: &secret::RpcSecret,
+    url_cc3: &secret::RpcSecret,
 ) -> Result<(), Interrupt<Error>> {
     loop {
         tokio::select! {
