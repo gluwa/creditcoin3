@@ -13,6 +13,34 @@ export interface SupportedChain {
   chainId: number;
   chainName: string;
   chainKey: number;
+  maturityStrategy: string;
+}
+
+export const DEFAULT_MATURITY_STRATEGY = "FixedDelay: 10";
+const DEFAULT_MATURITY_DELAY = 10;
+
+/**
+ * Maps a maturity strategy string (as stored on-chain) to its block delay.
+ * Mirrors `MaturityStrategy::maturity_delay` in primitives/supported-chains.
+ * Unknown strategies fall back to the default with a warning.
+ */
+export function getMaturityDelay(strategy: string): number {
+  switch (strategy) {
+    case "EvmFinalized":
+      return 64;
+    case "EvmSafe":
+      return 32;
+    case "EvmLatest":
+      return 0;
+    default: {
+      const m = strategy.match(/^FixedDelay:\s*(\d+)$/);
+      if (m) return Number(m[1]);
+      console.warn(
+        `[usc] unknown maturity strategy "${strategy}", falling back to ${DEFAULT_MATURITY_STRATEGY}`,
+      );
+      return DEFAULT_MATURITY_DELAY;
+    }
+  }
 }
 
 export interface LastCheckpoint {
@@ -103,23 +131,39 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
         const entries = await (storage[storageName] as {
           entries: () => Promise<[unknown, unknown][]>;
         }).entries();
-        for (const [, value] of entries) {
+        for (const [key, value] of entries) {
           try {
+            const decodedKey = key as { toHuman?: () => unknown };
+            const keyHuman = decodedKey?.toHuman?.() as
+              | Array<string>
+              | undefined;
+            const chainKey = keyHuman && keyHuman.length > 0
+              ? Number(keyHuman[0].replaceAll(",", ""))
+              : null;
+
             const decoded = value as { toHuman?: () => unknown };
             const human = decoded?.toHuman?.() as
               | Record<string, unknown>
               | undefined;
             if (human) {
-              const chainId = Number(human.chainId ?? human.chain_id ?? 0);
+              const chainIdStr =
+                (human.chainId ?? human.chain_id ?? "") as string;
+              const chainId = Number(chainIdStr.replaceAll(",", "")) || 0;
               const nameBytes = human.chainName ?? human.chain_name;
               const chainName = Array.isArray(nameBytes)
                 ? String.fromCharCode(...(nameBytes as number[]))
                 : String(nameBytes ?? "");
-              if (chainId && chainName) {
-                const chainKey = await getChainKey(chainId, chainName);
-                if (chainKey != null) {
-                  chains.push({ chainId, chainName, chainKey });
-                }
+              const maturityStrategy = String(
+                human.maturityStrategy ?? human.maturity_strategy ??
+                  DEFAULT_MATURITY_STRATEGY,
+              );
+              if (chainId && chainName && chainKey) {
+                chains.push({
+                  chainId,
+                  chainName,
+                  chainKey,
+                  maturityStrategy,
+                });
               }
             }
           } catch (e) {
@@ -153,6 +197,7 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
               chainId: 0,
               chainName: `Chain ${chainKey}`,
               chainKey,
+              maturityStrategy: DEFAULT_MATURITY_STRATEGY,
             });
           }
         }
@@ -163,41 +208,6 @@ async function getSupportedChainsImpl(): Promise<SupportedChain[]> {
   }
 
   return chains;
-}
-
-async function getChainKey(
-  chainId: number,
-  chainName: string,
-): Promise<number | null> {
-  const a = getApi();
-  try {
-    const attestationPallet = findPallet(a, "attestation");
-    if (!attestationPallet) return null;
-
-    const storage = (a.query as Record<string, Record<string, unknown>>)[
-      attestationPallet
-    ] as Record<string, unknown>;
-    const mapName = storage
-      ? findStorageKey(storage, "chain", "key")
-      : undefined;
-    if (!mapName || !storage) return null;
-
-    const nameBytes = Array.from(chainName).map((c) => c.charCodeAt(0));
-    const result =
-      await (storage[mapName] as (a: number, b: number[]) => Promise<unknown>)(
-        chainId,
-        nameBytes,
-      );
-    const val = result as {
-      toNumber?: () => number;
-      unwrap?: () => { toNumber?: () => number };
-    };
-    const n = val?.toNumber?.() ?? val?.unwrap?.()?.toNumber?.() ?? Number(val);
-    return typeof n === "number" && !isNaN(n) ? n : null;
-  } catch (e) {
-    if (verboseLogging) console.warn("[usc] error:", e);
-    return null;
-  }
 }
 
 export async function getLastDigest(chainKey: number): Promise<string | null> {
