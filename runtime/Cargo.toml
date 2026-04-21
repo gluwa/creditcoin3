@@ -91,6 +91,7 @@ pallet-randomness = { workspace = true }
 pallet-supported-chains = { workspace = true }
 
 attestor-primitives = { workspace = true }
+pallet-evm-precompile-attestor-stash = { workspace = true }
 pallet-evm-precompile-block-prover = { workspace = true }
 pallet-evm-precompile-bn128 = { workspace = true }
 pallet-evm-precompile-chain-info = { workspace = true }
@@ -216,6 +217,7 @@ std = [
     "pallet-evm-precompile-bn128/std",
     "pallet-evm-precompile-block-prover/std",
     "pallet-evm-precompile-substrate-transfer/std",
+    "pallet-evm-precompile-attestor-stash/std",
     "log/std",
     "pallet-randomness/std",
     "randomness-primitives/std",
