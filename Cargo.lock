@@ -14843,6 +14843,7 @@ name = "stream"
 version = "3.110.0"
 dependencies = [
  "stream_attestation",
+ "stream_cc3",
  "stream_eth",
  "stream_util",
 ]
@@ -14870,6 +14871,23 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "usc-abi-encoding",
+]
+
+[[package]]
+name = "stream_cc3"
+version = "3.109.0"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "attestor-primitives",
+ "builder",
+ "cc-client",
+ "futures 0.3.31",
+ "parity-scale-codec",
+ "subxt",
+ "tokio",
+ "tokio-retry",
+ "tracing",
 ]
 
 [[package]]
