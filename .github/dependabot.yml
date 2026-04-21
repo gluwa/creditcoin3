@@ -55,7 +55,7 @@ updates:
       - "/attestor/pool"
       - "/attestor/metrics"
       - "/attestor/common"
-      - "/attestor/attestor_zombienet"
+      - "/attestor/zombienet"
       - "/common/cc-client"
       - "/common/continuity"
       - "/common/eth"
