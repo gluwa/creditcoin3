@@ -5,7 +5,7 @@ pub enum Error {
     BlsError(crate::bls::Error),
     InitError(anyhow::Error),
     RpcError(cc_client::Error),
-    CC3Error(crate::stream_legacy::cc3::Error),
+    CC3Error(stream::cc3::Error),
     MissingAttestationInterval(attestor_primitives::ChainKey),
     MissingCheckpointInterval(attestor_primitives::ChainKey),
     MissingTargetSampleSize(attestor_primitives::ChainKey),

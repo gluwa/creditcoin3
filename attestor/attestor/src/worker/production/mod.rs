@@ -98,7 +98,7 @@ use user::prelude::*;
 #[derive(builder::Builder)]
 pub struct Config {
     stream_attestation: stream::attestation::StreamAttestation,
-    stream_cc3: crate::stream_legacy::cc3::StreamCC3,
+    stream_cc3: stream::cc3::StreamCC3,
     cc3: cc_client::Client,
     bls: std::sync::Arc<crate::bls::BlsStore>,
 
@@ -118,7 +118,7 @@ pub struct Config {
 pub(crate) struct WorkerAttestationProduction {
     // CHAIN LISTENERS
     stream_attestation: stream::attestation::StreamAttestation,
-    stream_cc3: crate::stream_legacy::cc3::StreamCC3,
+    stream_cc3: stream::cc3::StreamCC3,
     cc3: cc_client::Client,
     bls: std::sync::Arc<crate::bls::BlsStore>,
 
@@ -266,7 +266,7 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_cc3(
         &mut self,
-        mut events: crate::stream_legacy::cc3::StreamEvents,
+        mut events: stream::cc3::StreamEvents,
     ) -> Result<(), Interrupt<Error>> {
         use futures::TryStreamExt as _;
 

@@ -25,6 +25,7 @@ members = [
     "common/vrf",
     "common/builder",
     "common/streams/eth",
+    "common/streams/cc3",
     "common/streams/attestation",
     "common/streams/util",
     "common/streams/stream",
@@ -325,6 +326,7 @@ merkle = { path = "common/merkle", default-features = false }
 prometheus-client = { version = "0.24.0" }
 stream = { path = "common/streams/stream" }
 stream_attestation = { path = "common/streams/attestation" }
+stream_cc3 = { path = "common/streams/cc3" }
 stream_eth = { path = "common/streams/eth" }
 stream_util = { path = "common/streams/util" }
 sysinfo = { version = "0.37.2" }
