@@ -28,14 +28,17 @@ pub struct Config {
 /// - [p2p]: monitors p2p network health.
 /// - [errors]: counts failed state.
 ///
-/// [hardware]: Self::metrics_hardware
-/// [production]: Self::metrics_production
-/// [lag]: Self::metrics_lag
-/// [delay]: Self::metrics_delay
-/// [p2p]: Self::metrics_p2p
-/// [errors]: Self::metrics_error
+/// [hardware]: Store::metrics_hardware
+/// [production]: Store::metrics_production
+/// [lag]: Store::metrics_lag
+/// [delay]: Store::metrics_delay
+/// [p2p]: Store::metrics_p2p
+/// [errors]: Store::metrics_error
+#[derive(Debug, Clone)]
+pub struct Metrics(std::sync::Arc<Store>);
+
 #[derive(Debug)]
-pub struct Metrics {
+struct Store {
     registry: prometheus_client::registry::Registry,
 
     /// Basic hardware metrics.
@@ -270,7 +273,7 @@ impl Metrics {
             metrics_error.clone(),
         );
 
-        let metrics = Self {
+        let metrics = Self(std::sync::Arc::new(Store {
             registry,
             metrics_production,
             metrics_lag,
@@ -278,7 +281,7 @@ impl Metrics {
             metrics_delay,
             metrics_p2p,
             metrics_error,
-        };
+        }));
 
         let attestation_latest_cc3 = config
             .start_attestation
@@ -307,7 +310,7 @@ impl Metrics {
 
     pub fn encode(&self) -> String {
         let mut buffer = String::new();
-        prometheus_client::encoding::text::encode(&mut buffer, &self.registry).unwrap();
+        prometheus_client::encoding::text::encode(&mut buffer, &self.0.registry).unwrap();
         buffer
     }
 
@@ -349,12 +352,14 @@ impl Metrics {
                 let memory_total = sys.total_memory() as f64;
                 let usage_memory = (memory_process / memory_total) * 100.0;
 
-                self.metrics_hardware
+                self.0
+                    .metrics_hardware
                     .get_or_create(&labels::LabelHardware {
                         hardware: labels::Hardware::Cpu,
                     })
                     .set(usage_cpu);
-                self.metrics_hardware
+                self.0
+                    .metrics_hardware
                     .get_or_create(&labels::LabelHardware {
                         hardware: labels::Hardware::Memory,
                     })
@@ -364,7 +369,8 @@ impl Metrics {
     }
 
     pub fn set_attestation_local(&self, height: attestor_primitives::Height) {
-        self.metrics_production
+        self.0
+            .metrics_production
             .get_or_create(&labels::LabelAttestationProgress {
                 progress: labels::AttestationProgress::Local,
             })
@@ -372,7 +378,8 @@ impl Metrics {
     }
 
     pub fn set_attestation_finalized(&self, height: attestor_primitives::Height) {
-        self.metrics_production
+        self.0
+            .metrics_production
             .get_or_create(&labels::LabelAttestationProgress {
                 progress: labels::AttestationProgress::Finalized,
             })
@@ -390,7 +397,8 @@ impl Metrics {
         let interval = interval.get() as i64;
         let lag_eth = attestation_local.saturating_sub(attestation_latest_eth) / interval;
 
-        self.metrics_lag
+        self.0
+            .metrics_lag
             .get_or_create(&labels::LabelAttestationLag {
                 source: labels::AttestationLagSource::Eth,
             })
@@ -410,7 +418,8 @@ impl Metrics {
         let interval = interval.get() as i64;
         let lag_cc3 = attestation_local.saturating_sub(attestation_latest_cc3) / interval;
 
-        self.metrics_lag
+        self.0
+            .metrics_lag
             .get_or_create(&labels::LabelAttestationLag {
                 source: labels::AttestationLagSource::CC3,
             })
@@ -419,7 +428,8 @@ impl Metrics {
     }
 
     pub fn update_attestation_delay_production(&self, delay: std::time::Duration) {
-        self.metrics_delay
+        self.0
+            .metrics_delay
             .get_or_create(&labels::LabelAttestationLifecycle {
                 lifecycle: labels::AttestationLifecycle::Production,
             })
@@ -427,7 +437,8 @@ impl Metrics {
     }
 
     pub fn update_attestation_delay_finalization(&self, delay: std::time::Duration) {
-        self.metrics_delay
+        self.0
+            .metrics_delay
             .get_or_create(&labels::LabelAttestationLifecycle {
                 lifecycle: labels::AttestationLifecycle::Finalization,
             })
@@ -435,7 +446,8 @@ impl Metrics {
     }
 
     pub fn increase_peer_count(&self) {
-        self.metrics_p2p
+        self.0
+            .metrics_p2p
             .get_or_create(&labels::LabelPeerToPeer {
                 peer_to_peer: labels::PeerToPeer::Peers,
             })
@@ -443,7 +455,8 @@ impl Metrics {
     }
 
     pub fn decrease_peer_count(&self) {
-        self.metrics_p2p
+        self.0
+            .metrics_p2p
             .get_or_create(&labels::LabelPeerToPeer {
                 peer_to_peer: labels::PeerToPeer::Peers,
             })
@@ -451,7 +464,8 @@ impl Metrics {
     }
 
     pub fn increase_gossipsub_message_count(&self) {
-        self.metrics_p2p
+        self.0
+            .metrics_p2p
             .get_or_create(&labels::LabelPeerToPeer {
                 peer_to_peer: labels::PeerToPeer::GossipsubMessages,
             })
@@ -459,7 +473,8 @@ impl Metrics {
     }
 
     pub fn increase_invalid_attestation_count(&self) {
-        self.metrics_error
+        self.0
+            .metrics_error
             .get_or_create(&labels::LabelFailedState {
                 failed_state: labels::FailedState::InvalidAttestations,
             })
@@ -467,7 +482,8 @@ impl Metrics {
     }
 
     pub fn increase_equivocation_count(&self) {
-        self.metrics_error
+        self.0
+            .metrics_error
             .get_or_create(&labels::LabelFailedState {
                 failed_state: labels::FailedState::Equivocations,
             })
@@ -475,7 +491,8 @@ impl Metrics {
     }
 
     pub fn increase_invalid_gossipsub_count(&self) {
-        self.metrics_error
+        self.0
+            .metrics_error
             .get_or_create(&labels::LabelFailedState {
                 failed_state: labels::FailedState::GossipsubMessages,
             })
@@ -483,7 +500,8 @@ impl Metrics {
     }
 
     pub fn increase_connection_failure_count(&self) {
-        self.metrics_error
+        self.0
+            .metrics_error
             .get_or_create(&labels::LabelFailedState {
                 failed_state: labels::FailedState::ConnectionFailures,
             })
@@ -493,7 +511,8 @@ impl Metrics {
 
 impl attestation_pool::MetricsAttestationPool for Metrics {
     fn update_attestation_delay_quorum(&self, delay: std::time::Duration) {
-        self.metrics_delay
+        self.0
+            .metrics_delay
             .get_or_create(&labels::LabelAttestationLifecycle {
                 lifecycle: labels::AttestationLifecycle::Quorum,
             })

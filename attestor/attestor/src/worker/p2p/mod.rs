@@ -112,7 +112,7 @@ pub struct Config {
     #[specify_later]
     chain_key: attestor_primitives::ChainKey,
     #[specify_later]
-    metrics: std::sync::Arc<metrics::Metrics>,
+    metrics: metrics::Metrics,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -129,7 +129,7 @@ pub(crate) struct WorkerP2P {
     bls: std::sync::Arc<crate::bls::BlsStore>,
 
     // METRICS
-    metrics: std::sync::Arc<metrics::Metrics>,
+    metrics: metrics::Metrics,
 
     // MESSAGE CHANNELS
     receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
