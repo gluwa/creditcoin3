@@ -1,20 +1,11 @@
 [package]
-name = "attestor"
-
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "attestation_pool"
 publish.workspace = true
 repository.workspace = true
 version.workspace = true
-
-[lib]
-name = "attestor"
-path = "./src/lib.rs"
-
-[[bin]]
-name = "attestor"
-path = "./src/main.rs"
 
 [dependencies]
 # Attestor
