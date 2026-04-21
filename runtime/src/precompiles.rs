@@ -13,6 +13,7 @@ use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripe
 use pallet_evm_precompile_bn128::{Bn128Add, Bn128Mul, Bn128Pairing};
 
 // USC Precompiles
+use pallet_evm_precompile_attestor_stash::AttestorStashPrecompile;
 use pallet_evm_precompile_block_prover::BlockProverPrecompile;
 use pallet_evm_precompile_chain_info::ChainInfoPrecompile;
 // Signature verifier
@@ -30,7 +31,7 @@ where
     pub fn new() -> Self {
         Self(Default::default())
     }
-    pub fn used_addresses() -> [H160; 15] {
+    pub fn used_addresses() -> [H160; 16] {
         used_addresses()
         // see fn execute() below for an address-->precompile map
     }
@@ -59,6 +60,7 @@ where
             a if a == hash(4049) => Some(SubstrateTransferPrecompile::<R, ()>::execute(handle)),
             a if a == hash(4050) => Some(BlockProverPrecompile::<Runtime>::execute(handle)),
             a if a == hash(4051) => Some(ChainInfoPrecompile::<Runtime>::execute(handle)),
+            a if a == hash(4052) => Some(AttestorStashPrecompile::<Runtime>::execute(handle)),
             a if a == hash(5049) => Some(Sr25519VerifierPrecompile::<R>::execute(handle)),
             a if a == hash(5050) => Some(Ed25519VerifierPrecompile::<R>::execute(handle)),
             _ => None,
@@ -78,7 +80,7 @@ fn hash(a: u64) -> H160 {
     H160::from_low_u64_be(a)
 }
 
-pub fn used_addresses() -> [H160; 15] {
+pub fn used_addresses() -> [H160; 16] {
     [
         hash(1),    // 0x0000000000000000000000000000000000000001
         hash(2),    // 0x0000000000000000000000000000000000000002
@@ -93,6 +95,7 @@ pub fn used_addresses() -> [H160; 15] {
         hash(4049), // 0x0000000000000000000000000000000000000Fd1
         hash(4050), // 0x0000000000000000000000000000000000000Fd2
         hash(4051), // 0x0000000000000000000000000000000000000fD3
+        hash(4052), // 0x0000000000000000000000000000000000000fD4
         hash(5049), // 0x00000000000000000000000000000000000013B9
         hash(5050), // 0x00000000000000000000000000000000000013BA
     ]
