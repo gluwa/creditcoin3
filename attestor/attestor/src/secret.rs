@@ -3,6 +3,13 @@
 use std::str::FromStr;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+#[derive(Debug, builder::Builder)]
+pub struct Config {
+    pub(crate) url_eth: RpcSecret,
+    pub(crate) url_cc3: RpcSecret,
+    pub(crate) secret: AttestorSecret,
+}
+
 /// Secret used for the attestor identity: BIP39 mnemonic or raw 32-byte seed as hex.
 /// Implements [`Zeroize`] and [`ZeroizeOnDrop`] so sensitive data is cleared on drop.
 /// [`Debug`] and [`Display`] are redacted so the secret is never logged or printed.
