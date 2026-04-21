@@ -33,7 +33,7 @@ members = [
     "proof-gen-api-server",
     "attestor/attestor",
     "attestor/pool",
-    "attestor/attestor_zombienet",
+    "attestor/zombienet",
     "attestor/metrics",
     "attestor/common",
 ]
