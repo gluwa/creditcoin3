@@ -327,7 +327,7 @@ impl Attestor {
 
         // ---------------------------------------* Metrics *--------------------------------------
 
-        let config = worker::api::metrics::ConfigBuilder::new()
+        let config = metrics::ConfigBuilder::new()
             .with_name(self.config.name)
             .with_address(account_id.clone())
             .with_peer_id(peer_id)
@@ -338,7 +338,7 @@ impl Attestor {
             .with_attestation_latest_eth(stream_attestation.latest_tip())
             .with_attestation_interval(interval_attestation)
             .build();
-        let metrics = std::sync::Arc::new(worker::api::metrics::Metrics::new(config));
+        let metrics = std::sync::Arc::new(metrics::Metrics::new(config));
 
         // -------------------------------------* Channels *------------------------------------ //
 

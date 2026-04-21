@@ -1597,6 +1597,7 @@ dependencies = [
  "futures 0.3.31",
  "hex",
  "libp2p 0.56.0",
+ "metrics",
  "parity-scale-codec",
  "parking_lot 0.12.3",
  "prometheus-client 0.24.0",
@@ -8032,6 +8033,21 @@ dependencies = [
  "keccak",
  "rand_core 0.6.4",
  "zeroize",
+]
+
+[[package]]
+name = "metrics"
+version = "3.109.0"
+dependencies = [
+ "attestation_pool",
+ "attestor-primitives",
+ "builder",
+ "cc-client",
+ "libp2p 0.56.0",
+ "prometheus-client 0.24.0",
+ "stream",
+ "sysinfo",
+ "tokio",
 ]
 
 [[package]]

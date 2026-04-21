@@ -1,0 +1,28 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "metrics"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+# Attestor
+attestation_pool = { path = "../pool" }
+
+# Creditcoin
+attestor-primitives = { workspace = true }
+builder = { workspace = true }
+cc-client = { workspace = true }
+stream = { workspace = true }
+
+# Metrics
+prometheus-client = { workspace = true }
+sysinfo = { workspace = true }
+
+# P2P
+libp2p = { workspace = true }
+
+# Async & Parallelism
+tokio = { workspace = true, features = ["signal"] }
