@@ -13,7 +13,6 @@ version.workspace = true
 common = { path = "../common" }
 
 # Creditcoin
-attestor = { workspace = true }
 attestor-primitives = { workspace = true }
 bip39 = { version = "2.2.0", features = ["rand", "serde"] }
 cc-client = { workspace = true }
