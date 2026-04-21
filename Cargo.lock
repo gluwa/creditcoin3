@@ -1532,7 +1532,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "attestation_pool"
-version = "3.109.0"
+version = "3.110.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2516,7 +2516,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "3.109.0"
+version = "3.110.0"
 dependencies = [
  "attestor-primitives",
  "rstest 0.26.1",
@@ -8037,7 +8037,7 @@ dependencies = [
 
 [[package]]
 name = "metrics"
-version = "3.109.0"
+version = "3.110.0"
 dependencies = [
  "attestation_pool",
  "attestor-primitives",
@@ -14891,7 +14891,7 @@ dependencies = [
 
 [[package]]
 name = "stream_cc3"
-version = "3.109.0"
+version = "3.110.0"
 dependencies = [
  "anyhow",
  "async-stream",
