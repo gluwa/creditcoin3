@@ -31,7 +31,9 @@ members = [
     "query-cli",
     "proof-gen-api-server",
     "attestor/attestor",
+    "attestor/pool",
     "attestor/attestor_zombienet",
+    "attestor/common",
 ]
 resolver = "2"
 
@@ -298,6 +300,7 @@ evm-tracing-events = { git = "https://github.com/gluwa/moonbeam", branch = "gluw
 moonbeam-rpc-primitives-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-primitives-debug", default-features = false }
 
 # Attestation
+attestation_pool = { path = "attestor/pool" }
 attestor = { path = "attestor/attestor" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
