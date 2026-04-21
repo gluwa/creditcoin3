@@ -5,18 +5,7 @@
   "ethRpc": [
     {
       "chainId": 11155111,
-      "chainKey": 3,
-      "url": ""
-    },
-    {
-      "chainId": 97,
-      "chainKey": 8,
-      "url": ""
-    },
-    {
-      "chainId": 11155111,
-      "chainKey": 11,
-      "chainName": "Sepolia Historical",
+      "chainKey": 1,
       "url": ""
     }
   ],
