@@ -34,7 +34,7 @@ export class BlockWatcher extends BaseWatcher {
   protected async connect(): Promise<void> {
     try {
       console.log(`🔗 Connecting to source chain: ${this.rpcUrl}`);
-      this.provider = new WebSocketProvider(this.rpcUrl);
+      this.provider = new WebSocketProvider(new WebSocket(this.rpcUrl));
       await this.provider.ready;
 
       const network = await this.provider.getNetwork();
