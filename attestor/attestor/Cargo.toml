@@ -20,6 +20,7 @@ path = "./src/main.rs"
 # Attestor
 attestation_pool = { path = "../pool" }
 common = { path = "../common" }
+metrics = { path = "../metrics" }
 
 # Ethereum
 alloy = { workspace = true, features = ["full"] }
