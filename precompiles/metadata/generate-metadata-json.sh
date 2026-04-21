@@ -45,6 +45,9 @@ get_precompile_info() {
         "SubstrateTransferPrecompile")
             echo "substrate_transfer:SubstrateTransfer"
             ;;
+        "AttestorStashPrecompile")
+            echo "attestor_stash:AttestorStash"
+            ;;
         *)
             echo ""
             ;;

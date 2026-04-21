@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.8.3;
+
+/// @dev The Attestor Stash precompile address (hash(4052) == 0xFD4)
+address constant ATTESTOR_STASH_ADDRESS = 0x0000000000000000000000000000000000000fd4;
+
+AttestorStash constant ATTESTOR_STASH_CONTRACT = AttestorStash(ATTESTOR_STASH_ADDRESS);
+
+/// @title AttestorStash — stash-facing operations of `pallet-attestation`
+/// @notice Only stash-authored calls are exposed here (`registerAttestor`,
+///         `unregisterAttestor`, `chill`, `withdrawUnbonded`). `attest` is
+///         authored by the attestor account and is intentionally *not*
+///         exposed through this precompile; operator-gated calls are not
+///         exposed either.
+/// @dev The caller's EVM address is mapped to a Substrate `AccountId` via the
+///      runtime's configured `AddressMapping` and used as the origin of the
+///      dispatched pallet call. If the dispatched call returns an error, the
+///      precompile reverts.
+interface AttestorStash {
+    /// @notice Emitted when a stash successfully registers an attestor.
+    event AttestorRegistered(uint64 indexed chainKey, bytes32 indexed attestorId, address indexed stash);
+
+    /// @notice Emitted when a stash successfully unregisters an attestor.
+    event AttestorUnregistered(uint64 indexed chainKey, bytes32 indexed attestorId, address indexed stash);
+
+    /// @notice Emitted when a stash successfully chills one of its attestors.
+    event AttestorChilled(uint64 indexed chainKey, bytes32 indexed attestorId, address indexed stash);
+
+    /// @notice Emitted when a stash successfully withdraws fully-unbonded funds.
+    event UnbondedWithdrawn(address indexed stash);
+
+    /// @notice Register a new attestor under the caller's stash for `chainKey`.
+    /// @dev Mirrors `pallet_attestation::register_attestor`. Requires the
+    ///      stash to have at least `MinBondRequirement` for the target chain
+    ///      and `attestorId` to not already be registered.
+    function registerAttestor(uint64 chainKey, bytes32 attestorId) external returns (bool);
+
+    /// @notice Unregister an attestor previously registered by the caller's stash.
+    /// @dev Mirrors `pallet_attestation::unregister_attestor`.
+    function unregisterAttestor(uint64 chainKey, bytes32 attestorId) external returns (bool);
+
+    /// @notice Chill one of the caller stash's attestors.
+    /// @dev Mirrors `pallet_attestation::chill`. Although the extrinsic is
+    ///      named `chill`, it is authored by the stash (the pallet enforces
+    ///      `attestor.stash == caller`).
+    function chill(uint64 chainKey, bytes32 attestorId) external returns (bool);
+
+    /// @notice Withdraw the caller stash's fully-unbonded funds.
+    /// @dev Mirrors `pallet_attestation::withdraw_unbonded`.
+    function withdrawUnbonded() external returns (bool);
+}
