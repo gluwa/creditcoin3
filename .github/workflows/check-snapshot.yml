@@ -28,8 +28,6 @@ jobs:
           sudo chmod a+rwx /mnt
 
       - uses: actions/checkout@v6
-        with:
-          lfs: true
 
       - name: Devnet ENV
         if: inputs.target-chain == 'devnet'
