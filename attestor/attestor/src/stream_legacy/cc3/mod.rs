@@ -1,5 +1,3 @@
-use crate::prelude::*;
-
 mod error;
 pub use error::Error;
 
@@ -27,7 +25,7 @@ impl StreamCC3 {
             .map_err(Error::Subxt)?
             .map_err(Error::Subxt)
             .and_then(move |block| {
-                let block_number = block.number() as common::types::Height;
+                let block_number = block.number() as attestor_primitives::Height;
                 let chain_key = config.chain_key;
 
                 async move {
@@ -117,7 +115,7 @@ impl StreamCC3 {
                                     .chain(futures::stream::once(futures::future::ok(next)))
                                     .chain(finalized.map_err(Error::Subxt))
                                     .and_then(move |block| {
-                                        let block_number = block.number() as common::types::Height;
+                                        let block_number = block.number() as attestor_primitives::Height;
                                         let chain_key = config.chain_key;
 
                                         async move {
@@ -165,7 +163,7 @@ pub struct StreamEvents {
                 + Sync,
         >,
     >,
-    block_number: common::types::Height,
+    block_number: attestor_primitives::Height,
 }
 
 impl std::fmt::Debug for StreamEvents {
@@ -178,7 +176,7 @@ impl std::fmt::Debug for StreamEvents {
 
 impl StreamEvents {
     pub fn new(
-        block_number: common::types::Height,
+        block_number: attestor_primitives::Height,
         events: subxt::events::Events<subxt::SubstrateConfig>,
         chain_key: attestor_primitives::ChainKey,
     ) -> Self {
@@ -197,7 +195,7 @@ impl StreamEvents {
         }
     }
 
-    pub fn block_number(&self) -> common::types::Height {
+    pub fn block_number(&self) -> attestor_primitives::Height {
         self.block_number
     }
 }

@@ -77,18 +77,17 @@
 //! </pre>
 //!
 //! [`Worker`]: crate::worker::Worker
-//! [`Quorum`]: pool::Quorum
+//! [`Quorum`]: attestation_pool::Quorum
 //! [production worker]: crate::worker::production
 //! [p2p worker]: crate::worker::p2p
-//! [attestation pool]: pool
+//! [attestation Pool]: attestation_pool
 //! [`ATTESTATION_TIMEOUT`]: common::constants::ATTESTATION_TIMEOUT
 
 mod error;
 mod future;
-pub mod pool;
 
-use crate::prelude::*;
 pub use error::*;
+use user::prelude::*;
 
 /// First block height covered by a continuity proof (`header_number - roots.len()`).
 /// Same as [`attestor_primitives::block::ContinuityProof::start_block_number`]; use this when the
@@ -105,14 +104,14 @@ pub struct Config {
     cc3: cc_client::Client,
     signer: cc_client::signer::CC3Signer,
 
-    validation_sender: pool::AttestationPoolSender,
-    validation_receiver: pool::AttestationPoolReceiver,
+    validation_sender: attestation_pool::AttestationPoolSender,
+    validation_receiver: attestation_pool::AttestationPoolReceiver,
 
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
-    start_height: common::types::Height,
-    genesis: common::types::Height,
+    start_height: attestor_primitives::Height,
+    genesis: attestor_primitives::Height,
 
-    metrics: common::types::Metrics,
+    metrics: std::sync::Arc<crate::worker::api::metrics::Metrics>,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -124,17 +123,17 @@ pub(crate) struct WorkerAttestationValidation {
 
     // ATTESTATIONS
     signer: cc_client::signer::CC3Signer,
-    watch_submission: future::OptionFuture<(AttestationSubmission, common::types::Height)>,
-    validation_sender: pool::AttestationPoolSender,
-    validation_receiver: pool::AttestationPoolReceiver,
+    watch_submission: future::OptionFuture<(AttestationSubmission, attestor_primitives::Height)>,
+    validation_sender: attestation_pool::AttestationPoolSender,
+    validation_receiver: attestation_pool::AttestationPoolReceiver,
 
     // CHAIN DATA
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
-    start_height: common::types::Height,
-    genesis: common::types::Height,
+    start_height: attestor_primitives::Height,
+    genesis: attestor_primitives::Height,
 
     // METRICS
-    metrics: common::types::Metrics,
+    metrics: std::sync::Arc<crate::worker::api::metrics::Metrics>,
 }
 
 impl WorkerAttestationValidation {
@@ -188,9 +187,13 @@ impl super::Worker for WorkerAttestationValidation {
 impl WorkerAttestationValidation {
     async fn handle_event_quorum(
         &mut self,
-        quorum: Option<(pool::Quorum, pool::Permit, Option<cc_client::H256>)>,
+        quorum: Option<(
+            attestation_pool::Quorum,
+            attestation_pool::Permit,
+            Option<cc_client::H256>,
+        )>,
     ) -> Result<(), Interrupt<Error>> {
-        // ---------------------------------* Handle pool closure *--------------------------------
+        // ---------------------------------* Handle pool  closure *--------------------------------
 
         // WARNING: ERROR HANDLING
         //
@@ -282,7 +285,7 @@ impl WorkerAttestationValidation {
 
     async fn handle_event_submission(
         &mut self,
-        submission: (AttestationSubmission, common::types::Height),
+        submission: (AttestationSubmission, attestor_primitives::Height),
     ) -> Result<(), Interrupt<Error>> {
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
@@ -498,10 +501,10 @@ impl WorkerAttestationValidation {
 impl WorkerAttestationValidation {
     async fn quorum_aggregate(
         &mut self,
-        quorum: pool::Quorum,
+        quorum: attestation_pool::Quorum,
         digest_local: Option<cc_client::H256>,
         digest: attestor_primitives::Digest,
-        height: common::types::Height,
+        height: attestor_primitives::Height,
         chain_key: attestor_primitives::ChainKey,
     ) -> Result<common::types::AttestationSigned, Interrupt<Error>> {
         use bls_signatures::Serialize as _;
@@ -803,7 +806,7 @@ impl WorkerAttestationValidation {
             cc_client::AccountId32,
         >,
         votes: Vec<common::types::Attestation>,
-        height: common::types::Height,
+        height: attestor_primitives::Height,
     ) -> Result<(), Interrupt<Error>> {
         use futures::FutureExt as _;
         use futures::StreamExt as _;

@@ -18,6 +18,7 @@ path = "./src/main.rs"
 
 [dependencies]
 # Attestor
+attestation_pool = { path = "../pool" }
 common = { path = "../common" }
 
 # Ethereum

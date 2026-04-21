@@ -1,4 +1,3 @@
-use attestor::prelude::*;
 use std::str::FromStr;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
@@ -19,8 +18,8 @@ struct Config {
     p2p_port: u16, // Defaults to 9000 if not specified
     eth_url: attestor::stream_legacy::RpcSecret,
     cc3_url: attestor::stream_legacy::RpcSecret,
-    start_height: Option<common::types::Height>,
-    attestation_interval: Option<std::num::NonZero<common::types::Height>>,
+    start_height: Option<attestor_primitives::Height>,
+    attestation_interval: Option<std::num::NonZero<attestor_primitives::Height>>,
     no_mdns: bool,
 }
 
@@ -80,8 +79,8 @@ struct ConfigFileCC3 {
 
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigAttestation {
-    start_height: Option<common::types::Height>,
-    interval: Option<std::num::NonZero<common::types::Height>>,
+    start_height: Option<attestor_primitives::Height>,
+    interval: Option<std::num::NonZero<attestor_primitives::Height>>,
 }
 
 impl Config {
@@ -248,7 +247,7 @@ impl Config {
                     )
                     .env("ATTESTOR_START_HEIGHT")
                     .required(false)
-                    .value_parser(clap::value_parser!(common::types::Height)),
+                    .value_parser(clap::value_parser!(attestor_primitives::Height)),
             )
             .arg(
                 clap::arg!(--"attestation-interval" <INTERVAL>)
@@ -259,7 +258,7 @@ impl Config {
                     )
                     .env("ATTESTOR_ATTESTATION_INTERVAL")
                     .required(false)
-                    .value_parser(clap::value_parser!(std::num::NonZero<common::types::Height>)),
+                    .value_parser(clap::value_parser!(std::num::NonZero<attestor_primitives::Height>)),
             )
             .arg(
                 clap::arg!(--logs <FOLDER> )
@@ -372,12 +371,12 @@ impl Config {
         };
 
         let start_height = matches
-            .get_one::<common::types::Height>("start-height")
+            .get_one::<attestor_primitives::Height>("start-height")
             .cloned()
             .or(config_file.attestation.start_height);
 
         let attestation_interval = matches
-            .get_one::<std::num::NonZero<common::types::Height>>("attestation-interval")
+            .get_one::<std::num::NonZero<attestor_primitives::Height>>("attestation-interval")
             .cloned()
             .or(config_file.attestation.interval);
 
