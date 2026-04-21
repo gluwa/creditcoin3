@@ -79,16 +79,16 @@
 //!
 //! [`Worker`]: crate::worker::Worker
 //! [attestation stream]: crate::stream::attestation
-//! [attestation pool]: crate::worker::validation::pool
+//! [attestation pool]: attestation_pool
 //! [`Attestation`]: crate::common::types::Attestation
 //! [p2p worker]: crate::worker::p2p
 //! [validation worker]: crate::worker::validation
-//! [`Quorum`]: crate::worker::validation::pool::Quorum
+//! [`Quorum`]: attestation_pool::Quorum
 
 mod error;
 
-use crate::prelude::*;
 pub use error::*;
+use user::prelude::*;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
@@ -103,14 +103,14 @@ pub struct Config {
     bls: std::sync::Arc<crate::bls::BlsStore>,
 
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
-    sender_validation: crate::worker::validation::pool::AttestationPoolSender,
+    sender_validation: attestation_pool::AttestationPoolSender,
 
-    interval_attestation: std::num::NonZero<common::types::Height>,
+    interval_attestation: std::num::NonZero<attestor_primitives::Height>,
     attestation_latest_cc3: stream::util::AttestationInfo,
 
-    start_height: common::types::Height,
+    start_height: attestor_primitives::Height,
     account_id: cc_client::AccountId32,
-    metrics: common::types::Metrics,
+    metrics: std::sync::Arc<crate::worker::api::metrics::Metrics>,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -124,15 +124,15 @@ pub(crate) struct WorkerAttestationProduction {
 
     // MESSAGE CHANNELS
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
-    sender_validation: crate::worker::validation::pool::AttestationPoolSender,
+    sender_validation: attestation_pool::AttestationPoolSender,
 
     // ATTESTATION DATA
-    attestation_local: common::types::Height,
+    attestation_local: attestor_primitives::Height,
     attestation_latest_cc3: stream::util::AttestationInfo,
-    attestation_interval: std::num::NonZero<common::types::Height>,
+    attestation_interval: std::num::NonZero<attestor_primitives::Height>,
 
     // METRICS
-    metrics: common::types::Metrics,
+    metrics: std::sync::Arc<crate::worker::api::metrics::Metrics>,
 
     // ATTESTOR DATA
     account_id: cc_client::AccountId32,
@@ -336,7 +336,8 @@ impl WorkerAttestationProduction {
                 ) => {
                     tracing::info!(interval, "🔢 New source chain attestation interval");
 
-                    let Some(interval) = std::num::NonZero::<common::types::Height>::new(interval)
+                    let Some(interval) =
+                        std::num::NonZero::<attestor_primitives::Height>::new(interval)
                     else {
                         return Ok(());
                     };

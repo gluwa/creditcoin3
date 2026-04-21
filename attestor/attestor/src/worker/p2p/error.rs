@@ -1,10 +1,8 @@
-use crate::prelude::*;
-
 #[derive(Debug)]
 pub enum Error {
     InvalidAttestation(InvalidCause),
     PublishError(
-        common::types::Height,
+        attestor_primitives::Height,
         attestor_primitives::Digest,
         libp2p::gossipsub::PublishError,
     ),
