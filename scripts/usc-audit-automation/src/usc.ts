@@ -17,6 +17,7 @@ export interface SupportedChain {
 }
 
 export const DEFAULT_MATURITY_STRATEGY = "FixedDelay: 10";
+const DEFAULT_MATURITY_DELAY = 10;
 
 /**
  * Maps a maturity strategy string (as stored on-chain) to its block delay.
@@ -37,7 +38,7 @@ export function getMaturityDelay(strategy: string): number {
       console.warn(
         `[usc] unknown maturity strategy "${strategy}", falling back to ${DEFAULT_MATURITY_STRATEGY}`,
       );
-      return 10;
+      return DEFAULT_MATURITY_DELAY;
     }
   }
 }
