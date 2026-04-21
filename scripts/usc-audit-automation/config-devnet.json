@@ -16,11 +16,7 @@
       "rpcUrl": "https://rpc.cc3-devnet.creditcoin.network",
       "accounts": [
         {
-          "address": "0x053e6100c1C9A31e5c8a56156649f0972dCC815e",
-          "name": "Devnet bigbag"
-        },
-        {
-          "address": "0x465ac26CD80E6e6AADe0C2EdfF2518D03Ac4E4e5",
+          "address": "0xc31e10a8fDefa5ff8b31D3a39A67576dD1d4a71C",
           "name": "Devnet traffic sim"
         },
         {
