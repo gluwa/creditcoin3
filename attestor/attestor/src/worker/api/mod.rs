@@ -13,7 +13,6 @@
 //! [openmetrics]: https://openmetrics.io/
 
 mod error;
-pub mod metrics;
 
 pub use error::Error;
 

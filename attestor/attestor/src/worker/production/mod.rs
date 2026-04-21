@@ -110,7 +110,7 @@ pub struct Config {
 
     start_height: attestor_primitives::Height,
     account_id: cc_client::AccountId32,
-    metrics: std::sync::Arc<crate::worker::api::metrics::Metrics>,
+    metrics: std::sync::Arc<metrics::Metrics>,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -132,7 +132,7 @@ pub(crate) struct WorkerAttestationProduction {
     attestation_interval: std::num::NonZero<attestor_primitives::Height>,
 
     // METRICS
-    metrics: std::sync::Arc<crate::worker::api::metrics::Metrics>,
+    metrics: std::sync::Arc<metrics::Metrics>,
 
     // ATTESTOR DATA
     account_id: cc_client::AccountId32,

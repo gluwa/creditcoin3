@@ -34,6 +34,7 @@ members = [
     "attestor/attestor",
     "attestor/pool",
     "attestor/attestor_zombienet",
+    "attestor/metrics",
     "attestor/common",
 ]
 resolver = "2"

@@ -111,7 +111,7 @@ pub struct Config {
     start_height: attestor_primitives::Height,
     genesis: attestor_primitives::Height,
 
-    metrics: std::sync::Arc<crate::worker::api::metrics::Metrics>,
+    metrics: std::sync::Arc<metrics::Metrics>,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -133,7 +133,7 @@ pub(crate) struct WorkerAttestationValidation {
     genesis: attestor_primitives::Height,
 
     // METRICS
-    metrics: std::sync::Arc<crate::worker::api::metrics::Metrics>,
+    metrics: std::sync::Arc<metrics::Metrics>,
 }
 
 impl WorkerAttestationValidation {
