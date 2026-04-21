@@ -1,0 +1,30 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "stream_cc3"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+# Creditcoin
+attestor-primitives = { workspace = true }
+builder = { workspace = true }
+cc-client = { workspace = true }
+
+# Substrate
+parity-scale-codec = { workspace = true }
+subxt = { workspace = true }
+
+# Async & Parallelism
+async-stream = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+tokio-retry = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Errors
+anyhow = { workspace = true }
