@@ -338,7 +338,7 @@ impl Attestor {
             .with_attestation_latest_eth(stream_attestation.latest_tip())
             .with_attestation_interval(interval_attestation)
             .build();
-        let metrics = std::sync::Arc::new(metrics::Metrics::new(config));
+        let metrics = metrics::Metrics::new(config);
 
         // -------------------------------------* Channels *------------------------------------ //
 
@@ -354,7 +354,7 @@ impl Attestor {
             .with_start_attestation(start_attestation)
             .with_attestation_interval(interval_attestation)
             .with_max_catchup(common::constants::MAX_CATCHUP)
-            .with_metrics(std::sync::Arc::clone(&metrics))
+            .with_metrics(metrics.clone())
             .build();
         let (mut sender_validation, receiver_validation) =
             attestation_pool::attestation_pool(config);
@@ -363,11 +363,7 @@ impl Attestor {
 
         tracing::info!("⏳ [1/4] Starting API worker");
 
-        let config = self
-            .config
-            .api
-            .with_metrics(std::sync::Arc::clone(&metrics))
-            .build();
+        let config = self.config.api.with_metrics(metrics.clone()).build();
         let api = worker::api::WorkerApi::new(config);
 
         let mut handle_api = Some(monitor.spawn(api));
@@ -385,7 +381,7 @@ impl Attestor {
             .with_api_calls(cc_client::Client::runtime_api())
             .with_start_height(start_height)
             .with_genesis(genesis)
-            .with_metrics(std::sync::Arc::clone(&metrics))
+            .with_metrics(metrics.clone())
             .build();
         let attestation_validation = worker::validation::WorkerAttestationValidation::new(config);
         let mut handle_validation = Some(monitor.spawn(attestation_validation));
@@ -402,7 +398,7 @@ impl Attestor {
             .with_receiver_p2p(receiver_p2p)
             .with_sender_validation(sender_validation.clone())
             .with_chain_key(chain_key)
-            .with_metrics(std::sync::Arc::clone(&metrics))
+            .with_metrics(metrics.clone())
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config)
             .await

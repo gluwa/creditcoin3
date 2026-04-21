@@ -21,16 +21,16 @@ use user::prelude::*;
 #[derive(builder::Builder)]
 pub struct Config {
     #[specify_later]
-    metrics: std::sync::Arc<metrics::Metrics>,
+    metrics: metrics::Metrics,
     port: u16,
 }
 
 struct AppState {
-    metrics: std::sync::Arc<metrics::Metrics>,
+    metrics: metrics::Metrics,
 }
 
 pub(crate) struct WorkerApi {
-    metrics: std::sync::Arc<metrics::Metrics>,
+    metrics: metrics::Metrics,
     port: u16,
 }
 
