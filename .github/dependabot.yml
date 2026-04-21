@@ -71,6 +71,7 @@ updates:
       - "/pallets/attestation"
       - "/pallets/randomness"
       - "/pallets/supported-chains"
+      - "/precompiles/attestor-stash"
       - "/precompiles/chain-info"
       - "/precompiles/block-prover"
       - "/precompiles/ed25519-verifier"
