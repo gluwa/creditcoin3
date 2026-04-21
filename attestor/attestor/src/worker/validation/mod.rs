@@ -100,7 +100,7 @@ fn continuity_proof_start_block(header_number: u64, roots_len: usize) -> u64 {
 
 #[derive(builder::Builder)]
 pub struct Config {
-    stream_cc3: crate::stream_legacy::cc3::StreamCC3,
+    stream_cc3: stream::cc3::StreamCC3,
     cc3: cc_client::Client,
     signer: cc_client::signer::CC3Signer,
 
@@ -118,7 +118,7 @@ pub struct Config {
 
 pub(crate) struct WorkerAttestationValidation {
     // CC3
-    stream_cc3: crate::stream_legacy::cc3::StreamCC3,
+    stream_cc3: stream::cc3::StreamCC3,
     cc3: cc_client::Client,
 
     // ATTESTATIONS

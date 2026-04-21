@@ -127,27 +127,27 @@ impl Attestor {
 
         // -----------------------------------------* CC3 *----------------------------------------
 
-        let config = stream_legacy::cc3::ConfigBuilder::new()
+        let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
             .with_chain_key(chain_key)
             .build();
-        let stream_cc3_production = stream_legacy::cc3::StreamCC3::new(config)
+        let stream_cc3_production = stream::cc3::StreamCC3::new(config)
             .await
             .map_err(Error::InitError)?;
 
-        let config = stream_legacy::cc3::ConfigBuilder::new()
+        let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
             .with_chain_key(chain_key)
             .build();
-        let stream_cc3_validation = stream_legacy::cc3::StreamCC3::new(config)
+        let stream_cc3_validation = stream::cc3::StreamCC3::new(config)
             .await
             .map_err(Error::InitError)?;
 
-        let config = stream_legacy::cc3::ConfigBuilder::new()
+        let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
             .with_chain_key(chain_key)
             .build();
-        let mut stream_cc3_genesis = stream_legacy::cc3::StreamCC3::new(config)
+        let mut stream_cc3_genesis = stream::cc3::StreamCC3::new(config)
             .await
             .map_err(Error::InitError)?;
 
@@ -623,7 +623,7 @@ async fn wait_for_eligible(
     chain_key: attestor_primitives::ChainKey,
     client_cc3: &cc_client::Client,
     account_id: &cc_client::AccountId32,
-    stream_cc3: &mut stream_legacy::cc3::StreamCC3,
+    stream_cc3: &mut stream::cc3::StreamCC3,
 ) -> Result<Vec<cc_client::AccountId32>, Interrupt<Error>> {
     use anyhow::Context as _;
     use futures::StreamExt as _;
@@ -691,7 +691,7 @@ async fn wait_for_genesis(
     genesis: attestor_primitives::Height,
     client_eth: &eth::Client,
     account_id: &cc_client::AccountId32,
-    stream_cc3: &mut stream_legacy::cc3::StreamCC3,
+    stream_cc3: &mut stream::cc3::StreamCC3,
     stream_attestation: &mut stream::attestation::StreamAttestation,
     sender_validation: &mut attestation_pool::AttestationPoolSender,
     sender_p2p: &tokio::sync::broadcast::Sender<common::types::Attestation>,
