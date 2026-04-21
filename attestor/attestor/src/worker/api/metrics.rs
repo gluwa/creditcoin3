@@ -2,8 +2,6 @@
 //!
 //! [prometheus]:  prometheus_client
 
-use crate::prelude::*;
-
 #[derive(builder::Builder)]
 pub struct Config {
     name: String,
@@ -11,12 +9,12 @@ pub struct Config {
     peer_id: libp2p::PeerId,
     chain_key: attestor_primitives::ChainKey,
 
-    start_height: common::types::Height,
+    start_height: attestor_primitives::Height,
     start_attestation: Option<stream::util::AttestationInfo>,
-    genesis: common::types::Height,
+    genesis: attestor_primitives::Height,
 
-    attestation_latest_eth: common::types::Height,
-    attestation_interval: std::num::NonZero<common::types::Height>,
+    attestation_latest_eth: attestor_primitives::Height,
+    attestation_interval: std::num::NonZero<attestor_primitives::Height>,
 }
 
 /// Global atomic metrics store.
@@ -365,7 +363,7 @@ impl Metrics {
         };
     }
 
-    pub fn set_attestation_local(&self, height: common::types::Height) {
+    pub fn set_attestation_local(&self, height: attestor_primitives::Height) {
         self.metrics_production
             .get_or_create(&labels::LabelAttestationProgress {
                 progress: labels::AttestationProgress::Local,
@@ -373,7 +371,7 @@ impl Metrics {
             .set(height);
     }
 
-    pub fn set_attestation_finalized(&self, height: common::types::Height) {
+    pub fn set_attestation_finalized(&self, height: attestor_primitives::Height) {
         self.metrics_production
             .get_or_create(&labels::LabelAttestationProgress {
                 progress: labels::AttestationProgress::Finalized,
@@ -383,9 +381,9 @@ impl Metrics {
 
     pub fn update_attestation_lag_eth(
         &self,
-        attestation_local: common::types::Height,
-        block_latest_eth: common::types::Height,
-        interval: std::num::NonZero<common::types::Height>,
+        attestation_local: attestor_primitives::Height,
+        block_latest_eth: attestor_primitives::Height,
+        interval: std::num::NonZero<attestor_primitives::Height>,
     ) {
         let attestation_local = attestation_local as i64;
         let attestation_latest_eth = block_latest_eth as i64;
@@ -401,9 +399,9 @@ impl Metrics {
 
     pub fn update_attestation_lag_cc3(
         &self,
-        attestation_local: common::types::Height,
-        attestation_latest_cc3: common::types::Height,
-        interval: std::num::NonZero<common::types::Height>,
+        attestation_local: attestor_primitives::Height,
+        attestation_latest_cc3: attestor_primitives::Height,
+        interval: std::num::NonZero<attestor_primitives::Height>,
     ) {
         use prometheus_client::metrics::gauge::Atomic as _;
 
@@ -424,14 +422,6 @@ impl Metrics {
         self.metrics_delay
             .get_or_create(&labels::LabelAttestationLifecycle {
                 lifecycle: labels::AttestationLifecycle::Production,
-            })
-            .observe(delay.as_secs_f64());
-    }
-
-    pub fn update_attestation_delay_quorum(&self, delay: std::time::Duration) {
-        self.metrics_delay
-            .get_or_create(&labels::LabelAttestationLifecycle {
-                lifecycle: labels::AttestationLifecycle::Quorum,
             })
             .observe(delay.as_secs_f64());
     }
@@ -498,6 +488,16 @@ impl Metrics {
                 failed_state: labels::FailedState::ConnectionFailures,
             })
             .inc();
+    }
+}
+
+impl attestation_pool::MetricsAttestationPool for Metrics {
+    fn update_attestation_delay_quorum(&self, delay: std::time::Duration) {
+        self.metrics_delay
+            .get_or_create(&labels::LabelAttestationLifecycle {
+                lifecycle: labels::AttestationLifecycle::Quorum,
+            })
+            .observe(delay.as_secs_f64());
     }
 }
 

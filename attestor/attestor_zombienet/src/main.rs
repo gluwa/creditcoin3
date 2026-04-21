@@ -1,5 +1,3 @@
-use attestor::prelude::*;
-
 // These seeds where obtained by running `creditcoin3-node key inspect <ACCOUNT_URI>` for each of the first 6 Substrate development accounts
 // (//Alice, //Bob, //Charlie, //Dave, //Eve, //Ferdie).
 const WELL_KNOWN_SEEDS: [&str; 6] = [
@@ -57,12 +55,12 @@ struct Args {
 
     /// Base P2P port for the first attestor. Each subsequent attestor will use base_port + index.
     /// If not specified, defaults to 9000 (attestor 0 gets 9000, attestor 1 gets 9001, etc.).
-    #[arg(long, default_value_t = attestor::common::constants::DEFAULT_P2P_PORT)]
+    #[arg(long, default_value_t = common::constants::DEFAULT_P2P_PORT)]
     p2p_port_base: u16,
 
     /// Base API port for the first attestor. Each subsequent attestor will use base_port + index.
     /// If not specified, defaults to 9100 (attestor 0 gets 9100, attestor 1 gets 9101, etc.).
-    #[arg(long, default_value_t = attestor::common::constants::DEFAULT_API_PORT)]
+    #[arg(long, default_value_t = common::constants::DEFAULT_API_PORT)]
     api_port_base: u16,
 
     /// If true, the program will use well-known seeds for the attestors instead of generating them randomly.

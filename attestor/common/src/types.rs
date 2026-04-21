@@ -2,7 +2,6 @@
 //! easy to swap underlying types in the future, or for readability by associating a specific use
 //! case to more generic types like [u64].
 
-pub type Height = u64;
 pub type Epoch = u64;
 
 pub type SubxtClient = subxt::OnlineClient<subxt::SubstrateConfig>;

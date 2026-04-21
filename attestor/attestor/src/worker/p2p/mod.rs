@@ -82,15 +82,15 @@
 //! [`Worker`]: crate::worker::Worker
 //! [gossipsub]: libp2p::gossipsub
 //! [production worker]: crate::worker::production
-//! [attestation pool]: crate::worker::validation::pool
-//! [`Quorum`]: crate::worker::validation::pool::Quorum
+//! [attestation pool]: attestation_pool
+//! [`Quorum`]: attestation_pool::Quorum
 
 mod behavior;
 mod error;
 mod protocols;
 
-use crate::prelude::*;
 pub use error::*;
+use user::prelude::*;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
@@ -108,11 +108,11 @@ pub struct Config {
     #[specify_later]
     receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
     #[specify_later]
-    sender_validation: crate::worker::validation::pool::AttestationPoolSender,
+    sender_validation: attestation_pool::AttestationPoolSender,
     #[specify_later]
     chain_key: attestor_primitives::ChainKey,
     #[specify_later]
-    metrics: common::types::Metrics,
+    metrics: std::sync::Arc<crate::worker::api::metrics::Metrics>,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -129,11 +129,11 @@ pub(crate) struct WorkerP2P {
     bls: std::sync::Arc<crate::bls::BlsStore>,
 
     // METRICS
-    metrics: common::types::Metrics,
+    metrics: std::sync::Arc<crate::worker::api::metrics::Metrics>,
 
     // MESSAGE CHANNELS
     receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
-    sender_validation: crate::worker::validation::pool::AttestationPoolSender,
+    sender_validation: attestation_pool::AttestationPoolSender,
 }
 
 impl WorkerP2P {
@@ -452,7 +452,7 @@ impl WorkerP2P {
                                 libp2p::gossipsub::MessageAcceptance::Accept,
                             );
                     }
-                    Err(err @ crate::worker::validation::pool::Error::NoSpaceLeft(..)) => {
+                    Err(err @ attestation_pool::Error::NoSpaceLeft(..)) => {
                         err.log_error(digest);
                         self.swarm
                             .behaviour_mut()
@@ -467,8 +467,8 @@ impl WorkerP2P {
                     //
                     // Failures which depend on finality lag are not considered as malicious but are
                     // not propagated to the rest of the network as they are out-of-date.
-                    Err(err @ crate::worker::validation::pool::Error::InvalidHeight(..))
-                    | Err(err @ crate::worker::validation::pool::Error::InvalidDigest(..)) => {
+                    Err(err @ attestation_pool::Error::InvalidHeight(..))
+                    | Err(err @ attestation_pool::Error::InvalidDigest(..)) => {
                         err.log_error(digest);
                         self.swarm
                             .behaviour_mut()
@@ -479,7 +479,7 @@ impl WorkerP2P {
                                 libp2p::gossipsub::MessageAcceptance::Ignore,
                             );
                     }
-                    Err(err @ crate::worker::validation::pool::Error::Equivocation(..)) => {
+                    Err(err @ attestation_pool::Error::Equivocation(..)) => {
                         err.log_error(digest);
                         self.metrics.increase_equivocation_count();
                         self.swarm
@@ -495,7 +495,7 @@ impl WorkerP2P {
                     //
                     // Failures which depend solely on the sender are considered malicious. They are
                     // not propagated to the rest of the network.
-                    Err(err @ crate::worker::validation::pool::Error::Unauthorized(..)) => {
+                    Err(err @ attestation_pool::Error::Unauthorized(..)) => {
                         err.log_error(digest);
                         self.swarm
                             .behaviour_mut()
@@ -646,7 +646,7 @@ impl WorkerP2P {
     /// Verifies attestor eligibility and attestation bls signature before submitting to the
     /// [attestation pool].
     ///
-    /// [attestation pool]: crate::worker::validation::pool
+    /// [attestation pool]: attestation_pool
     async fn validate_attestation(
         &mut self,
         attestation: &common::types::Attestation,

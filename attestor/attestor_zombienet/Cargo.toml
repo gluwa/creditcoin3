@@ -9,6 +9,9 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+# Attestor
+common = { path = "../common" }
+
 # Creditcoin
 attestor = { workspace = true }
 attestor-primitives = { workspace = true }
