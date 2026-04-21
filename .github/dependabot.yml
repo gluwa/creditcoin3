@@ -52,6 +52,9 @@ updates:
     directories:
       - "/"
       - "/attestor/attestor"
+      - "/attestor/pool"
+      - "/attestor/metrics"
+      - "/attestor/common"
       - "/attestor/attestor_zombienet"
       - "/common/cc-client"
       - "/common/continuity"
@@ -63,6 +66,7 @@ updates:
       - "/common/indexer-client"
       - "/common/builder"
       - "/common/streams/eth"
+      - "/common/streams/cc3"
       - "/common/streams/attestation"
       - "/common/streams/util"
       - "/common/streams/stream"
