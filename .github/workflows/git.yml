@@ -70,7 +70,6 @@ jobs:
           fetch-depth: 0
           # checks out the branch of the PR, not in a detached state,
           ref: ${{ github.head_ref }}
-          lfs: true
 
       - name: Setup
         run: |
