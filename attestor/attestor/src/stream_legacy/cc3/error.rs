@@ -1,11 +1,9 @@
-use crate::prelude::*;
-
 #[derive(Debug)]
 pub enum Error {
     Client(cc_client::Error),
     Subxt(subxt::Error),
     EndOfStream,
-    BlockHash(common::types::Height),
+    BlockHash(attestor_primitives::Height),
 }
 
 impl std::fmt::Display for Error {

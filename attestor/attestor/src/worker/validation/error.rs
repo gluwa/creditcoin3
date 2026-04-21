@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum Error {
     CC3(crate::stream_legacy::cc3::Error),
-    Pool(super::pool::Error),
+    Pool(attestation_pool::Error),
     Client(cc_client::Error),
     Subxt(subxt::Error),
     Bls(bls_signatures::Error),

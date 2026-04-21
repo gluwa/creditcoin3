@@ -1,6 +1,5 @@
 pub mod attestation;
 pub mod bls;
-pub mod common;
 pub mod stream_legacy;
 pub mod worker;
 
@@ -10,12 +9,7 @@ pub use error::Error;
 
 // ----------------------------------------- [ Exports ] --------------------------------------- //
 
-pub mod prelude {
-    pub use crate::common;
-    pub use user::prelude::*;
-}
-
-use crate::prelude::*;
+use user::prelude::*;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
@@ -234,7 +228,7 @@ impl Attestor {
                 .chain_attestation_interval(chain_key)
                 .await
                 .map_err(Error::RpcError)?
-                .map(std::num::NonZero::<common::types::Height>::new)
+                .map(std::num::NonZero::<attestor_primitives::Height>::new)
                 .ok_or(Error::MissingAttestationInterval(chain_key))?
                 .unwrap(),
         };
@@ -353,7 +347,7 @@ impl Attestor {
             tokio::sync::broadcast::channel(common::constants::CAPACITY_CHANNEL);
 
         // attestation production / p2p sync -> attestation validation
-        let config = worker::validation::pool::ConfigBuilder::new()
+        let config = attestation_pool::ConfigBuilder::new()
             .with_attestors(attestors)
             .with_quorum(quorum)
             .with_start_height(start_height)
@@ -363,7 +357,7 @@ impl Attestor {
             .with_metrics(std::sync::Arc::clone(&metrics))
             .build();
         let (mut sender_validation, receiver_validation) =
-            worker::validation::pool::attestation_pool(config);
+            attestation_pool::attestation_pool(config);
 
         // ---------------------------------------* API *--------------------------------------- //
 
@@ -694,12 +688,12 @@ async fn wait_for_eligible(
 }
 
 async fn wait_for_genesis(
-    genesis: common::types::Height,
+    genesis: attestor_primitives::Height,
     client_eth: &eth::Client,
     account_id: &cc_client::AccountId32,
     stream_cc3: &mut stream_legacy::cc3::StreamCC3,
     stream_attestation: &mut stream::attestation::StreamAttestation,
-    sender_validation: &mut worker::validation::pool::AttestationPoolSender,
+    sender_validation: &mut attestation_pool::AttestationPoolSender,
     sender_p2p: &tokio::sync::broadcast::Sender<common::types::Attestation>,
 ) -> Result<stream::util::AttestationInfo, Interrupt<Error>> {
     use anyhow::Context as _;

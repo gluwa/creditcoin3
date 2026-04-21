@@ -7,3 +7,9 @@ impl MetricsAttestationPool for Box<dyn MetricsAttestationPool> {
         self.as_ref().update_attestation_delay_quorum(delay)
     }
 }
+
+impl<M: MetricsAttestationPool> MetricsAttestationPool for std::sync::Arc<M> {
+    fn update_attestation_delay_quorum(&self, delay: std::time::Duration) {
+        self.as_ref().update_attestation_delay_quorum(delay)
+    }
+}
