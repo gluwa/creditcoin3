@@ -43,7 +43,6 @@ sp-io = { workspace = true }
 subxt = { workspace = true }
 
 # Async & Parallelism
-async-stream = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }
 tokio-retry = { workspace = true }
@@ -78,16 +77,13 @@ tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 
-# Metrics
+# Api
 axum = { workspace = true }
-prometheus-client = { workspace = true }
-sysinfo = { workspace = true }
 
 # Errors
 anyhow = { workspace = true }
 
 # other
-parking_lot = { workspace = true }
 rand = { workspace = true, features = ["std_rng"] }
 user = { workspace = true }
 zeroize = { workspace = true }
