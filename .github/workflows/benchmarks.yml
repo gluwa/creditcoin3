@@ -132,6 +132,7 @@ jobs:
       - name: Run benchmarks to generate weights
         run: |
           .github/bench.sh -p attestation -b -s 2 -r 2
+          .github/bench.sh -p attest_coin_rewards -b
           .github/bench.sh -p randomness -b
           .github/bench.sh -p supported_chains -b
 
