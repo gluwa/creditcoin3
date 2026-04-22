@@ -106,32 +106,10 @@ jobs:
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-proof-gen']"
     secrets: inherit
 
-  deploy-runner-submit-proof:
-    needs:
-      - build-everything
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "submit-proof"
-    secrets: inherit
-
-  rm-gh-runner-submit-proof:
-    needs:
-      - exercise-scripts
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "submit-proof"
-    secrets: inherit
-
   exercise-scripts:
     needs:
-      - deploy-runner-submit-proof
-    runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "proxy-submit-proof"]
+      - build-everything
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
