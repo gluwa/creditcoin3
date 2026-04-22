@@ -1,13 +1,11 @@
 import { Command, OptionValues } from 'commander';
-import { newApi } from '../../lib';
-import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
-import { initKeyring } from '../../lib/account/keyring';
-import { proxyForOption, attestorAddressOption, chainKeyOption } from '../options';
+import { attestorAddressOption, chainKeyOption } from '../options';
+import { getAttestorContractWithSigner, substrateAddressToBytes32, extractEvmError } from '../../lib/attestor/precompile';
+import { getStringFromEnvVar } from '../../lib/account/keyring';
 
 export function makeRegisterAttestorCommand() {
     const cmd = new Command('register');
     cmd.description('Register an attestor and bond funds from a stash account');
-    cmd.addOption(proxyForOption);
     cmd.addOption(attestorAddressOption.makeOptionMandatory());
     cmd.addOption(chainKeyOption.makeOptionMandatory());
     cmd.action(registerAttestorAction);
@@ -15,17 +13,25 @@ export function makeRegisterAttestorCommand() {
 }
 
 async function registerAttestorAction(options: OptionValues) {
-    const { api } = await newApi(options.url as string);
+    const chainKey = options.chain as string;
+    const attestorSs58 = options.attestor as string;
+    const attestorId32 = substrateAddressToBytes32(attestorSs58);
 
-    const chainKey = options.chain;
-    const attestor = options.attestor as string;
+    const secret = getStringFromEnvVar(process.env.CC_SECRET);
+    const { contract } = getAttestorContractWithSigner(secret, options);
 
-    const keyring = await initKeyring(options);
-
-    const registerAttestorTx = api.tx.attestation.registerAttestor(chainKey, attestor);
-
-    await requireKeyringHasSufficientFunds(registerAttestorTx, keyring, api);
-    const result = await signSendAndWatchCcKeyring(registerAttestorTx, api, keyring);
-    console.log(result.info);
-    process.exit(result.status);
+    try {
+        const tx = await contract.registerAttestor(BigInt(chainKey), attestorId32);
+        const receipt = await tx.wait();
+        if (receipt.status === 1) {
+            console.log(`Transaction included at block (hash: ${receipt.blockHash})`);
+            process.exit(0);
+        } else {
+            console.log('Transaction failed');
+            process.exit(1);
+        }
+    } catch (error: unknown) {
+        console.log(extractEvmError(error));
+        process.exit(1);
+    }
 }

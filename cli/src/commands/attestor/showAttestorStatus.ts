@@ -1,6 +1,10 @@
 import { Command, OptionValues } from 'commander';
-import { newApi } from '../../lib';
 import { substrateAddressOption, chainKeyOption } from '../options';
+import {
+    getAttestorContractReadOnly,
+    substrateAddressToBytes32,
+    ATTESTOR_STATUS_ACTIVE,
+} from '../../lib/attestor/precompile';
 
 export function makeShowAttestorStatusCommand() {
     const cmd = new Command('show-status');
@@ -12,19 +16,19 @@ export function makeShowAttestorStatusCommand() {
 }
 
 async function showAttestorStatus(options: OptionValues) {
-    const { api } = await newApi(options.url as string);
-
     const address = options.substrateAddress as string;
     const chainKey = options.chain as string;
+    const attestorId32 = substrateAddressToBytes32(address);
 
-    const attestor = await api.query.attestation.attestors(chainKey, address);
-    if (attestor.isNone) {
+    const contract = getAttestorContractReadOnly(options);
+    const attestorInfo = await contract.getAttestor(BigInt(chainKey), attestorId32);
+
+    if (!attestorInfo.exists) {
         console.log(`Address ${address} is not an attestor`);
         process.exit(0);
     }
 
-    const status = attestor.unwrap().status;
-    if (status.isActive) {
+    if (attestorInfo.status === ATTESTOR_STATUS_ACTIVE) {
         console.log(`Address ${address} status is Active`);
         process.exit(0);
     }

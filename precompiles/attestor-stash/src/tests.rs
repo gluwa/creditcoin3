@@ -407,7 +407,9 @@ fn get_attestors_count_after_register() {
                 .prepare_test(
                     alice,
                     Precompile,
-                    PCall::get_attestors_count { chain_key: TEST_CHAIN_KEY },
+                    PCall::get_attestors_count {
+                        chain_key: TEST_CHAIN_KEY,
+                    },
                 )
                 .execute_returns(0u32);
 
@@ -426,7 +428,9 @@ fn get_attestors_count_after_register() {
                 .prepare_test(
                     alice,
                     Precompile,
-                    PCall::get_attestors_count { chain_key: TEST_CHAIN_KEY },
+                    PCall::get_attestors_count {
+                        chain_key: TEST_CHAIN_KEY,
+                    },
                 )
                 .execute_returns(1u32);
         });
@@ -443,11 +447,7 @@ fn get_ledger_after_register_returns_staked_amount() {
             // No ledger before register
             let alice_h256: H256 = Alice.into();
             precompiles()
-                .prepare_test(
-                    alice,
-                    Precompile,
-                    PCall::get_ledger { stash: alice_h256 },
-                )
+                .prepare_test(alice, Precompile, PCall::get_ledger { stash: alice_h256 })
                 .execute_returns(LedgerInfo::default());
 
             precompiles()
@@ -462,11 +462,7 @@ fn get_ledger_after_register_returns_staked_amount() {
                 .execute_returns(true);
 
             precompiles()
-                .prepare_test(
-                    alice,
-                    Precompile,
-                    PCall::get_ledger { stash: alice_h256 },
-                )
+                .prepare_test(alice, Precompile, PCall::get_ledger { stash: alice_h256 })
                 .execute_returns(LedgerInfo {
                     exists: true,
                     total_staked: MIN_BOND,
@@ -488,7 +484,9 @@ fn get_min_bond_requirement_returns_default() {
                 .prepare_test(
                     alice,
                     Precompile,
-                    PCall::get_min_bond_requirement { chain_key: TEST_CHAIN_KEY },
+                    PCall::get_min_bond_requirement {
+                        chain_key: TEST_CHAIN_KEY,
+                    },
                 )
                 .execute_returns(MIN_BOND);
         });
