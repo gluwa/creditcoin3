@@ -686,11 +686,7 @@ impl ContinuityBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        config::ContinuityConfig,
-        mocks::{make_mock_providers, MockEthRpcProvider},
-    };
-    use std::sync::Arc;
+    use crate::{config::ContinuityConfig, mocks::make_mock_providers};
 
     fn make_builder(block_confirmation_depth: u64) -> ContinuityBuilder {
         let chain_key = 2u64;
