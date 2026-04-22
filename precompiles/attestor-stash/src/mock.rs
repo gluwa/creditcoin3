@@ -118,6 +118,13 @@ impl From<BytesArray> for Account {
     }
 }
 
+impl From<Account> for BytesArray {
+    fn from(value: Account) -> Self {
+        let h: H256 = value.into();
+        h.into()
+    }
+}
+
 impl From<sp_core::sr25519::Public> for Account {
     fn from(value: sp_core::sr25519::Public) -> Self {
         let h = H256::from(value);
