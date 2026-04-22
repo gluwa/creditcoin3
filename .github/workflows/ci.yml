@@ -384,7 +384,7 @@ jobs:
 
           node ExportCheckpoints.js
 
-          cp checkpoints_2.csv checkpoints.csv.from_alice
+          mv checkpoints_2.csv checkpoints.csv.from_alice
         env:
           SOURCE_CHAIN: "ws://127.0.0.1:9944"
           CHAIN_KEY_ON_SOURCE: 2
@@ -411,7 +411,7 @@ jobs:
         if: always()
         working-directory: ./attestor/scripts
         run: |
-          node ImportCheckpoints.js --dev
+          node ImportCheckpoints.js --dev --file checkpoints.csv.from_alice
         env:
           MNEMONIC: "//Alice"
           DESTINATION_CHAIN: "ws://127.0.0.1:9977"
@@ -473,7 +473,7 @@ jobs:
               2>&1 | tee /var/tmp/integration-test-attestor-network/checkpoint-builder.log
 
           # Builder appends a timestamp, resolve the actual path for later steps.
-          BUILDER_CSV=$(ls /var/tmp/integration-test-attestor-network/builder_*.csv | head -n1)
+          BUILDER_CSV=$(find /var/tmp/integration-test-attestor-network -name 'builder_*.csv' | head -n1)
           echo "Builder CSV: $BUILDER_CSV"
           echo "BUILDER_CSV=$BUILDER_CSV" >> "$GITHUB_ENV"
 
