@@ -384,7 +384,7 @@ jobs:
 
           node ExportCheckpoints.js
 
-          cp checkpoints.csv checkpoints.csv.from_alice
+          cp checkpoints_2.csv checkpoints.csv.from_alice
         env:
           SOURCE_CHAIN: "ws://127.0.0.1:9944"
           CHAIN_KEY_ON_SOURCE: 2
@@ -425,7 +425,7 @@ jobs:
 
           node ExportCheckpoints.js
 
-          cp checkpoints.csv checkpoints.csv.from_dave
+          cp checkpoints_2.csv checkpoints.csv.from_dave
 
           # both files should match b/c they represent the same data
           diff -u checkpoints.csv.from_alice checkpoints.csv.from_dave | colordiff
