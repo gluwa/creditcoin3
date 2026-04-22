@@ -189,11 +189,7 @@ impl CcRpcProvider for MockCcRpcProvider {
                         header_number,
                         header_hash: H256::from_low_u64_be(header_number),
                         root: mock_root(header_number),
-                        prev_digest: if header_number == 0 {
-                            None
-                        } else {
-                            Some(mock_digest_chain(header_number - 1))
-                        },
+                        prev_digest: Some(mock_digest_chain(header_number - 1)),
                     },
                     signature: [0u8; 96],
                     attestors: vec![],
