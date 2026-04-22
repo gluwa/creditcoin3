@@ -6,6 +6,22 @@ address constant ATTESTOR_STASH_ADDRESS = 0x000000000000000000000000000000000000
 
 AttestorStash constant ATTESTOR_STASH_CONTRACT = AttestorStash(ATTESTOR_STASH_ADDRESS);
 
+/// @dev Attestor state returned by `getAttestor`.
+struct AttestorInfo {
+    bool exists;
+    uint8 status; // 0=Active, 1=Idle, 2=Waiting
+    bytes32 stash;
+    bool hasBlsKey;
+}
+
+/// @dev Ledger state returned by `getLedger`.
+struct LedgerInfo {
+    bool exists;
+    uint128 totalStaked;
+    uint128 active;
+    uint32 unlockingChunks;
+}
+
 /// @title AttestorStash — stash-facing operations of `pallet-attestation`
 /// @notice Only stash-authored calls are exposed here (`registerAttestor`,
 ///         `unregisterAttestor`, `chill`, `withdrawUnbonded`). `attest` is
@@ -48,4 +64,21 @@ interface AttestorStash {
     /// @notice Withdraw the caller stash's fully-unbonded funds.
     /// @dev Mirrors `pallet_attestation::withdraw_unbonded`.
     function withdrawUnbonded() external returns (bool);
+
+    /// @notice Returns attestor state for the given chain and attestor id.
+    /// @return info `AttestorInfo` struct (`exists == false` if not registered).
+    function getAttestor(uint64 chainKey, bytes32 attestorId) external view returns (AttestorInfo memory info);
+
+    /// @notice Returns true if the attestor is in the active set for `chainKey`.
+    function isActiveAttestor(uint64 chainKey, bytes32 attestorId) external view returns (bool active);
+
+    /// @notice Returns the number of registered attestors for `chainKey`.
+    function getAttestorsCount(uint64 chainKey) external view returns (uint32 count);
+
+    /// @notice Returns ledger info for the given stash account.
+    /// @return info `LedgerInfo` struct (`exists == false` if no ledger).
+    function getLedger(bytes32 stash) external view returns (LedgerInfo memory info);
+
+    /// @notice Returns the minimum bond requirement for `chainKey`.
+    function getMinBondRequirement(uint64 chainKey) external view returns (uint128 minBond);
 }
