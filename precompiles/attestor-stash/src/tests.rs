@@ -76,9 +76,9 @@ fn register_attestor_without_balance_should_revert() {
                     },
                 )
                 .execute_reverts(|output| {
-                    from_utf8(output)
-                        .unwrap()
-                        .contains("Dispatched call failed with error: ")
+                    let s = from_utf8(output).unwrap();
+                    s.contains("Dispatched call failed with error: ")
+                        && s.contains("InsufficientBalance")
                 });
         });
 }
@@ -102,9 +102,9 @@ fn register_attestor_for_unsupported_chain_should_revert() {
                     },
                 )
                 .execute_reverts(|output| {
-                    from_utf8(output)
-                        .unwrap()
-                        .contains("Dispatched call failed with error: ")
+                    let s = from_utf8(output).unwrap();
+                    s.contains("Dispatched call failed with error: ")
+                        && s.contains("ChainNotSupported")
                 });
         });
 }
@@ -127,9 +127,9 @@ fn unregister_attestor_not_registered_should_revert() {
                     },
                 )
                 .execute_reverts(|output| {
-                    from_utf8(output)
-                        .unwrap()
-                        .contains("Dispatched call failed with error: ")
+                    let s = from_utf8(output).unwrap();
+                    s.contains("Dispatched call failed with error: ")
+                        && s.contains("AddressNotAttestor")
                 });
         });
 }
@@ -200,9 +200,9 @@ fn chill_unknown_attestor_should_revert() {
                     },
                 )
                 .execute_reverts(|output| {
-                    from_utf8(output)
-                        .unwrap()
-                        .contains("Dispatched call failed with error: ")
+                    let s = from_utf8(output).unwrap();
+                    s.contains("Dispatched call failed with error: ")
+                        && s.contains("AddressNotAttestor")
                 });
         });
 }
@@ -238,9 +238,9 @@ fn chill_attestor_from_non_stash_should_revert() {
                     },
                 )
                 .execute_reverts(|output| {
-                    from_utf8(output)
-                        .unwrap()
-                        .contains("Dispatched call failed with error: ")
+                    let s = from_utf8(output).unwrap();
+                    s.contains("Dispatched call failed with error: ")
+                        && s.contains("NotYourAttestor")
                 });
         });
 }
@@ -296,9 +296,9 @@ fn withdraw_unbonded_with_nothing_to_withdraw_should_revert() {
             precompiles()
                 .prepare_test(alice, Precompile, PCall::withdraw_unbonded {})
                 .execute_reverts(|output| {
-                    from_utf8(output)
-                        .unwrap()
-                        .contains("Dispatched call failed with error: ")
+                    let s = from_utf8(output).unwrap();
+                    s.contains("Dispatched call failed with error: ")
+                        && s.contains("NotStash")
                 });
         });
 }
@@ -333,21 +333,22 @@ fn withdraw_unbonded_after_unregister_emits_event() {
                 )
                 .execute_returns(true);
 
-            // Withdraw is expected to revert because the unbonding duration has
-            // not elapsed yet in the test harness. We still assert the call
-            // path is reachable by the precompile (i.e. the call is dispatched
-            // and the pallet is the one that rejects).
+            // Advance past the bonding duration so `withdraw_unbonded` can
+            // release the locked funds.  `BondingDuration` is 3 eras in the
+            // test mock; we write `CurrentEra` directly rather than running the
+            // full session/babe machinery.
+            let bonding_duration =
+                <Runtime as pallet_attestation::Config>::BondingDuration::get();
+            pallet_staking::CurrentEra::<Runtime>::put(bonding_duration + 1);
+
             precompiles()
                 .prepare_test(alice, Precompile, PCall::withdraw_unbonded {})
-                .execute_some();
-
-            // Sanity check: event selector is wired correctly by emitting
-            // through the helper directly (pre-existing event wiring check).
-            let _ = log2(
-                Precompile,
-                SELECTOR_LOG_UNBONDED_WITHDRAWN,
-                H256::from(alice),
-                Vec::<u8>::new(),
-            );
+                .expect_log(log2(
+                    Precompile,
+                    SELECTOR_LOG_UNBONDED_WITHDRAWN,
+                    H256::from(alice),
+                    Vec::<u8>::new(),
+                ))
+                .execute_returns(true);
         });
 }

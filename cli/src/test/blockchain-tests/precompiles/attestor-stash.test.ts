@@ -108,7 +108,7 @@ describe('Precompile: AttestorStash', (): void => {
 
     test('registerAttestor twice for the same stash on the same chain reverts', async () => {
         await expect(contract.registerAttestor(chainKey, attestorId, { gasPrice })).rejects.toThrow(
-            /Dispatched call failed with error:/,
+            /Dispatched call failed with error:.*AlreadyAttestor/,
         );
     });
 
@@ -118,7 +118,7 @@ describe('Precompile: AttestorStash', (): void => {
         const freshAttestorId = randomAttestorId();
 
         await expect(contract.registerAttestor(unsupportedChainKey, freshAttestorId, { gasPrice })).rejects.toThrow(
-            /Dispatched call failed with error:/,
+            /Dispatched call failed with error:.*ChainNotSupported/,
         );
     });
 
@@ -129,7 +129,7 @@ describe('Precompile: AttestorStash', (): void => {
     test('chill on an unknown attestor id reverts (AddressNotAttestor)', async () => {
         const unknownAttestorId = randomAttestorId();
         await expect(contract.chill(chainKey, unknownAttestorId, { gasPrice })).rejects.toThrow(
-            /Dispatched call failed with error:/,
+            /Dispatched call failed with error:.*AddressNotAttestor/,
         );
     });
 
@@ -175,7 +175,7 @@ describe('Precompile: AttestorStash', (): void => {
 
     test('unregisterAttestor a second time reverts (AddressNotAttestor)', async () => {
         await expect(contract.unregisterAttestor(chainKey, attestorId, { gasPrice })).rejects.toThrow(
-            /Dispatched call failed with error:/,
+            /Dispatched call failed with error:.*AddressNotAttestor/,
         );
     });
 
