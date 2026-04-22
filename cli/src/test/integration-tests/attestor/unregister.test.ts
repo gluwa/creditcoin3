@@ -8,29 +8,26 @@ import fs = require('fs');
 import path = require('path');
 
 import { commandSync } from 'execa';
-import { execSync } from 'child_process';
 
 import { testIf, try_catch_else_finally } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
-    setUpProxy,
-    tearDownProxy,
+    fundFromSudo,
     waitEras,
     ALICE_NODE_URL,
     CLIBuilder,
 } from '../helpers';
-import { newApi, ApiPromise, KeyringPair } from '../../../lib';
+import { newApi, ApiPromise, KeyringPair, BN } from '../../../lib';
 import { chain_Anvil1_Key, chain_Anvil1_Url } from '../../blockchain-tests/pallets/supported-chains/consts';
+import { parseAmount } from '../../../commands/options';
 
 describe('unregister', () => {
     let api: ApiPromise;
     let caller: any;
-    let proxy: any;
     let sudoSigner: KeyringPair;
     let attestor: any;
     let CLI: any;
-    let nonProxiedCli: any;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
@@ -40,25 +37,17 @@ describe('unregister', () => {
     });
 
     beforeEach(async () => {
-        // Create and fund the test and proxy account
+        // Create and fund the test account (sr25519 + EVM stash)
         caller = await randomFundedAccount(api, sudoSigner);
-        nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
-
-        proxy = await randomFundedAccount(api, sudoSigner);
-        const wrongProxy = await randomFundedAccount(api, sudoSigner);
-        CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
+        await fundFromSudo(api, caller.evmStashAddress, parseAmount('1000'));
+        CLI = CLIBuilder({ CC_SECRET: caller.secret });
 
         attestor = await randomFundedAccount(api, sudoSigner);
 
-        // NOTE: caller/proxy is the STASH for a random attestor on the Anvil1 chain
-        // use CLI b/c it differentiates b/w caller/proxy accounts while direct API calls don't
-        const result = nonProxiedCli(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        // NOTE: caller is the STASH for a random attestor on the Anvil1 chain
+        const result = CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
     }, 150_000);
-
-    afterEach(() => {
-        tearDownProxy(nonProxiedCli, proxy);
-    }, 90_000);
 
     afterAll(async () => {
         try {
@@ -99,52 +88,17 @@ describe('unregister', () => {
         );
     }, 30_000);
 
-    testIf(
-        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
-        'should error with "Caller has insufficient funds" message',
-        () => {
-            try_catch_else_finally(
-                () => {
-                    CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-                },
-                (error: any) => {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain(
-                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                    );
-                },
-                () => {
-                    throw new Error('cli was expected to fail but it did not');
-                },
-            );
-        },
-    );
+    // NOTE: Proxy is not supported for EVM precompile calls.
+    testIf(false, 'proxy: should error with "Caller has insufficient funds" message', () => {
+        // disabled: proxy not supported via EVM precompile
+    });
+
+    testIf(false, 'proxy: should error with proxy.NotProxy message', () => {
+        // disabled: proxy not supported via EVM precompile
+    });
 
     testIf(
-        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
-        'should error with proxy.NotProxy message',
-        () => {
-            try_catch_else_finally(
-                () => {
-                    CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-                },
-                (error: any) => {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain(
-                        'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
-                    );
-                },
-                () => {
-                    throw new Error('cli was expected to fail but it did not');
-                },
-            );
-        },
-    );
-
-    testIf(
-        process.env.PROXY_ENABLED === undefined ||
-            process.env.PROXY_ENABLED === 'no' ||
-            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+        process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
         'should unregister the attestor',
         () => {
             const result = CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
@@ -155,9 +109,7 @@ describe('unregister', () => {
     );
 
     testIf(
-        process.env.PROXY_ENABLED === undefined ||
-            process.env.PROXY_ENABLED === 'no' ||
-            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+        process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
         'should fail when already unregistered',
         () => {
             // setup
@@ -183,19 +135,9 @@ describe('unregister', () => {
     );
 
     testIf(
-        process.env.PROXY_ENABLED === undefined ||
-            process.env.PROXY_ENABLED === 'no' ||
-            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+        process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
         'should fail when still active',
         async () => {
-            // don't use execa/commandSync b/c they parse & quote the input and passing the mnemonic fails
-            const secretSeed = execSync(
-                `subkey inspect "${attestor.secret}" | grep 'Secret seed:' | cut -f2 -d: | tr -d ' '`,
-            )
-                .toString()
-                .trim();
-            expect(secretSeed.startsWith('0x')).toEqual(true);
-
             // warning: GitHub doesn't allow uploading files with colon in their name
             const logsDir = './logs';
             if (!fs.existsSync(logsDir)) {

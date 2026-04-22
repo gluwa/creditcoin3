@@ -230,7 +230,12 @@ where
                 };
                 let stash: H256 = attestor.stash.into();
                 let has_bls_key = attestor.bls_public_key.is_some();
-                Ok(AttestorInfo { exists: true, status: status_u8, stash, has_bls_key })
+                Ok(AttestorInfo {
+                    exists: true,
+                    status: status_u8,
+                    stash,
+                    has_bls_key,
+                })
             }
         }
     }
@@ -253,10 +258,7 @@ where
     /// Returns the number of registered attestors for the given chain.
     #[precompile::public("getAttestorsCount(uint64)")]
     #[precompile::view]
-    fn get_attestors_count(
-        handle: &mut impl PrecompileHandle,
-        chain_key: u64,
-    ) -> EvmResult<u32> {
+    fn get_attestors_count(handle: &mut impl PrecompileHandle, chain_key: u64) -> EvmResult<u32> {
         let count = AttestorsCount::<Runtime>::get(chain_key as ChainKey);
         use parity_scale_codec::Encode;
         handle.record_db_read::<Runtime>(count.encoded_size())?;
@@ -266,10 +268,7 @@ where
     /// Returns ledger info for a given stash account.
     #[precompile::public("getLedger(bytes32)")]
     #[precompile::view]
-    fn get_ledger(
-        handle: &mut impl PrecompileHandle,
-        stash: H256,
-    ) -> EvmResult<LedgerInfo> {
+    fn get_ledger(handle: &mut impl PrecompileHandle, stash: H256) -> EvmResult<LedgerInfo> {
         let account = Runtime::AccountId::from(stash.0);
         match Ledger::<Runtime>::get(&account) {
             None => {

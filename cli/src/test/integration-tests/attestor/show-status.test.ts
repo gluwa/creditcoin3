@@ -7,12 +7,11 @@ import fs = require('fs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import path = require('path');
 
-import { execSync } from 'child_process';
-
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { try_catch_else_finally } from '../../utils';
-import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, randomFundedAccount, waitEras, CLIBuilder } from '../helpers';
+import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, randomFundedAccount, fundFromSudo, waitEras, CLIBuilder } from '../helpers';
 import { chain_Anvil1_Key, chain_Anvil1_Url } from '../../blockchain-tests/pallets/supported-chains/consts';
+import { parseAmount } from '../../../commands/options';
 
 describe('show-status', () => {
     let api: ApiPromise;
@@ -77,6 +76,8 @@ describe('show-status', () => {
     it('should display status Chill when attestor is registered but not active', async () => {
         // setup
         const caller = await randomFundedAccount(api, sudoSigner);
+        // Fund the EVM-derived stash for precompile calls
+        await fundFromSudo(api, caller.evmStashAddress, parseAmount('1000'));
         const authenticatedCLI = CLIBuilder({ CC_SECRET: caller.secret });
 
         let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
@@ -92,18 +93,12 @@ describe('show-status', () => {
     test('should display status Active when attestor is registered and active', async () => {
         // setup
         const caller = await randomFundedAccount(api, sudoSigner);
+        // Fund the EVM-derived stash for precompile calls
+        await fundFromSudo(api, caller.evmStashAddress, parseAmount('1000'));
         const authenticatedCLI = CLIBuilder({ CC_SECRET: caller.secret });
 
         let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
-
-        // don't use execa/commandSync b/c they parse & quote the input and passing the mnemonic fails
-        const secretSeed = execSync(
-            `subkey inspect "${attestor.secret}" | grep 'Secret seed:' | cut -f2 -d: | tr -d ' '`,
-        )
-            .toString()
-            .trim();
-        expect(secretSeed.startsWith('0x')).toEqual(true);
 
         // warning: GitHub doesn't allow uploading files with colon in their name
         const logsDir = './logs';
