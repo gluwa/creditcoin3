@@ -34,8 +34,8 @@ jobs:
 
   docker-test:
     needs:
-      - deploy-runner-docker-test
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-test"]
+      - docker-build
+    runs-on: ubuntu-24.04
     steps:
       - name: Download locally built docker image
         uses: actions/download-artifact@v8
@@ -140,17 +140,6 @@ jobs:
       proxy: "docker-build"
     secrets: inherit
 
-  deploy-runner-docker-test:
-    needs:
-      - docker-build
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: "docker-test"
-    secrets: inherit
-
   rm-gh-runner-docker-build:
     needs:
       - docker-build
@@ -159,14 +148,4 @@ jobs:
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy: "docker-build"
-    secrets: inherit
-
-  rm-gh-runner-docker-test:
-    needs:
-      - docker-test
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "docker-test"
     secrets: inherit
