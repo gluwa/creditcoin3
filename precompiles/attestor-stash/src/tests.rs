@@ -297,8 +297,7 @@ fn withdraw_unbonded_with_nothing_to_withdraw_should_revert() {
                 .prepare_test(alice, Precompile, PCall::withdraw_unbonded {})
                 .execute_reverts(|output| {
                     let s = from_utf8(output).unwrap();
-                    s.contains("Dispatched call failed with error: ")
-                        && s.contains("NotStash")
+                    s.contains("Dispatched call failed with error: ") && s.contains("NotStash")
                 });
         });
 }
@@ -337,8 +336,7 @@ fn withdraw_unbonded_after_unregister_emits_event() {
             // release the locked funds.  `BondingDuration` is 3 eras in the
             // test mock; we write `CurrentEra` directly rather than running the
             // full session/babe machinery.
-            let bonding_duration =
-                <Runtime as pallet_attestation::Config>::BondingDuration::get();
+            let bonding_duration = <Runtime as pallet_attestation::Config>::BondingDuration::get();
             pallet_staking::CurrentEra::<Runtime>::put(bonding_duration + 1);
 
             precompiles()
