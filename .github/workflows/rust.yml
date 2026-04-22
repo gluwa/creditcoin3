@@ -133,9 +133,7 @@ jobs:
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
   cargo-clippy:
-    needs:
-      - deploy-runner-clippy
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-clippy"]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
@@ -265,15 +263,6 @@ jobs:
           name: coverage-report
           path: target/llvm-cov/html/
 
-  deploy-runner-clippy:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "clippy"
-    secrets: inherit
-
   deploy-runner-check:
     uses: ./.github/workflows/deploy-runner.yml
     with:
@@ -290,16 +279,6 @@ jobs:
       LINODE_REGION: "nl-ams"
       LINODE_VM_SIZE: "g6-standard-4"
       proxy: "unit-test-creditcoin"
-    secrets: inherit
-
-  rm-gh-runner-clippy:
-    needs:
-      - cargo-clippy
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "clippy"
     secrets: inherit
 
   rm-gh-runner-check:
