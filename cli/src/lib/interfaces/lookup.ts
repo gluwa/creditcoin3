@@ -282,7 +282,724 @@ export default {
         _enum: ['Free', 'Reserved'],
     },
     /**
-     * Lookup33: pallet_assets::pallet::Event<T, I>
+     * Lookup33: pallet_staking::pallet::pallet::Event<T>
+     **/
+    PalletStakingPalletEvent: {
+        _enum: {
+            EraPaid: {
+                eraIndex: 'u32',
+                validatorPayout: 'u128',
+                remainder: 'u128',
+            },
+            Rewarded: {
+                stash: 'AccountId32',
+                dest: 'PalletStakingRewardDestination',
+                amount: 'u128',
+            },
+            Slashed: {
+                staker: 'AccountId32',
+                amount: 'u128',
+            },
+            SlashReported: {
+                validator: 'AccountId32',
+                fraction: 'Perbill',
+                slashEra: 'u32',
+            },
+            OldSlashingReportDiscarded: {
+                sessionIndex: 'u32',
+            },
+            StakersElected: 'Null',
+            Bonded: {
+                stash: 'AccountId32',
+                amount: 'u128',
+            },
+            Unbonded: {
+                stash: 'AccountId32',
+                amount: 'u128',
+            },
+            Withdrawn: {
+                stash: 'AccountId32',
+                amount: 'u128',
+            },
+            Kicked: {
+                nominator: 'AccountId32',
+                stash: 'AccountId32',
+            },
+            StakingElectionFailed: 'Null',
+            Chilled: {
+                stash: 'AccountId32',
+            },
+            PayoutStarted: {
+                eraIndex: 'u32',
+                validatorStash: 'AccountId32',
+            },
+            ValidatorPrefsSet: {
+                stash: 'AccountId32',
+                prefs: 'PalletStakingValidatorPrefs',
+            },
+            SnapshotVotersSizeExceeded: {
+                _alias: {
+                    size_: 'size',
+                },
+                size_: 'u32',
+            },
+            SnapshotTargetsSizeExceeded: {
+                _alias: {
+                    size_: 'size',
+                },
+                size_: 'u32',
+            },
+            ForceEra: {
+                mode: 'PalletStakingForcing',
+            },
+            ControllerBatchDeprecated: {
+                failures: 'u32',
+            },
+        },
+    },
+    /**
+     * Lookup34: pallet_staking::RewardDestination<sp_core::crypto::AccountId32>
+     **/
+    PalletStakingRewardDestination: {
+        _enum: {
+            Staked: 'Null',
+            Stash: 'Null',
+            Controller: 'Null',
+            Account: 'AccountId32',
+            None: 'Null',
+        },
+    },
+    /**
+     * Lookup36: pallet_staking::ValidatorPrefs
+     **/
+    PalletStakingValidatorPrefs: {
+        commission: 'Compact<Perbill>',
+        blocked: 'bool',
+    },
+    /**
+     * Lookup38: pallet_staking::Forcing
+     **/
+    PalletStakingForcing: {
+        _enum: ['NotForcing', 'ForceNew', 'ForceNone', 'ForceAlways'],
+    },
+    /**
+     * Lookup39: pallet_offences::pallet::Event
+     **/
+    PalletOffencesEvent: {
+        _enum: {
+            Offence: {
+                kind: '[u8;16]',
+                timeslot: 'Bytes',
+            },
+        },
+    },
+    /**
+     * Lookup41: pallet_session::pallet::Event
+     **/
+    PalletSessionEvent: {
+        _enum: {
+            NewSession: {
+                sessionIndex: 'u32',
+            },
+        },
+    },
+    /**
+     * Lookup42: pallet_grandpa::pallet::Event
+     **/
+    PalletGrandpaEvent: {
+        _enum: {
+            NewAuthorities: {
+                authoritySet: 'Vec<(SpConsensusGrandpaAppPublic,u64)>',
+            },
+            Paused: 'Null',
+            Resumed: 'Null',
+        },
+    },
+    /**
+     * Lookup45: sp_consensus_grandpa::app::Public
+     **/
+    SpConsensusGrandpaAppPublic: '[u8;32]',
+    /**
+     * Lookup46: pallet_im_online::pallet::Event<T>
+     **/
+    PalletImOnlineEvent: {
+        _enum: {
+            HeartbeatReceived: {
+                authorityId: 'PalletImOnlineSr25519AppSr25519Public',
+            },
+            AllGood: 'Null',
+            SomeOffline: {
+                offline: 'Vec<(AccountId32,SpStakingExposure)>',
+            },
+        },
+    },
+    /**
+     * Lookup47: pallet_im_online::sr25519::app_sr25519::Public
+     **/
+    PalletImOnlineSr25519AppSr25519Public: '[u8;32]',
+    /**
+     * Lookup50: sp_staking::Exposure<sp_core::crypto::AccountId32, Balance>
+     **/
+    SpStakingExposure: {
+        total: 'Compact<u128>',
+        own: 'Compact<u128>',
+        others: 'Vec<SpStakingIndividualExposure>',
+    },
+    /**
+     * Lookup53: sp_staking::IndividualExposure<sp_core::crypto::AccountId32, Balance>
+     **/
+    SpStakingIndividualExposure: {
+        who: 'AccountId32',
+        value: 'Compact<u128>',
+    },
+    /**
+     * Lookup54: pallet_bags_list::pallet::Event<T, I>
+     **/
+    PalletBagsListEvent: {
+        _enum: {
+            Rebagged: {
+                who: 'AccountId32',
+                from: 'u64',
+                to: 'u64',
+            },
+            ScoreUpdated: {
+                who: 'AccountId32',
+                newScore: 'u64',
+            },
+        },
+    },
+    /**
+     * Lookup55: pallet_transaction_payment::pallet::Event<T>
+     **/
+    PalletTransactionPaymentEvent: {
+        _enum: {
+            TransactionFeePaid: {
+                who: 'AccountId32',
+                actualFee: 'u128',
+                tip: 'u128',
+            },
+        },
+    },
+    /**
+     * Lookup56: pallet_sudo::pallet::Event<T>
+     **/
+    PalletSudoEvent: {
+        _enum: {
+            Sudid: {
+                sudoResult: 'Result<Null, SpRuntimeDispatchError>',
+            },
+            KeyChanged: {
+                _alias: {
+                    new_: 'new',
+                },
+                old: 'Option<AccountId32>',
+                new_: 'AccountId32',
+            },
+            KeyRemoved: 'Null',
+            SudoAsDone: {
+                sudoResult: 'Result<Null, SpRuntimeDispatchError>',
+            },
+        },
+    },
+    /**
+     * Lookup60: pallet_utility::pallet::Event
+     **/
+    PalletUtilityEvent: {
+        _enum: {
+            BatchInterrupted: {
+                index: 'u32',
+                error: 'SpRuntimeDispatchError',
+            },
+            BatchCompleted: 'Null',
+            BatchCompletedWithErrors: 'Null',
+            ItemCompleted: 'Null',
+            ItemFailed: {
+                error: 'SpRuntimeDispatchError',
+            },
+            DispatchedAs: {
+                result: 'Result<Null, SpRuntimeDispatchError>',
+            },
+        },
+    },
+    /**
+     * Lookup61: pallet_proxy::pallet::Event<T>
+     **/
+    PalletProxyEvent: {
+        _enum: {
+            ProxyExecuted: {
+                result: 'Result<Null, SpRuntimeDispatchError>',
+            },
+            PureCreated: {
+                pure: 'AccountId32',
+                who: 'AccountId32',
+                proxyType: 'Creditcoin3RuntimeProxyFilter',
+                disambiguationIndex: 'u16',
+            },
+            Announced: {
+                real: 'AccountId32',
+                proxy: 'AccountId32',
+                callHash: 'H256',
+            },
+            ProxyAdded: {
+                delegator: 'AccountId32',
+                delegatee: 'AccountId32',
+                proxyType: 'Creditcoin3RuntimeProxyFilter',
+                delay: 'u32',
+            },
+            ProxyRemoved: {
+                delegator: 'AccountId32',
+                delegatee: 'AccountId32',
+                proxyType: 'Creditcoin3RuntimeProxyFilter',
+                delay: 'u32',
+            },
+        },
+    },
+    /**
+     * Lookup62: creditcoin3_runtime::ProxyFilter
+     **/
+    Creditcoin3RuntimeProxyFilter: {
+        _enum: ['All', 'NonTransfer', 'Staking'],
+    },
+    /**
+     * Lookup64: pallet_identity::pallet::Event<T>
+     **/
+    PalletIdentityEvent: {
+        _enum: {
+            IdentitySet: {
+                who: 'AccountId32',
+            },
+            IdentityCleared: {
+                who: 'AccountId32',
+                deposit: 'u128',
+            },
+            IdentityKilled: {
+                who: 'AccountId32',
+                deposit: 'u128',
+            },
+            JudgementRequested: {
+                who: 'AccountId32',
+                registrarIndex: 'u32',
+            },
+            JudgementUnrequested: {
+                who: 'AccountId32',
+                registrarIndex: 'u32',
+            },
+            JudgementGiven: {
+                target: 'AccountId32',
+                registrarIndex: 'u32',
+            },
+            RegistrarAdded: {
+                registrarIndex: 'u32',
+            },
+            SubIdentityAdded: {
+                sub: 'AccountId32',
+                main: 'AccountId32',
+                deposit: 'u128',
+            },
+            SubIdentityRemoved: {
+                sub: 'AccountId32',
+                main: 'AccountId32',
+                deposit: 'u128',
+            },
+            SubIdentityRevoked: {
+                sub: 'AccountId32',
+                main: 'AccountId32',
+                deposit: 'u128',
+            },
+            AuthorityAdded: {
+                authority: 'AccountId32',
+            },
+            AuthorityRemoved: {
+                authority: 'AccountId32',
+            },
+            UsernameSet: {
+                who: 'AccountId32',
+                username: 'Bytes',
+            },
+            UsernameQueued: {
+                who: 'AccountId32',
+                username: 'Bytes',
+                expiration: 'u32',
+            },
+            PreapprovalExpired: {
+                whose: 'AccountId32',
+            },
+            PrimaryUsernameSet: {
+                who: 'AccountId32',
+                username: 'Bytes',
+            },
+            DanglingUsernameRemoved: {
+                who: 'AccountId32',
+                username: 'Bytes',
+            },
+        },
+    },
+    /**
+     * Lookup66: pallet_fast_unstake::pallet::Event<T>
+     **/
+    PalletFastUnstakeEvent: {
+        _enum: {
+            Unstaked: {
+                stash: 'AccountId32',
+                result: 'Result<Null, SpRuntimeDispatchError>',
+            },
+            Slashed: {
+                stash: 'AccountId32',
+                amount: 'u128',
+            },
+            BatchChecked: {
+                eras: 'Vec<u32>',
+            },
+            BatchFinished: {
+                _alias: {
+                    size_: 'size',
+                },
+                size_: 'u32',
+            },
+            InternalError: 'Null',
+        },
+    },
+    /**
+     * Lookup68: pallet_nomination_pools::pallet::Event<T>
+     **/
+    PalletNominationPoolsEvent: {
+        _enum: {
+            Created: {
+                depositor: 'AccountId32',
+                poolId: 'u32',
+            },
+            Bonded: {
+                member: 'AccountId32',
+                poolId: 'u32',
+                bonded: 'u128',
+                joined: 'bool',
+            },
+            PaidOut: {
+                member: 'AccountId32',
+                poolId: 'u32',
+                payout: 'u128',
+            },
+            Unbonded: {
+                member: 'AccountId32',
+                poolId: 'u32',
+                balance: 'u128',
+                points: 'u128',
+                era: 'u32',
+            },
+            Withdrawn: {
+                member: 'AccountId32',
+                poolId: 'u32',
+                balance: 'u128',
+                points: 'u128',
+            },
+            Destroyed: {
+                poolId: 'u32',
+            },
+            StateChanged: {
+                poolId: 'u32',
+                newState: 'PalletNominationPoolsPoolState',
+            },
+            MemberRemoved: {
+                poolId: 'u32',
+                member: 'AccountId32',
+                releasedBalance: 'u128',
+            },
+            RolesUpdated: {
+                root: 'Option<AccountId32>',
+                bouncer: 'Option<AccountId32>',
+                nominator: 'Option<AccountId32>',
+            },
+            PoolSlashed: {
+                poolId: 'u32',
+                balance: 'u128',
+            },
+            UnbondingPoolSlashed: {
+                poolId: 'u32',
+                era: 'u32',
+                balance: 'u128',
+            },
+            PoolCommissionUpdated: {
+                poolId: 'u32',
+                current: 'Option<(Perbill,AccountId32)>',
+            },
+            PoolMaxCommissionUpdated: {
+                poolId: 'u32',
+                maxCommission: 'Perbill',
+            },
+            PoolCommissionChangeRateUpdated: {
+                poolId: 'u32',
+                changeRate: 'PalletNominationPoolsCommissionChangeRate',
+            },
+            PoolCommissionClaimPermissionUpdated: {
+                poolId: 'u32',
+                permission: 'Option<PalletNominationPoolsCommissionClaimPermission>',
+            },
+            PoolCommissionClaimed: {
+                poolId: 'u32',
+                commission: 'u128',
+            },
+            MinBalanceDeficitAdjusted: {
+                poolId: 'u32',
+                amount: 'u128',
+            },
+            MinBalanceExcessAdjusted: {
+                poolId: 'u32',
+                amount: 'u128',
+            },
+        },
+    },
+    /**
+     * Lookup69: pallet_nomination_pools::PoolState
+     **/
+    PalletNominationPoolsPoolState: {
+        _enum: ['Open', 'Blocked', 'Destroying'],
+    },
+    /**
+     * Lookup72: pallet_nomination_pools::CommissionChangeRate<BlockNumber>
+     **/
+    PalletNominationPoolsCommissionChangeRate: {
+        maxIncrease: 'Perbill',
+        minDelay: 'u32',
+    },
+    /**
+     * Lookup74: pallet_nomination_pools::CommissionClaimPermission<sp_core::crypto::AccountId32>
+     **/
+    PalletNominationPoolsCommissionClaimPermission: {
+        _enum: {
+            Permissionless: 'Null',
+            Account: 'AccountId32',
+        },
+    },
+    /**
+     * Lookup75: pallet_ethereum::pallet::Event
+     **/
+    PalletEthereumEvent: {
+        _enum: {
+            Executed: {
+                from: 'H160',
+                to: 'H160',
+                transactionHash: 'H256',
+                exitReason: 'EvmCoreErrorExitReason',
+                extraData: 'Bytes',
+            },
+        },
+    },
+    /**
+     * Lookup78: evm_core::error::ExitReason
+     **/
+    EvmCoreErrorExitReason: {
+        _enum: {
+            Succeed: 'EvmCoreErrorExitSucceed',
+            Error: 'EvmCoreErrorExitError',
+            Revert: 'EvmCoreErrorExitRevert',
+            Fatal: 'EvmCoreErrorExitFatal',
+        },
+    },
+    /**
+     * Lookup79: evm_core::error::ExitSucceed
+     **/
+    EvmCoreErrorExitSucceed: {
+        _enum: ['Stopped', 'Returned', 'Suicided'],
+    },
+    /**
+     * Lookup80: evm_core::error::ExitError
+     **/
+    EvmCoreErrorExitError: {
+        _enum: {
+            StackUnderflow: 'Null',
+            StackOverflow: 'Null',
+            InvalidJump: 'Null',
+            InvalidRange: 'Null',
+            DesignatedInvalid: 'Null',
+            CallTooDeep: 'Null',
+            CreateCollision: 'Null',
+            CreateContractLimit: 'Null',
+            OutOfOffset: 'Null',
+            OutOfGas: 'Null',
+            OutOfFund: 'Null',
+            PCUnderflow: 'Null',
+            CreateEmpty: 'Null',
+            Other: 'Text',
+            MaxNonce: 'Null',
+            InvalidCode: 'u8',
+        },
+    },
+    /**
+     * Lookup84: evm_core::error::ExitRevert
+     **/
+    EvmCoreErrorExitRevert: {
+        _enum: ['Reverted'],
+    },
+    /**
+     * Lookup85: evm_core::error::ExitFatal
+     **/
+    EvmCoreErrorExitFatal: {
+        _enum: {
+            NotSupported: 'Null',
+            UnhandledInterrupt: 'Null',
+            CallErrorAsFatal: 'EvmCoreErrorExitError',
+            Other: 'Text',
+        },
+    },
+    /**
+     * Lookup86: pallet_evm::pallet::Event<T>
+     **/
+    PalletEvmEvent: {
+        _enum: {
+            Log: {
+                log: 'EthereumLog',
+            },
+            Created: {
+                address: 'H160',
+            },
+            CreatedFailed: {
+                address: 'H160',
+            },
+            Executed: {
+                address: 'H160',
+            },
+            ExecutedFailed: {
+                address: 'H160',
+            },
+        },
+    },
+    /**
+     * Lookup87: ethereum::log::Log
+     **/
+    EthereumLog: {
+        address: 'H160',
+        topics: 'Vec<H256>',
+        data: 'Bytes',
+    },
+    /**
+     * Lookup89: pallet_base_fee::pallet::Event
+     **/
+    PalletBaseFeeEvent: {
+        _enum: {
+            NewBaseFeePerGas: {
+                fee: 'U256',
+            },
+            BaseFeeOverflow: 'Null',
+            NewElasticity: {
+                elasticity: 'Permill',
+            },
+        },
+    },
+    /**
+     * Lookup93: pallet_attestation::pallet::Event<T>
+     **/
+    PalletAttestationEvent: {
+        _enum: {
+            AttestorRegistered: '(u64,AccountId32)',
+            AttestorUnregistered: '(u64,AccountId32)',
+            InvulnerableRegistered: '(u64,AccountId32)',
+            InvulnerableUnregistered: '(u64,AccountId32)',
+            BlockAttested: '(u64,u64,H256)',
+            CheckpointReached: '(u64,AttestorPrimitivesAttestationCheckpoint)',
+            PendingTargetSampleSizeSet: '(u64,u32)',
+            TargetSampleSizeChanged: '(u64,u32)',
+            Bonded: {
+                stash: 'AccountId32',
+                amount: 'u128',
+            },
+            Unbonded: {
+                stash: 'AccountId32',
+                amount: 'u128',
+            },
+            Withdrawn: {
+                stash: 'AccountId32',
+                amount: 'u128',
+            },
+            AttestorActivated: '(u64,AccountId32,[u8;48])',
+            AttestorChilled: '(u64,AccountId32)',
+            AttestorsElected: {
+                epoch: 'u64',
+                chainKey: 'u64',
+                attestors: 'Vec<AccountId32>',
+            },
+            MinBondRequirementUpdated: '(u64,u128)',
+            AttestationIntervalChanged: '(u64,u64)',
+            PendingAttestationIntervalSet: '(u64,u64)',
+            CheckpointsCleared: 'u64',
+            CheckpointIntervalChanged: '(u64,u32)',
+            MaxCatchupChanged: '(u64,u32)',
+            PendingMaxCatchupSet: '(u64,u32)',
+            ClearedStorageForRemovedChain: 'u64',
+            MaxAttestorsChanged: '(u64,u32)',
+            AttestationChainGenesisBlockNumberSet: '(u64,u64)',
+            ChangedElectionPolicy: '(u64,PalletAttestationAttestorElectionPolicy)',
+            AuthorizedAttestorAdded: '(u64,AccountId32)',
+            AuthorizedAttestorRemoved: '(u64,AccountId32)',
+            ForcedElection: {
+                epoch: 'u64',
+            },
+            ForcedUpdatesApplied: 'Null',
+            RevertedAttestationChainTo: {
+                chainKey: 'u64',
+                checkpointHeight: 'u64',
+                checkpointDigest: 'H256',
+            },
+        },
+    },
+    /**
+     * Lookup94: attestor_primitives::AttestationCheckpoint
+     **/
+    AttestorPrimitivesAttestationCheckpoint: {
+        blockNumber: 'u64',
+        digest: 'H256',
+    },
+    /**
+     * Lookup97: pallet_attestation::pallet::AttestorElectionPolicy
+     **/
+    PalletAttestationAttestorElectionPolicy: {
+        _enum: ['OpenToAny', 'AuthorizedOnly', 'DeniedToAll'],
+    },
+    /**
+     * Lookup98: pallet_supported_chains::pallet::Event<T>
+     **/
+    PalletSupportedChainsEvent: {
+        _enum: {
+            ChainRegistered: {
+                chainKey: 'u64',
+                chainId: 'u64',
+                chainName: 'Bytes',
+                chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
+                maturityStrategy: 'Text',
+            },
+            ChainRemoved: {
+                chainKey: 'u64',
+                chainId: 'u64',
+                chainName: 'Bytes',
+                chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
+                maturityStrategy: 'Text',
+            },
+        },
+    },
+    /**
+     * Lookup99: attestor_primitives::ChainEncodingVersion
+     **/
+    AttestorPrimitivesChainEncodingVersion: {
+        _enum: ['__Unused0', 'V1'],
+    },
+    /**
+     * Lookup100: pallet_randomness::pallet::Event<T>
+     **/
+    PalletRandomnessEvent: {
+        _enum: {
+            StoreRandomnessForEpoch: {
+                epochIndex: 'u64',
+                randomness: '[u8;32]',
+            },
+        },
+    },
+    /**
+     * Lookup101: pallet_membership::pallet::Event<T, I>
+     **/
+    PalletMembershipEvent: {
+        _enum: ['MemberAdded', 'MemberRemoved', 'MembersSwapped', 'MembersReset', 'KeyChanged', 'Dummy'],
+    },
+    /**
+     * Lookup102: pallet_assets::pallet::Event<T, I>
      **/
     PalletAssetsEvent: {
         _enum: {
@@ -408,680 +1125,7 @@ export default {
         },
     },
     /**
-     * Lookup34: pallet_staking::pallet::pallet::Event<T>
-     **/
-    PalletStakingPalletEvent: {
-        _enum: {
-            EraPaid: {
-                eraIndex: 'u32',
-                validatorPayout: 'u128',
-                remainder: 'u128',
-            },
-            Rewarded: {
-                stash: 'AccountId32',
-                dest: 'PalletStakingRewardDestination',
-                amount: 'u128',
-            },
-            Slashed: {
-                staker: 'AccountId32',
-                amount: 'u128',
-            },
-            SlashReported: {
-                validator: 'AccountId32',
-                fraction: 'Perbill',
-                slashEra: 'u32',
-            },
-            OldSlashingReportDiscarded: {
-                sessionIndex: 'u32',
-            },
-            StakersElected: 'Null',
-            Bonded: {
-                stash: 'AccountId32',
-                amount: 'u128',
-            },
-            Unbonded: {
-                stash: 'AccountId32',
-                amount: 'u128',
-            },
-            Withdrawn: {
-                stash: 'AccountId32',
-                amount: 'u128',
-            },
-            Kicked: {
-                nominator: 'AccountId32',
-                stash: 'AccountId32',
-            },
-            StakingElectionFailed: 'Null',
-            Chilled: {
-                stash: 'AccountId32',
-            },
-            PayoutStarted: {
-                eraIndex: 'u32',
-                validatorStash: 'AccountId32',
-            },
-            ValidatorPrefsSet: {
-                stash: 'AccountId32',
-                prefs: 'PalletStakingValidatorPrefs',
-            },
-            SnapshotVotersSizeExceeded: {
-                _alias: {
-                    size_: 'size',
-                },
-                size_: 'u32',
-            },
-            SnapshotTargetsSizeExceeded: {
-                _alias: {
-                    size_: 'size',
-                },
-                size_: 'u32',
-            },
-            ForceEra: {
-                mode: 'PalletStakingForcing',
-            },
-            ControllerBatchDeprecated: {
-                failures: 'u32',
-            },
-        },
-    },
-    /**
-     * Lookup35: pallet_staking::RewardDestination<sp_core::crypto::AccountId32>
-     **/
-    PalletStakingRewardDestination: {
-        _enum: {
-            Staked: 'Null',
-            Stash: 'Null',
-            Controller: 'Null',
-            Account: 'AccountId32',
-            None: 'Null',
-        },
-    },
-    /**
-     * Lookup37: pallet_staking::ValidatorPrefs
-     **/
-    PalletStakingValidatorPrefs: {
-        commission: 'Compact<Perbill>',
-        blocked: 'bool',
-    },
-    /**
-     * Lookup39: pallet_staking::Forcing
-     **/
-    PalletStakingForcing: {
-        _enum: ['NotForcing', 'ForceNew', 'ForceNone', 'ForceAlways'],
-    },
-    /**
-     * Lookup40: pallet_offences::pallet::Event
-     **/
-    PalletOffencesEvent: {
-        _enum: {
-            Offence: {
-                kind: '[u8;16]',
-                timeslot: 'Bytes',
-            },
-        },
-    },
-    /**
-     * Lookup42: pallet_session::pallet::Event
-     **/
-    PalletSessionEvent: {
-        _enum: {
-            NewSession: {
-                sessionIndex: 'u32',
-            },
-        },
-    },
-    /**
-     * Lookup43: pallet_grandpa::pallet::Event
-     **/
-    PalletGrandpaEvent: {
-        _enum: {
-            NewAuthorities: {
-                authoritySet: 'Vec<(SpConsensusGrandpaAppPublic,u64)>',
-            },
-            Paused: 'Null',
-            Resumed: 'Null',
-        },
-    },
-    /**
-     * Lookup46: sp_consensus_grandpa::app::Public
-     **/
-    SpConsensusGrandpaAppPublic: '[u8;32]',
-    /**
-     * Lookup47: pallet_im_online::pallet::Event<T>
-     **/
-    PalletImOnlineEvent: {
-        _enum: {
-            HeartbeatReceived: {
-                authorityId: 'PalletImOnlineSr25519AppSr25519Public',
-            },
-            AllGood: 'Null',
-            SomeOffline: {
-                offline: 'Vec<(AccountId32,SpStakingExposure)>',
-            },
-        },
-    },
-    /**
-     * Lookup48: pallet_im_online::sr25519::app_sr25519::Public
-     **/
-    PalletImOnlineSr25519AppSr25519Public: '[u8;32]',
-    /**
-     * Lookup51: sp_staking::Exposure<sp_core::crypto::AccountId32, Balance>
-     **/
-    SpStakingExposure: {
-        total: 'Compact<u128>',
-        own: 'Compact<u128>',
-        others: 'Vec<SpStakingIndividualExposure>',
-    },
-    /**
-     * Lookup54: sp_staking::IndividualExposure<sp_core::crypto::AccountId32, Balance>
-     **/
-    SpStakingIndividualExposure: {
-        who: 'AccountId32',
-        value: 'Compact<u128>',
-    },
-    /**
-     * Lookup55: pallet_bags_list::pallet::Event<T, I>
-     **/
-    PalletBagsListEvent: {
-        _enum: {
-            Rebagged: {
-                who: 'AccountId32',
-                from: 'u64',
-                to: 'u64',
-            },
-            ScoreUpdated: {
-                who: 'AccountId32',
-                newScore: 'u64',
-            },
-        },
-    },
-    /**
-     * Lookup56: pallet_transaction_payment::pallet::Event<T>
-     **/
-    PalletTransactionPaymentEvent: {
-        _enum: {
-            TransactionFeePaid: {
-                who: 'AccountId32',
-                actualFee: 'u128',
-                tip: 'u128',
-            },
-        },
-    },
-    /**
-     * Lookup57: pallet_sudo::pallet::Event<T>
-     **/
-    PalletSudoEvent: {
-        _enum: {
-            Sudid: {
-                sudoResult: 'Result<Null, SpRuntimeDispatchError>',
-            },
-            KeyChanged: {
-                _alias: {
-                    new_: 'new',
-                },
-                old: 'Option<AccountId32>',
-                new_: 'AccountId32',
-            },
-            KeyRemoved: 'Null',
-            SudoAsDone: {
-                sudoResult: 'Result<Null, SpRuntimeDispatchError>',
-            },
-        },
-    },
-    /**
-     * Lookup61: pallet_utility::pallet::Event
-     **/
-    PalletUtilityEvent: {
-        _enum: {
-            BatchInterrupted: {
-                index: 'u32',
-                error: 'SpRuntimeDispatchError',
-            },
-            BatchCompleted: 'Null',
-            BatchCompletedWithErrors: 'Null',
-            ItemCompleted: 'Null',
-            ItemFailed: {
-                error: 'SpRuntimeDispatchError',
-            },
-            DispatchedAs: {
-                result: 'Result<Null, SpRuntimeDispatchError>',
-            },
-        },
-    },
-    /**
-     * Lookup62: pallet_proxy::pallet::Event<T>
-     **/
-    PalletProxyEvent: {
-        _enum: {
-            ProxyExecuted: {
-                result: 'Result<Null, SpRuntimeDispatchError>',
-            },
-            PureCreated: {
-                pure: 'AccountId32',
-                who: 'AccountId32',
-                proxyType: 'Creditcoin3RuntimeProxyFilter',
-                disambiguationIndex: 'u16',
-            },
-            Announced: {
-                real: 'AccountId32',
-                proxy: 'AccountId32',
-                callHash: 'H256',
-            },
-            ProxyAdded: {
-                delegator: 'AccountId32',
-                delegatee: 'AccountId32',
-                proxyType: 'Creditcoin3RuntimeProxyFilter',
-                delay: 'u32',
-            },
-            ProxyRemoved: {
-                delegator: 'AccountId32',
-                delegatee: 'AccountId32',
-                proxyType: 'Creditcoin3RuntimeProxyFilter',
-                delay: 'u32',
-            },
-        },
-    },
-    /**
-     * Lookup63: creditcoin3_runtime::ProxyFilter
-     **/
-    Creditcoin3RuntimeProxyFilter: {
-        _enum: ['All', 'NonTransfer', 'Staking'],
-    },
-    /**
-     * Lookup65: pallet_identity::pallet::Event<T>
-     **/
-    PalletIdentityEvent: {
-        _enum: {
-            IdentitySet: {
-                who: 'AccountId32',
-            },
-            IdentityCleared: {
-                who: 'AccountId32',
-                deposit: 'u128',
-            },
-            IdentityKilled: {
-                who: 'AccountId32',
-                deposit: 'u128',
-            },
-            JudgementRequested: {
-                who: 'AccountId32',
-                registrarIndex: 'u32',
-            },
-            JudgementUnrequested: {
-                who: 'AccountId32',
-                registrarIndex: 'u32',
-            },
-            JudgementGiven: {
-                target: 'AccountId32',
-                registrarIndex: 'u32',
-            },
-            RegistrarAdded: {
-                registrarIndex: 'u32',
-            },
-            SubIdentityAdded: {
-                sub: 'AccountId32',
-                main: 'AccountId32',
-                deposit: 'u128',
-            },
-            SubIdentityRemoved: {
-                sub: 'AccountId32',
-                main: 'AccountId32',
-                deposit: 'u128',
-            },
-            SubIdentityRevoked: {
-                sub: 'AccountId32',
-                main: 'AccountId32',
-                deposit: 'u128',
-            },
-            AuthorityAdded: {
-                authority: 'AccountId32',
-            },
-            AuthorityRemoved: {
-                authority: 'AccountId32',
-            },
-            UsernameSet: {
-                who: 'AccountId32',
-                username: 'Bytes',
-            },
-            UsernameQueued: {
-                who: 'AccountId32',
-                username: 'Bytes',
-                expiration: 'u32',
-            },
-            PreapprovalExpired: {
-                whose: 'AccountId32',
-            },
-            PrimaryUsernameSet: {
-                who: 'AccountId32',
-                username: 'Bytes',
-            },
-            DanglingUsernameRemoved: {
-                who: 'AccountId32',
-                username: 'Bytes',
-            },
-        },
-    },
-    /**
-     * Lookup67: pallet_fast_unstake::pallet::Event<T>
-     **/
-    PalletFastUnstakeEvent: {
-        _enum: {
-            Unstaked: {
-                stash: 'AccountId32',
-                result: 'Result<Null, SpRuntimeDispatchError>',
-            },
-            Slashed: {
-                stash: 'AccountId32',
-                amount: 'u128',
-            },
-            BatchChecked: {
-                eras: 'Vec<u32>',
-            },
-            BatchFinished: {
-                _alias: {
-                    size_: 'size',
-                },
-                size_: 'u32',
-            },
-            InternalError: 'Null',
-        },
-    },
-    /**
-     * Lookup69: pallet_nomination_pools::pallet::Event<T>
-     **/
-    PalletNominationPoolsEvent: {
-        _enum: {
-            Created: {
-                depositor: 'AccountId32',
-                poolId: 'u32',
-            },
-            Bonded: {
-                member: 'AccountId32',
-                poolId: 'u32',
-                bonded: 'u128',
-                joined: 'bool',
-            },
-            PaidOut: {
-                member: 'AccountId32',
-                poolId: 'u32',
-                payout: 'u128',
-            },
-            Unbonded: {
-                member: 'AccountId32',
-                poolId: 'u32',
-                balance: 'u128',
-                points: 'u128',
-                era: 'u32',
-            },
-            Withdrawn: {
-                member: 'AccountId32',
-                poolId: 'u32',
-                balance: 'u128',
-                points: 'u128',
-            },
-            Destroyed: {
-                poolId: 'u32',
-            },
-            StateChanged: {
-                poolId: 'u32',
-                newState: 'PalletNominationPoolsPoolState',
-            },
-            MemberRemoved: {
-                poolId: 'u32',
-                member: 'AccountId32',
-                releasedBalance: 'u128',
-            },
-            RolesUpdated: {
-                root: 'Option<AccountId32>',
-                bouncer: 'Option<AccountId32>',
-                nominator: 'Option<AccountId32>',
-            },
-            PoolSlashed: {
-                poolId: 'u32',
-                balance: 'u128',
-            },
-            UnbondingPoolSlashed: {
-                poolId: 'u32',
-                era: 'u32',
-                balance: 'u128',
-            },
-            PoolCommissionUpdated: {
-                poolId: 'u32',
-                current: 'Option<(Perbill,AccountId32)>',
-            },
-            PoolMaxCommissionUpdated: {
-                poolId: 'u32',
-                maxCommission: 'Perbill',
-            },
-            PoolCommissionChangeRateUpdated: {
-                poolId: 'u32',
-                changeRate: 'PalletNominationPoolsCommissionChangeRate',
-            },
-            PoolCommissionClaimPermissionUpdated: {
-                poolId: 'u32',
-                permission: 'Option<PalletNominationPoolsCommissionClaimPermission>',
-            },
-            PoolCommissionClaimed: {
-                poolId: 'u32',
-                commission: 'u128',
-            },
-            MinBalanceDeficitAdjusted: {
-                poolId: 'u32',
-                amount: 'u128',
-            },
-            MinBalanceExcessAdjusted: {
-                poolId: 'u32',
-                amount: 'u128',
-            },
-        },
-    },
-    /**
-     * Lookup70: pallet_nomination_pools::PoolState
-     **/
-    PalletNominationPoolsPoolState: {
-        _enum: ['Open', 'Blocked', 'Destroying'],
-    },
-    /**
-     * Lookup73: pallet_nomination_pools::CommissionChangeRate<BlockNumber>
-     **/
-    PalletNominationPoolsCommissionChangeRate: {
-        maxIncrease: 'Perbill',
-        minDelay: 'u32',
-    },
-    /**
-     * Lookup75: pallet_nomination_pools::CommissionClaimPermission<sp_core::crypto::AccountId32>
-     **/
-    PalletNominationPoolsCommissionClaimPermission: {
-        _enum: {
-            Permissionless: 'Null',
-            Account: 'AccountId32',
-        },
-    },
-    /**
-     * Lookup76: pallet_ethereum::pallet::Event
-     **/
-    PalletEthereumEvent: {
-        _enum: {
-            Executed: {
-                from: 'H160',
-                to: 'H160',
-                transactionHash: 'H256',
-                exitReason: 'EvmCoreErrorExitReason',
-                extraData: 'Bytes',
-            },
-        },
-    },
-    /**
-     * Lookup79: evm_core::error::ExitReason
-     **/
-    EvmCoreErrorExitReason: {
-        _enum: {
-            Succeed: 'EvmCoreErrorExitSucceed',
-            Error: 'EvmCoreErrorExitError',
-            Revert: 'EvmCoreErrorExitRevert',
-            Fatal: 'EvmCoreErrorExitFatal',
-        },
-    },
-    /**
-     * Lookup80: evm_core::error::ExitSucceed
-     **/
-    EvmCoreErrorExitSucceed: {
-        _enum: ['Stopped', 'Returned', 'Suicided'],
-    },
-    /**
-     * Lookup81: evm_core::error::ExitError
-     **/
-    EvmCoreErrorExitError: {
-        _enum: {
-            StackUnderflow: 'Null',
-            StackOverflow: 'Null',
-            InvalidJump: 'Null',
-            InvalidRange: 'Null',
-            DesignatedInvalid: 'Null',
-            CallTooDeep: 'Null',
-            CreateCollision: 'Null',
-            CreateContractLimit: 'Null',
-            OutOfOffset: 'Null',
-            OutOfGas: 'Null',
-            OutOfFund: 'Null',
-            PCUnderflow: 'Null',
-            CreateEmpty: 'Null',
-            Other: 'Text',
-            MaxNonce: 'Null',
-            InvalidCode: 'u8',
-        },
-    },
-    /**
-     * Lookup85: evm_core::error::ExitRevert
-     **/
-    EvmCoreErrorExitRevert: {
-        _enum: ['Reverted'],
-    },
-    /**
-     * Lookup86: evm_core::error::ExitFatal
-     **/
-    EvmCoreErrorExitFatal: {
-        _enum: {
-            NotSupported: 'Null',
-            UnhandledInterrupt: 'Null',
-            CallErrorAsFatal: 'EvmCoreErrorExitError',
-            Other: 'Text',
-        },
-    },
-    /**
-     * Lookup87: pallet_evm::pallet::Event<T>
-     **/
-    PalletEvmEvent: {
-        _enum: {
-            Log: {
-                log: 'EthereumLog',
-            },
-            Created: {
-                address: 'H160',
-            },
-            CreatedFailed: {
-                address: 'H160',
-            },
-            Executed: {
-                address: 'H160',
-            },
-            ExecutedFailed: {
-                address: 'H160',
-            },
-        },
-    },
-    /**
-     * Lookup88: ethereum::log::Log
-     **/
-    EthereumLog: {
-        address: 'H160',
-        topics: 'Vec<H256>',
-        data: 'Bytes',
-    },
-    /**
-     * Lookup90: pallet_base_fee::pallet::Event
-     **/
-    PalletBaseFeeEvent: {
-        _enum: {
-            NewBaseFeePerGas: {
-                fee: 'U256',
-            },
-            BaseFeeOverflow: 'Null',
-            NewElasticity: {
-                elasticity: 'Permill',
-            },
-        },
-    },
-    /**
-     * Lookup94: pallet_attestation::pallet::Event<T>
-     **/
-    PalletAttestationEvent: {
-        _enum: {
-            AttestorRegistered: '(u64,AccountId32)',
-            AttestorUnregistered: '(u64,AccountId32)',
-            InvulnerableRegistered: '(u64,AccountId32)',
-            InvulnerableUnregistered: '(u64,AccountId32)',
-            BlockAttested: '(u64,u64,H256)',
-            CheckpointReached: '(u64,AttestorPrimitivesAttestationCheckpoint)',
-            PendingTargetSampleSizeSet: '(u64,u32)',
-            TargetSampleSizeChanged: '(u64,u32)',
-            Bonded: {
-                stash: 'AccountId32',
-                amount: 'u128',
-            },
-            Unbonded: {
-                stash: 'AccountId32',
-                amount: 'u128',
-            },
-            Withdrawn: {
-                stash: 'AccountId32',
-                amount: 'u128',
-            },
-            AttestorActivated: '(u64,AccountId32,[u8;48])',
-            AttestorChilled: '(u64,AccountId32)',
-            AttestorsElected: {
-                epoch: 'u64',
-                chainKey: 'u64',
-                attestors: 'Vec<AccountId32>',
-            },
-            MinBondRequirementUpdated: '(u64,u128)',
-            AttestationIntervalChanged: '(u64,u64)',
-            PendingAttestationIntervalSet: '(u64,u64)',
-            CheckpointsCleared: 'u64',
-            CheckpointIntervalChanged: '(u64,u32)',
-            MaxCatchupChanged: '(u64,u32)',
-            PendingMaxCatchupSet: '(u64,u32)',
-            ClearedStorageForRemovedChain: 'u64',
-            MaxAttestorsChanged: '(u64,u32)',
-            AttestationChainGenesisBlockNumberSet: '(u64,u64)',
-            ChangedElectionPolicy: '(u64,PalletAttestationAttestorElectionPolicy)',
-            AuthorizedAttestorAdded: '(u64,AccountId32)',
-            AuthorizedAttestorRemoved: '(u64,AccountId32)',
-            ForcedElection: {
-                epoch: 'u64',
-            },
-            ForcedUpdatesApplied: 'Null',
-            RevertedAttestationChainTo: {
-                chainKey: 'u64',
-                checkpointHeight: 'u64',
-                checkpointDigest: 'H256',
-            },
-        },
-    },
-    /**
-     * Lookup95: attestor_primitives::AttestationCheckpoint
-     **/
-    AttestorPrimitivesAttestationCheckpoint: {
-        blockNumber: 'u64',
-        digest: 'H256',
-    },
-    /**
-     * Lookup98: pallet_attestation::pallet::AttestorElectionPolicy
-     **/
-    PalletAttestationAttestorElectionPolicy: {
-        _enum: ['OpenToAny', 'AuthorizedOnly', 'DeniedToAll'],
-    },
-    /**
-     * Lookup99: pallet_attest_coin_rewards::pallet::Event<T>
+     * Lookup103: pallet_attest_coin_rewards::pallet::Event<T>
      **/
     PalletAttestCoinRewardsEvent: {
         _enum: {
@@ -1094,50 +1138,6 @@ export default {
                 token: 'H160',
             },
         },
-    },
-    /**
-     * Lookup100: pallet_supported_chains::pallet::Event<T>
-     **/
-    PalletSupportedChainsEvent: {
-        _enum: {
-            ChainRegistered: {
-                chainKey: 'u64',
-                chainId: 'u64',
-                chainName: 'Bytes',
-                chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
-                maturityStrategy: 'Text',
-            },
-            ChainRemoved: {
-                chainKey: 'u64',
-                chainId: 'u64',
-                chainName: 'Bytes',
-                chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
-                maturityStrategy: 'Text',
-            },
-        },
-    },
-    /**
-     * Lookup101: attestor_primitives::ChainEncodingVersion
-     **/
-    AttestorPrimitivesChainEncodingVersion: {
-        _enum: ['__Unused0', 'V1'],
-    },
-    /**
-     * Lookup102: pallet_randomness::pallet::Event<T>
-     **/
-    PalletRandomnessEvent: {
-        _enum: {
-            StoreRandomnessForEpoch: {
-                epochIndex: 'u64',
-                randomness: '[u8;32]',
-            },
-        },
-    },
-    /**
-     * Lookup103: pallet_membership::pallet::Event<T, I>
-     **/
-    PalletMembershipEvent: {
-        _enum: ['MemberAdded', 'MemberRemoved', 'MembersSwapped', 'MembersReset', 'KeyChanged', 'Dummy'],
     },
     /**
      * Lookup104: frame_system::Phase
@@ -1470,7 +1470,6 @@ export default {
             __Unused15: 'Null',
             __Unused16: 'Null',
             __Unused17: 'Null',
-            __Unused18: 'Null',
             NominationPools: 'PalletNominationPoolsFreezeReason',
         },
     },
@@ -1551,74 +1550,1316 @@ export default {
         ],
     },
     /**
-     * Lookup174: pallet_assets::types::AssetDetails<Balance, sp_core::crypto::AccountId32, DepositBalance>
+     * Lookup174: pallet_staking::StakingLedger<T>
      **/
-    PalletAssetsAssetDetails: {
-        owner: 'AccountId32',
-        issuer: 'AccountId32',
-        admin: 'AccountId32',
-        freezer: 'AccountId32',
-        supply: 'u128',
-        deposit: 'u128',
-        minBalance: 'u128',
-        isSufficient: 'bool',
-        accounts: 'u32',
-        sufficients: 'u32',
-        approvals: 'u32',
-        status: 'PalletAssetsAssetStatus',
+    PalletStakingStakingLedger: {
+        stash: 'AccountId32',
+        total: 'Compact<u128>',
+        active: 'Compact<u128>',
+        unlocking: 'Vec<PalletStakingUnlockChunk>',
+        legacyClaimedRewards: 'Vec<u32>',
     },
     /**
-     * Lookup175: pallet_assets::types::AssetStatus
+     * Lookup176: pallet_staking::UnlockChunk<Balance>
      **/
-    PalletAssetsAssetStatus: {
-        _enum: ['Live', 'Frozen', 'Destroying'],
+    PalletStakingUnlockChunk: {
+        value: 'Compact<u128>',
+        era: 'Compact<u32>',
     },
     /**
-     * Lookup177: pallet_assets::types::AssetAccount<Balance, DepositBalance, Extra, sp_core::crypto::AccountId32>
+     * Lookup179: pallet_staking::Nominations<T>
      **/
-    PalletAssetsAssetAccount: {
-        balance: 'u128',
-        status: 'PalletAssetsAccountStatus',
-        reason: 'PalletAssetsExistenceReason',
-        extra: 'Null',
+    PalletStakingNominations: {
+        targets: 'Vec<AccountId32>',
+        submittedIn: 'u32',
+        suppressed: 'bool',
     },
     /**
-     * Lookup178: pallet_assets::types::AccountStatus
+     * Lookup181: pallet_staking::ActiveEraInfo
      **/
-    PalletAssetsAccountStatus: {
-        _enum: ['Liquid', 'Frozen', 'Blocked'],
+    PalletStakingActiveEraInfo: {
+        index: 'u32',
+        start: 'Option<u64>',
     },
     /**
-     * Lookup179: pallet_assets::types::ExistenceReason<Balance, sp_core::crypto::AccountId32>
+     * Lookup184: sp_staking::PagedExposureMetadata<Balance>
      **/
-    PalletAssetsExistenceReason: {
+    SpStakingPagedExposureMetadata: {
+        total: 'Compact<u128>',
+        own: 'Compact<u128>',
+        nominatorCount: 'u32',
+        pageCount: 'u32',
+    },
+    /**
+     * Lookup186: sp_staking::ExposurePage<sp_core::crypto::AccountId32, Balance>
+     **/
+    SpStakingExposurePage: {
+        pageTotal: 'Compact<u128>',
+        others: 'Vec<SpStakingIndividualExposure>',
+    },
+    /**
+     * Lookup187: pallet_staking::EraRewardPoints<sp_core::crypto::AccountId32>
+     **/
+    PalletStakingEraRewardPoints: {
+        total: 'u32',
+        individual: 'BTreeMap<AccountId32, u32>',
+    },
+    /**
+     * Lookup193: pallet_staking::UnappliedSlash<sp_core::crypto::AccountId32, Balance>
+     **/
+    PalletStakingUnappliedSlash: {
+        validator: 'AccountId32',
+        own: 'u128',
+        others: 'Vec<(AccountId32,u128)>',
+        reporters: 'Vec<AccountId32>',
+        payout: 'u128',
+    },
+    /**
+     * Lookup197: pallet_staking::slashing::SlashingSpans
+     **/
+    PalletStakingSlashingSlashingSpans: {
+        spanIndex: 'u32',
+        lastStart: 'u32',
+        lastNonzeroSlash: 'u32',
+        prior: 'Vec<u32>',
+    },
+    /**
+     * Lookup198: pallet_staking::slashing::SpanRecord<Balance>
+     **/
+    PalletStakingSlashingSpanRecord: {
+        slashed: 'u128',
+        paidOut: 'u128',
+    },
+    /**
+     * Lookup199: pallet_staking::pallet::pallet::Call<T>
+     **/
+    PalletStakingPalletCall: {
         _enum: {
-            Consumer: 'Null',
-            Sufficient: 'Null',
-            DepositHeld: 'u128',
-            DepositRefunded: 'Null',
-            DepositFrom: '(AccountId32,u128)',
+            bond: {
+                value: 'Compact<u128>',
+                payee: 'PalletStakingRewardDestination',
+            },
+            bond_extra: {
+                maxAdditional: 'Compact<u128>',
+            },
+            unbond: {
+                value: 'Compact<u128>',
+            },
+            withdraw_unbonded: {
+                numSlashingSpans: 'u32',
+            },
+            validate: {
+                prefs: 'PalletStakingValidatorPrefs',
+            },
+            nominate: {
+                targets: 'Vec<MultiAddress>',
+            },
+            chill: 'Null',
+            set_payee: {
+                payee: 'PalletStakingRewardDestination',
+            },
+            set_controller: 'Null',
+            set_validator_count: {
+                _alias: {
+                    new_: 'new',
+                },
+                new_: 'Compact<u32>',
+            },
+            increase_validator_count: {
+                additional: 'Compact<u32>',
+            },
+            scale_validator_count: {
+                factor: 'Percent',
+            },
+            force_no_eras: 'Null',
+            force_new_era: 'Null',
+            set_invulnerables: {
+                invulnerables: 'Vec<AccountId32>',
+            },
+            force_unstake: {
+                stash: 'AccountId32',
+                numSlashingSpans: 'u32',
+            },
+            force_new_era_always: 'Null',
+            cancel_deferred_slash: {
+                era: 'u32',
+                slashIndices: 'Vec<u32>',
+            },
+            payout_stakers: {
+                validatorStash: 'AccountId32',
+                era: 'u32',
+            },
+            rebond: {
+                value: 'Compact<u128>',
+            },
+            reap_stash: {
+                stash: 'AccountId32',
+                numSlashingSpans: 'u32',
+            },
+            kick: {
+                who: 'Vec<MultiAddress>',
+            },
+            set_staking_configs: {
+                minNominatorBond: 'PalletStakingPalletConfigOpU128',
+                minValidatorBond: 'PalletStakingPalletConfigOpU128',
+                maxNominatorCount: 'PalletStakingPalletConfigOpU32',
+                maxValidatorCount: 'PalletStakingPalletConfigOpU32',
+                chillThreshold: 'PalletStakingPalletConfigOpPercent',
+                minCommission: 'PalletStakingPalletConfigOpPerbill',
+                maxStakedRewards: 'PalletStakingPalletConfigOpPercent',
+            },
+            chill_other: {
+                stash: 'AccountId32',
+            },
+            force_apply_min_commission: {
+                validatorStash: 'AccountId32',
+            },
+            set_min_commission: {
+                _alias: {
+                    new_: 'new',
+                },
+                new_: 'Perbill',
+            },
+            payout_stakers_by_page: {
+                validatorStash: 'AccountId32',
+                era: 'u32',
+                page: 'u32',
+            },
+            update_payee: {
+                controller: 'AccountId32',
+            },
+            deprecate_controller_batch: {
+                controllers: 'Vec<AccountId32>',
+            },
+            restore_ledger: {
+                stash: 'AccountId32',
+                maybeController: 'Option<AccountId32>',
+                maybeTotal: 'Option<u128>',
+                maybeUnlocking: 'Option<Vec<PalletStakingUnlockChunk>>',
+            },
+            __Unused30: 'Null',
+            __Unused31: 'Null',
+            withdraw_overstake: {
+                stash: 'AccountId32',
+            },
         },
     },
     /**
-     * Lookup181: pallet_assets::types::Approval<Balance, DepositBalance>
+     * Lookup201: pallet_staking::pallet::pallet::ConfigOp<T>
      **/
-    PalletAssetsApproval: {
-        amount: 'u128',
-        deposit: 'u128',
+    PalletStakingPalletConfigOpU128: {
+        _enum: {
+            Noop: 'Null',
+            Set: 'u128',
+            Remove: 'Null',
+        },
     },
     /**
-     * Lookup182: pallet_assets::types::AssetMetadata<DepositBalance, bounded_collections::bounded_vec::BoundedVec<T, S>>
+     * Lookup202: pallet_staking::pallet::pallet::ConfigOp<T>
      **/
-    PalletAssetsAssetMetadata: {
-        deposit: 'u128',
-        name: 'Bytes',
-        symbol: 'Bytes',
-        decimals: 'u8',
-        isFrozen: 'bool',
+    PalletStakingPalletConfigOpU32: {
+        _enum: {
+            Noop: 'Null',
+            Set: 'u32',
+            Remove: 'Null',
+        },
     },
     /**
-     * Lookup184: pallet_assets::pallet::Call<T, I>
+     * Lookup203: pallet_staking::pallet::pallet::ConfigOp<sp_arithmetic::per_things::Percent>
+     **/
+    PalletStakingPalletConfigOpPercent: {
+        _enum: {
+            Noop: 'Null',
+            Set: 'Percent',
+            Remove: 'Null',
+        },
+    },
+    /**
+     * Lookup204: pallet_staking::pallet::pallet::ConfigOp<sp_arithmetic::per_things::Perbill>
+     **/
+    PalletStakingPalletConfigOpPerbill: {
+        _enum: {
+            Noop: 'Null',
+            Set: 'Perbill',
+            Remove: 'Null',
+        },
+    },
+    /**
+     * Lookup208: pallet_staking::pallet::pallet::Error<T>
+     **/
+    PalletStakingPalletError: {
+        _enum: [
+            'NotController',
+            'NotStash',
+            'AlreadyBonded',
+            'AlreadyPaired',
+            'EmptyTargets',
+            'DuplicateIndex',
+            'InvalidSlashIndex',
+            'InsufficientBond',
+            'NoMoreChunks',
+            'NoUnlockChunk',
+            'FundedTarget',
+            'InvalidEraToReward',
+            'InvalidNumberOfNominations',
+            'NotSortedAndUnique',
+            'AlreadyClaimed',
+            'InvalidPage',
+            'IncorrectHistoryDepth',
+            'IncorrectSlashingSpans',
+            'BadState',
+            'TooManyTargets',
+            'BadTarget',
+            'CannotChillOther',
+            'TooManyNominators',
+            'TooManyValidators',
+            'CommissionTooLow',
+            'BoundNotMet',
+            'ControllerDeprecated',
+            'CannotRestoreLedger',
+            'RewardDestinationRestricted',
+            'NotEnoughFunds',
+            'VirtualStakerNotAllowed',
+        ],
+    },
+    /**
+     * Lookup209: sp_staking::offence::OffenceDetails<sp_core::crypto::AccountId32, Offender>
+     **/
+    SpStakingOffenceOffenceDetails: {
+        offender: '(AccountId32,SpStakingExposure)',
+        reporters: 'Vec<AccountId32>',
+    },
+    /**
+     * Lookup213: creditcoin3_runtime::opaque::SessionKeys
+     **/
+    Creditcoin3RuntimeOpaqueSessionKeys: {
+        grandpa: 'SpConsensusGrandpaAppPublic',
+        babe: 'SpConsensusBabeAppPublic',
+        imOnline: 'PalletImOnlineSr25519AppSr25519Public',
+    },
+    /**
+     * Lookup215: sp_core::crypto::KeyTypeId
+     **/
+    SpCoreCryptoKeyTypeId: '[u8;4]',
+    /**
+     * Lookup216: pallet_session::pallet::Call<T>
+     **/
+    PalletSessionCall: {
+        _enum: {
+            set_keys: {
+                _alias: {
+                    keys_: 'keys',
+                },
+                keys_: 'Creditcoin3RuntimeOpaqueSessionKeys',
+                proof: 'Bytes',
+            },
+            purge_keys: 'Null',
+        },
+    },
+    /**
+     * Lookup217: pallet_session::pallet::Error<T>
+     **/
+    PalletSessionError: {
+        _enum: ['InvalidProof', 'NoAssociatedValidatorId', 'DuplicatedKey', 'NoKeys', 'NoAccount'],
+    },
+    /**
+     * Lookup218: pallet_grandpa::StoredState<N>
+     **/
+    PalletGrandpaStoredState: {
+        _enum: {
+            Live: 'Null',
+            PendingPause: {
+                scheduledAt: 'u32',
+                delay: 'u32',
+            },
+            Paused: 'Null',
+            PendingResume: {
+                scheduledAt: 'u32',
+                delay: 'u32',
+            },
+        },
+    },
+    /**
+     * Lookup219: pallet_grandpa::StoredPendingChange<N, Limit>
+     **/
+    PalletGrandpaStoredPendingChange: {
+        scheduledAt: 'u32',
+        delay: 'u32',
+        nextAuthorities: 'Vec<(SpConsensusGrandpaAppPublic,u64)>',
+        forced: 'Option<u32>',
+    },
+    /**
+     * Lookup222: pallet_grandpa::pallet::Call<T>
+     **/
+    PalletGrandpaCall: {
+        _enum: {
+            report_equivocation: {
+                equivocationProof: 'SpConsensusGrandpaEquivocationProof',
+                keyOwnerProof: 'SpSessionMembershipProof',
+            },
+            report_equivocation_unsigned: {
+                equivocationProof: 'SpConsensusGrandpaEquivocationProof',
+                keyOwnerProof: 'SpSessionMembershipProof',
+            },
+            note_stalled: {
+                delay: 'u32',
+                bestFinalizedBlockNumber: 'u32',
+            },
+        },
+    },
+    /**
+     * Lookup223: sp_consensus_grandpa::EquivocationProof<primitive_types::H256, N>
+     **/
+    SpConsensusGrandpaEquivocationProof: {
+        setId: 'u64',
+        equivocation: 'SpConsensusGrandpaEquivocation',
+    },
+    /**
+     * Lookup224: sp_consensus_grandpa::Equivocation<primitive_types::H256, N>
+     **/
+    SpConsensusGrandpaEquivocation: {
+        _enum: {
+            Prevote: 'FinalityGrandpaEquivocationPrevote',
+            Precommit: 'FinalityGrandpaEquivocationPrecommit',
+        },
+    },
+    /**
+     * Lookup225: finality_grandpa::Equivocation<sp_consensus_grandpa::app::Public, finality_grandpa::Prevote<primitive_types::H256, N>, sp_consensus_grandpa::app::Signature>
+     **/
+    FinalityGrandpaEquivocationPrevote: {
+        roundNumber: 'u64',
+        identity: 'SpConsensusGrandpaAppPublic',
+        first: '(FinalityGrandpaPrevote,SpConsensusGrandpaAppSignature)',
+        second: '(FinalityGrandpaPrevote,SpConsensusGrandpaAppSignature)',
+    },
+    /**
+     * Lookup226: finality_grandpa::Prevote<primitive_types::H256, N>
+     **/
+    FinalityGrandpaPrevote: {
+        targetHash: 'H256',
+        targetNumber: 'u32',
+    },
+    /**
+     * Lookup227: sp_consensus_grandpa::app::Signature
+     **/
+    SpConsensusGrandpaAppSignature: '[u8;64]',
+    /**
+     * Lookup229: finality_grandpa::Equivocation<sp_consensus_grandpa::app::Public, finality_grandpa::Precommit<primitive_types::H256, N>, sp_consensus_grandpa::app::Signature>
+     **/
+    FinalityGrandpaEquivocationPrecommit: {
+        roundNumber: 'u64',
+        identity: 'SpConsensusGrandpaAppPublic',
+        first: '(FinalityGrandpaPrecommit,SpConsensusGrandpaAppSignature)',
+        second: '(FinalityGrandpaPrecommit,SpConsensusGrandpaAppSignature)',
+    },
+    /**
+     * Lookup230: finality_grandpa::Precommit<primitive_types::H256, N>
+     **/
+    FinalityGrandpaPrecommit: {
+        targetHash: 'H256',
+        targetNumber: 'u32',
+    },
+    /**
+     * Lookup232: pallet_grandpa::pallet::Error<T>
+     **/
+    PalletGrandpaError: {
+        _enum: [
+            'PauseFailed',
+            'ResumeFailed',
+            'ChangePending',
+            'TooSoon',
+            'InvalidKeyOwnershipProof',
+            'InvalidEquivocationProof',
+            'DuplicateOffenceReport',
+        ],
+    },
+    /**
+     * Lookup235: pallet_im_online::pallet::Call<T>
+     **/
+    PalletImOnlineCall: {
+        _enum: {
+            heartbeat: {
+                heartbeat: 'PalletImOnlineHeartbeat',
+                signature: 'PalletImOnlineSr25519AppSr25519Signature',
+            },
+        },
+    },
+    /**
+     * Lookup236: pallet_im_online::Heartbeat<BlockNumber>
+     **/
+    PalletImOnlineHeartbeat: {
+        blockNumber: 'u32',
+        sessionIndex: 'u32',
+        authorityIndex: 'u32',
+        validatorsLen: 'u32',
+    },
+    /**
+     * Lookup237: pallet_im_online::sr25519::app_sr25519::Signature
+     **/
+    PalletImOnlineSr25519AppSr25519Signature: '[u8;64]',
+    /**
+     * Lookup238: pallet_im_online::pallet::Error<T>
+     **/
+    PalletImOnlineError: {
+        _enum: ['InvalidKey', 'DuplicatedHeartbeat'],
+    },
+    /**
+     * Lookup239: pallet_bags_list::list::Node<T, I>
+     **/
+    PalletBagsListListNode: {
+        id: 'AccountId32',
+        prev: 'Option<AccountId32>',
+        next: 'Option<AccountId32>',
+        bagUpper: 'u64',
+        score: 'u64',
+    },
+    /**
+     * Lookup240: pallet_bags_list::list::Bag<T, I>
+     **/
+    PalletBagsListListBag: {
+        head: 'Option<AccountId32>',
+        tail: 'Option<AccountId32>',
+    },
+    /**
+     * Lookup241: pallet_bags_list::pallet::Call<T, I>
+     **/
+    PalletBagsListCall: {
+        _enum: {
+            rebag: {
+                dislocated: 'MultiAddress',
+            },
+            put_in_front_of: {
+                lighter: 'MultiAddress',
+            },
+            put_in_front_of_other: {
+                heavier: 'MultiAddress',
+                lighter: 'MultiAddress',
+            },
+        },
+    },
+    /**
+     * Lookup243: pallet_bags_list::pallet::Error<T, I>
+     **/
+    PalletBagsListError: {
+        _enum: {
+            List: 'PalletBagsListListListError',
+        },
+    },
+    /**
+     * Lookup244: pallet_bags_list::list::ListError
+     **/
+    PalletBagsListListListError: {
+        _enum: ['Duplicate', 'NotHeavier', 'NotInSameBag', 'NodeNotFound'],
+    },
+    /**
+     * Lookup247: pallet_transaction_payment::Releases
+     **/
+    PalletTransactionPaymentReleases: {
+        _enum: ['V1Ancient', 'V2'],
+    },
+    /**
+     * Lookup248: pallet_sudo::pallet::Call<T>
+     **/
+    PalletSudoCall: {
+        _enum: {
+            sudo: {
+                call: 'Call',
+            },
+            sudo_unchecked_weight: {
+                call: 'Call',
+                weight: 'SpWeightsWeightV2Weight',
+            },
+            set_key: {
+                _alias: {
+                    new_: 'new',
+                },
+                new_: 'MultiAddress',
+            },
+            sudo_as: {
+                who: 'MultiAddress',
+                call: 'Call',
+            },
+            remove_key: 'Null',
+        },
+    },
+    /**
+     * Lookup250: pallet_utility::pallet::Call<T>
+     **/
+    PalletUtilityCall: {
+        _enum: {
+            batch: {
+                calls: 'Vec<Call>',
+            },
+            as_derivative: {
+                index: 'u16',
+                call: 'Call',
+            },
+            batch_all: {
+                calls: 'Vec<Call>',
+            },
+            dispatch_as: {
+                asOrigin: 'Creditcoin3RuntimeOriginCaller',
+                call: 'Call',
+            },
+            force_batch: {
+                calls: 'Vec<Call>',
+            },
+            with_weight: {
+                call: 'Call',
+                weight: 'SpWeightsWeightV2Weight',
+            },
+        },
+    },
+    /**
+     * Lookup252: creditcoin3_runtime::OriginCaller
+     **/
+    Creditcoin3RuntimeOriginCaller: {
+        _enum: {
+            system: 'FrameSupportDispatchRawOrigin',
+            __Unused1: 'Null',
+            __Unused2: 'Null',
+            __Unused3: 'Null',
+            __Unused4: 'Null',
+            __Unused5: 'Null',
+            __Unused6: 'Null',
+            __Unused7: 'Null',
+            __Unused8: 'Null',
+            __Unused9: 'Null',
+            __Unused10: 'Null',
+            __Unused11: 'Null',
+            __Unused12: 'Null',
+            __Unused13: 'Null',
+            __Unused14: 'Null',
+            __Unused15: 'Null',
+            __Unused16: 'Null',
+            __Unused17: 'Null',
+            __Unused18: 'Null',
+            Ethereum: 'PalletEthereumRawOrigin',
+        },
+    },
+    /**
+     * Lookup253: frame_support::dispatch::RawOrigin<sp_core::crypto::AccountId32>
+     **/
+    FrameSupportDispatchRawOrigin: {
+        _enum: {
+            Root: 'Null',
+            Signed: 'AccountId32',
+            None: 'Null',
+        },
+    },
+    /**
+     * Lookup254: pallet_ethereum::RawOrigin
+     **/
+    PalletEthereumRawOrigin: {
+        _enum: {
+            EthereumTransaction: 'H160',
+        },
+    },
+    /**
+     * Lookup255: pallet_proxy::pallet::Call<T>
+     **/
+    PalletProxyCall: {
+        _enum: {
+            proxy: {
+                real: 'MultiAddress',
+                forceProxyType: 'Option<Creditcoin3RuntimeProxyFilter>',
+                call: 'Call',
+            },
+            add_proxy: {
+                delegate: 'MultiAddress',
+                proxyType: 'Creditcoin3RuntimeProxyFilter',
+                delay: 'u32',
+            },
+            remove_proxy: {
+                delegate: 'MultiAddress',
+                proxyType: 'Creditcoin3RuntimeProxyFilter',
+                delay: 'u32',
+            },
+            remove_proxies: 'Null',
+            create_pure: {
+                proxyType: 'Creditcoin3RuntimeProxyFilter',
+                delay: 'u32',
+                index: 'u16',
+            },
+            kill_pure: {
+                spawner: 'MultiAddress',
+                proxyType: 'Creditcoin3RuntimeProxyFilter',
+                index: 'u16',
+                height: 'Compact<u32>',
+                extIndex: 'Compact<u32>',
+            },
+            announce: {
+                real: 'MultiAddress',
+                callHash: 'H256',
+            },
+            remove_announcement: {
+                real: 'MultiAddress',
+                callHash: 'H256',
+            },
+            reject_announcement: {
+                delegate: 'MultiAddress',
+                callHash: 'H256',
+            },
+            proxy_announced: {
+                delegate: 'MultiAddress',
+                real: 'MultiAddress',
+                forceProxyType: 'Option<Creditcoin3RuntimeProxyFilter>',
+                call: 'Call',
+            },
+        },
+    },
+    /**
+     * Lookup257: pallet_identity::pallet::Call<T>
+     **/
+    PalletIdentityCall: {
+        _enum: {
+            add_registrar: {
+                account: 'MultiAddress',
+            },
+            set_identity: {
+                info: 'PalletIdentityLegacyIdentityInfo',
+            },
+            set_subs: {
+                subs: 'Vec<(AccountId32,Data)>',
+            },
+            clear_identity: 'Null',
+            request_judgement: {
+                regIndex: 'Compact<u32>',
+                maxFee: 'Compact<u128>',
+            },
+            cancel_request: {
+                regIndex: 'u32',
+            },
+            set_fee: {
+                index: 'Compact<u32>',
+                fee: 'Compact<u128>',
+            },
+            set_account_id: {
+                _alias: {
+                    new_: 'new',
+                },
+                index: 'Compact<u32>',
+                new_: 'MultiAddress',
+            },
+            set_fields: {
+                index: 'Compact<u32>',
+                fields: 'u64',
+            },
+            provide_judgement: {
+                regIndex: 'Compact<u32>',
+                target: 'MultiAddress',
+                judgement: 'PalletIdentityJudgement',
+                identity: 'H256',
+            },
+            kill_identity: {
+                target: 'MultiAddress',
+            },
+            add_sub: {
+                sub: 'MultiAddress',
+                data: 'Data',
+            },
+            rename_sub: {
+                sub: 'MultiAddress',
+                data: 'Data',
+            },
+            remove_sub: {
+                sub: 'MultiAddress',
+            },
+            quit_sub: 'Null',
+            add_username_authority: {
+                authority: 'MultiAddress',
+                suffix: 'Bytes',
+                allocation: 'u32',
+            },
+            remove_username_authority: {
+                authority: 'MultiAddress',
+            },
+            set_username_for: {
+                who: 'MultiAddress',
+                username: 'Bytes',
+                signature: 'Option<SpRuntimeMultiSignature>',
+            },
+            accept_username: {
+                username: 'Bytes',
+            },
+            remove_expired_approval: {
+                username: 'Bytes',
+            },
+            set_primary_username: {
+                username: 'Bytes',
+            },
+            remove_dangling_username: {
+                username: 'Bytes',
+            },
+        },
+    },
+    /**
+     * Lookup258: pallet_identity::legacy::IdentityInfo<FieldLimit>
+     **/
+    PalletIdentityLegacyIdentityInfo: {
+        additional: 'Vec<(Data,Data)>',
+        display: 'Data',
+        legal: 'Data',
+        web: 'Data',
+        riot: 'Data',
+        email: 'Data',
+        pgpFingerprint: 'Option<[u8;20]>',
+        image: 'Data',
+        twitter: 'Data',
+    },
+    /**
+     * Lookup294: pallet_identity::types::Judgement<Balance>
+     **/
+    PalletIdentityJudgement: {
+        _enum: {
+            Unknown: 'Null',
+            FeePaid: 'u128',
+            Reasonable: 'Null',
+            KnownGood: 'Null',
+            OutOfDate: 'Null',
+            LowQuality: 'Null',
+            Erroneous: 'Null',
+        },
+    },
+    /**
+     * Lookup296: sp_runtime::MultiSignature
+     **/
+    SpRuntimeMultiSignature: {
+        _enum: {
+            Ed25519: '[u8;64]',
+            Sr25519: '[u8;64]',
+            Ecdsa: '[u8;65]',
+        },
+    },
+    /**
+     * Lookup298: pallet_fast_unstake::pallet::Call<T>
+     **/
+    PalletFastUnstakeCall: {
+        _enum: {
+            register_fast_unstake: 'Null',
+            deregister: 'Null',
+            control: {
+                erasToCheck: 'u32',
+            },
+        },
+    },
+    /**
+     * Lookup299: pallet_nomination_pools::pallet::Call<T>
+     **/
+    PalletNominationPoolsCall: {
+        _enum: {
+            join: {
+                amount: 'Compact<u128>',
+                poolId: 'u32',
+            },
+            bond_extra: {
+                extra: 'PalletNominationPoolsBondExtra',
+            },
+            claim_payout: 'Null',
+            unbond: {
+                memberAccount: 'MultiAddress',
+                unbondingPoints: 'Compact<u128>',
+            },
+            pool_withdraw_unbonded: {
+                poolId: 'u32',
+                numSlashingSpans: 'u32',
+            },
+            withdraw_unbonded: {
+                memberAccount: 'MultiAddress',
+                numSlashingSpans: 'u32',
+            },
+            create: {
+                amount: 'Compact<u128>',
+                root: 'MultiAddress',
+                nominator: 'MultiAddress',
+                bouncer: 'MultiAddress',
+            },
+            create_with_pool_id: {
+                amount: 'Compact<u128>',
+                root: 'MultiAddress',
+                nominator: 'MultiAddress',
+                bouncer: 'MultiAddress',
+                poolId: 'u32',
+            },
+            nominate: {
+                poolId: 'u32',
+                validators: 'Vec<AccountId32>',
+            },
+            set_state: {
+                poolId: 'u32',
+                state: 'PalletNominationPoolsPoolState',
+            },
+            set_metadata: {
+                poolId: 'u32',
+                metadata: 'Bytes',
+            },
+            set_configs: {
+                minJoinBond: 'PalletNominationPoolsConfigOpU128',
+                minCreateBond: 'PalletNominationPoolsConfigOpU128',
+                maxPools: 'PalletNominationPoolsConfigOpU32',
+                maxMembers: 'PalletNominationPoolsConfigOpU32',
+                maxMembersPerPool: 'PalletNominationPoolsConfigOpU32',
+                globalMaxCommission: 'PalletNominationPoolsConfigOpPerbill',
+            },
+            update_roles: {
+                poolId: 'u32',
+                newRoot: 'PalletNominationPoolsConfigOpAccountId32',
+                newNominator: 'PalletNominationPoolsConfigOpAccountId32',
+                newBouncer: 'PalletNominationPoolsConfigOpAccountId32',
+            },
+            chill: {
+                poolId: 'u32',
+            },
+            bond_extra_other: {
+                member: 'MultiAddress',
+                extra: 'PalletNominationPoolsBondExtra',
+            },
+            set_claim_permission: {
+                permission: 'PalletNominationPoolsClaimPermission',
+            },
+            claim_payout_other: {
+                other: 'AccountId32',
+            },
+            set_commission: {
+                poolId: 'u32',
+                newCommission: 'Option<(Perbill,AccountId32)>',
+            },
+            set_commission_max: {
+                poolId: 'u32',
+                maxCommission: 'Perbill',
+            },
+            set_commission_change_rate: {
+                poolId: 'u32',
+                changeRate: 'PalletNominationPoolsCommissionChangeRate',
+            },
+            claim_commission: {
+                poolId: 'u32',
+            },
+            adjust_pool_deposit: {
+                poolId: 'u32',
+            },
+            set_commission_claim_permission: {
+                poolId: 'u32',
+                permission: 'Option<PalletNominationPoolsCommissionClaimPermission>',
+            },
+            apply_slash: {
+                memberAccount: 'MultiAddress',
+            },
+            migrate_delegation: {
+                memberAccount: 'MultiAddress',
+            },
+            migrate_pool_to_delegate_stake: {
+                poolId: 'u32',
+            },
+        },
+    },
+    /**
+     * Lookup300: pallet_nomination_pools::BondExtra<Balance>
+     **/
+    PalletNominationPoolsBondExtra: {
+        _enum: {
+            FreeBalance: 'u128',
+            Rewards: 'Null',
+        },
+    },
+    /**
+     * Lookup301: pallet_nomination_pools::ConfigOp<T>
+     **/
+    PalletNominationPoolsConfigOpU128: {
+        _enum: {
+            Noop: 'Null',
+            Set: 'u128',
+            Remove: 'Null',
+        },
+    },
+    /**
+     * Lookup302: pallet_nomination_pools::ConfigOp<T>
+     **/
+    PalletNominationPoolsConfigOpU32: {
+        _enum: {
+            Noop: 'Null',
+            Set: 'u32',
+            Remove: 'Null',
+        },
+    },
+    /**
+     * Lookup303: pallet_nomination_pools::ConfigOp<sp_arithmetic::per_things::Perbill>
+     **/
+    PalletNominationPoolsConfigOpPerbill: {
+        _enum: {
+            Noop: 'Null',
+            Set: 'Perbill',
+            Remove: 'Null',
+        },
+    },
+    /**
+     * Lookup304: pallet_nomination_pools::ConfigOp<sp_core::crypto::AccountId32>
+     **/
+    PalletNominationPoolsConfigOpAccountId32: {
+        _enum: {
+            Noop: 'Null',
+            Set: 'AccountId32',
+            Remove: 'Null',
+        },
+    },
+    /**
+     * Lookup305: pallet_nomination_pools::ClaimPermission
+     **/
+    PalletNominationPoolsClaimPermission: {
+        _enum: ['Permissioned', 'PermissionlessCompound', 'PermissionlessWithdraw', 'PermissionlessAll'],
+    },
+    /**
+     * Lookup306: pallet_ethereum::pallet::Call<T>
+     **/
+    PalletEthereumCall: {
+        _enum: {
+            transact: {
+                transaction: 'EthereumTransactionTransactionV2',
+            },
+        },
+    },
+    /**
+     * Lookup307: ethereum::transaction::TransactionV2
+     **/
+    EthereumTransactionTransactionV2: {
+        _enum: {
+            Legacy: 'EthereumTransactionLegacyTransaction',
+            EIP2930: 'EthereumTransactionEip2930Transaction',
+            EIP1559: 'EthereumTransactionEip1559Transaction',
+        },
+    },
+    /**
+     * Lookup308: ethereum::transaction::LegacyTransaction
+     **/
+    EthereumTransactionLegacyTransaction: {
+        nonce: 'U256',
+        gasPrice: 'U256',
+        gasLimit: 'U256',
+        action: 'EthereumTransactionTransactionAction',
+        value: 'U256',
+        input: 'Bytes',
+        signature: 'EthereumTransactionTransactionSignature',
+    },
+    /**
+     * Lookup309: ethereum::transaction::TransactionAction
+     **/
+    EthereumTransactionTransactionAction: {
+        _enum: {
+            Call: 'H160',
+            Create: 'Null',
+        },
+    },
+    /**
+     * Lookup310: ethereum::transaction::TransactionSignature
+     **/
+    EthereumTransactionTransactionSignature: {
+        v: 'u64',
+        r: 'H256',
+        s: 'H256',
+    },
+    /**
+     * Lookup312: ethereum::transaction::EIP2930Transaction
+     **/
+    EthereumTransactionEip2930Transaction: {
+        chainId: 'u64',
+        nonce: 'U256',
+        gasPrice: 'U256',
+        gasLimit: 'U256',
+        action: 'EthereumTransactionTransactionAction',
+        value: 'U256',
+        input: 'Bytes',
+        accessList: 'Vec<EthereumTransactionAccessListItem>',
+        oddYParity: 'bool',
+        r: 'H256',
+        s: 'H256',
+    },
+    /**
+     * Lookup314: ethereum::transaction::AccessListItem
+     **/
+    EthereumTransactionAccessListItem: {
+        address: 'H160',
+        storageKeys: 'Vec<H256>',
+    },
+    /**
+     * Lookup315: ethereum::transaction::EIP1559Transaction
+     **/
+    EthereumTransactionEip1559Transaction: {
+        chainId: 'u64',
+        nonce: 'U256',
+        maxPriorityFeePerGas: 'U256',
+        maxFeePerGas: 'U256',
+        gasLimit: 'U256',
+        action: 'EthereumTransactionTransactionAction',
+        value: 'U256',
+        input: 'Bytes',
+        accessList: 'Vec<EthereumTransactionAccessListItem>',
+        oddYParity: 'bool',
+        r: 'H256',
+        s: 'H256',
+    },
+    /**
+     * Lookup316: pallet_evm::pallet::Call<T>
+     **/
+    PalletEvmCall: {
+        _enum: {
+            withdraw: {
+                address: 'H160',
+                value: 'u128',
+            },
+            call: {
+                source: 'H160',
+                target: 'H160',
+                input: 'Bytes',
+                value: 'U256',
+                gasLimit: 'u64',
+                maxFeePerGas: 'U256',
+                maxPriorityFeePerGas: 'Option<U256>',
+                nonce: 'Option<U256>',
+                accessList: 'Vec<(H160,Vec<H256>)>',
+            },
+            create: {
+                source: 'H160',
+                init: 'Bytes',
+                value: 'U256',
+                gasLimit: 'u64',
+                maxFeePerGas: 'U256',
+                maxPriorityFeePerGas: 'Option<U256>',
+                nonce: 'Option<U256>',
+                accessList: 'Vec<(H160,Vec<H256>)>',
+            },
+            create2: {
+                source: 'H160',
+                init: 'Bytes',
+                salt: 'H256',
+                value: 'U256',
+                gasLimit: 'u64',
+                maxFeePerGas: 'U256',
+                maxPriorityFeePerGas: 'Option<U256>',
+                nonce: 'Option<U256>',
+                accessList: 'Vec<(H160,Vec<H256>)>',
+            },
+        },
+    },
+    /**
+     * Lookup320: pallet_dynamic_fee::pallet::Call<T>
+     **/
+    PalletDynamicFeeCall: {
+        _enum: {
+            note_min_gas_price_target: {
+                target: 'U256',
+            },
+        },
+    },
+    /**
+     * Lookup321: pallet_base_fee::pallet::Call<T>
+     **/
+    PalletBaseFeeCall: {
+        _enum: {
+            set_base_fee_per_gas: {
+                fee: 'U256',
+            },
+            set_elasticity: {
+                elasticity: 'Permill',
+            },
+        },
+    },
+    /**
+     * Lookup322: pallet_hotfix_sufficients::pallet::Call<T>
+     **/
+    PalletHotfixSufficientsCall: {
+        _enum: {
+            hotfix_inc_account_sufficients: {
+                addresses: 'Vec<H160>',
+            },
+        },
+    },
+    /**
+     * Lookup324: pallet_attestation::pallet::Call<T>
+     **/
+    PalletAttestationCall: {
+        _enum: {
+            set_chain_attestation_interval: {
+                chainKey: 'u64',
+                chainAttestationInterval: 'u64',
+            },
+            set_target_sample_size: {
+                chainKey: 'u64',
+                newTargetSampleSize: 'u32',
+            },
+            register_attestor: {
+                chainKey: 'u64',
+                attestorId: 'AccountId32',
+            },
+            unregister_attestor: {
+                chainKey: 'u64',
+                attestorId: 'AccountId32',
+            },
+            set_max_attestors: {
+                chainKey: 'u64',
+                newMax: 'u32',
+            },
+            register_invulnerable: {
+                chainKey: 'u64',
+                attestor: 'AccountId32',
+            },
+            unregister_invulnerable: {
+                chainKey: 'u64',
+                attestor: 'AccountId32',
+            },
+            set_max_invulnerables: {
+                chainKey: 'u64',
+                newMax: 'u32',
+            },
+            __Unused8: 'Null',
+            commit_attestation: {
+                attestation: 'AttestorPrimitivesSignedAttestation',
+            },
+            set_attestations_per_checkpoint: {
+                chainKey: 'u64',
+                attestationsPerCheckpoint: 'u32',
+            },
+            set_min_bond_requirement: {
+                chainKey: 'u64',
+                minBondRequirement: 'u128',
+            },
+            __Unused12: 'Null',
+            attest: {
+                chainKey: 'u64',
+                blsPublicKey: '[u8;48]',
+                proofOfPossession: '[u8;96]',
+            },
+            chill: {
+                chainKey: 'u64',
+                attestorId: 'AccountId32',
+            },
+            __Unused15: 'Null',
+            withdraw_unbonded: 'Null',
+            __Unused17: 'Null',
+            import_checkpoints: {
+                chainKey: 'u64',
+                checkpoints: 'Vec<AttestorPrimitivesAttestationCheckpoint>',
+            },
+            set_attestation_chain_genesis_block_number: {
+                chainKey: 'u64',
+                genesisBlockNumber: 'u64',
+            },
+            __Unused20: 'Null',
+            set_election_policy: {
+                chainKey: 'u64',
+                newPolicy: 'PalletAttestationAttestorElectionPolicy',
+            },
+            authorize_attestor: {
+                chainKey: 'u64',
+                attestorId: 'AccountId32',
+            },
+            remove_authorized_attestor: {
+                chainKey: 'u64',
+                attestorId: 'AccountId32',
+            },
+            kick_active_attestor: {
+                chainKey: 'u64',
+                attestorId: 'AccountId32',
+                unregister: 'bool',
+            },
+            force_election: {
+                epoch: 'u64',
+            },
+            set_max_catchup: {
+                chainKey: 'u64',
+                maxCatchup: 'u32',
+            },
+            force_apply_updates: 'Null',
+            revert_to: {
+                chainKey: 'u64',
+                checkpointHeight: 'u64',
+            },
+        },
+    },
+    /**
+     * Lookup325: attestor_primitives::SignedAttestation<primitive_types::H256, sp_core::crypto::AccountId32>
+     **/
+    AttestorPrimitivesSignedAttestation: {
+        attestation: 'AttestorPrimitivesAttestationData',
+        signature: '[u8;96]',
+        attestors: 'Vec<AccountId32>',
+        continuityProof: 'AttestorPrimitivesBlockContinuityProof',
+    },
+    /**
+     * Lookup326: attestor_primitives::AttestationData<primitive_types::H256>
+     **/
+    AttestorPrimitivesAttestationData: {
+        chainKey: 'u64',
+        headerNumber: 'u64',
+        headerHash: 'H256',
+        root: 'H256',
+        prevDigest: 'Option<H256>',
+    },
+    /**
+     * Lookup329: attestor_primitives::block::ContinuityProof
+     **/
+    AttestorPrimitivesBlockContinuityProof: {
+        lowerEndpointDigest: 'H256',
+        roots: 'Vec<H256>',
+    },
+    /**
+     * Lookup332: pallet_supported_chains::pallet::Call<T>
+     **/
+    PalletSupportedChainsCall: {
+        _enum: {
+            register_chain: {
+                chainId: 'u64',
+                chainName: 'Text',
+                targetSampleSize: 'Option<u32>',
+                chainAttestationInterval: 'Option<u64>',
+                attestationCheckpointInterval: 'Option<u32>',
+                maxAttestors: 'Option<u32>',
+                maxInvulnerables: 'Option<u32>',
+                attestationChainGenesisBlockNumber: 'Option<u64>',
+                encoding: 'AttestorPrimitivesChainEncodingVersion',
+                maturityStrategy: 'Option<Text>',
+            },
+            remove_chain: {
+                chainKey: 'u64',
+                removeCheckpoints: 'bool',
+            },
+        },
+    },
+    /**
+     * Lookup334: pallet_randomness::pallet::Call<T>
+     **/
+    PalletRandomnessCall: 'Null',
+    /**
+     * Lookup335: pallet_membership::pallet::Call<T, I>
+     **/
+    PalletMembershipCall: {
+        _enum: {
+            add_member: {
+                who: 'MultiAddress',
+            },
+            remove_member: {
+                who: 'MultiAddress',
+            },
+            swap_member: {
+                remove: 'MultiAddress',
+                add: 'MultiAddress',
+            },
+            reset_members: {
+                members: 'Vec<AccountId32>',
+            },
+            change_key: {
+                _alias: {
+                    new_: 'new',
+                },
+                new_: 'MultiAddress',
+            },
+            set_prime: {
+                who: 'MultiAddress',
+            },
+            clear_prime: 'Null',
+        },
+    },
+    /**
+     * Lookup336: pallet_assets::pallet::Call<T, I>
      **/
     PalletAssetsCall: {
         _enum: {
@@ -1775,1288 +3016,7 @@ export default {
         },
     },
     /**
-     * Lookup185: pallet_assets::pallet::Error<T, I>
-     **/
-    PalletAssetsError: {
-        _enum: [
-            'BalanceLow',
-            'NoAccount',
-            'NoPermission',
-            'Unknown',
-            'Frozen',
-            'InUse',
-            'BadWitness',
-            'MinBalanceZero',
-            'UnavailableConsumer',
-            'BadMetadata',
-            'Unapproved',
-            'WouldDie',
-            'AlreadyExists',
-            'NoDeposit',
-            'WouldBurn',
-            'LiveAsset',
-            'AssetNotLive',
-            'IncorrectStatus',
-            'NotFrozen',
-            'CallbackFailed',
-            'BadAssetId',
-        ],
-    },
-    /**
-     * Lookup186: pallet_staking::StakingLedger<T>
-     **/
-    PalletStakingStakingLedger: {
-        stash: 'AccountId32',
-        total: 'Compact<u128>',
-        active: 'Compact<u128>',
-        unlocking: 'Vec<PalletStakingUnlockChunk>',
-        legacyClaimedRewards: 'Vec<u32>',
-    },
-    /**
-     * Lookup188: pallet_staking::UnlockChunk<Balance>
-     **/
-    PalletStakingUnlockChunk: {
-        value: 'Compact<u128>',
-        era: 'Compact<u32>',
-    },
-    /**
-     * Lookup191: pallet_staking::Nominations<T>
-     **/
-    PalletStakingNominations: {
-        targets: 'Vec<AccountId32>',
-        submittedIn: 'u32',
-        suppressed: 'bool',
-    },
-    /**
-     * Lookup193: pallet_staking::ActiveEraInfo
-     **/
-    PalletStakingActiveEraInfo: {
-        index: 'u32',
-        start: 'Option<u64>',
-    },
-    /**
-     * Lookup195: sp_staking::PagedExposureMetadata<Balance>
-     **/
-    SpStakingPagedExposureMetadata: {
-        total: 'Compact<u128>',
-        own: 'Compact<u128>',
-        nominatorCount: 'u32',
-        pageCount: 'u32',
-    },
-    /**
-     * Lookup197: sp_staking::ExposurePage<sp_core::crypto::AccountId32, Balance>
-     **/
-    SpStakingExposurePage: {
-        pageTotal: 'Compact<u128>',
-        others: 'Vec<SpStakingIndividualExposure>',
-    },
-    /**
-     * Lookup198: pallet_staking::EraRewardPoints<sp_core::crypto::AccountId32>
-     **/
-    PalletStakingEraRewardPoints: {
-        total: 'u32',
-        individual: 'BTreeMap<AccountId32, u32>',
-    },
-    /**
-     * Lookup204: pallet_staking::UnappliedSlash<sp_core::crypto::AccountId32, Balance>
-     **/
-    PalletStakingUnappliedSlash: {
-        validator: 'AccountId32',
-        own: 'u128',
-        others: 'Vec<(AccountId32,u128)>',
-        reporters: 'Vec<AccountId32>',
-        payout: 'u128',
-    },
-    /**
-     * Lookup208: pallet_staking::slashing::SlashingSpans
-     **/
-    PalletStakingSlashingSlashingSpans: {
-        spanIndex: 'u32',
-        lastStart: 'u32',
-        lastNonzeroSlash: 'u32',
-        prior: 'Vec<u32>',
-    },
-    /**
-     * Lookup209: pallet_staking::slashing::SpanRecord<Balance>
-     **/
-    PalletStakingSlashingSpanRecord: {
-        slashed: 'u128',
-        paidOut: 'u128',
-    },
-    /**
-     * Lookup210: pallet_staking::pallet::pallet::Call<T>
-     **/
-    PalletStakingPalletCall: {
-        _enum: {
-            bond: {
-                value: 'Compact<u128>',
-                payee: 'PalletStakingRewardDestination',
-            },
-            bond_extra: {
-                maxAdditional: 'Compact<u128>',
-            },
-            unbond: {
-                value: 'Compact<u128>',
-            },
-            withdraw_unbonded: {
-                numSlashingSpans: 'u32',
-            },
-            validate: {
-                prefs: 'PalletStakingValidatorPrefs',
-            },
-            nominate: {
-                targets: 'Vec<MultiAddress>',
-            },
-            chill: 'Null',
-            set_payee: {
-                payee: 'PalletStakingRewardDestination',
-            },
-            set_controller: 'Null',
-            set_validator_count: {
-                _alias: {
-                    new_: 'new',
-                },
-                new_: 'Compact<u32>',
-            },
-            increase_validator_count: {
-                additional: 'Compact<u32>',
-            },
-            scale_validator_count: {
-                factor: 'Percent',
-            },
-            force_no_eras: 'Null',
-            force_new_era: 'Null',
-            set_invulnerables: {
-                invulnerables: 'Vec<AccountId32>',
-            },
-            force_unstake: {
-                stash: 'AccountId32',
-                numSlashingSpans: 'u32',
-            },
-            force_new_era_always: 'Null',
-            cancel_deferred_slash: {
-                era: 'u32',
-                slashIndices: 'Vec<u32>',
-            },
-            payout_stakers: {
-                validatorStash: 'AccountId32',
-                era: 'u32',
-            },
-            rebond: {
-                value: 'Compact<u128>',
-            },
-            reap_stash: {
-                stash: 'AccountId32',
-                numSlashingSpans: 'u32',
-            },
-            kick: {
-                who: 'Vec<MultiAddress>',
-            },
-            set_staking_configs: {
-                minNominatorBond: 'PalletStakingPalletConfigOpU128',
-                minValidatorBond: 'PalletStakingPalletConfigOpU128',
-                maxNominatorCount: 'PalletStakingPalletConfigOpU32',
-                maxValidatorCount: 'PalletStakingPalletConfigOpU32',
-                chillThreshold: 'PalletStakingPalletConfigOpPercent',
-                minCommission: 'PalletStakingPalletConfigOpPerbill',
-                maxStakedRewards: 'PalletStakingPalletConfigOpPercent',
-            },
-            chill_other: {
-                stash: 'AccountId32',
-            },
-            force_apply_min_commission: {
-                validatorStash: 'AccountId32',
-            },
-            set_min_commission: {
-                _alias: {
-                    new_: 'new',
-                },
-                new_: 'Perbill',
-            },
-            payout_stakers_by_page: {
-                validatorStash: 'AccountId32',
-                era: 'u32',
-                page: 'u32',
-            },
-            update_payee: {
-                controller: 'AccountId32',
-            },
-            deprecate_controller_batch: {
-                controllers: 'Vec<AccountId32>',
-            },
-            restore_ledger: {
-                stash: 'AccountId32',
-                maybeController: 'Option<AccountId32>',
-                maybeTotal: 'Option<u128>',
-                maybeUnlocking: 'Option<Vec<PalletStakingUnlockChunk>>',
-            },
-            __Unused30: 'Null',
-            __Unused31: 'Null',
-            withdraw_overstake: {
-                stash: 'AccountId32',
-            },
-        },
-    },
-    /**
-     * Lookup212: pallet_staking::pallet::pallet::ConfigOp<T>
-     **/
-    PalletStakingPalletConfigOpU128: {
-        _enum: {
-            Noop: 'Null',
-            Set: 'u128',
-            Remove: 'Null',
-        },
-    },
-    /**
-     * Lookup213: pallet_staking::pallet::pallet::ConfigOp<T>
-     **/
-    PalletStakingPalletConfigOpU32: {
-        _enum: {
-            Noop: 'Null',
-            Set: 'u32',
-            Remove: 'Null',
-        },
-    },
-    /**
-     * Lookup214: pallet_staking::pallet::pallet::ConfigOp<sp_arithmetic::per_things::Percent>
-     **/
-    PalletStakingPalletConfigOpPercent: {
-        _enum: {
-            Noop: 'Null',
-            Set: 'Percent',
-            Remove: 'Null',
-        },
-    },
-    /**
-     * Lookup215: pallet_staking::pallet::pallet::ConfigOp<sp_arithmetic::per_things::Perbill>
-     **/
-    PalletStakingPalletConfigOpPerbill: {
-        _enum: {
-            Noop: 'Null',
-            Set: 'Perbill',
-            Remove: 'Null',
-        },
-    },
-    /**
-     * Lookup219: pallet_staking::pallet::pallet::Error<T>
-     **/
-    PalletStakingPalletError: {
-        _enum: [
-            'NotController',
-            'NotStash',
-            'AlreadyBonded',
-            'AlreadyPaired',
-            'EmptyTargets',
-            'DuplicateIndex',
-            'InvalidSlashIndex',
-            'InsufficientBond',
-            'NoMoreChunks',
-            'NoUnlockChunk',
-            'FundedTarget',
-            'InvalidEraToReward',
-            'InvalidNumberOfNominations',
-            'NotSortedAndUnique',
-            'AlreadyClaimed',
-            'InvalidPage',
-            'IncorrectHistoryDepth',
-            'IncorrectSlashingSpans',
-            'BadState',
-            'TooManyTargets',
-            'BadTarget',
-            'CannotChillOther',
-            'TooManyNominators',
-            'TooManyValidators',
-            'CommissionTooLow',
-            'BoundNotMet',
-            'ControllerDeprecated',
-            'CannotRestoreLedger',
-            'RewardDestinationRestricted',
-            'NotEnoughFunds',
-            'VirtualStakerNotAllowed',
-        ],
-    },
-    /**
-     * Lookup220: sp_staking::offence::OffenceDetails<sp_core::crypto::AccountId32, Offender>
-     **/
-    SpStakingOffenceOffenceDetails: {
-        offender: '(AccountId32,SpStakingExposure)',
-        reporters: 'Vec<AccountId32>',
-    },
-    /**
-     * Lookup224: creditcoin3_runtime::opaque::SessionKeys
-     **/
-    Creditcoin3RuntimeOpaqueSessionKeys: {
-        grandpa: 'SpConsensusGrandpaAppPublic',
-        babe: 'SpConsensusBabeAppPublic',
-        imOnline: 'PalletImOnlineSr25519AppSr25519Public',
-    },
-    /**
-     * Lookup226: sp_core::crypto::KeyTypeId
-     **/
-    SpCoreCryptoKeyTypeId: '[u8;4]',
-    /**
-     * Lookup227: pallet_session::pallet::Call<T>
-     **/
-    PalletSessionCall: {
-        _enum: {
-            set_keys: {
-                _alias: {
-                    keys_: 'keys',
-                },
-                keys_: 'Creditcoin3RuntimeOpaqueSessionKeys',
-                proof: 'Bytes',
-            },
-            purge_keys: 'Null',
-        },
-    },
-    /**
-     * Lookup228: pallet_session::pallet::Error<T>
-     **/
-    PalletSessionError: {
-        _enum: ['InvalidProof', 'NoAssociatedValidatorId', 'DuplicatedKey', 'NoKeys', 'NoAccount'],
-    },
-    /**
-     * Lookup229: pallet_grandpa::StoredState<N>
-     **/
-    PalletGrandpaStoredState: {
-        _enum: {
-            Live: 'Null',
-            PendingPause: {
-                scheduledAt: 'u32',
-                delay: 'u32',
-            },
-            Paused: 'Null',
-            PendingResume: {
-                scheduledAt: 'u32',
-                delay: 'u32',
-            },
-        },
-    },
-    /**
-     * Lookup230: pallet_grandpa::StoredPendingChange<N, Limit>
-     **/
-    PalletGrandpaStoredPendingChange: {
-        scheduledAt: 'u32',
-        delay: 'u32',
-        nextAuthorities: 'Vec<(SpConsensusGrandpaAppPublic,u64)>',
-        forced: 'Option<u32>',
-    },
-    /**
-     * Lookup233: pallet_grandpa::pallet::Call<T>
-     **/
-    PalletGrandpaCall: {
-        _enum: {
-            report_equivocation: {
-                equivocationProof: 'SpConsensusGrandpaEquivocationProof',
-                keyOwnerProof: 'SpSessionMembershipProof',
-            },
-            report_equivocation_unsigned: {
-                equivocationProof: 'SpConsensusGrandpaEquivocationProof',
-                keyOwnerProof: 'SpSessionMembershipProof',
-            },
-            note_stalled: {
-                delay: 'u32',
-                bestFinalizedBlockNumber: 'u32',
-            },
-        },
-    },
-    /**
-     * Lookup234: sp_consensus_grandpa::EquivocationProof<primitive_types::H256, N>
-     **/
-    SpConsensusGrandpaEquivocationProof: {
-        setId: 'u64',
-        equivocation: 'SpConsensusGrandpaEquivocation',
-    },
-    /**
-     * Lookup235: sp_consensus_grandpa::Equivocation<primitive_types::H256, N>
-     **/
-    SpConsensusGrandpaEquivocation: {
-        _enum: {
-            Prevote: 'FinalityGrandpaEquivocationPrevote',
-            Precommit: 'FinalityGrandpaEquivocationPrecommit',
-        },
-    },
-    /**
-     * Lookup236: finality_grandpa::Equivocation<sp_consensus_grandpa::app::Public, finality_grandpa::Prevote<primitive_types::H256, N>, sp_consensus_grandpa::app::Signature>
-     **/
-    FinalityGrandpaEquivocationPrevote: {
-        roundNumber: 'u64',
-        identity: 'SpConsensusGrandpaAppPublic',
-        first: '(FinalityGrandpaPrevote,SpConsensusGrandpaAppSignature)',
-        second: '(FinalityGrandpaPrevote,SpConsensusGrandpaAppSignature)',
-    },
-    /**
-     * Lookup237: finality_grandpa::Prevote<primitive_types::H256, N>
-     **/
-    FinalityGrandpaPrevote: {
-        targetHash: 'H256',
-        targetNumber: 'u32',
-    },
-    /**
-     * Lookup238: sp_consensus_grandpa::app::Signature
-     **/
-    SpConsensusGrandpaAppSignature: '[u8;64]',
-    /**
-     * Lookup240: finality_grandpa::Equivocation<sp_consensus_grandpa::app::Public, finality_grandpa::Precommit<primitive_types::H256, N>, sp_consensus_grandpa::app::Signature>
-     **/
-    FinalityGrandpaEquivocationPrecommit: {
-        roundNumber: 'u64',
-        identity: 'SpConsensusGrandpaAppPublic',
-        first: '(FinalityGrandpaPrecommit,SpConsensusGrandpaAppSignature)',
-        second: '(FinalityGrandpaPrecommit,SpConsensusGrandpaAppSignature)',
-    },
-    /**
-     * Lookup241: finality_grandpa::Precommit<primitive_types::H256, N>
-     **/
-    FinalityGrandpaPrecommit: {
-        targetHash: 'H256',
-        targetNumber: 'u32',
-    },
-    /**
-     * Lookup243: pallet_grandpa::pallet::Error<T>
-     **/
-    PalletGrandpaError: {
-        _enum: [
-            'PauseFailed',
-            'ResumeFailed',
-            'ChangePending',
-            'TooSoon',
-            'InvalidKeyOwnershipProof',
-            'InvalidEquivocationProof',
-            'DuplicateOffenceReport',
-        ],
-    },
-    /**
-     * Lookup246: pallet_im_online::pallet::Call<T>
-     **/
-    PalletImOnlineCall: {
-        _enum: {
-            heartbeat: {
-                heartbeat: 'PalletImOnlineHeartbeat',
-                signature: 'PalletImOnlineSr25519AppSr25519Signature',
-            },
-        },
-    },
-    /**
-     * Lookup247: pallet_im_online::Heartbeat<BlockNumber>
-     **/
-    PalletImOnlineHeartbeat: {
-        blockNumber: 'u32',
-        sessionIndex: 'u32',
-        authorityIndex: 'u32',
-        validatorsLen: 'u32',
-    },
-    /**
-     * Lookup248: pallet_im_online::sr25519::app_sr25519::Signature
-     **/
-    PalletImOnlineSr25519AppSr25519Signature: '[u8;64]',
-    /**
-     * Lookup249: pallet_im_online::pallet::Error<T>
-     **/
-    PalletImOnlineError: {
-        _enum: ['InvalidKey', 'DuplicatedHeartbeat'],
-    },
-    /**
-     * Lookup250: pallet_bags_list::list::Node<T, I>
-     **/
-    PalletBagsListListNode: {
-        id: 'AccountId32',
-        prev: 'Option<AccountId32>',
-        next: 'Option<AccountId32>',
-        bagUpper: 'u64',
-        score: 'u64',
-    },
-    /**
-     * Lookup251: pallet_bags_list::list::Bag<T, I>
-     **/
-    PalletBagsListListBag: {
-        head: 'Option<AccountId32>',
-        tail: 'Option<AccountId32>',
-    },
-    /**
-     * Lookup252: pallet_bags_list::pallet::Call<T, I>
-     **/
-    PalletBagsListCall: {
-        _enum: {
-            rebag: {
-                dislocated: 'MultiAddress',
-            },
-            put_in_front_of: {
-                lighter: 'MultiAddress',
-            },
-            put_in_front_of_other: {
-                heavier: 'MultiAddress',
-                lighter: 'MultiAddress',
-            },
-        },
-    },
-    /**
-     * Lookup254: pallet_bags_list::pallet::Error<T, I>
-     **/
-    PalletBagsListError: {
-        _enum: {
-            List: 'PalletBagsListListListError',
-        },
-    },
-    /**
-     * Lookup255: pallet_bags_list::list::ListError
-     **/
-    PalletBagsListListListError: {
-        _enum: ['Duplicate', 'NotHeavier', 'NotInSameBag', 'NodeNotFound'],
-    },
-    /**
-     * Lookup258: pallet_transaction_payment::Releases
-     **/
-    PalletTransactionPaymentReleases: {
-        _enum: ['V1Ancient', 'V2'],
-    },
-    /**
-     * Lookup259: pallet_sudo::pallet::Call<T>
-     **/
-    PalletSudoCall: {
-        _enum: {
-            sudo: {
-                call: 'Call',
-            },
-            sudo_unchecked_weight: {
-                call: 'Call',
-                weight: 'SpWeightsWeightV2Weight',
-            },
-            set_key: {
-                _alias: {
-                    new_: 'new',
-                },
-                new_: 'MultiAddress',
-            },
-            sudo_as: {
-                who: 'MultiAddress',
-                call: 'Call',
-            },
-            remove_key: 'Null',
-        },
-    },
-    /**
-     * Lookup261: pallet_utility::pallet::Call<T>
-     **/
-    PalletUtilityCall: {
-        _enum: {
-            batch: {
-                calls: 'Vec<Call>',
-            },
-            as_derivative: {
-                index: 'u16',
-                call: 'Call',
-            },
-            batch_all: {
-                calls: 'Vec<Call>',
-            },
-            dispatch_as: {
-                asOrigin: 'Creditcoin3RuntimeOriginCaller',
-                call: 'Call',
-            },
-            force_batch: {
-                calls: 'Vec<Call>',
-            },
-            with_weight: {
-                call: 'Call',
-                weight: 'SpWeightsWeightV2Weight',
-            },
-        },
-    },
-    /**
-     * Lookup263: creditcoin3_runtime::OriginCaller
-     **/
-    Creditcoin3RuntimeOriginCaller: {
-        _enum: {
-            system: 'FrameSupportDispatchRawOrigin',
-            __Unused1: 'Null',
-            __Unused2: 'Null',
-            __Unused3: 'Null',
-            __Unused4: 'Null',
-            __Unused5: 'Null',
-            __Unused6: 'Null',
-            __Unused7: 'Null',
-            __Unused8: 'Null',
-            __Unused9: 'Null',
-            __Unused10: 'Null',
-            __Unused11: 'Null',
-            __Unused12: 'Null',
-            __Unused13: 'Null',
-            __Unused14: 'Null',
-            __Unused15: 'Null',
-            __Unused16: 'Null',
-            __Unused17: 'Null',
-            __Unused18: 'Null',
-            __Unused19: 'Null',
-            Ethereum: 'PalletEthereumRawOrigin',
-        },
-    },
-    /**
-     * Lookup264: frame_support::dispatch::RawOrigin<sp_core::crypto::AccountId32>
-     **/
-    FrameSupportDispatchRawOrigin: {
-        _enum: {
-            Root: 'Null',
-            Signed: 'AccountId32',
-            None: 'Null',
-        },
-    },
-    /**
-     * Lookup265: pallet_ethereum::RawOrigin
-     **/
-    PalletEthereumRawOrigin: {
-        _enum: {
-            EthereumTransaction: 'H160',
-        },
-    },
-    /**
-     * Lookup266: pallet_proxy::pallet::Call<T>
-     **/
-    PalletProxyCall: {
-        _enum: {
-            proxy: {
-                real: 'MultiAddress',
-                forceProxyType: 'Option<Creditcoin3RuntimeProxyFilter>',
-                call: 'Call',
-            },
-            add_proxy: {
-                delegate: 'MultiAddress',
-                proxyType: 'Creditcoin3RuntimeProxyFilter',
-                delay: 'u32',
-            },
-            remove_proxy: {
-                delegate: 'MultiAddress',
-                proxyType: 'Creditcoin3RuntimeProxyFilter',
-                delay: 'u32',
-            },
-            remove_proxies: 'Null',
-            create_pure: {
-                proxyType: 'Creditcoin3RuntimeProxyFilter',
-                delay: 'u32',
-                index: 'u16',
-            },
-            kill_pure: {
-                spawner: 'MultiAddress',
-                proxyType: 'Creditcoin3RuntimeProxyFilter',
-                index: 'u16',
-                height: 'Compact<u32>',
-                extIndex: 'Compact<u32>',
-            },
-            announce: {
-                real: 'MultiAddress',
-                callHash: 'H256',
-            },
-            remove_announcement: {
-                real: 'MultiAddress',
-                callHash: 'H256',
-            },
-            reject_announcement: {
-                delegate: 'MultiAddress',
-                callHash: 'H256',
-            },
-            proxy_announced: {
-                delegate: 'MultiAddress',
-                real: 'MultiAddress',
-                forceProxyType: 'Option<Creditcoin3RuntimeProxyFilter>',
-                call: 'Call',
-            },
-        },
-    },
-    /**
-     * Lookup268: pallet_identity::pallet::Call<T>
-     **/
-    PalletIdentityCall: {
-        _enum: {
-            add_registrar: {
-                account: 'MultiAddress',
-            },
-            set_identity: {
-                info: 'PalletIdentityLegacyIdentityInfo',
-            },
-            set_subs: {
-                subs: 'Vec<(AccountId32,Data)>',
-            },
-            clear_identity: 'Null',
-            request_judgement: {
-                regIndex: 'Compact<u32>',
-                maxFee: 'Compact<u128>',
-            },
-            cancel_request: {
-                regIndex: 'u32',
-            },
-            set_fee: {
-                index: 'Compact<u32>',
-                fee: 'Compact<u128>',
-            },
-            set_account_id: {
-                _alias: {
-                    new_: 'new',
-                },
-                index: 'Compact<u32>',
-                new_: 'MultiAddress',
-            },
-            set_fields: {
-                index: 'Compact<u32>',
-                fields: 'u64',
-            },
-            provide_judgement: {
-                regIndex: 'Compact<u32>',
-                target: 'MultiAddress',
-                judgement: 'PalletIdentityJudgement',
-                identity: 'H256',
-            },
-            kill_identity: {
-                target: 'MultiAddress',
-            },
-            add_sub: {
-                sub: 'MultiAddress',
-                data: 'Data',
-            },
-            rename_sub: {
-                sub: 'MultiAddress',
-                data: 'Data',
-            },
-            remove_sub: {
-                sub: 'MultiAddress',
-            },
-            quit_sub: 'Null',
-            add_username_authority: {
-                authority: 'MultiAddress',
-                suffix: 'Bytes',
-                allocation: 'u32',
-            },
-            remove_username_authority: {
-                authority: 'MultiAddress',
-            },
-            set_username_for: {
-                who: 'MultiAddress',
-                username: 'Bytes',
-                signature: 'Option<SpRuntimeMultiSignature>',
-            },
-            accept_username: {
-                username: 'Bytes',
-            },
-            remove_expired_approval: {
-                username: 'Bytes',
-            },
-            set_primary_username: {
-                username: 'Bytes',
-            },
-            remove_dangling_username: {
-                username: 'Bytes',
-            },
-        },
-    },
-    /**
-     * Lookup269: pallet_identity::legacy::IdentityInfo<FieldLimit>
-     **/
-    PalletIdentityLegacyIdentityInfo: {
-        additional: 'Vec<(Data,Data)>',
-        display: 'Data',
-        legal: 'Data',
-        web: 'Data',
-        riot: 'Data',
-        email: 'Data',
-        pgpFingerprint: 'Option<[u8;20]>',
-        image: 'Data',
-        twitter: 'Data',
-    },
-    /**
-     * Lookup305: pallet_identity::types::Judgement<Balance>
-     **/
-    PalletIdentityJudgement: {
-        _enum: {
-            Unknown: 'Null',
-            FeePaid: 'u128',
-            Reasonable: 'Null',
-            KnownGood: 'Null',
-            OutOfDate: 'Null',
-            LowQuality: 'Null',
-            Erroneous: 'Null',
-        },
-    },
-    /**
-     * Lookup307: sp_runtime::MultiSignature
-     **/
-    SpRuntimeMultiSignature: {
-        _enum: {
-            Ed25519: '[u8;64]',
-            Sr25519: '[u8;64]',
-            Ecdsa: '[u8;65]',
-        },
-    },
-    /**
-     * Lookup309: pallet_fast_unstake::pallet::Call<T>
-     **/
-    PalletFastUnstakeCall: {
-        _enum: {
-            register_fast_unstake: 'Null',
-            deregister: 'Null',
-            control: {
-                erasToCheck: 'u32',
-            },
-        },
-    },
-    /**
-     * Lookup310: pallet_nomination_pools::pallet::Call<T>
-     **/
-    PalletNominationPoolsCall: {
-        _enum: {
-            join: {
-                amount: 'Compact<u128>',
-                poolId: 'u32',
-            },
-            bond_extra: {
-                extra: 'PalletNominationPoolsBondExtra',
-            },
-            claim_payout: 'Null',
-            unbond: {
-                memberAccount: 'MultiAddress',
-                unbondingPoints: 'Compact<u128>',
-            },
-            pool_withdraw_unbonded: {
-                poolId: 'u32',
-                numSlashingSpans: 'u32',
-            },
-            withdraw_unbonded: {
-                memberAccount: 'MultiAddress',
-                numSlashingSpans: 'u32',
-            },
-            create: {
-                amount: 'Compact<u128>',
-                root: 'MultiAddress',
-                nominator: 'MultiAddress',
-                bouncer: 'MultiAddress',
-            },
-            create_with_pool_id: {
-                amount: 'Compact<u128>',
-                root: 'MultiAddress',
-                nominator: 'MultiAddress',
-                bouncer: 'MultiAddress',
-                poolId: 'u32',
-            },
-            nominate: {
-                poolId: 'u32',
-                validators: 'Vec<AccountId32>',
-            },
-            set_state: {
-                poolId: 'u32',
-                state: 'PalletNominationPoolsPoolState',
-            },
-            set_metadata: {
-                poolId: 'u32',
-                metadata: 'Bytes',
-            },
-            set_configs: {
-                minJoinBond: 'PalletNominationPoolsConfigOpU128',
-                minCreateBond: 'PalletNominationPoolsConfigOpU128',
-                maxPools: 'PalletNominationPoolsConfigOpU32',
-                maxMembers: 'PalletNominationPoolsConfigOpU32',
-                maxMembersPerPool: 'PalletNominationPoolsConfigOpU32',
-                globalMaxCommission: 'PalletNominationPoolsConfigOpPerbill',
-            },
-            update_roles: {
-                poolId: 'u32',
-                newRoot: 'PalletNominationPoolsConfigOpAccountId32',
-                newNominator: 'PalletNominationPoolsConfigOpAccountId32',
-                newBouncer: 'PalletNominationPoolsConfigOpAccountId32',
-            },
-            chill: {
-                poolId: 'u32',
-            },
-            bond_extra_other: {
-                member: 'MultiAddress',
-                extra: 'PalletNominationPoolsBondExtra',
-            },
-            set_claim_permission: {
-                permission: 'PalletNominationPoolsClaimPermission',
-            },
-            claim_payout_other: {
-                other: 'AccountId32',
-            },
-            set_commission: {
-                poolId: 'u32',
-                newCommission: 'Option<(Perbill,AccountId32)>',
-            },
-            set_commission_max: {
-                poolId: 'u32',
-                maxCommission: 'Perbill',
-            },
-            set_commission_change_rate: {
-                poolId: 'u32',
-                changeRate: 'PalletNominationPoolsCommissionChangeRate',
-            },
-            claim_commission: {
-                poolId: 'u32',
-            },
-            adjust_pool_deposit: {
-                poolId: 'u32',
-            },
-            set_commission_claim_permission: {
-                poolId: 'u32',
-                permission: 'Option<PalletNominationPoolsCommissionClaimPermission>',
-            },
-            apply_slash: {
-                memberAccount: 'MultiAddress',
-            },
-            migrate_delegation: {
-                memberAccount: 'MultiAddress',
-            },
-            migrate_pool_to_delegate_stake: {
-                poolId: 'u32',
-            },
-        },
-    },
-    /**
-     * Lookup311: pallet_nomination_pools::BondExtra<Balance>
-     **/
-    PalletNominationPoolsBondExtra: {
-        _enum: {
-            FreeBalance: 'u128',
-            Rewards: 'Null',
-        },
-    },
-    /**
-     * Lookup312: pallet_nomination_pools::ConfigOp<T>
-     **/
-    PalletNominationPoolsConfigOpU128: {
-        _enum: {
-            Noop: 'Null',
-            Set: 'u128',
-            Remove: 'Null',
-        },
-    },
-    /**
-     * Lookup313: pallet_nomination_pools::ConfigOp<T>
-     **/
-    PalletNominationPoolsConfigOpU32: {
-        _enum: {
-            Noop: 'Null',
-            Set: 'u32',
-            Remove: 'Null',
-        },
-    },
-    /**
-     * Lookup314: pallet_nomination_pools::ConfigOp<sp_arithmetic::per_things::Perbill>
-     **/
-    PalletNominationPoolsConfigOpPerbill: {
-        _enum: {
-            Noop: 'Null',
-            Set: 'Perbill',
-            Remove: 'Null',
-        },
-    },
-    /**
-     * Lookup315: pallet_nomination_pools::ConfigOp<sp_core::crypto::AccountId32>
-     **/
-    PalletNominationPoolsConfigOpAccountId32: {
-        _enum: {
-            Noop: 'Null',
-            Set: 'AccountId32',
-            Remove: 'Null',
-        },
-    },
-    /**
-     * Lookup316: pallet_nomination_pools::ClaimPermission
-     **/
-    PalletNominationPoolsClaimPermission: {
-        _enum: ['Permissioned', 'PermissionlessCompound', 'PermissionlessWithdraw', 'PermissionlessAll'],
-    },
-    /**
-     * Lookup317: pallet_ethereum::pallet::Call<T>
-     **/
-    PalletEthereumCall: {
-        _enum: {
-            transact: {
-                transaction: 'EthereumTransactionTransactionV2',
-            },
-        },
-    },
-    /**
-     * Lookup318: ethereum::transaction::TransactionV2
-     **/
-    EthereumTransactionTransactionV2: {
-        _enum: {
-            Legacy: 'EthereumTransactionLegacyTransaction',
-            EIP2930: 'EthereumTransactionEip2930Transaction',
-            EIP1559: 'EthereumTransactionEip1559Transaction',
-        },
-    },
-    /**
-     * Lookup319: ethereum::transaction::LegacyTransaction
-     **/
-    EthereumTransactionLegacyTransaction: {
-        nonce: 'U256',
-        gasPrice: 'U256',
-        gasLimit: 'U256',
-        action: 'EthereumTransactionTransactionAction',
-        value: 'U256',
-        input: 'Bytes',
-        signature: 'EthereumTransactionTransactionSignature',
-    },
-    /**
-     * Lookup320: ethereum::transaction::TransactionAction
-     **/
-    EthereumTransactionTransactionAction: {
-        _enum: {
-            Call: 'H160',
-            Create: 'Null',
-        },
-    },
-    /**
-     * Lookup321: ethereum::transaction::TransactionSignature
-     **/
-    EthereumTransactionTransactionSignature: {
-        v: 'u64',
-        r: 'H256',
-        s: 'H256',
-    },
-    /**
-     * Lookup323: ethereum::transaction::EIP2930Transaction
-     **/
-    EthereumTransactionEip2930Transaction: {
-        chainId: 'u64',
-        nonce: 'U256',
-        gasPrice: 'U256',
-        gasLimit: 'U256',
-        action: 'EthereumTransactionTransactionAction',
-        value: 'U256',
-        input: 'Bytes',
-        accessList: 'Vec<EthereumTransactionAccessListItem>',
-        oddYParity: 'bool',
-        r: 'H256',
-        s: 'H256',
-    },
-    /**
-     * Lookup325: ethereum::transaction::AccessListItem
-     **/
-    EthereumTransactionAccessListItem: {
-        address: 'H160',
-        storageKeys: 'Vec<H256>',
-    },
-    /**
-     * Lookup326: ethereum::transaction::EIP1559Transaction
-     **/
-    EthereumTransactionEip1559Transaction: {
-        chainId: 'u64',
-        nonce: 'U256',
-        maxPriorityFeePerGas: 'U256',
-        maxFeePerGas: 'U256',
-        gasLimit: 'U256',
-        action: 'EthereumTransactionTransactionAction',
-        value: 'U256',
-        input: 'Bytes',
-        accessList: 'Vec<EthereumTransactionAccessListItem>',
-        oddYParity: 'bool',
-        r: 'H256',
-        s: 'H256',
-    },
-    /**
-     * Lookup327: pallet_evm::pallet::Call<T>
-     **/
-    PalletEvmCall: {
-        _enum: {
-            withdraw: {
-                address: 'H160',
-                value: 'u128',
-            },
-            call: {
-                source: 'H160',
-                target: 'H160',
-                input: 'Bytes',
-                value: 'U256',
-                gasLimit: 'u64',
-                maxFeePerGas: 'U256',
-                maxPriorityFeePerGas: 'Option<U256>',
-                nonce: 'Option<U256>',
-                accessList: 'Vec<(H160,Vec<H256>)>',
-            },
-            create: {
-                source: 'H160',
-                init: 'Bytes',
-                value: 'U256',
-                gasLimit: 'u64',
-                maxFeePerGas: 'U256',
-                maxPriorityFeePerGas: 'Option<U256>',
-                nonce: 'Option<U256>',
-                accessList: 'Vec<(H160,Vec<H256>)>',
-            },
-            create2: {
-                source: 'H160',
-                init: 'Bytes',
-                salt: 'H256',
-                value: 'U256',
-                gasLimit: 'u64',
-                maxFeePerGas: 'U256',
-                maxPriorityFeePerGas: 'Option<U256>',
-                nonce: 'Option<U256>',
-                accessList: 'Vec<(H160,Vec<H256>)>',
-            },
-        },
-    },
-    /**
-     * Lookup331: pallet_dynamic_fee::pallet::Call<T>
-     **/
-    PalletDynamicFeeCall: {
-        _enum: {
-            note_min_gas_price_target: {
-                target: 'U256',
-            },
-        },
-    },
-    /**
-     * Lookup332: pallet_base_fee::pallet::Call<T>
-     **/
-    PalletBaseFeeCall: {
-        _enum: {
-            set_base_fee_per_gas: {
-                fee: 'U256',
-            },
-            set_elasticity: {
-                elasticity: 'Permill',
-            },
-        },
-    },
-    /**
-     * Lookup333: pallet_hotfix_sufficients::pallet::Call<T>
-     **/
-    PalletHotfixSufficientsCall: {
-        _enum: {
-            hotfix_inc_account_sufficients: {
-                addresses: 'Vec<H160>',
-            },
-        },
-    },
-    /**
-     * Lookup335: pallet_attestation::pallet::Call<T>
-     **/
-    PalletAttestationCall: {
-        _enum: {
-            set_chain_attestation_interval: {
-                chainKey: 'u64',
-                chainAttestationInterval: 'u64',
-            },
-            set_target_sample_size: {
-                chainKey: 'u64',
-                newTargetSampleSize: 'u32',
-            },
-            register_attestor: {
-                chainKey: 'u64',
-                attestorId: 'AccountId32',
-            },
-            unregister_attestor: {
-                chainKey: 'u64',
-                attestorId: 'AccountId32',
-            },
-            set_max_attestors: {
-                chainKey: 'u64',
-                newMax: 'u32',
-            },
-            register_invulnerable: {
-                chainKey: 'u64',
-                attestor: 'AccountId32',
-            },
-            unregister_invulnerable: {
-                chainKey: 'u64',
-                attestor: 'AccountId32',
-            },
-            set_max_invulnerables: {
-                chainKey: 'u64',
-                newMax: 'u32',
-            },
-            __Unused8: 'Null',
-            commit_attestation: {
-                attestation: 'AttestorPrimitivesSignedAttestation',
-            },
-            set_attestations_per_checkpoint: {
-                chainKey: 'u64',
-                attestationsPerCheckpoint: 'u32',
-            },
-            set_min_bond_requirement: {
-                chainKey: 'u64',
-                minBondRequirement: 'u128',
-            },
-            __Unused12: 'Null',
-            attest: {
-                chainKey: 'u64',
-                blsPublicKey: '[u8;48]',
-                proofOfPossession: '[u8;96]',
-            },
-            chill: {
-                chainKey: 'u64',
-                attestorId: 'AccountId32',
-            },
-            __Unused15: 'Null',
-            withdraw_unbonded: 'Null',
-            __Unused17: 'Null',
-            import_checkpoints: {
-                chainKey: 'u64',
-                checkpoints: 'Vec<AttestorPrimitivesAttestationCheckpoint>',
-            },
-            set_attestation_chain_genesis_block_number: {
-                chainKey: 'u64',
-                genesisBlockNumber: 'u64',
-            },
-            __Unused20: 'Null',
-            set_election_policy: {
-                chainKey: 'u64',
-                newPolicy: 'PalletAttestationAttestorElectionPolicy',
-            },
-            authorize_attestor: {
-                chainKey: 'u64',
-                attestorId: 'AccountId32',
-            },
-            remove_authorized_attestor: {
-                chainKey: 'u64',
-                attestorId: 'AccountId32',
-            },
-            kick_active_attestor: {
-                chainKey: 'u64',
-                attestorId: 'AccountId32',
-                unregister: 'bool',
-            },
-            force_election: {
-                epoch: 'u64',
-            },
-            set_max_catchup: {
-                chainKey: 'u64',
-                maxCatchup: 'u32',
-            },
-            force_apply_updates: 'Null',
-            revert_to: {
-                chainKey: 'u64',
-                checkpointHeight: 'u64',
-            },
-        },
-    },
-    /**
-     * Lookup336: attestor_primitives::SignedAttestation<primitive_types::H256, sp_core::crypto::AccountId32>
-     **/
-    AttestorPrimitivesSignedAttestation: {
-        attestation: 'AttestorPrimitivesAttestationData',
-        signature: '[u8;96]',
-        attestors: 'Vec<AccountId32>',
-        continuityProof: 'AttestorPrimitivesBlockContinuityProof',
-    },
-    /**
-     * Lookup337: attestor_primitives::AttestationData<primitive_types::H256>
-     **/
-    AttestorPrimitivesAttestationData: {
-        chainKey: 'u64',
-        headerNumber: 'u64',
-        headerHash: 'H256',
-        root: 'H256',
-        prevDigest: 'Option<H256>',
-    },
-    /**
-     * Lookup340: attestor_primitives::block::ContinuityProof
-     **/
-    AttestorPrimitivesBlockContinuityProof: {
-        lowerEndpointDigest: 'H256',
-        roots: 'Vec<H256>',
-    },
-    /**
-     * Lookup343: pallet_attest_coin_rewards::pallet::Call<T>
+     * Lookup337: pallet_attest_coin_rewards::pallet::Call<T>
      **/
     PalletAttestCoinRewardsCall: {
         _enum: {
@@ -3066,76 +3026,19 @@ export default {
         },
     },
     /**
-     * Lookup344: pallet_supported_chains::pallet::Call<T>
-     **/
-    PalletSupportedChainsCall: {
-        _enum: {
-            register_chain: {
-                chainId: 'u64',
-                chainName: 'Text',
-                targetSampleSize: 'Option<u32>',
-                chainAttestationInterval: 'Option<u64>',
-                attestationCheckpointInterval: 'Option<u32>',
-                maxAttestors: 'Option<u32>',
-                maxInvulnerables: 'Option<u32>',
-                attestationChainGenesisBlockNumber: 'Option<u64>',
-                encoding: 'AttestorPrimitivesChainEncodingVersion',
-                maturityStrategy: 'Option<Text>',
-            },
-            remove_chain: {
-                chainKey: 'u64',
-                removeCheckpoints: 'bool',
-            },
-        },
-    },
-    /**
-     * Lookup346: pallet_randomness::pallet::Call<T>
-     **/
-    PalletRandomnessCall: 'Null',
-    /**
-     * Lookup347: pallet_membership::pallet::Call<T, I>
-     **/
-    PalletMembershipCall: {
-        _enum: {
-            add_member: {
-                who: 'MultiAddress',
-            },
-            remove_member: {
-                who: 'MultiAddress',
-            },
-            swap_member: {
-                remove: 'MultiAddress',
-                add: 'MultiAddress',
-            },
-            reset_members: {
-                members: 'Vec<AccountId32>',
-            },
-            change_key: {
-                _alias: {
-                    new_: 'new',
-                },
-                new_: 'MultiAddress',
-            },
-            set_prime: {
-                who: 'MultiAddress',
-            },
-            clear_prime: 'Null',
-        },
-    },
-    /**
-     * Lookup348: pallet_sudo::pallet::Error<T>
+     * Lookup338: pallet_sudo::pallet::Error<T>
      **/
     PalletSudoError: {
         _enum: ['RequireSudo'],
     },
     /**
-     * Lookup349: pallet_utility::pallet::Error<T>
+     * Lookup339: pallet_utility::pallet::Error<T>
      **/
     PalletUtilityError: {
         _enum: ['TooManyCalls'],
     },
     /**
-     * Lookup352: pallet_proxy::ProxyDefinition<sp_core::crypto::AccountId32, creditcoin3_runtime::ProxyFilter, BlockNumber>
+     * Lookup342: pallet_proxy::ProxyDefinition<sp_core::crypto::AccountId32, creditcoin3_runtime::ProxyFilter, BlockNumber>
      **/
     PalletProxyProxyDefinition: {
         delegate: 'AccountId32',
@@ -3143,7 +3046,7 @@ export default {
         delay: 'u32',
     },
     /**
-     * Lookup356: pallet_proxy::Announcement<sp_core::crypto::AccountId32, primitive_types::H256, BlockNumber>
+     * Lookup346: pallet_proxy::Announcement<sp_core::crypto::AccountId32, primitive_types::H256, BlockNumber>
      **/
     PalletProxyAnnouncement: {
         real: 'AccountId32',
@@ -3151,7 +3054,7 @@ export default {
         height: 'u32',
     },
     /**
-     * Lookup358: pallet_proxy::pallet::Error<T>
+     * Lookup348: pallet_proxy::pallet::Error<T>
      **/
     PalletProxyError: {
         _enum: [
@@ -3166,7 +3069,7 @@ export default {
         ],
     },
     /**
-     * Lookup360: pallet_identity::types::Registration<Balance, MaxJudgements, pallet_identity::legacy::IdentityInfo<FieldLimit>>
+     * Lookup350: pallet_identity::types::Registration<Balance, MaxJudgements, pallet_identity::legacy::IdentityInfo<FieldLimit>>
      **/
     PalletIdentityRegistration: {
         judgements: 'Vec<(u32,PalletIdentityJudgement)>',
@@ -3174,7 +3077,7 @@ export default {
         info: 'PalletIdentityLegacyIdentityInfo',
     },
     /**
-     * Lookup369: pallet_identity::types::RegistrarInfo<Balance, sp_core::crypto::AccountId32, IdField>
+     * Lookup359: pallet_identity::types::RegistrarInfo<Balance, sp_core::crypto::AccountId32, IdField>
      **/
     PalletIdentityRegistrarInfo: {
         account: 'AccountId32',
@@ -3182,14 +3085,14 @@ export default {
         fields: 'u64',
     },
     /**
-     * Lookup371: pallet_identity::types::AuthorityProperties<bounded_collections::bounded_vec::BoundedVec<T, S>>
+     * Lookup361: pallet_identity::types::AuthorityProperties<bounded_collections::bounded_vec::BoundedVec<T, S>>
      **/
     PalletIdentityAuthorityProperties: {
         suffix: 'Bytes',
         allocation: 'u32',
     },
     /**
-     * Lookup373: pallet_identity::pallet::Error<T>
+     * Lookup363: pallet_identity::pallet::Error<T>
      **/
     PalletIdentityError: {
         _enum: [
@@ -3222,20 +3125,20 @@ export default {
         ],
     },
     /**
-     * Lookup374: pallet_fast_unstake::types::UnstakeRequest<T>
+     * Lookup364: pallet_fast_unstake::types::UnstakeRequest<T>
      **/
     PalletFastUnstakeUnstakeRequest: {
         stashes: 'Vec<(AccountId32,u128)>',
         checked: 'Vec<u32>',
     },
     /**
-     * Lookup377: pallet_fast_unstake::pallet::Error<T>
+     * Lookup367: pallet_fast_unstake::pallet::Error<T>
      **/
     PalletFastUnstakeError: {
         _enum: ['NotController', 'AlreadyQueued', 'NotFullyBonded', 'NotQueued', 'AlreadyHead', 'CallNotAllowed'],
     },
     /**
-     * Lookup378: pallet_nomination_pools::PoolMember<T>
+     * Lookup368: pallet_nomination_pools::PoolMember<T>
      **/
     PalletNominationPoolsPoolMember: {
         poolId: 'u32',
@@ -3244,7 +3147,7 @@ export default {
         unbondingEras: 'BTreeMap<u32, u128>',
     },
     /**
-     * Lookup383: pallet_nomination_pools::BondedPoolInner<T>
+     * Lookup373: pallet_nomination_pools::BondedPoolInner<T>
      **/
     PalletNominationPoolsBondedPoolInner: {
         commission: 'PalletNominationPoolsCommission',
@@ -3254,7 +3157,7 @@ export default {
         state: 'PalletNominationPoolsPoolState',
     },
     /**
-     * Lookup384: pallet_nomination_pools::Commission<T>
+     * Lookup374: pallet_nomination_pools::Commission<T>
      **/
     PalletNominationPoolsCommission: {
         current: 'Option<(Perbill,AccountId32)>',
@@ -3264,7 +3167,7 @@ export default {
         claimPermission: 'Option<PalletNominationPoolsCommissionClaimPermission>',
     },
     /**
-     * Lookup387: pallet_nomination_pools::PoolRoles<sp_core::crypto::AccountId32>
+     * Lookup377: pallet_nomination_pools::PoolRoles<sp_core::crypto::AccountId32>
      **/
     PalletNominationPoolsPoolRoles: {
         depositor: 'AccountId32',
@@ -3273,7 +3176,7 @@ export default {
         bouncer: 'Option<AccountId32>',
     },
     /**
-     * Lookup388: pallet_nomination_pools::RewardPool<T>
+     * Lookup378: pallet_nomination_pools::RewardPool<T>
      **/
     PalletNominationPoolsRewardPool: {
         lastRecordedRewardCounter: 'u128',
@@ -3283,25 +3186,25 @@ export default {
         totalCommissionClaimed: 'u128',
     },
     /**
-     * Lookup389: pallet_nomination_pools::SubPools<T>
+     * Lookup379: pallet_nomination_pools::SubPools<T>
      **/
     PalletNominationPoolsSubPools: {
         noEra: 'PalletNominationPoolsUnbondPool',
         withEra: 'BTreeMap<u32, PalletNominationPoolsUnbondPool>',
     },
     /**
-     * Lookup390: pallet_nomination_pools::UnbondPool<T>
+     * Lookup380: pallet_nomination_pools::UnbondPool<T>
      **/
     PalletNominationPoolsUnbondPool: {
         points: 'u128',
         balance: 'u128',
     },
     /**
-     * Lookup396: frame_support::PalletId
+     * Lookup386: frame_support::PalletId
      **/
     FrameSupportPalletId: '[u8;8]',
     /**
-     * Lookup397: pallet_nomination_pools::pallet::Error<T>
+     * Lookup387: pallet_nomination_pools::pallet::Error<T>
      **/
     PalletNominationPoolsError: {
         _enum: {
@@ -3345,7 +3248,7 @@ export default {
         },
     },
     /**
-     * Lookup398: pallet_nomination_pools::pallet::DefensiveError
+     * Lookup388: pallet_nomination_pools::pallet::DefensiveError
      **/
     PalletNominationPoolsDefensiveError: {
         _enum: [
@@ -3359,7 +3262,7 @@ export default {
         ],
     },
     /**
-     * Lookup400: fp_rpc::TransactionStatus
+     * Lookup390: fp_rpc::TransactionStatus
      **/
     FpRpcTransactionStatus: {
         transactionHash: 'H256',
@@ -3371,11 +3274,11 @@ export default {
         logsBloom: 'EthbloomBloom',
     },
     /**
-     * Lookup403: ethbloom::Bloom
+     * Lookup393: ethbloom::Bloom
      **/
     EthbloomBloom: '[u8;256]',
     /**
-     * Lookup405: ethereum::receipt::ReceiptV3
+     * Lookup395: ethereum::receipt::ReceiptV3
      **/
     EthereumReceiptReceiptV3: {
         _enum: {
@@ -3385,7 +3288,7 @@ export default {
         },
     },
     /**
-     * Lookup406: ethereum::receipt::EIP658ReceiptData
+     * Lookup396: ethereum::receipt::EIP658ReceiptData
      **/
     EthereumReceiptEip658ReceiptData: {
         statusCode: 'u8',
@@ -3394,7 +3297,7 @@ export default {
         logs: 'Vec<EthereumLog>',
     },
     /**
-     * Lookup407: ethereum::block::Block<ethereum::transaction::TransactionV2>
+     * Lookup397: ethereum::block::Block<ethereum::transaction::TransactionV2>
      **/
     EthereumBlock: {
         header: 'EthereumHeader',
@@ -3402,7 +3305,7 @@ export default {
         ommers: 'Vec<EthereumHeader>',
     },
     /**
-     * Lookup408: ethereum::header::Header
+     * Lookup398: ethereum::header::Header
      **/
     EthereumHeader: {
         parentHash: 'H256',
@@ -3422,17 +3325,17 @@ export default {
         nonce: 'EthereumTypesHashH64',
     },
     /**
-     * Lookup409: ethereum_types::hash::H64
+     * Lookup399: ethereum_types::hash::H64
      **/
     EthereumTypesHashH64: '[u8;8]',
     /**
-     * Lookup414: pallet_ethereum::pallet::Error<T>
+     * Lookup404: pallet_ethereum::pallet::Error<T>
      **/
     PalletEthereumError: {
         _enum: ['InvalidSignature', 'PreLogExists'],
     },
     /**
-     * Lookup415: pallet_evm::CodeMetadata
+     * Lookup405: pallet_evm::CodeMetadata
      **/
     PalletEvmCodeMetadata: {
         _alias: {
@@ -3443,7 +3346,7 @@ export default {
         hash_: 'H256',
     },
     /**
-     * Lookup417: pallet_evm::pallet::Error<T>
+     * Lookup407: pallet_evm::pallet::Error<T>
      **/
     PalletEvmError: {
         _enum: [
@@ -3463,13 +3366,13 @@ export default {
         ],
     },
     /**
-     * Lookup418: pallet_hotfix_sufficients::pallet::Error<T>
+     * Lookup408: pallet_hotfix_sufficients::pallet::Error<T>
      **/
     PalletHotfixSufficientsError: {
         _enum: ['MaxAddressCountExceeded'],
     },
     /**
-     * Lookup420: attestor_primitives::Attestor<sp_core::crypto::AccountId32>
+     * Lookup410: attestor_primitives::Attestor<sp_core::crypto::AccountId32>
      **/
     AttestorPrimitivesAttestor: {
         blsPublicKey: 'Option<[u8;48]>',
@@ -3477,13 +3380,13 @@ export default {
         stash: 'AccountId32',
     },
     /**
-     * Lookup422: attestor_primitives::AttestorStatus
+     * Lookup412: attestor_primitives::AttestorStatus
      **/
     AttestorPrimitivesAttestorStatus: {
         _enum: ['Active', 'Idle', 'Waiting', 'Leaving'],
     },
     /**
-     * Lookup423: pallet_attestation::pallet::RetiredAttestorBlsKeyEntry<sp_core::crypto::AccountId32>
+     * Lookup413: pallet_attestation::pallet::RetiredAttestorBlsKeyEntry<sp_core::crypto::AccountId32>
      **/
     PalletAttestationRetiredAttestorBlsKeyEntry: {
         blsPublicKey: '[u8;48]',
@@ -3491,7 +3394,7 @@ export default {
         stash: 'AccountId32',
     },
     /**
-     * Lookup428: pallet_attestation::ledger::AttestorLedger<T>
+     * Lookup418: pallet_attestation::ledger::AttestorLedger<T>
      **/
     PalletAttestationLedgerAttestorLedger: {
         stash: 'AccountId32',
@@ -3500,21 +3403,21 @@ export default {
         unlocking: 'Vec<PalletAttestationLedgerUnlockChunk>',
     },
     /**
-     * Lookup430: pallet_attestation::ledger::UnlockChunk<Balance>
+     * Lookup420: pallet_attestation::ledger::UnlockChunk<Balance>
      **/
     PalletAttestationLedgerUnlockChunk: {
         value: 'Compact<u128>',
         era: 'Compact<u32>',
     },
     /**
-     * Lookup432: pallet_attestation::clear_or_revert::CheckpointPruningState
+     * Lookup422: pallet_attestation::clear_or_revert::CheckpointPruningState
      **/
     PalletAttestationClearOrRevertCheckpointPruningState: {
         stopHeight: 'u64',
         nextPivot: 'u64',
     },
     /**
-     * Lookup433: pallet_attestation::pallet::Error<T>
+     * Lookup423: pallet_attestation::pallet::Error<T>
      **/
     PalletAttestationError: {
         _enum: [
@@ -3578,13 +3481,7 @@ export default {
         ],
     },
     /**
-     * Lookup434: pallet_attest_coin_rewards::pallet::Error<T>
-     **/
-    PalletAttestCoinRewardsError: {
-        _enum: ['TokenNotConfigured', 'NotStash', 'InsufficientAccrued', 'BadClaimNonce'],
-    },
-    /**
-     * Lookup435: supported_chains_primitives::SupportedChain
+     * Lookup424: supported_chains_primitives::SupportedChain
      **/
     SupportedChainsPrimitivesSupportedChain: {
         chainId: 'u64',
@@ -3593,20 +3490,121 @@ export default {
         maturityStrategy: 'Text',
     },
     /**
-     * Lookup437: pallet_supported_chains::pallet::Error<T>
+     * Lookup426: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
         _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic', 'InvalidMaturityStrategy'],
     },
     /**
-     * Lookup438: pallet_randomness::pallet::Error<T>
+     * Lookup427: pallet_randomness::pallet::Error<T>
      **/
     PalletRandomnessError: 'Null',
     /**
-     * Lookup440: pallet_membership::pallet::Error<T, I>
+     * Lookup429: pallet_membership::pallet::Error<T, I>
      **/
     PalletMembershipError: {
         _enum: ['AlreadyMember', 'NotMember', 'TooManyMembers'],
+    },
+    /**
+     * Lookup430: pallet_assets::types::AssetDetails<Balance, sp_core::crypto::AccountId32, DepositBalance>
+     **/
+    PalletAssetsAssetDetails: {
+        owner: 'AccountId32',
+        issuer: 'AccountId32',
+        admin: 'AccountId32',
+        freezer: 'AccountId32',
+        supply: 'u128',
+        deposit: 'u128',
+        minBalance: 'u128',
+        isSufficient: 'bool',
+        accounts: 'u32',
+        sufficients: 'u32',
+        approvals: 'u32',
+        status: 'PalletAssetsAssetStatus',
+    },
+    /**
+     * Lookup431: pallet_assets::types::AssetStatus
+     **/
+    PalletAssetsAssetStatus: {
+        _enum: ['Live', 'Frozen', 'Destroying'],
+    },
+    /**
+     * Lookup432: pallet_assets::types::AssetAccount<Balance, DepositBalance, Extra, sp_core::crypto::AccountId32>
+     **/
+    PalletAssetsAssetAccount: {
+        balance: 'u128',
+        status: 'PalletAssetsAccountStatus',
+        reason: 'PalletAssetsExistenceReason',
+        extra: 'Null',
+    },
+    /**
+     * Lookup433: pallet_assets::types::AccountStatus
+     **/
+    PalletAssetsAccountStatus: {
+        _enum: ['Liquid', 'Frozen', 'Blocked'],
+    },
+    /**
+     * Lookup434: pallet_assets::types::ExistenceReason<Balance, sp_core::crypto::AccountId32>
+     **/
+    PalletAssetsExistenceReason: {
+        _enum: {
+            Consumer: 'Null',
+            Sufficient: 'Null',
+            DepositHeld: 'u128',
+            DepositRefunded: 'Null',
+            DepositFrom: '(AccountId32,u128)',
+        },
+    },
+    /**
+     * Lookup436: pallet_assets::types::Approval<Balance, DepositBalance>
+     **/
+    PalletAssetsApproval: {
+        amount: 'u128',
+        deposit: 'u128',
+    },
+    /**
+     * Lookup437: pallet_assets::types::AssetMetadata<DepositBalance, bounded_collections::bounded_vec::BoundedVec<T, S>>
+     **/
+    PalletAssetsAssetMetadata: {
+        deposit: 'u128',
+        name: 'Bytes',
+        symbol: 'Bytes',
+        decimals: 'u8',
+        isFrozen: 'bool',
+    },
+    /**
+     * Lookup439: pallet_assets::pallet::Error<T, I>
+     **/
+    PalletAssetsError: {
+        _enum: [
+            'BalanceLow',
+            'NoAccount',
+            'NoPermission',
+            'Unknown',
+            'Frozen',
+            'InUse',
+            'BadWitness',
+            'MinBalanceZero',
+            'UnavailableConsumer',
+            'BadMetadata',
+            'Unapproved',
+            'WouldDie',
+            'AlreadyExists',
+            'NoDeposit',
+            'WouldBurn',
+            'LiveAsset',
+            'AssetNotLive',
+            'IncorrectStatus',
+            'NotFrozen',
+            'CallbackFailed',
+            'BadAssetId',
+        ],
+    },
+    /**
+     * Lookup440: pallet_attest_coin_rewards::pallet::Error<T>
+     **/
+    PalletAttestCoinRewardsError: {
+        _enum: ['TokenNotConfigured', 'NotStash', 'InsufficientAccrued', 'BadClaimNonce'],
     },
     /**
      * Lookup443: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
