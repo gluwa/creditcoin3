@@ -1,0 +1,55 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "p2p"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+# Attestor
+common = { path = "../common" }
+
+# Creditcoin
+attestor-primitives = { workspace = true }
+bls-signatures = { workspace = true }
+builder = { workspace = true }
+cc-client = { workspace = true }
+usc-abi-encoding = { workspace = true }
+
+# Substrate
+parity-scale-codec = { workspace = true }
+
+# Async & Parallelism
+futures = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+
+# P2P
+libp2p = { workspace = true, features = [
+    "tokio",
+    "macros",
+    "ed25519",
+    "dns",
+    "quic",
+    "tcp",
+    "noise",
+    "yamux",
+    "identify",
+    "ping",
+    "mdns",
+    "kad",
+    "gossipsub",
+] }
+
+# Parsing
+url = { workspace = true, features = ["serde"] }
+
+# Logging
+tracing = { workspace = true }
+
+# Errors
+anyhow = { workspace = true }
+
+# other
+user = { workspace = true }

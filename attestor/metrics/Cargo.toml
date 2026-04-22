@@ -10,6 +10,7 @@ version.workspace = true
 [dependencies]
 # Attestor
 attestation_pool = { path = "../pool" }
+p2p = { path = "../p2p" }
 
 # Creditcoin
 attestor-primitives = { workspace = true }

@@ -194,7 +194,9 @@ fn field_name_to_type_param(name: &Ident) -> Ident {
             let mut chars = word.chars();
             match chars.next() {
                 None => String::new(),
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                Some(first) => {
+                    first.to_uppercase().collect::<String>() + chars.as_str() + "Builder"
+                }
             }
         })
         .collect::<String>();
