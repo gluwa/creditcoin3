@@ -1052,7 +1052,6 @@ construct_runtime!(
         Babe: pallet_babe,
         Timestamp: pallet_timestamp,
         Balances: pallet_balances,
-        Assets: pallet_assets,
         // Authorship has to be before Session
         Authorship: pallet_authorship,
         Staking: pallet_staking,
@@ -1079,11 +1078,13 @@ construct_runtime!(
         HotfixSufficients: pallet_hotfix_sufficients,
 
         Attestation: pallet_attestation,
-        AttestCoinRewards: pallet_attest_coin_rewards,
         SupportedChains: pallet_supported_chains,
 
         Randomness: pallet_randomness,
         Operators: pallet_membership::<Instance1>,
+
+        Assets: pallet_assets,
+        AttestCoinRewards: pallet_attest_coin_rewards,
     }
 );
 
