@@ -84,7 +84,7 @@ where
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
     Runtime::RuntimeCall: From<pallet_attestation::Call<Runtime>>,
     <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin: From<Option<Runtime::AccountId>>,
-    Runtime::AccountId: From<[u8; 32]> + Into<H256>,
+    Runtime::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
 {
     /// Register a new attestor under the caller's stash for the given chain.
@@ -228,7 +228,7 @@ where
                     attestor_primitives::AttestorStatus::Idle => 1,
                     attestor_primitives::AttestorStatus::Waiting => 2,
                 };
-                let stash: H256 = attestor.stash.into();
+                let stash: H256 = H256::from(Into::<[u8; 32]>::into(attestor.stash));
                 let has_bls_key = attestor.bls_public_key.is_some();
                 Ok(AttestorInfo {
                     exists: true,
