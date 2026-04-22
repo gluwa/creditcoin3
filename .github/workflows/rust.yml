@@ -186,14 +186,7 @@ jobs:
         uses: bnjbvr/cargo-machete@main
 
   cargo-test:
-    needs:
-      - deploy-runner-unit-test-creditcoin
-    runs-on:
-      [
-        self-hosted,
-        "workflow-${{ github.run_id }}",
-        "proxy-unit-test-creditcoin",
-      ]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -260,22 +253,3 @@ jobs:
         with:
           name: coverage-report
           path: target/llvm-cov/html/
-
-  deploy-runner-unit-test-creditcoin:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "unit-test-creditcoin"
-    secrets: inherit
-
-  rm-gh-runner-unit-test-creditcoin:
-    needs:
-      - cargo-test
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "unit-test-creditcoin"
-    secrets: inherit
