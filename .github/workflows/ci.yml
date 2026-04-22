@@ -1000,24 +1000,12 @@ jobs:
           path: |
             /var/tmp/creditcoin3-node.log
 
-  deploy-runner-cc3-indexer:
+  cc3-indexer-testing:
     needs:
       - should-run
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.cc3_indexer == 'true' }}
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "cc3-indexer"
-    secrets: inherit
-
-  cc3-indexer-testing:
-    needs:
-      - build-creditcoin-node-for-testing-ci
-      - deploy-runner-cc3-indexer
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-cc3-indexer"]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
@@ -1215,16 +1203,6 @@ jobs:
           killall -9 attestor_zombienet
           killall -9 attestor
           killall -9 creditcoin3-node
-
-  rm-gh-runner-cc3-indexer:
-    needs:
-      - cc3-indexer-testing
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "cc3-indexer"
-    secrets: inherit
 
   # preceeds all of the attestor-cli jobs so that we can
   # easily trigger all of them when something fails
