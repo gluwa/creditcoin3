@@ -16,6 +16,22 @@ pragma solidity >=0.8.3;
 /// dispatched pallet call. The dispatched call must therefore satisfy every
 /// check that a normal signed extrinsic would (bond, ownership, existence,
 /// etc.) and will revert the precompile call if the pallet returns an error.
+/// @dev Attestor state returned by `getAttestor`.
+struct AttestorInfo {
+    bool exists;
+    uint8 status;      // 0=Active, 1=Idle, 2=Waiting
+    bytes32 stash;
+    bool hasBlsKey;
+}
+
+/// @dev Ledger state returned by `getLedger`.
+struct LedgerInfo {
+    bool exists;
+    uint128 totalStaked;
+    uint128 active;
+    uint32 unlockingChunks;
+}
+
 interface IAttestorStash {
     /// @notice Emitted when a stash successfully registers an attestor.
     /// @param chainKey   The chain the attestor is being registered for.
@@ -72,4 +88,31 @@ interface IAttestorStash {
     ///      error in that case, which will revert the precompile call).
     /// @return success `true` on successful dispatch.
     function withdrawUnbonded() external returns (bool success);
+
+    /// @notice Returns attestor state for the given chain and attestor id.
+    /// @param chainKey   The chain identifier.
+    /// @param attestorId The 32-byte attestor identity.
+    /// @return info AttestorInfo struct (exists=false if not registered).
+    function getAttestor(uint64 chainKey, bytes32 attestorId) external view returns (AttestorInfo memory info);
+
+    /// @notice Returns true if the attestor is in the active set for `chainKey`.
+    /// @param chainKey   The chain identifier.
+    /// @param attestorId The 32-byte attestor identity.
+    /// @return active `true` if in the active set.
+    function isActiveAttestor(uint64 chainKey, bytes32 attestorId) external view returns (bool active);
+
+    /// @notice Returns the number of registered attestors for `chainKey`.
+    /// @param chainKey The chain identifier.
+    /// @return count Number of registered attestors.
+    function getAttestorsCount(uint64 chainKey) external view returns (uint32 count);
+
+    /// @notice Returns ledger info for the given stash account.
+    /// @param stash The 32-byte stash account id.
+    /// @return info LedgerInfo struct (exists=false if no ledger).
+    function getLedger(bytes32 stash) external view returns (LedgerInfo memory info);
+
+    /// @notice Returns the minimum bond requirement for `chainKey`.
+    /// @param chainKey The chain identifier.
+    /// @return minBond Minimum bond amount.
+    function getMinBondRequirement(uint64 chainKey) external view returns (uint128 minBond);
 }

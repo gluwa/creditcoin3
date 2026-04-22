@@ -171,5 +171,82 @@
     ],
     "stateMutability": "nonpayable",
     "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint64", "name": "chainKey", "type": "uint64" },
+      { "internalType": "bytes32", "name": "attestorId", "type": "bytes32" }
+    ],
+    "name": "getAttestor",
+    "outputs": [
+      {
+        "components": [
+          { "internalType": "bool", "name": "exists", "type": "bool" },
+          { "internalType": "uint8", "name": "status", "type": "uint8" },
+          { "internalType": "bytes32", "name": "stash", "type": "bytes32" },
+          { "internalType": "bool", "name": "hasBlsKey", "type": "bool" }
+        ],
+        "internalType": "struct AttestorInfo",
+        "name": "info",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint64", "name": "chainKey", "type": "uint64" },
+      { "internalType": "bytes32", "name": "attestorId", "type": "bytes32" }
+    ],
+    "name": "isActiveAttestor",
+    "outputs": [
+      { "internalType": "bool", "name": "active", "type": "bool" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint64", "name": "chainKey", "type": "uint64" }
+    ],
+    "name": "getAttestorsCount",
+    "outputs": [
+      { "internalType": "uint32", "name": "count", "type": "uint32" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "bytes32", "name": "stash", "type": "bytes32" }
+    ],
+    "name": "getLedger",
+    "outputs": [
+      {
+        "components": [
+          { "internalType": "bool", "name": "exists", "type": "bool" },
+          { "internalType": "uint128", "name": "totalStaked", "type": "uint128" },
+          { "internalType": "uint128", "name": "active", "type": "uint128" },
+          { "internalType": "uint32", "name": "unlockingChunks", "type": "uint32" }
+        ],
+        "internalType": "struct LedgerInfo",
+        "name": "info",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint64", "name": "chainKey", "type": "uint64" }
+    ],
+    "name": "getMinBondRequirement",
+    "outputs": [
+      { "internalType": "uint128", "name": "minBond", "type": "uint128" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]

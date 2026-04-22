@@ -3,7 +3,7 @@ use crate::{
         Account::{Alice, Bob, Precompile},
         *,
     },
-    SELECTOR_LOG_ATTESTOR_CHILLED, SELECTOR_LOG_ATTESTOR_REGISTERED,
+    AttestorInfo, LedgerInfo, SELECTOR_LOG_ATTESTOR_CHILLED, SELECTOR_LOG_ATTESTOR_REGISTERED,
     SELECTOR_LOG_ATTESTOR_UNREGISTERED, SELECTOR_LOG_UNBONDED_WITHDRAWN,
 };
 
@@ -299,6 +299,198 @@ fn withdraw_unbonded_with_nothing_to_withdraw_should_revert() {
                     let s = from_utf8(output).unwrap();
                     s.contains("Dispatched call failed with error: ") && s.contains("NotStash")
                 });
+        });
+}
+
+#[test]
+fn get_attestor_not_registered_returns_default() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(AttestorInfo::default());
+        });
+}
+
+#[test]
+fn get_attestor_after_register_returns_info() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            // AttestorA is its own stash in mock (Alice registers AttestorA)
+            // stash in ledger = Alice
+            let alice_h256: H256 = Alice.into();
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(AttestorInfo {
+                    exists: true,
+                    status: 1, // Idle
+                    stash: alice_h256,
+                    has_bls_key: false,
+                });
+        });
+}
+
+#[test]
+fn is_active_attestor_returns_false_after_register() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::is_active_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(false);
+        });
+}
+
+#[test]
+fn get_attestors_count_after_register() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_attestors_count { chain_key: TEST_CHAIN_KEY },
+                )
+                .execute_returns(0u32);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_attestors_count { chain_key: TEST_CHAIN_KEY },
+                )
+                .execute_returns(1u32);
+        });
+}
+
+#[test]
+fn get_ledger_after_register_returns_staked_amount() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            // No ledger before register
+            let alice_h256: H256 = Alice.into();
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_ledger { stash: alice_h256 },
+                )
+                .execute_returns(LedgerInfo::default());
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_ledger { stash: alice_h256 },
+                )
+                .execute_returns(LedgerInfo {
+                    exists: true,
+                    total_staked: MIN_BOND,
+                    active: MIN_BOND,
+                    unlocking_chunks: 0,
+                });
+        });
+}
+
+#[test]
+fn get_min_bond_requirement_returns_default() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_min_bond_requirement { chain_key: TEST_CHAIN_KEY },
+                )
+                .execute_returns(MIN_BOND);
         });
 }
 
