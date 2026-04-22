@@ -18,33 +18,12 @@ concurrency:
 permissions: read-all
 
 jobs:
-  deploy-github-runner:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy_type: "wasm"
-    secrets: inherit
-
-  rm-gh-runner-wasm:
-    needs:
-      - build
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy_type: "wasm"
-    secrets: inherit
-
   build:
-    needs:
-      - deploy-github-runner
     uses: ./.github/workflows/build-wasm.yml
     with:
       build-options: "--features devnet"
       version-string: ${{ github.sha }}
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-wasm']"
+      runs-on: "['ubuntu-24.04']"
 
   # try installing subwasm b/c we use this version in multiple places
   # and need to know whether it builds with current rustc
