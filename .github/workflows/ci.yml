@@ -24,7 +24,6 @@ jobs:
       attestor_cli_testing: ${{ steps.filter.outputs.attestor_cli_testing }}
       attestor_network_testing: ${{ steps.filter.outputs.attestor_network_testing }}
       cc3_indexer: ${{ steps.filter.outputs.cc3_indexer }}
-      checkpoint_tooling: ${{ steps.filter.outputs.checkpoint_tooling }}
       docs_smart_contract: ${{ steps.filter.outputs.docs_smart_contract }}
       integration_test_blockchain: ${{ steps.filter.outputs.integration_test_blockchain }}
       integration_test_cli: ${{ steps.filter.outputs.integration_test_cli }}
@@ -54,6 +53,9 @@ jobs:
               - "cli/src/test/integration-tests/attestor/**"
               - ".github/workflows/ci.yml"
             attestor_network_testing:
+              - "checkpoint-builder/**"
+              - "checkpoint-verifier/**"
+              - "archiver/**"
               - "attestor/**"
               - "common/**"
               - "pallets/attestation/**"
@@ -75,17 +77,6 @@ jobs:
               - "cli/yarn.lock"
               - "cli/src/test/cc3-indexer-tests/**"
               - ".github/workflows/ci.yml"
-            checkpoint_tooling:
-              - "checkpoint-builder/**"
-              - "checkpoint-verifier/**"
-              - "archiver/**"
-              - "attestor/**"
-              - "common/**"
-              - "pallets/attestation/**"
-              - "primitives/**"
-              - "runtime/**"
-              - ".github/workflows/ci.yml"
-              - ".github/workflows/build-native.yml"
             docs_smart_contract:
               - "docs/smart-contract-development/**"
               - ".github/workflows/ci.yml"
@@ -285,6 +276,19 @@ jobs:
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
 
+      - name: Start archiver against Anvil1
+        env:
+          RUST_LOG: debug
+        run: |
+          chmod a+x ./target/release/archiver
+
+          ./target/release/archiver \
+              --rpc-http http://localhost:8141 \
+              --rpc-ws ws://localhost:8141 \
+              --start-height 0 \
+              --flush-every 5 \
+              --api-bind 0.0.0.0:8080 >/var/tmp/integration-test-attestor-network/archiver.log 2>&1 &
+
       - name: Start creditcoin3-node - Bob
         env:
           RUST_LOG: debug
@@ -433,6 +437,99 @@ jobs:
           SOURCE_CHAIN: "ws://127.0.0.1:9977"
           CHAIN_KEY_ON_SOURCE: 2
 
+      - name: Discover archiver available range and compute builder range
+        if: always()
+        id: range
+        run: |
+          chmod a+x ./target/release/checkpoint-builder
+
+          ./target/release/checkpoint-builder archiver \
+              --archiver-url http://127.0.0.1:8080 \
+              --dry-run | tee /var/tmp/integration-test-attestor-network/dry-run.log
+
+          LAST=$(grep -oE 'Available range: [0-9]+ to [0-9]+' /var/tmp/integration-test-attestor-network/dry-run.log | awk '{print $NF}')
+          if [ -z "$LAST" ]; then
+            echo "Could not parse archiver available range" >&2
+            exit 1
+          fi
+
+          # Floor to the nearest multiple of 100 so the range arithmetic
+          # satisfies checkpoint-builder's divisibility rule.
+          N=$(( (LAST / 100) * 100 ))
+          if [ "$N" -lt 100 ]; then
+            echo "Archiver only has $LAST blocks - need at least 100 for interval=100" >&2
+            exit 1
+          fi
+
+          echo "Using builder range: 0;1,$N,100 (archiver last=$LAST)"
+          echo "builder_end=$N" >> "$GITHUB_OUTPUT"
+
+      - name: Run checkpoint-builder
+        if: always()
+        env:
+          RUST_LOG: info
+        run: |
+          ./target/release/checkpoint-builder archiver \
+              --archiver-url http://127.0.0.1:8080 \
+              --checkpoint-ranges "0;1,${{ steps.range.outputs.builder_end }},100" \
+              --output-file /var/tmp/integration-test-attestor-network/builder.csv \
+              2>&1 | tee /var/tmp/integration-test-attestor-network/checkpoint-builder.log
+
+          # Builder appends a timestamp, resolve the actual path for later steps.
+          BUILDER_CSV=$(ls /var/tmp/integration-test-attestor-network/builder_*.csv | head -n1)
+          echo "Builder CSV: $BUILDER_CSV"
+          echo "BUILDER_CSV=$BUILDER_CSV" >> "$GITHUB_ENV"
+
+      - name: Stage on-chain checkpoints CSV
+        if: always()
+        run: |
+          cp attestor/scripts/checkpoints_2.csv /var/tmp/integration-test-attestor-network/onchain.csv
+          cat /var/tmp/integration-test-attestor-network/onchain.csv
+
+      - name: Compare builder output with on-chain checkpoints (overlap)
+        if: always()
+        run: |
+          ONCHAIN=/var/tmp/integration-test-attestor-network/onchain.csv
+          OVERLAP=/var/tmp/integration-test-attestor-network/builder.overlap.csv
+
+          if [ ! -s "$ONCHAIN" ]; then
+            echo "On-chain CSV is empty - attestors did not produce any checkpoints" >&2
+            exit 1
+          fi
+
+          # Keep only builder rows whose block number appears on-chain (drops genesis and any
+          # builder checkpoints ahead of what attestors have attested so far).
+          awk -F, 'NR==FNR{seen[$1]=1; next} seen[$1]' "$ONCHAIN" "$BUILDER_CSV" > "$OVERLAP"
+
+          if [ ! -s "$OVERLAP" ]; then
+            echo "No overlapping block numbers between builder CSV and on-chain CSV" >&2
+            exit 1
+          fi
+
+          diff -u "$ONCHAIN" "$OVERLAP"
+
+      - name: Build checkpoint-verifier
+        if: always()
+        working-directory: ./checkpoint-verifier
+        run: |
+          yarn install --frozen-lockfile
+          yarn build
+
+      - name: Run checkpoint-verifier against builder CSV
+        if: always()
+        working-directory: ./checkpoint-verifier
+        run: |
+          yarn start verify-csv \
+              --rpc-url http://127.0.0.1:8141 \
+              --csv-path "$BUILDER_CSV" \
+              --verbose \
+              2>&1 | tee /var/tmp/integration-test-attestor-network/checkpoint-verifier.log
+
+      - name: Check archiver logs for errors
+        if: always()
+        run: |
+          .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
+
       - name: Upload checkpoints.json
         if: always()
         uses: actions/upload-artifact@v7
@@ -449,6 +546,7 @@ jobs:
           # dangling processes
           killall -TERM attestor_zombienet
           killall -TERM attestor
+          killall -TERM archiver
           killall -TERM creditcoin3-node
           sleep 60
 
@@ -461,6 +559,7 @@ jobs:
           # dangling processes
           killall -KILL attestor_zombienet
           killall -KILL attestor
+          killall -KILL archiver
           killall -KILL creditcoin3-node
 
       # WARNING: upload logs before killing running processes b/c the created temporary directories
@@ -1656,220 +1755,4 @@ jobs:
         with:
           name: archiver-testing
           path: /var/tmp/archiver-testing/
-          include-hidden-files: true
-
-  checkpoint-builder-verifier-testing:
-    if: ${{ needs.should-run.outputs.checkpoint_tooling == 'true' }}
-    needs:
-      - should-run
-      - build-creditcoin-node-for-testing-ci
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Download binaries
-        uses: actions/download-artifact@v8
-        with:
-          name: binary-for-testing-ci
-          path: target/release
-
-      - name: Start creditcoin3-node - Alice
-        run: |
-          mkdir -p /var/tmp/checkpoint-builder-verifier-testing/
-
-          chmod a+x ./target/release/creditcoin3-node
-          ./target/release/creditcoin3-node \
-            --chain dev \
-            --validator --alice --pruning archive \
-            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
-            --unsafe-rpc-external --rpc-cors all \
-            --base-path ./alice-data >/var/tmp/checkpoint-builder-verifier-testing/creditcoin3-node.log 2>&1 &
-
-      - name: Start Ethereum simulation with Anvil
-        run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
-          # chain_key(2) == Anvil1; block-time 5s gives ~120 blocks over the 10-min soak
-          ~/.foundry/bin/anvil --block-time 5 --chain-id 31337 \
-            --port 8141 >/var/tmp/checkpoint-builder-verifier-testing/anvil.log 2>&1 &
-
-      - name: Check that creditcoin-node and anvil are running
-        run: |
-          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
-          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
-
-      - name: Setup Node.js environment
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-
-      - name: Run native token transfers in background
-        working-directory: attestor/scripts
-        run: |
-          npm install
-
-          # receipts make the verifier's merkle-root path non-trivial
-          {
-            while /bin/true; do
-                ETH_RPC_URL=http://127.0.0.1:8141 node Transfer.js
-                sleep 4;
-            done
-          } &
-
-      - name: Start archiver
-        env:
-          RUST_LOG: debug
-        run: |
-          chmod a+x ./target/release/archiver
-
-          ./target/release/archiver \
-              --rpc-http http://localhost:8141 \
-              --rpc-ws ws://localhost:8141 \
-              --start-height 0 \
-              --flush-every 5 \
-              --api-bind 0.0.0.0:8080 >/var/tmp/checkpoint-builder-verifier-testing/archiver.log 2>&1 &
-
-      - name: Start Attestation Zombienet for Alice - Anvil 1
-        run: |
-          chmod a+x ./target/release/attestor*
-
-          mkdir -p /var/tmp/checkpoint-builder-verifier-testing/attestors-alice
-
-          ./target/release/attestor_zombienet \
-                -n 3 \
-                --bin=./target/release/attestor \
-                --eth-url=ws://localhost:8141 \
-                --cc3-url=ws://localhost:9944 \
-                --funding-address='//Alice' \
-                --config=./attestor/config.yaml \
-                --chain-key=2 &
-
-      - name: Wait for 3 attestors to be registered
-        run: |
-          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
-
-      - name: Soak for 10 minutes so attestors produce on-chain checkpoints
-        run: sleep 600
-
-      - name: Discover archiver available range and compute builder range
-        id: range
-        run: |
-          chmod a+x ./target/release/checkpoint-builder
-
-          ./target/release/checkpoint-builder archiver \
-              --archiver-url http://127.0.0.1:8080 \
-              --dry-run | tee /var/tmp/checkpoint-builder-verifier-testing/dry-run.log
-
-          LAST=$(grep -oE 'Available range: [0-9]+ to [0-9]+' /var/tmp/checkpoint-builder-verifier-testing/dry-run.log | awk '{print $NF}')
-          if [ -z "$LAST" ]; then
-            echo "❌ Could not parse archiver available range" >&2
-            exit 1
-          fi
-
-          # Floor to the nearest multiple of 100 so the range arithmetic
-          # satisfies checkpoint-builder's divisibility rule.
-          N=$(( (LAST / 100) * 100 ))
-          if [ "$N" -lt 100 ]; then
-            echo "❌ Archiver only has $LAST blocks — need at least 100 for interval=100" >&2
-            exit 1
-          fi
-
-          echo "Using builder range: 0;1,$N,100 (archiver last=$LAST)"
-          echo "builder_end=$N" >> "$GITHUB_OUTPUT"
-
-      - name: Run checkpoint-builder
-        env:
-          RUST_LOG: info
-        run: |
-          ./target/release/checkpoint-builder archiver \
-              --archiver-url http://127.0.0.1:8080 \
-              --checkpoint-ranges "0;1,${{ steps.range.outputs.builder_end }},100" \
-              --output-file /var/tmp/checkpoint-builder-verifier-testing/builder.csv \
-              2>&1 | tee /var/tmp/checkpoint-builder-verifier-testing/checkpoint-builder.log
-
-          # Builder appends a timestamp, resolve the actual path for later steps.
-          BUILDER_CSV=$(ls /var/tmp/checkpoint-builder-verifier-testing/builder_*.csv | head -n1)
-          echo "Builder CSV: $BUILDER_CSV"
-          echo "BUILDER_CSV=$BUILDER_CSV" >> "$GITHUB_ENV"
-
-      - name: Export on-chain checkpoints
-        working-directory: ./attestor/scripts
-        env:
-          SOURCE_CHAIN: "ws://127.0.0.1:9944"
-          CHAIN_KEY_ON_SOURCE: 2
-        run: |
-          node ExportCheckpoints.js
-          cp checkpoints_2.csv /var/tmp/checkpoint-builder-verifier-testing/onchain.csv
-          cat /var/tmp/checkpoint-builder-verifier-testing/onchain.csv
-
-      - name: Compare builder output with on-chain checkpoints (overlap)
-        run: |
-          ONCHAIN=/var/tmp/checkpoint-builder-verifier-testing/onchain.csv
-          OVERLAP=/var/tmp/checkpoint-builder-verifier-testing/builder.overlap.csv
-
-          if [ ! -s "$ONCHAIN" ]; then
-            echo "❌ On-chain CSV is empty — attestors did not produce any checkpoints during the soak" >&2
-            exit 1
-          fi
-
-          # Keep only builder rows whose block number appears on-chain (drops genesis and any
-          # builder checkpoints ahead of what attestors have attested so far).
-          awk -F, 'NR==FNR{seen[$1]=1; next} seen[$1]' "$ONCHAIN" "$BUILDER_CSV" > "$OVERLAP"
-
-          if [ ! -s "$OVERLAP" ]; then
-            echo "❌ No overlapping block numbers between builder CSV and on-chain CSV" >&2
-            exit 1
-          fi
-
-          diff -u "$ONCHAIN" "$OVERLAP"
-
-      - name: Build checkpoint-verifier
-        working-directory: ./checkpoint-verifier
-        run: |
-          yarn install --frozen-lockfile
-          yarn build
-
-      - name: Run checkpoint-verifier against builder CSV
-        working-directory: ./checkpoint-verifier
-        run: |
-          yarn start verify-csv \
-              --rpc-url http://127.0.0.1:8141 \
-              --csv-path "$BUILDER_CSV" \
-              --verbose \
-              2>&1 | tee /var/tmp/checkpoint-builder-verifier-testing/checkpoint-verifier.log
-
-      - name: Check archiver logs for errors
-        if: always()
-        run: |
-          .github/check-logs-for-error.sh /var/tmp/checkpoint-builder-verifier-testing/archiver.log
-
-      - name: TERM binaries
-        if: always()
-        continue-on-error: true
-        run: |
-          killall -TERM attestor_zombienet || true
-          killall -TERM attestor || true
-          killall -TERM archiver || true
-          killall -TERM creditcoin3-node || true
-          killall -TERM anvil || true
-          sleep 10
-
-      - name: KILL binaries
-        if: always()
-        continue-on-error: true
-        run: |
-          killall -KILL attestor_zombienet || true
-          killall -KILL attestor || true
-          killall -KILL archiver || true
-          killall -KILL creditcoin3-node || true
-          killall -KILL anvil || true
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: checkpoint-builder-verifier-testing
-          path: /var/tmp/checkpoint-builder-verifier-testing/
           include-hidden-files: true
