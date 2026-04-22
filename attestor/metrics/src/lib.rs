@@ -436,15 +436,6 @@ impl Metrics {
             .observe(delay.as_secs_f64());
     }
 
-    pub fn update_attestation_delay_finalization(&self, delay: std::time::Duration) {
-        self.0
-            .metrics_delay
-            .get_or_create(&labels::LabelAttestationLifecycle {
-                lifecycle: labels::AttestationLifecycle::Finalization,
-            })
-            .observe(delay.as_secs_f64());
-    }
-
     pub fn increase_peer_count(&self) {
         self.0
             .metrics_p2p
@@ -515,6 +506,15 @@ impl attestation_pool::MetricsAttestationPool for Metrics {
             .metrics_delay
             .get_or_create(&labels::LabelAttestationLifecycle {
                 lifecycle: labels::AttestationLifecycle::Quorum,
+            })
+            .observe(delay.as_secs_f64());
+    }
+
+    fn update_attestation_delay_finalization(&self, delay: std::time::Duration) {
+        self.0
+            .metrics_delay
+            .get_or_create(&labels::LabelAttestationLifecycle {
+                lifecycle: labels::AttestationLifecycle::Finalization,
             })
             .observe(delay.as_secs_f64());
     }

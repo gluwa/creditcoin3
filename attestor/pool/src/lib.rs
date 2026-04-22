@@ -1226,10 +1226,19 @@ impl AttestationPoolDelays {
         self.time.remove(&height).map(|then| then.elapsed())
     }
 
-    fn note_attestation_finalization(&mut self, info: stream::util::AttestationInfo) {
+    fn note_attestation_finalization(
+        &mut self,
+        info: stream::util::AttestationInfo,
+        metrics: &dyn MetricsAttestationPool,
+    ) {
         tracing::debug!("Updating quorum delays");
-        let removed = self.time.split_off(&(info.height.saturating_add(1)));
-        let _ = std::mem::replace(&mut self.time, removed);
+
+        let mut removed = self.time.split_off(&(info.height.saturating_add(1)));
+        std::mem::swap(&mut self.time, &mut removed);
+
+        if let Some(then) = removed.get(&info.height) {
+            metrics.update_attestation_delay_finalization(then.elapsed());
+        }
     }
 
     fn note_attestation_interval_change(&mut self) {
@@ -1318,7 +1327,9 @@ impl AttestationPoolSender {
             inner.valid.note_attestation_finalization(info);
 
             // Update metrics
-            inner.attestation_delay.note_attestation_finalization(info);
+            inner
+                .attestation_delay
+                .note_attestation_finalization(info, &inner.metrics);
 
             // Updating the inner pool
             inner.forks.note_attestation_finalization(info)?;
@@ -1998,6 +2009,8 @@ mod fixtures {
 
         impl MetricsAttestationPool for Metrics {
             fn update_attestation_delay_quorum(&self, _delay: std::time::Duration) {}
+
+            fn update_attestation_delay_finalization(&self, _delay: std::time::Duration) {}
         }
 
         Box::new(Metrics)
