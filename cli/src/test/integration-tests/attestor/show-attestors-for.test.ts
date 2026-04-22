@@ -11,8 +11,9 @@ import { execSync } from 'child_process';
 
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { try_catch_else_finally } from '../../utils';
-import { ALICE_NODE_URL, initAliceKeyring, randomFundedAccount, waitEras, CLIBuilder } from '../helpers';
+import { ALICE_NODE_URL, initAliceKeyring, randomFundedAccount, fundFromSudo, waitEras, CLIBuilder } from '../helpers';
 import { chain_Anvil1_Key, chain_Anvil1_Url } from '../../blockchain-tests/pallets/supported-chains/consts';
+import { parseAmount } from '../../../commands/options';
 
 describe('show-attestors-for', () => {
     let api: ApiPromise;
@@ -80,6 +81,10 @@ describe('show-attestors-for', () => {
 
     describe('when attestor is registered and active', () => {
         beforeEach(async () => {
+            // The attestor-stash precompile uses the EVM-derived stash (HashedAddressMapping),
+            // not the sr25519 address funded by `randomFundedAccount`. Fund it explicitly so
+            // `register_attestor` doesn't fail with `InsufficientBalance`.
+            await fundFromSudo(api, stash.evmStashAddress, parseAmount('1000'));
             const authenticatedCLI = CLIBuilder({ CC_SECRET: stash.secret });
 
             const result = authenticatedCLI(

@@ -67,18 +67,30 @@ export function getAttestorContractReadOnly(options: OptionValues): ethers.Contr
 
 /**
  * Extract a human-readable error message from an EVM revert.
- * Tries to find a pallet error name in the revert string.
+ *
+ * Frontier's `try_dispatch` wraps the underlying `DispatchError` in the EVM
+ * revert reason using its `Debug` representation, e.g.:
+ *
+ *     Module(ModuleError { index: 25, error: [20, 0, 0, 0], message: Some("InsufficientBalance") })
+ *
+ * When ethers.js surfaces this through an error message, the inner quotes may
+ * or may not be backslash-escaped depending on where we pick up the string.
+ * We try, in order:
+ *   1. The pallet error variant name inside `message: Some("…")` (both the
+ *      plain and backslash-escaped forms).
+ *   2. The full `reason="…"` revert string.
+ *   3. The raw error message as a fallback.
  */
 export function extractEvmError(error: unknown): string {
     if (error instanceof Error) {
         const msg = error.message;
-        // Try to extract pallet error name like: message: Some("AlreadyAttestor")
-        const match = msg.match(/message: Some\("([^"]+)"\)/);
-        if (match) {
-            return `Transaction failed with error: "${match[1]}"`;
+        // Pallet error name — handles both `Some("X")` and `Some(\"X\")` forms.
+        const palletMatch = msg.match(/message:\s*Some\(\\?"([A-Za-z0-9_]+)\\?"\)/);
+        if (palletMatch) {
+            return `Transaction failed with error: "${palletMatch[1]}"`;
         }
-        // Try to find revert reason
-        const revertMatch = msg.match(/reason="([^"]+)"/);
+        // Full revert reason — allow escaped quotes inside the captured group.
+        const revertMatch = msg.match(/reason="((?:\\.|[^"\\])*)"/);
         if (revertMatch) {
             return `Transaction failed with error: "${revertMatch[1]}"`;
         }
