@@ -1,45 +1,56 @@
 import { Command, OptionValues } from 'commander';
-import { newApi } from '../../lib';
-import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
-import { initKeyring } from '../../lib/account/keyring';
-import { proxyForOption, attestorAddressOption, chainKeyOption } from '../options';
+import { attestorAddressOption, chainKeyOption } from '../options';
+import {
+    getAttestorContractWithSigner,
+    substrateAddressToBytes32,
+    extractEvmError,
+    ATTESTOR_STATUS_ACTIVE,
+} from '../../lib/attestor/precompile';
+import { getStringFromEnvVar } from '../../lib/account/keyring';
 
 export function makeUnregisterAttestorCommand() {
     const cmd = new Command('unregister');
     cmd.description('Unregister attestor and unbond funds from a stash account');
     cmd.addOption(attestorAddressOption.makeOptionMandatory());
     cmd.addOption(chainKeyOption.makeOptionMandatory());
-    cmd.addOption(proxyForOption);
     cmd.action(unregisterAttestorAction);
     return cmd;
 }
 
 async function unregisterAttestorAction(options: OptionValues) {
-    const { api } = await newApi(options.url as string);
-
     const chainKey = options.chain as string;
-    const attestor = options.attestor as string;
+    const attestorSs58 = options.attestor as string;
+    const attestorId32 = substrateAddressToBytes32(attestorSs58);
 
-    const keyring = await initKeyring(options);
+    const secret = getStringFromEnvVar(process.env.CC_SECRET);
+    const { contract } = getAttestorContractWithSigner(secret, options);
 
-    const attestorStatus = await api.query.attestation.attestors(chainKey, attestor);
-    if (attestorStatus.isNone) {
-        console.log(`Address ${attestor} is not an attestor`);
+    // Pre-call validation via view function
+    const attestorInfo = await contract.getAttestor(BigInt(chainKey), attestorId32);
+    if (!attestorInfo.exists) {
+        console.log(`Address ${attestorSs58} is not an attestor`);
         process.exit(1);
     }
 
-    const status = attestorStatus.unwrap().status;
-    if (status.isActive) {
-        console.log(`Address ${attestor} status is Active. Please chill the attestor first`);
+    if (attestorInfo.status === ATTESTOR_STATUS_ACTIVE) {
+        console.log(`Address ${attestorSs58} status is Active. Please chill the attestor first`);
         process.exit(1);
     }
-    console.log(`Address ${attestor} status is Chill`);
-    console.log(`Calling unregister attestor extrinsic for ${attestor} on chain ${chainKey}`);
+    console.log(`Address ${attestorSs58} status is Chill`);
+    console.log(`Calling unregister attestor for ${attestorSs58} on chain ${chainKey}`);
 
-    const unregisterAttestorTx = api.tx.attestation.unregisterAttestor(chainKey, attestor);
-
-    await requireKeyringHasSufficientFunds(unregisterAttestorTx, keyring, api);
-    const result = await signSendAndWatchCcKeyring(unregisterAttestorTx, api, keyring);
-    console.log(result.info);
-    process.exit(result.status);
+    try {
+        const tx = await contract.unregisterAttestor(BigInt(chainKey), attestorId32);
+        const receipt = await tx.wait();
+        if (receipt.status === 1) {
+            console.log(`Transaction included at block (hash: ${receipt.blockHash})`);
+            process.exit(0);
+        } else {
+            console.log('Transaction failed');
+            process.exit(1);
+        }
+    } catch (error: unknown) {
+        console.log(extractEvmError(error));
+        process.exit(1);
+    }
 }
