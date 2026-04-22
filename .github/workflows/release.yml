@@ -141,7 +141,6 @@ jobs:
           # runners for other jobs (repurpose existing labels)
           - build: docker
           - build: native
-          - build: wasm
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
@@ -166,12 +165,11 @@ jobs:
     needs:
       - sanity-check
       - setup
-      - deploy-github-runner
     uses: ./.github/workflows/build-wasm.yml
     with:
       build-options: "${{ needs.setup.outputs.build_options }}"
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-wasm']"
+      runs-on: "['ubuntu-24.04']"
 
   docker-build:
     needs:
@@ -289,13 +287,4 @@ jobs:
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy_type: "native"
-    secrets: inherit
-
-  rm-gh-runner-wasm:
-    needs:
-      - build-wasm-runtime
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy_type: "wasm"
     secrets: inherit
