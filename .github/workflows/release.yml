@@ -250,7 +250,7 @@ jobs:
           ./abi-creator.sh
 
       - name: Make the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             artifact/archiver-${{ needs.sanity-check.outputs.TAG_NAME }}*
