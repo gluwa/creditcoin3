@@ -8,8 +8,6 @@ use pallet_evm::AddressMapping;
 use precompile_utils::testing::{MockHandle, SubcallOutput};
 use sp_core::{sr25519, Pair, H160, U256};
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
 fn precompile_addr() -> H160 {
     H160::from_low_u64_be(PRECOMPILE_ADDRESS_U64)
 }
