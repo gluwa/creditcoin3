@@ -89,9 +89,7 @@ jobs:
           taplo format --check
 
   cargo-check:
-    needs:
-      - deploy-runner-check
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-check"]
+    runs-on: ubuntu-24.04
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -263,15 +261,6 @@ jobs:
           name: coverage-report
           path: target/llvm-cov/html/
 
-  deploy-runner-check:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "check"
-    secrets: inherit
-
   deploy-runner-unit-test-creditcoin:
     uses: ./.github/workflows/deploy-runner.yml
     with:
@@ -279,16 +268,6 @@ jobs:
       LINODE_REGION: "nl-ams"
       LINODE_VM_SIZE: "g6-standard-4"
       proxy: "unit-test-creditcoin"
-    secrets: inherit
-
-  rm-gh-runner-check:
-    needs:
-      - cargo-check
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "check"
     secrets: inherit
 
   rm-gh-runner-unit-test-creditcoin:
