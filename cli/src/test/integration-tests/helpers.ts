@@ -1,12 +1,12 @@
 import { ApiPromise } from '@polkadot/api';
 import { BN, mnemonicGenerate } from '../../lib';
-import { initKeyringPair, initEthKeyringPair, CallerKeyring } from '../../lib/account/keyring';
+import { initKeyringPair, CallerKeyring } from '../../lib/account/keyring';
 import { signSendAndWatchCcKeyring } from '../../lib/tx';
 import { commandSync } from 'execa';
 import { parseAmount } from '../../commands/options';
 import { KeyringPair } from '../../lib';
 import { substrateAddressToEvmAddress, evmAddressToSubstrateAddress } from '../../lib/evm/address';
-import { u8aToHex } from '@polkadot/util';
+import { HDNodeWallet } from 'ethers';
 import { setStakingConfig } from '../../lib/staking/bond';
 import { sleep } from '../utils';
 
@@ -56,10 +56,10 @@ export function randomTestAccount(secret = '') {
     const keyring = initKeyringPair(secret);
     const address = keyring.address;
     const evmAddress = substrateAddressToEvmAddress(address);
-    // EVM keypair for precompile calls (secp256k1, Ethereum HD path)
-    const ethPair = initEthKeyringPair(secret);
-    const evmPrivateKey = u8aToHex(ethPair.secretKey);
-    const ethEvmAddress = ethPair.address;
+    // EVM keypair for precompile calls — derive via ethers.js HD wallet (BIP44 Ethereum path)
+    const ethWallet = HDNodeWallet.fromPhrase(secret);
+    const evmPrivateKey = ethWallet.privateKey;
+    const ethEvmAddress = ethWallet.address;
     // The stash AccountId used by the attestor-stash precompile (HashedAddressMapping)
     const evmStashAddress = evmAddressToSubstrateAddress(ethEvmAddress);
     return { secret, keyring, address, evmAddress, evmPrivateKey, ethEvmAddress, evmStashAddress };
