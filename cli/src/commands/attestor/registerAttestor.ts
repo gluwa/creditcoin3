@@ -1,6 +1,10 @@
 import { Command, OptionValues } from 'commander';
 import { attestorAddressOption, chainKeyOption } from '../options';
-import { getAttestorContractWithSigner, substrateAddressToBytes32, extractEvmError } from '../../lib/attestor/precompile';
+import {
+    getAttestorContractWithSigner,
+    substrateAddressToBytes32,
+    extractEvmError,
+} from '../../lib/attestor/precompile';
 import { getStringFromEnvVar } from '../../lib/account/keyring';
 
 export function makeRegisterAttestorCommand() {

@@ -1,8 +1,7 @@
-import { ethers, JsonRpcProvider } from 'ethers';
+import { ethers, HDNodeWallet, JsonRpcProvider } from 'ethers';
 import { decodeAddress } from '@polkadot/util-crypto';
 import { u8aToHex } from '@polkadot/util';
 import { OptionValues } from 'commander';
-import { initEthKeyringPair } from '../account/keyring';
 import { evmAddressToSubstrateAddress } from '../evm/address';
 import { getEvmUrl } from '../evm/rpc';
 
@@ -24,13 +23,17 @@ export function substrateAddressToBytes32(ss58: string): string {
 }
 
 /**
- * Derive an EVM private key (hex string) and Ethereum address from a mnemonic or raw seed.
- * Uses the standard Ethereum HD path (m/44'/60'/0'/0/0).
+ * Derive an EVM private key (hex string) and Ethereum address from a BIP39 mnemonic.
+ * Uses the standard Ethereum HD path (m/44'/60'/0'/0/0) via ethers.js.
  */
-export function deriveEvmKeyFromSecret(secret: string): { privateKey: string; evmAddress: string; stashAddress: string } {
-    const pair = initEthKeyringPair(secret);
-    const privateKey = u8aToHex(pair.secretKey);
-    const evmAddress = pair.address;
+export function deriveEvmKeyFromSecret(secret: string): {
+    privateKey: string;
+    evmAddress: string;
+    stashAddress: string;
+} {
+    const wallet: HDNodeWallet = HDNodeWallet.fromPhrase(secret);
+    const privateKey = wallet.privateKey;
+    const evmAddress = wallet.address;
     const stashAddress = evmAddressToSubstrateAddress(evmAddress);
     return { privateKey, evmAddress, stashAddress };
 }

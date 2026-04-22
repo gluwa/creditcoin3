@@ -10,15 +10,8 @@ import path = require('path');
 import { commandSync } from 'execa';
 
 import { testIf, try_catch_else_finally } from '../../utils';
-import {
-    initAliceKeyring,
-    randomFundedAccount,
-    fundFromSudo,
-    waitEras,
-    ALICE_NODE_URL,
-    CLIBuilder,
-} from '../helpers';
-import { newApi, ApiPromise, KeyringPair, BN } from '../../../lib';
+import { initAliceKeyring, randomFundedAccount, fundFromSudo, waitEras, ALICE_NODE_URL, CLIBuilder } from '../helpers';
+import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { chain_Anvil1_Key, chain_Anvil1_Url } from '../../blockchain-tests/pallets/supported-chains/consts';
 import { parseAmount } from '../../../commands/options';
 
