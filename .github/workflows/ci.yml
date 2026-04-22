@@ -175,16 +175,6 @@ jobs:
             # metadata-cmp-with-mainnet.txt
             metadata-cmp-with-testnet.txt
 
-  rm-gh-runner-attestator-network:
-    needs:
-      - integration-test-attestator-network
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "attestator-network"
-    secrets: inherit
-
   rm-gh-runner-build-creditcoin-node-for-testing:
     needs:
       - build-creditcoin-node-for-testing-ci
@@ -200,19 +190,6 @@ jobs:
       proxy: ${{ matrix.proxy }}
     secrets: inherit
 
-  deploy-runner-attestator-network:
-    needs:
-      - build-creditcoin-node-for-testing-ci
-      - should-run
-    if: ${{ needs.should-run.outputs.attestor_network_testing == 'true' }}
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "us-ord"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: "attestator-network"
-    secrets: inherit
-
   integration-test-attestator-network:
     # b/c of azure/login
     environment: snapshot
@@ -221,8 +198,9 @@ jobs:
       contents: read
     needs:
       - build-creditcoin-node-for-testing-ci
-      - deploy-runner-attestator-network
-    runs-on: [self-hosted, "proxy-attestator-network"]
+      - should-run
+    if: ${{ needs.should-run.outputs.attestor_network_testing == 'true' }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
