@@ -1687,6 +1687,7 @@ jobs:
 
       - name: Start Ethereum simulation with Anvil
         run: |
+          export FOUNDRY_DIR="$HOME/.foundry"
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
