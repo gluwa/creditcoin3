@@ -20,6 +20,10 @@ async function withdrawUnbondedAction(options: OptionValues) {
     const keyring = await initKeyring(options);
     const address = delegateAddress(keyring);
 
+    // Build the tx up-front so we can check funds (proxy or not) before doing anything else.
+    const withdrawUnbondedAttestorTx = api.tx.attestation.withdrawUnbonded();
+    await requireKeyringHasSufficientFunds(withdrawUnbondedAttestorTx, keyring, api);
+
     const ledger = await api.query.attestation.ledger(address);
     if (ledger.isNone) {
         console.log(`No unbonded funds to withdraw for address ${address}`);
@@ -48,9 +52,6 @@ async function withdrawUnbondedAction(options: OptionValues) {
 
     console.log(`Unbonded funds available to withdraw: ${toCTCString(new BN(canWithdraw.toString()), 4)}`);
 
-    const withdrawUnbondedAttestorTx = api.tx.attestation.withdrawUnbonded();
-
-    await requireKeyringHasSufficientFunds(withdrawUnbondedAttestorTx, keyring, api);
     const result = await signSendAndWatchCcKeyring(withdrawUnbondedAttestorTx, api, keyring);
     console.log(result.info);
     process.exit(result.status);
