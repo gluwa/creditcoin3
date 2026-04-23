@@ -146,7 +146,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         lastCheckpointHeaderNumber: BigInt(0),
         maxSetSize: 100,
         targetSampleSize: 3,
-        minBondRequirement: BigInt(100000000000000000000),
+        minBondRequirement: BigInt(0), // matches runtime DefaultMinBondRequirement
         electionPolicy: defaultElectionPolicy,
     });
 
