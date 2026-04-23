@@ -20,58 +20,22 @@ permissions: read-all
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  deploy-runner-build-creditcoin-for:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: build-creditcoin-node-for-devnet
-          - proxy: build-creditcoin-node-for-testnet
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: ${{ matrix.proxy }}
-    secrets: inherit
-
   build-creditcoin-node-for-devnet:
-    needs:
-      - deploy-runner-build-creditcoin-for
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=devnet"
       version-string: devnet
       cache-key-name: build-creditcoin-node
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-devnet']"
+      runs-on: "['ubuntu-24.04']"
     secrets: inherit
 
   build-creditcoin-node-for-testnet:
-    needs:
-      - deploy-runner-build-creditcoin-for
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release"
       version-string: testnet
       cache-key-name: build-creditcoin-node
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testnet']"
-    secrets: inherit
-
-  rm-gh-runner-build-creditcoin-node:
-    needs:
-      - build-creditcoin-node-for-devnet
-      - build-creditcoin-node-for-testnet
-    if: ${{ always() }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: build-creditcoin-node-for-devnet
-          - proxy: build-creditcoin-node-for-testnet
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: ${{ matrix.proxy }}
+      runs-on: "['ubuntu-24.04']"
     secrets: inherit
 
   integration-test-chainspec:
