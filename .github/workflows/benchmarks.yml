@@ -20,34 +20,13 @@ permissions: read-all
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  deploy-runner-build-creditcoin-for-testing-benchmarks:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: "build-creditcoin-node-for-testing-benchmarks"
-    secrets: inherit
-
   build-creditcoin-node-for-testing-benchmarks:
-    needs:
-      - deploy-runner-build-creditcoin-for-testing-benchmarks
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=runtime-benchmarks"
       version-string: testing-benchmarks
       cache-key-name: build-creditcoin-node
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-benchmarks']"
-    secrets: inherit
-
-  rm-gh-runner-build-creditcoin-node-for-testing-benchmarks:
-    needs:
-      - build-creditcoin-node-for-testing-benchmarks
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "build-creditcoin-node-for-testing-benchmarks"
+      runs-on: "['ubuntu-24.04']"
     secrets: inherit
 
   deploy-runner-benchmark:
