@@ -18,19 +18,8 @@ concurrency:
 permissions: read-all
 
 jobs:
-  deploy-runner-try-runtime:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "try-runtime"
-    secrets: inherit
-
   try-runtime:
-    needs:
-      - deploy-runner-try-runtime
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-try-runtime"]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
@@ -68,13 +57,3 @@ jobs:
             on-runtime-upgrade \
             --blocktime 15000 \
             live --uri wss://rpc.usc-testnet2.creditcoin.network
-
-  rm-gh-runner-try-runtime:
-    needs:
-      - try-runtime
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "try-runtime"
-    secrets: inherit
