@@ -14,7 +14,7 @@ export async function getEVMBalanceOf(address: string, rpcUrl: string): Promise<
     // NOTE: Seems like the EVM side cannot access the existential deposit amount
     const provider = new JsonRpcProvider(rpcUrl);
     const balance = await provider.getBalance(address);
-    return { address, ctc: balance } as EVMBalance;
+    return { address, ctc: balance };
 }
 
 export function logEVMBalance(balance: EVMBalance, human = true) {
