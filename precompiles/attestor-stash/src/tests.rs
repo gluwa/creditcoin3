@@ -468,6 +468,7 @@ fn get_ledger_after_register_returns_staked_amount() {
                     total_staked: MIN_BOND,
                     active: MIN_BOND,
                     unlocking_chunks: 0,
+                    withdrawable: 0,
                 });
         });
 }

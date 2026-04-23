@@ -207,6 +207,11 @@
             "internalType": "uint32",
             "name": "unlockingChunks",
             "type": "uint32"
+          },
+          {
+            "internalType": "uint128",
+            "name": "withdrawable",
+            "type": "uint128"
           }
         ],
         "internalType": "struct LedgerInfo",
