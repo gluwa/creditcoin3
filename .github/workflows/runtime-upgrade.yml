@@ -108,35 +108,13 @@ jobs:
           path: "last-block*"
           if-no-files-found: error
 
-  deploy-runner-build-sut:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      EPHEMERAL: false
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy_type: "native"
-    secrets: inherit
-
   build-sut:
-    needs:
-      - deploy-runner-build-sut
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release"
       version-string: PR
       cache-key-name: build-creditcoin-node
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-native']"
-    secrets: inherit
-
-  remove-runner-build-sut:
-    needs:
-      - build-sut
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy_type: "native"
+      runs-on: "['ubuntu-24.04']"
     secrets: inherit
 
   setup-self-hosted:
