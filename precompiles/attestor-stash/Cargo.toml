@@ -31,6 +31,7 @@ scale-info = { workspace = true, features = ["derive"] }
 sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
+sp-staking = { workspace = true }
 sp-std = { workspace = true }
 
 # Frontier
@@ -51,7 +52,6 @@ pallet-supported-chains = { workspace = true }
 pallet-timestamp = { workspace = true, features = ["std"] }
 precompile-utils = { workspace = true, features = ["std", "testing"] }
 serde = { workspace = true }
-sp-staking = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
 [features]
