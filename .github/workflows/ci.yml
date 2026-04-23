@@ -515,10 +515,16 @@ jobs:
       - name: Run checkpoint-verifier against builder CSV
         if: always()
         working-directory: ./checkpoint-verifier
+        # Cap verification at block 1000: the verifier replays every block
+        # sequentially from genesis (each digest depends on the previous one),
+        # so walking the full 10k-block Anvil snapshot dominates the job runtime.
+        # 1000 blocks is enough to exercise the builder/verifier contract as a
+        # smoke check while keeping the job fast.
         run: |
           yarn start verify-csv \
               --rpc-url http://127.0.0.1:8141 \
               --csv-path "$BUILDER_CSV" \
+              --max-block 1000 \
               --verbose \
               2>&1 | tee /var/tmp/integration-test-attestor-network/checkpoint-verifier.log
 

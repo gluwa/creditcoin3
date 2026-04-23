@@ -99,95 +99,124 @@ program
     .requiredOption('--rpc-url <url>', 'HTTP or WebSocket RPC URL')
     .requiredOption('--csv-path <path>', 'Path to checkpoints CSV file')
     .option('--starting-digest <digest>', 'Starting digest before first checkpoint (0x-prefixed 32-byte hex)')
+    .option('--max-block <number>', 'Only verify checkpoints with block number <= this value (inclusive)', parseInt)
     .option('--verbose', 'Show detailed progress', false)
-    .action(async (options: { rpcUrl: string; csvPath: string; startingDigest?: string; verbose: boolean }) => {
-        const { rpcUrl, csvPath, startingDigest, verbose } = options;
+    .action(
+        async (options: {
+            rpcUrl: string;
+            csvPath: string;
+            startingDigest?: string;
+            maxBlock?: number;
+            verbose: boolean;
+        }) => {
+            const { rpcUrl, csvPath, startingDigest, maxBlock, verbose } = options;
 
-        // Validate starting digest format
-        if (startingDigest && !/^0x[a-fA-F0-9]{64}$/.test(startingDigest)) {
-            console.error(`Error: starting-digest must be a 0x-prefixed 32-byte hex string: ${startingDigest}`);
-            process.exit(1);
-        }
-
-        // Parse CSV file
-        let checkpoints;
-        try {
-            checkpoints = parseCheckpointsCsv(csvPath);
-        } catch (error) {
-            console.error(`Error parsing CSV: ${(error as Error).message}`);
-            process.exit(1);
-        }
-
-        if (checkpoints.length === 0) {
-            console.error('Error: CSV file contains no checkpoints');
-            process.exit(1);
-        }
-
-        console.log(`Found ${checkpoints.length} checkpoints in ${csvPath}`);
-        console.log(`Block range: ${checkpoints[0].blockNumber} to ${checkpoints[checkpoints.length - 1].blockNumber}`);
-        console.log(`Starting digest: ${startingDigest}`);
-
-        const provider = createProvider(rpcUrl);
-
-        try {
-            // Check that we can reach the required blocks
-            const latestBlock = await getLatestBlockNumber(provider);
-            const maxBlock = checkpoints[checkpoints.length - 1].blockNumber;
-            if (maxBlock > latestBlock) {
-                console.error(`Error: CSV contains checkpoint at block ${maxBlock} but latest block is ${latestBlock}`);
+            // Validate starting digest format
+            if (startingDigest && !/^0x[a-fA-F0-9]{64}$/.test(startingDigest)) {
+                console.error(`Error: starting-digest must be a 0x-prefixed 32-byte hex string: ${startingDigest}`);
                 process.exit(1);
             }
 
-            console.log(`\nVerifying checkpoints...`);
-
-            const onProgress = verbose
-                ? (checkpointIndex: number, blockNumber: number, total: number) => {
-                      process.stdout.write(
-                          `\rVerifying checkpoint ${checkpointIndex}/${total} (block ${blockNumber})...`,
-                      );
-                  }
-                : undefined;
-
-            const intialDigest = startingDigest || null;
-
-            const summary = await verifyCheckpoints(provider, checkpoints, intialDigest, onProgress);
-
-            if (verbose) {
-                console.log(); // New line after progress
+            if (maxBlock !== undefined && (isNaN(maxBlock) || maxBlock < 0)) {
+                console.error(`Error: max-block must be a non-negative integer, got "${maxBlock}"`);
+                process.exit(1);
             }
 
-            // Print results
-            console.log(`\n${'='.repeat(60)}`);
-            console.log('VERIFICATION RESULTS');
-            console.log('='.repeat(60));
+            // Parse CSV file
+            let checkpoints;
+            try {
+                checkpoints = parseCheckpointsCsv(csvPath);
+            } catch (error) {
+                console.error(`Error parsing CSV: ${(error as Error).message}`);
+                process.exit(1);
+            }
 
-            for (const result of summary.results) {
-                const status = result.passed ? 'PASS' : 'FAIL';
-                const statusColor = result.passed ? '\x1b[32m' : '\x1b[31m';
-                console.log(`\n[${statusColor}${status}\x1b[0m] Block ${result.blockNumber}`);
+            if (checkpoints.length === 0) {
+                console.error('Error: CSV file contains no checkpoints');
+                process.exit(1);
+            }
 
-                if (!result.passed) {
-                    console.log(`  Expected: ${result.expected}`);
-                    console.log(`  Computed: ${result.computed}`);
-                } else if (verbose) {
-                    console.log(`  Digest: ${result.computed}`);
+            if (maxBlock !== undefined) {
+                const beforeCount = checkpoints.length;
+                checkpoints = checkpoints.filter((cp) => cp.blockNumber <= maxBlock);
+                console.log(`Applying --max-block=${maxBlock}: kept ${checkpoints.length}/${beforeCount} checkpoints`);
+
+                if (checkpoints.length === 0) {
+                    console.error(`Error: no checkpoints in CSV have block number <= ${maxBlock}`);
+                    process.exit(1);
                 }
             }
 
-            console.log(`\n${'='.repeat(60)}`);
-            console.log(`SUMMARY: ${summary.passed}/${summary.total} passed, ${summary.failed} failed`);
-            console.log('='.repeat(60));
+            console.log(`Found ${checkpoints.length} checkpoints in ${csvPath}`);
+            console.log(
+                `Block range: ${checkpoints[0].blockNumber} to ${checkpoints[checkpoints.length - 1].blockNumber}`,
+            );
+            console.log(`Starting digest: ${startingDigest}`);
 
-            // Exit with error code if any failed
-            if (summary.failed > 0) {
+            const provider = createProvider(rpcUrl);
+
+            try {
+                // Check that we can reach the required blocks
+                const latestBlock = await getLatestBlockNumber(provider);
+                const lastBlockInCsv = checkpoints[checkpoints.length - 1].blockNumber;
+                if (lastBlockInCsv > latestBlock) {
+                    console.error(
+                        `Error: CSV contains checkpoint at block ${lastBlockInCsv} but latest block is ${latestBlock}`,
+                    );
+                    process.exit(1);
+                }
+
+                console.log(`\nVerifying checkpoints...`);
+
+                const onProgress = verbose
+                    ? (checkpointIndex: number, blockNumber: number, total: number) => {
+                          process.stdout.write(
+                              `\rVerifying checkpoint ${checkpointIndex}/${total} (block ${blockNumber})...`,
+                          );
+                      }
+                    : undefined;
+
+                const intialDigest = startingDigest || null;
+
+                const summary = await verifyCheckpoints(provider, checkpoints, intialDigest, onProgress);
+
+                if (verbose) {
+                    console.log(); // New line after progress
+                }
+
+                // Print results
+                console.log(`\n${'='.repeat(60)}`);
+                console.log('VERIFICATION RESULTS');
+                console.log('='.repeat(60));
+
+                for (const result of summary.results) {
+                    const status = result.passed ? 'PASS' : 'FAIL';
+                    const statusColor = result.passed ? '\x1b[32m' : '\x1b[31m';
+                    console.log(`\n[${statusColor}${status}\x1b[0m] Block ${result.blockNumber}`);
+
+                    if (!result.passed) {
+                        console.log(`  Expected: ${result.expected}`);
+                        console.log(`  Computed: ${result.computed}`);
+                    } else if (verbose) {
+                        console.log(`  Digest: ${result.computed}`);
+                    }
+                }
+
+                console.log(`\n${'='.repeat(60)}`);
+                console.log(`SUMMARY: ${summary.passed}/${summary.total} passed, ${summary.failed} failed`);
+                console.log('='.repeat(60));
+
+                // Exit with error code if any failed
+                if (summary.failed > 0) {
+                    process.exit(1);
+                }
+            } catch (error) {
+                console.error(`Error: ${(error as Error).message}`);
                 process.exit(1);
+            } finally {
+                await closeProvider(provider);
             }
-        } catch (error) {
-            console.error(`Error: ${(error as Error).message}`);
-            process.exit(1);
-        } finally {
-            await closeProvider(provider);
-        }
-    });
+        },
+    );
 
 program.parse(process.argv);
