@@ -130,35 +130,15 @@ jobs:
       previous-release: "${{ needs.setup.outputs.previous_release }}"
     secrets: inherit
 
-  deploy-github-runner:
-    needs:
-      - sanity-check
-      - setup
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # runners for other jobs (repurpose existing labels)
-          - build: docker
-          - build: native
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy_type: ${{ matrix.build }}
-    secrets: inherit
-
   build-native-runtime:
     needs:
       - sanity-check
       - setup
-      - deploy-github-runner
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release ${{ needs.setup.outputs.build_options}}"
       version-string: "${{ needs.sanity-check.outputs.TAG_NAME }}-x86_64-unknown-linux-gnu"
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-native']"
+      runs-on: "['ubuntu-24.04']"
     secrets: inherit
 
   build-wasm-runtime:
@@ -175,12 +155,11 @@ jobs:
     needs:
       - sanity-check
       - setup
-      - deploy-github-runner
     uses: ./.github/workflows/build-docker.yml
     with:
       build-options: "BUILD_ARGS=${{ needs.setup.outputs.build_options }}"
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-docker']"
+      runs-on: "['ubuntu-24.04']"
     secrets: inherit
 
   create-release:
@@ -270,21 +249,3 @@ jobs:
           status: ${{ job.status }}
           channel: "#protocol-internal"
           message: "Release pipeline finished! cc <@U028EMRHS3S>"
-
-  rm-gh-runner-docker:
-    needs:
-      - docker-build
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy_type: "docker"
-    secrets: inherit
-
-  rm-gh-runner-native:
-    needs:
-      - build-native-runtime
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy_type: "native"
-    secrets: inherit
