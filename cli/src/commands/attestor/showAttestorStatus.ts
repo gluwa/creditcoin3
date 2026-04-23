@@ -28,7 +28,7 @@ async function showAttestorStatus(options: OptionValues) {
         process.exit(0);
     }
 
-    if (attestorInfo.status === ATTESTOR_STATUS_ACTIVE) {
+    if (BigInt(attestorInfo.status) === ATTESTOR_STATUS_ACTIVE) {
         console.log(`Address ${address} status is Active`);
         process.exit(0);
     }

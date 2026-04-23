@@ -1,20 +1,19 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import execa = require('execa');
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import fs = require('fs');
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import path = require('path');
-
-import { commandSync } from 'execa';
-
-import { testIf, try_catch_else_finally } from '../../utils';
-import { initAliceKeyring, randomFundedAccount, fundFromSudo, waitEras, ALICE_NODE_URL, CLIBuilder } from '../helpers';
+import { try_catch_else_finally } from '../../utils';
+import {
+    initAliceKeyring,
+    randomFundedAccount,
+    fundFromSudo,
+    activateAttestor,
+    ALICE_NODE_URL,
+    CLIBuilder,
+} from '../helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
-import { chain_Anvil1_Key, chain_Anvil1_Url } from '../../blockchain-tests/pallets/supported-chains/consts';
+import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 import { parseAmount } from '../../../commands/options';
 
+// NOTE: The attestor-stash precompile uses the EVM `msg.sender` as the origin
+// of the dispatched pallet call. Proxy-signed attestor operations are not
+// supported on the EVM path; the stash must sign directly. No proxy matrix.
 describe('unregister', () => {
     let api: ApiPromise;
     let caller: any;
@@ -43,11 +42,6 @@ describe('unregister', () => {
     }, 150_000);
 
     afterAll(async () => {
-        try {
-            commandSync('killall -9 attestor');
-        } catch (_error: any) {
-            // there may be no attestor running - don't throw an error
-        }
         await api.disconnect();
     });
 
@@ -81,110 +75,49 @@ describe('unregister', () => {
         );
     }, 30_000);
 
-    // NOTE: Proxy is not supported for EVM precompile calls.
-    testIf(false, 'proxy: should error with "Caller has insufficient funds" message', () => {
-        // disabled: proxy not supported via EVM precompile
-    });
+    test('should unregister the attestor', () => {
+        const result = CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain('Transaction included at block');
+    }, 100_000);
 
-    testIf(false, 'proxy: should error with proxy.NotProxy message', () => {
-        // disabled: proxy not supported via EVM precompile
-    });
+    test('should fail when already unregistered', () => {
+        // setup
+        const result = CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain('Transaction included at block');
 
-    testIf(
-        process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
-        'should unregister the attestor',
-        () => {
-            const result = CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-            expect(result.exitCode).toEqual(0);
-            expect(result.stdout).toContain('Transaction included at block');
-        },
-        100_000,
-    );
+        try_catch_else_finally(
+            () => {
+                // call again
+                CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(`Address ${attestor.address} is not an attestor`);
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
+    }, 90_000);
 
-    testIf(
-        process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
-        'should fail when already unregistered',
-        () => {
-            // setup
-            const result = CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-            expect(result.exitCode).toEqual(0);
-            expect(result.stdout).toContain('Transaction included at block');
+    test('should fail when still active', async () => {
+        await activateAttestor(api, attestor, chain_Anvil1_Key);
 
-            try_catch_else_finally(
-                () => {
-                    // call again
-                    CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-                },
-                (error: any) => {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain(`Address ${attestor.address} is not an attestor`);
-                },
-                () => {
-                    throw new Error('cli was expected to fail but it did not');
-                },
-            );
-        },
-        90_000,
-    );
-
-    testIf(
-        process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
-        'should fail when still active',
-        async () => {
-            // warning: GitHub doesn't allow uploading files with colon in their name
-            const logsDir = './logs';
-            if (!fs.existsSync(logsDir)) {
-                fs.mkdirSync(logsDir, { recursive: true });
-            }
-
-            const timeStamp = new Date().toISOString().replaceAll(':', '-');
-            const logPrefix = path.join(logsDir, `attestor-${timeStamp}-log`);
-            const args = [
-                '--name',
-                'ChillActive',
-                '--secret',
-                attestor.secret,
-                '--cc3-url',
-                ALICE_NODE_URL,
-                '--eth-url',
-                chain_Anvil1_Url,
-                '--config',
-                '../attestor/config.yaml',
-            ];
-
-            void execa('../target/release/attestor', args, {
-                detached: true,
-                stdout: fs.openSync(`${logPrefix}.stdout`, 'w'),
-                stderr: fs.openSync(`${logPrefix}.stderr`, 'w'),
-            });
-
-            await waitEras(2, api);
-
-            // make sure attestor was elected and is active
-            const activeAttestorsForAnvil1: string[] = [];
-            const entriesForAnvil1 = (await api.query.attestation.activeAttestors(chain_Anvil1_Key)).entries();
-            for (const [_indx, account] of entriesForAnvil1) {
-                activeAttestorsForAnvil1.push(account.toString());
-            }
-            expect(activeAttestorsForAnvil1.length).toBeGreaterThan(0);
-            expect(activeAttestorsForAnvil1).toContain(attestor.address);
-
-            // test
-            try_catch_else_finally(
-                () => {
-                    CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-                },
-                (error: any) => {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain(
-                        `Address ${attestor.address} status is Active. Please chill the attestor first`,
-                    );
-                },
-                () => {
-                    throw new Error('cli was expected to fail but it did not');
-                },
-            );
-        },
-        360_000,
-    );
+        try_catch_else_finally(
+            () => {
+                CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(
+                    `Address ${attestor.address} status is Active. Please chill the attestor first`,
+                );
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
+    }, 360_000);
 });

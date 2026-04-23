@@ -1,9 +1,14 @@
-import { testIf, try_catch_else_finally } from '../../utils';
+import { try_catch_else_finally } from '../../utils';
 import { initAliceKeyring, randomFundedAccount, fundFromSudo, ALICE_NODE_URL, CLIBuilder } from '../helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 import { parseAmount } from '../../../commands/options';
 
+// NOTE: The attestor-stash precompile uses the EVM `msg.sender` as the origin
+// of the dispatched pallet call (via `HashedAddressMapping`). Substrate
+// `pallet_proxy` delegation is not plumbed through the EVM, so proxy-signed
+// attestor operations are not supported. Accordingly, these tests run without
+// a proxy matrix — the stash must sign directly.
 describe('register', () => {
     let api: ApiPromise;
     let caller: any;
@@ -63,50 +68,31 @@ describe('register', () => {
         );
     }, 30_000);
 
-    // NOTE: Proxy is not supported for EVM precompile calls. The stash must sign directly.
-    testIf(false, 'proxy: should error with "Caller has insufficient funds" message', () => {
-        // disabled: proxy not supported via EVM precompile
-    });
+    test('should register the attestor', () => {
+        const result = CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain('Transaction included at block');
+        // note: must call attestation.attest() and wait 1 era before it becomes active
+    }, 100_000);
 
-    testIf(false, 'proxy: should error with proxy.NotProxy message', () => {
-        // disabled: proxy not supported via EVM precompile
-    });
+    test('should fail when already registered', () => {
+        // setup
+        const result = CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain('Transaction included at block');
 
-    testIf(
-        process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
-        'should register the attestor',
-        () => {
-            const result = CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-            expect(result.exitCode).toEqual(0);
-            expect(result.stdout).toContain('Transaction included at block');
-            // note: must call attestation.attest() and wait 1 era before it becomes active
-        },
-        100_000,
-    );
-
-    testIf(
-        process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
-        'should fail when already registered',
-        () => {
-            // setup
-            const result = CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-            expect(result.exitCode).toEqual(0);
-            expect(result.stdout).toContain('Transaction included at block');
-
-            try_catch_else_finally(
-                () => {
-                    // call again
-                    CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-                },
-                (error: any) => {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain('AlreadyAttestor');
-                },
-                () => {
-                    throw new Error('cli was expected to fail but it did not');
-                },
-            );
-        },
-        90_000,
-    );
+        try_catch_else_finally(
+            () => {
+                // call again
+                CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain('AlreadyAttestor');
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
+    }, 90_000);
 });

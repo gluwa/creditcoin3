@@ -1,12 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import execa = require('execa');
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import fs = require('fs');
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import path = require('path');
-
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { try_catch_else_finally } from '../../utils';
 import {
@@ -15,10 +6,10 @@ import {
     initAliceKeyring,
     randomFundedAccount,
     fundFromSudo,
-    waitEras,
+    activateAttestor,
     CLIBuilder,
 } from '../helpers';
-import { chain_Anvil1_Key, chain_Anvil1_Url } from '../../blockchain-tests/pallets/supported-chains/consts';
+import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 import { parseAmount } from '../../../commands/options';
 
 describe('show-status', () => {
@@ -99,54 +90,17 @@ describe('show-status', () => {
     }, 60_000);
 
     test('should display status Active when attestor is registered and active', async () => {
-        // setup
         const caller = await randomFundedAccount(api, sudoSigner);
-        // Fund the EVM-derived stash for precompile calls
         await fundFromSudo(api, caller.evmStashAddress, parseAmount('1000'));
         const authenticatedCLI = CLIBuilder({ CC_SECRET: caller.secret });
 
         let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
 
-        // warning: GitHub doesn't allow uploading files with colon in their name
-        const logsDir = './logs';
-        if (!fs.existsSync(logsDir)) {
-            fs.mkdirSync(logsDir, { recursive: true });
-        }
+        // Transition attestor to Active via api.tx.attestation.attest() + election wait.
+        // No external attestor binary needed.
+        await activateAttestor(api, attestor, chain_Anvil1_Key);
 
-        const timeStamp = new Date().toISOString().replaceAll(':', '-');
-        const logPrefix = path.join(logsDir, `attestor-${timeStamp}-log`);
-        const args = [
-            '--name',
-            'ChillActive',
-            '--secret',
-            attestor.secret,
-            '--cc3-url',
-            ALICE_NODE_URL,
-            '--eth-url',
-            chain_Anvil1_Url,
-            '--config',
-            '../attestor/config.yaml',
-        ];
-
-        void execa('../target/release/attestor', args, {
-            detached: true,
-            stdout: fs.openSync(`${logPrefix}.stdout`, 'w'),
-            stderr: fs.openSync(`${logPrefix}.stderr`, 'w'),
-        });
-
-        await waitEras(2, api);
-
-        // make sure attestor was elected and is active
-        const activeAttestorsForAnvil1: string[] = [];
-        const entriesForAnvil1 = (await api.query.attestation.activeAttestors(chain_Anvil1_Key)).entries();
-        for (const [_indx, account] of entriesForAnvil1) {
-            activeAttestorsForAnvil1.push(account.toString());
-        }
-        expect(activeAttestorsForAnvil1.length).toBeGreaterThan(0);
-        expect(activeAttestorsForAnvil1).toContain(attestor.address);
-
-        // test
         result = CLI(`attestor show-status --substrate-address ${attestor.address} --chain ${chain_Anvil1_Key}`);
         expect(result.exitCode).toEqual(0);
         expect(result.stdout).toContain(`Address ${attestor.address} status is Active`);

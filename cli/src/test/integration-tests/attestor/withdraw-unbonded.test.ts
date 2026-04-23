@@ -1,9 +1,12 @@
-import { testIf, forElapsedBlocks } from '../../utils';
+import { forElapsedBlocks } from '../../utils';
 import { initAliceKeyring, randomFundedAccount, fundFromSudo, waitEras, ALICE_NODE_URL, CLIBuilder } from '../helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 import { parseAmount } from '../../../commands/options';
 
+// NOTE: The attestor-stash precompile uses the EVM `msg.sender` as the origin
+// of the dispatched pallet call. Proxy-signed attestor operations are not
+// supported on the EVM path; the stash must sign directly. No proxy matrix.
 describe('withdraw-unbonded', () => {
     let api: ApiPromise;
     let caller: any;
@@ -39,31 +42,21 @@ describe('withdraw-unbonded', () => {
         await api.disconnect();
     }, 120_000);
 
-    testIf(
-        process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
-        'should exit when caller is not a stash',
-        async () => {
-            const newCaller = await randomFundedAccount(api, sudoSigner);
-            const nonStashCLI = CLIBuilder({ CC_SECRET: newCaller.secret });
+    test('should exit when caller is not a stash', async () => {
+        const newCaller = await randomFundedAccount(api, sudoSigner);
+        const nonStashCLI = CLIBuilder({ CC_SECRET: newCaller.secret });
 
-            const result = nonStashCLI(`attestor withdraw-unbonded`);
-            expect(result.exitCode).toEqual(0);
-            expect(result.stdout).toContain(`No unbonded funds to withdraw for address ${newCaller.evmStashAddress}`);
-        },
-        30_000,
-    );
+        const result = nonStashCLI(`attestor withdraw-unbonded`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain(`No unbonded funds to withdraw for address ${newCaller.evmStashAddress}`);
+    }, 30_000);
 
-    testIf(
-        process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
-        'should exit when funds have not been unlocked yet',
-        () => {
-            // note: not waiting for unbonding period to finish
-            const result = CLI(`attestor withdraw-unbonded`);
-            expect(result.exitCode).toEqual(0);
-            expect(result.stdout).toContain(`No unbonded funds to withdraw`);
-        },
-        30_000,
-    );
+    test('should exit when funds have not been unlocked yet', () => {
+        // note: not waiting for unbonding period to finish
+        const result = CLI(`attestor withdraw-unbonded`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain(`No unbonded funds to withdraw`);
+    }, 30_000);
 
     describe('when funds have been unlocked', () => {
         beforeAll(async () => {
@@ -72,24 +65,11 @@ describe('withdraw-unbonded', () => {
             await waitEras(unbondingPeriod, api); // ~5 minutes
         }, 400_000);
 
-        // NOTE: Proxy is not supported for EVM precompile calls.
-        testIf(false, 'proxy: should error with "Caller has insufficient funds" message', () => {
-            // disabled: proxy not supported via EVM precompile
+        test('should succeed when funds have been unlocked', () => {
+            const result = CLI(`attestor withdraw-unbonded`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Unbonded funds available to withdraw');
+            expect(result.stdout).toContain('Transaction included at block');
         });
-
-        testIf(false, 'proxy: should error with proxy.NotProxy message', () => {
-            // disabled: proxy not supported via EVM precompile
-        });
-
-        testIf(
-            process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
-            'should succeed when funds have been unlocked',
-            () => {
-                const result = CLI(`attestor withdraw-unbonded`);
-                expect(result.exitCode).toEqual(0);
-                expect(result.stdout).toContain('Unbonded funds available to withdraw');
-                expect(result.stdout).toContain('Transaction included at block');
-            },
-        );
     });
 });

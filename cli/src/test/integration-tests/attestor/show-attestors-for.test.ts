@@ -1,18 +1,14 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import execa = require('execa');
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import fs = require('fs');
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import path = require('path');
-
-import { execSync } from 'child_process';
-
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { try_catch_else_finally } from '../../utils';
-import { ALICE_NODE_URL, initAliceKeyring, randomFundedAccount, fundFromSudo, waitEras, CLIBuilder } from '../helpers';
-import { chain_Anvil1_Key, chain_Anvil1_Url } from '../../blockchain-tests/pallets/supported-chains/consts';
+import {
+    ALICE_NODE_URL,
+    initAliceKeyring,
+    randomFundedAccount,
+    fundFromSudo,
+    activateAttestor,
+    CLIBuilder,
+} from '../helpers';
+import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 import { parseAmount } from '../../../commands/options';
 
 describe('show-attestors-for', () => {
@@ -92,51 +88,9 @@ describe('show-attestors-for', () => {
             );
             expect(result.exitCode).toEqual(0);
 
-            // don't use execa/commandSync b/c they parse & quote the input and passing the mnemonic fails
-            const secretSeed = execSync(
-                `subkey inspect "${attestor.secret}" | grep 'Secret seed:' | cut -f2 -d: | tr -d ' '`,
-            )
-                .toString()
-                .trim();
-            expect(secretSeed.startsWith('0x')).toEqual(true);
-
-            // warning: GitHub doesn't allow uploading files with colon in their name
-            const logsDir = './logs';
-            if (!fs.existsSync(logsDir)) {
-                fs.mkdirSync(logsDir, { recursive: true });
-            }
-
-            const timeStamp = new Date().toISOString().replaceAll(':', '-');
-            const logPrefix = path.join(logsDir, `attestor-${timeStamp}-log`);
-            const args = [
-                '--name',
-                'ChillActive',
-                '--secret',
-                attestor.secret,
-                '--cc3-url',
-                ALICE_NODE_URL,
-                '--eth-url',
-                chain_Anvil1_Url,
-                '--config',
-                '../attestor/config.yaml',
-            ];
-
-            void execa('../target/release/attestor', args, {
-                detached: true,
-                stdout: fs.openSync(`${logPrefix}.stdout`, 'w'),
-                stderr: fs.openSync(`${logPrefix}.stderr`, 'w'),
-            });
-
-            await waitEras(2, api);
-
-            // make sure attestor was elected and is active
-            const activeAttestorsForAnvil1: string[] = [];
-            const entriesForAnvil1 = (await api.query.attestation.activeAttestors(chain_Anvil1_Key)).entries();
-            for (const [_indx, account] of entriesForAnvil1) {
-                activeAttestorsForAnvil1.push(account.toString());
-            }
-            expect(activeAttestorsForAnvil1.length).toBeGreaterThan(0);
-            expect(activeAttestorsForAnvil1).toContain(attestor.address);
+            // Transition the registered attestor to Active by submitting attest()
+            // directly from the test; no need to spawn the external attestor binary.
+            await activateAttestor(api, attestor, chain_Anvil1_Key);
         }, 360_000);
 
         it('should display empty output when passing attestor address as argument', () => {
@@ -149,8 +103,12 @@ describe('show-attestors-for', () => {
         }, 30_000);
 
         it('should display attestor address when passing stash address as argument', () => {
+            // The attestor-stash precompile records the stash as the EVM-derived
+            // AccountId (HashedAddressMapping from the caller's EVM address), not
+            // the sr25519 address. `show-attestors-for` matches on the recorded
+            // `stash` field, so query by `stash.evmStashAddress`.
             const result = CLI(
-                `attestor show-attestors-for --substrate-address ${stash.address} --chain ${chain_Anvil1_Key}`,
+                `attestor show-attestors-for --substrate-address ${stash.evmStashAddress} --chain ${chain_Anvil1_Key}`,
             );
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain(`Address ${attestor.address} is an attestor for chain ${chain_Anvil1_Key}`);

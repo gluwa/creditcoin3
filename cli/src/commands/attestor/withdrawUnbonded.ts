@@ -48,11 +48,11 @@ async function withdrawUnbondedAction(options: OptionValues) {
             console.log(`Transaction included at block (hash: ${receipt.blockHash})`);
             process.exit(0);
         } else {
-            console.log('Transaction failed');
+            console.error('Transaction failed');
             process.exit(1);
         }
     } catch (error: unknown) {
-        console.log(extractEvmError(error));
+        console.error(extractEvmError(error));
         process.exit(1);
     }
 }
