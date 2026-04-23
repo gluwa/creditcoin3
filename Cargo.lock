@@ -9261,7 +9261,7 @@ dependencies = [
 name = "pallet-evm-precompile-ed25519-verifier"
 version = "0.1.0"
 dependencies = [
- "derive_more 1.0.0",
+ "derive_more 0.99.19",
  "ed25519-dalek",
  "fp-evm",
  "frame-support",
