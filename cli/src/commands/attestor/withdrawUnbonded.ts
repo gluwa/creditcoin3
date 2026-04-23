@@ -23,14 +23,18 @@ async function withdrawUnbondedAction(options: OptionValues) {
 
     const { contract } = getAttestorContractWithSigner(secret, options);
 
-    // Check ledger to determine if there are any unlocking chunks
+    // `ledger.withdrawable` is already era-filtered on-chain: it's the sum of
+    // unlocking chunks whose unbonding era has already elapsed. If it's zero,
+    // nothing is ready yet — regardless of whether there are still-locking
+    // chunks present.
     const ledgerInfo = await contract.getLedger(stashBytes32);
     if (!ledgerInfo.exists) {
         console.log(`No unbonded funds to withdraw for address ${stashAddress}`);
         process.exit(0);
     }
 
-    if (ledgerInfo.unlockingChunks === 0) {
+    // ethers.js v6 surfaces Solidity numeric fields as `bigint`.
+    if (BigInt(ledgerInfo.withdrawable) === 0n) {
         console.log('No unbonded funds to withdraw');
         process.exit(0);
     }

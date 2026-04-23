@@ -15,11 +15,15 @@ struct AttestorInfo {
 }
 
 /// @dev Ledger state returned by `getLedger`.
+/// `withdrawable` is the sum of unlocking chunks whose unbonding era has
+/// already elapsed — i.e. the amount `withdrawUnbonded` would actually
+/// return right now.
 struct LedgerInfo {
     bool exists;
     uint128 totalStaked;
     uint128 active;
     uint32 unlockingChunks;
+    uint128 withdrawable;
 }
 
 /// @title AttestorStash — stash-facing operations of `pallet-attestation`

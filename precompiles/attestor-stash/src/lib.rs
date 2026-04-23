@@ -31,7 +31,8 @@ use precompile_utils::{
     solidity::Codec,
 };
 use sp_core::H256;
-use sp_runtime::traits::UniqueSaturatedInto;
+use sp_runtime::{traits::UniqueSaturatedInto, Saturating};
+use sp_staking::StakingInterface;
 use sp_std::vec::Vec;
 
 use attestor_primitives::ChainKey;
@@ -46,12 +47,18 @@ pub struct AttestorInfo {
 }
 
 /// Return type for `getLedger`.
+///
+/// `withdrawable` is the sum of all unlocking chunks whose era has already
+/// elapsed (i.e. chunks that `withdrawUnbonded` would actually return). It
+/// lets callers distinguish between "funds are unlocking but not yet ready"
+/// and "funds are ready to withdraw" without a second call.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
 pub struct LedgerInfo {
     pub exists: bool,
     pub total_staked: u128,
     pub active: u128,
     pub unlocking_chunks: u32,
+    pub withdrawable: u128,
 }
 
 #[cfg(test)]
@@ -278,11 +285,22 @@ where
             Some(ledger) => {
                 use parity_scale_codec::Encode;
                 handle.record_db_read::<Runtime>(ledger.encoded_size())?;
+                // Sum unlocking chunks whose unbonding era has already passed.
+                let current_era = <Runtime as pallet_attestation::Config>::Staking::current_era();
+                let withdrawable = ledger
+                    .unlocking
+                    .iter()
+                    .filter(|chunk| chunk.era <= current_era)
+                    .fold(
+                        <pallet_attestation::BalanceOf<Runtime>>::default(),
+                        |acc, chunk| acc.saturating_add(chunk.value),
+                    );
                 Ok(LedgerInfo {
                     exists: true,
                     total_staked: ledger.total_staked.unique_saturated_into(),
                     active: ledger.active.unique_saturated_into(),
                     unlocking_chunks: ledger.unlocking.len() as u32,
+                    withdrawable: withdrawable.unique_saturated_into(),
                 })
             }
         }
