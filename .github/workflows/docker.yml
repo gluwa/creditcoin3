@@ -24,13 +24,11 @@ permissions: read-all
 
 jobs:
   docker-build:
-    needs:
-      - deploy-runner-docker-build
     uses: ./.github/workflows/build-docker.yml
     with:
       build-options: "BUILD_ARGS="
       version-string: "latest"
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-docker-build']"
+      runs-on: "['ubuntu-24.04']"
 
   docker-test:
     needs:
@@ -130,22 +128,3 @@ jobs:
         with:
           name: docker-logs
           path: docker-*.log
-
-  deploy-runner-docker-build:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: "docker-build"
-    secrets: inherit
-
-  rm-gh-runner-docker-build:
-    needs:
-      - docker-build
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "docker-build"
-    secrets: inherit
