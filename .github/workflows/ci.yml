@@ -1188,26 +1188,14 @@ jobs:
       - uses: actions/checkout@v6
 
   attestor-cli-testing:
+    # Attestor stash operations are dispatched through the EVM precompile, which
+    # uses the EVM `msg.sender` as origin via HashedAddressMapping. Substrate
+    # `pallet_proxy` delegation is not plumbed through the EVM, so there's no
+    # proxy matrix here — the stash signs directly.
     needs:
       - build-creditcoin-node-for-testing-ci
       - trigger-attestor-cli
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: "no"
-
-          - proxy: "yes"
-            secret: no-funds
-
-          - proxy: "yes"
-            secret: not-a-proxy
-
-          - proxy: "yes"
-            secret: valid-proxy
-            proxy_type: All
-
-    name: attestor-cli-testing / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+    name: attestor-cli-testing
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -1309,9 +1297,6 @@ jobs:
           yarn test:attestor-cli
         env:
           RUST_LOG: debug
-          PROXY_ENABLED: ${{ matrix.proxy }}
-          PROXY_SECRET_VARIANT: ${{ matrix.secret }}
-          PROXY_TYPE: ${{ matrix.proxy_type }}
 
       - name: Kill nodes
         if: always()
@@ -1326,7 +1311,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: logs-for-attestor-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
+          name: logs-for-attestor-cli
           path: |
             /tmp/attestor-*.std*
             /tmp/creditcoin3-node-*.std*
