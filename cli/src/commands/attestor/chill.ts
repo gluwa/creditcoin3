@@ -29,7 +29,7 @@ async function chillAction(options: OptionValues) {
     // Pre-call validation via view function
     const attestorInfo = await contract.getAttestor(BigInt(chainKey), attestorId32);
     if (!attestorInfo.exists) {
-        console.log(`There is not attestor ${attestorSs58} for chain ${chainKey}`);
+        console.error(`There is not attestor ${attestorSs58} for chain ${chainKey}`);
         process.exit(1);
     }
 
@@ -39,12 +39,12 @@ async function chillAction(options: OptionValues) {
     const attestorStashSs58 = encodeAddress(attestorStashBytes);
 
     if (attestorStashSs58 !== stashAddress) {
-        console.log(`Attestor ${attestorSs58} is not owned by the keyring account ${stashAddress}`);
+        console.error(`Attestor ${attestorSs58} is not owned by the keyring account ${stashAddress}`);
         process.exit(1);
     }
 
-    if (attestorInfo.status === ATTESTOR_STATUS_IDLE) {
-        console.log(`Attestor ${attestorSs58} is already chilled`);
+    if (BigInt(attestorInfo.status) === ATTESTOR_STATUS_IDLE) {
+        console.error(`Attestor ${attestorSs58} is already chilled`);
         process.exit(1);
     }
 
@@ -55,11 +55,11 @@ async function chillAction(options: OptionValues) {
             console.log(`Transaction included at block (hash: ${receipt.blockHash})`);
             process.exit(0);
         } else {
-            console.log('Transaction failed');
+            console.error('Transaction failed');
             process.exit(1);
         }
     } catch (error: unknown) {
-        console.log(extractEvmError(error));
+        console.error(extractEvmError(error));
         process.exit(1);
     }
 }

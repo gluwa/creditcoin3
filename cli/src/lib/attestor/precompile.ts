@@ -12,9 +12,10 @@ const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 export const ATTESTOR_STASH_ADDRESS = '0x0000000000000000000000000000000000000fd4';
 
 // AttestorStatus: Active = 0, Idle = 1, Waiting = 2.
-// Declared as `bigint` so strict-equality comparisons against the fields of
-// ethers.js v6 structs (which surface Solidity `uint*` values as `bigint`)
-// succeed without needing per-call-site coercion.
+// Declared as `bigint` constants; call sites MUST `BigInt(info.status)`-coerce
+// the struct field before comparing, because ethers.js can surface small
+// Solidity integer fields (uint8 here) as plain `number` rather than `bigint`,
+// and `0n === 0` is false.
 export const ATTESTOR_STATUS_ACTIVE = 0n;
 export const ATTESTOR_STATUS_IDLE = 1n;
 export const ATTESTOR_STATUS_WAITING = 2n;

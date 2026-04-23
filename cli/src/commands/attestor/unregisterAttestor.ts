@@ -28,12 +28,12 @@ async function unregisterAttestorAction(options: OptionValues) {
     // Pre-call validation via view function
     const attestorInfo = await contract.getAttestor(BigInt(chainKey), attestorId32);
     if (!attestorInfo.exists) {
-        console.log(`Address ${attestorSs58} is not an attestor`);
+        console.error(`Address ${attestorSs58} is not an attestor`);
         process.exit(1);
     }
 
-    if (attestorInfo.status === ATTESTOR_STATUS_ACTIVE) {
-        console.log(`Address ${attestorSs58} status is Active. Please chill the attestor first`);
+    if (BigInt(attestorInfo.status) === ATTESTOR_STATUS_ACTIVE) {
+        console.error(`Address ${attestorSs58} status is Active. Please chill the attestor first`);
         process.exit(1);
     }
     console.log(`Address ${attestorSs58} status is Chill`);
@@ -46,11 +46,11 @@ async function unregisterAttestorAction(options: OptionValues) {
             console.log(`Transaction included at block (hash: ${receipt.blockHash})`);
             process.exit(0);
         } else {
-            console.log('Transaction failed');
+            console.error('Transaction failed');
             process.exit(1);
         }
     } catch (error: unknown) {
-        console.log(extractEvmError(error));
+        console.error(extractEvmError(error));
         process.exit(1);
     }
 }
