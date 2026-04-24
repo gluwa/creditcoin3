@@ -175,8 +175,6 @@ jobs:
         id: native-transfer-anvil-2
         working-directory: attestor/scripts
         run: |
-          npm install
-
           OUTPUT=$(ETH_RPC_URL=http://127.0.0.1:8141 node Transfer.js)
           echo "$OUTPUT"
 
@@ -268,8 +266,6 @@ jobs:
       - name: Exercise TransferWaitAndSubmit.js
         working-directory: scripts
         run: |
-          npm install
-
           # Using Anvil Account #0 on source chain & Alith on execution chain
           node TransferWaitAndSubmit.js \
             --source-rpc-url http://127.0.0.1:8141 \
