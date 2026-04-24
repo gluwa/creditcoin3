@@ -53,6 +53,8 @@ jobs:
           components: llvm-tools-preview, rust-src
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2.75.19

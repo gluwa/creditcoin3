@@ -39,7 +39,10 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32-unknown-unknown
           components: rust-src
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Build runtime with try-runtime
         run: |

@@ -39,7 +39,10 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32-unknown-unknown
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Install cargo audit
         run: |
@@ -75,7 +78,10 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           components: rustfmt
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Check formatting
         uses: gluwa/cargo@dev
@@ -111,7 +117,10 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32-unknown-unknown
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Check featalign
         run: |
@@ -151,7 +160,10 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32-unknown-unknown
           components: clippy, rust-src
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Print clippy's version
         uses: gluwa/cargo@dev
@@ -181,6 +193,8 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Execute cargo machete
         uses: bnjbvr/cargo-machete@main
@@ -212,7 +226,10 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           components: llvm-tools-preview, rust-src
           targets: wasm32-unknown-unknown
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2.75.19
