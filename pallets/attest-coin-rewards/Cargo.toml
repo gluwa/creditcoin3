@@ -6,7 +6,6 @@ name = "pallet-attest-coin-rewards"
 publish = false
 version = "0.1.0"
 
-# Required for `#[frame_support::pallet]` / `TypeInfo` derives; not visible to static dep scanners.
 [package.metadata.cargo-machete]
 ignored = ["scale-info"]
 
