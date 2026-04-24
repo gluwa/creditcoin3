@@ -332,6 +332,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
       - name: Install Solidity compiler
@@ -504,6 +506,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
       # WARNING: always after Swatinem/rust-cache
@@ -642,6 +646,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
       - name: Start creditcoin3-node - Alice
@@ -811,6 +817,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'npm'
+          cache-dependency-path: docs/smart-contract-development/with-hardhat/package-lock.json
 
       - name: Install dependencies
         working-directory: ./docs/smart-contract-development/with-hardhat
@@ -1030,6 +1038,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: |
+            cc3-indexer/yarn.lock
+            cli/yarn.lock
 
       - name: Simulate a native token transfer on Anvil 1
         id: native-transfer-anvil-1
@@ -1263,6 +1275,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
       - name: Install Solidity compiler
@@ -1351,6 +1365,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
       # WARNING: always after Swatinem/rust-cache
@@ -1570,6 +1586,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
 
       - name: Run native token transfers in background
         working-directory: attestor/scripts
