@@ -1319,7 +1319,6 @@ pub mod pallet {
 
             Ok(())
         }
-
     }
 
     impl<T: Config> CheckpointProvider for Pallet<T> {

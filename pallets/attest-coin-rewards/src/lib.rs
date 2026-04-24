@@ -99,7 +99,6 @@ pub mod pallet {
             Self::deposit_event(Event::AttestCoinTokenSet { token });
             Ok(())
         }
-
     }
 
     impl<T: Config> Pallet<T> {
