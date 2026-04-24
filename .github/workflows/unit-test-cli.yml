@@ -45,9 +45,3 @@ jobs:
         run: |
           yarn install
           yarn test:unit
-
-      - uses: codecov/codecov-action@v6
-        with:
-          files: cli/coverage/lcov.info
-          fail_ci_if_error: false
-          verbose: true

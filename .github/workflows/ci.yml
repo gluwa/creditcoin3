@@ -616,13 +616,6 @@ jobs:
           name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
           path: /tmp/creditcoin3-node-*.std*
 
-      - name: Upload coverage report as artifact
-        if: ${{ matrix.proxy == 'yes' && matrix.proxy_type == 'All' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: integration-test-cli-coverage-report
-          path: cli/src/test/coverage/
-
   integration-test-blockchain:
     needs:
       - build-creditcoin-node-for-testing-ci
