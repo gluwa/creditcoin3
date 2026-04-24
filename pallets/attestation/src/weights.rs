@@ -668,38 +668,5 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(749))
 			.saturating_add(T::DbWeight::get().writes(1244))
 	}
-	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
-	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointPruningStates` (r:1 w:0)
-	/// Proof: `Attestation::CheckpointPruningStates` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointClearingCursors` (r:1 w:0)
-	/// Proof: `Attestation::CheckpointClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::BucketClearingCursors` (r:1 w:0)
-	/// Proof: `Attestation::BucketClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Checkpoints` (r:100 w:100)
-	/// Proof: `Attestation::Checkpoints` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointBuckets` (r:0 w:100)
-	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::LastCheckpoint` (r:1 w:1)
-	/// Proof: `Attestation::LastCheckpoint` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn forward_patch_checkpoints() -> Weight {
-		Weight::from_parts(4_000_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 280000))
-			.saturating_add(T::DbWeight::get().reads(630))
-			.saturating_add(T::DbWeight::get().writes(720))
-	}
-	/// Conservative placeholder weight for `force_mint_bond_asset` (test helper; not benchmarked).
-	fn force_mint_bond_asset() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-			.saturating_add(T::DbWeight::get().reads(1))
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
+
 }
