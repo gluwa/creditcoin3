@@ -91,12 +91,6 @@ jobs:
         run: |
           .github/check-for-duplicate-files.sh
 
-      - name: Install Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-      - run: npm install -g yarn
-
       - name: Install Solidity compiler
         run: |
           sudo .github/install-solidity-compiler.sh
