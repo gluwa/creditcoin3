@@ -22,12 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Install Anvil
         run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           ANVIL_BIN=$(readlink -f ~/.foundry/bin/anvil)
           echo "ANVIL_BIN=$ANVIL_BIN" >> "$GITHUB_ENV"
 
@@ -130,12 +129,11 @@ jobs:
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --base-path ./alice-data >/var/tmp/exercise-scripts/creditcoin3-node-alice.log 2>&1 &
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Start Ethereum simulation with Anvil
         run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
@@ -363,13 +361,12 @@ jobs:
       - build-everything
     runs-on: ubuntu-24.04
     steps:
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       # start this early so it has time to produce more blocks to be used by stress-test
       - name: Start Ethereum simulation with Anvil
         run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
