@@ -55,10 +55,4 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
 
-	/// Conservative placeholder weight for `force_accrue` (test helper; not benchmarked).
-	fn force_accrue() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-			.saturating_add(T::DbWeight::get().reads(1))
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
 }

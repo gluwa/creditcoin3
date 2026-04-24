@@ -24,13 +24,10 @@ mod benchmarking;
 mod asset;
 mod clear_or_revert;
 mod continuity;
-pub mod extensions;
 mod impls;
 mod ledger;
 pub use ledger::AttestorLedger;
 pub mod migrations;
-
-pub use extensions::PrevalidateAttestationCommit;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -201,8 +198,6 @@ pub mod pallet {
         fn set_max_catchup() -> Weight;
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
-        fn forward_patch_checkpoints() -> Weight;
-        fn force_mint_bond_asset() -> Weight;
     }
 
     #[pallet::storage]
@@ -671,12 +666,6 @@ pub mod pallet {
             checkpoint_height: u64,
             checkpoint_digest: Digest,
         },
-        /// Operator forward-patched checkpoints (overwrite / optional suffix wipe).
-        ForwardCheckpointPatchApplied {
-            chain_key: ChainKey,
-            wiped_suffix: bool,
-            tip_block_number: u64,
-        },
     }
 
     #[pallet::error]
@@ -799,14 +788,6 @@ pub mod pallet {
         AttestorAlreadyIdle,
         /// A voluntary chill is already scheduled for this attestor.
         AttestorChillAlreadyScheduled,
-        /// Checkpoint pruning, checkpoint clearing, or bucket clearing is already in progress for this chain.
-        CheckpointMaintenanceInProgress,
-        /// Operator forward patch contained no checkpoints.
-        EmptyCheckpointPatch,
-        /// More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
-        CheckpointSuffixWipeTooLarge,
-        /// More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
-        TooManyAttestationsForForwardPatchClear,
     }
 
     #[pallet::hooks]
@@ -1339,49 +1320,6 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Overwrite or insert checkpoints and optionally drop every checkpoint above the batch tip.
-        ///
-        /// Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
-        /// **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
-        /// ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
-        ///
-        /// Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
-        /// attestations after recovery.
-        ///
-        /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
-        /// dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
-        #[pallet::call_index(29)]
-        #[pallet::weight(<T as Config>::WeightInfo::forward_patch_checkpoints())]
-        pub fn forward_patch_checkpoints(
-            origin: OriginFor<T>,
-            chain_key: ChainKey,
-            wipe_suffix: bool,
-            checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
-        ) -> DispatchResult {
-            T::OperatorsOrigin::ensure_origin(origin)?;
-
-            Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
-
-            Ok(())
-        }
-
-        /// Mint bond-asset (attest coin) directly to `who` — **for testing only**.
-        ///
-        /// Bypasses the ERC-20 bridge so integration tests can give a stash attest-coin
-        /// without running an Anvil EVM, enabling `Unbonded` / `Withdrawn` event coverage
-        /// in the cc3-indexer test suite.
-        #[pallet::call_index(30)]
-        #[pallet::weight(<T as Config>::WeightInfo::force_mint_bond_asset())]
-        pub fn force_mint_bond_asset(
-            origin: OriginFor<T>,
-            who: T::AccountId,
-            amount: BalanceOf<T>,
-        ) -> DispatchResult {
-            ensure_root(origin)?;
-            T::BondFungibles::mint_into(T::BondAssetId::get(), &who, amount)
-                .map_err(|_| Error::<T>::BondAssetTransferFailed)?;
-            Ok(())
-        }
     }
 
     impl<T: Config> CheckpointProvider for Pallet<T> {

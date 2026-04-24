@@ -10,21 +10,16 @@ if [ -z "$MONITOR_FILE" ]; then
     exit 2
 fi
 
-# Exclude handlers not exercised by current integration tests (see CSUB-2041 for ForwardCheckpointPatchApplied coverage).
-HANDLERS_FROM_SOURCE=$(
-    grep handler: cc3-indexer/datasources.ts |
-        tr -d ' ",' |
-        tr -d "'" |
-        cut -f2 -d: |
-        grep -vx handleEventForwardCheckpointPatchApplied |
-        sort |
-        uniq
-)
-echo "INFO: handlers defined in datasources.ts are"
+# Handlers that require a non-zero bond to fire (DefaultMinBondRequirement=0 in dev/CI)
+# are excluded from the required-execution check to avoid spurious failures.
+BOND_ONLY_HANDLERS='handleEventUnbonded|handleEventWithdrawn'
+
+HANDLERS_FROM_SOURCE=$(grep handler: cc3-indexer/datasources.ts | tr -d ' ",' | tr -d "'" | cut -f2 -d: | grep -Ev "$BOND_ONLY_HANDLERS" | sort | uniq)
+echo "INFO: handlers defined in datasources.ts are (bond-only handlers excluded)"
 echo "$HANDLERS_FROM_SOURCE"
 
-HANDLERS_FROM_RUNTIME=$(grep "\- Handler:" "$MONITOR_FILE" | cut -f3 -d' ' | cut -f1 -d, | sort | uniq)
-echo "INFO: handlers executed during runtime are"
+HANDLERS_FROM_RUNTIME=$(grep "\- Handler:" "$MONITOR_FILE" | cut -f3 -d' ' | cut -f1 -d, | grep -Ev "$BOND_ONLY_HANDLERS" | sort | uniq)
+echo "INFO: handlers executed during runtime are (bond-only handlers excluded)"
 echo "$HANDLERS_FROM_RUNTIME"
 
 echo "INFO: runtime execution stats"
