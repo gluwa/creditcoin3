@@ -3,7 +3,7 @@
 **Status:** Draft  
 **Author:** Protocol Engineering  
 **Target Repo:** `gluwa/creditcoin3`  
-**Last Updated:** 2026-04-24 (rev 2 — switched SolanaV1 to Borsh, added SolanaDecoder section)
+**Last Updated:** 2026-04-24 (rev 3 — reverted to ABI encoding; SolanaDecoder uses alloy-sol-types no_std)
 
 ---
 
@@ -13,8 +13,8 @@
 2. [Background: How Solana Works](#2-background-how-solana-works)
 3. [Current EVM Pipeline (Reference)](#3-current-evm-pipeline-reference)
 4. [What Changes for Solana](#4-what-changes-for-solana)
-5. [Borsh Encoding Design (SolanaV1)](#5-borsh-encoding-design-solanav1)
-6. [SolanaDecoder — Decoding in Solana Programs](#6-solanadecoder--decoding-in-solana-programs)
+5. [ABI Encoding Design (SolanaV1)](#5-abi-encoding-design-solanav1)
+6. [SolanaDecoder — ABI Decoding in Solana Programs](#6-solanadecoder--abi-decoding-in-solana-programs)
 7. [Proposed Architecture](#7-proposed-architecture)
 8. [File-by-File Change Map](#8-file-by-file-change-map)
 9. [Code Hints & Skeletons](#9-code-hints--skeletons)
@@ -295,104 +295,93 @@ pub struct OrderedBlock { chain_id, number, hash, items: Vec<TxRx> }
 
 ---
 
-## 5. Borsh Encoding Design (SolanaV1)
+## 5. ABI Encoding Design (SolanaV1)
 
-> **Why not ABI encoding?** ABI encoding is EVM-native. A Solana program cannot decode ABI-encoded bytes without writing a full custom ABI decoder in Rust — expensive in compute units, no existing tooling, and foreign to the Solana ecosystem. Since the primary verification target is a **Solana program**, [Borsh](https://borsh.io) is the correct encoding.
+The `SolanaV1` encoding uses **Ethereum ABI encoding** — the same format as the existing EVM `V1` path. This ensures:
 
-This is the most design-critical component. The encoding must be:
+- Consistency across all source chains in the attestation pipeline
+- Compatibility with the existing `QueryBuilder` offset-based field extraction infrastructure
+- Future ability to verify Solana attestations from EVM contracts
+- A single encoding/decoding codebase (`alloy-sol-types` in Rust, `ethers`/`viem` in TypeScript)
+- Decoding in Solana programs via `alloy-sol-types` `no_std` mode (see Section 6)
+
+> **Why not Borsh?** Borsh is Solana-native but cannot be decoded on EVM without a custom decoder. ABI can be decoded on both EVM (trivially) and in Solana programs (`alloy-sol-types` supports BPF target with `default-features = false`). One encoding for both chains.
+
+The encoding must be:
 
 1. **Deterministic** — same transaction always produces the same bytes
-2. **Borsh-compatible** — natively decodable in Solana programs via `borsh::BorshDeserialize`
+2. **ABI-compatible** — decodable by `alloy-sol-types` in Rust and `ethers`/`viem` in TypeScript
 3. **Complete** — captures enough data for a meaningful attestation
 4. **Stable** — adding new Solana transaction versions must not break existing attestations
 
-### 5.1 Why Borsh
+### 5.1 ABI Struct Layout
 
-| Property | ABI (Ethereum) | Borsh (Solana) |
-|---|---|---|
-| Solana program decode | Custom decoder required | `#[derive(BorshDeserialize)]` |
-| EVM Solidity decode | `abi.decode(...)` | Custom decoder required |
-| Size | Padded to 32-byte slots (verbose) | Compact, no padding |
-| Determinism | Yes | Yes |
-| TypeScript SDK | `ethers` / `viem` | `@coral-xyz/borsh` / `@metaplex-foundation/beet` |
-| Anchor framework support | No | First-class |
+The top-level shape mirrors the EVM `V1` encoding:
 
-Borsh is deterministic by spec — the same data always serializes to the same bytes regardless of platform.
-
-### 5.2 Borsh Struct Layout
-
-The top-level leaf struct for a Solana transaction:
-
-```rust
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
-pub struct SolanaTxLeaf {
-    /// Encoding version — always 0 for SolanaV1.
-    /// Allows future SolanaV2 structs without breaking old attestations.
-    pub version: u8,
-
-    // ── Header ──────────────────────────────────────────────────────────
-    /// Fee payer pubkey (account_keys[0])
-    pub fee_payer: [u8; 32],
-    /// recent_blockhash as raw bytes (base58-decoded)
-    pub recent_blockhash: [u8; 32],
-    /// All account pubkeys referenced in this transaction, in order
-    pub account_keys: Vec<[u8; 32]>,
-
-    // ── Instructions ────────────────────────────────────────────────────
-    /// All instructions, in execution order
-    pub instructions: Vec<SolanaInstruction>,
-
-    // ── Execution outcome (meta) ─────────────────────────────────────────
-    /// True if the transaction failed (meta.err is Some)
-    pub is_err: bool,
-    /// Transaction fee in lamports
-    pub fee: u64,
-    /// Account balances before execution, parallel to account_keys
-    pub pre_balances: Vec<u64>,
-    /// Account balances after execution, parallel to account_keys
-    pub post_balances: Vec<u64>,
-    /// Program log lines (UTF-8 strings as bytes)
-    pub log_messages: Vec<Vec<u8>>,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
-pub struct SolanaInstruction {
-    /// Index into account_keys for the program being invoked
-    pub program_id_index: u8,
-    /// Indices into account_keys for the accounts used by this instruction
-    pub account_indices: Vec<u8>,
-    /// Raw instruction data
-    pub data: Vec<u8>,
-}
+```
+DynSolValue::Tuple([
+    DynSolValue::Uint(version, 8),   // always 0 for SolanaV1
+    DynSolValue::Array([
+        Bytes(header_chunk),          // accounts + recent_blockhash
+        Bytes(instructions_chunk),    // all instructions
+        Bytes(meta_chunk),            // execution outcome
+    ])
+])
 ```
 
-### 5.3 Serialization
+**`header_chunk`** — `abi.encode(bytes32 fee_payer, bytes32 recent_blockhash, bytes32[] account_keys)`:
+```
+abi.encode(
+    bytes32 fee_payer,         // account_keys[0], base58-decoded pubkey
+    bytes32 recent_blockhash,  // 32-byte hash, base58-decoded
+    bytes32[] account_keys,    // all pubkeys, each base58-decoded to 32 bytes
+)
+```
 
-Serializing to bytes (attestor side, runs off-chain):
+**`instructions_chunk`** — `abi.encode(Instruction[])`:
+```
+abi.encode(
+    tuple(uint8 program_id_index, uint8[] account_indices, bytes data)[]
+)
+```
+
+**`meta_chunk`** — `abi.encode(bool, uint64, uint64[], uint64[], bytes[])`:
+```
+abi.encode(
+    bool     is_err,           // true if tx failed
+    uint64   fee,              // lamports
+    uint64[] pre_balances,     // parallel to account_keys
+    uint64[] post_balances,    // parallel to account_keys
+    bytes[]  log_messages,     // UTF-8 log lines as bytes
+)
+```
+
+### 5.2 Serialization (Attestor Side)
 
 ```rust
-use borsh::BorshSerialize;
+use alloy::dyn_abi::DynSolValue;
 
 impl BlockItem for SolanaTxItem {
     fn payload_bytes(&self) -> Vec<u8> {
-        let leaf = SolanaTxLeaf::from_tx(&self.inner)
-            .expect("Solana transaction should be encodable");
-        leaf.try_to_vec().expect("Borsh serialization cannot fail for this type")
+        solana_abi_encoding::solana_v1_encode(&self.inner)
+            .expect("Solana transaction should be encodable")
+            .abi()
+            .to_vec()
     }
 }
 ```
 
-The resulting `Vec<u8>` is fed into `merkle::KeccakMerkleTree` as the leaf bytes — identical to the EVM path.
+Resulting `Vec<u8>` is fed into `merkle::KeccakMerkleTree` — identical to the EVM path.
 
-### 5.4 Field Exclusions and Rationale
+### 5.3 Field Exclusions and Rationale
 
-- **No signatures** — signatures are excluded. They don't affect execution outcome and including them would make the leaf hash non-deterministic (Solana allows multiple valid signature sets for the same message body)
+- **No signatures** — excluded. Signatures don't affect execution outcome and would make the leaf hash non-deterministic across signature variants of the same message
 - **No inner instructions** — excluded in v0 for simplicity; can be added in `SolanaV2` via the `version` field
 - **No address lookup tables** — excluded in v0; relevant only for versioned transactions (see Open Question 4)
-- **`meta` always included** — unlike EVM where the receipt is a separate fetch, Solana `meta` is always returned alongside the transaction; including it means the Merkle root captures execution outcome, not just intent
-- **Log messages as `Vec<Vec<u8>>`** — UTF-8 strings stored as raw bytes to keep encoding format-agnostic
+- **`meta` always included** — unlike EVM where the receipt is a separate RPC fetch, Solana `meta` is always returned alongside the transaction. Including it means the Merkle root captures execution outcome, not just intent
+- **Log messages as `bytes[]`** — UTF-8 strings stored as `bytes` to avoid encoding ambiguity
 
-### 5.5 Skipped Slots
+### 5.4 Skipped Slots
 
 If a slot was skipped (no block produced), emit an **empty Merkle tree** — same behavior as an empty EVM block:
 
@@ -400,15 +389,15 @@ If a slot was skipped (no block produced), emit an **empty Merkle tree** — sam
 merkle::KeccakMerkleTree::new(&[]).root() // → canonical empty root
 ```
 
-### 5.6 Version Future-Proofing
+### 5.5 Version Future-Proofing
 
-The `version: u8` field at position 0 allows introducing a `SolanaV2` leaf struct without breaking existing attestations. Decoders (Solana programs, off-chain tools) branch on `version` before deserializing the rest.
+The `uint8` version field at position 0 allows introducing `SolanaV2` (e.g., with inner instructions or address lookup table support) without changing the outer shape. Decoders branch on this byte before decoding the chunk array.
 
 ---
 
-## 6. SolanaDecoder — Decoding in Solana Programs
+## 6. SolanaDecoder — ABI Decoding in Solana Programs
 
-This section is the Solana equivalent of the EVM `QueryBuilder` / `EvmDecoder` pattern in `@gluwa/usc-sdk`. The goal is the same: given an encoded transaction leaf (from a Merkle proof), extract specific fields from it inside an on-chain program.
+This section is the Solana equivalent of the EVM `QueryBuilder` / `EvmDecoder` pattern in `@gluwa/usc-sdk`. The encoding is ABI (same as EVM `V1`). The decoder runs inside a Solana program using `alloy-sol-types` in `no_std` mode.
 
 ### 6.1 EVM Decoder Recap (Reference)
 
@@ -417,264 +406,240 @@ The EVM path works like this:
 ```
 ABI-encoded bytes
     │
-    ▼  QueryBuilder (off-chain)
+    ▼  QueryBuilder (off-chain, TypeScript)
     │  Computes field byte offsets within ABI encoding
     │  Returns (offset, size) pairs → sent as calldata to Solidity
     ▼
 Solidity on-chain
-    assembly { calldataload(offset) }  → extracts field at byte offset
+    assembly { calldataload(offset) }  → extracts field at known byte offset
 ```
 
-ABI encoding uses fixed 32-byte slots, so field byte offsets can be pre-computed off-chain and the Solidity contract just does a cheap `calldataload(offset)`. The `QueryBuilder` in `usc-sdk` builds these offset descriptors.
+ABI encoding uses fixed 32-byte slots so field byte offsets can be pre-computed off-chain. The Solidity contract does a cheap `calldataload(offset)`. `QueryBuilder` builds these offset descriptors.
 
-### 6.2 Solana Decoder Pattern
+### 6.2 Solana Decoder Pattern (ABI)
 
-Borsh does **not** have fixed-width slots — offsets depend on content (variable-length vectors, strings). You **cannot** pre-compute static byte offsets like the EVM pattern.
-
-Instead, Solana programs decode the full struct using `borsh::BorshDeserialize`, then access the desired fields directly. This is idiomatic Rust and costs very little compute (Borsh is fast and allocation in Solana programs uses a bump allocator).
+Same ABI bytes, different runtime. Solana programs are Rust `no_std` BPF binaries. `alloy-sol-types` (the `sol!` macro layer, no transport/provider) supports `no_std` since v0.7 and compiles for the BPF target with `default-features = false`.
 
 **Pattern:**
 
 ```
-Borsh-encoded leaf bytes (from Merkle proof)
+ABI-encoded leaf bytes (from Merkle proof)
     │
-    ▼  SolanaDecoder::from_bytes() (in program)
-    │  borsh::BorshDeserialize::try_from_slice()
+    ▼  SolanaDecoder::decode() — in Solana program
+    │  alloy_sol_types::SolType::abi_decode()
     ▼
-SolanaTxLeaf struct
+Decoded Rust struct (zero-copy where possible)
     │  .fee_payer, .instructions[0].data, .is_err, etc.
     ▼
-Field access — direct struct field access
+Field access — same struct, same ABI bytes as EVM
 ```
 
-### 6.3 Solana Program: `SolanaDecoder`
+This means the same encoded `bytes` accepted by an EVM contract via `BlockProver` can also be decoded by a Solana program — no separate encoding per chain.
 
-Create a crate `solana-decoder` that can be imported by Solana programs (and by off-chain Rust tooling):
+### 6.3 `alloy-sol-types` in a Solana Program
+
+`alloy-sol-types` does **not** depend on `std` when `default-features = false`. It compiles to BPF cleanly. This is the key enabler.
+
+```toml
+# In your Solana program's Cargo.toml
+[dependencies]
+alloy-sol-types = { version = "0.8", default-features = false }
+```
+
+### 6.4 Solana Program: `SolanaDecoder`
+
+Create a crate `solana-decoder` (usable both inside Solana programs and off-chain):
 
 ```rust
 // solana-decoder/src/lib.rs
-// no_std compatible, no alloc beyond what Solana runtime provides
+#![cfg_attr(target_arch = "bpf", no_std)]
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use alloy_sol_types::{sol, SolType};
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
-pub struct SolanaTxLeaf {
-    pub version: u8,
-    pub fee_payer: [u8; 32],
-    pub recent_blockhash: [u8; 32],
-    pub account_keys: Vec<[u8; 32]>,
-    pub instructions: Vec<SolanaInstruction>,
-    pub is_err: bool,
-    pub fee: u64,
-    pub pre_balances: Vec<u64>,
-    pub post_balances: Vec<u64>,
-    pub log_messages: Vec<Vec<u8>>,
-}
+// Mirror the ABI types from SolanaV1 encoding
+sol! {
+    /// Header chunk: fee_payer, recent_blockhash, account_keys[]
+    struct SolanaHeader {
+        bytes32 fee_payer;
+        bytes32 recent_blockhash;
+        bytes32[] account_keys;
+    }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
-pub struct SolanaInstruction {
-    pub program_id_index: u8,
-    pub account_indices: Vec<u8>,
-    pub data: Vec<u8>,
+    /// Single instruction
+    struct SolanaIx {
+        uint8 program_id_index;
+        uint8[] account_indices;
+        bytes data;
+    }
+
+    /// Meta / execution outcome chunk
+    struct SolanaMeta {
+        bool is_err;
+        uint64 fee;
+        uint64[] pre_balances;
+        uint64[] post_balances;
+        bytes[] log_messages;
+    }
+
+    /// Top-level leaf (version + array of encoded chunks)
+    struct SolanaTxLeaf {
+        uint8 version;
+        bytes[] chunks; // [header_chunk, instructions_chunk, meta_chunk]
+    }
 }
 
 pub struct SolanaDecoder;
 
 impl SolanaDecoder {
-    /// Decode a Borsh-serialized SolanaTxLeaf from raw bytes.
-    /// Call this inside a Solana program after verifying the Merkle proof.
-    pub fn decode(bytes: &[u8]) -> Result<SolanaTxLeaf, std::io::Error> {
-        SolanaTxLeaf::try_from_slice(bytes)
+    /// Decode the top-level ABI leaf and all sub-chunks.
+    /// Returns (header, instructions, meta) or an error.
+    pub fn decode(
+        leaf_bytes: &[u8],
+    ) -> Result<(SolanaHeader, Vec<SolanaIx>, SolanaMeta), alloy_sol_types::Error> {
+        // 1. Decode the top-level tuple: (uint8 version, bytes[] chunks)
+        let leaf = SolanaTxLeaf::abi_decode(leaf_bytes, true)?;
+
+        let header_bytes = &leaf.chunks[0];
+        let instructions_bytes = &leaf.chunks[1];
+        let meta_bytes = &leaf.chunks[2];
+
+        // 2. Decode each chunk independently
+        let header = SolanaHeader::abi_decode(header_bytes, true)?;
+        let instructions = <alloy_sol_types::sol_type::Array<SolanaIx>>::abi_decode(
+            instructions_bytes, true
+        )?;
+        let meta = SolanaMeta::abi_decode(meta_bytes, true)?;
+
+        Ok((header, instructions, meta))
     }
 
-    /// Convenience: decode and check a field in one call.
-    /// Returns Err if decoding fails, Ok(None) if field logic doesn't match.
-    pub fn fee_payer(bytes: &[u8]) -> Result<[u8; 32], std::io::Error> {
-        Ok(Self::decode(bytes)?.fee_payer)
+    /// Convenience: check if the attested transaction succeeded.
+    pub fn succeeded(leaf_bytes: &[u8]) -> Result<bool, alloy_sol_types::Error> {
+        let (_, _, meta) = Self::decode(leaf_bytes)?;
+        Ok(!meta.is_err)
     }
 
-    pub fn is_err(bytes: &[u8]) -> Result<bool, std::io::Error> {
-        Ok(Self::decode(bytes)?.is_err)
+    /// Convenience: get fee payer pubkey as [u8; 32].
+    pub fn fee_payer(leaf_bytes: &[u8]) -> Result<[u8; 32], alloy_sol_types::Error> {
+        let (header, _, _) = Self::decode(leaf_bytes)?;
+        Ok(header.fee_payer.into())
     }
 
-    /// Get instruction data for instruction at index `ix_index`.
-    pub fn instruction_data(bytes: &[u8], ix_index: usize) -> Result<Vec<u8>, std::io::Error> {
-        let leaf = Self::decode(bytes)?;
-        leaf.instructions
+    /// Convenience: get raw instruction data at index.
+    pub fn instruction_data(
+        leaf_bytes: &[u8],
+        ix_index: usize,
+    ) -> Result<alloy_sol_types::private::Bytes, alloy_sol_types::Error> {
+        let (_, instructions, _) = Self::decode(leaf_bytes)?;
+        instructions
             .into_iter()
             .nth(ix_index)
             .map(|ix| ix.data)
-            .ok_or_else(|| std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "instruction index out of bounds",
-            ))
+            .ok_or(alloy_sol_types::Error::custom("instruction index out of bounds"))
     }
 }
 ```
 
-### 6.4 Usage in a Solana Program (Anchor)
-
-The typical flow in an Anchor program that wants to verify a Solana-to-Solana cross-chain action:
+### 6.5 Usage in an Anchor Program
 
 ```rust
-// In your Anchor program
-use solana_decoder::{SolanaDecoder, SolanaTxLeaf};
+use solana_decoder::SolanaDecoder;
 
 #[program]
 pub mod my_program {
     use super::*;
 
-    /// Verify that a specific Solana transaction (attested by CC3 attestors)
-    /// involved a transfer to a target account, then take action.
+    /// Verify an attested Solana transaction and act on its contents.
     pub fn process_attested_transfer(
         ctx: Context<ProcessAttestedTransfer>,
-        encoded_tx: Vec<u8>,          // the Borsh-encoded SolanaTxLeaf bytes
-        // ... merkle proof, continuity proof passed separately ...
+        encoded_tx: Vec<u8>,   // ABI-encoded SolanaV1 leaf bytes
+        // merkle_proof, continuity_proof passed separately
     ) -> Result<()> {
-        // Step 1: Verify the Merkle proof on-chain
-        // (call CC3 attestation precompile or equivalent Solana program)
+        // Step 1: Verify Merkle + continuity proof
+        // (Call CC3 attestation verifier program / CPI)
         verify_attestation_proof(&encoded_tx, &ctx.accounts)?;
 
-        // Step 2: Decode the transaction leaf
-        let leaf = SolanaDecoder::decode(&encoded_tx)
+        // Step 2: Decode the ABI leaf
+        let (header, instructions, meta) = SolanaDecoder::decode(&encoded_tx)
             .map_err(|_| MyError::InvalidTxEncoding)?;
 
-        // Step 3: Verify it succeeded
-        require!(!leaf.is_err, MyError::TransactionFailed);
+        // Step 3: Check transaction succeeded
+        require!(!meta.is_err, MyError::TransactionFailed);
 
-        // Step 4: Extract relevant fields
-        // For example: verify the fee payer matches the expected sender
-        let expected_sender: [u8; 32] = ctx.accounts.sender.key().to_bytes();
-        require!(leaf.fee_payer == expected_sender, MyError::WrongSender);
+        // Step 4: Check fee payer matches expected sender
+        let expected: [u8; 32] = ctx.accounts.sender.key().to_bytes();
+        let fee_payer: [u8; 32] = header.fee_payer.into();
+        require!(fee_payer == expected, MyError::WrongSender);
 
-        // Step 5: Parse instruction data (application-specific)
-        // e.g., if instruction 0 is a token transfer, decode the amount
-        let ix_data = leaf.instructions.get(0)
-            .ok_or(MyError::MissingInstruction)?;
-
-        // For SPL token transfers: instruction data[0] = 3 (Transfer), [1..9] = amount LE u64
+        // Step 5: Decode instruction data (application-specific)
+        // SPL Token Transfer: ix.data[0] = 3 (discriminator), [1..9] = amount (LE u64)
+        let ix = instructions.first().ok_or(MyError::MissingInstruction)?;
         let amount = u64::from_le_bytes(
-            ix_data.data[1..9].try_into().map_err(|_| MyError::InvalidIxData)?
+            ix.data[1..9].try_into().map_err(|_| MyError::InvalidIxData)?
         );
 
-        // Step 6: Take action based on verified, attested data
+        // Step 6: Act on verified, attested data
         transfer_tokens(ctx, amount)?;
-
         Ok(())
     }
 }
 ```
 
-### 6.5 TypeScript / Client-Side Decoding
+### 6.6 TypeScript / Client-Side Decoding
 
-For off-chain tooling (TypeScript clients, proof generators, CLI tools), use `@coral-xyz/borsh` or the `borsh` npm package:
+Same ABI bytes → use `ethers`/`viem` `AbiCoder`, exactly as for EVM. No new tooling needed.
 
 ```typescript
-import { BorshCoder, Idl } from '@coral-xyz/anchor';
-import * as borsh from 'borsh';
+import { AbiCoder } from 'ethers';
 
-// Define the schema matching SolanaTxLeaf
-const SOLANA_INSTRUCTION_SCHEMA = {
-  struct: {
-    program_id_index: 'u8',
-    account_indices: { array: { type: 'u8' } },
-    data: { array: { type: 'u8' } },
-  }
-};
+const coder = AbiCoder.defaultAbiCoder();
 
-const SOLANA_TX_LEAF_SCHEMA = {
-  struct: {
-    version: 'u8',
-    fee_payer: { array: { type: 'u8', len: 32 } },
-    recent_blockhash: { array: { type: 'u8', len: 32 } },
-    account_keys: { array: { type: { array: { type: 'u8', len: 32 } } } },
-    instructions: { array: { type: SOLANA_INSTRUCTION_SCHEMA } },
-    is_err: 'bool',
-    fee: 'u64',
-    pre_balances: { array: { type: 'u64' } },
-    post_balances: { array: { type: 'u64' } },
-    log_messages: { array: { type: { array: { type: 'u8' } } } },
-  }
-};
+// Top-level: (uint8 version, bytes[] chunks)
+const [version, chunks] = coder.decode(['uint8', 'bytes[]'], encodedLeaf);
 
-export interface SolanaTxLeaf {
-  version: number;
-  fee_payer: Uint8Array;  // 32 bytes
-  recent_blockhash: Uint8Array;  // 32 bytes
-  account_keys: Uint8Array[];  // each 32 bytes
-  instructions: SolanaInstruction[];
-  is_err: boolean;
-  fee: bigint;
-  pre_balances: bigint[];
-  post_balances: bigint[];
-  log_messages: Uint8Array[];
-}
+// Header chunk
+const [feePayer, recentBlockhash, accountKeys] = coder.decode(
+  ['bytes32', 'bytes32', 'bytes32[]'],
+  chunks[0]
+);
 
-export interface SolanaInstruction {
-  program_id_index: number;
-  account_indices: number[];
-  data: Uint8Array;
-}
+// Instructions chunk — array of tuples
+const instructions = coder.decode(
+  ['tuple(uint8 program_id_index, uint8[] account_indices, bytes data)[]'],
+  chunks[1]
+)[0];
 
-export class SolanaDecoder {
-  /**
-   * Decode Borsh-serialized SolanaTxLeaf bytes.
-   * Use this to inspect attested Solana transaction data.
-   */
-  static decode(bytes: Uint8Array): SolanaTxLeaf {
-    return borsh.deserialize(SOLANA_TX_LEAF_SCHEMA, bytes) as SolanaTxLeaf;
-  }
+// Meta chunk
+const [isErr, fee, preBalances, postBalances, logMessages] = coder.decode(
+  ['bool', 'uint64', 'uint64[]', 'uint64[]', 'bytes[]'],
+  chunks[2]
+);
 
-  /**
-   * Get the fee payer as a base58 string.
-   */
-  static feePayer(bytes: Uint8Array): string {
-    const leaf = SolanaDecoder.decode(bytes);
-    return bs58.encode(leaf.fee_payer);
-  }
-
-  /**
-   * Check if the attested transaction succeeded.
-   */
-  static succeeded(bytes: Uint8Array): boolean {
-    return !SolanaDecoder.decode(bytes).is_err;
-  }
-
-  /**
-   * Get the raw data bytes for a specific instruction.
-   */
-  static instructionData(bytes: Uint8Array, ixIndex: number): Uint8Array {
-    const leaf = SolanaDecoder.decode(bytes);
-    if (ixIndex >= leaf.instructions.length) {
-      throw new Error(`Instruction index ${ixIndex} out of bounds (${leaf.instructions.length} instructions)`);
-    }
-    return leaf.instructions[ixIndex].data;
-  }
-}
+console.log('Fee payer:', Buffer.from(feePayer.slice(2), 'hex').toString('hex'));
+console.log('Succeeded:', !isErr);
+console.log('Fee (lamports):', fee.toString());
 ```
 
-### 6.6 Comparison: EVM vs Solana Decoder Patterns
+### 6.7 Comparison: EVM vs Solana Decoder
 
-| Aspect | EVM (QueryBuilder) | Solana (SolanaDecoder) |
+| Aspect | EVM (QueryBuilder + Solidity) | Solana (SolanaDecoder + alloy-sol-types) |
 |---|---|---|
-| Encoding | ABI (fixed 32-byte slots) | Borsh (compact, variable-length) |
-| Offset computation | Off-chain, pre-computed | Not applicable — full deserialization |
-| On-chain extraction | `assembly { calldataload(offset) }` | `BorshDeserialize::try_from_slice()` |
-| Compute cost (on-chain) | Very cheap (single memory load) | Low (Borsh is fast; bump allocator) |
-| Complexity | High (offset arithmetic) | Low (struct field access) |
-| Selective field proof | Yes (offset + size only) | Full decode, then field access |
-| Solana native | No | Yes |
-| EVM native | Yes | No |
+| Encoding | ABI | ABI (same bytes) |
+| Off-chain offset tool | `QueryBuilder` (TypeScript) | Same `QueryBuilder` works |
+| On-chain decode | `assembly { calldataload(offset) }` | `alloy-sol-types::SolType::abi_decode()` |
+| Compute cost | Very cheap (single load) | Low-moderate (full ABI decode) |
+| `no_std` support | N/A (EVM) | `alloy-sol-types` with `default-features = false` |
+| TypeScript decode | `ethers AbiCoder` | Same `ethers AbiCoder` |
+| Same bytes on EVM + Solana | N/A | ✅ Yes — one encoding for both chains |
 
-**Key tradeoff:** The EVM pattern allows proving a *specific field* at a *specific byte range* within the encoded bytes without decoding the whole transaction (useful for minimizing calldata). Borsh requires decoding the full struct first. For Solana programs, this is fine — full struct deserialization is cheap. If selective-field Merkle proofs over Borsh bytes are needed in future, a custom offset-tracker for Borsh can be built.
-
----
+**Key advantage of ABI over Borsh here:** The exact same encoded `leaf_bytes` can be verified by an EVM contract (`BlockProver` precompile) AND decoded by a Solana program. No dual encoding, no format divergence.
 
 ---
+
 
 ## 7. Proposed Architecture
 
-### 6.1 Option A: Trait Abstraction (Recommended)
+### 7.1 Option A: Trait Abstraction (Recommended)
 
 Extract a `SourceChainClient` trait. Both `eth::Client` and `solana::Client` implement it. `StreamRoots` and `StreamTip` become generic over `SourceChainClient`.
 
@@ -690,18 +655,18 @@ StreamTip<C: SourceChainClient>
 **Pros:** No code duplication, single stream implementation  
 **Cons:** More complex generic bounds; requires `StreamRoots` refactor
 
-### 6.2 Option B: Parallel Crates (Simpler)
+### 7.2 Option B: Parallel Crates (Simpler)
 
 Keep `common/streams/eth` as-is. Add `common/streams/solana` as a parallel crate with `SolanaStreamRoots` and `SolanaStreamTip` that mirror the EVM versions but use `solana::Client`.
 
 **Pros:** Zero risk to existing EVM path, easy to implement  
 **Cons:** Code duplication in stream logic; reconnect/backoff logic needs to be maintained in two places
 
-### 6.3 Recommendation
+### 7.3 Recommendation
 
 **Start with Option B** to ship faster and avoid breaking the EVM path. Refactor to Option A in a follow-up PR once both paths are proven stable.
 
-### 6.4 Attestor Entrypoint Branching
+### 7.4 Attestor Entrypoint Branching
 
 `attestor/attestor/src/lib.rs` currently creates `eth::Client` unconditionally. This must become conditional:
 
@@ -799,14 +764,18 @@ sp-core = { ... }
 
 > **Warning:** Solana crates on crates.io are large and pull in many transitive deps. Pin versions carefully. Use `solana-rpc-client` if using Solana 2.x split crates. Check what version `solana-test-validator` uses locally to avoid mismatches.
 
-### 8.4 New Crate: `solana-encoding`
+### 8.4 New Crates: `solana-abi-encoding` + `solana-decoder`
 
-New crate `common/solana-encoding`. Contains:
-- `SolanaTxLeaf` and `SolanaInstruction` Borsh structs (shared between attestor and decoder)
-- `pub fn solana_v1_encode(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<u8>, EncodeError>`
-- Internal helpers: `build_leaf_from_tx`
+**`common/solana-abi-encoding`** — ABI encoding for the attestor side:
+- `pub fn solana_v1_encode(tx: &EncodedTransactionWithStatusMeta) -> Result<DynSolValue, EncodeError>`
+- Internal helpers: `encode_header`, `encode_instructions`, `encode_meta`
+- Depends on `alloy::dyn_abi` + `solana-transaction-status`
 
-Note: no `alloy` dependency. No `DynSolValue`. Just `borsh` + `solana-transaction-status` types.
+**`solana-decoder`** — ABI decoding for Solana programs and off-chain tools:
+- `SolanaDecoder::decode(bytes)` using `alloy-sol-types` `no_std`
+- `sol!` macro type definitions for `SolanaHeader`, `SolanaIx`, `SolanaMeta`, `SolanaTxLeaf`
+- `default-features = false` so it compiles for BPF target in Solana programs
+- See Section 6 for full implementation
 
 ### 8.5 New Crate: `common/streams/solana` (Option B)
 
@@ -1029,19 +998,18 @@ pub fn simple_merkle_tree(block: &SolanaOrderedBlock) -> merkle::KeccakMerkleTre
 }
 ```
 
-### 9.3 `solana_encoding::solana_v1_encode`
+### 9.3 `solana_abi_encoding::solana_v1_encode`
 
 ```rust
-// common/solana-encoding/src/lib.rs
-// No alloy dependency. Pure Borsh encoding.
+// common/solana-abi-encoding/src/lib.rs
+// ABI encoding using alloy::dyn_abi — mirrors the EVM V1 encoder.
 
-use borsh::BorshSerialize;
+use alloy::dyn_abi::DynSolValue;
+use alloy::primitives::U256;
 use solana_transaction_status::{
     EncodedTransactionWithStatusMeta,
     EncodedTransaction,
     UiMessage,
-    UiParsedMessage,
-    UiRawMessage,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -1052,58 +1020,27 @@ pub enum EncodeError {
     Base58Decode(String),
     #[error("Transaction has no accounts")]
     NoAccounts,
-    #[error("Borsh serialization error: {0}")]
-    BorshError(String),
+    #[error("ABI encoding error: {0}")]
+    AbiError(String),
 }
 
-// Re-export the shared struct so decoders can import from one place
-pub use solana_decoder::{SolanaInstruction, SolanaTxLeaf};
-
-/// Build a `SolanaTxLeaf` from an RPC-fetched transaction.
-/// This is called by the attestor's `SolanaTxItem::payload_bytes()`.
-pub fn build_leaf(
-    tx: &EncodedTransactionWithStatusMeta,
-) -> Result<SolanaTxLeaf, EncodeError> {
-    let meta = tx.meta.as_ref().ok_or(EncodeError::MissingMeta)?;
-
-    // Extract message fields
-    let (fee_payer, recent_blockhash, account_keys, instructions) =
-        extract_message_fields(tx)?;
-
-    // Extract meta fields
-    let is_err = meta.err.is_some();
-    let fee = meta.fee;
-    let pre_balances = meta.pre_balances.clone();
-    let post_balances = meta.post_balances.clone();
-    let log_messages = meta
-        .log_messages
-        .clone()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|s| s.into_bytes())
-        .collect();
-
-    Ok(SolanaTxLeaf {
-        version: 0,
-        fee_payer,
-        recent_blockhash,
-        account_keys,
-        instructions,
-        is_err,
-        fee,
-        pre_balances,
-        post_balances,
-        log_messages,
-    })
-}
-
-/// Serialize a transaction to Borsh bytes (the actual Merkle leaf bytes).
+/// ABI-encode a Solana transaction into the SolanaV1 leaf format.
+/// Returns a DynSolValue::Tuple that can be .abi().to_vec() into bytes.
 pub fn solana_v1_encode(
     tx: &EncodedTransactionWithStatusMeta,
-) -> Result<Vec<u8>, EncodeError> {
-    let leaf = build_leaf(tx)?;
-    leaf.try_to_vec()
-        .map_err(|e| EncodeError::BorshError(e.to_string()))
+) -> Result<DynSolValue, EncodeError> {
+    let header_chunk = encode_header(tx)?;
+    let instructions_chunk = encode_instructions(tx)?;
+    let meta_chunk = encode_meta(tx)?;
+
+    Ok(DynSolValue::Tuple(vec![
+        DynSolValue::Uint(U256::from(0u8), 8), // version = 0 (SolanaV1)
+        DynSolValue::Array(vec![
+            DynSolValue::Bytes(header_chunk),
+            DynSolValue::Bytes(instructions_chunk),
+            DynSolValue::Bytes(meta_chunk),
+        ]),
+    ]))
 }
 
 fn decode_pubkey(s: &str) -> Result<[u8; 32], EncodeError> {
@@ -1114,9 +1051,74 @@ fn decode_pubkey(s: &str) -> Result<[u8; 32], EncodeError> {
         .map_err(|_| EncodeError::Base58Decode(format!("pubkey not 32 bytes: {s}")))
 }
 
+fn encode_header(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<u8>, EncodeError> {
+    // Parse account_keys, fee_payer, recent_blockhash from UiMessage
+    // Then ABI-encode as (bytes32, bytes32, bytes32[])
+    let (fee_payer, recent_blockhash, account_keys, _) = extract_message_fields(tx)?;
+
+    let encoded = DynSolValue::Tuple(vec![
+        DynSolValue::FixedBytes(alloy::primitives::FixedBytes::from(fee_payer), 32),
+        DynSolValue::FixedBytes(alloy::primitives::FixedBytes::from(recent_blockhash), 32),
+        DynSolValue::Array(
+            account_keys.into_iter()
+                .map(|k| DynSolValue::FixedBytes(alloy::primitives::FixedBytes::from(k), 32))
+                .collect()
+        ),
+    ]);
+    Ok(encoded.abi().to_vec())
+}
+
+fn encode_instructions(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<u8>, EncodeError> {
+    // For each instruction: (uint8 program_id_index, uint8[] account_indices, bytes data)
+    let (_, _, _, instructions) = extract_message_fields(tx)?;
+
+    let encoded = DynSolValue::Array(
+        instructions.into_iter().map(|(prog_idx, acct_indices, data)| {
+            DynSolValue::Tuple(vec![
+                DynSolValue::Uint(U256::from(prog_idx), 8),
+                DynSolValue::Array(
+                    acct_indices.into_iter()
+                        .map(|i| DynSolValue::Uint(U256::from(i), 8))
+                        .collect()
+                ),
+                DynSolValue::Bytes(data),
+            ])
+        }).collect()
+    );
+    Ok(encoded.abi().to_vec())
+}
+
+fn encode_meta(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<u8>, EncodeError> {
+    let meta = tx.meta.as_ref().ok_or(EncodeError::MissingMeta)?;
+
+    let log_messages: Vec<DynSolValue> = meta.log_messages
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| DynSolValue::Bytes(s.into_bytes()))
+        .collect();
+
+    let encoded = DynSolValue::Tuple(vec![
+        DynSolValue::Bool(meta.err.is_some()),
+        DynSolValue::Uint(U256::from(meta.fee), 64),
+        DynSolValue::Array(
+            meta.pre_balances.iter()
+                .map(|b| DynSolValue::Uint(U256::from(*b), 64))
+                .collect()
+        ),
+        DynSolValue::Array(
+            meta.post_balances.iter()
+                .map(|b| DynSolValue::Uint(U256::from(*b), 64))
+                .collect()
+        ),
+        DynSolValue::Array(log_messages),
+    ]);
+    Ok(encoded.abi().to_vec())
+}
+
 fn extract_message_fields(
     tx: &EncodedTransactionWithStatusMeta,
-) -> Result<([u8; 32], [u8; 32], Vec<[u8; 32]>, Vec<SolanaInstruction>), EncodeError> {
+) -> Result<([u8; 32], [u8; 32], Vec<[u8; 32]>, Vec<(u8, Vec<u8>, Vec<u8>)>), EncodeError> {
     // Handle both Binary and JSON-parsed transaction encodings
     match &tx.transaction {
         EncodedTransaction::Json(ui_tx) => {
@@ -1250,7 +1252,7 @@ These must be resolved before implementation begins.
 
 **Question:** Does verification happen on a Solana program, an EVM/CC3 precompile, or both?
 
-**Resolved (2026-04-24):** Primary target is **Solana programs**. `SolanaV1` uses **Borsh encoding** (not ABI). See Section 5 and Section 6 for full design. If EVM verification of Solana transactions is needed in future, a separate `SolanaV1Evm` encoding variant can be added.
+**Resolved (2026-04-24):** Primary target is **Solana programs**. `SolanaV1` uses **ABI encoding** — same as EVM `V1`. Decoded on-chain using `alloy-sol-types` `no_std` (BPF-compatible). Same bytes work on EVM contracts and Solana programs. See Sections 5 and 6.
 
 ---
 
@@ -1329,11 +1331,11 @@ These must be resolved before implementation begins.
 ### 11.1 Unit Tests
 
 **`solana-encoding`:**
-- Fixture test: known Solana transaction → known Borsh bytes (determinism)
-- Round-trip: `solana_v1_encode` → `SolanaDecoder::decode` → matches original fields
+- Fixture test: known Solana transaction → known ABI-encoded bytes (determinism)
+- Round-trip: `solana_v1_encode` → `SolanaDecoder::decode` (ABI) → matches original fields
 - Empty transaction list → empty bytes (not crash)
 - Failed transaction (`is_err = true`) encoded correctly
-- `SolanaDecoder::decode` in Solana program context (no_std)
+- `SolanaDecoder::decode` in Solana program context (`alloy-sol-types` no_std / BPF)
 
 **`solana::SolanaOrderedBlock`:**
 - `from_confirmed_block` with mock block data
@@ -1347,8 +1349,8 @@ These must be resolved before implementation begins.
 **Against `solana-test-validator`:**
 1. Start local validator
 2. Send a few transactions
-3. Fetch the block, Borsh-encode it, build Merkle root
-4. Decode with `SolanaDecoder`, assert fields match original transaction
+3. Fetch the block, ABI-encode it (SolanaV1), build Merkle root
+4. ABI-decode with `SolanaDecoder` (Rust), assert fields match original transaction
 5. Compare Merkle root to a known-good value (generated once and frozen)
 
 ```bash
