@@ -151,15 +151,6 @@ export async function setMinBondConfig(api: ApiPromise, value: BN | number | str
     await setStakingConfig(sudoKeyring, api, null, value, null, null, null, null, null);
 }
 
-// Transition a registered attestor into the Active set by submitting `attest()`
-// directly and polling until the election moves it from Waiting -> Active.
-// This replaces spawning the external `attestor` binary in integration tests.
-//
-// BLS material is derived exactly as `pallet-attestation` expects (see
-// `pallets/attestation/src/tests.rs` and `attestor/attestor/src/lib.rs`):
-// the UTF-8 bytes of the mnemonic are used as IKM for filecoin-style
-// `bls-signatures` KeyGen (`PrivateKey::new`), and the proof-of-possession
-// signs the compressed public key bytes.
 type AttestorStatusName = 'Active' | 'Idle' | 'Waiting' | 'NotRegistered';
 
 async function readAttestorStatus(api: ApiPromise, chainKey: number, address: string): Promise<AttestorStatusName> {
@@ -176,6 +167,15 @@ async function readAttestorStatus(api: ApiPromise, chainKey: number, address: st
     );
 }
 
+// Transition a registered attestor into the Active set by submitting `attest()`
+// directly and polling until the election moves it from Waiting -> Active.
+// This replaces spawning the external `attestor` binary in integration tests.
+//
+// BLS material is derived exactly as `pallet-attestation` expects (see
+// `pallets/attestation/src/tests.rs` and `attestor/attestor/src/lib.rs`):
+// the UTF-8 bytes of the mnemonic are used as IKM for filecoin-style
+// `bls-signatures` KeyGen (`PrivateKey::new`), and the proof-of-possession
+// signs the compressed public key bytes.
 export async function activateAttestor(
     api: ApiPromise,
     attestor: { secret: string; keyring: KeyringPair; address: string },
