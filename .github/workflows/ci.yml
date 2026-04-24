@@ -355,8 +355,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
-          cache: 'yarn'
-          cache-dependency-path: cli/yarn.lock
+          cache: 'npm'
+          cache-dependency-path: |
+            attestor/scripts/package.json
+            checkpoint-verifier/yarn.lock
+            cli/yarn.lock
       - run: npm install -g yarn
 
       - name: Install Solidity compiler
@@ -373,14 +376,14 @@ jobs:
         working-directory: ./cli
         run: |
           sleep 100 # wait for attestors to register
-          yarn install
+          yarn install --immutable
           yarn test:attestation
 
       - name: Run ExportCheckpoints.js
         if: always()
         working-directory: ./attestor/scripts
         run: |
-          npm install
+          npm ci
 
           node ExportCheckpoints.js
 
@@ -509,7 +512,7 @@ jobs:
         if: always()
         working-directory: ./checkpoint-verifier
         run: |
-          yarn install --frozen-lockfile
+          yarn install --immutable
           yarn build
 
       - name: Run checkpoint-verifier against builder CSV
