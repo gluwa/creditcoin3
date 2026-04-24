@@ -30,19 +30,19 @@ function substrateAccountIdFromEvmAddress(evmAddress: string): Uint8Array {
     return blake2AsU8a(payload, 256);
 }
 
-/** `bytes32` for precompile `depositTo` / Solidity — 32-byte raw Substrate `AccountId`. */
+/** `bytes32` for precompile `depositTo` / Solidity - 32-byte raw Substrate `AccountId`. */
 function accountIdToBytes32(accountSs58OrRaw: string | Uint8Array): string {
     const raw = typeof accountSs58OrRaw === 'string' ? decodeAddress(accountSs58OrRaw) : accountSs58OrRaw;
     return zeroPadValue(hexlify(raw), 32);
 }
 
 /**
- * Foundry Anvil account #0 — always pre-funded. Same key as `attestor/scripts/Transfer.js` (`getSigner`).
+ * Foundry Anvil account #0 - always pre-funded. Same key as `attestor/scripts/Transfer.js` (`getSigner`).
  * Alith / `CREDITCOIN_EVM_PRIVATE_KEY('alice')` is **not** funded on vanilla Anvil.
  */
 const ANVIL_DEFAULT_ACCOUNT_0_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 
-/** Foundry Anvil / local EVM — default matches CI `anvil --port 8141`; override with `ANVIL1_HTTP_URL` (e.g. `http://127.0.0.1:8545`). */
+/** Foundry Anvil / local EVM - default matches CI `anvil --port 8141`; override with `ANVIL1_HTTP_URL` (e.g. `http://127.0.0.1:8545`). */
 function anvilHttpUrl(): string {
     return process.env.ANVIL1_HTTP_URL ?? 'http://127.0.0.1:8141';
 }
@@ -67,7 +67,7 @@ function dbg(...args: unknown[]) {
     }
 }
 
-/** `chain_key` in claim preimage — Anvil1 matches CI zombienet `--chain-key=2`. */
+/** `chain_key` in claim preimage - Anvil1 matches CI zombienet `--chain-key=2`. */
 function toLeU64(n: bigint): Buffer {
     let v = n;
     const b = Buffer.alloc(8);
@@ -134,7 +134,7 @@ async function dispatchRootCall(api: ApiPromise, root: KeyringPair, inner: Submi
 describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     let api: ApiPromise;
     let creditcoinWs: string;
-    /** Creditcoin EVM — precompile + treasury token live here. */
+    /** Creditcoin EVM - precompile + treasury token live here. */
     let creditcoinEvm: JsonRpcProvider;
     let anvilEvm: JsonRpcProvider;
     let evmWalletCc3: ethers.Wallet;
@@ -163,8 +163,8 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         evmWalletCc3 = new ethers.Wallet(pk, creditcoinEvm);
         const evmWalletAnvil = new ethers.Wallet(ANVIL_DEFAULT_ACCOUNT_0_PRIVATE_KEY, anvilEvm);
 
-        // `integration-test-blockchain` runs zombienet attestors with //Alice-funded setup; Alice’s stash is already
-        // on `attestation::Ledger` — no `registerAttestor` here.
+        // `integration-test-blockchain` runs zombienet attestors with //Alice-funded setup; Alice's stash is already
+        // on `attestation::Ledger` - no `registerAttestor` here.
 
         dbg('deploy MockAttestToken on Anvil (supported-chain local EVM)');
         const factoryAnvil = new ContractFactory(tokenArtifact.abi, tokenArtifact.bytecode, evmWalletAnvil);
@@ -185,7 +185,17 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddressCc3));
         await forElapsedBlocks(api, { minBlocks: 1 });
 
-        // Substrate `Accrued` / `ClaimNonce` persist on a long-lived dev node; this run’s ERC-20 is newly deployed with a
+        // Force-accrue a deterministic reward for alice so tests don't depend on attestors
+        // completing a full epoch before the test suite runs.
+        const FORCE_ACCRUE_AMOUNT = ethers.parseEther('10'); // 10 attest-coin reward points
+        await dispatchRootCall(
+            api,
+            root,
+            (api.tx as any).attestCoinRewards.forceAccrue(alice.address, FORCE_ACCRUE_AMOUNT.toString()),
+        );
+        await forElapsedBlocks(api, { minBlocks: 1 });
+
+        // Substrate `Accrued` / `ClaimNonce` persist on a long-lived dev node; this run's ERC-20 is newly deployed with a
         // fixed mint. Top up the precompile so `transfer` can cover **all** current accrued points (not just this epoch).
         const preRead = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, creditcoinEvm);
         const stashRaw = decodeAddress(alice.address);
@@ -332,7 +342,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     test('withdraw reverts with zero amount', async () => {
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
         // The precompile returns the raw bytes `"zero amount"` (no Solidity `Error(string)` selector),
-        // so ethers cannot decode a reason — match the hex payload (`hex("zero amount")`) directly.
+        // so ethers cannot decode a reason - match the hex payload (`hex("zero amount")`) directly.
         await expect(precompile.withdraw.staticCall(0n, { gasLimit: WITHDRAW_PRECOMPILE_GAS })).rejects.toThrow(
             /0x7a65726f20616d6f756e74/,
         );
@@ -360,7 +370,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
 
     /**
      * End-to-end: set a non-zero min bond, `depositTo` ERC-20 straight to the sr25519 stash, then
-     * `registerAttestor` (no `force_transfer` — user-controlled beneficiary).
+     * `registerAttestor` (no `force_transfer` - user-controlled beneficiary).
      */
     test('deposit attest coin, move to sr25519 stash, then registerAttestor', async () => {
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);

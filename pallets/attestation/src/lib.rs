@@ -202,6 +202,7 @@ pub mod pallet {
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
         fn forward_patch_checkpoints() -> Weight;
+        fn force_mint_bond_asset() -> Weight;
     }
 
     #[pallet::storage]
@@ -1395,6 +1396,24 @@ pub mod pallet {
 
             Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
 
+            Ok(())
+        }
+
+        /// Mint bond-asset (attest coin) directly to `who` — **for testing only**.
+        ///
+        /// Bypasses the ERC-20 bridge so integration tests can give a stash attest-coin
+        /// without running an Anvil EVM, enabling `Unbonded` / `Withdrawn` event coverage
+        /// in the cc3-indexer test suite.
+        #[pallet::call_index(30)]
+        #[pallet::weight(<T as Config>::WeightInfo::force_mint_bond_asset())]
+        pub fn force_mint_bond_asset(
+            origin: OriginFor<T>,
+            who: T::AccountId,
+            amount: BalanceOf<T>,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            T::BondFungibles::mint_into(T::BondAssetId::get(), &who, amount)
+                .map_err(|_| Error::<T>::BondAssetTransferFailed)?;
             Ok(())
         }
     }
