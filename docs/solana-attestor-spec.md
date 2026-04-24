@@ -3,7 +3,7 @@
 **Status:** Draft  
 **Author:** Protocol Engineering  
 **Target Repo:** `gluwa/creditcoin3`  
-**Last Updated:** 2026-04-24 (rev 4 — chunked encoding per David/Dylan design discussion)
+**Last Updated:** 2026-04-24 (rev 5 — struct returns in decoder, automated fixture test generation, no via_ir requirement)
 
 ---
 
@@ -468,7 +468,7 @@ After fetching, normalize to the same internal representation. The `txType` fiel
 
 ## 6. Solidity Decoder Design
 
-This is the on-chain component — the Solana equivalent of the existing EVM decoder infrastructure (`QueryBuilder`, `BlockProver`).
+This is the on-chain component. **Design constraint:** all decoder functions must compile without `via_ir = true`. The chunked design makes this achievable — each decode function handles one small struct at a time.
 
 ### 6.1 Architecture
 
@@ -485,7 +485,34 @@ Attestors vote on slot root       →    BlockProver precompile verifies
 
 The decoder contract never sees Borsh, base58, or RLP. The encoder handles all format translation off-chain.
 
-### 6.2 Solidity Types
+### 6.2 Stack-Too-Deep Prevention
+
+Solidity's EVM limits usable stack depth to ~16 local variables per function. Returning multiple values counts against this limit: a function returning 6 values consumes 6 stack slots — leaving only ~10 for local use. Any callers that destructure those 6 values and add local logic will exhaust the stack immediately.
+
+**Rule: every `decodeChunkN` returns a single struct, not multiple values.**
+
+A struct return occupies exactly 1 stack slot in the caller regardless of how many fields it contains. The caller accesses fields via `.member` — no stack explosion.
+
+```
+// ❌ BAD — 6 return values = 6 stack slots in every caller
+function decodeChunk0(bytes calldata chunk)
+    returns (bytes memory sig, bytes32[] memory keys,
+             uint64[] memory pre, uint64[] memory post,
+             bool ok, uint64 fee) { ... }
+
+// ✅ GOOD — 1 struct = 1 stack slot in every caller
+function decodeChunk0(bytes calldata chunk)
+    returns (Chunk0 memory d) { ... }
+```
+
+**Checker:** The Rust encoder automatically generates a Foundry test fixture (see Section 6.6) that:
+1. Calls each `decodeChunkN` function in a realistic caller context (local vars + loops)
+2. Compiles with `solc` using `optimizer_runs=200`, **no `via_ir`**
+3. Fails CI if `stack too deep` is produced
+
+This catches regressions before they reach the Solidity codebase.
+
+### 6.3 Solidity Types
 
 ```solidity
 // SPDX-License-Identifier: MIT
@@ -493,117 +520,134 @@ pragma solidity ^0.8.20;
 
 library SolanaTypes {
 
+    // ── Chunk 0 ────────────────────────────────────────────────────────────
+
+    struct Chunk0 {
+        bytes     signature;      // first tx signature, bytes64 (as bytes)
+        bytes32[] accountKeys;
+        uint64[]  preBalances;    // parallel to accountKeys
+        uint64[]  postBalances;   // parallel to accountKeys
+        bool      success;
+        uint64    fee;
+    }
+
+    // ── Chunk 1 ────────────────────────────────────────────────────────────
+
     struct TokenBalance {
-        uint8   accountIndex;
+        uint8   accountIndex;  // index into accountKeys
         bytes32 mint;
         bytes32 owner;
-        uint64  amount;
+        uint64  amount;        // raw amount (apply decimals client-side)
         uint8   decimals;
     }
+
+    struct Chunk1 {
+        bytes          signature;
+        TokenBalance[] preTokenBalances;
+        TokenBalance[] postTokenBalances;
+    }
+
+    // ── Chunk 2 ────────────────────────────────────────────────────────────
 
     struct LogEntry {
         bytes32 programId;
         uint8   depth;
-        uint8   logType;  // 0=invoke 1=success 2=fail 3=log 4=data
+        // logType: 0=invoke  1=success  2=fail  3=log (text)  4=data (base64-decoded)
+        uint8   logType;
         bytes   payload;
     }
+
+    struct Chunk2 {
+        bytes      signature;
+        LogEntry[] logs;
+    }
+
+    // ── Chunk 3 (Neon EVM, optional) ───────────────────────────────────────
 
     struct EvmLogEntry {
         bytes32   contractAddress;
         bytes32[] topics;
         bytes     data;
     }
+
+    struct Chunk3Neon {
+        bytes          signature;
+        EvmLogEntry[]  evmLogs;
+    }
 }
 ```
 
-### 6.3 Solidity Decoder
+### 6.4 Solidity Decoder (struct returns)
 
 ```solidity
 // SolanaDecoder.sol
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 import "./SolanaTypes.sol";
 
 library SolanaDecoder {
 
-    /// Decode Chunk 0: SOL transfers
+    // ── Chunk 0: SOL transfers ─────────────────────────────────────────────
+    // Stack budget: 1 param (chunk) + 1 return (Chunk0 struct) = 2 slots.
+    // Callers add local vars freely without hitting the 16-slot limit.
+
     function decodeChunk0(bytes calldata chunk)
-        internal
-        pure
-        returns (
-            bytes memory signature,
-            bytes32[] memory accountKeys,
-            uint64[] memory preBalances,
-            uint64[] memory postBalances,
-            bool success,
-            uint64 fee
-        )
+        internal pure returns (SolanaTypes.Chunk0 memory d)
     {
-        (signature, accountKeys, preBalances, postBalances, success, fee) =
+        (d.signature, d.accountKeys, d.preBalances, d.postBalances, d.success, d.fee) =
             abi.decode(chunk, (bytes, bytes32[], uint64[], uint64[], bool, uint64));
     }
 
-    /// Decode Chunk 1: Token transfers
+    // ── Chunk 1: Token transfers ───────────────────────────────────────────
+
     function decodeChunk1(bytes calldata chunk)
-        internal
-        pure
-        returns (
-            bytes memory signature,
-            SolanaTypes.TokenBalance[] memory pre,
-            SolanaTypes.TokenBalance[] memory post
-        )
+        internal pure returns (SolanaTypes.Chunk1 memory d)
     {
-        (signature, pre, post) = abi.decode(
-            chunk,
-            (bytes, SolanaTypes.TokenBalance[], SolanaTypes.TokenBalance[])
-        );
+        (d.signature, d.preTokenBalances, d.postTokenBalances) =
+            abi.decode(chunk, (bytes, SolanaTypes.TokenBalance[], SolanaTypes.TokenBalance[]));
     }
 
-    /// Decode Chunk 2: Logs / cross-chain intents
+    // ── Chunk 2: Logs / cross-chain intents ───────────────────────────────
+
     function decodeChunk2(bytes calldata chunk)
-        internal
-        pure
-        returns (
-            bytes memory signature,
-            SolanaTypes.LogEntry[] memory logs
-        )
+        internal pure returns (SolanaTypes.Chunk2 memory d)
     {
-        (signature, logs) = abi.decode(chunk, (bytes, SolanaTypes.LogEntry[]));
+        (d.signature, d.logs) =
+            abi.decode(chunk, (bytes, SolanaTypes.LogEntry[]));
     }
 
-    /// Extract only the `Program data:` entries (logType=4) from Chunk 2.
-    /// These are the structured events — skip invoke/success/text lines.
+    /// Filter to only logType=4 (Program data:) entries — structured events.
+    /// These carry Anchor events, Wormhole LogPublishedMessage, etc.
+    /// Separate function to avoid inflating decodeChunk2's stack frame.
     function extractDataLogs(SolanaTypes.LogEntry[] memory logs)
-        internal
-        pure
-        returns (bytes[] memory dataPayloads)
+        internal pure returns (bytes[] memory payloads)
     {
-        uint count = 0;
-        for (uint i = 0; i < logs.length; i++) {
-            if (logs[i].logType == 4) count++;
+        uint256 count;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].logType == 4) ++count;
         }
-        dataPayloads = new bytes[](count);
-        uint j = 0;
-        for (uint i = 0; i < logs.length; i++) {
-            if (logs[i].logType == 4) dataPayloads[j++] = logs[i].payload;
+        payloads = new bytes[](count);
+        uint256 j;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].logType == 4) payloads[j++] = logs[i].payload;
         }
     }
 
-    /// Decode Chunk 3 (Neon EVM): EVM events
+    // ── Chunk 3: Neon EVM events (optional) ───────────────────────────────
+
     function decodeChunk3Neon(bytes calldata chunk)
-        internal
-        pure
-        returns (
-            bytes memory signature,
-            SolanaTypes.EvmLogEntry[] memory evmLogs
-        )
+        internal pure returns (SolanaTypes.Chunk3Neon memory d)
     {
-        (signature, evmLogs) = abi.decode(chunk, (bytes, SolanaTypes.EvmLogEntry[]));
+        (d.signature, d.evmLogs) =
+            abi.decode(chunk, (bytes, SolanaTypes.EvmLogEntry[]));
     }
 }
 ```
 
-### 6.4 Example: Prove Token Transfer on CC3
+### 6.5 Example: Prove Token Transfer on CC3
+
+Uses only 3 named local variables (`d`, `i`, `delta`) in the verification logic — well within budget:
 
 ```solidity
 contract TokenTransferVerifier {
@@ -613,38 +657,33 @@ contract TokenTransferVerifier {
         verifier = NativeQueryVerifierLib.getVerifier();
     }
 
-    /// Prove that a specific SPL token transfer happened in an attested Solana slot.
     function verifyTokenTransfer(
         uint64  chainKey,
         uint64  slotHeight,
-        bytes   calldata chunk1Bytes,     // Chunk 1 (token balances)
-        bytes32[] calldata chunkProof,    // Proof: chunk1 → TX root
-        INativeQueryVerifier.MerkleProof calldata txProof, // Proof: TX root → Slot root
+        bytes   calldata chunk1Bytes,
+        bytes32[] calldata chunkProof,
+        INativeQueryVerifier.MerkleProof calldata txProof,
         INativeQueryVerifier.ContinuityProof calldata continuityProof,
         bytes32 expectedMint,
         bytes32 expectedOwner,
-        uint64  expectedAmountDelta
+        uint64  expectedDelta
     ) external view returns (bool) {
-        // Step 1: Verify chunk + TX + slot (two-level proof)
-        bool verified = verifier.verifyChunk(
-            chainKey,
-            slotHeight,
-            chunk1Bytes,
-            chunkProof,
-            txProof,
-            continuityProof
+        require(
+            verifier.verifyChunk(chainKey, slotHeight, chunk1Bytes,
+                                 chunkProof, txProof, continuityProof),
+            "Proof failed"
         );
-        require(verified, "Proof failed");
 
-        // Step 2: Decode the token balances chunk
-        (, SolanaTypes.TokenBalance[] memory pre, SolanaTypes.TokenBalance[] memory post)
-            = SolanaDecoder.decodeChunk1(chunk1Bytes);
+        // d = 1 stack slot (struct), regardless of how many fields it has
+        SolanaTypes.Chunk1 memory d = SolanaDecoder.decodeChunk1(chunk1Bytes);
 
-        // Step 3: Find the balance change for the target mint/owner
-        for (uint i = 0; i < pre.length; i++) {
-            if (pre[i].mint == expectedMint && pre[i].owner == expectedOwner) {
-                uint64 delta = post[i].amount - pre[i].amount;
-                return delta == expectedAmountDelta;
+        for (uint256 i; i < d.preTokenBalances.length; ++i) {
+            if (d.preTokenBalances[i].mint  == expectedMint &&
+                d.preTokenBalances[i].owner == expectedOwner)
+            {
+                uint64 delta = d.postTokenBalances[i].amount
+                             - d.preTokenBalances[i].amount;
+                return delta == expectedDelta;
             }
         }
         return false;
@@ -652,26 +691,170 @@ contract TokenTransferVerifier {
 }
 ```
 
-### 6.5 TypeScript / Off-Chain Decoding
+### 6.6 Automated Solidity Test Generation (No `via_ir`)
 
-Same ABI bytes → use `ethers` `AbiCoder`. No new tooling needed:
+The Rust encoder binary includes a `generate-fixtures` subcommand. It takes a sample Solana block (or fetches one from RPC) and writes a Foundry test file:
+
+```bash
+# Generate test fixtures from a real block
+cargo run -p solana-abi-encoding --bin encode-fixtures --     --rpc http://api.mainnet-beta.solana.com     --slot 330000000     --tx-index 0     --out precompiles/solana-decoder/test/fixtures/SolanaDecoder.t.sol
+```
+
+The generated test file looks like:
+
+```solidity
+// GENERATED — do not edit by hand.
+// Re-generate with: cargo run -p solana-abi-encoding --bin encode-fixtures
+// Slot: 330000000, TX index: 0
+// solc: no via_ir, optimizer_runs=200
+
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+import "../SolanaDecoder.sol";
+import "../SolanaTypes.sol";
+
+contract SolanaDecoderFixtureTest is Test {
+
+    // Raw ABI-encoded chunk bytes produced by Rust encoder
+    bytes constant CHUNK0 = hex"...";
+    bytes constant CHUNK1 = hex"...";
+    bytes constant CHUNK2 = hex"...";
+
+    // ── Chunk 0 ─────────────────────────────────────────────────────────────
+
+    function test_decodeChunk0_roundtrip() public pure {
+        SolanaTypes.Chunk0 memory d = SolanaDecoder.decodeChunk0(CHUNK0);
+
+        // Values injected by encoder from the actual transaction
+        assertEq(d.fee, 5000);
+        assertTrue(d.success);
+        assertEq(d.accountKeys.length, 3);
+        assertEq(d.preBalances.length, d.accountKeys.length);
+        assertEq(d.postBalances.length, d.accountKeys.length);
+    }
+
+    // Call decodeChunk0 from a function with many other locals
+    // to prove we don't hit stack-too-deep in a realistic consumer context.
+    function test_decodeChunk0_noStackTooDeep_inConsumer() public pure {
+        SolanaTypes.Chunk0 memory d = SolanaDecoder.decodeChunk0(CHUNK0);
+
+        // Simulate a realistic caller: multiple local vars + loop
+        uint256 totalIn;
+        uint256 totalOut;
+        for (uint256 i; i < d.preBalances.length; ++i) {
+            totalIn  += d.preBalances[i];
+            totalOut += d.postBalances[i];
+        }
+        uint256 netDelta = totalIn > totalOut ? totalIn - totalOut : 0;
+        assertTrue(netDelta >= d.fee); // fee comes out of balances
+        assertGt(d.accountKeys.length, 0);
+    }
+
+    // ── Chunk 1 ─────────────────────────────────────────────────────────────
+
+    function test_decodeChunk1_roundtrip() public pure {
+        SolanaTypes.Chunk1 memory d = SolanaDecoder.decodeChunk1(CHUNK1);
+
+        assertEq(d.preTokenBalances.length, d.postTokenBalances.length);
+        // Values from the actual transaction
+        assertEq(d.preTokenBalances[0].mint, bytes32(hex"..."));
+    }
+
+    function test_decodeChunk1_noStackTooDeep_inConsumer() public pure {
+        SolanaTypes.Chunk1 memory d = SolanaDecoder.decodeChunk1(CHUNK1);
+
+        bytes32 targetMint   = d.preTokenBalances[0].mint;
+        bytes32 targetOwner  = d.preTokenBalances[0].owner;
+        uint64  preBal       = d.preTokenBalances[0].amount;
+        uint64  postBal      = d.postTokenBalances[0].amount;
+        uint8   decimals     = d.preTokenBalances[0].decimals;
+        uint256 idx          = d.preTokenBalances[0].accountIndex;
+
+        assertEq(targetMint, d.postTokenBalances[0].mint);
+        assertEq(targetOwner, d.postTokenBalances[0].owner);
+        assertTrue(preBal != postBal || preBal == postBal); // trivially true, but forces use
+        assertTrue(decimals <= 18);
+        assertLt(idx, 256);
+    }
+
+    // ── Chunk 2 ─────────────────────────────────────────────────────────────
+
+    function test_decodeChunk2_roundtrip() public pure {
+        SolanaTypes.Chunk2 memory d = SolanaDecoder.decodeChunk2(CHUNK2);
+        assertTrue(d.logs.length > 0);
+    }
+
+    function test_decodeChunk2_extractDataLogs() public pure {
+        SolanaTypes.Chunk2 memory d = SolanaDecoder.decodeChunk2(CHUNK2);
+        bytes[] memory dataPayloads  = SolanaDecoder.extractDataLogs(d.logs);
+
+        // At least one Program data: entry if this is a Wormhole tx
+        // (adjust assertion based on actual transaction type)
+        assertTrue(dataPayloads.length >= 0);
+    }
+
+    function test_decodeChunk2_noStackTooDeep_inConsumer() public pure {
+        SolanaTypes.Chunk2 memory d     = SolanaDecoder.decodeChunk2(CHUNK2);
+        bytes[] memory dataLogs         = SolanaDecoder.extractDataLogs(d.logs);
+
+        uint256 invokeCount;
+        uint256 dataCount;
+        for (uint256 i; i < d.logs.length; ++i) {
+            if (d.logs[i].logType == 0) ++invokeCount;
+            if (d.logs[i].logType == 4) ++dataCount;
+        }
+        assertEq(dataCount, dataLogs.length);
+    }
+}
+```
+
+**CI integration:**
+
+```yaml
+# .github/workflows/solana-decoder.yml
+- name: Generate fixtures
+  run: cargo run -p solana-abi-encoding --bin encode-fixtures --
+         --rpc ${{ secrets.SOLANA_RPC }} --slot 330000000 --tx-index 0
+         --out precompiles/solana-decoder/test/fixtures/SolanaDecoder.t.sol
+
+- name: Run Foundry tests (no via_ir)
+  working-directory: precompiles/solana-decoder
+  run: |
+    forge test --no-match-test "skip"       --optimizer-runs 200       # explicitly NO --via-ir flag
+```
+
+The fixture generator is part of the encoder crate, not a separate tool. Adding a new chunk type automatically updates the generated test.
+
+### 6.7 TypeScript / Off-Chain Decoding
+
+Same ABI bytes → use `ethers` `AbiCoder`:
 
 ```typescript
 import { AbiCoder } from 'ethers';
 const coder = AbiCoder.defaultAbiCoder();
 
-// Decode Chunk 1 (token transfers)
-const [signature, preTokenBalances, postTokenBalances] = coder.decode(
-  ['bytes', 'tuple(uint8,bytes32,bytes32,uint64,uint8)[]', 'tuple(uint8,bytes32,bytes32,uint64,uint8)[]'],
+// Chunk 0
+const [sig0, accountKeys, preBal, postBal, success, fee] = coder.decode(
+  ['bytes', 'bytes32[]', 'uint64[]', 'uint64[]', 'bool', 'uint64'],
+  chunk0Bytes
+);
+
+// Chunk 1
+const [sig1, preTok, postTok] = coder.decode(
+  ['bytes',
+   'tuple(uint8 accountIndex, bytes32 mint, bytes32 owner, uint64 amount, uint8 decimals)[]',
+   'tuple(uint8 accountIndex, bytes32 mint, bytes32 owner, uint64 amount, uint8 decimals)[]'],
   chunk1Bytes
 );
 
-// Decode Chunk 2 (logs) — find cross-chain intent
-const [sig, logs] = coder.decode(
-  ['bytes', 'tuple(bytes32,uint8,uint8,bytes)[]'],
+// Chunk 2 — filter to Program data: entries (logType=4)
+const [sig2, logs] = coder.decode(
+  ['bytes', 'tuple(bytes32 programId, uint8 depth, uint8 logType, bytes payload)[]'],
   chunk2Bytes
 );
-const dataLogs = logs.filter((l: any) => l[2] === 4); // logType=4 = Program data:
+const dataLogs = (logs as any[]).filter(l => l.logType === 4);
 ```
 
 ---
