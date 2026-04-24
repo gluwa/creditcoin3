@@ -1,9 +1,12 @@
-import { newApi, ApiPromise, KeyringPair } from '../../lib';
+import { newApi, ApiPromise, KeyringPair, BN } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
+
+// Non-zero bond so that Unbonded event is actually emitted during unregisterAttestor.
+const TEST_BOND_AMOUNT = new BN('1000000000000000000'); // 1 attest-coin (18 decimals)
 
 describe('handleEventUnbonded()', () => {
     let api: ApiPromise;
@@ -18,14 +21,33 @@ describe('handleEventUnbonded()', () => {
         const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
         attestor = await randomFundedAccount(api, root);
 
+        // Give bob attest-coin so register succeeds with a non-zero bond requirement.
+        await api.tx.sudo
+            .sudo(api.tx.attestation.forceMintBondAsset(bob.address, TEST_BOND_AMOUNT.toString()))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+
+        // Set a non-zero minBondRequirement so Unbonded event fires on unregister.
+        await api.tx.sudo
+            .sudo(
+                api.tx.attestation.setMinBondRequirement(chain_Anvil2_Key, TEST_BOND_AMOUNT.toString()),
+            )
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+
+        await forElapsedBlocks(api, { minBlocks: 2 });
+
         // register here just so we can unregister a bit later
         await api.tx.attestation
             .registerAttestor(chain_Anvil2_Key, attestor.address)
             .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
         await forElapsedBlocks(api, { minBlocks: 3 });
-    }, 45_000);
+    }, 60_000);
 
     afterAll(async () => {
+        // Reset minBondRequirement to 0 to avoid affecting other tests.
+        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        await api.tx.sudo
+            .sudo(api.tx.attestation.setMinBondRequirement(chain_Anvil2_Key, '0'))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
         await api.disconnect();
     });
 
@@ -33,7 +55,7 @@ describe('handleEventUnbonded()', () => {
         beforeAll(async () => {
             startingBlock = BigInt((await getChainStatus(api)).bestNumber);
 
-            // NOTE: unregistering the attestor will also unbond
+            // NOTE: unregistering the attestor will also unbond (Unbonded event fires because bond > 0)
             await api.tx.attestation
                 .unregisterAttestor(chain_Anvil2_Key, attestor.address)
                 .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
@@ -45,29 +67,21 @@ describe('handleEventUnbonded()', () => {
                 `query { unbondeds (orderBy: BLOCK_NUMBER_ASC, last: 10) { nodes { id, amount, stashId, whoId, date, blockNumber }}}`,
             );
             expect(response.data.unbondeds.nodes).toBeTruthy();
-            // With DefaultMinBondRequirement=0 no Unbonded event is emitted (bond value is 0),
-            // so 0 nodes is acceptable.
-            expect(response.data.unbondeds.nodes.length).toBeGreaterThanOrEqual(0);
+            expect(response.data.unbondeds.nodes.length).toBeGreaterThanOrEqual(1);
 
             let foundMatch = false;
             for (const node of response.data.unbondeds.nodes) {
-                expect(BigInt(node.amount)).toBeGreaterThanOrEqual(0n);
+                expect(BigInt(node.amount)).toBeGreaterThan(0n);
                 expect(node.stashId).toBeTruthy();
                 expect(node.whoId).toBeTruthy();
                 expect(node.whoId).toEqual(node.stashId);
-                // WARNING: cannot match attestorId b/c this value isn't recorded
-                // best we can do is match stashId and look for record added in blocks
-                // *AFTER* this test has started
                 if (node.stashId === bob.address && BigInt(node.blockNumber) > startingBlock) {
                     foundMatch = true;
                 }
-                // WARNING: ^^^ this is prone to false matches when we execute tests in parallel
-                // and may fail to error out if there is a problem with indexer
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
 
-                // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(
                     `query { unbonded(id: "${node.id}") { id, amount, stashId, whoId, date, blockNumber } }`,
                 );
@@ -79,10 +93,7 @@ describe('handleEventUnbonded()', () => {
                 expect(response2.data.unbonded.date).toEqual(node.date);
                 expect(response2.data.unbonded.blockNumber).toEqual(node.blockNumber);
             }
-            // Only require a match when there are nodes to match against
-            if (response.data.unbondeds.nodes.length > 0) {
-                expect(foundMatch).toEqual(true);
-            }
+            expect(foundMatch).toEqual(true);
         });
     });
 });
