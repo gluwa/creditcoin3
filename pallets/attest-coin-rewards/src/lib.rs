@@ -49,7 +49,6 @@ pub mod pallet {
 
     pub trait WeightInfo {
         fn set_attest_coin_token() -> Weight;
-        fn force_accrue() -> Weight;
     }
 
     #[pallet::storage]
@@ -101,21 +100,6 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Force-credit reward points to a stash — **for testing only**.
-        ///
-        /// Bypasses the normal attestor commit cycle so integration tests can assert
-        /// `accrued > 0` without waiting for a full attestation epoch.
-        #[pallet::call_index(1)]
-        #[pallet::weight(<T as Config>::WeightInfo::force_accrue())]
-        pub fn force_accrue(
-            origin: OriginFor<T>,
-            stash: T::AccountId,
-            amount: T::RewardPoints,
-        ) -> DispatchResult {
-            ensure_root(origin)?;
-            Accrued::<T>::mutate(&stash, |a| *a += amount);
-            Ok(())
-        }
     }
 
     impl<T: Config> Pallet<T> {
