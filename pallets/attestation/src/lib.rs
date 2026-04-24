@@ -1366,7 +1366,6 @@ pub mod pallet {
 
             Ok(())
         }
-
     }
 
     impl<T: Config> OnRegisterChainProvider for Pallet<T> {
