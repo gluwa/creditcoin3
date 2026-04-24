@@ -34,6 +34,9 @@ describe('Precompile: AttestorStash', (): void => {
     let alith: any;
     let api: ApiPromise;
     let gasPrice: bigint;
+    // PoV-heavy calls need an explicit gas limit; auto-estimate under-counts the
+    // proof-size component (5 KB @ ratio 14.3 → ~72 K PoV gas alone).
+    const GAS_LIMIT = 300_000;
 
     // Alith's derived Substrate account (via HashedAddressMapping<BlakeTwo256>).
     // This is the `stash` AccountId used by pallet-attestation when the precompile
@@ -84,7 +87,7 @@ describe('Precompile: AttestorStash', (): void => {
         const before = await api.query.attestation.attestors(chainKey, attestorId);
         expect(before.isSome).toBe(false);
 
-        const tx = await contract.registerAttestor(chainKey, attestorId, { gasPrice });
+        const tx = await contract.registerAttestor(chainKey, attestorId, { gasPrice, gasLimit: GAS_LIMIT });
         const receipt = await tx.wait();
         expect(receipt.status).toBe(1);
 
@@ -134,7 +137,7 @@ describe('Precompile: AttestorStash', (): void => {
     });
 
     test('chill succeeds and emits AttestorChilled for the caller stash', async () => {
-        const tx = await contract.chill(chainKey, attestorId, { gasPrice });
+        const tx = await contract.chill(chainKey, attestorId, { gasPrice, gasLimit: GAS_LIMIT });
         const receipt = await tx.wait();
         expect(receipt.status).toBe(1);
 
@@ -154,7 +157,7 @@ describe('Precompile: AttestorStash', (): void => {
     // -----------------------------------------------------------------------------
 
     test('unregisterAttestor succeeds, removes Attestors storage entry, and emits AttestorUnregistered', async () => {
-        const tx = await contract.unregisterAttestor(chainKey, attestorId, { gasPrice });
+        const tx = await contract.unregisterAttestor(chainKey, attestorId, { gasPrice, gasLimit: GAS_LIMIT });
         const receipt = await tx.wait();
         expect(receipt.status).toBe(1);
 
@@ -200,7 +203,7 @@ describe('Precompile: AttestorStash', (): void => {
             // with the stale value yields "gas price less than block base fee".
             gasPrice = (await provider.getFeeData()).gasPrice;
 
-            const tx = await contract.withdrawUnbonded({ gasPrice });
+            const tx = await contract.withdrawUnbonded({ gasPrice, gasLimit: GAS_LIMIT });
             const receipt = await tx.wait();
             expect(receipt.status).toBe(1);
 
