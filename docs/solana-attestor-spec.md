@@ -3,7 +3,7 @@
 **Status:** Draft  
 **Author:** Protocol Engineering  
 **Target Repo:** `gluwa/creditcoin3`  
-**Last Updated:** 2026-04-24 (rev 3 — reverted to ABI encoding; SolanaDecoder uses alloy-sol-types no_std)
+**Last Updated:** 2026-04-24 (rev 4 — chunked encoding per David/Dylan design discussion)
 
 ---
 
@@ -14,7 +14,7 @@
 3. [Current EVM Pipeline (Reference)](#3-current-evm-pipeline-reference)
 4. [What Changes for Solana](#4-what-changes-for-solana)
 5. [ABI Encoding Design (SolanaV1)](#5-abi-encoding-design-solanav1)
-6. [SolanaDecoder — ABI Decoding in Solana Programs](#6-solanadecoder--abi-decoding-in-solana-programs)
+6. [Solidity Decoder Design](#6-solidity-decoder-design)
 7. [Proposed Architecture](#7-proposed-architecture)
 8. [File-by-File Change Map](#8-file-by-file-change-map)
 9. [Code Hints & Skeletons](#9-code-hints--skeletons)
@@ -297,345 +297,384 @@ pub struct OrderedBlock { chain_id, number, hash, items: Vec<TxRx> }
 
 ## 5. ABI Encoding Design (SolanaV1)
 
-The `SolanaV1` encoding uses **Ethereum ABI encoding** — the same format as the existing EVM `V1` path. This ensures:
+The `SolanaV1` encoding uses **Ethereum ABI encoding** — the same format as the existing EVM `V1` path. The off-chain encoder (Rust, in the attestor/collector pipeline) translates everything (Borsh, RLP, raw bytes) into ABI. The on-chain decoder only ever speaks ABI.
 
-- Consistency across all source chains in the attestation pipeline
-- Compatibility with the existing `QueryBuilder` offset-based field extraction infrastructure
-- Future ability to verify Solana attestations from EVM contracts
-- A single encoding/decoding codebase (`alloy-sol-types` in Rust, `ethers`/`viem` in TypeScript)
-- Decoding in Solana programs via `alloy-sol-types` `no_std` mode (see Section 6)
+> **Why ABI and not Borsh?** ABI can be decoded on EVM contracts (Solidity) natively and in Solana programs via `alloy-sol-types` no_std. One encoding that works on both chains. Borsh would require a custom ABI decoder on the EVM side.
 
-> **Why not Borsh?** Borsh is Solana-native but cannot be decoded on EVM without a custom decoder. ABI can be decoded on both EVM (trivially) and in Solana programs (`alloy-sol-types` supports BPF target with `default-features = false`). One encoding for both chains.
+### 5.1 Chunking Philosophy
 
-The encoding must be:
+Each transaction is ABI-encoded into **chunks grouped by query pattern**. This solves two problems:
 
-1. **Deterministic** — same transaction always produces the same bytes
-2. **ABI-compatible** — decodable by `alloy-sol-types` in Rust and `ethers`/`viem` in TypeScript
-3. **Complete** — captures enough data for a meaningful attestation
-4. **Stable** — adding new Solana transaction versions must not break existing attestations
+1. **Stack-too-deep** — Solidity has a 16-local-variable limit. A flat full-tx encoding would exceed it. Chunks are small flat structs that decode independently.
+2. **Gas efficiency** — Callers only submit and decode the chunk they need. The other chunks are verified by hash, not decoded.
 
-### 5.1 ABI Struct Layout
+Each chunk independently contains the transaction `signature` (bytes64) so it can be self-identified without the surrounding context.
 
-The top-level shape mirrors the EVM `V1` encoding:
+### 5.2 Chunk Definitions
 
-```
-DynSolValue::Tuple([
-    DynSolValue::Uint(version, 8),   // always 0 for SolanaV1
-    DynSolValue::Array([
-        Bytes(header_chunk),          // accounts + recent_blockhash
-        Bytes(instructions_chunk),    // all instructions
-        Bytes(meta_chunk),            // execution outcome
-    ])
-])
-```
+#### Chunk 0 — SOL Transfers
 
-**`header_chunk`** — `abi.encode(bytes32 fee_payer, bytes32 recent_blockhash, bytes32[] account_keys)`:
-```
-abi.encode(
-    bytes32 fee_payer,         // account_keys[0], base58-decoded pubkey
-    bytes32 recent_blockhash,  // 32-byte hash, base58-decoded
-    bytes32[] account_keys,    // all pubkeys, each base58-decoded to 32 bytes
-)
-```
-
-**`instructions_chunk`** — `abi.encode(Instruction[])`:
-```
-abi.encode(
-    tuple(uint8 program_id_index, uint8[] account_indices, bytes data)[]
-)
-```
-
-**`meta_chunk`** — `abi.encode(bool, uint64, uint64[], uint64[], bytes[])`:
-```
-abi.encode(
-    bool     is_err,           // true if tx failed
-    uint64   fee,              // lamports
-    uint64[] pre_balances,     // parallel to account_keys
-    uint64[] post_balances,    // parallel to account_keys
-    bytes[]  log_messages,     // UTF-8 log lines as bytes
-)
-```
-
-### 5.2 Serialization (Attestor Side)
-
-```rust
-use alloy::dyn_abi::DynSolValue;
-
-impl BlockItem for SolanaTxItem {
-    fn payload_bytes(&self) -> Vec<u8> {
-        solana_abi_encoding::solana_v1_encode(&self.inner)
-            .expect("Solana transaction should be encodable")
-            .abi()
-            .to_vec()
-    }
+```solidity
+struct Chunk0 {
+    bytes64  signature;
+    bytes32[] accountKeys;
+    uint64[] preBalances;
+    uint64[] postBalances;
+    bool     success;
+    uint64   fee;
 }
 ```
 
-Resulting `Vec<u8>` is fed into `merkle::KeccakMerkleTree` — identical to the EVM path.
+6 top-level fields. Maps to `preBalances`/`postBalances` from transaction `meta`. Indices are parallel to `accountKeys`.
 
-### 5.3 Field Exclusions and Rationale
+ABI type: `abi.encode(bytes, bytes32[], uint64[], uint64[], bool, uint64)`
 
-- **No signatures** — excluded. Signatures don't affect execution outcome and would make the leaf hash non-deterministic across signature variants of the same message
-- **No inner instructions** — excluded in v0 for simplicity; can be added in `SolanaV2` via the `version` field
-- **No address lookup tables** — excluded in v0; relevant only for versioned transactions (see Open Question 4)
-- **`meta` always included** — unlike EVM where the receipt is a separate RPC fetch, Solana `meta` is always returned alongside the transaction. Including it means the Merkle root captures execution outcome, not just intent
-- **Log messages as `bytes[]`** — UTF-8 strings stored as `bytes` to avoid encoding ambiguity
+#### Chunk 1 — Token Transfers
 
-### 5.4 Skipped Slots
+```solidity
+struct TokenBalance {
+    uint8   accountIndex;  // index into accountKeys
+    bytes32 mint;
+    bytes32 owner;
+    uint64  amount;        // raw amount (no decimals applied)
+    uint8   decimals;
+}
 
-If a slot was skipped (no block produced), emit an **empty Merkle tree** — same behavior as an empty EVM block:
-
-```rust
-merkle::KeccakMerkleTree::new(&[]).root() // → canonical empty root
+struct Chunk1 {
+    bytes64       signature;
+    TokenBalance[] preTokenBalances;
+    TokenBalance[] postTokenBalances;
+}
 ```
 
-### 5.5 Version Future-Proofing
+3 top-level fields. Maps to `preTokenBalances`/`postTokenBalances` from transaction `meta`. These are the primary evidence for SPL token movements — Solana has no mandatory Transfer event like ERC-20.
 
-The `uint8` version field at position 0 allows introducing `SolanaV2` (e.g., with inner instructions or address lookup table support) without changing the outer shape. Decoders branch on this byte before decoding the chunk array.
+ABI type: `abi.encode(bytes, (uint8,bytes32,bytes32,uint64,uint8)[], (uint8,bytes32,bytes32,uint64,uint8)[])`
+
+#### Chunk 2 — Logs / Cross-Chain Intents
+
+```solidity
+struct LogEntry {
+    bytes32 programId;  // which program emitted this log
+    uint8   depth;      // CPI call depth (1 = top-level)
+    uint8   logType;    // 0=invoke, 1=success, 2=fail, 3=log (text), 4=data (base64)
+    bytes   payload;    // raw log content (text for type 3, decoded bytes for type 4)
+}
+
+struct Chunk2 {
+    bytes64    signature;
+    LogEntry[] logs;
+}
+```
+
+This chunk is the primary evidence for cross-chain intents:
+
+- `Program data:` entries (`logType=4`) carry structured Anchor events and Wormhole's `LogPublishedMessage` — these are the cross-chain intent signals equivalent to Ethereum `emit` logs
+- `Program log:` entries (`logType=3`) are unstructured text; include them in the encoding but on-chain decoders should focus on `logType=4`
+- Runtime invoke/success lines are included for completeness but rarely useful to decode on-chain
+
+ABI type: `abi.encode(bytes, (bytes32,uint8,uint8,bytes)[])`
+
+#### Chunk 3+ — Program-Specific Extensions
+
+Optional. Added only when a transaction involves a known program requiring special handling:
+
+**Neon EVM (Chunk 3):**
+When the Neon EVM program is detected, the encoder unwraps the RLP-encoded EVM transaction from the holder account, extracts EVM event logs (topics + data), and ABI-encodes them:
+
+```solidity
+struct EvmLogEntry {
+    bytes32   contractAddress;
+    bytes32[] topics;
+    bytes     data;
+}
+
+struct Chunk3Neon {
+    bytes64      signature;
+    EvmLogEntry[] evmLogs;
+}
+```
+
+The on-chain decoder never knows this came from RLP. It just sees another ABI chunk.
+
+### 5.3 Two-Level Merkle Tree
+
+The attestation uses a **two-level Keccak Merkle tree**:
+
+```
+Slot Root (attested — prev_root + height + digest, chain-agnostic)
+├── TX 0 Root = keccak_merkle(chunk0, chunk1, chunk2, ...)
+├── TX 1 Root = keccak_merkle(chunk0, chunk1, chunk2, ...)
+├── TX 2 Root = keccak_merkle(chunk0, chunk1, chunk2, ...)
+└── ...
+```
+
+- **Attestors vote on the slot root only** — they don't care about chunk internals
+- Each TX root is a Keccak Merkle tree over its chunks' ABI-encoded bytes
+- Each chunk is a leaf in the TX sub-tree
+
+**Proving a claim:**
+1. Submit the relevant chunk bytes (e.g. Chunk 1 for token transfer)
+2. Sub-proof: chunk → TX root (sibling chunk hashes, at most log₂(num_chunks) hashes)
+3. Outer proof: TX root → Slot root (sibling TX hashes)
+
+This means callers never submit chunk bytes they don't need — just the target chunk + hashes for the rest.
+
+**Precompile impact:** The `BlockProver` precompile needs a new overload:
+```
+// Current (single-level):
+verify(chainKey, height, encodedTx, merkleProof, continuityProof)
+
+// New Solana two-level overload:
+verify(chainKey, height, chunkBytes, chunkProof, txProof, continuityProof)
+```
+
+Or: start with single-level (full encoded tx as one leaf) for simplicity, add the two-level overload when calldata costs justify it. The slot root / digest is identical either way — backwards compatible.
+
+### 5.4 Attestation Structure
+
+Attestation structure is **unchanged** — it is chain-agnostic:
+
+```
+AttestationData {
+    chain_key:      ChainKey,
+    header_number:  Height,     // = slot number for Solana
+    header_hash:    H256,       // = blockhash (last entry hash of the slot)
+    root:           H256,       // = Keccak Merkle root over all TX leaves
+    prev_digest:    Option<Digest>,
+}
+```
+
+The `root` is the only Solana-specific part — it's computed by ABI-encoding each transaction into chunks, building TX sub-roots, then building the slot root from TX roots. The `digest` computation (`keccak256(height || root || prev_digest)`) is identical to EVM.
+
+### 5.5 Transaction Version Handling
+
+Two Solana transaction versions need support:
+
+- **Legacy** — all account keys inline in the message
+- **v0** — uses Address Lookup Tables (ALTs); the RPC `getBlock` response resolves ALTs and returns the full `accountKeys` array in both cases
+
+After fetching, normalize to the same internal representation. The `txType` field in the encoding (implicit from the version byte in the raw transaction) is included in Chunk 0 as needed. The meta fields (balances, logs) are identical across both versions.
+
+### 5.6 Field Exclusions
+
+- **Signatures excluded from identity chunks** — Each chunk includes `signature` as the tx identifier (bytes64, first signature only). Full signature arrays excluded to keep chunk sizes manageable.
+- **Raw instruction data** — Excluded from default chunks; added as Chunk 3+ if program-specific decoding is needed
+- **blockTime** — RPC convenience only, not consensus. Excluded.
+- **rewards array** — Block-level, not transaction-level. Excluded.
+- **Program log: text entries** — Included in Chunk 2 for completeness (`logType=3`) but not intended for on-chain decoding.
 
 ---
 
-## 6. SolanaDecoder — ABI Decoding in Solana Programs
+## 6. Solidity Decoder Design
 
-This section is the Solana equivalent of the EVM `QueryBuilder` / `EvmDecoder` pattern in `@gluwa/usc-sdk`. The encoding is ABI (same as EVM `V1`). The decoder runs inside a Solana program using `alloy-sol-types` in `no_std` mode.
+This is the on-chain component — the Solana equivalent of the existing EVM decoder infrastructure (`QueryBuilder`, `BlockProver`).
 
-### 6.1 EVM Decoder Recap (Reference)
-
-The EVM path works like this:
+### 6.1 Architecture
 
 ```
-ABI-encoded bytes
-    │
-    ▼  QueryBuilder (off-chain, TypeScript)
-    │  Computes field byte offsets within ABI encoding
-    │  Returns (offset, size) pairs → sent as calldata to Solidity
-    ▼
-Solidity on-chain
-    assembly { calldataload(offset) }  → extracts field at known byte offset
+Off-chain encoder (Rust)               On-chain decoder (Solidity)
+────────────────────────────           ────────────────────────────
+Solana RPC → raw tx (Borsh/RLP)   →   ABI-encoded chunk bytes
+Normalize to canonical fields          abi.decode(chunk, types)
+ABI-encode per chunk schema      →    Extract specific fields
+Build TX sub-merkle trees        →    Verify chunk proof → TX root
+Build slot Keccak Merkle root    →    Verify TX proof → Slot root
+Attestors vote on slot root       →    BlockProver precompile verifies
 ```
 
-ABI encoding uses fixed 32-byte slots so field byte offsets can be pre-computed off-chain. The Solidity contract does a cheap `calldataload(offset)`. `QueryBuilder` builds these offset descriptors.
+The decoder contract never sees Borsh, base58, or RLP. The encoder handles all format translation off-chain.
 
-### 6.2 Solana Decoder Pattern (ABI)
+### 6.2 Solidity Types
 
-Same ABI bytes, different runtime. Solana programs are Rust `no_std` BPF binaries. `alloy-sol-types` (the `sol!` macro layer, no transport/provider) supports `no_std` since v0.7 and compiles for the BPF target with `default-features = false`.
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
-**Pattern:**
+library SolanaTypes {
 
-```
-ABI-encoded leaf bytes (from Merkle proof)
-    │
-    ▼  SolanaDecoder::decode() — in Solana program
-    │  alloy_sol_types::SolType::abi_decode()
-    ▼
-Decoded Rust struct (zero-copy where possible)
-    │  .fee_payer, .instructions[0].data, .is_err, etc.
-    ▼
-Field access — same struct, same ABI bytes as EVM
-```
-
-This means the same encoded `bytes` accepted by an EVM contract via `BlockProver` can also be decoded by a Solana program — no separate encoding per chain.
-
-### 6.3 `alloy-sol-types` in a Solana Program
-
-`alloy-sol-types` does **not** depend on `std` when `default-features = false`. It compiles to BPF cleanly. This is the key enabler.
-
-```toml
-# In your Solana program's Cargo.toml
-[dependencies]
-alloy-sol-types = { version = "0.8", default-features = false }
-```
-
-### 6.4 Solana Program: `SolanaDecoder`
-
-Create a crate `solana-decoder` (usable both inside Solana programs and off-chain):
-
-```rust
-// solana-decoder/src/lib.rs
-#![cfg_attr(target_arch = "bpf", no_std)]
-
-use alloy_sol_types::{sol, SolType};
-
-// Mirror the ABI types from SolanaV1 encoding
-sol! {
-    /// Header chunk: fee_payer, recent_blockhash, account_keys[]
-    struct SolanaHeader {
-        bytes32 fee_payer;
-        bytes32 recent_blockhash;
-        bytes32[] account_keys;
+    struct TokenBalance {
+        uint8   accountIndex;
+        bytes32 mint;
+        bytes32 owner;
+        uint64  amount;
+        uint8   decimals;
     }
 
-    /// Single instruction
-    struct SolanaIx {
-        uint8 program_id_index;
-        uint8[] account_indices;
-        bytes data;
+    struct LogEntry {
+        bytes32 programId;
+        uint8   depth;
+        uint8   logType;  // 0=invoke 1=success 2=fail 3=log 4=data
+        bytes   payload;
     }
 
-    /// Meta / execution outcome chunk
-    struct SolanaMeta {
-        bool is_err;
-        uint64 fee;
-        uint64[] pre_balances;
-        uint64[] post_balances;
-        bytes[] log_messages;
-    }
-
-    /// Top-level leaf (version + array of encoded chunks)
-    struct SolanaTxLeaf {
-        uint8 version;
-        bytes[] chunks; // [header_chunk, instructions_chunk, meta_chunk]
-    }
-}
-
-pub struct SolanaDecoder;
-
-impl SolanaDecoder {
-    /// Decode the top-level ABI leaf and all sub-chunks.
-    /// Returns (header, instructions, meta) or an error.
-    pub fn decode(
-        leaf_bytes: &[u8],
-    ) -> Result<(SolanaHeader, Vec<SolanaIx>, SolanaMeta), alloy_sol_types::Error> {
-        // 1. Decode the top-level tuple: (uint8 version, bytes[] chunks)
-        let leaf = SolanaTxLeaf::abi_decode(leaf_bytes, true)?;
-
-        let header_bytes = &leaf.chunks[0];
-        let instructions_bytes = &leaf.chunks[1];
-        let meta_bytes = &leaf.chunks[2];
-
-        // 2. Decode each chunk independently
-        let header = SolanaHeader::abi_decode(header_bytes, true)?;
-        let instructions = <alloy_sol_types::sol_type::Array<SolanaIx>>::abi_decode(
-            instructions_bytes, true
-        )?;
-        let meta = SolanaMeta::abi_decode(meta_bytes, true)?;
-
-        Ok((header, instructions, meta))
-    }
-
-    /// Convenience: check if the attested transaction succeeded.
-    pub fn succeeded(leaf_bytes: &[u8]) -> Result<bool, alloy_sol_types::Error> {
-        let (_, _, meta) = Self::decode(leaf_bytes)?;
-        Ok(!meta.is_err)
-    }
-
-    /// Convenience: get fee payer pubkey as [u8; 32].
-    pub fn fee_payer(leaf_bytes: &[u8]) -> Result<[u8; 32], alloy_sol_types::Error> {
-        let (header, _, _) = Self::decode(leaf_bytes)?;
-        Ok(header.fee_payer.into())
-    }
-
-    /// Convenience: get raw instruction data at index.
-    pub fn instruction_data(
-        leaf_bytes: &[u8],
-        ix_index: usize,
-    ) -> Result<alloy_sol_types::private::Bytes, alloy_sol_types::Error> {
-        let (_, instructions, _) = Self::decode(leaf_bytes)?;
-        instructions
-            .into_iter()
-            .nth(ix_index)
-            .map(|ix| ix.data)
-            .ok_or(alloy_sol_types::Error::custom("instruction index out of bounds"))
+    struct EvmLogEntry {
+        bytes32   contractAddress;
+        bytes32[] topics;
+        bytes     data;
     }
 }
 ```
 
-### 6.5 Usage in an Anchor Program
+### 6.3 Solidity Decoder
 
-```rust
-use solana_decoder::SolanaDecoder;
+```solidity
+// SolanaDecoder.sol
+pragma solidity ^0.8.20;
 
-#[program]
-pub mod my_program {
-    use super::*;
+import "./SolanaTypes.sol";
 
-    /// Verify an attested Solana transaction and act on its contents.
-    pub fn process_attested_transfer(
-        ctx: Context<ProcessAttestedTransfer>,
-        encoded_tx: Vec<u8>,   // ABI-encoded SolanaV1 leaf bytes
-        // merkle_proof, continuity_proof passed separately
-    ) -> Result<()> {
-        // Step 1: Verify Merkle + continuity proof
-        // (Call CC3 attestation verifier program / CPI)
-        verify_attestation_proof(&encoded_tx, &ctx.accounts)?;
+library SolanaDecoder {
 
-        // Step 2: Decode the ABI leaf
-        let (header, instructions, meta) = SolanaDecoder::decode(&encoded_tx)
-            .map_err(|_| MyError::InvalidTxEncoding)?;
+    /// Decode Chunk 0: SOL transfers
+    function decodeChunk0(bytes calldata chunk)
+        internal
+        pure
+        returns (
+            bytes memory signature,
+            bytes32[] memory accountKeys,
+            uint64[] memory preBalances,
+            uint64[] memory postBalances,
+            bool success,
+            uint64 fee
+        )
+    {
+        (signature, accountKeys, preBalances, postBalances, success, fee) =
+            abi.decode(chunk, (bytes, bytes32[], uint64[], uint64[], bool, uint64));
+    }
 
-        // Step 3: Check transaction succeeded
-        require!(!meta.is_err, MyError::TransactionFailed);
-
-        // Step 4: Check fee payer matches expected sender
-        let expected: [u8; 32] = ctx.accounts.sender.key().to_bytes();
-        let fee_payer: [u8; 32] = header.fee_payer.into();
-        require!(fee_payer == expected, MyError::WrongSender);
-
-        // Step 5: Decode instruction data (application-specific)
-        // SPL Token Transfer: ix.data[0] = 3 (discriminator), [1..9] = amount (LE u64)
-        let ix = instructions.first().ok_or(MyError::MissingInstruction)?;
-        let amount = u64::from_le_bytes(
-            ix.data[1..9].try_into().map_err(|_| MyError::InvalidIxData)?
+    /// Decode Chunk 1: Token transfers
+    function decodeChunk1(bytes calldata chunk)
+        internal
+        pure
+        returns (
+            bytes memory signature,
+            SolanaTypes.TokenBalance[] memory pre,
+            SolanaTypes.TokenBalance[] memory post
+        )
+    {
+        (signature, pre, post) = abi.decode(
+            chunk,
+            (bytes, SolanaTypes.TokenBalance[], SolanaTypes.TokenBalance[])
         );
+    }
 
-        // Step 6: Act on verified, attested data
-        transfer_tokens(ctx, amount)?;
-        Ok(())
+    /// Decode Chunk 2: Logs / cross-chain intents
+    function decodeChunk2(bytes calldata chunk)
+        internal
+        pure
+        returns (
+            bytes memory signature,
+            SolanaTypes.LogEntry[] memory logs
+        )
+    {
+        (signature, logs) = abi.decode(chunk, (bytes, SolanaTypes.LogEntry[]));
+    }
+
+    /// Extract only the `Program data:` entries (logType=4) from Chunk 2.
+    /// These are the structured events — skip invoke/success/text lines.
+    function extractDataLogs(SolanaTypes.LogEntry[] memory logs)
+        internal
+        pure
+        returns (bytes[] memory dataPayloads)
+    {
+        uint count = 0;
+        for (uint i = 0; i < logs.length; i++) {
+            if (logs[i].logType == 4) count++;
+        }
+        dataPayloads = new bytes[](count);
+        uint j = 0;
+        for (uint i = 0; i < logs.length; i++) {
+            if (logs[i].logType == 4) dataPayloads[j++] = logs[i].payload;
+        }
+    }
+
+    /// Decode Chunk 3 (Neon EVM): EVM events
+    function decodeChunk3Neon(bytes calldata chunk)
+        internal
+        pure
+        returns (
+            bytes memory signature,
+            SolanaTypes.EvmLogEntry[] memory evmLogs
+        )
+    {
+        (signature, evmLogs) = abi.decode(chunk, (bytes, SolanaTypes.EvmLogEntry[]));
     }
 }
 ```
 
-### 6.6 TypeScript / Client-Side Decoding
+### 6.4 Example: Prove Token Transfer on CC3
 
-Same ABI bytes → use `ethers`/`viem` `AbiCoder`, exactly as for EVM. No new tooling needed.
+```solidity
+contract TokenTransferVerifier {
+    INativeQueryVerifier public immutable verifier;
+
+    constructor() {
+        verifier = NativeQueryVerifierLib.getVerifier();
+    }
+
+    /// Prove that a specific SPL token transfer happened in an attested Solana slot.
+    function verifyTokenTransfer(
+        uint64  chainKey,
+        uint64  slotHeight,
+        bytes   calldata chunk1Bytes,     // Chunk 1 (token balances)
+        bytes32[] calldata chunkProof,    // Proof: chunk1 → TX root
+        INativeQueryVerifier.MerkleProof calldata txProof, // Proof: TX root → Slot root
+        INativeQueryVerifier.ContinuityProof calldata continuityProof,
+        bytes32 expectedMint,
+        bytes32 expectedOwner,
+        uint64  expectedAmountDelta
+    ) external view returns (bool) {
+        // Step 1: Verify chunk + TX + slot (two-level proof)
+        bool verified = verifier.verifyChunk(
+            chainKey,
+            slotHeight,
+            chunk1Bytes,
+            chunkProof,
+            txProof,
+            continuityProof
+        );
+        require(verified, "Proof failed");
+
+        // Step 2: Decode the token balances chunk
+        (, SolanaTypes.TokenBalance[] memory pre, SolanaTypes.TokenBalance[] memory post)
+            = SolanaDecoder.decodeChunk1(chunk1Bytes);
+
+        // Step 3: Find the balance change for the target mint/owner
+        for (uint i = 0; i < pre.length; i++) {
+            if (pre[i].mint == expectedMint && pre[i].owner == expectedOwner) {
+                uint64 delta = post[i].amount - pre[i].amount;
+                return delta == expectedAmountDelta;
+            }
+        }
+        return false;
+    }
+}
+```
+
+### 6.5 TypeScript / Off-Chain Decoding
+
+Same ABI bytes → use `ethers` `AbiCoder`. No new tooling needed:
 
 ```typescript
 import { AbiCoder } from 'ethers';
-
 const coder = AbiCoder.defaultAbiCoder();
 
-// Top-level: (uint8 version, bytes[] chunks)
-const [version, chunks] = coder.decode(['uint8', 'bytes[]'], encodedLeaf);
-
-// Header chunk
-const [feePayer, recentBlockhash, accountKeys] = coder.decode(
-  ['bytes32', 'bytes32', 'bytes32[]'],
-  chunks[0]
+// Decode Chunk 1 (token transfers)
+const [signature, preTokenBalances, postTokenBalances] = coder.decode(
+  ['bytes', 'tuple(uint8,bytes32,bytes32,uint64,uint8)[]', 'tuple(uint8,bytes32,bytes32,uint64,uint8)[]'],
+  chunk1Bytes
 );
 
-// Instructions chunk — array of tuples
-const instructions = coder.decode(
-  ['tuple(uint8 program_id_index, uint8[] account_indices, bytes data)[]'],
-  chunks[1]
-)[0];
-
-// Meta chunk
-const [isErr, fee, preBalances, postBalances, logMessages] = coder.decode(
-  ['bool', 'uint64', 'uint64[]', 'uint64[]', 'bytes[]'],
-  chunks[2]
+// Decode Chunk 2 (logs) — find cross-chain intent
+const [sig, logs] = coder.decode(
+  ['bytes', 'tuple(bytes32,uint8,uint8,bytes)[]'],
+  chunk2Bytes
 );
-
-console.log('Fee payer:', Buffer.from(feePayer.slice(2), 'hex').toString('hex'));
-console.log('Succeeded:', !isErr);
-console.log('Fee (lamports):', fee.toString());
+const dataLogs = logs.filter((l: any) => l[2] === 4); // logType=4 = Program data:
 ```
 
-### 6.7 Comparison: EVM vs Solana Decoder
-
-| Aspect | EVM (QueryBuilder + Solidity) | Solana (SolanaDecoder + alloy-sol-types) |
-|---|---|---|
-| Encoding | ABI | ABI (same bytes) |
-| Off-chain offset tool | `QueryBuilder` (TypeScript) | Same `QueryBuilder` works |
-| On-chain decode | `assembly { calldataload(offset) }` | `alloy-sol-types::SolType::abi_decode()` |
-| Compute cost | Very cheap (single load) | Low-moderate (full ABI decode) |
-| `no_std` support | N/A (EVM) | `alloy-sol-types` with `default-features = false` |
-| TypeScript decode | `ethers AbiCoder` | Same `ethers AbiCoder` |
-| Same bytes on EVM + Solana | N/A | ✅ Yes — one encoding for both chains |
-
-**Key advantage of ABI over Borsh here:** The exact same encoded `leaf_bytes` can be verified by an EVM contract (`BlockProver` precompile) AND decoded by a Solana program. No dual encoding, no format divergence.
-
 ---
-
 
 ## 7. Proposed Architecture
 
@@ -764,18 +803,24 @@ sp-core = { ... }
 
 > **Warning:** Solana crates on crates.io are large and pull in many transitive deps. Pin versions carefully. Use `solana-rpc-client` if using Solana 2.x split crates. Check what version `solana-test-validator` uses locally to avoid mismatches.
 
-### 8.4 New Crates: `solana-abi-encoding` + `solana-decoder`
+### 8.4 New Crates: `solana-abi-encoding` + `SolanaDecoder.sol`
 
-**`common/solana-abi-encoding`** — ABI encoding for the attestor side:
-- `pub fn solana_v1_encode(tx: &EncodedTransactionWithStatusMeta) -> Result<DynSolValue, EncodeError>`
-- Internal helpers: `encode_header`, `encode_instructions`, `encode_meta`
+**`common/solana-abi-encoding`** (Rust, off-chain) — ABI encoding for the attestor:
+- `pub fn encode_chunk0(tx) -> Result<Vec<u8>, EncodeError>` — SOL transfers
+- `pub fn encode_chunk1(tx) -> Result<Vec<u8>, EncodeError>` — Token transfers
+- `pub fn encode_chunk2(tx) -> Result<Vec<u8>, EncodeError>` — Logs
+- `pub fn encode_chunk3_neon(tx) -> Option<Result<Vec<u8>, EncodeError>>` — Neon EVM (optional)
+- `pub fn build_tx_sub_root(chunks: &[Vec<u8>]) -> H256` — TX-level Merkle root
 - Depends on `alloy::dyn_abi` + `solana-transaction-status`
 
-**`solana-decoder`** — ABI decoding for Solana programs and off-chain tools:
-- `SolanaDecoder::decode(bytes)` using `alloy-sol-types` `no_std`
-- `sol!` macro type definitions for `SolanaHeader`, `SolanaIx`, `SolanaMeta`, `SolanaTxLeaf`
-- `default-features = false` so it compiles for BPF target in Solana programs
+**`SolanaDecoder.sol`** (Solidity, on-chain) — decoder for the CC3 contract layer:
+- `SolanaTypes` library — `TokenBalance`, `LogEntry`, `EvmLogEntry` structs
+- `SolanaDecoder` library — `decodeChunk0/1/2/3Neon`, `extractDataLogs`
 - See Section 6 for full implementation
+
+**`BlockProver` precompile update** — new overload for two-level proofs:
+- `verifyChunk(chainKey, height, chunkBytes, chunkProof, txProof, continuityProof)`
+- See Section 5.3 for details
 
 ### 8.5 New Crate: `common/streams/solana` (Option B)
 
@@ -998,19 +1043,16 @@ pub fn simple_merkle_tree(block: &SolanaOrderedBlock) -> merkle::KeccakMerkleTre
 }
 ```
 
-### 9.3 `solana_abi_encoding::solana_v1_encode`
+### 9.3 `solana_abi_encoding` — Chunk Encoders
 
 ```rust
 // common/solana-abi-encoding/src/lib.rs
-// ABI encoding using alloy::dyn_abi — mirrors the EVM V1 encoder.
+// ABI encoding using alloy::dyn_abi.
+// Each encode_chunkN() produces one independently-decodable ABI blob.
 
 use alloy::dyn_abi::DynSolValue;
-use alloy::primitives::U256;
-use solana_transaction_status::{
-    EncodedTransactionWithStatusMeta,
-    EncodedTransaction,
-    UiMessage,
-};
+use alloy::primitives::{FixedBytes, U256};
+use solana_transaction_status::EncodedTransactionWithStatusMeta;
 
 #[derive(thiserror::Error, Debug)]
 pub enum EncodeError {
@@ -1018,117 +1060,131 @@ pub enum EncodeError {
     MissingMeta,
     #[error("Failed to decode base58 pubkey: {0}")]
     Base58Decode(String),
-    #[error("Transaction has no accounts")]
-    NoAccounts,
     #[error("ABI encoding error: {0}")]
     AbiError(String),
 }
 
-/// ABI-encode a Solana transaction into the SolanaV1 leaf format.
-/// Returns a DynSolValue::Tuple that can be .abi().to_vec() into bytes.
-pub fn solana_v1_encode(
+/// Encode Chunk 0: SOL transfers
+/// ABI type: (bytes, bytes32[], uint64[], uint64[], bool, uint64)
+pub fn encode_chunk0(
     tx: &EncodedTransactionWithStatusMeta,
-) -> Result<DynSolValue, EncodeError> {
-    let header_chunk = encode_header(tx)?;
-    let instructions_chunk = encode_instructions(tx)?;
-    let meta_chunk = encode_meta(tx)?;
+) -> Result<Vec<u8>, EncodeError> {
+    let meta = tx.meta.as_ref().ok_or(EncodeError::MissingMeta)?;
+    let (signature, account_keys) = extract_signature_and_accounts(tx)?;
 
-    Ok(DynSolValue::Tuple(vec![
-        DynSolValue::Uint(U256::from(0u8), 8), // version = 0 (SolanaV1)
-        DynSolValue::Array(vec![
-            DynSolValue::Bytes(header_chunk),
-            DynSolValue::Bytes(instructions_chunk),
-            DynSolValue::Bytes(meta_chunk),
-        ]),
-    ]))
+    let encoded = DynSolValue::Tuple(vec![
+        DynSolValue::Bytes(signature),
+        DynSolValue::Array(account_keys.into_iter()
+            .map(|k| DynSolValue::FixedBytes(FixedBytes::from(k), 32))
+            .collect()),
+        DynSolValue::Array(meta.pre_balances.iter()
+            .map(|b| DynSolValue::Uint(U256::from(*b), 64)).collect()),
+        DynSolValue::Array(meta.post_balances.iter()
+            .map(|b| DynSolValue::Uint(U256::from(*b), 64)).collect()),
+        DynSolValue::Bool(meta.err.is_none()),   // success = no error
+        DynSolValue::Uint(U256::from(meta.fee), 64),
+    ]);
+    Ok(encoded.abi().to_vec())
+}
+
+/// Encode Chunk 1: Token transfers
+/// ABI type: (bytes, (uint8,bytes32,bytes32,uint64,uint8)[], (...)[])
+pub fn encode_chunk1(
+    tx: &EncodedTransactionWithStatusMeta,
+) -> Result<Vec<u8>, EncodeError> {
+    let meta = tx.meta.as_ref().ok_or(EncodeError::MissingMeta)?;
+    let (signature, _) = extract_signature_and_accounts(tx)?;
+
+    let encode_balances = |balances: &[solana_transaction_status::UiTransactionTokenBalance]| {
+        balances.iter().map(|b| {
+            DynSolValue::Tuple(vec![
+                DynSolValue::Uint(U256::from(b.account_index), 8),
+                DynSolValue::FixedBytes(
+                    FixedBytes::from(decode_pubkey(&b.mint).unwrap_or([0u8;32])), 32
+                ),
+                DynSolValue::FixedBytes(
+                    FixedBytes::from(b.owner.as_deref()
+                        .and_then(|o| decode_pubkey(o).ok())
+                        .unwrap_or([0u8;32])), 32
+                ),
+                DynSolValue::Uint(
+                    U256::from(b.ui_token_amount.amount.parse::<u64>().unwrap_or(0)), 64
+                ),
+                DynSolValue::Uint(U256::from(b.ui_token_amount.decimals), 8),
+            ])
+        }).collect::<Vec<_>>()
+    };
+
+    let pre = encode_balances(meta.pre_token_balances.as_deref().unwrap_or(&[]));
+    let post = encode_balances(meta.post_token_balances.as_deref().unwrap_or(&[]));
+
+    let encoded = DynSolValue::Tuple(vec![
+        DynSolValue::Bytes(signature),
+        DynSolValue::Array(pre),
+        DynSolValue::Array(post),
+    ]);
+    Ok(encoded.abi().to_vec())
+}
+
+/// Encode Chunk 2: Logs / cross-chain intents
+/// ABI type: (bytes, (bytes32,uint8,uint8,bytes)[])
+pub fn encode_chunk2(
+    tx: &EncodedTransactionWithStatusMeta,
+) -> Result<Vec<u8>, EncodeError> {
+    let meta = tx.meta.as_ref().ok_or(EncodeError::MissingMeta)?;
+    let (signature, _) = extract_signature_and_accounts(tx)?;
+
+    let logs = meta.log_messages.as_deref().unwrap_or(&[]);
+    let log_entries = parse_log_entries(logs);
+
+    let encoded = DynSolValue::Tuple(vec![
+        DynSolValue::Bytes(signature),
+        DynSolValue::Array(log_entries),
+    ]);
+    Ok(encoded.abi().to_vec())
+}
+
+/// Build the TX-level sub-root from all chunks.
+/// chunks = [chunk0_bytes, chunk1_bytes, chunk2_bytes, ...]
+pub fn build_tx_sub_root(chunks: &[Vec<u8>]) -> sp_core::H256 {
+    merkle::KeccakMerkleTree::new(chunks).root()
+}
+
+fn parse_log_entries(logs: &[String]) -> Vec<DynSolValue> {
+    // Parse each log line into (programId, depth, logType, payload)
+    // logType: 0=invoke, 1=success, 2=fail, 3=log, 4=data
+    logs.iter().map(|line| {
+        let (program_id, depth, log_type, payload) = classify_log_line(line);
+        DynSolValue::Tuple(vec![
+            DynSolValue::FixedBytes(FixedBytes::from(program_id), 32),
+            DynSolValue::Uint(U256::from(depth), 8),
+            DynSolValue::Uint(U256::from(log_type), 8),
+            DynSolValue::Bytes(payload),
+        ])
+    }).collect()
+}
+
+fn classify_log_line(line: &str) -> ([u8; 32], u8, u8, Vec<u8>) {
+    // "Program <id> invoke [<depth>]" → (id, depth, 0, empty)
+    // "Program <id> success"          → (id, 0, 1, empty)
+    // "Program <id> failed: ..."      → (id, 0, 2, message bytes)
+    // "Program log: ..."              → (zero, 0, 3, text bytes)
+    // "Program data: <base64>"        → (zero, 0, 4, decoded bytes)
+    todo!("implement log line classification")
 }
 
 fn decode_pubkey(s: &str) -> Result<[u8; 32], EncodeError> {
-    let bytes = bs58::decode(s)
-        .into_vec()
-        .map_err(|e| EncodeError::Base58Decode(e.to_string()))?;
-    bytes.try_into()
-        .map_err(|_| EncodeError::Base58Decode(format!("pubkey not 32 bytes: {s}")))
+    bs58::decode(s).into_vec()
+        .map_err(|e| EncodeError::Base58Decode(e.to_string()))
+        .and_then(|v| v.try_into()
+            .map_err(|_| EncodeError::Base58Decode(format!("not 32 bytes: {s}"))))
 }
 
-fn encode_header(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<u8>, EncodeError> {
-    // Parse account_keys, fee_payer, recent_blockhash from UiMessage
-    // Then ABI-encode as (bytes32, bytes32, bytes32[])
-    let (fee_payer, recent_blockhash, account_keys, _) = extract_message_fields(tx)?;
-
-    let encoded = DynSolValue::Tuple(vec![
-        DynSolValue::FixedBytes(alloy::primitives::FixedBytes::from(fee_payer), 32),
-        DynSolValue::FixedBytes(alloy::primitives::FixedBytes::from(recent_blockhash), 32),
-        DynSolValue::Array(
-            account_keys.into_iter()
-                .map(|k| DynSolValue::FixedBytes(alloy::primitives::FixedBytes::from(k), 32))
-                .collect()
-        ),
-    ]);
-    Ok(encoded.abi().to_vec())
-}
-
-fn encode_instructions(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<u8>, EncodeError> {
-    // For each instruction: (uint8 program_id_index, uint8[] account_indices, bytes data)
-    let (_, _, _, instructions) = extract_message_fields(tx)?;
-
-    let encoded = DynSolValue::Array(
-        instructions.into_iter().map(|(prog_idx, acct_indices, data)| {
-            DynSolValue::Tuple(vec![
-                DynSolValue::Uint(U256::from(prog_idx), 8),
-                DynSolValue::Array(
-                    acct_indices.into_iter()
-                        .map(|i| DynSolValue::Uint(U256::from(i), 8))
-                        .collect()
-                ),
-                DynSolValue::Bytes(data),
-            ])
-        }).collect()
-    );
-    Ok(encoded.abi().to_vec())
-}
-
-fn encode_meta(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<u8>, EncodeError> {
-    let meta = tx.meta.as_ref().ok_or(EncodeError::MissingMeta)?;
-
-    let log_messages: Vec<DynSolValue> = meta.log_messages
-        .clone()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|s| DynSolValue::Bytes(s.into_bytes()))
-        .collect();
-
-    let encoded = DynSolValue::Tuple(vec![
-        DynSolValue::Bool(meta.err.is_some()),
-        DynSolValue::Uint(U256::from(meta.fee), 64),
-        DynSolValue::Array(
-            meta.pre_balances.iter()
-                .map(|b| DynSolValue::Uint(U256::from(*b), 64))
-                .collect()
-        ),
-        DynSolValue::Array(
-            meta.post_balances.iter()
-                .map(|b| DynSolValue::Uint(U256::from(*b), 64))
-                .collect()
-        ),
-        DynSolValue::Array(log_messages),
-    ]);
-    Ok(encoded.abi().to_vec())
-}
-
-fn extract_message_fields(
+fn extract_signature_and_accounts(
     tx: &EncodedTransactionWithStatusMeta,
-) -> Result<([u8; 32], [u8; 32], Vec<[u8; 32]>, Vec<(u8, Vec<u8>, Vec<u8>)>), EncodeError> {
-    // Handle both Binary and JSON-parsed transaction encodings
-    match &tx.transaction {
-        EncodedTransaction::Json(ui_tx) => {
-            match &ui_tx.message {
-                UiMessage::Raw(msg) => extract_from_raw_message(msg),
-                UiMessage::Parsed(msg) => extract_from_parsed_message(msg),
-            }
-        }
-        _ => todo!("handle base58/base64 encoded transactions")
-    }
+) -> Result<(Vec<u8>, Vec<[u8; 32]>), EncodeError> {
+    // Extract first signature (bytes64) and all account keys
+    todo!("implement message field extraction")
 }
 ```
 
@@ -1252,7 +1308,7 @@ These must be resolved before implementation begins.
 
 **Question:** Does verification happen on a Solana program, an EVM/CC3 precompile, or both?
 
-**Resolved (2026-04-24):** Primary target is **Solana programs**. `SolanaV1` uses **ABI encoding** — same as EVM `V1`. Decoded on-chain using `alloy-sol-types` `no_std` (BPF-compatible). Same bytes work on EVM contracts and Solana programs. See Sections 5 and 6.
+**Resolved (2026-04-24):** ABI encoding. Chunks designed for EVM/Solidity decoding (primary target). Same chunks usable in Solana programs via `alloy-sol-types` no_std. See Sections 5 and 6.
 
 ---
 
@@ -1331,8 +1387,8 @@ These must be resolved before implementation begins.
 ### 11.1 Unit Tests
 
 **`solana-encoding`:**
-- Fixture test: known Solana transaction → known ABI-encoded bytes (determinism)
-- Round-trip: `solana_v1_encode` → `SolanaDecoder::decode` (ABI) → matches original fields
+- Fixture test: known Solana transaction → known ABI-encoded chunk bytes (chunk0/1/2, determinism)
+- Round-trip: `encode_chunk0/1/2` → `SolanaDecoder.decodeChunk0/1/2` → matches original fields
 - Empty transaction list → empty bytes (not crash)
 - Failed transaction (`is_err = true`) encoded correctly
 - `SolanaDecoder::decode` in Solana program context (`alloy-sol-types` no_std / BPF)
@@ -1349,8 +1405,8 @@ These must be resolved before implementation begins.
 **Against `solana-test-validator`:**
 1. Start local validator
 2. Send a few transactions
-3. Fetch the block, ABI-encode it (SolanaV1), build Merkle root
-4. ABI-decode with `SolanaDecoder` (Rust), assert fields match original transaction
+3. Fetch the block, ABI-encode each tx into chunks, build two-level Merkle root
+4. Decode chunks with `SolanaDecoder.sol`, assert token/log fields match
 5. Compare Merkle root to a known-good value (generated once and frozen)
 
 ```bash
