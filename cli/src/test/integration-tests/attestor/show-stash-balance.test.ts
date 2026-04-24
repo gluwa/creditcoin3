@@ -19,7 +19,7 @@ describe('show-stash-balance', () => {
             },
             (error: any) => {
                 expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain("error: required option '--substrate-address [address]' not specified");
+                expect(error.stderr).toContain("error: required option '--evm-address [address]' not specified");
             },
             () => {
                 throw new Error('cli was expected to fail but it did not');
@@ -28,16 +28,16 @@ describe('show-stash-balance', () => {
     }, 30_000);
 
     it('should error when address is not an attestor', () => {
-        const ferdie = '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL';
+        // a deterministic EVM address that is not registered as a stash
+        const randomEvm = '0x000000000000000000000000000000000000dEaD';
 
         try_catch_else_finally(
             () => {
-                // note: not registered yet and also not using caller.address, see below!
-                CLI(`attestor show-stash-balance --substrate-address ${ferdie}`);
+                CLI(`attestor show-stash-balance --evm-address ${randomEvm}`);
             },
             (error: any) => {
                 expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(`No ledger found for ${ferdie}`);
+                expect(error.stderr).toContain(`No ledger found for ${randomEvm}`);
             },
             () => {
                 throw new Error('cli was expected to fail but it did not');
@@ -61,11 +61,12 @@ describe('show-stash-balance', () => {
         let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
 
-        // note: using the EVM stash address (the stash as seen by the precompile)
-        result = CLI(`attestor show-stash-balance --substrate-address ${caller.evmStashAddress}`);
+        // note: using the stash's EVM address directly — the command does the
+        // HashedAddressMapping conversion internally.
+        result = CLI(`attestor show-stash-balance --evm-address ${caller.ethEvmAddress}`);
         expect(result.exitCode).toEqual(0);
 
-        expect(result.stdout).toContain(`Address: ${caller.evmStashAddress}`);
+        expect(result.stdout).toContain(`Address: ${caller.ethEvmAddress}`);
         expect(result.stdout).toContain('Transferable');
         expect(result.stdout).toContain('Locked');
         expect(result.stdout).toContain('Total');

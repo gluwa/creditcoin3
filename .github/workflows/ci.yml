@@ -1204,17 +1204,6 @@ jobs:
           killall -9 attestor
           killall -9 creditcoin3-node
 
-  # preceeds all of the attestor-cli jobs so that we can
-  # easily trigger all of them when something fails
-  trigger-attestor-cli:
-    needs:
-      - build-creditcoin-node-for-testing-ci
-      - should-run
-    if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-
   attestor-cli-testing:
     # Attestor stash operations are dispatched through the EVM precompile, which
     # uses the EVM `msg.sender` as origin via HashedAddressMapping. Substrate
@@ -1222,8 +1211,8 @@ jobs:
     # proxy matrix here — the stash signs directly.
     needs:
       - build-creditcoin-node-for-testing-ci
-      - trigger-attestor-cli
-    name: attestor-cli-testing
+      - should-run
+    if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6

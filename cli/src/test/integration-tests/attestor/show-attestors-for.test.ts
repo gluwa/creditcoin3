@@ -36,14 +36,14 @@ describe('show-attestors-for', () => {
         await api.disconnect();
     });
 
-    it('should error when required option --substrate-address is not specified', () => {
+    it('should error when required option --evm-address is not specified', () => {
         try_catch_else_finally(
             () => {
                 CLI('attestor show-attestors-for');
             },
             (error: any) => {
                 expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain("error: required option '--substrate-address [address]' not specified");
+                expect(error.stderr).toContain("error: required option '--evm-address [address]' not specified");
             },
             () => {
                 throw new Error('cli was expected to fail but it did not');
@@ -54,7 +54,7 @@ describe('show-attestors-for', () => {
     it('should error when required option --chain is not specified', () => {
         try_catch_else_finally(
             () => {
-                CLI(`attestor show-attestors-for --substrate-address ${stash.address}`);
+                CLI(`attestor show-attestors-for --evm-address ${stash.ethEvmAddress}`);
             },
             (error: any) => {
                 expect(error.exitCode).toEqual(1);
@@ -69,7 +69,7 @@ describe('show-attestors-for', () => {
     it('should display empty output when stash does not have attestors', () => {
         // note: attestor not registered yet!
         const result = CLI(
-            `attestor show-attestors-for --substrate-address ${stash.address} --chain ${chain_Anvil1_Key}`,
+            `attestor show-attestors-for --evm-address ${stash.ethEvmAddress} --chain ${chain_Anvil1_Key}`,
         );
         expect(result.exitCode).toEqual(0);
         expect(result.stdout).toEqual('');
@@ -93,22 +93,12 @@ describe('show-attestors-for', () => {
             await activateAttestor(api, attestor, chain_Anvil1_Key);
         }, 360_000);
 
-        it('should display empty output when passing attestor address as argument', () => {
-            // note: using attestor's address instead of stash address!
+        it('should display attestor address when passing stash EVM address as argument', () => {
+            // The attestor-stash precompile records the stash as the AccountId
+            // derived from the caller's EVM address via HashedAddressMapping.
+            // Pass the raw EVM `0x…` address — the command does the mapping.
             const result = CLI(
-                `attestor show-attestors-for --substrate-address ${attestor.address} --chain ${chain_Anvil1_Key}`,
-            );
-            expect(result.exitCode).toEqual(0);
-            expect(result.stdout).toEqual('');
-        }, 30_000);
-
-        it('should display attestor address when passing stash address as argument', () => {
-            // The attestor-stash precompile records the stash as the EVM-derived
-            // AccountId (HashedAddressMapping from the caller's EVM address), not
-            // the sr25519 address. `show-attestors-for` matches on the recorded
-            // `stash` field, so query by `stash.evmStashAddress`.
-            const result = CLI(
-                `attestor show-attestors-for --substrate-address ${stash.evmStashAddress} --chain ${chain_Anvil1_Key}`,
+                `attestor show-attestors-for --evm-address ${stash.ethEvmAddress} --chain ${chain_Anvil1_Key}`,
             );
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain(`Address ${attestor.address} is an attestor for chain ${chain_Anvil1_Key}`);
