@@ -222,13 +222,6 @@ jobs:
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
 
-      - name: Install azure-cli
-        run: |
-          sudo apt remove azure-cli -y && sudo apt autoremove -y
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-          sudo apt install -y jq
-          az version
-
       - name: Azure Login with OIDC
         uses: azure/login@v3
         with:
