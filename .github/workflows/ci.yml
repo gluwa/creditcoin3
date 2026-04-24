@@ -245,12 +245,11 @@ jobs:
           unxz anvil10k_blocks.json.xz
           ls -lh
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Start Ethereum simulation with Anvil - 2 chains
         run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
@@ -657,12 +656,11 @@ jobs:
             --ethapi=debug,trace,txpool \
             --base-path ./alice-data >/var/tmp/integration-test-blockchain/creditcoin3-node.log 2>&1 &
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Start Ethereum simulation with Anvil
         run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
 
@@ -868,12 +866,11 @@ jobs:
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Deploy contract via forge create
         run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           ~/.foundry/bin/forge create \
               docs/smart-contract-development/with-hardhat/contracts/Counter.sol:Counter \
               --rpc-url ws://127.0.0.1:9944 \
@@ -1006,12 +1003,11 @@ jobs:
             --unsafe-rpc-external --rpc-cors all \
             --base-path ./alice-data >/var/tmp/cc3-indexer-testing/creditcoin3-node.log 2>&1 &
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Start Ethereum simulation with Anvil - several chains
         run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           # Anvil3 == chain_key(5) - will be registered dynamically
@@ -1249,12 +1245,11 @@ jobs:
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Start Ethereum simulation with Anvil
         run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
@@ -1550,12 +1545,11 @@ jobs:
             --unsafe-rpc-external --rpc-cors all \
             --base-path ./alice-data >/var/tmp/archiver-testing/creditcoin3-node.log 2>&1 &
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Start Ethereum simulation with Anvil
         run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2)
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 \
