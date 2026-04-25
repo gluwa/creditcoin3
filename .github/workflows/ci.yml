@@ -1,7 +1,6 @@
 ---
 name: CI
 
-# Controls when the action will run.
 "on":
   pull_request:
     branches: [main, usc-testnet, usc-dev]
