@@ -21,12 +21,14 @@ pub mod pallet {
     pub use attestor_primitives::ChainId;
     use attestor_primitives::{ChainEncodingVersion, ChainKey};
     use frame_support::{
+        dispatch::DispatchResult,
         pallet_prelude::*,
         traits::{BuildGenesisConfig, ConstU64},
         Blake2_128Concat,
     };
     use frame_system::pallet_prelude::*;
     use scale_info::prelude::string::String;
+    use sp_core::H160;
     use sp_std::vec::Vec;
     use supported_chains_primitives::{
         chain_removal_listener::ChainRemovalListener,
@@ -72,6 +74,7 @@ pub mod pallet {
     pub trait WeightInfo {
         fn register_chain() -> Weight;
         fn remove_chain() -> Weight;
+        fn set_outbox_factory_addr() -> Weight;
     }
 
     #[pallet::storage]
@@ -100,6 +103,15 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn chain_key_value)]
     pub type ChainKeyValue<T> = StorageValue<_, ChainKey, ValueQuery, ConstU64<GENESIS_CHAIN_KEY>>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn outbox_factory_address)]
+    pub type OutboxFactories<T> = StorageMap<
+        Hasher = Blake2_128Concat,
+        Key = ChainKey,
+        Value = H160,
+        QueryKind = OptionQuery,
+    >;
 
     #[pallet::genesis_config]
     #[derive(frame_support::DefaultNoBound)]
@@ -155,6 +167,14 @@ pub mod pallet {
             chain_name: Vec<u8>,
             chain_encoding: ChainEncodingVersion,
             maturity_strategy: String,
+        },
+
+        /// The outbox factory for a supported chain has been set.
+        /// This signals to attestors that they can fetch the outbox
+        /// address and begin listening for writability messages.
+        OutboxCreated {
+            chain_key: ChainKey,
+            outbox_factory_addr: H160,
         },
     }
 
@@ -280,6 +300,30 @@ pub mod pallet {
                 chain_name: item.chain_name.clone(),
                 chain_encoding: item.chain_encoding,
                 maturity_strategy: item.maturity_strategy,
+            });
+
+            Ok(())
+        }
+
+        #[pallet::call_index(2)]
+        #[pallet::weight(T::WeightInfo::set_outbox_factory_addr())]
+        pub fn set_outbox_factory_addr(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            address: H160,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                SupportedChains::<T>::contains_key(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            OutboxFactories::<T>::insert(chain_key, address);
+
+            Self::deposit_event(Event::OutboxCreated {
+                chain_key,
+                outbox_factory_addr: address,
             });
 
             Ok(())
