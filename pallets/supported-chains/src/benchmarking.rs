@@ -6,6 +6,7 @@ use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_support::traits::OriginTrait;
 use scale_info::prelude::string::String;
+use sp_core::H160;
 
 #[benchmarks]
 mod benchmarks {
@@ -62,6 +63,36 @@ mod benchmarks {
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
             chain_id,
             true,
+        )
+    }
+
+    #[benchmark]
+    fn set_outbox_factory_addr() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let chain_id: ChainId = 2;
+        let chain_name: String = String::from("Ethereum");
+        let chain_encoding = ChainEncodingVersion::V1;
+
+        assert_ok!(SupportedChains::<T>::register_chain(
+            root_origin.clone(),
+            chain_id,
+            chain_name,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            chain_encoding,
+            None,
+        ));
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_id,
+            H160::zero(),
         )
     }
 }
