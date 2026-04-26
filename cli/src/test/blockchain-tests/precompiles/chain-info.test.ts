@@ -110,6 +110,43 @@ describe('Precompile: ChainInfo', (): void => {
         expect(unknownChain.exists).toEqual(false);
     });
 
+    test('outbox_factory_address should return correct factory address', async () => {
+        const outboxFactoryAddr = '0x1111111111111111111111111111111111111111';
+
+        // Setup: store factory address through the pallet call first.
+        const nonce = await api.rpc.system.accountNextIndex((global as any).CREDITCOIN_CREATE_SIGNER('sudo').address);
+        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.setOutboxFactoryAddr(supportedChainKey, outboxFactoryAddr))
+            .signAndSend(root, { nonce });
+
+        await forElapsedBlocks(api);
+
+        // Check with supported chain key
+        const result = await contract.outbox_factory_address(supportedChainKey, { gasPrice, gasLimit });
+
+        expect(result).toBeDefined();
+        expect(Array.isArray(result)).toBe(true);
+        expect(result.length).toBe(2);
+
+        expect(typeof result[0]).toBe('string'); // factory_addr
+        expect(ethers.getAddress(result[0])).toEqual(ethers.getAddress(outboxFactoryAddr));
+
+        expect(typeof result[1]).toBe('boolean'); // exists
+        expect(result[1]).toEqual(true);
+
+        // Check with unsupported / unset chain key
+        const unknownResult = await contract.outbox_factory_address(unknownChainKey, { gasPrice, gasLimit });
+
+        expect(unknownResult).toBeDefined();
+        expect(Array.isArray(unknownResult)).toBe(true);
+        expect(unknownResult.length).toBe(2);
+
+        expect(ethers.getAddress(unknownResult[0])).toEqual(ethers.ZeroAddress);
+        expect(unknownResult[1]).toEqual(false);
+    }, 30_000);
+
     test('get_latest_attestation_height_and_hash should return data', async () => {
         const latestAttestationResult = await contract.get_latest_attestation_height_and_hash(supportedChainKey, {
             gasPrice,
