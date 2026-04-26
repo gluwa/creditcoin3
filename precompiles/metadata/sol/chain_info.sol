@@ -26,6 +26,14 @@ struct ChainInfoResult {
 }
 
 /**
+ * @dev outbox_factory_address result structure
+ */
+struct OutboxFactoryResult {
+    address factory_addr;
+    bool exists;
+}
+
+/**
  * @dev Height result structure
  */
 struct HeightResult {
@@ -78,11 +86,18 @@ interface ChainInfoContract {
     function get_supported_chains() external view returns (ChainInfo[] memory chains);
 
     /**
-     * @dev Get specific chain information by chain ID
+     * @dev Get specific chain information by chainKey
      * @param chainKey The chain Key to look up
      * @return result Chain information if found
      */
     function get_chain_by_key(uint64 chainKey) external view returns (ChainInfoResult memory result);
+
+    /**
+     * @dev Get the outbox factory for a given chainKey
+     * @param chainKey The chain key for which to get the outbox factory
+     * @return result outbox factory address if found
+     */
+    function outbox_factory_address(uint64 chainKey) external view returns (OutboxFactoryResult memory result);
 
     /**
      * @dev Get attestation genesis height for a chain
