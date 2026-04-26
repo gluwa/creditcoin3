@@ -1,4 +1,4 @@
-use crate::{self as pallet, mock, mock::SupportedChain, mock::*, Error, SupportedChains};
+use crate::{self as pallet, mock, mock::SupportedChain, mock::*, Error, OutboxFactories, SupportedChains};
 use attestor_primitives::ChainEncodingVersion;
 use frame_support::{assert_noop, assert_ok};
 use rstest::rstest;
@@ -7,6 +7,7 @@ use supported_chains_primitives::{
     provider::SupportedChainsProvider, MATURITY_EVM_FINALIZED, MATURITY_EVM_LATEST,
     MATURITY_EVM_SAFE, MATURITY_FIXED_DELAY, MATURITY_FIXED_DELAY_10,
 };
+use sp_core::H160;
 
 #[test]
 fn register_chain_works() {
@@ -547,5 +548,94 @@ fn register_chain_rejects_invalid_maturity_strategy(#[case] strategy: String) {
             chain_name.as_bytes().to_vec(),
         );
         assert!(chain_key.is_none());
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_works() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_ok!(SupportedChain::set_outbox_factory_addr(
+            RuntimeOrigin::root(),
+            chain_key,
+            address,
+        ));
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), Some(address));
+
+        System::assert_last_event(
+            crate::Event::OutboxCreated {
+                chain_key,
+                outbox_factory_addr: address,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(
+                RuntimeOrigin::none(),
+                chain_key,
+                address,
+            ),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_should_error_when_not_signed_by_alice() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(
+                RuntimeOrigin::signed(2),
+                chain_key,
+                address,
+            ),
+            BadOrigin
+        );
+
+        assert_ok!(SupportedChain::set_outbox_factory_addr(
+            RuntimeOrigin::signed(ALICE),
+            chain_key,
+            address,
+        ));
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), Some(address));
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_should_error_when_chain_is_not_supported() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(
+                RuntimeOrigin::root(),
+                chain_key,
+                address,
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), None);
     });
 }
