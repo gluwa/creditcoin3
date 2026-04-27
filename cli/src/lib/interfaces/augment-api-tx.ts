@@ -3264,6 +3264,13 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, bool]
             >;
+            setOutboxFactoryAddr: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    address: H160 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, H160]
+            >;
             /**
              * Generic tx
              **/

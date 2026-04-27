@@ -978,6 +978,10 @@ export default {
                 chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
                 maturityStrategy: 'Text',
             },
+            OutboxCreated: {
+                chainKey: 'u64',
+                outboxFactoryAddr: 'H160',
+            },
         },
     },
     /**
@@ -2690,6 +2694,10 @@ export default {
             remove_chain: {
                 chainKey: 'u64',
                 removeCheckpoints: 'bool',
+            },
+            set_outbox_factory_addr: {
+                chainKey: 'u64',
+                address: 'H160',
             },
         },
     },
