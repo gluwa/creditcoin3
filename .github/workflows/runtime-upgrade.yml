@@ -25,6 +25,7 @@ jobs:
       rpc_url: ${{ steps.testnet-env.outputs.rpc_url || steps.mainnet-env.outputs.rpc_url }}
       https_rpc_url: ${{ steps.testnet-env.outputs.https_rpc_url || steps.mainnet-env.outputs.https_rpc_url }}
       release_tag: ${{ steps.testnet-env.outputs.release_tag || steps.mainnet-env.outputs.release_tag }}
+      devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
       snapshot_container: ${{ steps.testnet-env.outputs.snapshot_container || steps.mainnet-env.outputs.snapshot_container }}
       artifact_name: ${{ steps.testnet-env.outputs.artifact_name || steps.mainnet-env.outputs.artifact_name }}
       last_block_hash: ${{ steps.last-block-info.outputs.last_block_hash }}
@@ -37,6 +38,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt install -y jq
+
+      - name: Devnet ENV
+        id: devnet-env
+        run: |
+          # shellcheck disable=SC2129
+          RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Testnet ENV
         id: testnet-env
@@ -392,22 +403,15 @@ jobs:
           yarn install
           yarn build
 
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-          sudo apt install -y gcc
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Download subwasm from release ${{ needs.setup.outputs.devnet_release_tag }}
+        uses: i3h/download-release-asset@v1
         with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-
-      - name: Install Subwasm
-        uses: gluwa/cargo@dev
-        with:
-          command: install
-          args: --locked --git https://github.com/chevdor/subwasm --tag v0.21.3
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          tag: ${{ needs.setup.outputs.devnet_release_tag }}
+          file: subwasm
+          path: /usr/local/bin
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
       - name: Download WASM runtime from current PR
         id: download-wasm
@@ -418,6 +422,9 @@ jobs:
       - name: Upgrade WASM
         working-directory: cli
         run: |
+          sudo chmod a+x /usr/local/bin/subwasm
+          subwasm --version
+
           node dist/scripts/runtimeUpgrade.js ws://127.0.0.1:9944  ../creditcoin3_runtime.compact.compressed.wasm //Alice 0
         env:
           # WARNING: always quote otherwise we get "2E+24" which can't parse
