@@ -3167,6 +3167,8 @@ export default {
             'NoSuchCheckpoint',
             'LastCheckpointNotSet',
             'TriedToRevertDuringOngoingReversion',
+            'AttestorAlreadyIdle',
+            'AttestorChillAlreadyScheduled',
         ],
     },
     /**

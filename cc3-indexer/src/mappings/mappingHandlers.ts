@@ -941,25 +941,27 @@ export async function handleEventAttestorChilled(event: SubstrateEvent): Promise
         },
     } = event;
 
-    const from = event.extrinsic?.extrinsic.signer;
-    assert(from, 'Signer is missing');
-
     const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
+    const attestorId = attestor.toString();
+    // Deferred chill completes during epoch rotation from an on_initialize hook, which has no
+    // extrinsic signer. Keep signed chills attributed to the signer and attribute hook-driven
+    // completions to the attestor being chilled to satisfy the non-null schema relation.
+    const whoId = event.extrinsic?.extrinsic.signer?.toString() ?? attestorId;
 
     const attestorChilled = AttestorChilled.create({
         id: `${blockNumber}-${event.idx}`,
-        whoId: from.toString(),
+        whoId,
         blockNumber,
-        attestorId: attestor.toString(),
+        attestorId,
         chainKey: chainKeyNumber,
         date: event.block.timestamp,
     });
 
     const id = `${blockNumber}-${event.idx}`;
-    const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
+    const attestorEntity = await checkAndGetAttestor(id, attestorId, chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     attestorEntity.status = 1; // Chilled → Idle on-chain (see AttestorStatus enum in runtime)
 
