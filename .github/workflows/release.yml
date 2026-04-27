@@ -157,6 +157,8 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release ${{ needs.setup.outputs.build_options}}"
+      build-subkey: true
+      build-subxt: true
       git-lfs-checkout: true
       version-string: "${{ needs.sanity-check.outputs.TAG_NAME }}-x86_64-unknown-linux-gnu"
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-native']"
@@ -169,6 +171,7 @@ jobs:
     uses: ./.github/workflows/build-wasm.yml
     with:
       build-options: "${{ needs.setup.outputs.build_options }}"
+      build-subwasm: true
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
       runs-on: "['ubuntu-24.04']"
 
@@ -210,6 +213,27 @@ jobs:
         with:
           path: artifact
           pattern: binary-for-*
+          merge-multiple: true
+
+      - name: Download subkey
+        uses: actions/download-artifact@v8
+        with:
+          path: artifact
+          name: subkey
+          merge-multiple: true
+
+      - name: Download subwasm
+        uses: actions/download-artifact@v8
+        with:
+          path: artifact
+          name: subwasm
+          merge-multiple: true
+
+      - name: Download subxt
+        uses: actions/download-artifact@v8
+        with:
+          path: artifact
+          name: subxt
           merge-multiple: true
 
       - name: Download changelog
@@ -258,6 +282,9 @@ jobs:
             artifact/attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}*
             artifact/creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}*
             artifact/proof-gen-api-server-${{ needs.sanity-check.outputs.TAG_NAME }}*
+            artifact/subkey
+            artifact/subwasm
+            artifact/subxt
             precompiles/metadata/abi/*.json
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
