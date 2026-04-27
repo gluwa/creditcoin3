@@ -204,14 +204,27 @@ describe('Precompile: block-prover', (): void => {
 
                 expect(calldataSizeBytes).toBeGreaterThan(FRONTIER_CALLDATA_THRESHOLD);
 
+                // gasLimit reserves PoV via GasLimitPovSizeRatio (=14). 1M gas (~71 KiB PoV)
+                // avoids "Total block weight is exceeded" drops at block-build time.
+                // Fee must clear current basefee: cached gasPrice races with basefee changes
+                // from earlier tests, so use EIP-1559 with a fresh basefee fetch and 10x ceiling.
+                const POV_SAFE_GAS_LIMIT = 1_000_000n;
+                const latestBlock = await provider.getBlock('latest');
+                const baseFeePerGas = latestBlock?.baseFeePerGas ?? 1_000_000_000n;
+                const feeData = await provider.getFeeData();
+                const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? 1_000_000_000n;
+                const maxFeePerGas = baseFeePerGas * 10n + maxPriorityFeePerGas;
+
                 const tx = await alith.sendTransaction({
                     to: blockProverAddress,
                     data,
-                    gasLimit: 500_000,
-                    gasPrice,
+                    gasLimit: POV_SAFE_GAS_LIMIT,
+                    maxFeePerGas,
+                    maxPriorityFeePerGas,
                 });
 
-                const receipt = await tx.wait();
+                // Bound wait so a stuck tx surfaces as an error instead of consuming the Jest timeout.
+                const receipt = await tx.wait(1, 120_000);
                 expect(receipt).toBeDefined();
                 expect(receipt!.status).toBe(1);
 
