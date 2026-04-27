@@ -127,6 +127,7 @@ jobs:
       build-options: "--release --features=fast-runtime"
       build-subkey: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
       build-subxt: ${{ needs.should-run.outputs.regenerate_metadata == 'true' }}
+      git-lfs-checkout: false
       version-string: testing-ci
       cache-key-name: build-creditcoin-node
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-ci']"
@@ -1432,6 +1433,7 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release"
+      git-lfs-checkout: false
       version-string: new-metadata
       cache-key-name: build-creditcoin-node
       use-new-metadata: true
