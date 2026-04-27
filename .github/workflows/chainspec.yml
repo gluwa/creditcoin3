@@ -41,6 +41,7 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=devnet"
+      git-lfs-checkout: true
       version-string: devnet
       cache-key-name: build-creditcoin-node
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-devnet']"
@@ -52,6 +53,7 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release"
+      git-lfs-checkout: true
       version-string: testnet
       cache-key-name: build-creditcoin-node
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testnet']"
