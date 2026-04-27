@@ -22,28 +22,6 @@ jobs:
     uses: ./.github/workflows/build-wasm.yml
     with:
       build-options: "--features devnet"
+      build-subwasm: true
       version-string: ${{ github.sha }}
       runs-on: "['ubuntu-24.04']"
-
-  # try installing subwasm b/c we use this version in multiple places
-  # and need to know whether it builds with current rustc
-  dry-run-install-subwasm:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-
-      - name: Install Subwasm
-        uses: gluwa/cargo@dev
-        with:
-          command: install
-          args: --locked --git https://github.com/chevdor/subwasm --tag v0.21.3
