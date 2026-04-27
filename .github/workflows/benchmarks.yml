@@ -35,6 +35,7 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=runtime-benchmarks"
+      git-lfs-checkout: false
       version-string: testing-benchmarks
       cache-key-name: build-creditcoin-node
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-benchmarks']"

@@ -124,6 +124,7 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release"
+      git-lfs-checkout: true
       version-string: PR
       cache-key-name: build-creditcoin-node
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-native']"
