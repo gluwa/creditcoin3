@@ -29,6 +29,23 @@ pallet-attestation = { workspace = true, default-features = false }
 
 frame-benchmarking = { workspace = true, optional = true }
 
+[dev-dependencies]
+attestor-primitives = { workspace = true }
+env_logger = { workspace = true }
+frame-election-provider-support = { workspace = true }
+pallet-assets = { workspace = true, default-features = false, features = ["std"] }
+pallet-babe = { workspace = true, features = ["std"] }
+pallet-balances = { workspace = true }
+pallet-session = { workspace = true }
+pallet-staking = { workspace = true, features = ["std"] }
+pallet-staking-reward-curve = { workspace = true, default-features = false }
+pallet-supported-chains = { workspace = true, features = ["std"] }
+pallet-timestamp = { workspace = true }
+scale-info = { workspace = true, features = ["derive"] }
+sp-io = { workspace = true }
+sp-staking = { workspace = true }
+supported-chains-primitives = { workspace = true }
+
 [features]
 default = ["std"]
 std = [
