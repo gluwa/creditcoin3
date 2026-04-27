@@ -334,27 +334,61 @@ fn chill_should_error_when_not_signed_by_an_attestor() {
 }
 
 #[test]
-fn chill_should_update_status_and_emit_event() {
+fn chill_should_error_when_attestor_is_idle() {
     ExtBuilder.build_and_execute(|| {
-        // setup - register attestor
         assert_ok!(Attestation::register_attestor(
             RuntimeOrigin::signed(STASH_1),
             SUPPORTED_CHAIN_KEY,
             ATTESTOR_1
         ));
 
-        // act
+        assert_noop!(
+            Attestation::chill(RuntimeOrigin::signed(STASH_1), SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+            Error::<Test>::AttestorAlreadyIdle
+        );
+    })
+}
+
+#[test]
+fn voluntary_chill_from_active_sets_leaving_then_idle_and_emits_chilled_on_epoch() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        let att = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(att.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            att.public_key,
+            att.signature
+        ));
+
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 1));
+
+        let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
+        assert_eq!(attestor.status, AttestorStatus::Active);
+        assert!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+
         assert_ok!(Attestation::chill(
             RuntimeOrigin::signed(STASH_1),
             SUPPORTED_CHAIN_KEY,
             ATTESTOR_1
         ));
 
-        // assert
+        let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
+        assert_eq!(attestor.status, AttestorStatus::Leaving);
+        assert!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 2));
+
         let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
         assert_eq!(attestor.status, AttestorStatus::Idle);
+        assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
 
-        System::assert_last_event(
+        System::assert_has_event(
             crate::Event::AttestorChilled(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
         );
     })
@@ -4318,6 +4352,7 @@ fn validate_attestation_succeeds_when_signer_unregistered_but_key_retained() {
             SUPPORTED_CHAIN_KEY,
             attestor_a.attestor_id
         ));
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 2));
         assert_ok!(Attestation::unregister_attestor(
             attestor_a.stash.clone(),
             SUPPORTED_CHAIN_KEY,
@@ -4389,6 +4424,7 @@ fn commit_attestation_succeeds_when_co_signer_unregistered_but_key_retained() {
             SUPPORTED_CHAIN_KEY,
             attestor_a.attestor_id
         ));
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 2));
         assert_ok!(Attestation::unregister_attestor(
             attestor_a.stash.clone(),
             SUPPORTED_CHAIN_KEY,
@@ -4412,10 +4448,10 @@ fn commit_attestation_succeeds_when_co_signer_unregistered_but_key_retained() {
     });
 }
 
-/// Voluntary `chill` must drop the controller from `ActiveAttestors` immediately so quorum logic
-/// and extrinsic checks stay consistent with aggregate verification.
+/// Voluntary `chill` from active keeps the controller in `ActiveAttestors` until the next election
+/// (same era-boundary semantics as `Waiting` → `Active`).
 #[test]
-fn chill_removes_attestor_from_active_attestor_set() {
+fn voluntary_chill_keeps_attestor_in_active_set_until_next_election() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
@@ -4439,6 +4475,10 @@ fn chill_removes_attestor_from_active_attestor_set() {
             SUPPORTED_CHAIN_KEY,
             att.attestor_id
         ));
+
+        assert!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 2));
 
         assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
     });
