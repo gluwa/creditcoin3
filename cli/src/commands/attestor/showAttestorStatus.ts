@@ -1,37 +1,65 @@
 import { Command, OptionValues } from 'commander';
-import { substrateAddressOption, chainKeyOption } from '../options';
-import {
-    getAttestorContractReadOnly,
-    substrateAddressToBytes32,
-    ATTESTOR_STATUS_ACTIVE,
-} from '../../lib/attestor/precompile';
+import { newApi } from '../../lib';
+import { evmAddressOption, chainKeyOption } from '../options';
+import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 
 export function makeShowAttestorStatusCommand() {
     const cmd = new Command('show-status');
-    cmd.description('Show attestor status for a given address and chain key');
-    cmd.addOption(substrateAddressOption.makeOptionMandatory());
+    cmd.description(
+        'Show the status of every attestor registered under a stash (identified by its EVM address) on a given chain',
+    );
+    cmd.addOption(evmAddressOption.makeOptionMandatory());
     cmd.addOption(chainKeyOption.makeOptionMandatory());
     cmd.action(showAttestorStatus);
     return cmd;
 }
 
 async function showAttestorStatus(options: OptionValues) {
-    const address = options.substrateAddress as string;
-    const chainKey = options.chain as string;
-    const attestorId32 = substrateAddressToBytes32(address);
+    const { api } = await newApi(options.url as string);
 
-    const contract = getAttestorContractReadOnly(options);
-    const attestorInfo = await contract.getAttestor(BigInt(chainKey), attestorId32);
+    // The stash is recorded as the AccountId derived from the caller's EVM
+    // address via HashedAddressMapping. The user passes the EVM `0x…`; we map
+    // it to the stored stash AccountId before scanning the attestation map.
+    const evmAddress = options.evmAddress as string;
+    const stashAccountId = evmAddressToSubstrateAddress(evmAddress);
+    const chainKey = BigInt(options.chain);
 
-    if (!attestorInfo.exists) {
-        console.log(`Address ${address} is not an attestor`);
-        process.exit(0);
+    const attestorsKeys = await api.query.attestation.attestors.keys();
+    let found = 0;
+    for (const key of attestorsKeys) {
+        const chain = (key.args[0] as any).toBigInt();
+        if (chain !== chainKey) {
+            continue;
+        }
+        const attestor: any = await api.query.attestation.attestors(key.args[0], key.args[1]);
+        if (attestor.isNone) {
+            continue;
+        }
+        const value = attestor.unwrap();
+        if (value.stash.toString() !== stashAccountId) {
+            continue;
+        }
+
+        const statusEnum: any = value.status;
+        let statusLabel: string;
+        if (statusEnum.isActive) {
+            statusLabel = 'Active';
+        } else if (statusEnum.isIdle) {
+            statusLabel = 'Idle';
+        } else if (statusEnum.isWaiting) {
+            statusLabel = 'Waiting';
+        } else {
+            statusLabel = `Unknown(${statusEnum.toString()})`;
+        }
+
+        console.log(`Address ${key.args[1].toString()} status is ${statusLabel}`);
+        found++;
     }
 
-    if (BigInt(attestorInfo.status) === ATTESTOR_STATUS_ACTIVE) {
-        console.log(`Address ${address} status is Active`);
-        process.exit(0);
+    if (found === 0) {
+        console.log(`No attestors registered for stash ${evmAddress} on chain ${chainKey}`);
     }
-    console.log(`Address ${address} status is Chill`);
+
+    await api.disconnect();
     process.exit(0);
 }
