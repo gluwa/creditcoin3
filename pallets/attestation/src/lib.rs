@@ -33,7 +33,7 @@ pub mod pallet {
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
         provider::{AttestationProvider, CheckpointProvider},
-        AttestationChainConfiguration, AttestationCheckpoint, Attestor, BlsPublicKey,
+        AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus, BlsPublicKey,
         BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainEncodingVersion,
         ChainKey, Digest, SignedAttestation,
     };
@@ -772,6 +772,10 @@ pub mod pallet {
         LastCheckpointNotSet,
         // Tried to trigger reversion for a chain that is still processing a current reversion.
         TriedToRevertDuringOngoingReversion,
+        /// Attestor is already idle and cannot chill again.
+        AttestorAlreadyIdle,
+        /// A voluntary chill is already scheduled for this attestor.
+        AttestorChillAlreadyScheduled,
     }
 
     #[pallet::hooks]
@@ -1044,9 +1048,18 @@ pub mod pallet {
             // Only chill your own attestor
             ensure!(attestor.stash == who, Error::<T>::NotYourAttestor);
 
-            Self::do_chill_attestor(chain_key, attestor_id);
-
-            Ok(())
+            match attestor.status {
+                AttestorStatus::Idle => Err(Error::<T>::AttestorAlreadyIdle.into()),
+                AttestorStatus::Leaving => Err(Error::<T>::AttestorChillAlreadyScheduled.into()),
+                AttestorStatus::Waiting => {
+                    Self::do_chill_attestor_immediate(chain_key, attestor_id);
+                    Ok(())
+                }
+                AttestorStatus::Active => {
+                    Self::schedule_voluntary_chill(chain_key, attestor_id);
+                    Ok(())
+                }
+            }
         }
 
         #[pallet::call_index(16)]
@@ -1188,7 +1201,7 @@ pub mod pallet {
             let attestor = Attestors::<T>::get(chain_key, &attestor_id)
                 .ok_or(Error::<T>::AddressNotAttestor)?;
 
-            Self::do_chill_attestor(chain_key, attestor_id.clone());
+            Self::do_chill_attestor_immediate(chain_key, attestor_id.clone());
 
             if unregister {
                 // If unregister is true, also remove the attestor from the attestor list

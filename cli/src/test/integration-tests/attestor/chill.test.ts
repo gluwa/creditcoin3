@@ -3,7 +3,6 @@ import {
     initAliceKeyring,
     randomFundedAccount,
     fundFromSudo,
-    waitEras,
     activateAttestor,
     ALICE_NODE_URL,
     CLIBuilder,
@@ -94,7 +93,7 @@ describe('chill', () => {
             const result = CLI(`attestor chill --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
-            await waitEras(2, api);
+            expect(result.stdout).toContain('Waiting for era rotation');
 
             // make sure attestor is no longer active
             const attestorsAfter: string[] = [];

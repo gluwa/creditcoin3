@@ -32,10 +32,12 @@ pub struct Attestor<AccountId> {
 /// Active - Attestor is active and can participate in attestation
 /// Idle - Attestor is idle and cannot participate in attestation
 /// Waiting - Attestor is waiting for the next attestation round
+/// Leaving - Voluntary chill scheduled; remains in the current epoch committee until the next election
 pub enum AttestorStatus {
     Active = 0,
     Idle = 1,
     Waiting = 2,
+    Leaving = 3,
 }
 
 impl AttestorStatus {
