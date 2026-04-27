@@ -543,19 +543,20 @@ fn bad_input() -> PrecompileFailure {
     }
 }
 
-fn encode_u256(u: U256) -> Vec<u8> {
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn encode_u256(u: U256) -> Vec<u8> {
     let mut out = [0u8; 32];
     u.to_big_endian(&mut out);
     out.to_vec()
 }
 
-fn encode_address(addr: &[u8; 20]) -> [u8; 32] {
+pub(crate) fn encode_address(addr: &[u8; 20]) -> [u8; 32] {
     let mut out = [0u8; 32];
     out[12..32].copy_from_slice(addr.as_slice());
     out
 }
 
-fn u256_to_u64(u: U256) -> Result<u64, PrecompileFailure> {
+pub(crate) fn u256_to_u64(u: U256) -> Result<u64, PrecompileFailure> {
     let mut be = [0u8; 32];
     u.to_big_endian(&mut be);
     if be.iter().take(24).any(|b| *b != 0) {
@@ -567,7 +568,7 @@ fn u256_to_u64(u: U256) -> Result<u64, PrecompileFailure> {
     Ok(u64::from_be_bytes(be[24..32].try_into().expect("8 bytes")))
 }
 
-fn u256_to_u128_balance(u: U256) -> Result<u128, PrecompileFailure> {
+pub(crate) fn u256_to_u128_balance(u: U256) -> Result<u128, PrecompileFailure> {
     let mut be = [0u8; 32];
     u.to_big_endian(&mut be);
     if be.iter().take(16).any(|b| *b != 0) {

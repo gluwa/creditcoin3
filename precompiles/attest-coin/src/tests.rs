@@ -579,3 +579,71 @@ fn withdraw_succeeds_when_burn_and_transfer_ok() {
             assert!(result.is_ok(), "expected withdraw ok, got {result:?}");
         });
 }
+
+// ── helper function sanity tests ──────────────────────────────────────────────
+
+#[test]
+fn u256_to_u64_returns_correct_value() {
+    assert_eq!(super::u256_to_u64(U256::from(0u64)).unwrap(), 0u64);
+    assert_eq!(super::u256_to_u64(U256::from(u64::MAX)).unwrap(), u64::MAX);
+    assert_eq!(super::u256_to_u64(U256::from(42u64)).unwrap(), 42u64);
+}
+
+#[test]
+fn u256_to_u64_rejects_overflow() {
+    let too_large = U256::from(u64::MAX) + U256::one();
+    assert!(
+        matches!(
+            super::u256_to_u64(too_large),
+            Err(PrecompileFailure::Revert { .. })
+        ),
+        "expected Revert for value > u64::MAX"
+    );
+}
+
+#[test]
+fn u256_to_u128_balance_returns_correct_value() {
+    assert_eq!(
+        super::u256_to_u128_balance(U256::from(0u128)).unwrap(),
+        0u128
+    );
+    assert_eq!(
+        super::u256_to_u128_balance(U256::from(u128::MAX)).unwrap(),
+        u128::MAX
+    );
+    assert_eq!(
+        super::u256_to_u128_balance(U256::from(1_000u128)).unwrap(),
+        1_000u128
+    );
+}
+
+#[test]
+fn u256_to_u128_balance_rejects_overflow() {
+    let too_large = U256::from(u128::MAX) + U256::one();
+    assert!(
+        matches!(
+            super::u256_to_u128_balance(too_large),
+            Err(PrecompileFailure::Revert { .. })
+        ),
+        "expected Revert for value > u128::MAX"
+    );
+}
+
+#[test]
+fn encode_address_pads_correctly() {
+    let addr: [u8; 20] = [0xABu8; 20];
+    let encoded = super::encode_address(&addr);
+    // First 12 bytes must be zero (EVM ABI left-padding for address)
+    assert_eq!(&encoded[..12], &[0u8; 12]);
+    // Last 20 bytes must be the address itself
+    assert_eq!(&encoded[12..], &addr);
+}
+
+#[test]
+fn encode_u256_round_trips() {
+    let val = U256::from(0xDEAD_BEEF_u64);
+    let encoded = super::encode_u256(val);
+    assert_eq!(encoded.len(), 32);
+    let round_tripped = U256::from_big_endian(&encoded);
+    assert_eq!(round_tripped, val);
+}
