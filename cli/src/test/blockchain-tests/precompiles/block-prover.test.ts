@@ -99,6 +99,7 @@ describe('Precompile: block-prover', (): void => {
                     sourceTxn!.blockNumber!,
                     5_000, // 5 sec poll interval
                     300_000, // 5 min wait Timeout
+                    15_000, // 15 sec finality lag buffer
                 );
                 // we're now sure that there are enough attestations on the execution chain
 

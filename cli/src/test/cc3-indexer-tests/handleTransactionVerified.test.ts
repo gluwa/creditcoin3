@@ -43,7 +43,16 @@ describe('handleTransactionVerified()', () => {
         expect(sourceTxn!.blockNumber).toBeDefined();
 
         const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
-        await chainInfoProvider.waitUntilHeightAttested(chain_Anvil1_Key, sourceTxn!.blockNumber!);
+        const pollIntervalMs = 5_000; // 5 sec poll interval
+        const timeoutMs = 60_000; // 1 min wait Timeout
+        const extraDelayMs = 15_000; // add 15 sec buffer to be sure that the block is finalized on the execution chain
+        await chainInfoProvider.waitUntilHeightAttested(
+            chain_Anvil1_Key,
+            sourceTxn!.blockNumber!,
+            pollIntervalMs,
+            timeoutMs,
+            extraDelayMs,
+        );
         // we're now sure that there are enough attestations on the execution chain
 
         const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
