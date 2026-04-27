@@ -360,6 +360,9 @@ impl Client {
                 _ if format!("{:?}", attestor.status) == "Waiting" => {
                     Ok(Some(AttestorStatus::Waiting))
                 }
+                _ if format!("{:?}", attestor.status) == "Leaving" => {
+                    Ok(Some(AttestorStatus::Leaving))
+                }
                 _ => Ok(None),
             },
             None => Ok(None),

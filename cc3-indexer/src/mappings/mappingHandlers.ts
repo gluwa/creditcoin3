@@ -961,7 +961,7 @@ export async function handleEventAttestorChilled(event: SubstrateEvent): Promise
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = 1; // Chilling an attestor reverts to Idle status
+    attestorEntity.status = 1; // Chilled → Idle on-chain (see AttestorStatus enum in runtime)
 
     await Promise.all([attestorChilled.save(), attestorEntity.save()]);
 }

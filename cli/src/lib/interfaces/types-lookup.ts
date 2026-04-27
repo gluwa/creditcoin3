@@ -3614,7 +3614,8 @@ declare module '@polkadot/types/lookup' {
         readonly isActive: boolean;
         readonly isIdle: boolean;
         readonly isWaiting: boolean;
-        readonly type: 'Active' | 'Idle' | 'Waiting';
+        readonly isLeaving: boolean;
+        readonly type: 'Active' | 'Idle' | 'Waiting' | 'Leaving';
     }
 
     /** @name PalletAttestationRetiredAttestorBlsKeyEntry (409) */

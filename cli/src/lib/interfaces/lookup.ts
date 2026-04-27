@@ -3075,7 +3075,7 @@ export default {
      * Lookup408: attestor_primitives::AttestorStatus
      **/
     AttestorPrimitivesAttestorStatus: {
-        _enum: ['Active', 'Idle', 'Waiting'],
+        _enum: ['Active', 'Idle', 'Waiting', 'Leaving'],
     },
     /**
      * Lookup409: pallet_attestation::pallet::RetiredAttestorBlsKeyEntry<sp_core::crypto::AccountId32>

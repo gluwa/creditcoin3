@@ -460,7 +460,21 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub(crate) fn do_chill_attestor(chain_key: ChainKey, attestor_id: T::AccountId) {
+    /// Voluntary chill for an active attestor: stay in the current epoch committee until the next
+    /// election finalizes the transition to [`AttestorStatus::Idle`] (same era boundary semantics
+    /// as [`AttestorStatus::Waiting`] → active).
+    pub(crate) fn schedule_voluntary_chill(chain_key: ChainKey, attestor_id: T::AccountId) {
+        Attestors::<T>::mutate(chain_key, &attestor_id, |maybe_attestor| {
+            if let Some(attestor) = maybe_attestor {
+                attestor.status = AttestorStatus::Leaving;
+            }
+        });
+    }
+
+    /// Immediately set an attestor to idle, remove them from the active set, and emit
+    /// [`Event::AttestorChilled`]. Used for operator kicks, chain cleanup, and chilling from
+    /// [`AttestorStatus::Waiting`] (cancel pending activation).
+    pub(crate) fn do_chill_attestor_immediate(chain_key: ChainKey, attestor_id: T::AccountId) {
         Attestors::<T>::mutate(chain_key, &attestor_id, |maybe_attestor| {
             if let Some(attestor) = maybe_attestor {
                 attestor.status = AttestorStatus::Idle;
@@ -565,6 +579,7 @@ impl<T: Config> Pallet<T> {
     /// This will select the active attestors for the given epoch
     /// All attestors with `Active` status will be selected
     /// Attestors with `Waiting` status will be selected based on the election policy
+    /// Attestors with `Leaving` status become `Idle` and are not selected (deferred voluntary chill)
     pub fn do_start_election(epoch: u64, _randomness: Randomness) -> DispatchResult {
         let supported_chains = T::SupportedChains::supported_chains();
 
@@ -610,6 +625,12 @@ impl<T: Config> Pallet<T> {
                             }
                         }
                         AttestorStatus::Idle => None,
+                        AttestorStatus::Leaving => {
+                            attestor.status = AttestorStatus::Idle;
+                            Attestors::<T>::insert(chain_key, &account, attestor);
+                            Self::deposit_event(Event::<T>::AttestorChilled(chain_key, account.clone()));
+                            None
+                        }
                     }
                 })
                 .collect::<Vec<_>>();
@@ -700,7 +721,7 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn chill_all_attestors_for_chain(chain_key: ChainKey) {
         let attestor_ids = Attestors::<T>::iter_key_prefix(chain_key);
         for attestor_id in attestor_ids {
-            Self::do_chill_attestor(chain_key, attestor_id);
+            Self::do_chill_attestor_immediate(chain_key, attestor_id);
         }
     }
 

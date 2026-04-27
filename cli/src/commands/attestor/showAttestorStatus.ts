@@ -48,6 +48,8 @@ async function showAttestorStatus(options: OptionValues) {
             statusLabel = 'Idle';
         } else if (statusEnum.isWaiting) {
             statusLabel = 'Waiting';
+        } else if (statusEnum.isLeaving) {
+            statusLabel = 'Leaving';
         } else {
             statusLabel = `Unknown(${statusEnum.toString()})`;
         }

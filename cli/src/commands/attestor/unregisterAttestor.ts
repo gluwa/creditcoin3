@@ -5,6 +5,7 @@ import {
     substrateAddressToBytes32,
     extractEvmError,
     ATTESTOR_STATUS_ACTIVE,
+    ATTESTOR_STATUS_LEAVING,
 } from '../../lib/attestor/precompile';
 import { getStringFromEnvVar } from '../../lib/account/keyring';
 
@@ -36,7 +37,13 @@ async function unregisterAttestorAction(options: OptionValues) {
         console.error(`Address ${attestorSs58} status is Active. Please chill the attestor first`);
         process.exit(1);
     }
-    console.log(`Address ${attestorSs58} status is Chill`);
+    if (BigInt(attestorInfo.status) === ATTESTOR_STATUS_LEAVING) {
+        console.error(
+            `Address ${attestorSs58} has a chill scheduled; wait until the next era boundary (Idle) before unregistering`,
+        );
+        process.exit(1);
+    }
+    console.log(`Address ${attestorSs58} status is Idle`);
     console.log(`Calling unregister attestor for ${attestorSs58} on chain ${chainKey}`);
 
     try {

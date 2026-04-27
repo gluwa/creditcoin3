@@ -11,7 +11,7 @@ const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 
 export const ATTESTOR_STASH_ADDRESS = '0x0000000000000000000000000000000000000fd4';
 
-// AttestorStatus: Active = 0, Idle = 1, Waiting = 2.
+// AttestorStatus: Active = 0, Idle = 1, Waiting = 2, Leaving = 3.
 // Declared as `bigint` constants; call sites MUST `BigInt(info.status)`-coerce
 // the struct field before comparing, because ethers.js can surface small
 // Solidity integer fields (uint8 here) as plain `number` rather than `bigint`,
@@ -19,6 +19,7 @@ export const ATTESTOR_STASH_ADDRESS = '0x0000000000000000000000000000000000000fd
 export const ATTESTOR_STATUS_ACTIVE = 0n;
 export const ATTESTOR_STATUS_IDLE = 1n;
 export const ATTESTOR_STATUS_WAITING = 2n;
+export const ATTESTOR_STATUS_LEAVING = 3n;
 
 /**
  * Convert a Substrate SS58 address to a bytes32 hex string (the raw 32-byte AccountId).
