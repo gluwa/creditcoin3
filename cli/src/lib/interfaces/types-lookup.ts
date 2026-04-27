@@ -3701,6 +3701,8 @@ declare module '@polkadot/types/lookup' {
         readonly isNoSuchCheckpoint: boolean;
         readonly isLastCheckpointNotSet: boolean;
         readonly isTriedToRevertDuringOngoingReversion: boolean;
+        readonly isAttestorAlreadyIdle: boolean;
+        readonly isAttestorChillAlreadyScheduled: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -3755,7 +3757,9 @@ declare module '@polkadot/types/lookup' {
             | 'TooManyAttestations'
             | 'NoSuchCheckpoint'
             | 'LastCheckpointNotSet'
-            | 'TriedToRevertDuringOngoingReversion';
+            | 'TriedToRevertDuringOngoingReversion'
+            | 'AttestorAlreadyIdle'
+            | 'AttestorChillAlreadyScheduled';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (420) */
