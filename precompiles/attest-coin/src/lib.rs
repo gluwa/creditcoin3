@@ -161,8 +161,7 @@ where
         evm_recipient.0.copy_from_slice(&rest[140..160]);
 
         let mut sig = [0u8; 64];
-        sig[..32].copy_from_slice(&rest[160..192]);
-        sig[32..].copy_from_slice(&rest[192..224]);
+        sig[..].copy_from_slice(&rest[160..224]);
 
         let caller_h160 = handle.context().caller;
         if caller_h160 != evm_recipient {
@@ -172,6 +171,7 @@ where
             });
         }
 
+        // nonce_u64 is validated against the on-chain counter inside `commit_claim` below.
         let nonce_u64 = u256_to_u64(nonce_u256)?;
         let chain_key = u256_to_u64(chain_u256)?;
 
@@ -216,10 +216,17 @@ where
             });
         }
 
-        Rewards::<Runtime>::commit_claim(&stash, nonce_u64, amount_pts).map_err(|_| {
+        Rewards::<Runtime>::commit_claim(&stash, nonce_u64, amount_pts).map_err(|e| {
+            use pallet_attest_coin_rewards::Error as RewardErr;
+            let msg: &[u8] = match e {
+                RewardErr::BadClaimNonce => b"bad nonce",
+                RewardErr::InsufficientAccrued => b"insufficient accrued",
+                RewardErr::NotStash => b"not a stash",
+                _ => b"commit claim failed",
+            };
             PrecompileFailure::Revert {
                 exit_status: ExitRevert::Reverted,
-                output: b"commit claim failed".to_vec(),
+                output: msg.to_vec(),
             }
         })?;
 
