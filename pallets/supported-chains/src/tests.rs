@@ -1,13 +1,15 @@
-use crate::{self as pallet, mock, mock::SupportedChain, mock::*, Error, OutboxFactories, SupportedChains};
+use crate::{
+    self as pallet, mock, mock::SupportedChain, mock::*, Error, OutboxFactories, SupportedChains,
+};
 use attestor_primitives::ChainEncodingVersion;
 use frame_support::{assert_noop, assert_ok};
 use rstest::rstest;
+use sp_core::H160;
 use sp_runtime::traits::BadOrigin;
 use supported_chains_primitives::{
     provider::SupportedChainsProvider, MATURITY_EVM_FINALIZED, MATURITY_EVM_LATEST,
     MATURITY_EVM_SAFE, MATURITY_FIXED_DELAY, MATURITY_FIXED_DELAY_10,
 };
-use sp_core::H160;
 
 #[test]
 fn register_chain_works() {
@@ -584,11 +586,7 @@ fn set_outbox_factory_addr_should_error_when_not_signed() {
         let address = H160::repeat_byte(0x11);
 
         assert_noop!(
-            SupportedChain::set_outbox_factory_addr(
-                RuntimeOrigin::none(),
-                chain_key,
-                address,
-            ),
+            SupportedChain::set_outbox_factory_addr(RuntimeOrigin::none(), chain_key, address,),
             BadOrigin
         );
     });
@@ -601,11 +599,7 @@ fn set_outbox_factory_addr_should_error_when_not_signed_by_alice() {
         let address = H160::repeat_byte(0x11);
 
         assert_noop!(
-            SupportedChain::set_outbox_factory_addr(
-                RuntimeOrigin::signed(2),
-                chain_key,
-                address,
-            ),
+            SupportedChain::set_outbox_factory_addr(RuntimeOrigin::signed(2), chain_key, address,),
             BadOrigin
         );
 
@@ -628,11 +622,7 @@ fn set_outbox_factory_addr_should_error_when_chain_is_not_supported() {
         let address = H160::repeat_byte(0x11);
 
         assert_noop!(
-            SupportedChain::set_outbox_factory_addr(
-                RuntimeOrigin::root(),
-                chain_key,
-                address,
-            ),
+            SupportedChain::set_outbox_factory_addr(RuntimeOrigin::root(), chain_key, address,),
             Error::<Test>::ChainNotSupported
         );
 

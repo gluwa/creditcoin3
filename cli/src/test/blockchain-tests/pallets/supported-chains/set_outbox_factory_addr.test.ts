@@ -2,6 +2,8 @@ import { U64 } from '@polkadot/types-codec';
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { extractFee, forElapsedBlocks } from '../../../utils';
 import { describeIf } from '../../../utils';
+import type { Option } from '@polkadot/types';
+import type { H160 } from '@polkadot/types/interfaces';
 
 describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetOutboxFactoryAddr', (): void => {
     let api: ApiPromise;
@@ -63,8 +65,9 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetOutboxFactoryAddr', ()
     }, 30_000);
 
     it('stores the outbox factory address', async (): Promise<void> => {
-        const stored = await api.query.supportedChains.outboxFactories(chainKey);
+        const stored = (await api.query.supportedChains.outboxFactories(chainKey)) as Option<H160>;
 
+        expect(stored.isSome).toEqual(true);
         expect(stored.unwrap().toString()).toEqual(outboxFactoryAddr);
     }, 30_000);
 });
