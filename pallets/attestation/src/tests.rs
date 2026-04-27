@@ -343,7 +343,11 @@ fn chill_should_error_when_attestor_is_idle() {
         ));
 
         assert_noop!(
-            Attestation::chill(RuntimeOrigin::signed(STASH_1), SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+            Attestation::chill(
+                RuntimeOrigin::signed(STASH_1),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ),
             Error::<Test>::AttestorAlreadyIdle
         );
     })
