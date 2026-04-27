@@ -292,7 +292,7 @@ fn claim_reverts_bad_nonce() {
             sig_s,
         );
         let mut handle = make_handle(evm_recipient, input);
-        assert_reverts_with(&mut handle, b"commit claim failed");
+        assert_reverts_with(&mut handle, b"bad nonce");
     });
 }
 
@@ -341,7 +341,7 @@ fn claim_reverts_insufficient_accrued() {
             sig_s,
         );
         let mut handle = make_handle(evm_recipient, input);
-        assert_reverts_with(&mut handle, b"commit claim failed");
+        assert_reverts_with(&mut handle, b"insufficient accrued");
     });
 }
 
@@ -481,10 +481,26 @@ fn deposit_succeeds_with_successful_subcall() {
             cost: 0,
             logs: vec![],
         }));
-        // The mint call also goes through dispatch — it will fail if asset 1 isn't set up
-        // for minting to the precompile's issuer. In unit tests this may error at the pallet level.
-        // The important thing is the function reaches the mint dispatch (token was configured, amount > 0).
-        let _ = execute(&mut handle); // may succeed or fail depending on pallet state
+        // The mint call goes through dispatch; the precompile account needs to be the asset admin
+        // for it to succeed. In the unit-test mock the asset admin is `alice`, so the mint dispatch
+        // will return a pallet-level error — but we assert that the failure is NOT an early-exit
+        // (token not configured, zero amount) to confirm the function reached the mint step.
+        let result = execute(&mut handle);
+        match &result {
+            Err(PrecompileFailure::Revert { output, .. }) => {
+                assert_ne!(
+                    output.as_slice(),
+                    b"token not configured",
+                    "should not fail at token check"
+                );
+                assert_ne!(
+                    output.as_slice(),
+                    b"zero amount",
+                    "should not fail at amount check"
+                );
+            }
+            _ => {} // success is also acceptable if mock pallet allows it
+        }
     });
 }
 
