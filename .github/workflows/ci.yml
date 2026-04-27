@@ -28,6 +28,7 @@ jobs:
       integration_test_blockchain: ${{ steps.filter.outputs.integration_test_blockchain }}
       integration_test_cli: ${{ steps.filter.outputs.integration_test_cli }}
       regenerate_metadata: ${{ steps.filter.outputs.regenerate_metadata }}
+      devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v6
 
@@ -101,6 +102,16 @@ jobs:
               - "**Cargo**"
               - ".github/workflows/ci.yml"
 
+      - name: Devnet ENV
+        id: devnet-env
+        run: |
+          # shellcheck disable=SC2129
+          RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
   deploy-runner-build-creditcoin-for-testing:
     needs:
       - should-run
@@ -126,7 +137,6 @@ jobs:
     with:
       build-options: "--release --features=fast-runtime"
       build-subkey: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
-      build-subxt: ${{ needs.should-run.outputs.regenerate_metadata == 'true' }}
       git-lfs-checkout: false
       version-string: testing-ci
       cache-key-name: build-creditcoin-node
@@ -1335,12 +1345,6 @@ jobs:
           name: binary-for-testing-ci
           path: target/release
 
-      - name: Download subxt binary
-        uses: actions/download-artifact@v8
-        with:
-          name: subxt
-          path: ~/.cargo/bin
-
       - name: Start creditcoin3-node in order to update typedefs
         run: |
           chmod a+x ./target/release/creditcoin3-node
@@ -1369,15 +1373,24 @@ jobs:
         run: |
           yarn install
 
+      - name: Download subxt from release ${{ needs.should-run.outputs.devnet_release_tag }}
+        uses: i3h/download-release-asset@v1
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          tag: ${{ needs.should-run.outputs.devnet_release_tag }}
+          file: subxt
+          path: /usr/local/bin
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+
       - name: Auto-update typedefs
         id: update_typedefs
         working-directory: ./cli
         run: |
           ./get-metadata.sh
 
-          chmod a+x ~/.cargo/bin/subxt
-          sudo cp ~/.cargo/bin/subxt /usr/local/bin
-          subxt --help
+          sudo chmod a+x /usr/local/bin/subxt
+          subxt version
 
           subxt metadata -f bytes > ../common/cc-client/artifacts/metadata.scale
 
