@@ -9022,15 +9022,28 @@ name = "pallet-attest-coin-rewards"
 version = "0.1.0"
 dependencies = [
  "attestor-primitives",
+ "env_logger 0.11.8",
  "frame-benchmarking",
+ "frame-election-provider-support",
  "frame-support",
  "frame-system",
+ "pallet-assets",
  "pallet-attestation",
+ "pallet-babe",
+ "pallet-balances",
+ "pallet-session",
+ "pallet-staking",
+ "pallet-staking-reward-curve",
+ "pallet-supported-chains",
+ "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
+ "sp-io",
  "sp-runtime",
+ "sp-staking",
  "sp-std",
+ "supported-chains-primitives",
 ]
 
 [[package]]

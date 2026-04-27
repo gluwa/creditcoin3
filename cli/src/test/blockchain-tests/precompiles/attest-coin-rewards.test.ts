@@ -1,7 +1,7 @@
 import { Keyring } from '@polkadot/keyring';
 import { BN } from '@polkadot/util';
 import { cryptoWaitReady, decodeAddress, mnemonicGenerate } from '@polkadot/util-crypto';
-import { ethers, getBytes, hexlify, JsonRpcProvider, parseEther, zeroPadValue, ContractFactory } from 'ethers';
+import { ethers, hexlify, JsonRpcProvider, parseEther, zeroPadValue, ContractFactory } from 'ethers';
 
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { chain_Anvil1_Key } from '../pallets/supported-chains/consts';
