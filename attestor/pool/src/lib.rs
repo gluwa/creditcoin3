@@ -1124,6 +1124,42 @@ impl AttestationPoolForks {
             .note_attestation_interval_change(interval_new);
     }
 
+    /// Updating the target sample size is a sparse operation which may invalidate past quorums. As
+    /// a result, we discard all past quorums and recompute the set of quorums under the new target
+    /// sample size.
+    ///
+    /// While this has `O(n)` complexity, in practice this is a rare enough event that the cost of
+    /// recomputing quorums is negligible once amortized.
+    fn note_target_sample_size_change(&mut self, quorum_new: std::num::NonZeroUsize) {
+        self.quorums_by_height.clear();
+
+        let key_start = KeySize {
+            size: quorum_new.into(),
+            height: 0,
+            digest: CompoundDigest::min(),
+        };
+        let index = (
+            std::ops::Bound::Included(key_start),
+            std::ops::Bound::Unbounded,
+        );
+
+        for KeySize {
+            size,
+            height,
+            digest,
+        } in self.forks_by_size.range(index).copied()
+        {
+            let key_height = KeyHeight {
+                height,
+                size,
+                digest,
+            };
+            self.quorums_by_height.insert(key_height);
+        }
+
+        self.validate_quorum.target_quorum = quorum_new;
+    }
+
     fn note_attestation_chain_reversion(&mut self, info: stream::util::AttestationInfo) {
         tracing::debug!("Clearing forks");
 
@@ -1285,8 +1321,8 @@ impl AttestationPoolSender {
         *self.common.pool.lock() = AttestationPool::Closed;
     }
 
-    pub fn note_target_sample_size_change(&self, target_sample_size_new: u32) {
-        let threshold = attestor_primitives::calculate_threshold(target_sample_size_new) as usize;
+    pub fn note_target_sample_size_change(&self, target_sample_size: u32) {
+        let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
         let quorum_new = std::num::NonZeroUsize::new(threshold);
 
         let Some(quorum_new) = quorum_new else {
@@ -1297,7 +1333,7 @@ impl AttestationPoolSender {
             return;
         };
 
-        inner.forks.validate_quorum.target_quorum = quorum_new;
+        inner.forks.note_target_sample_size_change(quorum_new);
 
         if let Some(waker) = inner.wakers.pop_back() {
             tracing::debug!("Target sample size updated, waking receiver...");
@@ -2110,7 +2146,7 @@ mod test {
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
-    async fn attestation_pool_sanity_mark_invalid(
+    async fn attestation_pool_sanity_mark_invalid_simple(
         _logs: (),
         #[from(attestation)]
         #[with([ATTESTOR_VALID_0])]
@@ -2132,6 +2168,49 @@ mod test {
 
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
+        assert_eq!(quorum_actual, quorum_expected);
+        rx.mark_invalid(permit);
+
+        let mut pool = rx.common.pool.lock();
+        let inner = pool.expect_open();
+
+        assert!(inner.forks.votes_invalid.contains(&KeyDigest {
+            height: attestation_0.attestation.header_number(),
+            digest: attestation_0.compound_digest()
+        }));
+
+        assert!(inner.forks.votes_invalid.contains(&KeyDigest {
+            height: attestation_1.attestation.header_number(),
+            digest: attestation_1.compound_digest()
+        }));
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_sanity_mark_invalid_no_panic(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(quorum)]
+        #[with([ATTESTOR_VALID_0])]
+        quorum_expected: Quorum,
+        config: Config,
+    ) {
+        use futures::stream::StreamExt as _;
+
+        let (sx, mut rx) = attestation_pool(config);
+
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+
+        // A vote which is note yet in `quorums_by_height` reaches quorum
+        sx.note_target_sample_size_change(1);
+
+        let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
+
+        // `mark_invalid` removes quorum under new validation rules. `quorums_by_height` must have
+        // been updated by now or this will panic!
         assert_eq!(quorum_actual, quorum_expected);
         rx.mark_invalid(permit);
 
@@ -2211,6 +2290,55 @@ mod test {
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
+    async fn attestation_pool_sanity_pending(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 2, DIGEST_1)]
+        attestation_pending: AttestationVote,
+        config: Config,
+    ) {
+        let (mut sx, rx) = attestation_pool(config);
+
+        assert!(sx
+            .send(attestation_pending.attestation.clone())
+            .unwrap()
+            .is_ok());
+
+        {
+            let mut pool = rx.common.pool.lock();
+            let inner = pool.expect_open();
+
+            assert_eq!(inner.forks.pending_by_digest.len(), 1);
+            assert_eq!(inner.forks.pending_by_prev_digest_tail.len(), 1);
+            assert_eq!(inner.forks.pending_by_height.len(), 1);
+            assert!(inner
+                .forks
+                .pending_by_prev_digest_tail
+                .contains(&KeyTailPending {
+                    prev_digest_tail: PrevDigestTail(DIGEST_1.digest),
+                    height: 2,
+                    digest: attestation_pending.compound_digest(),
+                }));
+        }
+
+        sx.note_attestation_finalization(stream::util::AttestationInfo {
+            digest: DIGEST_1.digest,
+            height: 1,
+        })
+        .unwrap();
+
+        {
+            let mut pool = rx.common.pool.lock();
+            let inner = pool.expect_open();
+            let vote = AttestationVote::new(attestation_pending.attestation.clone());
+
+            assert_eq!(inner.forks.forks_best.clone().unwrap(), vote);
+        }
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
     async fn attestation_pool_sanity_deduplicate_header_hash(
         _logs: (),
         #[from(attestation)]
@@ -2262,54 +2390,6 @@ mod test {
             height: 2,
             digest: attestation_1.compound_digest()
         }));
-    }
-    #[tokio::test]
-    #[rstest::rstest]
-    #[timeout(TIMEOUT)]
-    async fn attestation_pool_sanity_pending(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 2, DIGEST_1)]
-        attestation_pending: AttestationVote,
-        config: Config,
-    ) {
-        let (mut sx, rx) = attestation_pool(config);
-
-        assert!(sx
-            .send(attestation_pending.attestation.clone())
-            .unwrap()
-            .is_ok());
-
-        {
-            let mut pool = rx.common.pool.lock();
-            let inner = pool.expect_open();
-
-            assert_eq!(inner.forks.pending_by_digest.len(), 1);
-            assert_eq!(inner.forks.pending_by_prev_digest_tail.len(), 1);
-            assert_eq!(inner.forks.pending_by_height.len(), 1);
-            assert!(inner
-                .forks
-                .pending_by_prev_digest_tail
-                .contains(&KeyTailPending {
-                    prev_digest_tail: PrevDigestTail(DIGEST_1.digest),
-                    height: 2,
-                    digest: attestation_pending.compound_digest(),
-                }));
-        }
-
-        sx.note_attestation_finalization(stream::util::AttestationInfo {
-            digest: DIGEST_1.digest,
-            height: 1,
-        })
-        .unwrap();
-
-        {
-            let mut pool = rx.common.pool.lock();
-            let inner = pool.expect_open();
-            let vote = AttestationVote::new(attestation_pending.attestation.clone());
-
-            assert_eq!(inner.forks.forks_best.clone().unwrap(), vote);
-        }
     }
 
     #[tokio::test]
@@ -2585,8 +2665,252 @@ mod test {
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
+    async fn attestation_pool_note_attestation_finalization(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 1)]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 2)]
+        attestation_1: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 3)]
+        attestation_2: AttestationVote,
+        config: Config,
+    ) {
+        let (mut sx, _rx) = attestation_pool(config);
+
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+
+        {
+            let mut inner = sx.common.pool.lock();
+            let forks = &inner.expect_open().forks;
+
+            assert!(forks.forks_by_height.contains(&KeyHeight {
+                height: attestation_0.attestation.header_number(),
+                size: 1,
+                digest: attestation_0.compound_digest()
+            }));
+            assert!(forks.forks_by_height.contains(&KeyHeight {
+                height: attestation_1.attestation.header_number(),
+                size: 1,
+                digest: attestation_1.compound_digest()
+            }));
+            assert!(forks.forks_by_height.contains(&KeyHeight {
+                height: attestation_2.attestation.header_number(),
+                size: 1,
+                digest: attestation_2.compound_digest()
+            }));
+        }
+
+        sx.note_attestation_finalization(stream::util::AttestationInfo {
+            height: 2,
+            ..Default::default()
+        })
+        .unwrap();
+
+        {
+            let mut inner = sx.common.pool.lock();
+            let forks = &inner.expect_open().forks;
+
+            assert!(!forks.forks_by_height.contains(&KeyHeight {
+                height: attestation_0.attestation.header_number(),
+                size: 1,
+                digest: attestation_0.compound_digest()
+            }));
+            assert!(!forks.forks_by_height.contains(&KeyHeight {
+                height: attestation_1.attestation.header_number(),
+                size: 1,
+                digest: attestation_1.compound_digest()
+            }));
+            assert!(forks.forks_by_height.contains(&KeyHeight {
+                height: attestation_2.attestation.header_number(),
+                size: 1,
+                digest: attestation_2.compound_digest()
+            }));
+        }
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_note_attestation_interval_change(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 1)]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 2)]
+        attestation_1: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 3)]
+        attestation_2: AttestationVote,
+        config: Config,
+    ) {
+        let (mut sx, _rx) = attestation_pool(config);
+
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+
+        {
+            let mut inner = sx.common.pool.lock();
+            let forks = &inner.expect_open().forks;
+
+            assert!(forks.forks_by_height.contains(&KeyHeight {
+                height: attestation_0.attestation.header_number(),
+                size: 1,
+                digest: attestation_0.compound_digest()
+            }));
+            assert!(forks.forks_by_height.contains(&KeyHeight {
+                height: attestation_1.attestation.header_number(),
+                size: 1,
+                digest: attestation_1.compound_digest()
+            }));
+            assert!(forks.forks_by_height.contains(&KeyHeight {
+                height: attestation_2.attestation.header_number(),
+                size: 1,
+                digest: attestation_2.compound_digest()
+            }));
+        }
+
+        sx.note_attestation_interval_change(std::num::NonZero::new(1).unwrap());
+
+        {
+            let mut inner = sx.common.pool.lock();
+            let forks = &inner.expect_open().forks;
+
+            assert!(forks.forks_by_digest.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_note_target_sample_size_shrinks(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 1)]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1], 1)]
+        attestation_1: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 2)]
+        attestation_2: AttestationVote,
+        #[from(validate_quorum)]
+        #[with(2)]
+        _quorum_validate: ValidateQuorum,
+        #[with(_quorum_validate.clone())] config: Config,
+    ) {
+        let (sx, _rx) = attestation_pool(config);
+
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+
+        {
+            let mut inner = sx.common.pool.lock();
+            let forks = &inner.expect_open().forks;
+
+            assert!(forks.quorums_by_height.contains(&KeyHeight {
+                height: 1,
+                size: 2,
+                digest: attestation_0.compound_digest()
+            }));
+            assert!(!forks.quorums_by_height.contains(&KeyHeight {
+                height: 2,
+                size: 1,
+                digest: attestation_2.compound_digest()
+            }));
+        }
+
+        sx.note_target_sample_size_change(1);
+
+        {
+            let mut inner = sx.common.pool.lock();
+            let forks = &inner.expect_open().forks;
+
+            assert!(forks.quorums_by_height.contains(&KeyHeight {
+                height: 1,
+                size: 2,
+                digest: attestation_0.compound_digest()
+            }));
+            assert!(forks.quorums_by_height.contains(&KeyHeight {
+                height: 2,
+                size: 1,
+                digest: attestation_2.compound_digest()
+            }));
+        }
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    async fn attestation_pool_note_target_sample_size_grows(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 1)]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_1], 1)]
+        attestation_1: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 2)]
+        attestation_2: AttestationVote,
+        #[from(validate_quorum)]
+        #[with(1)]
+        _quorum_validate: ValidateQuorum,
+        #[with(_quorum_validate.clone())] config: Config,
+    ) {
+        let (sx, _rx) = attestation_pool(config);
+
+        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+
+        {
+            let mut inner = sx.common.pool.lock();
+            let forks = &inner.expect_open().forks;
+
+            assert!(forks.quorums_by_height.contains(&KeyHeight {
+                height: 1,
+                size: 2,
+                digest: attestation_0.compound_digest()
+            }));
+            assert!(forks.quorums_by_height.contains(&KeyHeight {
+                height: 2,
+                size: 1,
+                digest: attestation_2.compound_digest()
+            }));
+        }
+
+        sx.note_target_sample_size_change(2);
+
+        {
+            let mut inner = sx.common.pool.lock();
+            let forks = &inner.expect_open().forks;
+
+            assert!(forks.quorums_by_height.contains(&KeyHeight {
+                height: 1,
+                size: 2,
+                digest: attestation_0.compound_digest()
+            }));
+            assert!(!forks.quorums_by_height.contains(&KeyHeight {
+                height: 2,
+                size: 1,
+                digest: attestation_2.compound_digest()
+            }));
+        }
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
     #[allow(clippy::too_many_arguments)]
-    async fn chain_reversion_resets_validation_pool(
+    async fn attestation_pool_note_chain_reversion(
         _logs: (),
         // Attestations that will be marked valid via mark_for_later
         #[from(attestation)]
