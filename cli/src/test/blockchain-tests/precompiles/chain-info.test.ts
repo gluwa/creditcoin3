@@ -10,6 +10,7 @@ import {
     encoding_version_1,
 } from '../pallets/supported-chains/consts';
 import { chainInfoAddress } from './consts';
+import { forElapsedBlocks } from '../../utils';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABIJSON = require('../artifacts/chain_info.json');
