@@ -289,6 +289,8 @@ pub mod pallet {
 
             ChainIdAndNameToUniqKey::<T>::remove(item.chain_id, item.chain_name.clone());
 
+            OutboxFactories::<T>::remove(chain_key);
+
             SupportedChains::<T>::remove(chain_key);
 
             // Notify event listeners
