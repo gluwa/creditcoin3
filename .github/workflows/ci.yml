@@ -136,7 +136,6 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
-      build-subkey: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
       git-lfs-checkout: false
       version-string: testing-ci
       cache-key-name: build-creditcoin-node
@@ -1209,18 +1208,21 @@ jobs:
           name: binary-for-testing-ci
           path: target/release
 
-      - name: Download subkey binary
-        uses: actions/download-artifact@v8
+      - name: Download subkey from release ${{ needs.should-run.outputs.devnet_release_tag }}
+        uses: i3h/download-release-asset@v1
         with:
-          name: subkey
-          path: ~/.cargo/bin
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          tag: ${{ needs.should-run.outputs.devnet_release_tag }}
+          file: subkey
+          path: /usr/local/bin
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
       - name: Start creditcoin3-node
         run: |
           chmod a+x ./target/release/attestor
 
-          chmod a+x ~/.cargo/bin/subkey
-          sudo cp ~/.cargo/bin/subkey /usr/local/bin
+          sudo chmod a+x /usr/local/bin/subkey
           subkey --version
 
           chmod a+x ./target/release/creditcoin3-node
