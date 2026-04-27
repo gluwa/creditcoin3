@@ -486,20 +486,18 @@ fn deposit_succeeds_with_successful_subcall() {
         // will return a pallet-level error — but we assert that the failure is NOT an early-exit
         // (token not configured, zero amount) to confirm the function reached the mint step.
         let result = execute(&mut handle);
-        match &result {
-            Err(PrecompileFailure::Revert { output, .. }) => {
-                assert_ne!(
-                    output.as_slice(),
-                    b"token not configured",
-                    "should not fail at token check"
-                );
-                assert_ne!(
-                    output.as_slice(),
-                    b"zero amount",
-                    "should not fail at amount check"
-                );
-            }
-            _ => {} // success is also acceptable if mock pallet allows it
+        // success is also acceptable if mock pallet allows it
+        if let Err(PrecompileFailure::Revert { output, .. }) = &result {
+            assert_ne!(
+                output.as_slice(),
+                b"token not configured",
+                "should not fail at token check"
+            );
+            assert_ne!(
+                output.as_slice(),
+                b"zero amount",
+                "should not fail at amount check"
+            );
         }
     });
 }
