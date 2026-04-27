@@ -1707,6 +1707,12 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64, Bytes]>;
             chainKeyValue: AugmentedQuery<ApiType, () => Observable<u64>, []> & QueryableStorageEntry<ApiType, []>;
+            outboxFactories: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<H160>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             supportedChains: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<SupportedChainsPrimitivesSupportedChain>>,
