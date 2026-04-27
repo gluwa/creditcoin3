@@ -6,7 +6,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use sp_core::{Encode, H256, H160};
+use sp_core::{Encode, H160, H256};
 use sp_std::vec::Vec;
 
 use attestor_primitives::{ChainId, ChainKey};
@@ -152,18 +152,24 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
     ) -> EvmResult<OutboxFactoryResult> {
-        if let Some(address) = OutboxFactories::<Runtime>::get(chain_key) {
-            handle.record_db_read::<Runtime>(address.encoded_size())?;
+        let maybe_address = OutboxFactories::<Runtime>::get(chain_key);
 
-            Ok(OutboxFactoryResult {
+        handle.record_db_read::<Runtime>(
+            maybe_address
+                .as_ref()
+                .map(|address| address.encoded_size())
+                .unwrap_or_default(),
+        )?;
+
+        match maybe_address {
+            Some(address) => Ok(OutboxFactoryResult {
                 factory_addr: Address(address),
                 exists: true,
-            })
-        } else {
-            Ok(OutboxFactoryResult {
+            }),
+            None => Ok(OutboxFactoryResult {
                 factory_addr: Address(H160::zero()),
                 exists: false,
-            })
+            }),
         }
     }
 

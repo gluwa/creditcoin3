@@ -3,13 +3,14 @@ use crate::{
         Account::{Alice, Precompile},
         *,
     },
-    BoundsCheckResult, ChainInfo, ChainInfoResult, HashResult, HeightHashResult, HeightResult, OutboxFactoryResult, OutboxFactories,
+    BoundsCheckResult, ChainInfo, ChainInfoResult, HashResult, HeightHashResult, HeightResult,
+    OutboxFactories, OutboxFactoryResult,
 };
 
 use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
 
 use pallet_attestation::{Attestations, Checkpoints, LastCheckpoint, LastDigest};
-use precompile_utils::{prelude::UnboundedBytes, testing::*, prelude::Address};
+use precompile_utils::{prelude::Address, prelude::UnboundedBytes, testing::*};
 
 use sp_core::{H160, H256};
 
@@ -101,7 +102,6 @@ fn outbox_factory_address_works() {
         .with_balances(vec![(alice.into(), 300)])
         .build()
         .execute_with(|| {
-
             // Insert factory address
             OutboxFactories::<Runtime>::insert(SUPPORTED_CHAIN_KEY, factory_addr);
 
