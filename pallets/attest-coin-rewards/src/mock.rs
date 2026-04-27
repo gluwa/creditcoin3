@@ -8,7 +8,6 @@ use frame_support::{
     traits::{
         AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU64, Everything, KeyOwnerProofSystem,
     },
-    weights::Weight,
 };
 use pallet_babe::AuthorityId;
 use pallet_session::historical as pallet_session_historical;
