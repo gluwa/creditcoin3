@@ -999,6 +999,16 @@ declare module '@polkadot/api-base/types/events' {
                 }
             >;
             /**
+             * The outbox factory for a supported chain has been set.
+             * This signals to attestors that they can fetch the outbox
+             * address and begin listening for writability messages.
+             **/
+            OutboxCreated: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, outboxFactoryAddr: H160],
+                { chainKey: u64; outboxFactoryAddr: H160 }
+            >;
+            /**
              * Generic event
              **/
             [key: string]: AugmentedEvent<ApiType>;
