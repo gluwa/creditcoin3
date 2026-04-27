@@ -33,7 +33,7 @@ use core::marker::PhantomData;
 
 /// Weight functions for `pallet_supported_chains`.
 pub struct WeightInfo<T>(PhantomData<T>);
-impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
+impl<T: frame_system::Config> pallet_supported_chains::WeightInfo for WeightInfo<T> {
 	/// Storage: `SupportedChains::ChainIdAndNameToUniqKey` (r:1 w:1)
 	/// Proof: `SupportedChains::ChainIdAndNameToUniqKey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::ChainKeyValue` (r:1 w:1)
@@ -214,11 +214,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `SupportedChains::OutboxFactories` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_outbox_factory_addr() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `374`
-		//  Estimated: `3839`
-		// Minimum execution time: 18_000_000 picoseconds.
-		Weight::from_parts(19_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 3839))
+		//  Measured:  `375`
+		//  Estimated: `3840`
+		// Minimum execution time: 17_000_000 picoseconds.
+		Weight::from_parts(18_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3840))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}

@@ -99,32 +99,34 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_outbox_factory_addr() {
+    fn set_write_ability_config() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let chain_id: ChainId = 2;
-        let chain_name: String = String::from("Ethereum");
-        let chain_encoding = ChainEncodingVersion::V1;
-
-        assert_ok!(SupportedChains::<T>::register_chain(
-            root_origin.clone(),
-            chain_id,
-            chain_name,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            chain_encoding,
-            None,
-        ));
+        // In mock.rs we set up a single supported chain with chain_key 1
+        let chain_key: ChainKey = 1;
 
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            chain_id,
-            H160::zero(),
+            chain_key,
+            // Must be non-zero: the extrinsic rejects [0u8; 32] with ZeroWriteAbilityChainKey.
+            [1u8; 32],
+            true,
+        )
+    }
+
+    #[benchmark]
+    fn set_core_fee() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        // In mock.rs we set up a single supported chain with chain_key 1
+        let chain_key: ChainKey = 1;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_key,
+            sp_core::U256::from(1_000_000_000_000_000_000u128),
         )
     }
 }
