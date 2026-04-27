@@ -33,9 +33,9 @@ pub mod pallet {
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
         provider::{AttestationProvider, CheckpointProvider},
-        AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus, BlsPublicKey,
-        BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainEncodingVersion,
-        ChainKey, Digest, SignedAttestation,
+        AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
+        BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType,
+        ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
     };
     use frame_support::{
         dispatch::{
