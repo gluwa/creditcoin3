@@ -179,6 +179,7 @@ pub mod pallet {
             evm_recipient: [u8; 20],
         ) -> Vec<u8> {
             const PREFIX: &[u8] = b"AttestCoin:claim:v1:";
+            // stash_id(32) + nonce(le u64 = 8) + chain_key(le u64 = 8) + amount(le u128 = 16) + evm_recipient(20)
             let mut m = Vec::with_capacity(PREFIX.len() + 32 + 8 + 8 + 16 + 20);
             m.extend_from_slice(PREFIX);
             let enc = stash.encode();
@@ -210,13 +211,12 @@ pub mod pallet {
             expected_nonce: u64,
             amount: T::RewardPoints,
         ) -> Result<(), Error<T>> {
-            ensure!(
-                ClaimNonce::<T>::get(stash) == expected_nonce,
-                Error::<T>::BadClaimNonce
-            );
-            Self::take_accrued_for_claim(stash, amount)?;
-            ClaimNonce::<T>::insert(stash, expected_nonce.saturating_add(1));
-            Ok(())
+            ClaimNonce::<T>::try_mutate(stash, |nonce| {
+                ensure!(*nonce == expected_nonce, Error::<T>::BadClaimNonce);
+                Self::take_accrued_for_claim(stash, amount)?;
+                *nonce = expected_nonce.saturating_add(1);
+                Ok(())
+            })
         }
 
         /// Undo [`commit_claim`] if the EVM `transfer` fails (precompile only).
