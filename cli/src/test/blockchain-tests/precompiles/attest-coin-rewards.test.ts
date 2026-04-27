@@ -1,6 +1,6 @@
 import { Keyring } from '@polkadot/keyring';
 import { BN } from '@polkadot/util';
-import { blake2AsU8a, cryptoWaitReady, decodeAddress, mnemonicGenerate } from '@polkadot/util-crypto';
+import { cryptoWaitReady, decodeAddress, mnemonicGenerate } from '@polkadot/util-crypto';
 import { ethers, getBytes, hexlify, JsonRpcProvider, parseEther, zeroPadValue, ContractFactory } from 'ethers';
 
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
@@ -12,6 +12,7 @@ import tokenArtifact = require('../artifacts/MockAttestToken.json');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import precompileAbi = require('../artifacts/attest_coin_precompile.json');
 import { forElapsedBlocks } from '../../utils';
+import { evmAddressToSubstrateAccountId } from '../../../lib/evm/address';
 
 const ATTEST_COIN_PRECOMPILE = '0x0000000000000000000000000000000000000fd5';
 
@@ -21,14 +22,7 @@ const DEPOSIT_PRECOMPILE_GAS = 8_000_000n;
 /** Headroom for `pallet-assets` `burn` dispatch + ERC-20 `transfer` subcall (+ rollback mint on failure). */
 const WITHDRAW_PRECOMPILE_GAS = 8_000_000n;
 
-/** Matches `pallet_evm::HashedAddressMapping::<BlakeTwo256>::into_account_id` (prefix `evm:` + 20-byte address). */
-function substrateAccountIdFromEvmAddress(evmAddress: string): Uint8Array {
-    const addr = getBytes(evmAddress);
-    const payload = new Uint8Array(24);
-    payload.set(new TextEncoder().encode('evm:'), 0);
-    payload.set(addr, 4);
-    return blake2AsU8a(payload, 256);
-}
+// substrateAccountIdFromEvmAddress is exported from cli/src/lib/evm/address.ts as evmAddressToSubstrateAccountId
 
 /** `bytes32` for precompile `depositTo` / Solidity - 32-byte raw Substrate `AccountId`. */
 function accountIdToBytes32(accountSs58OrRaw: string | Uint8Array): string {
@@ -267,7 +261,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await (await token.mint(evmWalletCc3.address, depositAmt)).wait();
         await (await token.approve(ATTEST_COIN_PRECOMPILE, depositAmt)).wait();
 
-        const substrateBeneficiary = substrateAccountIdFromEvmAddress(evmWalletCc3.address);
+        const substrateBeneficiary = evmAddressToSubstrateAccountId(evmWalletCc3.address);
         const assetId = 1;
 
         const acctBefore = await (api.query as any).assets.account(assetId, substrateBeneficiary);
@@ -294,7 +288,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await (await token.mint(evmWalletCc3.address, amount)).wait();
         await (await token.approve(ATTEST_COIN_PRECOMPILE, amount)).wait();
 
-        const mapped = substrateAccountIdFromEvmAddress(evmWalletCc3.address);
+        const mapped = evmAddressToSubstrateAccountId(evmWalletCc3.address);
 
         const acctBefore = await (api.query as any).assets.account(assetId, mapped);
         const palletBalBefore = acctBefore.isSome ? BigInt(acctBefore.unwrap().balance.toString()) : 0n;
