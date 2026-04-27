@@ -31,6 +31,14 @@ declare module '@polkadot/api-base/types/errors' {
             AttestationsAlreadyExist: AugmentedError<ApiType>;
             AttestorAlreadyAuthorized: AugmentedError<ApiType>;
             /**
+             * Attestor is already idle and cannot chill again.
+             **/
+            AttestorAlreadyIdle: AugmentedError<ApiType>;
+            /**
+             * A voluntary chill is already scheduled for this attestor.
+             **/
+            AttestorChillAlreadyScheduled: AugmentedError<ApiType>;
+            /**
              * The attestor list is at the max size allowed by the current configuration
              **/
             AttestorListFull: AugmentedError<ApiType>;
