@@ -33,7 +33,7 @@ use core::marker::PhantomData;
 
 /// Weight functions for `pallet_supported_chains`.
 pub struct WeightInfo<T>(PhantomData<T>);
-impl<T: frame_system::Config> pallet_supported_chains::WeightInfo for WeightInfo<T> {
+impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Storage: `SupportedChains::ChainIdAndNameToUniqKey` (r:1 w:1)
 	/// Proof: `SupportedChains::ChainIdAndNameToUniqKey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::ChainKeyValue` (r:1 w:1)
