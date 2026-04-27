@@ -1158,6 +1158,7 @@ impl AttestationPoolForks {
         }
 
         self.validate_quorum.target_quorum = quorum_new;
+        self.forks_best = self.find_best();
     }
 
     fn note_attestation_chain_reversion(&mut self, info: stream::util::AttestationInfo) {
@@ -2825,6 +2826,8 @@ mod test {
                 size: 1,
                 digest: attestation_2.compound_digest()
             }));
+
+            assert_eq!(forks.forks_best, Some(attestation_0.clone()));
         }
 
         sx.note_target_sample_size_change(1);
@@ -2843,6 +2846,8 @@ mod test {
                 size: 1,
                 digest: attestation_2.compound_digest()
             }));
+
+            assert_eq!(forks.forks_best, Some(attestation_0.clone()));
         }
     }
 
@@ -2885,6 +2890,8 @@ mod test {
                 size: 1,
                 digest: attestation_2.compound_digest()
             }));
+
+            assert_eq!(forks.forks_best, Some(attestation_2.clone()));
         }
 
         sx.note_target_sample_size_change(2);
@@ -2903,6 +2910,8 @@ mod test {
                 size: 1,
                 digest: attestation_2.compound_digest()
             }));
+
+            assert_eq!(forks.forks_best, Some(attestation_0));
         }
     }
 
