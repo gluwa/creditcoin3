@@ -1,4 +1,13 @@
 include = ["Cargo.toml", "**/*.toml"]
+# Skip auto-generated and vendored TOMLs that we don't own. Without this,
+# any populated `target/` (Swatinem/rust-cache, local builds, llvm-cov) drags in
+# files like `target/.../wasm-opt-sys/.../Cargo.toml` and fails `taplo format --check`.
+exclude = [
+    "target/**",
+    "**/target/**",
+    "node_modules/**",
+    "**/node_modules/**",
+]
 
 [formatting]
 # Align consecutive entries vertically.
