@@ -75,18 +75,20 @@ async function chillAction(options: OptionValues) {
         process.exit(1);
     }
 
-    if (BigInt(attestorInfo.status) === ATTESTOR_STATUS_IDLE) {
+    const attestorStatus = BigInt(attestorInfo.status);
+
+    if (attestorStatus === ATTESTOR_STATUS_IDLE) {
         console.error(`Attestor ${attestorSs58} is already chilled`);
         process.exit(1);
     }
-    if (BigInt(attestorInfo.status) === ATTESTOR_STATUS_LEAVING) {
+    if (attestorStatus === ATTESTOR_STATUS_LEAVING) {
         console.error(
             `Attestor ${attestorSs58} already has a chill scheduled; wait for the next era boundary to complete.`,
         );
         process.exit(1);
     }
 
-    const shouldWaitForIdle = BigInt(attestorInfo.status) === ATTESTOR_STATUS_ACTIVE;
+    const shouldWaitForIdle = attestorStatus === ATTESTOR_STATUS_ACTIVE;
 
     try {
         const tx = await contract.chill(BigInt(chainKey), attestorId32);
