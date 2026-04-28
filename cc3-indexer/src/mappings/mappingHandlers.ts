@@ -40,10 +40,10 @@ import { Balance } from '@polkadot/types/interfaces';
 import { getChainData } from './initStore';
 
 const RuntimeAttestorStatus = {
-    Active: 0,
-    Idle: 1,
-    Waiting: 2,
-    Leaving: 3,
+    active: 0,
+    idle: 1,
+    waiting: 2,
+    leaving: 3,
 } as const;
 
 export async function handleEventAttestorsElected(event: SubstrateEvent): Promise<void> {
@@ -82,7 +82,7 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
             const id = `${blockNumber}-${event.idx}-${index}`;
             const attestorEntity = await checkAndGetAttestor(id, accountStr, chainKeyNumber);
             attestorEntity.lastUpdateBlockNumber = event.block.block.header.number.toBigInt();
-            attestorEntity.status = RuntimeAttestorStatus.Active; // If an attestor is elected, it becomes Active
+            attestorEntity.status = RuntimeAttestorStatus.active; // If an attestor is elected, it becomes Active
 
             saveEntityList.push(attestorEntity.save());
         }
@@ -246,7 +246,7 @@ export async function handleEventAttestorRegistered(event: SubstrateEvent): Prom
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     attestorEntity.stashId = from.toString();
-    attestorEntity.status = RuntimeAttestorStatus.Idle; // Registering an attestor sets it to Idle until activation
+    attestorEntity.status = RuntimeAttestorStatus.idle; // Registering an attestor sets it to Idle until activation
 
     logger.info(`New AttestorEntity event created at block ${blockNumber}`);
 
@@ -282,7 +282,7 @@ export async function handleEventAttestorUnregistered(event: SubstrateEvent): Pr
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     // Unregistering an attestor removes it from storage on chain, here we just set it to Idle status to keep history of the attestor in the db.
-    attestorEntity.status = RuntimeAttestorStatus.Idle;
+    attestorEntity.status = RuntimeAttestorStatus.idle;
 
     await Promise.all([attestorUnregistered.save(), attestorEntity.save()]);
 }
@@ -468,7 +468,7 @@ async function checkAndGetAttestor(id: string, attestorId: string, chainKey: big
             attestorId,
             chainKey,
             lastUpdateBlockNumber: BigInt(0),
-            status: RuntimeAttestorStatus.Idle,
+            status: RuntimeAttestorStatus.idle,
             stashId: '',
             blsPublicKey: '',
         });
@@ -933,7 +933,7 @@ export async function handleEventAttestorActivated(event: SubstrateEvent): Promi
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = RuntimeAttestorStatus.Waiting; // Activating an attestor sets it to Waiting until elected
+    attestorEntity.status = RuntimeAttestorStatus.waiting; // Activating an attestor sets it to Waiting until elected
     attestorEntity.blsPublicKey = blsPublicKeyStr;
 
     await Promise.all([attestorActivated.save(), attestorEntity.save()]);
@@ -970,7 +970,7 @@ export async function handleEventAttestorChilled(event: SubstrateEvent): Promise
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestorId, chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = RuntimeAttestorStatus.Idle; // Chilled -> Idle on-chain
+    attestorEntity.status = RuntimeAttestorStatus.idle; // Chilled -> Idle on-chain
 
     await Promise.all([attestorChilled.save(), attestorEntity.save()]);
 }
@@ -991,12 +991,12 @@ export async function handleCallAttestorChill(extrinsic: SubstrateExtrinsic): Pr
 
     // A successful chill call from Active schedules a deferred chill. Waiting attestors chill
     // immediately and are handled by AttestorChilled, so only Active becomes Leaving here.
-    if (attestorEntity.status !== RuntimeAttestorStatus.Active) {
+    if (attestorEntity.status !== RuntimeAttestorStatus.active) {
         return;
     }
 
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = RuntimeAttestorStatus.Leaving;
+    attestorEntity.status = RuntimeAttestorStatus.leaving;
     await attestorEntity.save();
 }
 
