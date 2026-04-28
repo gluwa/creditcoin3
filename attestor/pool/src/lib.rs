@@ -875,13 +875,15 @@ impl AttestationPoolForks {
             "Missing mapping in forks_by_size: {key_size:#?}"
         );
         assert!(
-            self.quorums_by_height.remove(&key_height),
-            "Missing mapping in quorums_by_height: {key_height:#?}"
-        );
-        assert!(
             self.votes_invalid.insert(key_digest),
             "Duplicate mapping in votes_invalid: {key_digest:#?}"
         );
+
+        // WARNING: RACE CONDITION
+        //
+        // The entry for this digest in `quorums_by_height` may have been removed following a
+        // target sample size update since quorum was last observed.
+        let _ = self.quorums_by_height.remove(&key_height);
 
         for attestor in vote.signers {
             let key_vote = KeyVote { height, attestor };
