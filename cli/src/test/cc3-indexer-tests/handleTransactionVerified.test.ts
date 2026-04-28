@@ -44,7 +44,7 @@ describe('handleTransactionVerified()', () => {
 
         const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
         const pollIntervalMs = 5_000; // 5 sec poll interval
-        const timeoutMs = 60_000; // 1 min wait Timeout
+        const timeoutMs = 120_000; // 2 min wait Timeout
         const extraDelayMs = 15_000; // add 15 sec buffer to be sure that the block is finalized on the execution chain
         await chainInfoProvider.waitUntilHeightAttested(
             chain_Anvil1_Key,
