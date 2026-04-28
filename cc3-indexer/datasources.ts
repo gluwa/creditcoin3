@@ -127,6 +127,15 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
                 },
             },
             {
+                kind: SubstrateHandlerKind.Call,
+                handler: 'handleCallAttestorChill',
+                filter: {
+                    module: 'attestation',
+                    method: 'chill',
+                    success: true,
+                },
+            },
+            {
                 kind: SubstrateHandlerKind.Event,
                 handler: 'handleEventMinBondRequirementUpdated',
                 filter: {
