@@ -109,7 +109,7 @@ describe('Precompile: AttestorStash', (): void => {
     }, 90_000);
 
     test('registerAttestor twice for the same stash on the same chain reverts', async () => {
-        await expect(contract.registerAttestor(chainKey, attestorId, { gasPrice })).rejects.toThrow(
+        await expect(contract.registerAttestor.staticCall(chainKey, attestorId)).rejects.toThrow(
             /Dispatched call failed with error:.*AlreadyAttestor/,
         );
     });
@@ -119,7 +119,7 @@ describe('Precompile: AttestorStash', (): void => {
         // Also use a fresh attestor id: this mustn't conflict with the one we just registered.
         const freshAttestorId = randomAttestorId();
 
-        await expect(contract.registerAttestor(unsupportedChainKey, freshAttestorId, { gasPrice })).rejects.toThrow(
+        await expect(contract.registerAttestor.staticCall(unsupportedChainKey, freshAttestorId)).rejects.toThrow(
             /Dispatched call failed with error:.*ChainNotSupported/,
         );
     });
@@ -130,13 +130,13 @@ describe('Precompile: AttestorStash', (): void => {
 
     test('chill on an unknown attestor id reverts (AddressNotAttestor)', async () => {
         const unknownAttestorId = randomAttestorId();
-        await expect(contract.chill(chainKey, unknownAttestorId, { gasPrice })).rejects.toThrow(
+        await expect(contract.chill.staticCall(chainKey, unknownAttestorId)).rejects.toThrow(
             /Dispatched call failed with error:.*AddressNotAttestor/,
         );
     });
 
     test('chill on a registered but idle attestor reverts (AttestorAlreadyIdle)', async () => {
-        await expect(contract.chill(chainKey, attestorId, { gasPrice, gasLimit: GAS_LIMIT })).rejects.toThrow(
+        await expect(contract.chill.staticCall(chainKey, attestorId)).rejects.toThrow(
             /Dispatched call failed with error:.*AttestorAlreadyIdle/,
         );
     }, 60_000);
@@ -166,7 +166,7 @@ describe('Precompile: AttestorStash', (): void => {
     }, 60_000);
 
     test('unregisterAttestor a second time reverts (AddressNotAttestor)', async () => {
-        await expect(contract.unregisterAttestor(chainKey, attestorId, { gasPrice })).rejects.toThrow(
+        await expect(contract.unregisterAttestor.staticCall(chainKey, attestorId)).rejects.toThrow(
             /Dispatched call failed with error:.*AddressNotAttestor/,
         );
     });
