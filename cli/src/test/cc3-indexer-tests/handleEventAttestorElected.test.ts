@@ -83,6 +83,7 @@ describe('handleEventAttestorElected()', () => {
                         orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10,
                         filter: {
                             chainKey: { equalTo: "${chain_Anvil1_Key}"},
+                            status: { equalTo: 0 },
                         }
                     ) { nodes { id, attestorId, lastUpdateBlockNumber, status }}
                 }`,

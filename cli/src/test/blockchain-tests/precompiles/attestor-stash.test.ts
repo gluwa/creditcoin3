@@ -16,7 +16,6 @@ const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 // Event signatures (must match pallet-evm-precompile-attestor-stash)
 const ATTESTOR_REGISTERED_TOPIC = ethers.id('AttestorRegistered(uint64,bytes32,address)');
 const ATTESTOR_UNREGISTERED_TOPIC = ethers.id('AttestorUnregistered(uint64,bytes32,address)');
-const ATTESTOR_CHILLED_TOPIC = ethers.id('AttestorChilled(uint64,bytes32,address)');
 const UNBONDED_WITHDRAWN_TOPIC = ethers.id('UnbondedWithdrawn(address)');
 
 // Encode a uint64 chain key as a 32-byte indexed topic (big-endian, zero-padded).
@@ -136,20 +135,10 @@ describe('Precompile: AttestorStash', (): void => {
         );
     });
 
-    test('chill succeeds and emits AttestorChilled for the caller stash', async () => {
-        const tx = await contract.chill(chainKey, attestorId, { gasPrice, gasLimit: GAS_LIMIT });
-        const receipt = await tx.wait();
-        expect(receipt.status).toBe(1);
-
-        const log = receipt.logs.find(
-            (l: any) =>
-                l.address.toLowerCase() === attestorStashAddress.toLowerCase() &&
-                l.topics[0] === ATTESTOR_CHILLED_TOPIC,
+    test('chill on a registered but idle attestor reverts (AttestorAlreadyIdle)', async () => {
+        await expect(contract.chill(chainKey, attestorId, { gasPrice, gasLimit: GAS_LIMIT })).rejects.toThrow(
+            /Dispatched call failed with error:.*AttestorAlreadyIdle/,
         );
-        expect(log).toBeDefined();
-        expect(log.topics[1]).toBe(chainKeyTopic(chainKey));
-        expect(log.topics[2]).toBe(attestorId.toLowerCase());
-        expect(log.topics[3]).toBe(addressTopic(alith.address));
     }, 60_000);
 
     // -----------------------------------------------------------------------------

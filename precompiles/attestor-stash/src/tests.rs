@@ -246,7 +246,7 @@ fn chill_attestor_from_non_stash_should_revert() {
 }
 
 #[test]
-fn register_then_chill_attestor_should_succeed_and_emit_event() {
+fn register_then_chill_idle_attestor_should_revert() {
     let alice: H160 = Alice.into();
 
     ExtBuilder::default()
@@ -273,6 +273,55 @@ fn register_then_chill_attestor_should_succeed_and_emit_event() {
                         attestor_id: attestor_id(),
                     },
                 )
+                .execute_reverts(|output| {
+                    let s = from_utf8(output).unwrap();
+                    s.contains("Dispatched call failed with error: ")
+                        && s.contains("AttestorAlreadyIdle")
+                });
+        });
+}
+
+#[test]
+fn chill_active_attestor_should_schedule_leaving_and_emit_log() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            pallet_attestation::Attestors::<Runtime>::mutate(
+                TEST_CHAIN_KEY,
+                &crate::mock::Account::AttestorA,
+                |maybe_attestor| {
+                    maybe_attestor.as_mut().expect("registered above").status =
+                        attestor_primitives::AttestorStatus::Active;
+                },
+            );
+            pallet_attestation::ActiveAttestors::<Runtime>::insert(
+                TEST_CHAIN_KEY,
+                vec![crate::mock::Account::AttestorA],
+            );
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::chill {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
                 .expect_log(log4(
                     Precompile,
                     SELECTOR_LOG_ATTESTOR_CHILLED,
@@ -282,6 +331,22 @@ fn register_then_chill_attestor_should_succeed_and_emit_event() {
                     Vec::<u8>::new(),
                 ))
                 .execute_returns(true);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(AttestorInfo {
+                    exists: true,
+                    status: 3, // Leaving
+                    stash: H256::from(alice),
+                    has_bls_key: false,
+                });
         });
 }
 

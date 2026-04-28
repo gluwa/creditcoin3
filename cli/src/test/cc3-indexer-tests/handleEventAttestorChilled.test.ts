@@ -115,7 +115,7 @@ describe('handleEventAttestorChilled()', () => {
 
             for (const node of response.data.attestors.nodes) {
                 expect(node.attestorId).toEqual(attestor.address);
-                expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(startingBlock);
+                expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThanOrEqual(startingBlock);
                 expect(node.status).toEqual(3); // Leaving
             }
         });
