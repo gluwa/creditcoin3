@@ -80,7 +80,9 @@ async function chillAction(options: OptionValues) {
         process.exit(1);
     }
     if (BigInt(attestorInfo.status) === ATTESTOR_STATUS_LEAVING) {
-        console.error(`Attestor ${attestorSs58} already has a chill scheduled; wait for the next era boundary to complete.`);
+        console.error(
+            `Attestor ${attestorSs58} already has a chill scheduled; wait for the next era boundary to complete.`,
+        );
         process.exit(1);
     }
 

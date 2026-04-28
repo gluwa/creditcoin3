@@ -234,6 +234,7 @@ where
                     attestor_primitives::AttestorStatus::Active => 0,
                     attestor_primitives::AttestorStatus::Idle => 1,
                     attestor_primitives::AttestorStatus::Waiting => 2,
+                    attestor_primitives::AttestorStatus::Leaving => 3,
                 };
                 let stash: H256 = H256::from(Into::<[u8; 32]>::into(attestor.stash));
                 let has_bls_key = attestor.bls_public_key.is_some();

@@ -4,7 +4,7 @@ import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount, waitEras } from '../integration-tests/helpers';
-import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
+import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
 describe('handleEventAttestorChilled()', () => {
@@ -20,9 +20,9 @@ describe('handleEventAttestorChilled()', () => {
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
         attestor = await randomFundedAccount(api, root);
 
-        // NOTE: Bob is the STASH for a random attestor on the Anvil2 chain
+        // NOTE: Bob is the STASH for a random attestor on the Anvil1 chain
         await api.tx.attestation
-            .registerAttestor(chain_Anvil2_Key, attestor.address)
+            .registerAttestor(chain_Anvil1_Key, attestor.address)
             .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
         await forElapsedBlocks(api, { minBlocks: 3 });
 
@@ -30,12 +30,13 @@ describe('handleEventAttestorChilled()', () => {
         const blsPublicKey = blsSecretKey.public_key().as_bytes();
         const proofOfPossession = blsSecretKey.sign(blsPublicKey);
         await api.tx.attestation
-            .attest(chain_Anvil2_Key, blsPublicKey, proofOfPossession.as_bytes())
+            .attest(chain_Anvil1_Key, blsPublicKey, proofOfPossession.as_bytes())
             .signAndSend(attestor.keyring, { nonce: await api.rpc.system.accountNextIndex(attestor.address) });
         await forElapsedBlocks(api, { minBlocks: 3 });
 
+        const epoch = (await api.query.babe.epochIndex()).toNumber();
         await api.tx.sudo
-            .sudo(api.tx.attestation.forceElection(1))
+            .sudo(api.tx.attestation.forceElection(epoch + 1))
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
         await forElapsedBlocks(api, { minBlocks: 3 });
     }, 120_000);
@@ -49,7 +50,14 @@ describe('handleEventAttestorChilled()', () => {
             // make sure attestor is reported as active before it schedules chill
             const response = await graphQLQuery(
                 `query {
-                    attestors(orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10) {
+                    attestors(
+                        orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC,
+                        last: 10,
+                        filter: {
+                            attestorId: { equalTo: "${attestor.address}"},
+                            chainKey: { equalTo: "${chain_Anvil1_Key}"},
+                        }
+                    ) {
                         nodes { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey }
                     },
 
@@ -82,7 +90,7 @@ describe('handleEventAttestorChilled()', () => {
 
             // NOTE: chill schedules Leaving for an active attestor; Idle is applied at epoch rotation.
             await api.tx.attestation
-                .chill(chain_Anvil2_Key, attestor.address)
+                .chill(chain_Anvil1_Key, attestor.address)
                 .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
 
             // wait for txn to make it on chain & indexer to ingest the successful call
@@ -97,6 +105,7 @@ describe('handleEventAttestorChilled()', () => {
                         last: 1,
                         filter: {
                             attestorId: { equalTo: "${attestor.address}"},
+                            chainKey: { equalTo: "${chain_Anvil1_Key}"},
                         }
                     ) { nodes { id, attestorId, lastUpdateBlockNumber, status }}
                 }`,
@@ -125,6 +134,7 @@ describe('handleEventAttestorChilled()', () => {
                             last: 1,
                             filter: {
                                 attestorId: { equalTo: "${attestor.address}"},
+                                chainKey: { equalTo: "${chain_Anvil1_Key}"},
                             }
                         ) { nodes { id, whoId, blockNumber, attestorId, chainKey, date }}
                     }`,
@@ -140,7 +150,7 @@ describe('handleEventAttestorChilled()', () => {
                     expect(node.whoId).toEqual(attestor.address);
                     expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                     expect(node.attestorId).toEqual(attestor.address);
-                    expect(node.chainKey).toEqual(chain_Anvil2_Key.toString());
+                    expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
                     expect(Date.parse(node.date)).toBeGreaterThan(0);
                     expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 }
@@ -154,6 +164,7 @@ describe('handleEventAttestorChilled()', () => {
                             last: 1,
                             filter: {
                                 attestorId: { equalTo: "${attestor.address}"},
+                                chainKey: { equalTo: "${chain_Anvil1_Key}"},
                             }
                         ) { nodes { id, attestorId, lastUpdateBlockNumber, status }}
                     }`,
