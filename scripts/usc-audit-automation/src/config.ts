@@ -93,10 +93,12 @@ export function loadConfig(): AuditConfig {
     | undefined;
   const sepoliaUrl = Deno.env.get("SEPOLIA_RPC_URL");
   const bscUrl = Deno.env.get("BSC_RPC_URL");
+  const mainnetEthUrl = Deno.env.get("MAINNET_RPC_URL");
   const ethRpc = (ethRpcRaw ?? []).map((r) => {
     let url = r.url;
     if (r.chainId === 11155111 && sepoliaUrl) url = sepoliaUrl;
     if (r.chainId === 97 && bscUrl) url = bscUrl;
+    if (r.chainId === 1 && mainnetEthUrl) url = mainnetEthUrl;
     return {
       chainId: r.chainId,
       chainKey: r.chainKey,
@@ -198,5 +200,6 @@ CONFIG FILE FORMAT (JSON):
 ENV OVERRIDES (for CI):
   SEPOLIA_RPC_URL   Override ethRpc url for chainId 11155111
   BSC_RPC_URL       Override ethRpc url for chainId 97
+  MAINNET_RPC_URL   Override ethRpc url for chainId 1
 `);
 }
