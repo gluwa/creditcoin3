@@ -139,7 +139,9 @@ Error Response Shape:
 will predict the next attestation using the attestation interval and generate an "eager" proof.
 This proof will become verifiable once the predicted attestation is created on-chain.
 
-In rare cases where no attestations exist at all, a `BlockNotReady` error is returned:
+In rare cases where no attestations exist at all, a `BlockNotReady` error is returned
+with HTTP status `422 Unprocessable Entity` (the request is well-formed but the block
+is not yet attested):
 
 ```jsonc
 {
