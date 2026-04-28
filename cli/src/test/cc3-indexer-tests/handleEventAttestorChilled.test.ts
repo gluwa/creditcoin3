@@ -94,7 +94,7 @@ describe('handleEventAttestorChilled()', () => {
                 .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
 
             // wait for txn to make it on chain & indexer to ingest the successful call
-            await forElapsedBlocks(api, { minBlocks: 0 });
+            await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
         it('graphQL returns Leaving Attestor entity before epoch rotation', async () => {
