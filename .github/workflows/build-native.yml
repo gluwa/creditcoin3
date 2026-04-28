@@ -65,6 +65,7 @@ jobs:
       - uses: gluwa/rust-cache@testing/CSUB-2030-debug-cache-keys
         with:
           shared-key: ${{ inputs.cache-key-name }}
+          add-rust-environment-hash-key: false
 
       - name: Download new_metadata.diff
         if: ${{ inputs.use-new-metadata }}
