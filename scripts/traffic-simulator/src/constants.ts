@@ -26,6 +26,22 @@ export const RECEIPT_TIMEOUT_MS = _receiptTimeout > 0
   ? _receiptTimeout
   : 120_000;
 
+// Simulation timeout — `eth_call` against `verifyAndEmit` with non-trivial
+// calldata can take significantly longer than a normal RPC round-trip because
+// the node has to run the full precompile (Merkle + continuity verification)
+// inside the single-threaded RPC handler. Give it more headroom than the
+// generic RPC timeout, but still bound it.
+const _simTimeout = Number(Deno.env.get("SIMULATION_TIMEOUT_MS"));
+export const SIMULATION_TIMEOUT_MS = _simTimeout > 0 ? _simTimeout : 90_000;
+
+// Skip pre-flight `eth_call` simulation when the calldata exceeds this size,
+// in bytes. Large `verifyAndEmit` payloads (batches, big tx witnesses) can
+// take longer than any reasonable RPC timeout to simulate, even though the
+// actual on-chain submission goes through fine. For those, skip simulation
+// and rely on receipt-side error handling instead.
+const _simSkip = Number(Deno.env.get("SIMULATION_SKIP_BYTES"));
+export const SIMULATION_SKIP_BYTES = _simSkip > 0 ? _simSkip : 16_384;
+
 // Transient network error retry settings (for socket hang up, ECONNRESET, etc.)
 export const MAX_TRANSIENT_RETRIES = 3;
 export const TRANSIENT_RETRY_BASE_DELAY_MS = 2_000;
