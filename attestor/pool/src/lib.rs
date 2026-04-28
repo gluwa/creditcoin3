@@ -999,7 +999,7 @@ impl AttestationPoolForks {
 
     fn find_best(&self) -> Option<AttestationVote> {
         self.quorums_by_height
-            .first()
+            .last()
             .map(|KeyHeight { digest, .. }| digest)
             .or_else(|| {
                 self.forks_by_size
@@ -2126,7 +2126,7 @@ mod test {
 
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
-        assert_eq!(quorum_actual, quorum_expected);
+        pretty_assertions::assert_eq!(quorum_actual, quorum_expected);
 
         rx.mark_valid(permit);
 
@@ -2138,7 +2138,7 @@ mod test {
             size: 2,
             digest: DIGEST_0
         }));
-        assert_eq!(
+        pretty_assertions::assert_eq!(
             inner.digest_local,
             Some(cc_client::H256(attestation_1.attestation.digest().0))
         );
@@ -2169,7 +2169,7 @@ mod test {
 
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
-        assert_eq!(quorum_actual, quorum_expected);
+        pretty_assertions::assert_eq!(quorum_actual, quorum_expected);
         rx.mark_invalid(permit);
 
         let mut pool = rx.common.pool.lock();
@@ -2212,7 +2212,7 @@ mod test {
 
         // `mark_invalid` removes quorum under new validation rules. `quorums_by_height` must have
         // been updated by now or this will panic!
-        assert_eq!(quorum_actual, quorum_expected);
+        pretty_assertions::assert_eq!(quorum_actual, quorum_expected);
         rx.mark_invalid(permit);
 
         let mut pool = rx.common.pool.lock();
@@ -2252,7 +2252,7 @@ mod test {
 
         let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
 
-        assert_eq!(quorum_actual, quorum_expected);
+        pretty_assertions::assert_eq!(quorum_actual, quorum_expected);
         rx.mark_for_later(
             permit,
             attestation_signed.clone(),
@@ -2270,11 +2270,11 @@ mod test {
         > = attestation_signed.clone().into();
 
         assert_matches::assert_matches!(rx.take_next_validated(), Some((height, digest, attestation, votes)) => {
-            assert_eq!(height, attestation_0.attestation.header_number());
-            assert_eq!(digest, attestation_0.attestation.digest());
+            pretty_assertions::assert_eq!(height, attestation_0.attestation.header_number());
+            pretty_assertions::assert_eq!(digest, attestation_0.attestation.digest());
             // Other types in this don't implement PartialEq and Eq...
-            assert_eq!(attestation.attestors, attestation_expected.attestors);
-            assert_eq!(votes,
+            pretty_assertions::assert_eq!(attestation.attestors, attestation_expected.attestors);
+            pretty_assertions::assert_eq!(votes,
                 vec![
                     attestation_0.attestation,
                     attestation_1.attestation,
@@ -2282,7 +2282,7 @@ mod test {
             );
         });
 
-        assert_eq!(
+        pretty_assertions::assert_eq!(
             sx.common.pool.lock().expect_open().digest_local,
             Some(cc_client::H256(attestation_signed.digest().0))
         );
@@ -2309,9 +2309,9 @@ mod test {
             let mut pool = rx.common.pool.lock();
             let inner = pool.expect_open();
 
-            assert_eq!(inner.forks.pending_by_digest.len(), 1);
-            assert_eq!(inner.forks.pending_by_prev_digest_tail.len(), 1);
-            assert_eq!(inner.forks.pending_by_height.len(), 1);
+            pretty_assertions::assert_eq!(inner.forks.pending_by_digest.len(), 1);
+            pretty_assertions::assert_eq!(inner.forks.pending_by_prev_digest_tail.len(), 1);
+            pretty_assertions::assert_eq!(inner.forks.pending_by_height.len(), 1);
             assert!(inner
                 .forks
                 .pending_by_prev_digest_tail
@@ -2333,7 +2333,7 @@ mod test {
             let inner = pool.expect_open();
             let vote = AttestationVote::new(attestation_pending.attestation.clone());
 
-            assert_eq!(inner.forks.forks_best.clone().unwrap(), vote);
+            pretty_assertions::assert_eq!(inner.forks.forks_best.clone().unwrap(), vote);
         }
     }
 
@@ -2358,11 +2358,11 @@ mod test {
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
 
-        assert_eq!(inner.forks.votes.len(), 2);
-        assert_eq!(inner.forks.forks_by_digest.len(), 2);
-        assert_eq!(inner.forks.forks_by_size.len(), 2);
+        pretty_assertions::assert_eq!(inner.forks.votes.len(), 2);
+        pretty_assertions::assert_eq!(inner.forks.forks_by_digest.len(), 2);
+        pretty_assertions::assert_eq!(inner.forks.forks_by_size.len(), 2);
 
-        assert_eq!(
+        pretty_assertions::assert_eq!(
             inner
                 .forks
                 .forks_by_digest
@@ -2371,7 +2371,7 @@ mod test {
             &attestation_0
         );
 
-        assert_eq!(
+        pretty_assertions::assert_eq!(
             inner
                 .forks
                 .forks_by_digest
@@ -2428,11 +2428,11 @@ mod test {
         let mut pool = rx.common.pool.lock();
         let inner = pool.expect_open();
 
-        assert_eq!(inner.forks.votes.len(), 2);
-        assert_eq!(inner.forks.forks_by_digest.len(), 2);
-        assert_eq!(inner.forks.forks_by_size.len(), 2);
+        pretty_assertions::assert_eq!(inner.forks.votes.len(), 2);
+        pretty_assertions::assert_eq!(inner.forks.forks_by_digest.len(), 2);
+        pretty_assertions::assert_eq!(inner.forks.forks_by_size.len(), 2);
 
-        assert_eq!(
+        pretty_assertions::assert_eq!(
             inner
                 .forks
                 .forks_by_digest
@@ -2441,7 +2441,7 @@ mod test {
             &attestation_0
         );
 
-        assert_eq!(
+        pretty_assertions::assert_eq!(
             inner
                 .forks
                 .forks_by_digest
@@ -2544,7 +2544,7 @@ mod test {
         let actual = rx.next().await;
         let expected = Some((quorum, permit, None));
 
-        assert_eq!(actual, expected);
+        pretty_assertions::assert_eq!(actual, expected);
     }
 
     #[tokio::test]
@@ -2595,7 +2595,7 @@ mod test {
         let actual = rx.next().await;
         let expected = Some((quorum, permit, None));
 
-        assert_eq!(actual, expected);
+        pretty_assertions::assert_eq!(actual, expected);
     }
 
     #[tokio::test]
@@ -2827,7 +2827,7 @@ mod test {
                 digest: attestation_2.compound_digest()
             }));
 
-            assert_eq!(forks.forks_best, Some(attestation_0.clone()));
+            pretty_assertions::assert_eq!(forks.forks_best, Some(attestation_0.clone()));
         }
 
         sx.note_target_sample_size_change(1);
@@ -2847,7 +2847,7 @@ mod test {
                 digest: attestation_2.compound_digest()
             }));
 
-            assert_eq!(forks.forks_best, Some(attestation_0.clone()));
+            pretty_assertions::assert_eq!(forks.forks_best, Some(attestation_2.clone()));
         }
     }
 
@@ -2891,7 +2891,7 @@ mod test {
                 digest: attestation_2.compound_digest()
             }));
 
-            assert_eq!(forks.forks_best, Some(attestation_2.clone()));
+            pretty_assertions::assert_eq!(forks.forks_best, Some(attestation_2.clone()));
         }
 
         sx.note_target_sample_size_change(2);
@@ -2911,7 +2911,7 @@ mod test {
                 digest: attestation_2.compound_digest()
             }));
 
-            assert_eq!(forks.forks_best, Some(attestation_0));
+            pretty_assertions::assert_eq!(forks.forks_best, Some(attestation_0));
         }
     }
 
@@ -3077,13 +3077,13 @@ mod test {
         let inner = pool.expect_open();
 
         // Digest local reset
-        assert_eq!(inner.digest_local, None);
+        pretty_assertions::assert_eq!(inner.digest_local, None);
 
         // Forks reset
         assert!(inner.forks.forks_by_digest.is_empty());
         assert!(inner.forks.forks_by_height.is_empty());
         assert!(inner.forks.forks_by_size.is_empty());
-        assert_eq!(inner.forks.forks_best, None);
+        pretty_assertions::assert_eq!(inner.forks.forks_best, None);
 
         assert!(inner.forks.pending_by_digest.is_empty());
         assert!(inner.forks.pending_by_prev_digest_tail.is_empty());
@@ -3094,7 +3094,7 @@ mod test {
         assert!(inner.forks.quorums_by_height.is_empty());
 
         // Reversion should set the new finalized digest
-        assert_eq!(inner.forks.last_finalized_digest, Some(DIGEST_1.digest));
+        pretty_assertions::assert_eq!(inner.forks.last_finalized_digest, Some(DIGEST_1.digest));
 
         // Valid queue reset
         assert!(inner.valid.quorums_valid.is_empty());
