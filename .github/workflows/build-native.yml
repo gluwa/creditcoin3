@@ -62,7 +62,7 @@ jobs:
           targets: wasm32-unknown-unknown
           components: rust-src
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: gluwa/rust-cache@testing/CSUB-2030-debug-cache-keys
         with:
           shared-key: ${{ inputs.cache-key-name }}
 
