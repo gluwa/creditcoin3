@@ -51,6 +51,7 @@ version = "3.111.0"
 [workspace.dependencies]
 assert_matches = "1.5.0"
 bn = { package = "substrate-bn", version = "0.6", default-features = false }
+pretty_assertions = { version = "1.4.1" }
 proptest = "1.10.0"
 rstest = "0.26.1"
 sync_wrapper = "1.0.2"
