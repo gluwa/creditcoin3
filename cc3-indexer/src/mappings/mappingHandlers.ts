@@ -39,6 +39,13 @@ import {
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData } from './initStore';
 
+const RuntimeAttestorStatus = {
+    Active: 0,
+    Idle: 1,
+    Waiting: 2,
+    Leaving: 3,
+} as const;
+
 export async function handleEventAttestorsElected(event: SubstrateEvent): Promise<void> {
     logger.info(`New Attestors Elected event found at block ${event.block.block.header.number.toString()}`);
 
@@ -75,7 +82,7 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
             const id = `${blockNumber}-${event.idx}-${index}`;
             const attestorEntity = await checkAndGetAttestor(id, accountStr, chainKeyNumber);
             attestorEntity.lastUpdateBlockNumber = event.block.block.header.number.toBigInt();
-            attestorEntity.status = 0; // If an attestor is elected, it becomes Active
+            attestorEntity.status = RuntimeAttestorStatus.Active; // If an attestor is elected, it becomes Active
 
             saveEntityList.push(attestorEntity.save());
         }
@@ -239,7 +246,7 @@ export async function handleEventAttestorRegistered(event: SubstrateEvent): Prom
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     attestorEntity.stashId = from.toString();
-    attestorEntity.status = 1; // Registering an attestor sets it to Idle status until it gets activated
+    attestorEntity.status = RuntimeAttestorStatus.Idle; // Registering an attestor sets it to Idle until activation
 
     logger.info(`New AttestorEntity event created at block ${blockNumber}`);
 
@@ -275,7 +282,7 @@ export async function handleEventAttestorUnregistered(event: SubstrateEvent): Pr
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     // Unregistering an attestor removes it from storage on chain, here we just set it to Idle status to keep history of the attestor in the db.
-    attestorEntity.status = 1;
+    attestorEntity.status = RuntimeAttestorStatus.Idle;
 
     await Promise.all([attestorUnregistered.save(), attestorEntity.save()]);
 }
@@ -461,7 +468,7 @@ async function checkAndGetAttestor(id: string, attestorId: string, chainKey: big
             attestorId,
             chainKey,
             lastUpdateBlockNumber: BigInt(0),
-            status: 1, // 0 - Active, 1 - Idle, 2 - Waiting (matches runtime AttestorStatus enum)
+            status: RuntimeAttestorStatus.Idle,
             stashId: '',
             blsPublicKey: '',
         });
@@ -926,7 +933,7 @@ export async function handleEventAttestorActivated(event: SubstrateEvent): Promi
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = 2; // Activating an attestor sets it to Waiting status (waiting until it gets elected)
+    attestorEntity.status = RuntimeAttestorStatus.Waiting; // Activating an attestor sets it to Waiting until elected
     attestorEntity.blsPublicKey = blsPublicKeyStr;
 
     await Promise.all([attestorActivated.save(), attestorEntity.save()]);
@@ -963,9 +970,34 @@ export async function handleEventAttestorChilled(event: SubstrateEvent): Promise
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestorId, chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = 1; // Chilled → Idle on-chain (see AttestorStatus enum in runtime)
+    attestorEntity.status = RuntimeAttestorStatus.Idle; // Chilled -> Idle on-chain
 
     await Promise.all([attestorChilled.save(), attestorEntity.save()]);
+}
+
+export async function handleCallAttestorChill(extrinsic: SubstrateExtrinsic): Promise<void> {
+    const blockNumber = extrinsic.block.block.header.number.toBigInt();
+    const [chainKey, attestor] = extrinsic.extrinsic.method.args;
+
+    if (!chainKey || !attestor) {
+        logger.warn(`Unable to parse attestation.chill call args at block ${blockNumber}`);
+        return;
+    }
+
+    const chainKeyNumber = BigInt(chainKey.toString());
+    const attestorId = attestor.toString();
+    const id = `${blockNumber}-${extrinsic.idx ?? 0}`;
+    const attestorEntity = await checkAndGetAttestor(id, attestorId, chainKeyNumber);
+
+    // A successful chill call from Active schedules a deferred chill. Waiting attestors chill
+    // immediately and are handled by AttestorChilled, so only Active becomes Leaving here.
+    if (attestorEntity.status !== RuntimeAttestorStatus.Active) {
+        return;
+    }
+
+    attestorEntity.lastUpdateBlockNumber = blockNumber;
+    attestorEntity.status = RuntimeAttestorStatus.Leaving;
+    await attestorEntity.save();
 }
 
 export async function handleEventMinBondRequirementUpdated(event: SubstrateEvent): Promise<void> {
