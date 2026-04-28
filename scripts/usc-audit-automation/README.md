@@ -6,7 +6,7 @@ A Deno-based TypeScript tool that runs attestation sanity checks on USC
 
 All configuration is loaded from a single JSON file. For CI, env overrides:
 `USC_NOTI_SLACK_BOT_TOKEN`, `USC_NOTI_SLACK_CHANNEL_ID`,
-`USC_SLACK_ALERT_GROUP`, `SEPOLIA_RPC_URL`, `BSC_RPC_URL`.
+`USC_SLACK_ALERT_GROUP`, `SEPOLIA_RPC_URL`, `BSC_RPC_URL`, `MAINNET_RPC_URL`
 
 ## Features
 
@@ -64,7 +64,7 @@ variables.
   only when not using `--no-slack`
 
 **Env overrides (CI)**: `SEPOLIA_RPC_URL` overrides url for chainId 11155111;
-`BSC_RPC_URL` for chainId 97.
+`BSC_RPC_URL` for chainId 97 and `MAINNET_RPC_URL` for chainId 1.
 
 Relative config paths (e.g. `config-devnet.json`) are resolved from the script
 directory, so it works regardless of current working directory.
