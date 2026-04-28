@@ -160,9 +160,14 @@ impl ServiceError {
             | Self::BatchSpanTooLarge { .. } => StatusCode::BAD_REQUEST,
             Self::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
-            Self::TxHashNotFound { .. }
-            | Self::BlockNotReady { .. }
-            | Self::BlockNotOnSourceChain { .. } => StatusCode::NOT_FOUND,
+            Self::TxHashNotFound { .. } | Self::BlockNotOnSourceChain { .. } => {
+                StatusCode::NOT_FOUND
+            }
+            // Block exists but is not yet attested. The request is well-formed but
+            // cannot be processed in the current state, so 422 Unprocessable Entity
+            // is more accurate than 404 Not Found and lets clients distinguish
+            // "keep waiting / retry" from "this will never exist".
+            Self::BlockNotReady { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             Self::MerkleError { .. } | Self::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
