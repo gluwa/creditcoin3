@@ -492,6 +492,7 @@ jobs:
     needs:
       - build-creditcoin-node-for-testing-ci
       - trigger-integration-test-cli
+      - regenerate-metadata
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -514,18 +515,9 @@ jobs:
           name: binary-for-testing-ci
           path: target/release
 
-      - name: Start creditcoin3-node in order to update typedefs
+      - name: Restore executable permissions
         run: |
           chmod a+x ./target/release/creditcoin3-node
-          ./target/release/creditcoin3-node \
-            --chain dev \
-            --validator --alice  --pruning archive \
-            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
-            --base-path ./alice-data &
-
-      - name: Wait for nodes to start
-        run: |
-          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
       - name: Install Solidity compiler
         run: |
@@ -537,32 +529,28 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Download new_metadata.diff
+        uses: actions/download-artifact@v8
+        with:
+          name: new-metadata.diff
+          path: /var/tmp
+
+      - name: Apply new metadata patch
+        run: |
+          git apply /var/tmp/new-metadata.diff
+
+          echo "========== DEBUG METADATA DIFF =========="
+          git status --short --untracked-files=no
+          git diff --binary
+          echo "======================================="
+
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
         run: |
           yarn install
 
-      - name: Check that Creditcoin chain has ETH blocks
-        working-directory: ./cli
-        run: |
+          # note: potentially rebuilds with newer type definitions
           yarn build
-          node dist/scripts/eth-check.js ws://127.0.0.1:9944
-
-      - name: Auto-update typedefs
-        working-directory: ./cli
-        run: |
-          ./get-metadata.sh
-
-          # kill the node b/c the tests will launch their own processes
-          killall -9 creditcoin3-node
-
-          yarn build:types
-          yarn format
-
-          echo "========== DEBUG DEBUG DEBUG =========="
-          git status --short --untracked-files=no
-          git diff
-          echo "======================================="
 
       - name: Extra ENV for PRs towards dev branch
         if: github.base_ref == 'usc-dev'
@@ -583,12 +571,6 @@ jobs:
           echo "======================================="
 
           echo "validator_cycle=yes" >> "$GITHUB_OUTPUT"
-
-      # note: potentially rebuilds with newer type definitions
-      - name: Build creditcoin-cli
-        working-directory: ./cli
-        run: |
-          yarn build
 
       - name: Run integration tests
         working-directory: ./cli
@@ -1204,6 +1186,7 @@ jobs:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
+      - regenerate-metadata
     if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
     runs-on: ubuntu-24.04
     steps:
@@ -1221,7 +1204,7 @@ jobs:
           name: subkey
           path: ~/.cargo/bin
 
-      - name: Start creditcoin3-node in order to update typedefs
+      - name: Start creditcoin3-node
         run: |
           chmod a+x ./target/release/attestor
 
@@ -1272,38 +1255,33 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Download new_metadata.diff
+        uses: actions/download-artifact@v8
+        with:
+          name: new-metadata.diff
+          path: /var/tmp
+
+      - name: Apply new metadata patch
+        run: |
+          git apply /var/tmp/new-metadata.diff
+
+          echo "========== DEBUG METADATA DIFF =========="
+          git status --short --untracked-files=no
+          git diff --binary
+          echo "======================================="
+
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
         run: |
           yarn install
 
+          # note: potentially rebuilds with newer type definitions
+          yarn build
+
       - name: Check that Creditcoin chain has ETH blocks
         working-directory: ./cli
         run: |
-          yarn build
           node dist/scripts/eth-check.js ws://127.0.0.1:9944
-
-      - name: Auto-update typedefs
-        working-directory: ./cli
-        run: |
-          ./get-metadata.sh
-
-          # kill the node b/c the tests will launch their own processes
-          killall -9 creditcoin3-node
-
-          yarn build:types
-          yarn format
-
-          echo "========== DEBUG DEBUG DEBUG =========="
-          git status --short --untracked-files=no
-          git diff
-          echo "======================================="
-
-      # note: potentially rebuilds with newer type definitions
-      - name: Build creditcoin-cli
-        working-directory: ./cli
-        run: |
-          yarn build
 
       - name: Run integration tests
         working-directory: ./cli
@@ -1336,7 +1314,7 @@ jobs:
     needs:
       - should-run
       - build-creditcoin-node-for-testing-ci
-    if: ${{ needs.should-run.outputs.regenerate_metadata == 'true' }}
+    if: ${{ needs.should-run.outputs.regenerate_metadata == 'true' || needs.should-run.outputs.integration_test_cli == 'true' || needs.should-run.outputs.attestor_cli_testing == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
