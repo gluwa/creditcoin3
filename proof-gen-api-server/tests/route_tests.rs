@@ -214,7 +214,9 @@ async fn test_swagger_json_route_should_return_valid_json() {
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let bytes = axum::body::to_bytes(response.into_body(), 10240)
+    // 32 KiB is plenty of headroom as we add new endpoints / response variants;
+    // the previous 10 KiB cap was tight enough to break on the next addition.
+    let bytes = axum::body::to_bytes(response.into_body(), 32 * 1024)
         .await
         .unwrap();
     // note: if we can deserialize without error it must be valid json, no?
