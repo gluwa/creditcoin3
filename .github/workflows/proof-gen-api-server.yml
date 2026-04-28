@@ -24,6 +24,11 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
 
       - name: Install Anvil
         run: |
@@ -133,6 +138,11 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
 
       - name: Start Ethereum simulation with Anvil
         run: |
@@ -365,7 +375,11 @@ jobs:
     steps:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
       # start this early so it has time to produce more blocks to be used by stress-test
       - name: Start Ethereum simulation with Anvil
         run: |
