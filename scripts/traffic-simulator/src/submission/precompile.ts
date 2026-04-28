@@ -11,6 +11,8 @@ import {
   PRECOMPILE_ADDRESS,
   RECEIPT_TIMEOUT_MS,
   RPC_TIMEOUT_MS,
+  SIMULATION_SKIP_BYTES,
+  SIMULATION_TIMEOUT_MS,
   SINGLE_PROOF_GAS_LIMIT,
   SINGLE_VERIFY_SIG,
   TRANSIENT_RETRY_BASE_DELAY_MS,
@@ -112,6 +114,15 @@ async function executePrecompileCall(
 ): Promise<{ txHash: string; gasUsed: bigint }> {
   const { cc3HttpUrl, privateKey, data, gasLimit, label } = params;
 
+  // Calldata size in bytes (the hex string is `0x` + 2 hex chars per byte).
+  const calldataBytes = Math.max(0, (data.length - 2) >> 1);
+  // For very large payloads the node-side simulation reliably exceeds any
+  // sensible RPC timeout even though the on-chain submission would succeed,
+  // so skip the pre-flight `eth_call` and rely on receipt-side error
+  // handling instead. Smaller payloads still get simulated for early revert
+  // detection.
+  const skipSimulation = calldataBytes > SIMULATION_SKIP_BYTES;
+
   /**
    * Simulate the transaction with retry for transient network errors.
    * This is safe to retry because no nonce is used during simulation.
@@ -129,14 +140,22 @@ async function executePrecompileCall(
       const { signer, provider } = entry;
 
       try {
-        const from = await signer.getAddress();
+        if (skipSimulation) {
+          console.debug(
+            `${label} skipping simulation (calldata ${calldataBytes}B > ${SIMULATION_SKIP_BYTES}B threshold)`,
+          );
+        } else {
+          const from = await signer.getAddress();
 
-        // Simulate the transaction
-        await withTimeout(
-          provider.call({ to: PRECOMPILE_ADDRESS, data, from }),
-          RPC_TIMEOUT_MS,
-          `${label} simulation`,
-        );
+          // Simulate the transaction. Use the simulation-specific timeout
+          // because `eth_call` against `verifyAndEmit` with non-trivial
+          // calldata is materially slower than a normal RPC round-trip.
+          await withTimeout(
+            provider.call({ to: PRECOMPILE_ADDRESS, data, from }),
+            SIMULATION_TIMEOUT_MS,
+            `${label} simulation`,
+          );
+        }
 
         // Get fee data
         const feeOverrides = await getFeeOverrides(provider);
