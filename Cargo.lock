@@ -9286,6 +9286,7 @@ dependencies = [
  "frame-election-provider-support",
  "frame-support",
  "frame-system",
+ "pallet-assets",
  "pallet-attestation",
  "pallet-babe",
  "pallet-balances",
