@@ -95,10 +95,10 @@ fn register_chain_should_error_when_not_signed() {
 }
 
 #[test]
-fn register_chain_should_error_when_not_signed_by_alice() {
+fn register_chain_should_error_when_not_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
-        // This should fail because account 2 is not ALICE (1)
+        // This should fail because account 2 is not OPERATOR_ACCOUNT (1)
         assert_noop!(
             SupportedChain::register_chain(
                 RuntimeOrigin::signed(2),
@@ -116,9 +116,9 @@ fn register_chain_should_error_when_not_signed_by_alice() {
             BadOrigin
         );
 
-        // This should succeed because ALICE is allowed in our MockOperators EnsureOrigin
+        // This should succeed because OPERATOR_ACCOUNT is allowed in our MockOperators EnsureOrigin
         assert_ok!(SupportedChain::register_chain(
-            RuntimeOrigin::signed(ALICE),
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
             201,
             "Ethereum_1".to_owned(),
             None,
@@ -341,20 +341,20 @@ fn remove_chain_should_error_when_not_signed() {
 }
 
 #[test]
-fn remove_chain_should_error_when_not_signed_by_alice() {
+fn remove_chain_should_error_when_not_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
         let chain_key = 1;
 
-        // This should fail because account 2 is not ALICE (1)
+        // This should fail because account 2 is not OPERATOR_ACCOUNT (1)
         assert_noop!(
             SupportedChain::remove_chain(RuntimeOrigin::signed(2), chain_key, false),
             BadOrigin
         );
 
-        // This should succeed because ALICE is allowed in our MockOperators EnsureOrigin
+        // This should succeed because OPERATOR_ACCOUNT is allowed in our MockOperators EnsureOrigin
         assert_ok!(SupportedChain::remove_chain(
-            RuntimeOrigin::signed(ALICE),
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
             chain_key,
             false
         ));
@@ -593,7 +593,7 @@ fn set_outbox_factory_addr_should_error_when_not_signed() {
 }
 
 #[test]
-fn set_outbox_factory_addr_should_error_when_not_signed_by_alice() {
+fn set_outbox_factory_addr_should_error_when_not_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
         let chain_key = 1;
         let address = H160::repeat_byte(0x11);
@@ -604,7 +604,7 @@ fn set_outbox_factory_addr_should_error_when_not_signed_by_alice() {
         );
 
         assert_ok!(SupportedChain::set_outbox_factory_addr(
-            RuntimeOrigin::signed(ALICE),
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
             chain_key,
             address,
         ));
