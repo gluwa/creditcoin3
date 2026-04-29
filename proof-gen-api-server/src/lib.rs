@@ -139,33 +139,29 @@ impl Server {
                 redis_cluster_mode: global.redis_cluster_mode,
                 metrics: block_cache_metrics,
             };
-            Arc::new(
-                EthClient::new_with_cache(&chain.eth_rpc_url, None, cache_config)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Ethereum/source RPC + Redis cache failed for chain_key={chain_key} (eth_rpc_url={}, redis={})",
-                            redact_url_query(&chain.eth_rpc_url),
-                            redact_url_query(redis_url)
-                        )
-                    })?,
-            )
+            EthClient::new_with_cache(&chain.eth_rpc_url, None, cache_config)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Ethereum/source RPC + Redis cache failed for chain_key={chain_key} (eth_rpc_url={}, redis={})",
+                        redact_url_query(&chain.eth_rpc_url),
+                        redact_url_query(redis_url)
+                    )
+                })?
         } else {
             debug!(
                 chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
                 "[startup] connecting source chain ETH client (no Redis)"
             );
-            Arc::new(
-                EthClient::new(&chain.eth_rpc_url, None)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Ethereum/source RPC connection failed for chain_key={chain_key} (eth_rpc_url={})",
-                            redact_url_query(&chain.eth_rpc_url)
-                        )
-                    })?,
-            )
+            EthClient::new(&chain.eth_rpc_url, None)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Ethereum/source RPC connection failed for chain_key={chain_key} (eth_rpc_url={})",
+                        redact_url_query(&chain.eth_rpc_url)
+                    )
+                })?
         };
 
         let chain_id = eth_client.chain_id();
@@ -238,6 +234,9 @@ impl Server {
             );
         }
 
+        let reconnecting: continuity::rpc::SharedEthProvider =
+            Arc::new(continuity::rpc::ReconnectingEthRpcProvider::new(eth_client));
+
         let eth_provider: continuity::rpc::SharedEthProvider =
             if let Some(ref archiver_url) = chain.archiver_url {
                 debug!(
@@ -247,10 +246,10 @@ impl Server {
                 );
                 Arc::new(continuity::archiver::ArchiverEthProvider::new(
                     archiver_url.clone(),
-                    eth_client,
+                    reconnecting,
                 ))
             } else {
-                eth_client
+                reconnecting
             };
 
         debug!(
