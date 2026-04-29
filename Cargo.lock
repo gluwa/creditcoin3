@@ -8013,6 +8013,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "message-relayer"
+version = "3.112.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "axum",
+ "clap",
+ "dotenvy",
+ "prometheus-client 0.24.0",
+ "serde",
+ "serde_yaml",
+ "sysinfo",
+ "thiserror 1.0.69",
+ "tokio",
+ "tower-http 0.6.7",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "metrics"
 version = "3.112.0"
 dependencies = [
