@@ -31,12 +31,11 @@ struct StatusResponse {
 /// Source for reading block roots from an archiver HTTP API.
 pub struct ArchiveSource {
     client: Client,
-    base_url: String,
+    base_url: url::Url,
 }
 
 impl ArchiveSource {
-    pub fn new(base_url: String) -> Result<Self> {
-        let base_url = base_url.trim_end_matches('/').to_string();
+    pub fn new(base_url: url::Url) -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
             .build()
@@ -117,10 +116,7 @@ impl RootSource for ArchiveSource {
         match (status.latest_archived_block, status.total_blocks) {
             (Some(latest), total) if total > 0 => {
                 let first_height = (latest + 1).saturating_sub(total as u64);
-                Ok(self
-                    .fetch_range(first_height, first_height)?
-                    .into_iter()
-                    .next())
+                Ok(self.get(first_height)?)
             }
             _ => Ok(None),
         }
@@ -139,7 +135,7 @@ impl RootSource for ArchiveSource {
             .with_context(|| format!("Failed to parse JSON from {url}"))?;
 
         match latest.latest_block {
-            Some(h) => Ok(self.fetch_range(h, h)?.into_iter().next()),
+            Some(h) => Ok(self.get(h)?),
             None => Ok(None),
         }
     }

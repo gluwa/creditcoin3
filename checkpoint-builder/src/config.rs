@@ -328,7 +328,7 @@ pub struct SledArgs {
 pub struct ArchiverArgs {
     /// Base URL of the archiver HTTP API (e.g. http://localhost:8080)
     #[arg(long, env = "ARCHIVER_URL")]
-    pub archiver_url: String,
+    pub archiver_url: url::Url,
 
     #[command(flatten)]
     pub common: CommonArgs,

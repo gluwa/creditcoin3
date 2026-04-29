@@ -17,21 +17,27 @@ use crate::sink::CheckpointSink;
 /// The writer is lazily initialized on first write and reused for subsequent writes.
 pub struct CsvFileSink {
     file_path: PathBuf,
-    writer: Option<BufWriter<File>>,
+    writer: BufWriter<File>,
 }
 
 impl CsvFileSink {
     /// Create a new CSV file sink
     pub fn new(file_path: PathBuf) -> Self {
-        Self {
-            file_path,
-            writer: None,
-        }
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&file_path)
+            .with_context(|| format!("Failed to open CSV file: {}", file_path.display()))
+            .expect("Failed to open CSV file for writing");
+
+        let writer = BufWriter::new(file);
+
+        Self { file_path, writer }
     }
 }
 
 impl CheckpointSink for CsvFileSink {
-    fn write_checkpoints(&mut self, checkpoints: Vec<AttestationCheckpoint>) -> Result<()> {
+    fn write_checkpoints(&mut self, checkpoints: &[AttestationCheckpoint]) -> Result<()> {
         if checkpoints.is_empty() {
             return Ok(());
         }
@@ -42,31 +48,24 @@ impl CheckpointSink for CsvFileSink {
             self.file_path.display()
         );
 
-        // Lazily initialize the writer on first use
-        if self.writer.is_none() {
-            let file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&self.file_path)
-                .with_context(|| {
-                    format!("Failed to open CSV file: {}", self.file_path.display())
-                })?;
-
-            self.writer = Some(BufWriter::new(file));
-            debug!("Opened CSV file for writing: {}", self.file_path.display());
-        }
-
-        let buff = self.writer.as_mut().expect("writer should be initialized");
+        let mut line_buff = Vec::with_capacity(100); // block_number + comma + digest + newline
 
         // Build CSV records and write them
-        for checkpoint in &checkpoints {
-            let formatted_digest = format!("0x{}", hex::encode(checkpoint.digest.as_bytes()));
-            let line = format!("{},{}\n", checkpoint.block_number, formatted_digest);
-            buff.write_all(line.as_bytes())
+        for checkpoint in checkpoints {
+            let block_number = checkpoint.block_number;
+            let digest_hex = hex::encode(checkpoint.digest.as_bytes());
+
+            writeln!(&mut line_buff, "{block_number},0x{digest_hex}")?;
+
+            self.writer
+                .write_all(&line_buff)
                 .with_context(|| "Failed to write checkpoint to CSV file")?;
+            line_buff.clear();
         }
 
-        buff.flush().with_context(|| "Failed to flush CSV file")?;
+        self.writer
+            .flush()
+            .with_context(|| "Failed to flush CSV file")?;
 
         info!(
             "Successfully wrote {} checkpoints to CSV file: {}",
@@ -98,7 +97,7 @@ pub async fn spawn_csv_sink(
         let new_name = format!("{}_{}{}", stem.to_string_lossy(), timestamp, extension);
         output_file.with_file_name(new_name)
     } else {
-        output_file.with_file_name(format!("output_{timestamp}"))
+        output_file.with_file_name(format!("output_{timestamp}.csv"))
     };
 
     info!(
@@ -124,12 +123,11 @@ pub async fn spawn_csv_sink(
 
             // Write batch if we've reached the commit interval
             if batch.len() >= commit_interval {
-                let batch_to_write = std::mem::take(&mut batch);
-
-                if let Err(e) = csv_sink.write_checkpoints(batch_to_write) {
+                if let Err(e) = csv_sink.write_checkpoints(&batch) {
                     error!("Failed to write CSV batch: {}", e);
                     return Err(e);
                 }
+                batch.clear();
             }
         }
 
@@ -139,7 +137,7 @@ pub async fn spawn_csv_sink(
                 batch.len()
             );
 
-            if let Err(e) = csv_sink.write_checkpoints(batch) {
+            if let Err(e) = csv_sink.write_checkpoints(&batch) {
                 error!("Failed to write final CSV batch: {}", e);
                 return Err(e);
             }
