@@ -538,7 +538,7 @@ jobs:
 
       - name: Apply new metadata patch
         run: |
-          git apply /var/tmp/new-metadata.diff
+          git apply --allow-empty /var/tmp/new-metadata.diff
 
           echo "========== DEBUG METADATA DIFF =========="
           git status --short --untracked-files=no
@@ -1264,7 +1264,7 @@ jobs:
 
       - name: Apply new metadata patch
         run: |
-          git apply /var/tmp/new-metadata.diff
+          git apply --allow-empty /var/tmp/new-metadata.diff
 
           echo "========== DEBUG METADATA DIFF =========="
           git status --short --untracked-files=no
