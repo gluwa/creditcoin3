@@ -50,6 +50,14 @@ pub const SEL_WITHDRAW: [u8; 4] = [0x2e, 0x1a, 0x7d, 0x4d];
 /// in a storage migration before any precompile call that mints or transfers the asset.
 const ATTEST_COIN_ASSET_ID: u32 = 1;
 
+/// Minimum gas passed to the ERC-20 `transfer` subcall in [`AttestCoinPrecompile::withdraw`].
+/// The rest of post-burn gas is reserved for a pallet-assets `mint` rollback if the transfer fails.
+const WITHDRAW_ERC20_TRANSFER_MIN_GAS: u64 = 80_000;
+/// Buffer on top of weight-derived gas for the restore `mint` so metering / refunds do not OOG rollback.
+const WITHDRAW_MINT_RESTORE_GAS_BUFFER: u64 = 120_000;
+/// Slack so post-burn remaining gas is still enough for `WITHDRAW_ERC20_TRANSFER_MIN_GAS` after weight estimate error.
+const WITHDRAW_PRE_BURN_GAS_SLACK: u64 = 200_000;
+
 pub struct AttestCoinPrecompile<Runtime>(PhantomData<Runtime>);
 
 impl<Runtime> AttestCoinPrecompile<Runtime> {
@@ -412,14 +420,35 @@ where
         let precompile_h160 = handle.code_address();
         let admin = Runtime::AddressMapping::into_account_id(precompile_h160);
 
+        let burn_call = pallet_assets::Call::<Runtime>::burn {
+            id: ATTEST_COIN_ASSET_ID.into(),
+            who: Runtime::Lookup::unlookup(beneficiary.clone()),
+            amount: amount_u128.into(),
+        };
+        let mint_restore = pallet_assets::Call::<Runtime>::mint {
+            id: ATTEST_COIN_ASSET_ID.into(),
+            beneficiary: Runtime::Lookup::unlookup(beneficiary.clone()),
+            amount: amount_u128.into(),
+        };
+
+        let gas_burn = evm_gas_for_dispatch_call::<Runtime>(&Runtime::RuntimeCall::from(burn_call.clone()));
+        let gas_mint = evm_gas_for_dispatch_call::<Runtime>(&Runtime::RuntimeCall::from(mint_restore.clone()));
+        let mint_gas_reserve = gas_mint.saturating_add(WITHDRAW_MINT_RESTORE_GAS_BUFFER);
+        let min_before_burn = gas_burn
+            .saturating_add(mint_gas_reserve)
+            .saturating_add(WITHDRAW_ERC20_TRANSFER_MIN_GAS)
+            .saturating_add(WITHDRAW_PRE_BURN_GAS_SLACK);
+        if handle.remaining_gas() < min_before_burn {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"withdraw: insufficient gas".to_vec(),
+            });
+        }
+
         try_dispatch_attest_coin_no_pov::<Runtime, _>(
             handle,
             Some(admin.clone()).into(),
-            pallet_assets::Call::<Runtime>::burn {
-                id: ATTEST_COIN_ASSET_ID.into(),
-                who: Runtime::Lookup::unlookup(beneficiary.clone()),
-                amount: amount_u128.into(),
-            },
+            burn_call,
         )
         .map_err(PrecompileFailure::from)?;
 
@@ -433,24 +462,39 @@ where
             address: token,
             apparent_value: U256::zero(),
         };
-        let gas = handle.remaining_gas().saturating_mul(9) / 10;
-        let (reason, ret) = handle.call(token, None, transfer_data, Some(gas), false, &sub_context);
+        let gas_for_transfer = handle.remaining_gas().saturating_sub(mint_gas_reserve);
+        let (reason, ret) = handle.call(
+            token,
+            None,
+            transfer_data,
+            Some(gas_for_transfer),
+            false,
+            &sub_context,
+        );
 
         if !matches!(reason, ExitReason::Succeed(_)) {
-            try_dispatch_attest_coin_no_pov::<Runtime, _>(
+            match try_dispatch_attest_coin_no_pov::<Runtime, _>(
                 handle,
                 Some(admin).into(),
-                pallet_assets::Call::<Runtime>::mint {
-                    id: ATTEST_COIN_ASSET_ID.into(),
-                    beneficiary: Runtime::Lookup::unlookup(beneficiary),
-                    amount: amount_u128.into(),
-                },
-            )
-            .map_err(PrecompileFailure::from)?;
-            return Err(PrecompileFailure::Revert {
-                exit_status: ExitRevert::Reverted,
-                output: ret,
-            });
+                mint_restore,
+            ) {
+                Ok(_) => {
+                    return Err(PrecompileFailure::Revert {
+                        exit_status: ExitRevert::Reverted,
+                        output: ret,
+                    });
+                }
+                Err(_) => {
+                    log::error!(
+                        target: "precompile::attest_coin",
+                        "withdraw: ERC-20 transfer failed and pallet_assets mint-restore also failed; attested on-chain burn may diverge from EVM",
+                    );
+                    return Err(PrecompileFailure::Revert {
+                        exit_status: ExitRevert::Reverted,
+                        output: b"withdraw: transfer failed; restore mint failed".to_vec(),
+                    });
+                }
+            }
         }
 
         Ok(PrecompileOutput {
@@ -458,6 +502,15 @@ where
             output: Vec::new(),
         })
     }
+}
+
+/// EVM gas charged by [`try_dispatch_attest_coin_no_pov`] for a runtime call (matches its pre-dispatch check).
+fn evm_gas_for_dispatch_call<Runtime>(call: &Runtime::RuntimeCall) -> u64
+where
+    Runtime: pallet_evm::Config,
+    Runtime::RuntimeCall: GetDispatchInfo,
+{
+    <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(call.get_dispatch_info().weight)
 }
 
 /// Like [`RuntimeHelper::try_dispatch`], but does **not** reserve `dispatch_info.weight.proof_size()` on

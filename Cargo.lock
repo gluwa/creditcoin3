@@ -9252,6 +9252,7 @@ dependencies = [
  "frame-election-provider-support",
  "frame-support",
  "frame-system",
+ "log",
  "pallet-assets",
  "pallet-attest-coin-rewards",
  "pallet-attestation",
