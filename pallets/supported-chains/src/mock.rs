@@ -13,7 +13,7 @@ use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 pub type AccountId = u64;
 type Block = frame_system::mocking::MockBlock<Test>;
 
-pub const ALICE: AccountId = 1;
+pub const OPERATOR_ACCOUNT: AccountId = 1;
 
 frame_support::construct_runtime!(
     pub enum Test
@@ -137,7 +137,7 @@ impl ExtBuilder {
         pallet_genesis.assimilate_storage(&mut storage).unwrap();
 
         let membership_config = pallet_membership::GenesisConfig::<Test, OperatorsInstance> {
-            members: bounded_vec![ALICE],
+            members: bounded_vec![OPERATOR_ACCOUNT],
             ..Default::default()
         };
 
@@ -167,7 +167,7 @@ impl ExtBuilder {
         pallet_genesis.assimilate_storage(&mut storage).unwrap();
 
         let membership_config = pallet_membership::GenesisConfig::<Test, OperatorsInstance> {
-            members: bounded_vec![ALICE],
+            members: bounded_vec![OPERATOR_ACCOUNT],
             ..Default::default()
         };
 
