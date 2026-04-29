@@ -561,6 +561,8 @@ fn set_outbox_factory_addr_works() {
         let chain_key = 1;
         let address = H160::repeat_byte(0x11);
 
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), None);
+
         assert_ok!(SupportedChain::set_outbox_factory_addr(
             RuntimeOrigin::root(),
             chain_key,
