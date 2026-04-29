@@ -46,7 +46,11 @@ async function sendTransaction(
   label: string,
 ): Promise<ethers.TransactionResponse> {
   try {
-    return await signer.sendTransaction(request);
+    return await withTimeout(
+      signer.sendTransaction(request),
+      RPC_TIMEOUT_MS,
+      `${label} broadcast`,
+    );
   } catch (error) {
     if (!isReplacementUnderpricedError(error)) throw error;
 
@@ -57,11 +61,15 @@ async function sendTransaction(
       `${label} nonce`,
     );
     console.debug("Retrying underpriced tx", { label, nonce });
-    return await signer.sendTransaction({
-      ...request,
-      nonce,
-      ...bumpFees(request),
-    });
+    return await withTimeout(
+      signer.sendTransaction({
+        ...request,
+        nonce,
+        ...bumpFees(request),
+      }),
+      RPC_TIMEOUT_MS,
+      `${label} broadcast retry`,
+    );
   }
 }
 
@@ -87,9 +95,11 @@ async function waitForReceipt(
     }
 
     // Try direct lookup as fallback
-    const receipt = await provider.getTransactionReceipt(tx.hash).catch(() =>
-      null
-    );
+    const receipt = await withTimeout(
+      provider.getTransactionReceipt(tx.hash),
+      RPC_TIMEOUT_MS,
+      `${label} receipt fallback`,
+    ).catch(() => null);
     if (receipt) return receipt;
 
     throw error;

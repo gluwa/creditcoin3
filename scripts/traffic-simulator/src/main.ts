@@ -7,6 +7,19 @@
  * 3. Submitting proofs for random transactions once blocks are attested
  */
 
+// Global backstop: prevent Deno from killing the simulator on a stray
+// unhandled promise rejection (typically a late ethers `request timeout`
+// from an HTTP call whose original awaiter already gave up via withTimeout).
+// Installed as early as possible — before any imports that might spawn
+// network promises during module evaluation.
+globalThis.addEventListener("unhandledrejection", (event) => {
+  event.preventDefault();
+  console.error(
+    "⚠️  Swallowed unhandled rejection:",
+    (event as PromiseRejectionEvent).reason,
+  );
+});
+
 // Suppress Deno Node.js compatibility warnings
 const originalWarn = console.warn;
 console.warn = (...args: unknown[]) => {
