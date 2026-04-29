@@ -12,7 +12,7 @@ import tokenArtifact = require('../artifacts/MockAttestToken.json');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import precompileAbi = require('../artifacts/attest_coin_precompile.json');
 import { forElapsedBlocks } from '../../utils';
-import { evmAddressToSubstrateAccountId } from '../../../lib/evm/address';
+import { evmAddressToSubstrateAccountId, evmAddressToSubstrateAddress } from '../../../lib/evm/address';
 
 const ATTEST_COIN_PRECOMPILE = '0x0000000000000000000000000000000000000fd5';
 
@@ -177,6 +177,14 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await mintTx.wait();
 
         await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddressCc3));
+        await forElapsedBlocks(api, { minBlocks: 1 });
+
+        // `pallet-assets` balances for non-sufficient assets require the holder to have a native-balance
+        // `provider`. Alice's EVM-mapped Substrate account is otherwise empty, so `deposit`/`depositTo`
+        // minting into that account reverts with `CannotCreate` / dispatch failure.
+        const mappedSs58 = evmAddressToSubstrateAddress(evmWalletCc3.address);
+        const nativeTopUp = new BN('1000000000000000000000000');
+        await dispatchRootCall(api, root, (api.tx as any).balances.forceSetBalance(mappedSs58, nativeTopUp));
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         // Substrate `Accrued` / `ClaimNonce` persist on a long-lived dev node; this run's ERC-20 is newly deployed with a
