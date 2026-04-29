@@ -170,8 +170,6 @@ impl super::Worker for WorkerAttestationValidation {
         use futures::StreamExt as _;
 
         loop {
-            let can_attest = self.can_attest.load(std::sync::atomic::Ordering::Acquire);
-
             tokio::select! {
                 biased;
 
@@ -181,7 +179,7 @@ impl super::Worker for WorkerAttestationValidation {
                 event = &mut self.watch_submission => {
                     self.handle_event_submission(event).await?;
                 }
-                event = self.validation_receiver.next(), if can_attest => {
+                event = self.validation_receiver.next() => {
                     self.handle_event_quorum(event).await?;
                 },
             }
@@ -297,6 +295,11 @@ impl WorkerAttestationValidation {
 
         let (submission, height) = submission;
 
+        // WARNING: PANIC
+        //
+        // Resets `watch_submission` to avoid double polling on future calls!
+        self.watch_submission = future::OptionFuture::default();
+
         match submission {
             // CASE 1] SUBMITTED ATTESTATION
             AttestationSubmission::Eligible { success, votes } => {
@@ -313,11 +316,6 @@ impl WorkerAttestationValidation {
                                 tracing::info!(height, "✅ Attestation submitted on-chain");
                             }
                             _ => {
-                                // WARNING: PANIC
-                                //
-                                // Any early return must reset the `watch_submission` future to
-                                // avoid double polling!
-                                self.watch_submission = future::OptionFuture::default();
                                 return Ok(());
                             }
                         }
@@ -356,20 +354,10 @@ impl WorkerAttestationValidation {
                                     };
                                 }
 
-                                // WARNING: PANIC
-                                //
-                                // Any early return must reset the `watch_submission` future to
-                                // avoid double polling!
-                                self.watch_submission = future::OptionFuture::default();
                                 return Ok(());
                             }
                             err => {
                                 tracing::error!(height, ?err, "⛔ Invalid attestation");
-                                // WARNING: PANIC
-                                //
-                                // Any early return must reset the `watch_submission` future to
-                                // avoid double polling!
-                                self.watch_submission = future::OptionFuture::default();
                                 return Ok(());
                             }
                         }
@@ -377,11 +365,6 @@ impl WorkerAttestationValidation {
                     // CASE 1.C] RUNTIME SUBMISSION FAILURE
                     Err(err) => {
                         tracing::error!(height, ?err, "⛔ Submission failure");
-                        // WARNING: PANIC
-                        //
-                        // Any early return must reset the `watch_submission` future to
-                        // avoid double polling!
-                        self.watch_submission = future::OptionFuture::default();
                         return Ok(());
                     }
                 }
@@ -412,7 +395,6 @@ impl WorkerAttestationValidation {
                             }
                         }
                         _ = tokio::signal::ctrl_c() => {
-                            self.watch_submission = future::OptionFuture::default();
                             return Err(Interrupt::Stop);
                         }
                     }
@@ -454,11 +436,9 @@ impl WorkerAttestationValidation {
                                 height,
                                 "🏃 Attestation finalization timed out, assuming no leader was elected"
                             );
-                            self.watch_submission = future::OptionFuture::default();
                             return Ok(());
                         }
                         _ = tokio::signal::ctrl_c() => {
-                            self.watch_submission = future::OptionFuture::default();
                             return Err(Interrupt::Stop);
                         }
                     }
@@ -474,10 +454,8 @@ impl WorkerAttestationValidation {
         if let Some((height, digest, attestation, votes)) =
             self.validation_receiver.take_next_validated()
         {
-            // CASE 1] AN ATTESTATION IS READY
-            //
-            // Submit that attestation and wait for it to be validated by the runtime as part of the
-            // typical `WorkerAttestationValidation::task` event loop.
+            // At attestation is ready, Submit it and wait for it to be validated by the runtime as
+            // part of the typical `WorkerAttestationValidation::task` event loop.
 
             tracing::info!(
                 ?digest,
@@ -491,12 +469,6 @@ impl WorkerAttestationValidation {
             );
 
             self.submit_attestation(attestation, votes, height).await?;
-        } else {
-            // CASE 2] NO ATTESTATION
-            //
-            // Default to waiting for the next quorum which will be submitted immediately on
-            // local validation.
-            self.watch_submission = future::OptionFuture::default();
         }
 
         Ok(())
@@ -816,6 +788,13 @@ impl WorkerAttestationValidation {
         use futures::FutureExt as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
+
+        // Don't submit if the attestor is currently chilled
+        let can_attest = self.can_attest.load(std::sync::atomic::Ordering::Acquire);
+        if !can_attest {
+            tracing::info!("⏳ Attestor chilled, skipping submission");
+            return Ok(());
+        }
 
         let (randomness, epoch_index) = loop {
             match self.cc3.fetch_babe_randomness_two_epoch_ago().await {
