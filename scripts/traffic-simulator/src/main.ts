@@ -18,6 +18,26 @@ console.warn = (...args: unknown[]) => {
   originalWarn.apply(console, args);
 };
 
+// Swallow late timeouts from abandoned ethers HTTP requests.
+//
+// When our `withTimeout` wrapper wins the race against a `JsonRpcProvider`
+// call, the inner ethers Promise is still pending — and its underlying
+// `http.ClientRequest` keeps living until the socket idle timer fires.
+// Ethers v6 then rejects internal Promise chains we don't own, which
+// surfaces as `Uncaught (in promise) Error: request timeout` and crashes
+// the simulator. Swallow these specifically.
+addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  const msg = reason instanceof Error ? reason.message : String(reason ?? "");
+  if (
+    msg.includes("request timeout") &&
+    msg.toLowerCase().includes("code=timeout")
+  ) {
+    event.preventDefault();
+    console.warn(`⚠️  Swallowed late ethers timeout: ${msg}`);
+  }
+});
+
 import { loadConfig, logConfig } from "./config.ts";
 import { BlockWatcher } from "./watchers/blockWatcher.ts";
 import { AttestationWatcher } from "./watchers/attestationWatcher.ts";

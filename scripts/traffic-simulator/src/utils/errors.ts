@@ -52,6 +52,13 @@ export function isTransientNetworkError(error: unknown): boolean {
     msg.includes("connection refused") ||
     msg.includes("connection error") ||
     msg.includes("socket disconnected") ||
+    // Our own withTimeout marker — when our outer timeout wins the race
+    // against an ethers RPC, treat it as transient so the retry path
+    // resets the signer (which destroys the abandoned provider).
+    msg.includes("timed out after") ||
+    // Ethers v6 raw timeout: "request timeout (code=TIMEOUT, version=...)"
+    msg.includes("request timeout") ||
+    msg.includes("code=timeout") ||
     (msg.includes("request to") && msg.includes("failed"))
   );
 }

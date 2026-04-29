@@ -26,5 +26,8 @@
     "rules": {
       "tags": ["recommended"]
     }
+  },
+  "exports": {
+    "main": "src/main.ts"
   }
 }

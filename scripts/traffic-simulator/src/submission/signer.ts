@@ -31,7 +31,19 @@ export function resetSigner(
   cc3HttpUrl: string,
   privateKey: string,
 ): SignerEntry {
-  signerCache.delete(`${cc3HttpUrl}:${privateKey}`);
+  const key = `${cc3HttpUrl}:${privateKey}`;
+  const old = signerCache.get(key);
+  signerCache.delete(key);
+  // Best-effort cleanup of the abandoned provider. `destroy()` clears
+  // internal subscribers and pollers; it does NOT abort in-flight HTTP
+  // requests (ethers v6 doesn't expose a way to cancel them), so any
+  // late `request timeout` rejection still has to be swallowed by
+  // withTimeout's `.catch` and the global handler in main.ts.
+  if (old) {
+    try {
+      old.provider.destroy();
+    } catch { /* ignore */ }
+  }
   return getSigner(cc3HttpUrl, privateKey);
 }
 
