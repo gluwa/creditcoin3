@@ -45,4 +45,6 @@ pub use config::{ConfigBuilder, ContinuityConfig};
 pub use errors::ContinuityError;
 pub use indexer_client::AttestationWithProof;
 pub use proof::BuiltContinuityProof;
-pub use rpc::{CcRpcProvider, EthRpcProvider, SharedCcProvider, SharedEthProvider};
+pub use rpc::{
+    CcRpcProvider, EthRpcProvider, ReconnectingEthRpcProvider, SharedCcProvider, SharedEthProvider,
+};
