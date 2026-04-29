@@ -30,16 +30,31 @@ export function fundAddressesFromSudo(api: ApiPromise, addresses: string[], amou
     return api.tx.utility.batchAll(txs);
 }
 
+/**
+ * Wait until `pallet-staking`'s active era index advances by `eras`.
+ *
+ * `pallet_attestation` and the attestor-stash precompile use
+ * `T::Staking::current_era()` (the active staking era) for unlock / withdrawable
+ * math. `api.derive.session.info().currentEra` is not guaranteed to track that
+ * value on all runtimes, which caused integration tests to finish "waiting"
+ * while `getLedger(...).withdrawable` was still zero.
+ */
 export async function waitEras(eras: number, api: ApiPromise) {
-    let eraInfo = await api.derive.session.info();
-    let currentEra = eraInfo.currentEra.toNumber();
+    const readActiveEraIndex = async (): Promise<number> => {
+        const opt = await api.query.staking.activeEra();
+        if (opt.isNone) {
+            return 0;
+        }
+        return opt.unwrap().index.toNumber();
+    };
+
+    let currentEra = await readActiveEraIndex();
     const targetEra = currentEra + eras;
     const blockTime = api.consts.babe.expectedBlockTime.toNumber();
     while (currentEra < targetEra) {
-        console.log(`Waiting for era ${targetEra}, currently at ${currentEra}`);
+        console.log(`Waiting for staking era ${targetEra}, currently at ${currentEra}`);
         await sleep(blockTime);
-        eraInfo = await api.derive.session.info();
-        currentEra = eraInfo.currentEra.toNumber();
+        currentEra = await readActiveEraIndex();
     }
 }
 
