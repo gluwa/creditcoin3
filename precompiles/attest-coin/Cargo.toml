@@ -10,6 +10,7 @@ version = "0.1.0"
 fp-evm = { workspace = true }
 frame-support = { workspace = true, default-features = false }
 frame-system = { workspace = true }
+log = { workspace = true, default-features = false }
 pallet-assets = { workspace = true, default-features = false }
 pallet-attest-coin-rewards = { workspace = true, default-features = false }
 pallet-attestation = { workspace = true, default-features = false }
@@ -50,6 +51,7 @@ supported-chains-primitives = { workspace = true }
 [features]
 default = ["std"]
 std = [
+    "log/std",
     "parity-scale-codec/std",
     "sp-core/std",
     "sp-io/std",
