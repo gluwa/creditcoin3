@@ -392,9 +392,12 @@ impl ContinuityService {
         for (chain_key, chain) in &self.chains {
             chain
                 .builder
-                .get_eth_chain_id()
+                .eth_provider
+                .is_healthy()
                 .await
-                .map_err(|e| anyhow::anyhow!("eth RPC chain {chain_key}: {e}"))?;
+                .map_err(|e| anyhow::anyhow!("eth RPC chain {chain_key}: {e}"))?
+                .then_some(())
+                .ok_or_else(|| anyhow::anyhow!("eth RPC chain {chain_key} is unhealthy"))?;
         }
         Ok(())
     }

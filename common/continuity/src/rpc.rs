@@ -238,6 +238,9 @@ pub trait EthRpcProvider: Send + Sync {
     ///
     /// Useful for validation and health checks.
     async fn get_chain_id(&self) -> Result<u64>;
+
+    /// Check if the source chain RPC is healthy.
+    async fn is_healthy(&self) -> Result<bool>;
 }
 
 #[async_trait]
@@ -396,6 +399,15 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
                 .map_err(|e| anyhow!("Failed to get chain ID: {e}"))
         })
         .await
+    }
+
+    async fn is_healthy(&self) -> Result<bool> {
+        let _ = self
+            .get_chain_id()
+            .await
+            .map_err(|e| anyhow!("Failed to get chain ID: {e}"))?;
+
+        Ok(true)
     }
 }
 
