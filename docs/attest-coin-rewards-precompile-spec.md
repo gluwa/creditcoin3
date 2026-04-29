@@ -26,7 +26,7 @@ This section is the **source of truth** for what the runtime + precompile implem
 
 ### 0.3 Precompile address
 
-- Fixed precompile **H160** at runtime mapping **`hash(4052)`** → `0x0000000000000000000000000000000000000fd4` (same pattern as other Gluwa precompiles; see `runtime/src/precompiles.rs`).
+- Fixed precompile **H160** at runtime mapping **`hash(4053)`** → `0x0000000000000000000000000000000000000fd5` (same pattern as other Gluwa precompiles; see `runtime/src/precompiles.rs`). **`hash(4052)` / `0x…0fd4`** is **AttestorStash**, not attest-coin.
 
 ### 0.4 Claim authorization (EVM)
 
@@ -83,7 +83,7 @@ Canonical byte string (must match wallets and the runtime bit-for-bit):
 
 - **`deposit(uint256 amount)`** — Mints **attest coin** on `pallet-assets` to the **EVM caller’s** mapped Substrate `AccountId` (`AddressMapping`).
 - **`depositTo(uint256 amount, bytes32 beneficiary)`** — Same ERC-20 pull, but mints to **`beneficiary`** interpreted as a raw **32-byte `AccountId`** (e.g. sr25519 stash). `beneficiary` must not be zero.
-- **Selectors:** `deposit` → **`0xb6b55f25`**; `depositTo` → **`0xc6bc975d`** (see `precompiles/attest-coin`, ABI in `cli/.../artifacts/attest_coin_precompile.json`).
+- **Selectors:** `deposit` → **`0xb6b55f25`**; `depositTo` → **`0xc6bc975d`** (see `precompiles/attest-coin`; ABI JSON is `precompiles/metadata/abi/attest_coin.json`, symlinked as `cli/src/test/blockchain-tests/artifacts/attest_coin.json` for Jest).
 - **Runtime:** after a successful **`transferFrom`**, the precompile dispatches **`pallet_assets::mint`** with **`id = ATTEST_COIN_ASSET_ID`** (runtime constant, genesis-aligned), issuer origin = mapped precompile account. Mint dispatch uses a dedicated path that avoids stacking **proof-size** metering in a way that exhausts EVM gas on Frontier (implementation detail in `pallet-evm-precompile-attest-coin`).
 - **Claim vs deposit:** **`claim`** debits **`Accrued`** and uses ERC-20 **`transfer`** out of treasury; **`deposit`** credits **`pallet-assets`** and uses **`transferFrom`** into treasury. Both are separate operations on the same precompile address.
 

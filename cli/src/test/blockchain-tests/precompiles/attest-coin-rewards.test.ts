@@ -10,7 +10,7 @@ import type { SubmittableExtrinsic } from '@polkadot/api/types';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import tokenArtifact = require('../artifacts/MockAttestToken.json');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-import precompileAbi = require('../artifacts/attest_coin_precompile.json');
+import precompileAbi = require('../artifacts/attest_coin.json');
 import { forElapsedBlocks } from '../../utils';
 import { evmAddressToSubstrateAccountId, evmAddressToSubstrateAddress } from '../../../lib/evm/address';
 

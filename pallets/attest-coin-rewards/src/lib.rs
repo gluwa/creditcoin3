@@ -107,6 +107,12 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
+        /// Add to accrued using `u128` saturation so storage never wraps or panics on overflow.
+        fn saturating_add_accrued(acc: &mut T::RewardPoints, amount: T::RewardPoints) {
+            let sum = (*acc).into().saturating_add(amount.into());
+            *acc = T::RewardPoints::from(sum);
+        }
+
         /// Credit [`Config::RewardPerEligibleSigner`] to each **stash** for the given **eligible**
         /// attestor operator accounts (from [`pallet_attestation`]). Called from the runtime hook
         /// after [`pallet_attestation::Pallet::commit_attestation`].
@@ -127,7 +133,7 @@ pub mod pallet {
                     pallet_attestation::Pallet::<T>::attestors(chain_key, attestor_id)
                 {
                     let stash = att.stash;
-                    Accrued::<T>::mutate(&stash, |a| *a += per);
+                    Accrued::<T>::mutate(&stash, |a| Self::saturating_add_accrued(a, per));
                     credited = credited.saturating_add(1);
                 }
             }
@@ -169,7 +175,7 @@ pub mod pallet {
 
         /// Restore accrued points after a failed EVM mint (precompile rollback).
         pub fn restore_accrued(stash: &T::AccountId, amount: T::RewardPoints) {
-            Accrued::<T>::mutate(stash, |a| *a += amount);
+            Accrued::<T>::mutate(stash, |a| Self::saturating_add_accrued(a, amount));
         }
 
         /// Bytes that must be signed (sr25519) for [`Self::commit_claim`].
