@@ -578,6 +578,61 @@ fn withdraw_succeeds_when_burn_and_transfer_ok() {
         });
 }
 
+#[test]
+fn withdraw_restores_pallet_balance_when_erc20_transfer_fails() {
+    let caller = H160::repeat_byte(0xAA);
+    let substrate = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
+
+    ExtBuilder::default()
+        .with_balances(vec![(substrate.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+            let precompile_acct =
+                <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(precompile_addr());
+
+            assert_ok!(AssetsPallet::<Runtime>::force_asset_status(
+                frame_system::RawOrigin::Root.into(),
+                1,
+                alice(),
+                precompile_acct.clone(),
+                precompile_acct.clone(),
+                alice(),
+                1,
+                false,
+                false,
+            ));
+
+            assert_ok!(AssetsPallet::<Runtime>::transfer(
+                RuntimeOrigin::signed(alice()),
+                1,
+                substrate.clone(),
+                10_000,
+            ));
+
+            let balance_before = AssetsPallet::<Runtime>::balance(1u32, substrate.clone());
+
+            let input = withdraw_input(1_000);
+            let mut handle = make_handle(caller, input);
+            handle.subcall_handle = Some(Box::new(|_subcall| SubcallOutput {
+                reason: ExitReason::Revert(ExitRevert::Reverted),
+                output: b"transfer failed".to_vec(),
+                cost: 0,
+                logs: vec![],
+            }));
+
+            let result = execute(&mut handle);
+            assert!(result.is_err(), "withdraw must revert when ERC-20 transfer fails");
+
+            let balance_after = AssetsPallet::<Runtime>::balance(1u32, substrate.clone());
+            assert_eq!(
+                balance_before, balance_after,
+                "burn then mint-restore must leave pallet-assets balance unchanged",
+            );
+        });
+}
+
 // ── helper function sanity tests ──────────────────────────────────────────────
 
 #[test]
