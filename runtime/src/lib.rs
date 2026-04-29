@@ -350,9 +350,9 @@ impl pallet_balances::Config for Runtime {
 /// Attest Coin on `pallet-assets` (18 decimals). Must match genesis + attest-coin precompile mint path.
 pub const ATTEST_COIN_ASSET_ID: u32 = 1;
 
-/// EVM address of the attest-coin precompile (`hash(4052)`).
+/// EVM address of the attest-coin precompile (`hash(4053)`; see `runtime/src/precompiles.rs`).
 pub fn attest_coin_precompile_h160() -> H160 {
-    H160::from_low_u64_be(4052)
+    H160::from_low_u64_be(4053)
 }
 
 /// Substrate `AccountId` of the attest-coin precompile (issuer for [`ATTEST_COIN_ASSET_ID`]).
