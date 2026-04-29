@@ -431,8 +431,10 @@ where
             amount: amount_u128.into(),
         };
 
-        let gas_burn = evm_gas_for_dispatch_call::<Runtime>(&Runtime::RuntimeCall::from(burn_call.clone()));
-        let gas_mint = evm_gas_for_dispatch_call::<Runtime>(&Runtime::RuntimeCall::from(mint_restore.clone()));
+        let gas_burn =
+            evm_gas_for_dispatch_call::<Runtime>(&Runtime::RuntimeCall::from(burn_call.clone()));
+        let gas_mint =
+            evm_gas_for_dispatch_call::<Runtime>(&Runtime::RuntimeCall::from(mint_restore.clone()));
         let mint_gas_reserve = gas_mint.saturating_add(WITHDRAW_MINT_RESTORE_GAS_BUFFER);
         let min_before_burn = gas_burn
             .saturating_add(mint_gas_reserve)
@@ -510,7 +512,9 @@ where
     Runtime: pallet_evm::Config,
     Runtime::RuntimeCall: GetDispatchInfo,
 {
-    <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(call.get_dispatch_info().weight)
+    <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(
+        call.get_dispatch_info().weight,
+    )
 }
 
 /// Like [`RuntimeHelper::try_dispatch`], but does **not** reserve `dispatch_info.weight.proof_size()` on
