@@ -50,19 +50,17 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetOutboxFactoryAddr', ()
     it('fee is min 0.01 CTC', async (): Promise<void> => {
         const nonce = await api.rpc.system.accountNextIndex(root.address);
 
-        return new Promise((resolve, reject): void => {
+        const fee = await new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.sudo
                 .sudo(api.tx.supportedChains.setOutboxFactoryAddr(chainKey, outboxFactoryAddr))
                 .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(new Error(error)));
-        }).then((fee) => {
-            expect(fee).toBeGreaterThanOrEqual((global as any).CREDITCOIN_MINIMUM_TXN_FEE);
         });
-    }, 30_000);
 
-    it('stores the outbox factory address', async (): Promise<void> => {
+        expect(fee).toBeGreaterThanOrEqual((global as any).CREDITCOIN_MINIMUM_TXN_FEE);
+
         const stored = await api.query.supportedChains.outboxFactories(chainKey);
 
         expect(stored.isSome).toEqual(true);
