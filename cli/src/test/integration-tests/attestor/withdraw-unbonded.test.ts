@@ -3,6 +3,8 @@ import { initAliceKeyring, randomFundedAccount, fundFromSudo, waitEras, ALICE_NO
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 import { parseAmount } from '../../../commands/options';
+import { signSendAndWatchCcKeyring } from '../../../lib/tx';
+import { CallerKeyring } from '../../../lib/account/keyring';
 
 // NOTE: The attestor-stash precompile uses the EVM `msg.sender` as the origin
 // of the dispatched pallet call. Proxy-signed attestor operations are not
@@ -13,12 +15,24 @@ describe('withdraw-unbonded', () => {
     let sudoSigner: KeyringPair;
     let attestor: any;
     let CLI: any;
+    let originalMinBondRequirement: string;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
 
         // Create a reference to sudo for funding accounts
         sudoSigner = initAliceKeyring();
+        const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+
+        // Ensure unregister creates an unlocking chunk in CI/dev.
+        originalMinBondRequirement = (await api.query.attestation.minBondRequirement(chain_Anvil1_Key)).toString();
+        const minBondForTest = parseAmount('100').toString();
+        await signSendAndWatchCcKeyring(
+            api.tx.sudo.sudo(api.tx.attestation.setMinBondRequirement(chain_Anvil1_Key, minBondForTest)),
+            api,
+            sudoKeyring,
+        );
+        await forElapsedBlocks(api, { minBlocks: 1 });
 
         // Create and fund the test account (sr25519 + EVM stash)
         caller = await randomFundedAccount(api, sudoSigner);
@@ -39,6 +53,13 @@ describe('withdraw-unbonded', () => {
     }, 150_000);
 
     afterAll(async () => {
+        const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+        await signSendAndWatchCcKeyring(
+            api.tx.sudo.sudo(api.tx.attestation.setMinBondRequirement(chain_Anvil1_Key, originalMinBondRequirement)),
+            api,
+            sudoKeyring,
+        );
+        await forElapsedBlocks(api, { minBlocks: 1 });
         await api.disconnect();
     }, 120_000);
 
