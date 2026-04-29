@@ -623,7 +623,10 @@ fn withdraw_restores_pallet_balance_when_erc20_transfer_fails() {
             }));
 
             let result = execute(&mut handle);
-            assert!(result.is_err(), "withdraw must revert when ERC-20 transfer fails");
+            assert!(
+                result.is_err(),
+                "withdraw must revert when ERC-20 transfer fails"
+            );
 
             let balance_after = AssetsPallet::<Runtime>::balance(1u32, substrate.clone());
             assert_eq!(
