@@ -45,7 +45,7 @@ import type {
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
     EthereumTransactionTransactionV2,
-    PalletAttestationPocAttestorElectionPolicy,
+    PalletAttestationAttestorElectionPolicy,
     PalletBalancesAdjustmentDirection,
     PalletIdentityJudgement,
     PalletIdentityLegacyIdentityInfo,
@@ -97,16 +97,6 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
             >;
-            bootstrapChain: AugmentedSubmittable<
-                (
-                    attestation:
-                        | AttestorPrimitivesSignedAttestation
-                        | { attestation?: any; signature?: any; attestors?: any; continuityProof?: any }
-                        | string
-                        | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [AttestorPrimitivesSignedAttestation]
-            >;
             chill: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
@@ -115,8 +105,10 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, AccountId32]
             >;
             /**
-             * [`CommitAttestationWeight`] makes it so active attestors do not pay fees on this
-             * extrinsic
+             * Inclusion fees are assessed up front for every caller ([`Pays::Yes`] via
+             * [`CommitAttestationWeight`]) so the transaction pool cannot admit zero-fee spam from
+             * callers who are not active attestors. On successful commit, active attestors receive
+             * [`PostDispatchInfo`] with [`Pays::No`] so the final fee is waived.
              **/
             commitAttestation: AugmentedSubmittable<
                 (
@@ -226,14 +218,14 @@ declare module '@polkadot/api-base/types/submittable' {
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
                     newPolicy:
-                        | PalletAttestationPocAttestorElectionPolicy
+                        | PalletAttestationAttestorElectionPolicy
                         | 'OpenToAny'
                         | 'AuthorizedOnly'
                         | 'DeniedToAll'
                         | number
                         | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [u64, PalletAttestationPocAttestorElectionPolicy]
+                [u64, PalletAttestationAttestorElectionPolicy]
             >;
             setMaxAttestors: AugmentedSubmittable<
                 (

@@ -138,7 +138,7 @@ fn compute_test_digest(block_number: u64, root: &H256, prev_digest: &H256) -> H2
 
 /// Helper to setup attestation in storage
 pub(crate) fn setup_attestation(chain_key: u64, block_number: u64, digest: H256) {
-    use attestor_primitives::attestation_fragment::AttestationFragmentSerializable;
+    use attestor_primitives::block::ContinuityProof;
 
     let attestation = AttestationData {
         chain_key,
@@ -153,11 +153,11 @@ pub(crate) fn setup_attestation(chain_key: u64, block_number: u64, digest: H256)
         attestation,
         signature,
         attestors: vec![Account::Alice],
-        continuity_proof: AttestationFragmentSerializable::default(),
+        continuity_proof: ContinuityProof::default(),
     };
 
-    pallet_attestation_poc::Attestations::<Runtime>::insert(chain_key, digest, signed_attestation);
-    pallet_attestation_poc::LastDigest::<Runtime>::insert(chain_key, (block_number, digest));
+    pallet_attestation::Attestations::<Runtime>::insert(chain_key, digest, signed_attestation);
+    pallet_attestation::LastDigest::<Runtime>::insert(chain_key, (block_number, digest));
 }
 
 /// Helper function to set up both lower and upper attestations for a test scenario
@@ -180,8 +180,8 @@ pub(crate) fn setup_scenario_attestations(scenario: &TestScenario) {
 /// Helper to setup checkpoint in storage
 fn setup_checkpoint(chain_key: u64, block_number: u64, digest: H256) {
     let checkpoint = AttestationCheckpoint::new(block_number, digest);
-    pallet_attestation_poc::Checkpoints::<Runtime>::insert(chain_key, block_number, digest);
-    pallet_attestation_poc::LastCheckpoint::<Runtime>::insert(chain_key, checkpoint);
+    pallet_attestation::Checkpoints::<Runtime>::insert(chain_key, block_number, digest);
+    pallet_attestation::LastCheckpoint::<Runtime>::insert(chain_key, checkpoint);
 }
 
 pub(crate) fn precompiles() -> Precompiles<Runtime> {

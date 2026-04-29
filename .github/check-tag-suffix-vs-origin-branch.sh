@@ -17,12 +17,12 @@ echo "INFO: git tag: '$GIT_TAG'"
 echo "INFO: suffix from git tag: '$SUFFIX_FROM_GIT_TAG'"
 echo "INFO: nearest git branch '$NEAREST_GIT_BRANCH'"
 
-if [[ "$SUFFIX_FROM_GIT_TAG" == "devnet" && "$NEAREST_GIT_BRANCH" == "dev" ]]; then
+if [[ "$SUFFIX_FROM_GIT_TAG" == "devnet" && "$NEAREST_GIT_BRANCH" == "usc-dev" ]]; then
     echo "PASS: good match for -devnet releases"
     exit 0
 fi
 
-if [[ "$SUFFIX_FROM_GIT_TAG" == "testnet" && "$NEAREST_GIT_BRANCH" == "testnet" ]]; then
+if [[ "$SUFFIX_FROM_GIT_TAG" == "testnet" && "$NEAREST_GIT_BRANCH" == "usc-testnet" ]]; then
     echo "PASS: good match for -testnet releases"
     exit 0
 fi

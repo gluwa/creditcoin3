@@ -1,13 +1,15 @@
 import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../../lib';
-import { substrateAddressOption } from '../options';
+import { evmAddressOption } from '../options';
 import { getBalancesAll, toCTCString } from '../../lib/balance';
+import { getAttestorContractReadOnly, substrateAddressToBytes32 } from '../../lib/attestor/precompile';
+import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import Table from 'cli-table3';
 
 export function showAttestorBalanceActionCommand() {
     const cmd = new Command('show-stash-balance');
-    cmd.description('Show balance of the stash account for attestors');
-    cmd.addOption(substrateAddressOption.makeOptionMandatory());
+    cmd.description('Show balance of the attestor stash account (identified by its EVM address)');
+    cmd.addOption(evmAddressOption.makeOptionMandatory());
     cmd.action(showStashBalanceAction);
     return cmd;
 }
@@ -15,34 +17,27 @@ export function showAttestorBalanceActionCommand() {
 async function showStashBalanceAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const address = options.substrateAddress as string;
+    // The stash is recorded as the AccountId derived from the caller's EVM
+    // address via HashedAddressMapping. The user-facing input is the EVM
+    // `0x…`; we map it to the stored AccountId for ledger + balance lookups.
+    const evmAddress = options.evmAddress as string;
+    const stashAccountId = evmAddressToSubstrateAddress(evmAddress);
+    const stashBytes32 = substrateAddressToBytes32(stashAccountId);
 
-    const ledger = await api.query.attestation.ledger(address);
+    const contract = getAttestorContractReadOnly(options);
+    const ledgerInfo = await contract.getLedger(stashBytes32);
 
-    if (ledger.isNone) {
-        console.error(`No ledger found for ${address}`);
+    if (!ledgerInfo.exists) {
+        console.error(`No ledger found for ${evmAddress}`);
+        await api.disconnect();
         process.exit(1);
     }
 
-    let canWithdraw = 0n;
-    let unbondingAmount = 0n;
-    const ledgerValue = ledger.unwrap();
-    const active = ledgerValue.active.unwrap();
-    const totalStaked = ledgerValue.totalStaked.unwrap();
+    const totalStaked = new BN(ledgerInfo.totalStaked.toString());
+    const active = new BN(ledgerInfo.active.toString());
+    const unlockingChunks: number = ledgerInfo.unlockingChunks;
 
-    const currentEra = await api.query.staking.currentEra();
-    if (currentEra.isSome) {
-        const currentEraValue = currentEra.unwrap();
-
-        for (const unlocking of ledgerValue.unlocking) {
-            if (unlocking.era.toNumber() <= currentEraValue.toNumber()) {
-                canWithdraw += unlocking.value.toBigInt();
-            }
-            unbondingAmount += unlocking.value.toBigInt();
-        }
-    }
-
-    const balanceAll = await getBalancesAll(address, api);
+    const balanceAll = await getBalancesAll(stashAccountId, api);
 
     const table = new Table({});
 
@@ -52,12 +47,12 @@ async function showStashBalanceAction(options: OptionValues) {
         ['Total', toCTCString(balanceAll.freeBalance.add(balanceAll.reservedBalance), 4)],
         ['TotalStake', toCTCString(totalStaked, 4)],
         ['ActiveStake', toCTCString(active, 4)],
-        ['Unbonding', toCTCString(new BN(unbondingAmount.toString()), 4)],
-        ['CanWithdraw', toCTCString(new BN(canWithdraw.toString()), 4)],
+        ['UnlockingChunks', unlockingChunks.toString()],
     );
 
-    console.log(`Address: ${address}`);
+    console.log(`Address: ${evmAddress}`);
     console.log(table.toString());
 
+    await api.disconnect();
     process.exit(0);
 }

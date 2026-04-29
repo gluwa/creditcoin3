@@ -13,6 +13,7 @@ version = { workspace = true }
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
+hex-literal = { workspace = true }
 parity-scale-codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 smallvec = "1.13.2"
@@ -35,10 +36,12 @@ sp-version = { workspace = true }
 frame-benchmarking = { workspace = true, optional = true }
 frame-election-provider-support = { workspace = true }
 frame-executive = { workspace = true }
+frame-metadata-hash-extension = { workspace = true, default-features = false }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 frame-system-benchmarking = { workspace = true, optional = true }
 frame-system-rpc-runtime-api = { workspace = true }
+frame-try-runtime = { workspace = true, optional = true }
 pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-bags-list = { workspace = true }
@@ -83,15 +86,17 @@ moonbeam-evm-tracer = { workspace = true, optional = true }
 moonbeam-rpc-primitives-debug = { workspace = true }
 
 # Gluwa
-pallet-attestation-poc = { workspace = true }
+pallet-attestation = { workspace = true }
 pallet-randomness = { workspace = true }
 pallet-supported-chains = { workspace = true }
 
 attestor-primitives = { workspace = true }
+pallet-evm-precompile-attestor-stash = { workspace = true }
 pallet-evm-precompile-block-prover = { workspace = true }
+pallet-evm-precompile-bn128 = { workspace = true }
 pallet-evm-precompile-chain-info = { workspace = true }
-pallet-evm-precompile-signature-verifier = { workspace = true }
-# pallet-evm-precompile-proof-verifier = { workspace = true }
+pallet-evm-precompile-ed25519-verifier = { workspace = true }
+pallet-evm-precompile-sr25519-verifier = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
 randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
@@ -106,8 +111,9 @@ ignored = ["substrate-wasm-builder"]
 default = ["std"]
 devnet = []
 fast-runtime = []
+metadata-hash = ["substrate-wasm-builder/metadata-hash"]
 runtime-benchmarks = [
-    "pallet-attestation-poc/runtime-benchmarks",
+    "pallet-attestation/runtime-benchmarks",
     "frame-benchmarking/runtime-benchmarks",
     "frame-election-provider-support/runtime-benchmarks",
     "frame-support/runtime-benchmarks",
@@ -155,13 +161,14 @@ std = [
     "sp-version/std",
     # Substrate FRAME
     "frame-benchmarking/std",
+    "frame-try-runtime?/std",
     "frame-election-provider-support/std",
     "frame-executive/std",
     "frame-support/std",
     "frame-system/std",
     "frame-system-rpc-runtime-api/std",
     "frame-system-benchmarking?/std",
-    "pallet-attestation-poc/std",
+    "pallet-attestation/std",
     "pallet-authorship/std",
     "pallet-babe/std",
     "pallet-bags-list/std",
@@ -184,6 +191,7 @@ std = [
     "pallet-transaction-payment-rpc-runtime-api/std",
     "pallet-utility/std",
     "sp-genesis-builder/std",
+    "frame-metadata-hash-extension/std",
     # Frontier
     "fp-evm/std",
     "fp-rpc/std",
@@ -204,10 +212,46 @@ std = [
     "attestor-primitives/std",
     "supported-chains-primitives/std",
     "pallet-evm-precompile-chain-info/std",
-    "pallet-evm-precompile-signature-verifier/std",
+    "pallet-evm-precompile-ed25519-verifier/std",
+    "pallet-evm-precompile-sr25519-verifier/std",
+    "pallet-evm-precompile-bn128/std",
     "pallet-evm-precompile-block-prover/std",
     "pallet-evm-precompile-substrate-transfer/std",
+    "pallet-evm-precompile-attestor-stash/std",
     "log/std",
     "pallet-randomness/std",
     "randomness-primitives/std",
+]
+try-runtime = [
+    "frame-try-runtime/try-runtime",
+    "frame-executive/try-runtime",
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+    "fp-self-contained/try-runtime",
+    "pallet-attestation/try-runtime",
+    "pallet-authorship/try-runtime",
+    "pallet-babe/try-runtime",
+    "pallet-bags-list/try-runtime",
+    "pallet-balances/try-runtime",
+    "pallet-fast-unstake/try-runtime",
+    "pallet-grandpa/try-runtime",
+    "pallet-identity/try-runtime",
+    "pallet-im-online/try-runtime",
+    "pallet-membership/try-runtime",
+    "pallet-nomination-pools/try-runtime",
+    "pallet-offences/try-runtime",
+    "pallet-proxy/try-runtime",
+    "pallet-session/try-runtime",
+    "pallet-staking/try-runtime",
+    "pallet-sudo/try-runtime",
+    "pallet-timestamp/try-runtime",
+    "pallet-transaction-payment/try-runtime",
+    "pallet-utility/try-runtime",
+    "pallet-base-fee/try-runtime",
+    "pallet-dynamic-fee/try-runtime",
+    "pallet-ethereum/try-runtime",
+    "pallet-evm/try-runtime",
+    "pallet-evm-chain-id/try-runtime",
+    "pallet-hotfix-sufficients/try-runtime",
 ]

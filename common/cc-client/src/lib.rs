@@ -1,10 +1,5 @@
-use std::str::FromStr;
-
 use serde::Serialize;
-use sp_core::{
-    sr25519::{self},
-    Pair, U256,
-};
+use sp_core::U256;
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
     backend::{
@@ -15,17 +10,13 @@ use subxt::{
     error::RpcError,
     OnlineClient, SubstrateConfig,
 };
-use subxt_signer::{
-    sr25519::{Keypair, Signature},
-    SecretUri,
-};
+use subxt_signer::sr25519::Signature;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
 use cc3::runtime_types::{
     attestor_primitives::{
-        attestation_fragment::AttestationFragmentSerializable as CcAttestationFragment,
-        block::BlockSerializable as CcBlockSerializable,
+        block::ContinuityProof as CcContinuityProof,
         AttestationCheckpoint as CcAttestationCheckpoint, AttestationData as CcAttestationData,
         ChainEncodingVersion as CcChainEncodingVersion, SignedAttestation as CcSignedAttestation,
     },
@@ -33,10 +24,8 @@ use cc3::runtime_types::{
 };
 
 use attestor_primitives::{
-    attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
-    block::Block,
-    Attestation as RpcAttestation, AttestationCheckpoint, AttestationData, AttestorId,
-    AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest,
+    block::ContinuityProof, Attestation as RpcAttestation, AttestationCheckpoint, AttestationData,
+    AttestorId, AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest,
     SignedAttestation,
 };
 use supported_chains_primitives::SupportedChain;
@@ -49,10 +38,11 @@ use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
         with = "::subxt::utils::Static<crate::U256>"
     )
 )]
-
 pub mod cc3 {}
 
+pub mod api;
 pub mod attestation;
+pub mod signer;
 
 pub type Randomness = [u8; 32];
 
@@ -78,6 +68,12 @@ pub enum Error {
     FailedToGetStarkMetadata(String),
     #[error("Attestor not found in storage, register the attestor first and retry later")]
     NotRegistered,
+    #[error("Caller cannot pay fees for the transaction")]
+    CallerCannotPayFees,
+    #[error("Caller doesn't have sufficient funds to execute the transaction: {0:?}")]
+    CallerDoesntHaveSufficientFunds(#[from] subxt::error::TokenError),
+    #[error("Transaction timed out waiting for finalization")]
+    TransactionTimeout,
 }
 
 #[derive(Clone)]
@@ -86,8 +82,7 @@ pub enum Error {
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
 /// - `keypair`: Creditcoin3 keypair
 pub struct Client {
-    pair: sr25519::Pair,
-    signing_keypair: Keypair,
+    signer: signer::CC3Signer,
     rpc: RpcClient,
     api: OnlineClient<SubstrateConfig>,
     legacy: LegacyRpcMethods<SubstrateConfig>,
@@ -106,17 +101,13 @@ impl Client {
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
     pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
-        let secret_uri = SecretUri::from_str(key)?;
-        let signing_keypair = Keypair::from_uri(&secret_uri)?;
-
-        let pair = sr25519::Pair::from_string(key, None)?;
+        let signer = signer::CC3Signer::new(key)?;
         let rpc = RpcClient::from_insecure_url(url.clone().into()).await?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
 
         Ok(Self {
-            pair,
-            signing_keypair,
+            signer,
             rpc,
             api,
             legacy,
@@ -163,7 +154,7 @@ impl Client {
 
     #[must_use]
     pub fn sign(&self, message: &[u8]) -> Signature {
-        self.signing_keypair.sign(message)
+        self.signer.sign(message)
     }
 
     pub async fn get_chain_key(
@@ -226,7 +217,7 @@ impl Client {
 
     /// Fetches the babe randomness from 2 epochs ago
     /// Returns the random a time + the current block number (where it was calculated from)
-    pub async fn fetch_babe_randomness_two_epoch_ego(&self) -> Result<(Randomness, u64), Error> {
+    pub async fn fetch_babe_randomness_two_epoch_ago(&self) -> Result<(Randomness, u64), Error> {
         let epoch_index = self
             .api()
             .storage()
@@ -317,7 +308,7 @@ impl Client {
             .await?;
 
         match result {
-            Some(result) => Ok(result.contains(&AccountId32(self.signing_keypair.public_key().0))),
+            Some(result) => Ok(result.contains(&self.signer.account_id())),
             None => Ok(false),
         }
     }
@@ -327,7 +318,7 @@ impl Client {
     pub async fn check_attestor_key_is_registered(&self, chain_key: u64) -> Result<bool, Error> {
         let storage_query = cc3::storage()
             .attestation()
-            .attestors(chain_key, AccountId32(self.signing_keypair.public_key().0));
+            .attestors(chain_key, self.signer.account_id());
 
         let result = self
             .api()
@@ -350,7 +341,7 @@ impl Client {
     ) -> Result<Option<AttestorStatus>, Error> {
         let storage_query = cc3::storage()
             .attestation()
-            .attestors(chain_key, AccountId32(self.signing_keypair.public_key().0));
+            .attestors(chain_key, self.signer.account_id());
 
         let result = self
             .api()
@@ -368,6 +359,9 @@ impl Client {
                 _ if format!("{:?}", attestor.status) == "Idle" => Ok(Some(AttestorStatus::Idle)),
                 _ if format!("{:?}", attestor.status) == "Waiting" => {
                     Ok(Some(AttestorStatus::Waiting))
+                }
+                _ if format!("{:?}", attestor.status) == "Leaving" => {
+                    Ok(Some(AttestorStatus::Leaving))
                 }
                 _ => Ok(None),
             },
@@ -394,20 +388,22 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
-            .await?
-            .wait_for_finalized_success()
-            .await?;
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        let hash = ext.extrinsic_hash();
-        debug!("Registration extrinsic submitted with hash: {:?}", hash);
-
-        Ok(())
+        utils::handle_tx(tx_progress, "Register Attestor").await
     }
 
     pub async fn attestor_chill(
@@ -426,20 +422,22 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
-            .await?
-            .wait_for_finalized_success()
-            .await?;
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        let hash = ext.extrinsic_hash();
-        debug!("Registration extrinsic submitted with hash: {:?}", hash);
-
-        Ok(())
+        utils::handle_tx(tx_progress, "Chill Attestor").await
     }
 
     pub async fn attestor_unregister(
@@ -460,20 +458,22 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
-            .await?
-            .wait_for_finalized_success()
-            .await?;
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        let hash = ext.extrinsic_hash();
-        debug!("Registration extrinsic submitted with hash: {:?}", hash);
-
-        Ok(())
+        utils::handle_tx(tx_progress, "Unregister Attestor").await
     }
 
     pub async fn start_attesting(
@@ -486,18 +486,20 @@ impl Client {
             .attestation()
             .attest(chain_key, bls_public_key, proof_of_possession);
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
-            .sign_and_submit_then_watch_default(&tx, &self.signing_keypair)
-            .await?
-            .wait_for_finalized_success()
-            .await?;
+            .sign_and_submit_then_watch_default(&tx, &self.signer.signing_keypair)
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        let hash = ext.extrinsic_hash();
-        debug!("Start Attesting extrinsic submitted with hash: {:?}", hash);
-
-        Ok(())
+        utils::handle_tx(tx_progress, "Start Attesting").await
     }
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
@@ -521,8 +523,8 @@ impl Client {
             committee_set_size as u64,
             u64::from(target_sample_size),
             &randomness,
-            &self.pair,
-            &self.get_attestor_id(),
+            &self.signer.pair,
+            &self.attestor_id(),
             header_number,
             epoch_index,
         )?;
@@ -549,8 +551,8 @@ impl Client {
             committee_set_size as u64,
             target_sample_size,
             &randomness,
-            &self.pair,
-            &self.get_attestor_id(),
+            &self.signer.pair,
+            &self.attestor_id(),
             header_number,
             epoch_index,
         )?;
@@ -559,8 +561,8 @@ impl Client {
     }
 
     #[must_use]
-    pub fn get_attestor_id(&self) -> AttestorId {
-        AttestorId::from_public(self.signing_keypair.public_key().0)
+    pub fn attestor_id(&self) -> AttestorId {
+        self.signer.attestor_id()
     }
 
     pub async fn chain_attestation_interval(
@@ -823,20 +825,22 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
-            .await?
-            .wait_for_finalized_success()
-            .await?;
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        // let hash = ext.extrinsic_hash();
-        debug!("Transfer extrinsic submitted with hash: {:?}", ext);
-
-        Ok(())
+        utils::handle_tx(tx_progress, "Transfer").await
     }
 
     pub async fn set_balance(
@@ -860,27 +864,41 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
+
+        utils::handle_tx(tx_progress, "Set Balance").await
+    }
+
+    pub async fn get_free_balance(&self, account: &AccountId32) -> Result<u128, Error> {
+        let storage_query = cc3::storage().system().account(account);
+        let account_info = self
+            .api()
+            .storage()
+            .at_latest()
             .await?
-            .wait_for_finalized_success()
+            .fetch(&storage_query)
             .await?;
-
-        // let hash = ext.extrinsic_hash();
-        debug!("Transfer extrinsic submitted with hash: {:?}", ext);
-
-        Ok(())
+        Ok(account_info.map_or(0, |info| info.data.free))
     }
 
     pub async fn get_account_nonce(&self) -> Result<u64, Error> {
         let nonce = self
             .api()
             .tx()
-            .account_nonce(&AccountId32(self.signing_keypair.public_key().0))
+            .account_nonce(&self.signer.account_id())
             .await?;
 
         Ok(nonce)
@@ -911,7 +929,7 @@ impl Client {
         genesis_block_number: u64,
     ) -> Result<(), Error> {
         let call = cc3::runtime_types::creditcoin3_runtime::RuntimeCall::Attestation(
-            cc3::runtime_types::pallet_attestation_poc::pallet::Call::set_attestation_chain_genesis_block_number { chain_key, genesis_block_number }
+            cc3::runtime_types::pallet_attestation::pallet::Call::set_attestation_chain_genesis_block_number { chain_key, genesis_block_number }
         );
 
         let tx = cc3::tx().sudo().sudo(call);
@@ -927,7 +945,7 @@ impl Client {
         let ext = self
             .api()
             .tx()
-            .create_signed(&tx, &self.signing_keypair, params)
+            .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await?;
@@ -958,6 +976,59 @@ impl Client {
             .await?;
 
         Ok(result.unwrap_or_default())
+    }
+}
+
+mod utils {
+    /// Timeout for waiting on extrinsic finalization.
+    /// Set to 120 seconds which is around 8 blocks on a 15 second block time.
+    const FINALIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+    /// This is a fallback error message that we can use to detect insufficient funds errors in the absence of a more structured error from the RPC layer.
+    /// Sourced from: <https://github.com/paritytech/polkadot-sdk/blob/06bded7ab7ac6a50e0aeba48c0f7f5ca548c3573/substrate/primitives/runtime/src/transaction_validity.rs#L116>
+    const INABILITY_TO_PAY_SOME_FEE_MSG: &str = "Inability to pay some fee";
+
+    pub(super) async fn handle_tx(
+        tx: subxt::tx::TxProgress<
+            subxt::SubstrateConfig,
+            subxt::OnlineClient<subxt::SubstrateConfig>,
+        >,
+        msg: &str,
+    ) -> Result<(), crate::Error> {
+        match tokio::time::timeout(FINALIZATION_TIMEOUT, tx.wait_for_finalized_success()).await {
+            Ok(Ok(ext)) => {
+                let hash = ext.extrinsic_hash();
+                tracing::debug!("{} extrinsic succeeded with hash: {:?}", msg, hash);
+                Ok(())
+            }
+            Ok(Err(err)) if is_fee_error(&err) => Err(crate::Error::CallerCannotPayFees),
+            Ok(Err(subxt::Error::Runtime(subxt::error::DispatchError::Token(token_error)))) => {
+                // If we get a token error, it means the transaction was valid but failed to execute due to insufficient funds or similar issues. We can return a specific error for this case.
+                Err(crate::Error::CallerDoesntHaveSufficientFunds(token_error))
+            }
+            Ok(Err(e)) => {
+                // Any other error that occurs while waiting for the transaction to be finalized can be treated as a generic submission failure.
+                Err(e.into())
+            }
+            Err(_) => {
+                // Timeout while waiting for the transaction to be finalized. We treat this as a specific timeout error.
+                Err(crate::Error::TransactionTimeout)
+            }
+        }
+    }
+
+    pub(super) fn is_fee_error(e: &subxt::Error) -> bool {
+        if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(err)) = e {
+            if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(call_err)) =
+                err.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
+            {
+                if let Some(data) = call_err.data() {
+                    return data.get().contains(INABILITY_TO_PAY_SOME_FEE_MSG);
+                }
+            }
+        }
+
+        false
     }
 }
 
@@ -995,38 +1066,24 @@ impl From<SignedAttestation<Digest, AttestorId>> for CcSignedAttestation<H256, A
     }
 }
 
-impl From<CcAttestationFragment> for AttestationFragmentSerializable {
-    fn from(fragment: CcAttestationFragment) -> Self {
-        let fragment =
-            AttestationFragment::from_blocks(fragment.blocks.into_iter().map(Into::into).collect());
-        (&fragment).into()
-    }
-}
-
-impl From<AttestationFragmentSerializable> for CcAttestationFragment {
-    fn from(fragment: AttestationFragmentSerializable) -> Self {
-        CcAttestationFragment {
-            blocks: fragment
-                .blocks
+impl From<CcContinuityProof> for ContinuityProof {
+    fn from(p: CcContinuityProof) -> Self {
+        Self {
+            lower_endpoint_digest: sp_core::H256::from_slice(&p.lower_endpoint_digest.0),
+            roots: p
+                .roots
                 .into_iter()
-                .map(|block| CcBlockSerializable {
-                    block_number: block.block_number,
-                    root: H256(block.root.0),
-                    prev_digest: H256(block.prev_digest.0),
-                    digest: H256(block.digest.0),
-                })
+                .map(|r| sp_core::H256::from_slice(&r.0))
                 .collect(),
         }
     }
 }
 
-impl From<CcBlockSerializable> for Block {
-    fn from(block: CcBlockSerializable) -> Self {
-        Block {
-            block_number: block.block_number,
-            root: sp_core::H256::from_slice(&block.root.0),
-            prev_digest: sp_core::H256::from_slice(&block.prev_digest.0),
-            digest: sp_core::H256::from_slice(&block.digest.0),
+impl From<ContinuityProof> for CcContinuityProof {
+    fn from(p: ContinuityProof) -> Self {
+        CcContinuityProof {
+            lower_endpoint_digest: H256(p.lower_endpoint_digest.0),
+            roots: p.roots.into_iter().map(|r| H256(r.0)).collect(),
         }
     }
 }

@@ -1,0 +1,14 @@
+# CI multi-chain configuration — two local Anvil instances.
+# Used by the exercise-scripts CI job to validate multi-chain mode.
+---
+bind_host: "0.0.0.0"
+bind_port: 3100
+
+chains:
+  - chain_key: 2
+    eth_rpc_url: "http://127.0.0.1:8141"
+  - chain_key: 4
+    eth_rpc_url: "http://127.0.0.1:8142"
+
+redis_cluster_mode: false
+max_batch_size: 10

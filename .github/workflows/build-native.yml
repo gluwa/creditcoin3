@@ -11,6 +11,9 @@ name: Reusable workflow to build a native client
       version-string:
         required: true
         type: string
+      git-lfs-checkout:
+        required: true
+        type: boolean
       cache-key-name:
         required: false
         type: string
@@ -35,13 +38,13 @@ jobs:
         if: ${{ ! inputs.use-new-metadata }}
         uses: actions/checkout@v6
         with:
-          lfs: true
+          lfs: ${{ inputs.git-lfs-checkout }}
 
       - name: Checkout code for typedefs update
         if: ${{ inputs.use-new-metadata }}
         uses: actions/checkout@v6
         with:
-          lfs: true
+          lfs: ${{ inputs.git-lfs-checkout }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
 

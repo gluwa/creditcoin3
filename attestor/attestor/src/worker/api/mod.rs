@@ -13,25 +13,24 @@
 //! [openmetrics]: https://openmetrics.io/
 
 mod error;
-pub mod metrics;
 
 pub use error::Error;
 
-use crate::prelude::*;
+use user::prelude::*;
 
 #[derive(builder::Builder)]
 pub struct Config {
     #[specify_later]
-    metrics: common::types::Metrics,
+    metrics: metrics::Metrics,
     port: u16,
 }
 
 struct AppState {
-    metrics: common::types::Metrics,
+    metrics: metrics::Metrics,
 }
 
 pub(crate) struct WorkerApi {
-    metrics: common::types::Metrics,
+    metrics: metrics::Metrics,
     port: u16,
 }
 

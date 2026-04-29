@@ -1,57 +1,58 @@
 import { Command, OptionValues } from 'commander';
-import { BN, newApi } from '../../lib';
-import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
-import { delegateAddress, initKeyring } from '../../lib/account/keyring';
-import { proxyForOption } from '../options';
-import { toCTCString } from '../../lib/balance';
+import {
+    getAttestorContractWithSigner,
+    substrateAddressToBytes32,
+    deriveEvmKeyFromSecret,
+    extractEvmError,
+} from '../../lib/attestor/precompile';
+import { getStringFromEnvVar } from '../../lib/account/keyring';
 
 export function makeAttestorWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded');
     cmd.description(
         'Withdraw unbonded funds from attestor account that become available after calling unregisterAttestor',
     );
-    cmd.addOption(proxyForOption);
     cmd.action(withdrawUnbondedAction);
     return cmd;
 }
 
 async function withdrawUnbondedAction(options: OptionValues) {
-    const { api } = await newApi(options.url as string);
-    const keyring = await initKeyring(options);
-    const address = delegateAddress(keyring);
+    const secret = getStringFromEnvVar(process.env.CC_SECRET);
+    const { stashAddress } = deriveEvmKeyFromSecret(secret);
+    const stashBytes32 = substrateAddressToBytes32(stashAddress);
 
-    const ledger = await api.query.attestation.ledger(address);
-    if (ledger.isNone) {
-        console.log(`No unbonded funds to withdraw for address ${address}`);
+    const { contract } = getAttestorContractWithSigner(secret, options);
+
+    // `ledger.withdrawable` is already era-filtered on-chain: it's the sum of
+    // unlocking chunks whose unbonding era has already elapsed. If it's zero,
+    // nothing is ready yet — regardless of whether there are still-locking
+    // chunks present.
+    const ledgerInfo = await contract.getLedger(stashBytes32);
+    if (!ledgerInfo.exists) {
+        console.log(`No unbonded funds to withdraw for address ${stashAddress}`);
         process.exit(0);
     }
-    const ledgerValue = ledger.unwrap();
 
-    const currentEra = await api.query.staking.currentEra();
-    if (currentEra.isNone) {
-        console.error('Current era is not available');
-        process.exit(1);
-    }
-    const currentEraValue = currentEra.unwrap();
-
-    let canWithdraw = 0n;
-    for (const unlocking of ledgerValue.unlocking) {
-        if (unlocking.era.toNumber() <= currentEraValue.toNumber()) {
-            canWithdraw += unlocking.value.toBigInt();
-        }
-    }
-
-    if (canWithdraw === 0n) {
+    // ethers.js v6 surfaces Solidity numeric fields as `bigint`.
+    if (BigInt(ledgerInfo.withdrawable) === 0n) {
         console.log('No unbonded funds to withdraw');
         process.exit(0);
     }
 
-    console.log(`Unbonded funds available to withdraw: ${toCTCString(new BN(canWithdraw.toString()), 4)}`);
+    console.log(`Unbonded funds available to withdraw (unlocking chunks: ${ledgerInfo.unlockingChunks})`);
 
-    const withdrawUnbondedAttestorTx = api.tx.attestation.withdrawUnbonded();
-
-    await requireKeyringHasSufficientFunds(withdrawUnbondedAttestorTx, keyring, api);
-    const result = await signSendAndWatchCcKeyring(withdrawUnbondedAttestorTx, api, keyring);
-    console.log(result.info);
-    process.exit(result.status);
+    try {
+        const tx = await contract.withdrawUnbonded();
+        const receipt = await tx.wait();
+        if (receipt.status === 1) {
+            console.log(`Transaction included at block (hash: ${receipt.blockHash})`);
+            process.exit(0);
+        } else {
+            console.error('Transaction failed');
+            process.exit(1);
+        }
+    } catch (error: unknown) {
+        console.error(extractEvmError(error));
+        process.exit(1);
+    }
 }

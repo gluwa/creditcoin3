@@ -18,7 +18,6 @@ use sp_core::{
     crypto::{ByteArray, KeyTypeId},
     OpaqueMetadata, H160, H256, U256,
 };
-
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
@@ -39,11 +38,12 @@ use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, Weigh
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
-        ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
+        ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
         OnTimestampSet,
     },
     weights::{
-        constants::WEIGHT_REF_TIME_PER_MILLIS, ConstantMultiplier, Weight, WeightToFeeCoefficient,
+        constants::WEIGHT_REF_TIME_PER_MILLIS, constants::WEIGHT_REF_TIME_PER_NANOS,
+        ConstantMultiplier, Weight, WeightToFeeCoefficient,
     },
     PalletId,
 };
@@ -59,10 +59,9 @@ use attestor_primitives::{
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
 use pallet_ethereum::{Call::transact, PostLogContent, Transaction as EthereumTransaction};
-use pallet_evm::GasWeightMapping;
 use pallet_evm::{
     Account as EVMAccount, AddressMapping as _, EnsureAddressTruncated, FeeCalculator,
-    FrameSystemAccountProvider, HashedAddressMapping, Runner,
+    FrameSystemAccountProvider, GasWeightMapping, HashedAddressMapping, Runner,
 };
 use pallet_session::historical as session_historical;
 
@@ -80,6 +79,8 @@ use supported_chains_primitives::{provider::SupportedChainsProvider, MATURITY_EV
 
 mod precompiles;
 pub use precompiles::{used_addresses, GluwaPrecompiles};
+
+mod migrations;
 
 /// Type of block number.
 pub type BlockNumber = u32;
@@ -142,26 +143,26 @@ pub mod opaque {
 mod version;
 pub use version::VERSION;
 
-macro_rules! prod_or_fast {
-    ($prod: expr, $fast: expr) => {
+macro_rules! prod_devnet_fast {
+    ($prod: expr, $devnet: expr, $fast: expr) => {
         if cfg!(feature = "fast-runtime") {
             $fast
+        } else if cfg!(feature = "devnet") {
+            $devnet
         } else {
             $prod
         }
     };
 }
 
-pub const MILLISECS_PER_BLOCK: u64 = prod_or_fast!(15_000, 5_000);
+pub const MILLISECS_PER_BLOCK: u64 = prod_devnet_fast!(15_000, 5_000, 5_000);
 
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 
 // WARNING: the next should be defined on a single line b/c of
 // the assertions made in .github/check-for-changes-in-epoch-duration.sh
 #[rustfmt::skip]
-const BLOCKS_FOR_FASTER_EPOCH: u32 = if cfg!(feature = "devnet") { 2 * HOURS } else { 15 };
-
-pub const EPOCH_DURATION_IN_BLOCKS: u32 = prod_or_fast!(12 * HOURS, BLOCKS_FOR_FASTER_EPOCH);
+pub const EPOCH_DURATION_IN_BLOCKS: u32 = prod_devnet_fast!(12 * HOURS, 2 * HOURS, 15);
 
 parameter_types! {
     pub const EpochDuration: u64 = EPOCH_DURATION_IN_BLOCKS as u64; // Q: how long to make an epoch
@@ -223,7 +224,13 @@ impl frame_system::Config for Runtime {
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
     type MultiBlockMigrator = ();
-    type SingleBlockMigrations = ();
+    type SingleBlockMigrations = (
+        pallet_attestation::MigrateAttestationContinuityProofV0ToV1<Runtime>,
+        pallet_attestation::MigrateAttestorsCountV1ToV2<Runtime>,
+        migrations::v1_init_supported_chains::Migration<Runtime>,
+        migrations::v1_init_attestation::Migration<Runtime>,
+        migrations::v1_init_operators::Migration<Runtime>,
+    );
     type PreInherents = ();
     type PostInherents = ();
     type PostTransactions = ();
@@ -339,33 +346,34 @@ impl pallet_balances::Config for Runtime {
     type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
 }
 
-pub const TARGET_FEE_CREDO: Balance = 10_000_000_000_000_000;
+parameter_types! {
+    /// Executing a NO-OP `System::remarks` Extrinsic.
+    pub const ExtrinsicBaseWeight: Weight =
+        Weight::from_parts(WEIGHT_REF_TIME_PER_NANOS.saturating_mul(125_000), 0);
+}
+
 pub struct WeightToCtcFee<T>(PhantomData<T>);
 
 impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
     type Balance = Balance;
 
     fn polynomial() -> frame_support::weights::WeightToFeeCoefficients<Self::Balance> {
-        // Copied from the weights for the lock deal order extrinsic which is what is referenced in cc2
-        let deal_order_weight = Weight::from_parts(30_601_000, 0)
-            .saturating_add(Weight::from_parts(0, 4089))
-            .saturating_add(T::DbWeight::get().reads(1))
-            .saturating_add(T::DbWeight::get().writes(1));
-
-        let base = Balance::from(deal_order_weight.ref_time());
-        let ratio = TARGET_FEE_CREDO / base;
-        let rem = TARGET_FEE_CREDO % base;
-        smallvec::smallvec!(WeightToFeeCoefficient {
-            coeff_integer: ratio,
-            coeff_frac: Perbill::from_rational(rem, base),
-            negative: false,
+        let p = CENTS;
+        let q = 10 * Balance::from(ExtrinsicBaseWeight::get().ref_time());
+        smallvec::smallvec![WeightToFeeCoefficient {
             degree: 1,
-        })
+            negative: false,
+            coeff_frac: Perbill::from_rational(p % q, q),
+            coeff_integer: p / q,
+        }]
     }
 }
 
+pub const TRANSACTION_BYTE_FEE: Balance = 10 * CENTS / 1_000;
+
 parameter_types! {
     pub FeeMultiplier: Multiplier = Multiplier::one();
+    pub const TransactionByteFee: Balance = TRANSACTION_BYTE_FEE;
 }
 
 impl pallet_transaction_payment::Config for Runtime {
@@ -373,7 +381,7 @@ impl pallet_transaction_payment::Config for Runtime {
     type OnChargeTransaction = pallet_transaction_payment::FungibleAdapter<Balances, ()>;
     type OperationalFeeMultiplier = ConstU8<1u8>;
     type WeightToFee = WeightToCtcFee<Runtime>;
-    type LengthToFee = ConstantMultiplier<u128, ConstU128<1_500_000_000u128>>;
+    type LengthToFee = ConstantMultiplier<u128, TransactionByteFee>;
     type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 }
 
@@ -459,7 +467,7 @@ impl pallet_dynamic_fee::Config for Runtime {
 parameter_types! {
     pub DefaultBaseFeePerGas: U256 = U256::from(1_000_000_000);
     pub DefaultElasticity: Permill = Permill::from_parts(125_000);
-    pub const MaxExposurePageSize: u32 = 64;
+    pub const MaxExposurePageSize: u32 = 512;
     pub const MaxControllersInDeprecationBatch: u32 = 751;
 }
 
@@ -773,13 +781,11 @@ impl InstanceFilter<RuntimeCall> for ProxyFilter {
     }
 }
 
-pub const UNITS: Balance = 1_000_000_000_000;
-pub const CENTS: Balance = UNITS / 30_000;
-pub const GRAND: Balance = CENTS * 100_000;
-pub const MILLICENTS: Balance = CENTS / 1_000;
+pub const CENTS: Balance = CTC / 100;
+pub const MICROCTC: Balance = CTC / 1_000_000;
 
 pub const fn deposit(items: u32, bytes: u32) -> Balance {
-    items as Balance * 2_000 * CENTS + (bytes as Balance) * 100 * MILLICENTS
+    items as Balance * 2_000 * CENTS + (bytes as Balance) * 100 * MICROCTC
 }
 
 parameter_types! {
@@ -900,13 +906,13 @@ type EnsureOperators = frame_system::EnsureSignedBy<Operators, AccountId>;
 type EnsureRootOrOperators =
     frame_support::traits::EitherOfDiverse<frame_system::EnsureRoot<AccountId>, EnsureOperators>;
 
-impl pallet_attestation_poc::Config for Runtime {
+impl pallet_attestation::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = DefaultMaxCatchup;
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
+    type WeightInfo = pallet_attestation::weights::WeightInfo<Runtime>;
     // TODO make this setting useful
     type MaxAttestationNodes = MaxAttestors;
     type CommittmentInterval = CommittmentInterval;
@@ -934,7 +940,7 @@ impl pallet_supported_chains::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
     type EventListeners = Attestation;
-    type ChainRegistrationHandler = pallet_attestation_poc::Pallet<Runtime>;
+    type ChainRegistrationHandler = pallet_attestation::Pallet<Runtime>;
     type DefaultMaturityStrategy = DefaultMaturityStrategy;
     type OperatorsOrigin = EnsureRootOrOperators;
 }
@@ -999,7 +1005,7 @@ construct_runtime!(
         BaseFee: pallet_base_fee,
         HotfixSufficients: pallet_hotfix_sufficients,
 
-        Attestation: pallet_attestation_poc,
+        Attestation: pallet_attestation,
         SupportedChains: pallet_supported_chains,
 
         Randomness: pallet_randomness,
@@ -1052,6 +1058,7 @@ pub type SignedExtra = (
     frame_system::CheckNonce<Runtime>,
     frame_system::CheckWeight<Runtime>,
     pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+    frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 );
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
@@ -1062,17 +1069,15 @@ pub type CheckedExtrinsic =
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, SignedExtra>;
 /// Executive: handles dispatch to the various modules.
+type Migrations = ();
+
 pub type Executive = frame_executive::Executive<
     Runtime,
     Block,
     frame_system::ChainContext<Runtime>,
     Runtime,
     AllPalletsWithSystem,
-    (
-        pallet_nomination_pools::migration::versioned::V5toV6<Runtime>,
-        pallet_nomination_pools::migration::versioned::V6ToV7<Runtime>,
-        pallet_nomination_pools::migration::versioned::V7ToV8<Runtime>,
-    ),
+    Migrations,
 >;
 
 impl fp_self_contained::SelfContainedCall for RuntimeCall {
@@ -1142,13 +1147,13 @@ mod benches {
     define_benchmarks!(
         [frame_benchmarking, BaselineBench::<Runtime>]
         [frame_system, SystemBench::<Runtime>]
-        [pallet_attestation_poc, Attestation]
+        [pallet_attestation, Attestation]
         [pallet_supported_chains, SupportedChains]
         [pallet_balances, Balances]
         [pallet_timestamp, Timestamp]
         [pallet_sudo, Sudo]
         [pallet_evm, EVM]
-        [pallet_attestation_poc, Attestation]
+        [pallet_attestation, Attestation]
         [pallet_randomness, Randomness]
         [pallet_membership, Operators]
     );
@@ -1300,7 +1305,7 @@ impl_runtime_apis! {
             pallet_evm::AccountStorages::<Runtime>::get(address, H256::from_slice(&tmp[..]))
         }
 
-       fn call(
+        fn call(
             from: H160,
             to: H160,
             data: Vec<u8>,
@@ -1709,9 +1714,7 @@ impl_runtime_apis! {
         }
     }
 
-
     impl moonbeam_rpc_primitives_debug::DebugRuntimeApi<Block> for Runtime {
-
         fn trace_transaction(
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
             traced_transaction: &EthereumTransaction,
@@ -1748,7 +1751,6 @@ impl_runtime_apis! {
                     "Failed to find Ethereum transaction among the extrinsics.",
                 ))
             }
-
         }
 
         fn trace_block(
@@ -1868,6 +1870,23 @@ impl_runtime_apis! {
                 );
             });
             Ok(())
+        }
+    }
+
+    #[cfg(feature = "try-runtime")]
+    impl frame_try_runtime::TryRuntime<Block> for Runtime {
+        fn on_runtime_upgrade(checks: frame_try_runtime::UpgradeCheckSelect) -> (Weight, Weight) {
+            let weight = Executive::try_runtime_upgrade(checks).unwrap();
+            (weight, BlockWeights::get().max_block)
+        }
+
+        fn execute_block(
+            block: Block,
+            state_root_check: bool,
+            signature_check: bool,
+            select: frame_try_runtime::TryStateSelect,
+        ) -> Weight {
+            Executive::try_execute_block(block, state_root_check, signature_check, select).unwrap()
         }
     }
 

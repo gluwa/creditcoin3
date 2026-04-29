@@ -142,7 +142,7 @@ simulator's `/status` endpoint and sends periodic reports. This approach:
 
    ```bash
    # Edit the manifest with your values
-   # Update SLACK_WEBHOOK_URL and optionally SLACK_ALERT_GROUP in k8s/cronjob-reporter.yaml
+   # Update SLACK_WEBHOOK_URL, USC_NOTI_SLACK_BOT_TOKEN and optionally SLACK_ALERT_GROUP in k8s/cronjob-reporter.yaml
 
    # Deploy (non-persistent version - snapshot resets on pod restart)
    kubectl apply -f k8s/cronjob-reporter.yaml

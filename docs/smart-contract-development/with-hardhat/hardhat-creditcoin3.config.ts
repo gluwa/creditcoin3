@@ -1,4 +1,4 @@
-import { HardhatUserConfig, vars } from 'hardhat/config';
+import { HardhatUserConfig, task, vars } from 'hardhat/config';
 import '@nomicfoundation/hardhat-toolbox';
 
 // Replace this with your Creditcoin3 Testnet account private key
@@ -10,18 +10,23 @@ const config: HardhatUserConfig = {
     solidity: '0.8.24',
     networks: {
         creditcoinDevnet: {
-            url: 'https://rpc.cc3-devnet.creditcoin.network',
+            url: 'https://rpc.usc-devnet.creditcoin.network',
             accounts: [CC3TEST_PRIVATE_KEY],
         },
         creditcoinTestnet: {
-            url: 'https://rpc.cc3-testnet.creditcoin.network',
+            url: 'https://rpc.usc-testnet2.creditcoin.network',
             accounts: [CC3TEST_PRIVATE_KEY],
         },
         creditcoinMainnet: {
-            url: 'https://rpc.cc3-mainnet.creditcoin.network',
+            url: 'https://rpc.usc-mainnet.creditcoin.network',
             accounts: [CC3TEST_PRIVATE_KEY],
         },
     },
 };
 
 export default config;
+
+// eslint-disable-next-line @typescript-eslint/require-await
+task('print-network', 'Prints the value of --network', async (taskArgs, hre) => {
+    console.log((hre.network.config as any).url);
+});

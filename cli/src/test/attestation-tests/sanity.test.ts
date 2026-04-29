@@ -16,7 +16,7 @@ describe('BlockAttested events', (): void => {
     let chain_Anvil1_AttestationInterval = 0;
     let startBlock_Anvil1 = 0;
     let provider_Anvil1: WebSocketProvider;
-    const maxBlocks = 220; // ~ 18:20 mins
+    const maxBlocks = 250; // ~ 21 mins
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -50,10 +50,6 @@ describe('BlockAttested events', (): void => {
             '4': 0,
         };
 
-        const attestedEventsMemory: {
-            [key: string]: { headerNumber: number; digest: string }[];
-        } = { '2': [], '4': [] };
-
         const electionEvents: { [key: string]: number } = {
             '2': 0,
             '4': 0,
@@ -77,20 +73,8 @@ describe('BlockAttested events', (): void => {
                         if (`${event.section}.${event.method}` === 'attestation.BlockAttested') {
                             // Show what we are busy with
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
-                            const [supportedChainKey, headerNumber, digest] = event.data;
+                            const [supportedChainKey, _headerNumber, _digest] = event.data;
                             const supportedChainKeyStr = (supportedChainKey as U64).toString();
-                            const digestHex = digest.toHex();
-
-                            // Note: We can no longer check attestor count from the event
-                            // The full attestation data is now only available via call handler or storage query
-                            // For testing purposes, we'll just track the event occurrence
-
-                            // Keep in memory for later continuity proof validation
-                            // Note: We can't store the full signed attestation anymore from the event
-                            (attestedEventsMemory[supportedChainKeyStr] ||= []).push({
-                                headerNumber: (headerNumber as U64).toNumber(),
-                                digest: digestHex,
-                            });
 
                             attestedEvents[supportedChainKeyStr]++;
                         }
@@ -138,32 +122,6 @@ describe('BlockAttested events', (): void => {
                 })
                 .catch((error) => reject(new Error(error)));
         }).then(async () => {
-            const prev_digests = [];
-            // Validate continuity proofs for Anvil-1
-            // Note: Continuity proof validation removed as full attestation data
-            // is no longer available in the event. This would need to be done via
-            // storage query or call handler if needed.
-            for (const attestationRecord of attestedEventsMemory[chain_Anvil1_Key]) {
-                prev_digests.push(attestationRecord.digest);
-
-                if (attestationRecord.headerNumber > 0) {
-                    // Note: Continuity proof validation removed as full attestation data
-                    // is no longer available in the event. This would need to be done via
-                    // storage query or call handler if needed.
-                    // See CSUB-1890
-                    // expect(attestationRecord.signed.continuityProof.blocks.length).toBeGreaterThanOrEqual(
-                    //     chain_Anvil1_AttestationInterval - 1,
-                    // );
-                    // const continuityProofValid = validateContinuityProof(prev_digests, attestationRecord.signed);
-                    // expect(continuityProofValid).toBeTruthy();
-                } else {
-                    console.log(
-                        `**** DEBUG: SKIP continuity proof validation for genesis attestation for chain ${chain_Anvil1_Key}`,
-                    );
-                    // expect(attestationRecord.signed.continuityProof.blocks.length).toBe(0);
-                }
-            }
-
             // b/c we always start from scratch in CI expect that there is
             // a checkpoint for the genesis block of the ingested chain
             let checkpointsForGenesis = 0;
@@ -189,14 +147,16 @@ describe('BlockAttested events', (): void => {
             expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);
 
             const endBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
-            const expectedBlockAttestedEvents_Anvil1 = Math.floor(
-                (endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval,
-            );
+            // There are 10013 initial blocks which will result in 20 attestations for each 500
+            // until we catch up, then every 10 blocks
+            const expectedBlockAttestedEvents_Anvil1 =
+                20 + Math.floor((endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval);
 
-            // note: ±2 tolerance accounts for timing differences between when startBlock was captured
-            // (in beforeAll) vs when event counting started, plus Math.floor rounding effects
-            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(expectedBlockAttestedEvents_Anvil1 - 2);
+            // however we don't start listening immediately
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(15);
+            // so allow for some timing differences
             expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 2);
+
             // note: interval for Anvil2 changes dynamically during this test
             expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(40);
 
@@ -213,41 +173,5 @@ describe('BlockAttested events', (): void => {
             // this test loops over roughly 15 epochs and we make a change every 2
             expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(5);
         });
-    }, 1_500_000); // 220 blocks is 1100 sec + reserve to avoid timeouts
-
-    // Helper function to validate continuity proof
-    // function validateContinuityProof(
-    //     prev_digests: string[],
-    //     attestation: AttestorPrimitivesSignedAttestation,
-    // ): boolean {
-    //     if (attestation.continuityProof.blocks.length === 0) {
-    //         console.log('**** DEBUG: continuity proof has no blocks; returning false');
-    //         return false;
-    //     }
-
-    //     let block_prev_digest = '';
-    //     attestation.continuityProof.blocks.forEach((block, index) => {
-    //         if (block.blockNumber.isZero()) {
-    //             return;
-    //         }
-
-    //         if (index === 0) {
-    //             if (!prev_digests.includes(block.prevDigest.toHex())) {
-    //                 console.log(
-    //                     `**** DEBUG: continuity proof first block prevDigest ${block.prevDigest.toHex()} not in known prev_digests`,
-    //                 );
-    //                 return false;
-    //             }
-    //             block_prev_digest = block.prevDigest.toHex();
-    //             return;
-    //         }
-
-    //         if (block.prevDigest.toHex() !== block_prev_digest) {
-    //             return false;
-    //         }
-    //         block_prev_digest = block.digest.toHex();
-    //     });
-
-    //     return true;
-    // }
+    }, 1_500_000); // 250 blocks is 1250 sec + reserve to avoid timeouts
 });

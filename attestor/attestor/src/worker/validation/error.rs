@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum Error {
-    CC3(crate::stream::cc3::Error),
-    Pool(super::pool::Error),
+    CC3(stream::cc3::Error),
+    Pool(attestation_pool::Error),
     Client(cc_client::Error),
     Subxt(subxt::Error),
     Bls(bls_signatures::Error),
@@ -34,7 +34,6 @@ pub enum InvalidCause {
     Unsupported(attestor_primitives::ChainKey),
     Duplicate,
     InvalidVrf,
-    InvalidBls,
     EmptyContinuityProof,
     EmptyPrevDigest,
     InvalidContinuityHeadDigest {
@@ -47,10 +46,6 @@ pub enum InvalidCause {
         actual: cc_client::H256,
         expected: cc_client::H256,
     },
-    InvalidContinuityProof {
-        block: attestor_primitives::block::BlockSerializable,
-        expected: cc_client::H256,
-    },
 }
 
 impl std::fmt::Display for InvalidCause {
@@ -59,7 +54,6 @@ impl std::fmt::Display for InvalidCause {
             Self::Unsupported(chain_key) => write!(f, "Usupported source chain: {chain_key}"),
             Self::Duplicate => write!(f, "Attestation already exists in the runtime"),
             Self::InvalidVrf => write!(f, "Invalid attestation VRF"),
-            Self::InvalidBls => write!(f, "Invalid attestation BLS"),
             Self::EmptyContinuityProof => write!(f, "Empty attestation continuity proof"),
             Self::EmptyPrevDigest => write!(f, "Empty previous digest"),
             Self::InvalidContinuityHeadDigest { actual, expected } => write!(
@@ -69,10 +63,6 @@ impl std::fmt::Display for InvalidCause {
             Self::InvalidContinuityTailDigest { actual, expected } => write!(
                 f,
                 "Invalid continuity proof tail digest, expected {expected}, got {actual}"
-            ),
-            Self::InvalidContinuityProof { block, expected } => write!(
-                f,
-                "Invalid continuity proof at block {block:?}, expected previous digest {expected}"
             ),
         }
     }

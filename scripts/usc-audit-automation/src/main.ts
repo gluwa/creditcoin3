@@ -8,12 +8,14 @@
 import { loadConfig } from "./config.ts";
 import {
   connect,
+  DEFAULT_MATURITY_STRATEGY,
   disconnect,
   getAttestationByDigest,
   getAttestationInterval,
   getCheckpointInterval,
   getLastCheckpoint,
   getLastDigest,
+  getMaturityDelay,
   getSupportedChains,
   setVerbose,
 } from "./usc.ts";
@@ -23,24 +25,41 @@ import {
   getBlockNumberByHash,
 } from "./eth.ts";
 import { queryAttestation } from "./graphql.ts";
-import { createSlackPayload, sendSlackMessage } from "./slack.ts";
+import {
+  BuiltReport,
+  createSlackPayloads,
+  sendSummarySlackMessage,
+  sendThreadSlackMessage,
+} from "./slack.ts";
+import { runBalanceChecks } from "./balances.ts";
 
-const MAX_BLOCK_DIFF = 40;
 const BSC_MAX_BLOCK_DIFF = 499;
+const ATTESTATION_LAG_BUFFER_INTERVALS = 3;
 
 function formatNum(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-function getMaxBlockDiff(chainName: string): number {
-  return chainName.includes("BSC") ? BSC_MAX_BLOCK_DIFF : MAX_BLOCK_DIFF;
+function getMaxBlockDiff(
+  chainName: string,
+  maturityStrategy: string,
+  attestationInterval: number,
+): number {
+  const formulaMax = getMaturityDelay(maturityStrategy) +
+    attestationInterval * ATTESTATION_LAG_BUFFER_INTERVALS;
+  return chainName.includes("BSC")
+    ? Math.max(formulaMax, BSC_MAX_BLOCK_DIFF)
+    : formulaMax;
 }
 
 function buildReport(
   chainLabel: string,
   chainId: number,
+  chainKey: number,
+  maturityStrategy: string,
   ethBlock: number,
   attBlock: number,
+  maxBlockDiff: number,
   checkpointBlock: number,
   blockByHash: number | null,
   blockDiffOk: boolean,
@@ -48,18 +67,24 @@ function buildReport(
   checkpointRangeOk: boolean,
   graphqlAtt: { headerNumber: string; root: string; digest: string } | null,
   graphqlCp: { lastCheckpointHeaderNumber: string } | null,
-): string {
-  const lines: string[] = [];
-  lines.push(`[${chainLabel} - ${chainId}] ⬛ ${chainLabel}`);
-  lines.push(
+): BuiltReport {
+  const details: string[] = [];
+  const title =
+    `🚦 Attestation Chain Liveness: ${chainLabel} - ${chainId} - ${chainKey}`;
+  const detailsTitle =
+    `🚦 Liveness Details: ${chainLabel} - ${chainId} - ${chainKey} - ${maturityStrategy}`;
+
+  details.push(
     (blockDiffOk ? "✅" : "❌") +
       ` Attestation block heights diff: ${formatNum(ethBlock - attBlock)} (${
         formatNum(ethBlock)
-      }|${formatNum(attBlock)})`,
+      }|${formatNum(attBlock)}|${formatNum(maxBlockDiff)})`,
   );
+
   const headerHashMatch = headerHashOk && blockByHash != null &&
     blockByHash === attBlock;
-  lines.push(
+
+  details.push(
     (headerHashOk ? "✅" : "❌") +
       ` Attestation header hash matches correct Ethereum block${
         headerHashMatch
@@ -69,7 +94,8 @@ function buildReport(
           })`
       }`,
   );
-  lines.push(
+
+  details.push(
     (checkpointRangeOk ? "✅" : "❌") +
       ` Last checkpoint creation is ${
         checkpointRangeOk ? "within" : "outside"
@@ -79,15 +105,18 @@ function buildReport(
           : `: (${formatNum(ethBlock)}|${formatNum(checkpointBlock)})`
       }`,
   );
+
   if (graphqlAtt && graphqlCp) {
     const fmt = (s: string) => formatNum(Number(s) || 0);
+
     const cpMatch =
       fmt(graphqlCp.lastCheckpointHeaderNumber) === formatNum(checkpointBlock);
     const attMatch = fmt(graphqlAtt.headerNumber) === formatNum(attBlock);
     const hasRoot = graphqlAtt.root && /^0x[0-9a-fA-F]+$/.test(graphqlAtt.root);
     const hasDigest = graphqlAtt.digest &&
       /^0x[0-9a-fA-F]+$/.test(graphqlAtt.digest);
-    lines.push(
+
+    details.push(
       (cpMatch ? "✅" : "❌") +
         ` Last checkpoint number found in GraphQL${
           cpMatch
@@ -97,7 +126,8 @@ function buildReport(
             })`
         }`,
     );
-    lines.push(
+
+    details.push(
       (attMatch ? "✅" : "❌") +
         ` Last attestation header number found in GraphQL${
           attMatch
@@ -105,22 +135,36 @@ function buildReport(
             : `: (${fmt(graphqlAtt.headerNumber)}|${formatNum(attBlock)})`
         }`,
     );
-    lines.push(
+
+    details.push(
       (hasRoot ? "✅" : "❌") +
         ` Last attestation root found in GraphQL${
           hasRoot ? "" : `: (${graphqlAtt.root || "empty"})`
         }`,
     );
-    lines.push(
+
+    details.push(
       (hasDigest ? "✅" : "❌") +
         ` Last attestation digest found in GraphQL${
           hasDigest ? "" : `: (${graphqlAtt.digest || "empty"})`
         }`,
     );
   } else {
-    lines.push("❌ GraphQL data not found for attestation/checkpoint");
+    details.push("❌ GraphQL data not found for attestation/checkpoint");
   }
-  return lines.join("\n");
+
+  const ok = details.every((line) => line.startsWith("✅"));
+  const summary = `${title}\n${
+    ok
+      ? "✅ All liveness checks passed"
+      : "❌ One or more liveness checks failed"
+  }`;
+
+  return {
+    ok,
+    summary,
+    details: `${detailsTitle}\n${details.join("\n")}`,
+  };
 }
 
 async function runChecksForChain(
@@ -129,33 +173,38 @@ async function runChecksForChain(
   chainKey: number,
   chainName: string,
   ethRpcUrl: string,
-): Promise<{ report: string; hasErrors: boolean }> {
-  const chainLabel = `${config.uscNetworkName} - ${chainName}`;
+  maturityStrategy: string,
+): Promise<BuiltReport> {
+  const chainLabel = `${chainName}`;
+  const title = `🚦 Attestation chain liveness: ${chainLabel} - ${chainId}`;
 
   const lastDigest = await getLastDigest(chainKey);
   if (!lastDigest) {
     return {
-      report:
-        `[${chainLabel}] ❌ No last digest for chain key ${chainKey}. Skipping.`,
-      hasErrors: true,
-    };
+      ok: false,
+      summary:
+        `${title}\n❌ No last digest for chain key ${chainKey}. Skipping.`,
+      details: "",
+    } satisfies BuiltReport;
   }
 
   const attestation = await getAttestationByDigest(chainKey, lastDigest);
   if (!attestation) {
     return {
-      report:
-        `[${chainLabel}] ❌ Could not fetch attestation for digest. Skipping.`,
-      hasErrors: true,
-    };
+      ok: false,
+      summary:
+        `${title}\n❌ Could not fetch attestation for lastDigest: ${lastDigest}. Skipping.`,
+      details: "",
+    } satisfies BuiltReport;
   }
 
   const lastCheckpoint = await getLastCheckpoint(chainKey);
   if (!lastCheckpoint) {
     return {
-      report:
-        `[${chainLabel}] ❌ No last checkpoint for chain key ${chainKey}. Skipping.`,
-      hasErrors: true,
+      ok: false,
+      summary:
+        `${title}\n❌ No last checkpoint for chain key ${chainKey}. Skipping.`,
+      details: "",
     };
   }
 
@@ -190,7 +239,11 @@ async function runChecksForChain(
   }
 
   const blockDiff = ethBlock - attBlock;
-  const maxBlockDiff = getMaxBlockDiff(chainName);
+  const maxBlockDiff = getMaxBlockDiff(
+    chainName,
+    maturityStrategy,
+    attestationInterval,
+  );
   const blockDiffOk = blockDiff >= 0 && blockDiff <= maxBlockDiff;
 
   const graphqlResult = await queryAttestation(
@@ -200,20 +253,14 @@ async function runChecksForChain(
     lastCheckpoint.blockNumber,
   );
 
-  const att = graphqlResult.attestation;
-  const cp = graphqlResult.checkpoint;
-  const graphqlCpMatch = att != null && cp != null &&
-    cp.lastCheckpointHeaderNumber === String(lastCheckpoint.blockNumber);
-  const graphqlAttMatch = att != null && att.headerNumber === String(attBlock);
-  const graphqlHasRoot = att?.root != null && /^0x[0-9a-fA-F]+$/.test(att.root);
-  const graphqlHasDigest = att?.digest != null &&
-    /^0x[0-9a-fA-F]+$/.test(att.digest);
-
   const report = buildReport(
     chainLabel,
     chainId,
+    chainKey,
+    maturityStrategy,
     ethBlock,
     attBlock,
+    maxBlockDiff,
     lastCheckpoint.blockNumber,
     fetchedBlockByHash,
     blockDiffOk,
@@ -223,9 +270,7 @@ async function runChecksForChain(
     graphqlResult.checkpoint,
   );
 
-  const hasErrors = !blockDiffOk || !headerHashOk || !checkpointRangeOk ||
-    !graphqlCpMatch || !graphqlAttMatch || !graphqlHasRoot || !graphqlHasDigest;
-  return { report, hasErrors };
+  return report;
 }
 
 async function main(): Promise<void> {
@@ -237,7 +282,7 @@ async function main(): Promise<void> {
   if (config.verbose) {
     console.log("Config:", {
       ...config,
-      slackWebhookUrl: config.slackWebhookUrl ? "[REDACTED]" : undefined,
+      slackBotToken: config.slackBotToken ? "[REDACTED]" : undefined,
     });
   }
 
@@ -253,70 +298,125 @@ async function main(): Promise<void> {
         chainId: c.chainId,
         chainKey: c.chainKey,
         name: c.chainName,
+        maturityStrategy: c.maturityStrategy,
       })),
     );
   }
 
-  const reports: string[] = [];
-  let anyErrors = false;
+  const reports: BuiltReport[] = [];
+  const title = `🚦 Attestation chain liveness`;
 
   for (const ethRpc of config.ethRpc) {
     const healthy = await checkRpcHealthy(ethRpc.url);
     if (!healthy) {
       console.warn(`⚠️  RPC unhealthy for chain ${ethRpc.chainId}, skipping`);
-      reports.push(`[Chain ${ethRpc.chainId}] ❌ RPC unhealthy - skipped`);
-      anyErrors = true;
+      const report = {
+        ok: false,
+        summary:
+          `${title} [Chain ${ethRpc.chainId}] ❌ RPC unhealthy - skipped`,
+        details: "",
+      } satisfies BuiltReport;
+      reports.push(report);
       continue;
     }
 
     const discovered = supportedChains.find((c) =>
-      c.chainId === ethRpc.chainId
+      c.chainId === ethRpc.chainId &&
+      (ethRpc.chainKey == null || c.chainKey === ethRpc.chainKey)
     );
     const chainKey = discovered?.chainKey ?? ethRpc.chainKey;
     if (chainKey == null) {
       console.warn(
         `⚠️  No chain_key for chain ${ethRpc.chainId}, add chainKey to config`,
       );
-      reports.push(
-        `[Chain ${ethRpc.chainId}] ❌ No chain_key - add to config`,
-      );
-      anyErrors = true;
+      const report = {
+        ok: false,
+        summary:
+          `${title} [Chain ${ethRpc.chainId}] ❌ No chain_key - add to config`,
+        details: "",
+      } satisfies BuiltReport;
+      reports.push(report);
       continue;
     }
 
-    const chainName = getChainName(ethRpc.chainId);
-    const { report, hasErrors } = await runChecksForChain(
+    const chainName = ethRpc.chainName ?? getChainName(ethRpc.chainId);
+    const maturityStrategy = discovered?.maturityStrategy ??
+      DEFAULT_MATURITY_STRATEGY;
+    const report = await runChecksForChain(
       config,
       ethRpc.chainId,
       chainKey,
       chainName,
       ethRpc.url,
+      maturityStrategy,
     );
     reports.push(report);
-    if (hasErrors) anyErrors = true;
   }
 
   if (reports.length === 0) {
     if (supportedChains.length === 0) {
-      reports.push(
-        "No supported chains found. Add ethRpc with chainKey to config.",
-      );
+      const report = {
+        ok: false,
+        summary:
+          `${title}: No supported chains found. Add ethRpc with chainKey to config.`,
+        details: "",
+      } satisfies BuiltReport;
+      reports.push(report);
     }
   }
 
-  const fullReport = reports.join("\n\n");
-  console.log("\n" + fullReport);
+  // Add balances check report
+  if (config.balanceChecks && config.balanceChecks.length > 0) {
+    const balanceReport = await runBalanceChecks(config);
+    reports.push(balanceReport);
+  }
 
-  if (!config.noSlack && config.slackWebhookUrl) {
-    const payload = createSlackPayload(
-      fullReport,
-      anyErrors,
+  for (const report of reports) {
+    console.log("\n" + JSON.stringify(report, null, 2));
+  }
+
+  if (!config.noSlack && config.slackBotToken && config.slackChannelId) {
+    const combinedSummaryReport = buildCombinedSummaryReport(
+      config.uscNetworkName,
+      reports,
+    );
+
+    const { summaryPayload } = createSlackPayloads(
+      combinedSummaryReport,
       config.slackAlertGroup,
     );
-    await sendSlackMessage(config.slackWebhookUrl, payload);
-    console.log("\n✅ Report sent to Slack");
+
+    const thread_ts = await sendSummarySlackMessage(
+      config.slackBotToken,
+      config.slackChannelId,
+      summaryPayload,
+    );
+
+    for (const report of reports) {
+      if (!report.details || report.details.trim() === "") {
+        continue;
+      }
+
+      const { detailsPayload } = createSlackPayloads(
+        report,
+        config.slackAlertGroup,
+      );
+
+      if (detailsPayload.text !== "") {
+        await sendThreadSlackMessage(
+          config.slackBotToken,
+          config.slackChannelId,
+          thread_ts,
+          detailsPayload,
+        );
+      }
+    }
+
+    console.log(
+      "\n✅ Combined summary sent to Slack, details posted in thread",
+    );
   } else if (config.noSlack) {
-    console.log("\n📋 Slack disabled (--no-slack); report printed above");
+    console.log("\n📋 Slack disabled (--no-slack); reports printed above");
   }
 
   disconnect();
@@ -329,6 +429,22 @@ function getChainName(chainId: number): string {
     1: "Ethereum Mainnet",
   };
   return names[chainId] ?? `Chain ${chainId}`;
+}
+
+function buildCombinedSummaryReport(
+  networkName: string,
+  reports: BuiltReport[],
+): BuiltReport {
+  const ok = reports.every((r) => r.ok);
+  const title = `🛡️ USC Audit Summary [${networkName}]\n`;
+
+  const summaryLines = reports.map((r) => r.summary);
+
+  return {
+    ok,
+    summary: `${title}\n${summaryLines.join("\n\n")}`,
+    details: "",
+  };
 }
 
 main().catch((err) => {

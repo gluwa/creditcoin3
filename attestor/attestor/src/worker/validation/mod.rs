@@ -77,57 +77,63 @@
 //! </pre>
 //!
 //! [`Worker`]: crate::worker::Worker
-//! [`Quorum`]: pool::Quorum
+//! [`Quorum`]: attestation_pool::Quorum
 //! [production worker]: crate::worker::production
 //! [p2p worker]: crate::worker::p2p
-//! [attestation pool]: pool
+//! [attestation Pool]: attestation_pool
 //! [`ATTESTATION_TIMEOUT`]: common::constants::ATTESTATION_TIMEOUT
 
 mod error;
 mod future;
-pub mod pool;
 
-use crate::prelude::*;
 pub use error::*;
+use user::prelude::*;
+
+/// First block height covered by a continuity proof (`header_number - roots.len()`).
+/// Same as [`attestor_primitives::block::ContinuityProof::start_block_number`]; use this when the
+/// proof comes from subxt-generated types that only expose `roots`, not helper methods.
+fn continuity_proof_start_block(header_number: u64, roots_len: usize) -> u64 {
+    header_number.saturating_sub(roots_len as u64)
+}
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
 #[derive(builder::Builder)]
 pub struct Config {
-    stream_cc3: crate::stream::cc3::StreamCC3,
+    stream_cc3: stream::cc3::StreamCC3,
     cc3: cc_client::Client,
-    keypair: subxt_signer::sr25519::Keypair,
+    signer: cc_client::signer::CC3Signer,
 
-    validation_sender: pool::AttestationPoolSender,
-    validation_receiver: pool::AttestationPoolReceiver,
+    validation_sender: attestation_pool::AttestationPoolSender,
+    validation_receiver: attestation_pool::AttestationPoolReceiver,
 
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
-    start_height: common::types::Height,
-    genesis: common::types::Height,
+    start_height: attestor_primitives::Height,
+    genesis: attestor_primitives::Height,
 
-    metrics: common::types::Metrics,
+    metrics: metrics::Metrics,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
 
 pub(crate) struct WorkerAttestationValidation {
-    // CHAIN LISTENERS
-    stream_cc3: crate::stream::cc3::StreamCC3,
+    // CC3
+    stream_cc3: stream::cc3::StreamCC3,
     cc3: cc_client::Client,
 
     // ATTESTATIONS
-    keypair: subxt_signer::sr25519::Keypair,
-    watch_submission: future::OptionFuture<(AttestationSubmission, common::types::Height)>,
-    validation_sender: pool::AttestationPoolSender,
-    validation_receiver: pool::AttestationPoolReceiver,
+    signer: cc_client::signer::CC3Signer,
+    watch_submission: future::OptionFuture<(AttestationSubmission, attestor_primitives::Height)>,
+    validation_sender: attestation_pool::AttestationPoolSender,
+    validation_receiver: attestation_pool::AttestationPoolReceiver,
 
     // CHAIN DATA
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
-    start_height: common::types::Height,
-    genesis: common::types::Height,
+    start_height: attestor_primitives::Height,
+    genesis: attestor_primitives::Height,
 
     // METRICS
-    metrics: common::types::Metrics,
+    metrics: metrics::Metrics,
 }
 
 impl WorkerAttestationValidation {
@@ -136,7 +142,7 @@ impl WorkerAttestationValidation {
             stream_cc3: config.stream_cc3,
             cc3: config.cc3,
 
-            keypair: config.keypair,
+            signer: config.signer,
             watch_submission: future::OptionFuture::default(),
             validation_receiver: config.validation_receiver,
             validation_sender: config.validation_sender,
@@ -181,9 +187,13 @@ impl super::Worker for WorkerAttestationValidation {
 impl WorkerAttestationValidation {
     async fn handle_event_quorum(
         &mut self,
-        quorum: Option<(pool::Quorum, pool::Permit, Option<cc_client::H256>)>,
+        quorum: Option<(
+            attestation_pool::Quorum,
+            attestation_pool::Permit,
+            Option<cc_client::H256>,
+        )>,
     ) -> Result<(), Interrupt<Error>> {
-        // ---------------------------------* Handle pool closure *--------------------------------
+        // ---------------------------------* Handle pool  closure *--------------------------------
 
         // WARNING: ERROR HANDLING
         //
@@ -197,11 +207,7 @@ impl WorkerAttestationValidation {
         let chain_key = quorum.chain_key();
         let votes = quorum.votes();
 
-        tracing::info!(
-            %digest,
-            height,
-            "🗳️ An attestation has reached quorum"
-        );
+        tracing::info!(?digest, height, "🗳️ An attestation has reached quorum");
 
         match self
             .quorum_aggregate(quorum, digest_local, digest, height, chain_key)
@@ -219,9 +225,12 @@ impl WorkerAttestationValidation {
                 // ---------------------------* Attestation submission *---------------------------
 
                 tracing::info!(
-                    %digest,
+                    ?digest,
                     height = attestation.attestation.header_number,
-                    start = ?attestation.continuity_proof.blocks.first().map(|block| block.block_number),
+                    start = ?continuity_proof_start_block(
+                        attestation.attestation.header_number,
+                        attestation.continuity_proof.roots.len(),
+                    ),
                     stop = attestation.attestation.header_number,
                     "🛫 Submitting attestation"
                 );
@@ -239,7 +248,7 @@ impl WorkerAttestationValidation {
                 // ---------------------------------* Pool update *--------------------------------
 
                 tracing::info!(
-                    %digest,
+                    ?digest,
                     height = attestation.attestation.header_number,
                     "🗃️ Storing attestation for later submission"
                 );
@@ -276,7 +285,7 @@ impl WorkerAttestationValidation {
 
     async fn handle_event_submission(
         &mut self,
-        submission: (AttestationSubmission, common::types::Height),
+        submission: (AttestationSubmission, attestor_primitives::Height),
     ) -> Result<(), Interrupt<Error>> {
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
@@ -328,7 +337,7 @@ impl WorkerAttestationValidation {
                             cc_client::cc3::Error::Attestation(
                                 cc_client::cc3::attestation::Error::MajorityNotReached,
                             ) => {
-                                tracing::error!(height, ?err, "⛔ Target sample size missmatch");
+                                tracing::error!(height, ?err, "⛔ Target sample size mismatch");
 
                                 // There can be a temporary desync between the runtime and the
                                 // attestors at epoch rotation as the attestors haven't had the
@@ -362,7 +371,7 @@ impl WorkerAttestationValidation {
                     }
                     // CASE 1.C] RUNTIME SUBMISSION FAILURE
                     Err(err) => {
-                        tracing::error!(height, ?err, "⛔ Submittion failure");
+                        tracing::error!(height, ?err, "⛔ Submission failure");
                         // WARNING: PANIC
                         //
                         // Any early return must reset the `watch_submission` future to
@@ -405,7 +414,7 @@ impl WorkerAttestationValidation {
                 }
             }
             // CASE 2] NOT SELECTED FOR ATTESTATION SUBMISSION
-            AttestationSubmission::NotElligible => {
+            AttestationSubmission::NotEligible => {
                 // ------------------------* Attestation finalization *----------------------------
 
                 let deadline = tokio::time::Instant::now()
@@ -466,9 +475,12 @@ impl WorkerAttestationValidation {
             // typical `WorkerAttestationValidation::task` event loop.
 
             tracing::info!(
-                %digest,
+                ?digest,
                 height,
-                start = ?attestation.continuity_proof.blocks.first().map(|block| block.block_number),
+                start = ?continuity_proof_start_block(
+                    attestation.attestation.header_number,
+                    attestation.continuity_proof.roots.len(),
+                ),
                 stop = attestation.attestation.header_number,
                 "🛫 Submitting pre-validated attestation"
             );
@@ -489,20 +501,21 @@ impl WorkerAttestationValidation {
 impl WorkerAttestationValidation {
     async fn quorum_aggregate(
         &mut self,
-        quorum: pool::Quorum,
+        quorum: attestation_pool::Quorum,
         digest_local: Option<cc_client::H256>,
         digest: attestor_primitives::Digest,
-        height: common::types::Height,
+        height: attestor_primitives::Height,
         chain_key: attestor_primitives::ChainKey,
     ) -> Result<common::types::AttestationSigned, Interrupt<Error>> {
         use bls_signatures::Serialize as _;
         use rand::seq::SliceRandom as _;
         use rand::SeedableRng as _;
 
-        let mut runtime_api = match self.cc3.api().runtime_api().at_latest().await {
-            Ok(runtime_api) => runtime_api,
-            Err(err) => self.reconnect(Error::Subxt(err)).await?,
-        };
+        let now = std::time::Instant::now();
+
+        let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(&mut self.cc3)
+            .await
+            .map_interrupt(Error::Client)?;
 
         // -----------------------------------* Pre-validation *-----------------------------------
 
@@ -510,47 +523,33 @@ impl WorkerAttestationValidation {
         //
         // This ensures we are not dealing with a duplicate vote or an invalid source chain.
 
-        let is_chain_supported = loop {
-            let call = self
-                .api_calls
+        let call = || {
+            self.api_calls
                 .supported_chains_api()
-                .is_chain_supported(chain_key);
-            match runtime_api.call(call).await {
-                Ok(is_chain_supported) => break is_chain_supported,
-                Err(err) => runtime_api = self.reconnect(Error::Subxt(err)).await?,
-            };
+                .is_chain_supported(chain_key)
         };
 
+        let is_chain_supported = runtime_api.call(call).await.map_interrupt(Error::Client)?;
+
         if !is_chain_supported {
-            tracing::error!(
-                %digest,
-                height,
-                chain_key,
-                "⛔ Unsupported source chain"
-            );
+            tracing::error!(?digest, height, chain_key, "⛔ Unsupported source chain");
             return Err(Interrupt::Cont(Error::InvalidAttestation(
                 InvalidCause::Unsupported(chain_key),
             )));
         }
 
-        let is_duplicate = loop {
-            let call = self.api_calls.attestor_api().contains_digest(
+        let call = || {
+            self.api_calls.attestor_api().contains_digest(
                 chain_key,
                 cc_client::H256(digest.0),
                 height,
-            );
-            match runtime_api.call(call).await {
-                Ok(is_duplicate) => break is_duplicate,
-                Err(err) => runtime_api = self.reconnect(Error::Subxt(err)).await?,
-            };
+            )
         };
 
+        let is_duplicate = runtime_api.call(call).await.map_interrupt(Error::Client)?;
+
         if is_duplicate {
-            tracing::debug!(
-                %digest,
-                height,
-                "Attestation already exists"
-            );
+            tracing::debug!(?digest, height, "Attestation already exists");
             return Err(Interrupt::Cont(Error::InvalidAttestation(
                 InvalidCause::Duplicate,
             )));
@@ -571,99 +570,7 @@ impl WorkerAttestationValidation {
         let mut votes = quorum.votes();
         votes.shuffle(&mut rng);
 
-        // ---------------------------------* Attestor validation *--------------------------------
-
-        for attestation in votes.iter() {
-            let attestor_id = attestation.attestor.clone();
-
-            tracing::debug!(
-                %digest,
-                height,
-                %attestor_id,
-                "Checking attestor eligibility"
-            );
-
-            // STEP 2] VERIFY THE ATTESTATION BLS SIGNATURE
-            //
-            // This checks the BLS signature with the public key the attestor provided when it
-            // registered on chain, which also enforces that the vote should come from a registered
-            // attestor.
-
-            tracing::debug!(
-                %digest,
-                height,
-                %attestor_id,
-                "Checking attestion bls signature"
-            );
-
-            let pubkey = loop {
-                let attestor: &[u8; 32] = attestor_id.account_id().as_ref();
-                let call = self
-                    .api_calls
-                    .attestor_api()
-                    .attestor_bls_pubkey(attestation.chain_key(), (*attestor).into());
-                match runtime_api.call(call).await {
-                    Ok(pubkey) => {
-                        break pubkey.map(|bytes| bls_signatures::PublicKey::from_bytes(&bytes))
-                    }
-                    Err(err) => {
-                        runtime_api = self.reconnect(Error::Subxt(err)).await?;
-                    }
-                }
-            };
-
-            match pubkey {
-                Some(Ok(pubkey)) => {
-                    let msg = attestation.attestation_data.serialize();
-                    if pubkey.verify(attestation.signature_bls.0, &msg) {
-                        tracing::debug!(
-                            %digest,
-                            height,
-                            %attestor_id,
-                            "Valid attestion bls signature"
-                        )
-                    } else {
-                        tracing::error!(
-                            %digest,
-                            height,
-                            %attestor_id,
-                            "⛔ Invalid Attestor bls signature"
-                        );
-                        return Err(Interrupt::Cont(Error::InvalidAttestation(
-                            InvalidCause::InvalidBls,
-                        )));
-                    }
-                }
-                Some(Err(..)) => {
-                    tracing::error!(
-                        %digest,
-                        height,
-                        %attestor_id,
-                        "⛔ Attestor is registered with an invalid bls public key"
-                    );
-                    return Err(Interrupt::Cont(Error::InvalidAttestation(
-                        InvalidCause::InvalidBls,
-                    )));
-                }
-                None => {
-                    tracing::error!(
-                        %digest,
-                        height,
-                        %attestor_id,
-                        "⛔ Attestor is not registered on-chain"
-                    );
-                    return Err(Interrupt::Cont(Error::InvalidAttestation(
-                        InvalidCause::InvalidBls,
-                    )));
-                }
-            }
-        }
-
-        tracing::debug!(
-            %digest,
-            height,
-            "All attestors are eligible to vote"
-        );
+        // NOTE: attestors are already validated and bls signatures checked on gossip reception
 
         // -------------------------------* Attestation validation *-------------------------------
 
@@ -679,27 +586,19 @@ impl WorkerAttestationValidation {
         // Every attestation must have a continuity proof except for the first attestation in the
         // chain
         if attestation.continuity_proof.is_empty() && height != self.start_height {
-            tracing::error!(
-                %digest,
-                height,
-                "⛔ Empty continuity proof"
-            );
+            tracing::error!(?digest, height, "⛔ Empty continuity proof");
             return Err(Interrupt::Cont(Error::InvalidAttestation(
                 InvalidCause::EmptyContinuityProof,
             )));
         }
 
-        let digest_last_finalized = loop {
-            let call = self.api_calls.attestor_api().last_digest(chain_key);
-            match runtime_api.call(call).await {
-                Ok(digest_last_finalized) => break digest_last_finalized,
-                Err(err) => runtime_api = self.reconnect(Error::Subxt(err)).await?,
-            };
-        };
+        let call = || self.api_calls.attestor_api().last_digest(chain_key);
+
+        let digest_last_finalized = runtime_api.call(call).await.map_interrupt(Error::Client)?;
 
         let digest_last_finalized = digest_last_finalized.unwrap_or_else(|| {
             tracing::debug!(
-                %digest,
+                ?digest,
                 height,
                 "No last digest or checkpoint, assuming genesis"
             );
@@ -708,19 +607,15 @@ impl WorkerAttestationValidation {
 
         // -------------------------------------* Prev digest *------------------------------------
 
-        tracing::debug!(
-            %digest,
-            height,
-            "Checking attestion prev digest"
-        );
+        tracing::debug!(?digest, height, "Checking attestation prev digest");
 
         match attestation.prev_digest() {
             // NOTE: we don't need to check against `self.digest_local` here since it can only ever
             // be ahead of `digest_last_finalized`.
             Some(digest_prev) if digest_prev.is_zero() && !digest_last_finalized.is_zero() => {
                 tracing::error!(
-                    %digest,
-                    digest_prev = ?Some(digest_prev),
+                    ?digest,
+                    ?digest_prev,
                     height,
                     "⛔ Empty prev digest despite already having finalized attestations on-chain"
                 );
@@ -730,7 +625,7 @@ impl WorkerAttestationValidation {
             }
             None if !digest_last_finalized.is_zero() => {
                 tracing::error!(
-                    %digest,
+                    ?digest,
                     height,
                     "⛔ No prev digest despite already having finalized attestations on-chain"
                 );
@@ -739,34 +634,31 @@ impl WorkerAttestationValidation {
                 )));
             }
             _ => {
-                tracing::debug!(
-                    %digest,
-                    height,
-                    "Valid attestation prev digest"
-                )
+                tracing::debug!(?digest, height, "Valid attestation prev digest")
             }
         }
 
-        tracing::debug!(
-            %digest,
-            height,
-            "Checking attestion continuity proof"
-        );
+        tracing::debug!(?digest, height, "Checking attestation continuity proof");
 
         // -------------------------------------* Head digest *------------------------------------
 
         // The head digest of an attestation's continuity chain must match its prev digest
-        if let Some(head) = attestation.continuity_proof.head() {
-            let digest_head = head.digest;
+        if !attestation.continuity_proof.is_empty() {
+            let start = attestation
+                .continuity_proof
+                .start_block_number(attestation.header_number());
+            let digest_head = attestation
+                .continuity_proof
+                .compute_continuity_digest(start);
             let digest_prev = attestation.prev_digest().unwrap_or_default();
 
             if digest_head != digest_prev {
                 tracing::error!(
-                    %digest,
-                    digest_prev = ?Some(digest_prev),
+                    ?digest,
+                    ?digest_prev,
                     height,
-                    actual = %digest_head,
-                    expected = %digest_prev,
+                    actual = ?digest_head,
+                    expected = ?digest_prev,
                     "⛔ Invalid attestation continuity chain head digest"
                 );
                 return Err(Interrupt::Cont(Error::InvalidAttestation(
@@ -777,8 +669,8 @@ impl WorkerAttestationValidation {
                 )));
             } else {
                 tracing::debug!(
-                    %digest,
-                    digest_prev = ?Some(digest_prev),
+                    ?digest,
+                    ?digest_prev,
                     height,
                     "Valid attestation prev head digest"
                 )
@@ -820,16 +712,16 @@ impl WorkerAttestationValidation {
         // often if we race multiple attestors to submission. However, unlike previously where an
         // attestation might contain new overlapping data, no new data can be committed to this way
         // and we can drop the attestation quorum.
-        if let Some(tail) = attestation.continuity_proof.tail() {
-            let digest_prev_tail = cc_client::H256(tail.prev_digest.0);
+        if let Some(digest_prev_tail) = attestation.continuity_proof.tail_prev_digest() {
+            let digest_prev_tail = cc_client::H256(digest_prev_tail.0);
 
             if digest_prev_tail != digest_last_finalized
                 && digest_local.is_none_or(|digest_local| digest_prev_tail != digest_local)
             {
                 tracing::error!(
-                    %digest,
-                    %digest_prev_tail,
-                    %digest_last_finalized,
+                    ?digest,
+                    ?digest_prev_tail,
+                    ?digest_last_finalized,
                     ?digest_local,
                     height,
                     "⛔ Invalid attestation continuity chain tail digest"
@@ -842,8 +734,8 @@ impl WorkerAttestationValidation {
                 )));
             } else {
                 tracing::debug!(
-                    %digest,
-                    %digest_prev_tail,
+                    ?digest,
+                    ?digest_prev_tail,
                     height,
                     "Valid attestation tail digest"
                 )
@@ -851,41 +743,12 @@ impl WorkerAttestationValidation {
         }
 
         // ----------------------------------* Continuity proof *----------------------------------
+        //
+        // Internal chaining is fully determined by `lower_endpoint_digest` + `roots` (see
+        // `ContinuityProof::to_blocks`). The head and tail checks above are the real anchors; a
+        // block-by-block loop would only re-derive the same hash chain.
 
-        // Checks that each block in the continuity proof follows a matching chain of digests,
-        // starting from the latest finalized digest
-        let mut digest_prev_continuity = digest_last_finalized;
-        for block in attestation.continuity_proof.iter() {
-            let digest_prev_block = cc_client::H256(block.prev_digest.0);
-
-            if digest_prev_block != digest_prev_continuity
-                && digest_local.is_none_or(|digest_local| digest_prev_block != digest_local)
-            {
-                tracing::error!(
-                    %digest,
-                    height,
-                    %digest_prev_block,
-                    %digest_prev_continuity,
-                    ?digest_local,
-                    block_height = block.block_number,
-                    "⛔ Invalid attestation continuity chain"
-                );
-                return Err(Interrupt::Cont(Error::InvalidAttestation(
-                    InvalidCause::InvalidContinuityProof {
-                        block: block.clone(),
-                        expected: digest_prev_continuity,
-                    },
-                )));
-            }
-
-            digest_prev_continuity = cc_client::H256(block.digest.0);
-        }
-
-        tracing::debug!(
-            %digest,
-            height,
-            "Valid attestation continuity proof"
-        );
+        tracing::debug!(?digest, height, "Valid attestation continuity proof");
 
         // ------------------------------* BLS signature aggregation *-----------------------------
 
@@ -902,10 +765,11 @@ impl WorkerAttestationValidation {
             .ok_interrupt(Error::InvalidBls(bls_signature))?;
 
         tracing::debug!(
-            %digest,
+            ?digest,
             height,
             sigs = sigs.len(),
             bls = alloy::hex::encode_upper(bls_aggregate),
+            elapsed_ms = now.elapsed().as_millis(),
             "Aggregated all attestation BLS signatures"
         );
 
@@ -930,7 +794,7 @@ enum AttestationSubmission {
         success: Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>,
         votes: Vec<common::types::Attestation>,
     },
-    NotElligible,
+    NotEligible,
     Finalized,
 }
 
@@ -942,14 +806,14 @@ impl WorkerAttestationValidation {
             cc_client::AccountId32,
         >,
         votes: Vec<common::types::Attestation>,
-        height: common::types::Height,
+        height: attestor_primitives::Height,
     ) -> Result<(), Interrupt<Error>> {
         use futures::FutureExt as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
         let (randomness, epoch_index) = loop {
-            match self.cc3.fetch_babe_randomness_two_epoch_ego().await {
+            match self.cc3.fetch_babe_randomness_two_epoch_ago().await {
                 Ok(babe) => break babe,
                 Err(err) => {
                     self.reconnect(Error::Client(err)).await?;
@@ -979,7 +843,7 @@ impl WorkerAttestationValidation {
                         );
 
                         self.watch_submission = Some(std::future::ready((
-                            AttestationSubmission::NotElligible,
+                            AttestationSubmission::NotEligible,
                             height,
                         )))
                         .into();
@@ -1036,8 +900,6 @@ impl WorkerAttestationValidation {
             ];
             let rank = u64::from_be_bytes(bytes) % RANKS;
 
-            tracing::debug!(rank, "attestation submission race mitigation");
-
             // Determined experimentally
             const SUBMISSION_FINALIZATION_DELAY: u64 = 17;
 
@@ -1070,6 +932,13 @@ impl WorkerAttestationValidation {
                 .checked_add(delay)
                 .unwrap_or(tokio::time::Instant::now());
 
+            tracing::info!(
+                height,
+                rank,
+                timeout_ms = delay.as_millis(),
+                "🏁 Submission rank drawn, waiting before submitting"
+            );
+
             // Attestation should finalize before the deadline. If this is not the case then an
             // attestor is most likely down.
             loop {
@@ -1092,6 +961,12 @@ impl WorkerAttestationValidation {
                         }
                     }
                     _ = tokio::time::sleep_until(deadline) => {
+                        tracing::info!(
+                            height,
+                            rank,
+                            timeout_ms = delay.as_millis(),
+                            "🛫 Rank backoff elapsed, proceeding to submit"
+                        );
                         break;
                     }
                     _ = tokio::signal::ctrl_c() => {
@@ -1119,11 +994,12 @@ impl WorkerAttestationValidation {
                 .cc3
                 .api()
                 .tx()
-                .sign_and_submit_then_watch_default(&call, &self.keypair)
+                .sign_and_submit_then_watch_default(&call, self.signer.keypair())
                 .await
             {
                 Ok(submit) => break submit,
                 Err(err) => {
+                    tracing::error!(height, ?err, "⛔ Failed to submit attestation");
                     self.reconnect(Error::Subxt(err)).await?;
                 }
             }
@@ -1148,23 +1024,14 @@ impl WorkerAttestationValidation {
         Ok(())
     }
 
-    async fn reconnect(
-        &mut self,
-        err: Error,
-    ) -> Result<
-        subxt::runtime_api::RuntimeApi<
-            subxt::SubstrateConfig,
-            subxt::OnlineClient<subxt::SubstrateConfig>,
-        >,
-        Interrupt<Error>,
-    > {
-        tracing::warn!(?err, "🛜 CC3 connection lost");
+    async fn reconnect(&mut self, err: Error) -> Result<(), Interrupt<Error>> {
+        tracing::warn!(?err, "CC3 connection lost");
 
         let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
             .max_delay(std::time::Duration::from_millis(5_000))
             .map(tokio_retry::strategy::jitter);
         let reconnect = || {
-            tracing::warn!("🛜 Reconnecting to CC3...");
+            tracing::warn!("Reconnecting to CC3...");
 
             let mut cc3 = self.cc3.clone();
             async move {
@@ -1172,21 +1039,13 @@ impl WorkerAttestationValidation {
                     tracing::error!(?err, "Failed to reconnect to CC3");
                     Error::Client(err)
                 })?;
-
-                let runtime_api = cc3.api().runtime_api().at_latest().await.map_err(|err| {
-                    tracing::error!(?err, "Failed to reconnect to CC3");
-                    Error::Subxt(err)
-                })?;
-
-                Ok::<_, Error>((cc3, runtime_api))
+                Ok::<_, Error>(cc3)
             }
         };
         tokio::select! {
             retry = tokio_retry::Retry::spawn(strategy, reconnect) => {
-                let (cc3, runtime_api) = retry.expect("Unbounded retry cannot error");
-                self.cc3 = cc3;
-
-                Ok(runtime_api)
+                self.cc3 = retry.expect("Unbounded retry cannot error");
+                Ok(())
             }
             _ = tokio::signal::ctrl_c() => {
                 Err(Interrupt::Stop)

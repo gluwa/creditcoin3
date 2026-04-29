@@ -6,12 +6,9 @@ use crate::{
     BoundsCheckResult, ChainInfo, ChainInfoResult, HashResult, HeightHashResult, HeightResult,
 };
 
-use attestor_primitives::{
-    attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
-    AttestationCheckpoint, AttestationData, SignedAttestation,
-};
+use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
 
-use pallet_attestation_poc::{Attestations, Checkpoints, LastCheckpoint, LastDigest};
+use pallet_attestation::{Attestations, Checkpoints, LastCheckpoint, LastDigest};
 use precompile_utils::{prelude::UnboundedBytes, testing::*};
 
 use sp_core::{H160, H256};
@@ -29,13 +26,11 @@ fn create_dummy_attestation(height: u64) -> SignedAttestation<H256, AccountId> {
         prev_digest: None,
     };
 
-    let fragment = AttestationFragment::new(0);
-
     SignedAttestation {
         attestation,
         signature: [0; 96],
         attestors: vec![],
-        continuity_proof: AttestationFragmentSerializable::from(&fragment),
+        continuity_proof: Default::default(),
     }
 }
 
@@ -101,7 +96,7 @@ fn get_attestation_genesis_height_works() {
         .with_balances(vec![(alice.into(), 300)])
         .build()
         .execute_with(|| {
-            pallet_attestation_poc::AttestationChainGenesisBlockNumber::<Runtime>::insert(
+            pallet_attestation::AttestationChainGenesisBlockNumber::<Runtime>::insert(
                 SUPPORTED_CHAIN_KEY,
                 expected_result,
             );

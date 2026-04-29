@@ -59,13 +59,19 @@ impl SubstrateCli for Cli {
 
     fn load_spec(&self, id: &str) -> Result<Box<dyn ChainSpec>, String> {
         let ret = match id {
-            "dev" => {
-                let enable_manual_seal = self.sealing.map(|_| true);
-                Box::new(chain_spec::development_config(enable_manual_seal))
-            }
+            // CC3
             "devnet" => Box::new(chain_spec::devnet_config()?),
             "testnet" => Box::new(chain_spec::testnet_config()?),
-            "" | "local" => Box::new(chain_spec::local_testnet_config()),
+            "mainnet" => Box::new(chain_spec::mainnet_config()?),
+
+            // USC
+            "dev" => {
+                let enable_manual_seal = self.sealing.map(|_| true);
+                Box::new(chain_spec::usc_development_config(enable_manual_seal))
+            }
+            "usc_devnet" => Box::new(chain_spec::usc_devnet_config()?),
+            "usc_testnet" => Box::new(chain_spec::usc_testnet_config()?),
+            "" | "local" => Box::new(chain_spec::usc_local_testnet_config()),
             path => Box::new(chain_spec::ChainSpec::from_json_file(
                 std::path::PathBuf::from(path),
             )?),

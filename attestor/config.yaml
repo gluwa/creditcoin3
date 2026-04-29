@@ -1,3 +1,4 @@
+---
 attestor:
   # Local attestors name
   #   used for display and debug purposes.
@@ -56,13 +57,6 @@ cc3:
   #   run their own RPC server.
   #
   url: "ws://localhost:9944"
-
-pool:
-  # Maximum number of pending attestation
-  #   Once this count has been reached, the attestor will automatically start
-  #   evicting attestations to make space for new votes.
-  #
-  capacity: 1000
 
 attestation:
   # Optional: Initial height from which new attestations are produced

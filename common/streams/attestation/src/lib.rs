@@ -1,23 +1,42 @@
-mod error;
+#[cfg(all(test, feature = "simulation"))]
+mod simulation;
 
-pub use error::Error;
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod prelude {
+    pub use crate::nonzero;
+    pub use crate::poll;
+}
 
 pub type Attestation =
     attestor_primitives::Attestation<attestor_primitives::Digest, attestor_primitives::AttestorId>;
 
 #[derive(builder::Builder)]
 pub struct Config {
-    cc3: cc_client::Client,
+    signer: cc_client::signer::CC3Signer,
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
-    stream_roots: stream_util::BoxedStream<stream_util::RootInfo>,
-    stream_tip: stream_util::BoxedStream<attestor_primitives::Height>,
+    stream_roots: stream_util::BoxedData<stream_util::RootInfo>,
+    stream_tip: stream_util::BoxedData<attestor_primitives::Height>,
 
     attestation_interval: std::num::NonZero<attestor_primitives::Height>,
     attestation_prev: stream_util::AttestationInfo,
     max_catchup: std::num::NonZero<attestor_primitives::Height>,
 }
+
+type ConfigIncomplete = ConfigBuilder<
+    cc_client::signer::CC3Signer,
+    u64,
+    bls_signatures::PrivateKey,
+    (),
+    (),
+    std::num::NonZero<u64>,
+    stream_util::AttestationInfo,
+    std::num::NonZero<u64>,
+>;
 
 /// A generic attestation stream. Different source chains can be configured by passing in different
 /// data streams for retrieving the chain tip ([`Config::stream_tip`]) and chain roots
@@ -53,12 +72,12 @@ pub struct Config {
 /// [`note_attestation_finalization`]: Self::note_attestation_finalization
 /// [cancellation-safe]: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
 pub struct StreamAttestation {
-    cc3: cc_client::Client,
+    signer: cc_client::signer::CC3Signer,
     chain_key: attestor_primitives::ChainKey,
     bls_key: bls_signatures::PrivateKey,
 
-    stream_roots: stream_util::BoxedStream<stream_util::RootInfo>,
-    stream_tip: stream_util::BoxedStream<attestor_primitives::Height>,
+    stream_roots: stream_util::BoxedData<stream_util::RootInfo>,
+    stream_tip: stream_util::BoxedData<attestor_primitives::Height>,
     fetching: bool,
 
     cache: Vec<stream_util::RootInfo>,
@@ -92,7 +111,7 @@ impl StreamAttestation {
         let cache = Vec::with_capacity(max_catchup.get() as usize);
 
         Self {
-            cc3: config.cc3,
+            signer: config.signer,
             chain_key: config.chain_key,
             bls_key: config.bls_key,
 
@@ -117,6 +136,10 @@ impl StreamAttestation {
         self.max_catchup
     }
 
+    pub fn latest_tip(&self) -> attestor_primitives::Height {
+        self.tip
+    }
+
     /// Lets the [`StreamAttestation`] know that a new attestation has finalized on-chain.
     ///
     /// This is a no-op if the stream was already notified of a higher attestation finalizing, or
@@ -124,26 +147,68 @@ impl StreamAttestation {
     /// Note that in the latter case this indicates that the stream should be re-generated with
     /// the new interval.
     pub fn note_attestation_finalization(&mut self, info: stream_util::AttestationInfo) {
-        // The root cache is drained of past roots which are no longer needed to reach consensus.
-        if !self.cache.is_empty() {
-            let first = self.cache.first().expect("Checked above").height as usize;
-            let height = info.height as usize;
+        if self.attestation_prev.height <= info.height {
+            // Regenerate attestations after the finalized height
+            let end = info.height.max(*self.computed.end());
+            self.computed = info.height..=end;
+            self.cursor = end;
 
-            if height >= first {
-                let index = (height - first).min(self.cache.len() - 1);
-                self.cache.drain(0..=index);
+            // Updates the previous digest
+            self.attestation_prev = info;
+
+            // The root cache is drained of past roots which are no longer needed to reach
+            // consensus.
+            if !self.cache.is_empty() {
+                let first = self.cache.first().expect("Checked above").height as usize;
+                let height = info.height as usize;
+
+                if height >= first {
+                    let index = (height - first).min(self.cache.len() - 1);
+                    self.cache.drain(0..=index);
+                }
+            }
+
+            // It is possible that after these updates the attestation stream is now able to
+            // synchronize new blocks. This wakes any pending stream polls so they can make
+            // progress again.
+            if let Some(waker) = self.waker.take() {
+                waker.wake()
             }
         }
+    }
 
-        self.computed = *self.computed.start().max(&info.height)..=*self.computed.end();
-        self.attestation_prev = info;
+    /// Lets the [`StreamAttestation`] know that the attestation interval has changed.
+    ///
+    /// This does not reset local state but might cause the next attestation to be produced with a
+    /// larger than expected continuity proof.
+    pub async fn note_attestation_interval_change(
+        &mut self,
+        interval_new: std::num::NonZero<attestor_primitives::Height>,
+    ) {
+        use stream_util::ChainData as _;
 
-        // It is possible that by draining past roots the attestation stream is now able to
-        // synchronize new blocks. This wakes any pending stream polls so they can make progress
-        // again.
-        if let Some(waker) = self.waker.take() {
-            waker.wake()
-        }
+        let next = stream_util::AttestationInfo {
+            height: self.attestation_prev.height + 1,
+            ..self.attestation_prev
+        };
+
+        let config = self
+            .config()
+            .with_stream_roots(self.stream_roots.reset(next).await)
+            .with_stream_tip(self.stream_tip.reset(next).await)
+            .with_attestation_interval(interval_new)
+            .build();
+
+        *self = Self::new(config)
+    }
+
+    /// Lets the [`StreamAttestation`] know that the chain was reverted to a previous known
+    /// attestation by a privileged operator.
+    ///
+    /// This reset the stream state as if it had been just created.
+    pub async fn note_attestation_chain_reversion(&mut self, info: stream_util::AttestationInfo) {
+        use stream_util::ChainData as _;
+        *self = self.reset(info).await;
     }
 
     /// Generates an attestation with no previous digest.
@@ -160,19 +225,32 @@ impl StreamAttestation {
     fn generate_attestation(&self, target: attestor_primitives::Height) -> Attestation {
         assert!(!self.cache.is_empty(), "Empty root cache");
 
+        let start = *self.computed.start();
+        let end = *self.computed.end();
+
+        assert!(target > start, "{target} > {start}",);
+        assert!(target <= end, "{target} <= {end}",);
+
         let block_first = self.cache.first().unwrap().height;
-        assert!(target >= block_first, "{target} >= {block_first}");
+        assert!(
+            target >= block_first,
+            "Invalid root cache start: {target} >= {block_first}"
+        );
 
         let block_last = self.cache.last().unwrap().height;
-        assert!(target <= block_last, "{target} <= {block_last}");
+        assert!(
+            target <= block_last,
+            "Invalid root cache stop: {target} <= {block_last}"
+        );
 
         let index = target as usize - block_first as usize;
+
         let stream_util::RootInfo { height, root, hash } = self.cache[index];
 
         assert_eq!(height, target, "Attestation height mismatch");
 
-        let blocks = self.cache[0..index].iter().fold(
-            Vec::<attestor_primitives::block::BlockSerializable>::with_capacity(index),
+        let blocks: Vec<attestor_primitives::block::Block> = self.cache[0..index].iter().fold(
+            Vec::with_capacity(index),
             |mut acc, stream_util::RootInfo { height, root, .. }| {
                 let digest_prev = acc
                     .last()
@@ -183,21 +261,22 @@ impl StreamAttestation {
                     *root,
                     digest_prev,
                 );
-
-                acc.push(block.into());
+                acc.push(block);
                 acc
             },
         );
 
-        let continuity_proof =
-            attestor_primitives::attestation_fragment::AttestationFragmentSerializable { blocks };
+        let continuity_proof = attestor_primitives::block::ContinuityProof::from_blocks(blocks);
+
+        let prev_digest = (!continuity_proof.is_empty())
+            .then(|| continuity_proof.compute_continuity_digest(block_first));
 
         let attestation_data = attestor_primitives::AttestationData::new(
             self.chain_key,
             target,
             hash,
             root,
-            continuity_proof.head().map(|head| head.digest),
+            prev_digest,
         );
 
         self.sign_attestation(attestation_data, continuity_proof)
@@ -206,14 +285,14 @@ impl StreamAttestation {
     fn sign_attestation(
         &self,
         attestation_data: attestor_primitives::AttestationData<attestor_primitives::Digest>,
-        continuity_proof: attestor_primitives::attestation_fragment::AttestationFragmentSerializable,
+        continuity_proof: attestor_primitives::block::ContinuityProof,
     ) -> attestor_primitives::Attestation<
         attestor_primitives::Digest,
         attestor_primitives::AttestorId,
     > {
-        let attestor = self.cc3.get_attestor_id();
+        let attestor = self.signer.attestor_id();
         let message = attestation_data.serialize();
-        let signature = sp_core::sr25519::Signature::from_raw(self.cc3.sign(&message).0);
+        let signature = sp_core::sr25519::Signature::from_raw(self.signer.sign(&message).0);
         let signature_bls = attestor_primitives::bls::WrapEncode(self.bls_key.sign(message));
 
         attestor_primitives::Attestation {
@@ -223,6 +302,16 @@ impl StreamAttestation {
             signature_bls,
             continuity_proof,
         }
+    }
+
+    fn config(&self) -> ConfigIncomplete {
+        ConfigBuilder::new()
+            .with_signer(self.signer.clone())
+            .with_chain_key(self.chain_key)
+            .with_bls_key(self.bls_key)
+            .with_attestation_interval(self.attestation_interval)
+            .with_attestation_prev(self.attestation_prev)
+            .with_max_catchup(self.max_catchup)
     }
 
     /// Checks if the root cache contains all blocks up to the chain tip or the max catchup. If
@@ -252,7 +341,7 @@ impl StreamAttestation {
 }
 
 impl futures::Stream for StreamAttestation {
-    type Item = Result<Attestation, Error>;
+    type Item = Attestation;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -275,7 +364,7 @@ impl futures::Stream for StreamAttestation {
 
                 let attestation = self.generate_attestation(self.cursor);
                 self.cursor = self.cursor.saturating_sub(self.attestation_interval.get());
-                return std::task::Poll::Ready(Some(Ok(attestation)));
+                return std::task::Poll::Ready(Some(attestation));
             }
 
             // Backpressure, limit the max number of roots which can be processed into a single
@@ -294,6 +383,7 @@ impl futures::Stream for StreamAttestation {
                 .end()
                 .to_owned()
                 .saturating_add(self.attestation_interval.get());
+            let next = next - next % self.attestation_interval.get();
 
             // Chain tip and roots are polled concurrently until a new attestation can be produced
             while self.tip < next || self.missing_roots() {
@@ -302,7 +392,10 @@ impl futures::Stream for StreamAttestation {
                 if self.has_space_left() {
                     match self.stream_roots.poll_next_unpin(cx) {
                         std::task::Poll::Ready(Some(info)) => {
-                            self.cache.push(info);
+                            // Skip roots which are behind finality
+                            if info.height > *self.computed.start() {
+                                self.cache.push(info);
+                            }
                             progress = true;
                         }
                         std::task::Poll::Ready(None) => {
@@ -348,5 +441,18 @@ impl futures::Stream for StreamAttestation {
             self.computed = *self.computed.end()..=stop;
             self.cursor = stop;
         }
+    }
+}
+
+impl stream_util::ChainData<Attestation> for StreamAttestation {
+    async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
+        let config = self
+            .config()
+            .with_stream_roots(self.stream_roots.reset(info).await)
+            .with_stream_tip(self.stream_tip.reset(info).await)
+            .with_attestation_prev(info)
+            .build();
+
+        Self::new(config)
     }
 }

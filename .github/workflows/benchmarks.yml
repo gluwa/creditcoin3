@@ -1,50 +1,79 @@
 ---
 name: BENCHMARKS
 
-# Controls when the action will run.
 "on":
   pull_request:
-    branches: [testnet]
+    branches: [main, usc-testnet, usc-dev]
     paths:
-      - '**weights.rs'
-      - '**benchmarking.rs'
-      - '.github/workflows/benchmarks.yml'
+      - "**weights.rs"
+      - "**benchmarking.rs"
+      - ".github/**bench**"
+      - ".github/check-hardware.sh"
+      - ".github/workflows/benchmarks.yml"
   workflow_dispatch:
 
-env:
-  RUNNER_VM_NAME: "${{ github.event.repository.name }}-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
-  LINODE_REGION: "nl-ams"
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
 
+permissions: read-all
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  check-if-needed:
-    runs-on: ubuntu-24.04
-    outputs:
-      needs-bench: ${{ steps.version-check.outputs.needs_bench }}
+  deploy-runner-build-creditcoin-for-testing-benchmarks:
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-6"
+      proxy: "build-creditcoin-node-for-testing-benchmarks"
+    secrets: inherit
+
+  build-creditcoin-node-for-testing-benchmarks:
+    needs:
+      - deploy-runner-build-creditcoin-for-testing-benchmarks
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=runtime-benchmarks"
+      git-lfs-checkout: false
+      version-string: testing-benchmarks
+      cache-key-name: build-creditcoin-node
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-benchmarks']"
+    secrets: inherit
+
+  rm-gh-runner-build-creditcoin-node-for-testing-benchmarks:
+    needs:
+      - build-creditcoin-node-for-testing-benchmarks
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "build-creditcoin-node-for-testing-benchmarks"
+    secrets: inherit
+
+  deploy-runner-benchmark:
+    needs:
+      - build-creditcoin-node-for-testing-benchmarks
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-6"
+      proxy: "benchmark"
+    secrets: inherit
+
+  exercise-benchmarks:
+    needs:
+      - build-creditcoin-node-for-testing-benchmarks
+      - deploy-runner-benchmark
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-benchmark"]
+    # checkov:skip=CKV2_GHA_1:We need this for weights auto-update
+    permissions: write-all
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-          lfs: true
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.GLUWA_BOT_TOKEN }}
-
-      - name: Check versions
-        id: version-check
-        run: |
-          ./.github/check-spec-increase.sh "remotes/origin/$GITHUB_BASE_REF" "HEAD"
-
-  build-benchmarks:
-    runs-on:
-      [self-hosted, "${{ needs.deploy-github-runner.outputs.runner_vm_name }}"]
-    needs:
-      - deploy-github-runner
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          lfs: true
-          # don't persist b/c next job authenticates itself
-          persist-credentials: false
 
       - name: Inspect benchmark CI config
         run: |
@@ -52,13 +81,18 @@ jobs:
           # your job is defined in !!! Don't copy&paste it blindly !!!
           PALLETS_IN_CI_CONFIG=$(grep " .github/bench.sh -p" .github/workflows/benchmarks.yml | grep -v PALLETS_IN_CI_CONFIG | tr -s ' ' | cut -d' ' -f4 | sort | xargs)
 
-          PALLETS_IN_SOURCE=$(./.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets)
+          PALLETS_IN_SOURCE=$(.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets)
           if [ "$PALLETS_IN_CI_CONFIG" != "$PALLETS_IN_SOURCE" ]; then
               echo "FAIL: Pallet mismatch between source code and benchmark CI config"
               echo "INFO: in source: '$PALLETS_IN_SOURCE'"
               echo "INFO: CI config: '$PALLETS_IN_CI_CONFIG'"
               exit 1
           fi
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          sudo apt install -y curl
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -76,184 +110,58 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32-unknown-unknown
           components: rust-src
+
+      # use cache from previous build jobs
+      # WARNING: always before actions/download-artifact
       - uses: Swatinem/rust-cache@v2
-
-      - name: Build benchmarks
-        uses: gluwa/cargo@dev
         with:
-          command: build
-          args: --release --features runtime-benchmarks
+          shared-key: build-creditcoin-node
 
-      - name: Upload benchmark binary
-        uses: actions/upload-artifact@v7
-        with:
-          name: creditcoin3-node
-          path: target/release/creditcoin3-node
-
-  deploy-github-runner:
-    timeout-minutes: 15
-    runs-on: ubuntu-24.04
-    needs: check-if-needed
-    if: needs.check-if-needed.outputs.needs-bench == 1
-    outputs:
-      runner_vm_name: ${{ steps.get-env.outputs.runner_vm_name }}
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          lfs: true
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}" >> "$GITHUB_OUTPUT"
-
-      - name: Provision VM
-        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
-        env:
-          LC_OWNER_REPO_SLUG: ${{ github.repository }}
-          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
-          LC_RUNNER_EPHEMERAL: false
-          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
-          LC_WORKFLOW_ID: ${{ github.run_id }}
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          # Shared CPU, Linode 16 GB, 6 vCPU, 96 $/mo
-          LINODE_VM_SIZE: "g6-standard-6"
-
-  hardware-benchmarks:
-    # see https://gist.github.com/jonico/a94d03cac7a858e0613926d9f1bc7f2b
-    runs-on:
-      [self-hosted, "${{ needs.deploy-github-runner.outputs.runner_vm_name }}"]
-    # checkov:skip=CKV2_GHA_1:We need this for weights auto-update
-    permissions: write-all
-    needs:
-      - deploy-github-runner
-      - build-benchmarks
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 10
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.GLUWA_BOT_TOKEN }}
-          lfs: true
-
-      - name: Set env
-        run: |
-          echo "HOME=/home/actions" >> "$GITHUB_ENV"
-
-      - name: Download benchmark binary
+      # WARNING: always after Swatinem/rust-cache
+      - name: Download creditcoin-node binary
         uses: actions/download-artifact@v8
         with:
-          name: creditcoin3-node
+          name: binary-for-testing-benchmarks
           path: target/release
-
-      - name: Restore executable permissions
-        run: |
-          chmod a+x ./target/release/creditcoin3-node
 
       - name: Check if runner machine meets chain's requirements
         continue-on-error: true
         run: |
-          ./.github/check-hardware.sh
+          chmod a+x ./target/release/creditcoin3-node
+          .github/check-hardware.sh
 
-      - name: Regenerate weights
-        shell: bash
-        continue-on-error: false
+      - name: Run benchmarks to generate weights
         run: |
-          .github/bench.sh -p attestation_poc -b -s 2 -r 2
+          .github/bench.sh -p attestation -b -s 2 -r 2
           .github/bench.sh -p randomness -b
           .github/bench.sh -p supported_chains -b
 
       - name: git diff
         run: |
-          git diff
+          sudo apt-get install colordiff
+          git diff | colordiff
+
+      # check if automatically generated weights compile
+      - name: Rebuild SUT with newly generated weights
+        uses: gluwa/cargo@dev
+        with:
+          command: build
+          args: --release
 
       - name: Commit changes to current branch
+        if: github.base_ref == 'usc-dev'
         uses: EndBug/add-and-commit@v10
         with:
           author_name: gluwa-bot
           author_email: creditcoin@gluwa.com
           message: "Auto-update pallet weights"
 
-      - name: Prepare commit for PR against dev
-        id: prepare-commit
-        run: |
-          LAST_COMMIT=$(git rev-parse HEAD)
-          BRANCH_NAME=auto-update-weights-for-dev-${{ github.sha }}
-
-          git checkout -b "$BRANCH_NAME" origin/poc_external_attestation_network
-          git cherry-pick "$LAST_COMMIT"
-          git push origin "$BRANCH_NAME"
-
-          REPO_NAME=$(echo "${{ github.repository }}" | cut -f2 -d"/")
-          echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
-
-      - name: Open PR against dev
-        id: open_pr
-        uses: rematocorp/open-pull-request-action@v1
-        with:
-          github-token: ${{ secrets.GLUWA_BOT_TOKEN }}
-          from-branch: auto-update-weights-for-dev-${{ github.sha }}
-          to-branch: poc_external_attestation_network
-          repository-owner: ${{ github.repository_owner }}
-          repository: ${{ steps.prepare-commit.outputs.repo_name }}
-
-      - name: PR number against dev
-        run: echo ${{ steps.open_pr.outputs.pull_number }}
-
-      - name: Update PR ${{ steps.open_pr.outputs.pull_number }} description and instructions
-        uses: actions/github-script@v8
-        env:
-          TARGET_PR: ${{ steps.open_pr.outputs.pull_number }}
-          SOURCE_PR: ${{ github.event.pull_request.number }}
-          SOURCE_PR_URL: ${{ github.event.pull_request.html_url }}
-        with:
-          script: |
-            await github.rest.pulls.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: process.env.TARGET_PR,
-              body: `## Info
-              * Created from #${process.env.SOURCE_PR}
-
-              ## TODO
-              1. Review this PR like you would any other
-              2. Wait for CI jobs to complete
-              3. If there are no unexpected failures then either
-                - **Merge** *AFTER* #${process.env.SOURCE_PR} *IS* merged or
-                - **Close** *IF* #${process.env.SOURCE_PR} is *NOT* merged`
-            });
-
-            await github.rest.pulls.requestReviewers({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: process.env.TARGET_PR,
-              reviewers: ['atodorov', 'beqaabu', 'BradleyOlson64', 'didac-gluwa', 'DylanVerstraete', 'Trantorian1'],
-              // WARNING: doesn't work although docs show this as the correct format
-              // team_reviewers: ['protocol', 'protocol-manager'],
-            });
-
-  remove-github-runner:
-    runs-on: ubuntu-24.04
+  rm-gh-runner-benchmark:
     needs:
-      - deploy-github-runner
-      - hardware-benchmarks
-    if: ${{ always() && needs.deploy-github-runner.result != 'skipped' }}
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          lfs: true
-
-      - name: Remove VM
-        continue-on-error: true
-        run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ needs.deploy-github-runner.outputs.runner_vm_name }}
+      - exercise-benchmarks
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "benchmark"
+    secrets: inherit

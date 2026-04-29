@@ -26,9 +26,10 @@ import type {
     FrameSystemEventRecord,
     FrameSystemLastRuntimeUpgradeInfo,
     FrameSystemPhase,
-    PalletAttestationPocAttestorElectionPolicy,
-    PalletAttestationPocClearOrRevertCheckpointPruningState,
-    PalletAttestationPocLedgerAttestorLedger,
+    PalletAttestationAttestorElectionPolicy,
+    PalletAttestationClearOrRevertCheckpointPruningState,
+    PalletAttestationLedgerAttestorLedger,
+    PalletAttestationRetiredAttestorBlsKeyEntry,
     PalletBagsListListBag,
     PalletBagsListListNode,
     PalletBalancesAccountData,
@@ -143,6 +144,15 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
+             * Number of registered attestors per chain. Maintained incrementally in
+             * [`Pallet::try_insert_attestor_and_emit_event`] and
+             * [`Pallet::remove_attestor_and_emit_event`] so that
+             * [`Pallet::attestor_list_has_space`] is O(1) rather than O(N) over
+             * [`Attestors`].
+             **/
+            attestorsCount: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
             authorizedAttestors: AugmentedQuery<
                 ApiType,
                 (arg1: u64 | AnyNumber | Uint8Array, arg2: AccountId32 | string | Uint8Array) => Observable<Null>,
@@ -171,7 +181,7 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             chainElectionPolicy: AugmentedQuery<
                 ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<PalletAttestationPocAttestorElectionPolicy>,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<PalletAttestationAttestorElectionPolicy>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
@@ -210,7 +220,7 @@ declare module '@polkadot/api-base/types/storage' {
                 ApiType,
                 (
                     arg: u64 | AnyNumber | Uint8Array,
-                ) => Observable<Option<PalletAttestationPocClearOrRevertCheckpointPruningState>>,
+                ) => Observable<Option<PalletAttestationClearOrRevertCheckpointPruningState>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
@@ -249,9 +259,7 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             ledger: AugmentedQuery<
                 ApiType,
-                (
-                    arg: AccountId32 | string | Uint8Array,
-                ) => Observable<Option<PalletAttestationPocLedgerAttestorLedger>>,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<PalletAttestationLedgerAttestorLedger>>,
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
@@ -291,6 +299,30 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * BLS public keys kept after [`unregister_attestor`](Pallet::unregister_attestor) so
+             * aggregated attestations that still list this controller can be verified until the unbond
+             * delay elapses. Purged in [`withdraw_unbonded`](Pallet::withdraw_unbonded) once
+             * `purge_at_era` is reached.
+             **/
+            retiredAttestorBlsKeys: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<PalletAttestationRetiredAttestorBlsKeyEntry>>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
+             * Stash accounts with pending [`RetiredAttestorBlsKeys`] entries (for pruning on withdraw).
+             **/
+            retiredAttestorKeysByStash: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Vec<ITuple<[u64, AccountId32]>>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
             targetSampleSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**

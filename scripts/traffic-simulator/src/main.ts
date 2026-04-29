@@ -2,7 +2,7 @@
  * Proof Traffic Simulator
  *
  * A Deno-based tool that simulates proof query traffic by:
- * 1. Streaming blocks from source chain (Sepolia)
+ * 1. Streaming blocks from the source chain
  * 2. Queueing blocks until they are attested on Creditcoin3
  * 3. Submitting proofs for random transactions once blocks are attested
  */
@@ -19,15 +19,14 @@ console.warn = (...args: unknown[]) => {
 };
 
 import { loadConfig, logConfig } from "./config.ts";
-import { BlockSubscriber } from "./subscribers/blockSubscriber.ts";
-import { AttestationSubscriber } from "./subscribers/attestationSubscriber.ts";
+import { BlockWatcher } from "./watchers/blockWatcher.ts";
+import { AttestationWatcher } from "./watchers/attestationWatcher.ts";
 import { PendingBlockQueue } from "./queue/pendingQueue.ts";
-import { submitSingleProof } from "./submitter/singleSubmitter.ts";
-import { submitBatchProofs } from "./submitter/batchSubmitter.ts";
+import { submitSingleProof } from "./submission/singleSubmission.ts";
+import { submitBatchProofs } from "./submission/batchSubmission.ts";
 import { startHealthServer } from "./server.ts";
-import { setVerbose } from "./logger.ts";
 import { SINGLE_SUBMISSION_DELAY_MS } from "./constants.ts";
-import { sleep } from "./utils/reconnect.ts";
+import { sleep } from "./utils/sleep.ts";
 import type {
   BlockInfo,
   HealthStatus,
@@ -38,8 +37,8 @@ import type {
 
 // Global state
 let config: SimulatorConfig;
-let blockSubscriber: BlockSubscriber;
-let attestationSubscriber: AttestationSubscriber;
+let blockWatcher: BlockWatcher;
+let attestationWatcher: AttestationWatcher;
 let pendingQueue: PendingBlockQueue;
 let healthServer: { shutdown: () => void };
 let isShuttingDown = false;
@@ -57,15 +56,52 @@ const metrics = {
 };
 
 let lastError: string | null = null;
+const uniqueErrors: Map<string, number> = new Map();
+
+/**
+ * Normalize an error message by stripping variable parts (URLs, block/tx numbers)
+ * so that errors differing only in parameters are grouped together.
+ */
+function normalizeError(error: string): string {
+  return error
+    // Replace full URLs with just the domain + "..."
+    .replace(
+      /https?:\/\/[^\s:)]+/g,
+      (url) => {
+        try {
+          const parsed = new URL(url);
+          return `${parsed.origin}/...`;
+        } catch {
+          return url;
+        }
+      },
+    )
+    // Replace standalone hex strings (tx hashes, addresses)
+    .replace(/\b0x[0-9a-fA-F]{8,}\b/g, "0x...")
+    // Replace standalone numbers that look like block/tx numbers (4+ digits)
+    .replace(/\b\d{4,}\b/g, "N");
+}
+
+/**
+ * Record an error, tracking unique error messages and their occurrence count.
+ * Errors are normalized to group messages that differ only in variable parts.
+ */
+function recordError(error: string): void {
+  if (!error) return;
+  lastError = error;
+  const key = normalizeError(error);
+  if (!key) return;
+  uniqueErrors.set(key, (uniqueErrors.get(key) ?? 0) + 1);
+}
 
 /**
  * Get current health status
  */
 function getHealthStatus(): HealthStatus {
   return {
-    sepoliaConnected: blockSubscriber?.isConnected ?? false,
-    cc3Connected: attestationSubscriber?.isConnected ?? false,
-    sourceChainKey: config?.chainKey ?? 1, // default to sepolia
+    sourceChainConnected: blockWatcher?.isConnected ?? false,
+    cc3Connected: attestationWatcher?.isConnected ?? false,
+    sourceChainKey: config?.chainKey ?? 1,
     cc3WsUrl: config?.cc3WsUrl ?? "",
     queueSize: pendingQueue?.size ?? 0,
     blocksProcessed: metrics.blocksProcessed,
@@ -74,6 +110,7 @@ function getHealthStatus(): HealthStatus {
     batchSubmissions: metrics.batchSubmissions,
     proofErrors: metrics.proofErrors,
     lastError,
+    uniqueErrors: Object.fromEntries(uniqueErrors),
     uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
   };
 }
@@ -85,8 +122,8 @@ function getMetrics(): Metrics {
   return {
     ...metrics,
     queueSize: pendingQueue?.size ?? 0,
-    sepoliaConnected: blockSubscriber?.isConnected ? 1 : 0,
-    cc3Connected: attestationSubscriber?.isConnected ? 1 : 0,
+    sourceChainConnected: blockWatcher?.isConnected ? 1 : 0,
+    cc3Connected: attestationWatcher?.isConnected ? 1 : 0,
   };
 }
 
@@ -161,14 +198,15 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
   // Batch submissions (can include multiple blocks sharing continuity)
   if (batchTxInfos.length > 0) {
     try {
-      const result = await submitBatchProofs(config, batchTxInfos);
+      const result = await submitBatchProofs(config, batchTxInfos, recordError);
       metrics.batchSubmissions += result.batches;
       metrics.proofsSubmitted += result.successful;
       metrics.proofErrors += result.failed;
     } catch (error) {
       metrics.proofErrors++;
-      lastError = error instanceof Error ? error.message : String(error);
-      console.error("❌ Error processing batch submissions:", lastError);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      recordError(errorMsg);
+      console.error("❌ Error processing batch submissions:", errorMsg);
     }
   }
 
@@ -180,7 +218,7 @@ async function handleAttestation(attestedBlock: number): Promise<void> {
       metrics.proofsSubmitted++;
     } else {
       metrics.proofErrors++;
-      lastError = result.error ?? "Unknown error";
+      recordError(result.error ?? "Unknown error");
     }
 
     // Small delay between single submissions
@@ -270,10 +308,10 @@ async function shutdown(): Promise<void> {
     // Ignore
   }
 
-  // Stop subscribers
+  // Stop watchers
   await Promise.allSettled([
-    blockSubscriber?.stop(),
-    attestationSubscriber?.stop(),
+    blockWatcher?.stop(),
+    attestationWatcher?.stop(),
   ]);
 
   console.log("\n📊 Final statistics:");
@@ -300,7 +338,6 @@ async function main(): Promise<void> {
     // Load configuration
     config = loadConfig();
     logConfig(config);
-    setVerbose(config.logVerbose);
 
     // Initialize components
     pendingQueue = new PendingBlockQueue(config.maxQueueSize);
@@ -310,11 +347,12 @@ async function main(): Promise<void> {
       config.healthPort,
       getHealthStatus,
       getMetrics,
+      () => uniqueErrors.clear(),
     );
 
-    // Create subscribers
-    blockSubscriber = new BlockSubscriber(config.sourceRpcUrl, handleNewBlock);
-    attestationSubscriber = new AttestationSubscriber(
+    // Create watchers
+    blockWatcher = new BlockWatcher(config.sourceRpcUrl, handleNewBlock);
+    attestationWatcher = new AttestationWatcher(
       config.cc3WsUrl,
       config.chainKey,
       handleAttestation,
@@ -331,11 +369,11 @@ async function main(): Promise<void> {
       shutdown();
     });
 
-    // Start subscribers
-    console.log("\n🔄 Starting subscribers...\n");
+    // Start watchers
+    console.log("\n🔄 Starting watchers...\n");
     await Promise.all([
-      blockSubscriber.start(),
-      attestationSubscriber.start(),
+      blockWatcher.start(),
+      attestationWatcher.start(),
     ]);
 
     console.log("\n✅ Simulator running. Press Ctrl+C to stop.\n");

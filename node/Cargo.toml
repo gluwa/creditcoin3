@@ -30,6 +30,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync"] }
 
 # Substrate
+frame-metadata-hash-extension = { workspace = true, default-features = false }
 sc-basic-authorship = { workspace = true }
 sc-chain-spec = { workspace = true }
 sc-cli = { workspace = true }

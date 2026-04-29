@@ -82,15 +82,15 @@
 //! [`Worker`]: crate::worker::Worker
 //! [gossipsub]: libp2p::gossipsub
 //! [production worker]: crate::worker::production
-//! [attestation pool]: crate::worker::validation::pool
-//! [`Quorum`]: crate::worker::validation::pool::Quorum
+//! [attestation pool]: attestation_pool
+//! [`Quorum`]: attestation_pool::Quorum
 
 mod behavior;
 mod error;
 mod protocols;
 
-use crate::prelude::*;
 pub use error::*;
+use user::prelude::*;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
@@ -102,15 +102,17 @@ pub struct Config {
     #[default(false)]
     no_mdns: bool,
     #[specify_later]
+    bls: std::sync::Arc<crate::bls::BlsStore>,
+    #[specify_later]
     keypair: libp2p::identity::Keypair,
     #[specify_later]
     receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
     #[specify_later]
-    sender_validation: crate::worker::validation::pool::AttestationPoolSender,
+    sender_validation: attestation_pool::AttestationPoolSender,
     #[specify_later]
     chain_key: attestor_primitives::ChainKey,
     #[specify_later]
-    metrics: common::types::Metrics,
+    metrics: metrics::Metrics,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
@@ -122,16 +124,20 @@ pub(crate) struct WorkerP2P {
     topic: libp2p::gossipsub::IdentTopic,
     listen_addr: libp2p::Multiaddr,
 
+    chain_key: attestor_primitives::ChainKey,
+    // CC3 CONNECTION
+    bls: std::sync::Arc<crate::bls::BlsStore>,
+
     // METRICS
-    metrics: common::types::Metrics,
+    metrics: metrics::Metrics,
 
     // MESSAGE CHANNELS
     receiver_p2p: tokio::sync::broadcast::Receiver<common::types::Attestation>,
-    sender_validation: crate::worker::validation::pool::AttestationPoolSender,
+    sender_validation: attestation_pool::AttestationPoolSender,
 }
 
 impl WorkerP2P {
-    pub(crate) fn new(config: Config) -> anyhow::Result<Self> {
+    pub(crate) async fn new(config: Config) -> anyhow::Result<Self> {
         let enable_mdns = !config.no_mdns;
         let mut swarm = libp2p::SwarmBuilder::with_existing_identity(config.keypair)
             .with_tokio()
@@ -185,6 +191,9 @@ impl WorkerP2P {
             topic,
             listen_addr,
 
+            chain_key: config.chain_key,
+            bls: config.bls,
+
             metrics: config.metrics,
 
             receiver_p2p: config.receiver_p2p,
@@ -222,7 +231,7 @@ impl super::Worker for WorkerP2P {
                     self.handle_event_attestation(attestation).await.map_err(Interrupt::Cont)?;
                 }
                 event = self.swarm.select_next_some() => {
-                    self.handle_event_p2p(event).await.map_err(Interrupt::Cont)?;
+                    self.handle_event_p2p(event).await?;
                 }
             }
         }
@@ -245,10 +254,10 @@ impl WorkerP2P {
             let height = attestation.header_number();
 
             tracing::info!(
-                %digest,
+                ?digest,
                 height,
                 attestor_id = %attestation.attestor,
-                "✉️ Gossiping"
+                "✉️ Gossiping attestation"
             );
 
             self.swarm
@@ -267,7 +276,7 @@ impl WorkerP2P {
     async fn handle_event_p2p(
         &mut self,
         event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Interrupt<Error>> {
         use parity_scale_codec::Decode as _;
 
         match event {
@@ -279,10 +288,9 @@ impl WorkerP2P {
                     info: libp2p::identify::Info { listen_addrs, .. },
                 },
             )) => {
-                tracing::info!(connection = %connection_id, "🛰️ Dialing");
-                tracing::info!("🛰️ Discovered new remote peer");
+                tracing::info!(%peer_id, connection = %connection_id, "🛰️ Discovered new remote peer");
                 for address in listen_addrs {
-                    tracing::info!(%address, "🛰️  at");
+                    tracing::info!(%peer_id, %address, "🛰️ Adding remote peer address");
                     self.swarm
                         .behaviour_mut()
                         .kad
@@ -295,8 +303,7 @@ impl WorkerP2P {
                 libp2p::mdns::Event::Discovered(peers),
             )) => {
                 for (peer_id, address) in peers {
-                    tracing::info!("🛰️ Discovered new local peer");
-                    tracing::info!(%address, "🛰️  at");
+                    tracing::info!(%peer_id, %address, "🛰️ Discovered new local peer");
 
                     self.swarm
                         .behaviour_mut()
@@ -309,6 +316,7 @@ impl WorkerP2P {
             // just get to react to the changes summarized in this event.
             libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Kad(
                 libp2p::kad::Event::RoutingUpdated {
+                    peer,
                     is_new_peer,
                     addresses,
                     old_peer,
@@ -316,20 +324,22 @@ impl WorkerP2P {
                 },
             )) => {
                 if is_new_peer {
-                    tracing::info!("📋 Inserted new peer into the routing table");
-                    for address in addresses.iter() {
-                        tracing::info!(%address, "📋 at");
-                    }
+                    tracing::info!(
+                        peer_id = %peer,
+                        addresses = addresses.len(),
+                        "📋 Inserted new peer into the routing table"
+                    );
                     self.metrics.increase_peer_count();
                 } else {
-                    tracing::info!("📋 Updated the addresses of a peer in the routing table");
-                    for address in addresses.iter() {
-                        tracing::info!(%address, "📋 at");
-                    }
+                    tracing::info!(
+                        peer_id = %peer,
+                        addresses = addresses.len(),
+                        "📋 Updated addresses of a peer in the routing table"
+                    );
                 }
 
-                if let Some(peer) = old_peer {
-                    tracing::info!(peer_id = %peer, "📋 Removed peer from the routing table");
+                if let Some(evicted_peer) = old_peer {
+                    tracing::info!(peer_id = %evicted_peer, "📋 Removed peer from the routing table");
                     self.metrics.decrease_peer_count();
                 }
             }
@@ -343,16 +353,20 @@ impl WorkerP2P {
                 },
             )) => match result {
                 Ok(rtt) => {
-                    tracing::info!(%connection, "🔔 Dialing");
                     tracing::info!(
                         peer_id = %peer,
-                        rtt = rtt.as_secs(),
+                        connection = %connection,
+                        rtt_ms = rtt.as_millis(),
                         "🔔 Received ping response from peer"
                     );
                 }
-                Err(_) => {
-                    tracing::info!(%connection, "🔕 Dialing");
-                    tracing::error!(peer_id = %peer, "🔕 Failed to get ping response from peer");
+                Err(err) => {
+                    tracing::error!(
+                        peer_id = %peer,
+                        connection = %connection,
+                        %err,
+                        "🔕 Failed to get ping response from peer"
+                    );
                 }
             },
 
@@ -370,8 +384,8 @@ impl WorkerP2P {
                 let decode = common::types::Attestation::decode(&mut message.data.as_ref());
                 let Ok(attestation) = decode else {
                     tracing::error!(peer_id = %propagation_source, "⛔ Received invalid attestation");
-                    self.metrics.increase_invalid_gossipsub_count();
 
+                    self.metrics.increase_invalid_gossipsub_count();
                     self.swarm
                         .behaviour_mut()
                         .gossipsub
@@ -385,14 +399,43 @@ impl WorkerP2P {
                 };
 
                 let digest = attestation.digest();
+                let height = attestation.header_number();
+                let attestor_id = attestation.attestor_id();
 
                 tracing::info!(
                     peer_id = %propagation_source,
-                    %digest,
-                    height = attestation.header_number(),
-                    attestor_id = %attestation.attestor,
+                    ?digest,
+                    height,
+                    %attestor_id,
                     "📩 Received attestation"
                 );
+
+                match self.validate_attestation(&attestation).await {
+                    Err(Interrupt::Cont(err)) => {
+                        tracing::error!(?err, "⛔ Invalid attestation");
+
+                        self.metrics.increase_invalid_gossipsub_count();
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .report_message_validation_result(
+                                &message_id,
+                                &propagation_source,
+                                libp2p::gossipsub::MessageAcceptance::Reject,
+                            );
+
+                        return Ok(());
+                    }
+                    Err(Interrupt::Stop) => return Err(Interrupt::Stop),
+                    _ => {
+                        tracing::debug!(
+                            ?digest,
+                            height,
+                            %attestor_id,
+                            "Valid attestation BLS signature"
+                        );
+                    }
+                };
 
                 match self.sender_validation.send(attestation).transpose() {
                     // CASE 1] ACCEPT
@@ -409,7 +452,7 @@ impl WorkerP2P {
                                 libp2p::gossipsub::MessageAcceptance::Accept,
                             );
                     }
-                    Err(err @ crate::worker::validation::pool::Error::NoSpaceLeft(..)) => {
+                    Err(err @ attestation_pool::Error::NoSpaceLeft(..)) => {
                         err.log_error(digest);
                         self.swarm
                             .behaviour_mut()
@@ -424,8 +467,8 @@ impl WorkerP2P {
                     //
                     // Failures which depend on finality lag are not considered as malicious but are
                     // not propagated to the rest of the network as they are out-of-date.
-                    Err(err @ crate::worker::validation::pool::Error::InvalidHeight(..))
-                    | Err(err @ crate::worker::validation::pool::Error::InvalidDigest(..)) => {
+                    Err(err @ attestation_pool::Error::InvalidHeight(..))
+                    | Err(err @ attestation_pool::Error::InvalidDigest(..)) => {
                         err.log_error(digest);
                         self.swarm
                             .behaviour_mut()
@@ -436,7 +479,7 @@ impl WorkerP2P {
                                 libp2p::gossipsub::MessageAcceptance::Ignore,
                             );
                     }
-                    Err(err @ crate::worker::validation::pool::Error::Equivocation(..)) => {
+                    Err(err @ attestation_pool::Error::Equivocation(..)) => {
                         err.log_error(digest);
                         self.metrics.increase_equivocation_count();
                         self.swarm
@@ -452,7 +495,7 @@ impl WorkerP2P {
                     //
                     // Failures which depend solely on the sender are considered malicious. They are
                     // not propagated to the rest of the network.
-                    Err(err @ crate::worker::validation::pool::Error::Unauthorized(..)) => {
+                    Err(err @ attestation_pool::Error::Unauthorized(..)) => {
                         err.log_error(digest);
                         self.swarm
                             .behaviour_mut()
@@ -510,8 +553,7 @@ impl WorkerP2P {
                 connection_id,
                 ..
             } => {
-                tracing::info!(connection = %connection_id, "🔗 Dialing");
-                tracing::info!(%peer_id, "🔗 Connection established");
+                tracing::info!(%peer_id, connection = %connection_id, "🔗 Connection established");
             }
 
             // Disconnected from an existing remote peer
@@ -520,8 +562,7 @@ impl WorkerP2P {
                 connection_id,
                 ..
             } => {
-                tracing::info!(connection = %connection_id, "⛓️‍💥 Dialing");
-                tracing::info!(%peer_id, "⛓️‍💥 Connection closed");
+                tracing::info!(%peer_id, connection = %connection_id, "⛓️‍💥 Connection closed");
 
                 let topic_attestation = self.topic.hash();
                 self.can_broadcast = self
@@ -539,8 +580,7 @@ impl WorkerP2P {
                 error,
                 connection_id,
             } => {
-                tracing::error!(connection = %connection_id, "⛔ Dialing");
-                tracing::error!(?peer_id, %error, "⛔  Outgoing connection error");
+                tracing::error!(?peer_id, connection = %connection_id, %error, "⛔ Outgoing connection error");
 
                 // Update metrics
                 self.metrics.increase_connection_failure_count();
@@ -577,7 +617,7 @@ impl WorkerP2P {
                     // verification means it is impersonating another attestor, and should be
                     // considered malicious.
                     libp2p::swarm::DialError::WrongPeerId { obtained, address } => {
-                        tracing::error!(%obtained, expected =  %address, "⛔  Peer ID missmatch");
+                        tracing::error!(%obtained, expected = %address, "⛔  Peer ID mismatch");
 
                         if let Some(peer_id) = peer_id {
                             self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
@@ -601,5 +641,44 @@ impl WorkerP2P {
         };
 
         Ok(())
+    }
+
+    /// Verifies attestor eligibility and attestation bls signature before submitting to the
+    /// [attestation pool].
+    ///
+    /// [attestation pool]: attestation_pool
+    async fn validate_attestation(
+        &mut self,
+        attestation: &common::types::Attestation,
+    ) -> Result<(), Interrupt<Error>> {
+        let attestor_id = attestation.attestor_id();
+        let digest = attestation.digest();
+        let chain_key = attestation.chain_key();
+
+        // WARNING: while we use the chain_key as the topic id for gossip propagation, this
+        // does not enforce that attestations received correspond to the correct chain key!
+        // A malicious or dysfunctional attestor is still able to send attestation with a
+        // chain key than the gossip topic, so this needs to be checked before pool
+        // insertion.
+        if chain_key != self.chain_key {
+            return Err(Interrupt::Cont(Error::InvalidAttestation(
+                InvalidCause::Unsupported(chain_key),
+            )));
+        }
+
+        let Some(pubkey) = self.bls.pubkey(attestor_id.account_id()).await else {
+            return Err(Interrupt::Cont(Error::InvalidAttestation(
+                InvalidCause::Unregistered(attestor_id),
+            )));
+        };
+
+        let msg = attestation.attestation_data.serialize();
+        if pubkey.verify(attestation.signature_bls.0, &msg) {
+            Ok(())
+        } else {
+            Err(Interrupt::Cont(Error::InvalidAttestation(
+                InvalidCause::InvalidBls(digest),
+            )))
+        }
     }
 }

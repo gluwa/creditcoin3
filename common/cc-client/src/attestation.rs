@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use subxt::{error::Error as SubxtError, events::StaticEvent};
 use thiserror::Error;
@@ -49,16 +51,18 @@ impl BlockAttestedMetadata {
 pub enum CcEvent {
     BlockAttested(BlockAttestedMetadata),
     RandomnessChanged((u64, Randomness)),
-    CheckpointReached(AttestationCheckpoint),
-    AttestationIntervalChanged(u64),
-    TargetSampleSizeChanged(u32),
-    CheckpointIntervalChanged(u64),
-    AttestorsElected(Vec<AccountId32>),
-    AttestorActivated(AccountId32),
-    AttestorChilled(AccountId32),
+    /// Source chain key is included so multi-chain subscribers can route events.
+    CheckpointReached(ChainKey, AttestationCheckpoint),
+    AttestationIntervalChanged(ChainKey, u64),
+    TargetSampleSizeChanged(ChainKey, u32),
+    CheckpointIntervalChanged(ChainKey, u64),
+    AttestorsElected(ChainKey, Vec<AccountId32>),
+    AttestorActivated(ChainKey, AccountId32),
+    AttestorChilled(ChainKey, AccountId32),
+    /// Staking pallet `Kicked` (nominator/stash); not scoped to a source chain — no `ChainKey` on-chain.
     AttestorKicked(AccountId32),
-    AttestationChainGenesisBlockNumberSet(u64),
-    RevertedAttestationChainTo(u64, Digest),
+    AttestationChainGenesisBlockNumberSet(ChainKey, u64),
+    RevertedAttestationChainTo(ChainKey, u64, Digest),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -100,14 +104,33 @@ pub enum Error {
 }
 
 impl Client {
+    /// Subscribe to CC3 events for a single source chain.
     #[allow(clippy::too_many_lines)]
     #[allow(clippy::result_large_err)]
     pub fn subscribe_events(&self, filter: ChainKey) -> Result<Subscription, Error> {
+        self.subscribe_events_chains(std::slice::from_ref(&filter))
+    }
+
+    /// Subscribe to CC3 events for one or more source chains (single finalized block stream).
+    ///
+    /// `chain_keys` is copied once into the subscription task; filtering uses `[ChainKey]::contains`
+    /// (few keys, no `HashSet` / `Arc`).
+    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::result_large_err)]
+    pub fn subscribe_events_chains(&self, chain_keys: &[ChainKey]) -> Result<Subscription, Error> {
+        if chain_keys.is_empty() {
+            return Err(anyhow::anyhow!(
+                "subscribe_events_chains: at least one chain key required"
+            )
+            .into());
+        }
+
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
-        // Clone the api and send it on the tokio task
+        // Wrap filter keys in Arc for shared immutable access in the spawned task.
         let api = self.api().clone();
+        let chain_filter: Arc<[ChainKey]> = chain_keys.into();
 
         let handle = tokio::spawn(async move {
             let mut blocks_sub = api.blocks().subscribe_finalized().await?;
@@ -117,7 +140,7 @@ impl Client {
                 match blocks_sub.next().await {
                     Some(Ok(block)) => {
                         let events = block.events().await?;
-                        for event in Self::extract_events(filter, &events) {
+                        for event in Self::extract_events(&chain_filter, &events) {
                             // FIXME: remove this `unwrap`
                             if sender.send(event.unwrap()).await.is_err() {
                                 break;
@@ -146,10 +169,10 @@ impl Client {
 
     #[tracing::instrument(skip(events))]
     #[allow(clippy::too_many_lines)]
-    pub fn extract_events(
-        filter: ChainKey,
-        events: &subxt::events::Events<subxt::SubstrateConfig>,
-    ) -> impl Iterator<Item = Result<CcEvent, subxt::ext::subxt_core::Error>> {
+    pub fn extract_events<'a>(
+        chain_filter: &'a [ChainKey],
+        events: &'a subxt::events::Events<subxt::SubstrateConfig>,
+    ) -> impl Iterator<Item = Result<CcEvent, subxt::ext::subxt_core::Error>> + 'a {
         events.iter().filter_map(move |event| match event {
             Ok(event) => {
                 let span = tracing::debug_span!(
@@ -168,7 +191,7 @@ impl Client {
 
                         let BlockAttested(chain_key, header_number, digest) = event;
 
-                        if chain_key != filter {
+                        if !chain_filter.contains(&chain_key) {
                             return None;
                         }
 
@@ -197,11 +220,11 @@ impl Client {
 
                         let CheckpointReached(chain_key, checkpoint) = event;
 
-                        if chain_key != filter {
+                        if !chain_filter.contains(&chain_key) {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::CheckpointReached(checkpoint.into())))
+                        Some(Ok(CcEvent::CheckpointReached(chain_key, checkpoint.into())))
                     }
                     (TargetSampleSizeChanged::PALLET, TargetSampleSizeChanged::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<TargetSampleSizeChanged>() else {
@@ -211,11 +234,14 @@ impl Client {
 
                         let TargetSampleSizeChanged(chain_key, new_sample_size) = event;
 
-                        if chain_key != filter {
+                        if !chain_filter.contains(&chain_key) {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::TargetSampleSizeChanged(new_sample_size)))
+                        Some(Ok(CcEvent::TargetSampleSizeChanged(
+                            chain_key,
+                            new_sample_size,
+                        )))
                     }
                     (AttestationIntervalChanged::PALLET, AttestationIntervalChanged::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestationIntervalChanged>() else {
@@ -225,11 +251,14 @@ impl Client {
 
                         let AttestationIntervalChanged(chain_key, interval_new) = event;
 
-                        if chain_key != filter {
+                        if !chain_filter.contains(&chain_key) {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::AttestationIntervalChanged(interval_new)))
+                        Some(Ok(CcEvent::AttestationIntervalChanged(
+                            chain_key,
+                            interval_new,
+                        )))
                     }
                     (CheckpointIntervalChanged::PALLET, CheckpointIntervalChanged::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<CheckpointIntervalChanged>() else {
@@ -239,13 +268,14 @@ impl Client {
 
                         let CheckpointIntervalChanged(chain_key, interval_new) = event;
 
-                        if chain_key != filter {
+                        if !chain_filter.contains(&chain_key) {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::CheckpointIntervalChanged(u64::from(
-                            interval_new,
-                        ))))
+                        Some(Ok(CcEvent::CheckpointIntervalChanged(
+                            chain_key,
+                            u64::from(interval_new),
+                        )))
                     }
                     (AttestorsElected::PALLET, AttestorsElected::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestorsElected>() else {
@@ -259,11 +289,11 @@ impl Client {
                             attestors,
                         } = event;
 
-                        if chain_key != filter {
+                        if !chain_filter.contains(&chain_key) {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::AttestorsElected(attestors)))
+                        Some(Ok(CcEvent::AttestorsElected(chain_key, attestors)))
                     }
                     (AttestorActivated::PALLET, AttestorActivated::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<AttestorActivated>() else {
@@ -273,11 +303,11 @@ impl Client {
 
                         let AttestorActivated(chain_key, account_id, _bls_public_key) = event;
 
-                        if chain_key != filter {
+                        if !chain_filter.contains(&chain_key) {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::AttestorActivated(account_id)))
+                        Some(Ok(CcEvent::AttestorActivated(chain_key, account_id)))
                     }
                     (Kicked::PALLET, Kicked::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<Kicked>() else {
@@ -300,11 +330,11 @@ impl Client {
 
                         let AttestorChilled(chain_key, account_id) = event;
 
-                        if chain_key != filter {
+                        if !chain_filter.contains(&chain_key) {
                             return None;
                         }
 
-                        Some(Ok(CcEvent::AttestorChilled(account_id)))
+                        Some(Ok(CcEvent::AttestorChilled(chain_key, account_id)))
                     }
                     (
                         AttestationChainGenesisBlockNumberSet::PALLET,
@@ -319,11 +349,12 @@ impl Client {
 
                         let AttestationChainGenesisBlockNumberSet(chain_key, block_number) = event;
 
-                        if chain_key != filter {
+                        if !chain_filter.contains(&chain_key) {
                             return None;
                         }
 
                         Some(Ok(CcEvent::AttestationChainGenesisBlockNumberSet(
+                            chain_key,
                             block_number,
                         )))
                     }
@@ -339,11 +370,12 @@ impl Client {
                             checkpoint_digest,
                         } = event;
 
-                        if chain_key != filter {
+                        if !chain_filter.contains(&chain_key) {
                             return None;
                         }
 
                         Some(Ok(CcEvent::RevertedAttestationChainTo(
+                            chain_key,
                             checkpoint_height,
                             Digest::from(checkpoint_digest.0),
                         )))

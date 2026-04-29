@@ -3,7 +3,7 @@ name: unit-test-cli
 
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
+    branches: [main, usc-testnet, usc-dev]
     paths:
       - "cli/yarn.lock"
       - "cli/src/commands/**"
@@ -28,6 +28,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
       - name: Install Solidity compiler
@@ -45,9 +47,3 @@ jobs:
         run: |
           yarn install
           yarn test:unit
-
-      - uses: codecov/codecov-action@v5
-        with:
-          files: cli/coverage/lcov.info
-          fail_ci_if_error: false
-          verbose: true

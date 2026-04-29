@@ -10,7 +10,7 @@ use sp_core::{Encode, H256};
 use sp_std::vec::Vec;
 
 use attestor_primitives::{ChainId, ChainKey};
-use pallet_attestation_poc::{
+use pallet_attestation::{
     AttestationChainGenesisBlockNumber, Attestations, CheckpointBuckets, Checkpoints,
     LastCheckpoint, LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
 };
@@ -91,7 +91,7 @@ pub struct BoundsCheckResult {
 #[precompile_utils::precompile]
 impl<Runtime> ChainInfoPrecompile<Runtime>
 where
-    Runtime: pallet_supported_chains::Config + pallet_evm::Config + pallet_attestation_poc::Config,
+    Runtime: pallet_supported_chains::Config + pallet_evm::Config + pallet_attestation::Config,
     Runtime::Hash: Into<H256>,
     H256: Into<Runtime::Hash>,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,

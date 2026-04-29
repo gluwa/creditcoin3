@@ -65,7 +65,12 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
 
         it('graphQL returns known PendingAttestationIntervalSet entity', async () => {
             const response = await graphQLQuery(
-                `query { pendingAttestationIntervalSets(orderBy: BLOCK_NUMBER_ASC, last: 1) { nodes { id, blockNumber, date, chainKey, interval, whoId }}}`,
+                `query {
+                    pendingAttestationIntervalSets(
+                        filter: { chainKey: { equalTo: "${newChainKey}" }},
+                        orderBy: BLOCK_NUMBER_ASC,
+                        last: 1
+                    ) { nodes { id, blockNumber, date, chainKey, interval, whoId }}}`,
             );
             expect(response.data.pendingAttestationIntervalSets.nodes).toBeTruthy();
             expect(response.data.pendingAttestationIntervalSets.nodes.length).toBeGreaterThanOrEqual(1);

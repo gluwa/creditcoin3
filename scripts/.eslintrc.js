@@ -23,4 +23,5 @@ module.exports = {
         'no-throw-literal': 'error',
         'prefer-arrow-callback': 'error',
     },
+    ignorePatterns: ['changelog-warnings/**'], // Ignore the changelog-warnings directory
 };

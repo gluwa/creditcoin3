@@ -399,6 +399,15 @@ impl ContinuityBuilder {
         }
     }
 
+    /// Reset the last checkpoint block hint to `None`.
+    ///
+    /// Called on attestation chain reversion so that `determine_checkpoint_info`
+    /// falls back to always performing checkpoint checks until a new
+    /// `CheckpointReached` event repopulates the hint.
+    pub async fn reset_last_checkpoint_block(&self) {
+        *self.last_checkpoint_block.write().await = None;
+    }
+
     /// Build a continuity proof for a single query block.
     ///
     /// Generates the minimal continuity chain needed to verify the query block.
@@ -580,8 +589,25 @@ impl ContinuityBuilder {
     /// Get the current source chain block height.
     ///
     /// Returns the latest block number on the source chain.
+    ///
+    /// # Note
+    ///
+    /// This returns the raw chain tip without any reorg protection. It does **not** account
+    /// for `block_confirmation_depth`. Use [`get_confirmed_last_block`](Self::get_confirmed_last_block)
+    /// when you need a safe confirmed height.
     pub async fn get_last_block(&self) -> Result<u64> {
         self.eth_provider.get_last_block().await
+    }
+
+    /// Get both the raw chain tip and the confirmed block height for reorg protection.
+    ///
+    /// Returns `(tip, tip - block_confirmation_depth)` (confirmed saturates at 0).
+    /// Use the confirmed value to decide whether to accept a requested block;
+    /// use the tip value in user-facing error messages so clients see the real chain height.
+    pub async fn get_confirmed_last_block(&self) -> Result<(u64, u64)> {
+        let tip = self.eth_provider.get_last_block().await?;
+        let confirmed = tip.saturating_sub(self.config.block_confirmation_depth);
+        Ok((tip, confirmed))
     }
 
     /// Get the source chain ID.
@@ -654,5 +680,61 @@ impl ContinuityBuilder {
             .await?;
 
         Ok(attestation.map(|a| a.attestation.header_number))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{config::ContinuityConfig, mocks::make_mock_providers};
+
+    fn make_builder(block_confirmation_depth: u64) -> ContinuityBuilder {
+        let chain_key = 2u64;
+        let config = ContinuityConfig::builder()
+            .cc3_rpc_url("http://mock")
+            .eth_rpc_url("http://mock")
+            .chain_key(chain_key)
+            .attestation_interval(10)
+            .checkpoint_interval(10)
+            .block_confirmation_depth(block_confirmation_depth)
+            .build();
+        let (cc_provider, eth_provider) = make_mock_providers(chain_key);
+        ContinuityBuilder::new_with_providers(config, cc_provider, eth_provider)
+    }
+
+    /// `get_confirmed_last_block` with depth 0 returns (tip, tip).
+    #[tokio::test]
+    async fn confirmed_last_block_depth_zero() {
+        let builder = make_builder(0);
+        let (tip, confirmed) = builder.get_confirmed_last_block().await.unwrap();
+        // MockEthRpcProvider::get_last_block always returns 1000
+        assert_eq!(tip, 1000);
+        assert_eq!(confirmed, 1000);
+    }
+
+    /// `get_confirmed_last_block` with depth N returns (tip, tip - N).
+    #[tokio::test]
+    async fn confirmed_last_block_subtracts_depth() {
+        let builder = make_builder(64);
+        let (tip, confirmed) = builder.get_confirmed_last_block().await.unwrap();
+        assert_eq!(tip, 1000);
+        assert_eq!(confirmed, 936);
+    }
+
+    /// `get_confirmed_last_block` saturates at 0 when depth >= tip.
+    #[tokio::test]
+    async fn confirmed_last_block_saturates_at_zero() {
+        let builder = make_builder(2000);
+        let (tip, confirmed) = builder.get_confirmed_last_block().await.unwrap();
+        assert_eq!(tip, 1000);
+        assert_eq!(confirmed, 0);
+    }
+
+    /// `get_last_block` returns the raw chain tip, ignoring confirmation depth.
+    #[tokio::test]
+    async fn get_last_block_ignores_depth() {
+        let builder = make_builder(500);
+        let tip = builder.get_last_block().await.unwrap();
+        assert_eq!(tip, 1000);
     }
 }

@@ -48,6 +48,7 @@ axum = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true, default-features = false, features = ["derive"] }
 serde_json = { workspace = true, default-features = false }
+serde_yaml = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 tower = { workspace = true }
@@ -60,7 +61,6 @@ cc-client = { workspace = true }
 continuity = { workspace = true, features = ["block_cache"] }
 eth = { workspace = true, features = ["block_cache"] }
 hex = { workspace = true }
-indexer-client = { workspace = true }
 merkle = { workspace = true }
 prometheus-client = { workspace = true }
 sysinfo = { workspace = true }

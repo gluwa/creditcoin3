@@ -22,6 +22,7 @@ usc-abi-encoding = { workspace = true }
 # Async & Parallelism
 async-stream = { workspace = true }
 futures = { workspace = true }
+sync_wrapper = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-retry = { workspace = true }
 
@@ -34,7 +35,7 @@ stream_util = { workspace = true }
 user = { workspace = true }
 
 [dev-dependencies]
-# Parsing 
+# Parsing
 clap = { workspace = true, features = ["cargo"] }
 url = { workspace = true, features = ["serde"] }
 

@@ -3,7 +3,7 @@ name: proof-gen-api-server
 
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
+    branches: [main, usc-testnet, usc-dev]
     paths:
       - "proof-gen-api-server/**"
       - "scripts/**"
@@ -18,23 +18,20 @@ permissions: read-all
 
 jobs:
   integration-tests:
-    needs:
-      - deploy-runner-proof-gen-api-server-integration-tests
-    runs-on:
-      [
-        self-hosted,
-        "workflow-${{ github.run_id }}",
-        "proxy-proof-gen-api-server-integration-tests",
-      ]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
+
       - name: Install Anvil
         run: |
-          # first install it
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           ANVIL_BIN=$(readlink -f ~/.foundry/bin/anvil)
           echo "ANVIL_BIN=$ANVIL_BIN" >> "$GITHUB_ENV"
 
@@ -61,9 +58,11 @@ jobs:
           components: llvm-tools-preview, rust-src
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.69.7
+        uses: taiki-e/install-action@v2.75.23
         with:
           tool: cargo-llvm-cov@0.6.24
 
@@ -84,31 +83,12 @@ jobs:
           name: coverage-report
           path: target/llvm-cov/html/
 
-  deploy-runner-proof-gen-api-server-integration-tests:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "proof-gen-api-server-integration-tests"
-    secrets: inherit
-
-  rm-gh-runner-proof-gen-api-server-integration-tests:
-    needs:
-      - integration-tests
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "proof-gen-api-server-integration-tests"
-    secrets: inherit
-
   deploy-runner-build-proof-gen:
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
+      LINODE_VM_SIZE: "g6-standard-6"
       proxy: "build-proof-gen"
     secrets: inherit
 
@@ -128,36 +108,15 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: false
       version-string: testing-proof-gen
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-proof-gen']"
     secrets: inherit
 
-  deploy-runner-submit-proof:
-    needs:
-      - build-everything
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
-      proxy: "submit-proof"
-    secrets: inherit
-
-  rm-gh-runner-submit-proof:
-    needs:
-      - exercise-scripts
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "submit-proof"
-    secrets: inherit
-
   exercise-scripts:
     needs:
-      - deploy-runner-submit-proof
-    runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "proxy-submit-proof"]
+      - build-everything
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
@@ -178,25 +137,35 @@ jobs:
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --base-path ./alice-data >/var/tmp/exercise-scripts/creditcoin3-node-alice.log 2>&1 &
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
+
       - name: Start Ethereum simulation with Anvil
         run: |
-          # first install it
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8142 &
 
       - name: Check that creditcoin-node and anvil are running
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8142'
 
       - name: Install Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            attestor/scripts/package-lock.json
+            scripts/yarn.lock
 
       - name: Simulate a native token transfer on Anvil 1
         id: native-transfer-anvil-1
@@ -221,8 +190,6 @@ jobs:
         id: native-transfer-anvil-2
         working-directory: attestor/scripts
         run: |
-          npm install
-
           OUTPUT=$(ETH_RPC_URL=http://127.0.0.1:8141 node Transfer.js)
           echo "$OUTPUT"
 
@@ -236,7 +203,7 @@ jobs:
 
           echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
 
-      - name: Start Attestation Zombienet
+      - name: Start Attestation Zombienet (chain 2 — Anvil 1)
         run: |
           chmod a+x ./target/release/attestor*
 
@@ -248,12 +215,49 @@ jobs:
                 --cc3-url=ws://localhost:9944 \
                 --funding-address='//Alice' \
                 --config=./attestor/config.yaml \
-                >/var/tmp/exercise-scripts/zombienet-alice.log &
+                >/var/tmp/exercise-scripts/zombienet-chain2.log &
 
-      - name: Wait for 3 attestors to be registered
+      - name: Wait for chain 2 attestors to be registered
         run: |
-          # wait for Anvil_1 attestors (chain 2)
-          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944' 2
+
+      # Chain 4 zombienet starts AFTER chain 2 attestors are registered to
+      # avoid nonce collisions when both use the same funding account (//Alice).
+      # --offset=3 gives chain 4 attestors unique keypairs so they don't share
+      # account nonces with chain 2 attestors (which would cause tx failures).
+      - name: Start Attestation Zombienet (chain 4 — Anvil 2)
+        run: |
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --offset=3 \
+                --chain-key=4 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8142 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                --p2p-port-base=9010 \
+                --api-port-base=9110 \
+                >/var/tmp/exercise-scripts/zombienet-chain4.log &
+
+      - name: Wait for chain 4 attestors to be registered
+        run: |
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944' 4
+
+      - name: Wait for chain 2 transfer and attestation events
+        working-directory: scripts
+        run: |
+          npm install
+          node TransferAndWait.js --chain-key 2 \
+            --source-rpc-url http://127.0.0.1:8141 \
+            --cc3-rpc-url ws://localhost:9944
+
+      - name: Wait for chain 4 transfer and attestation events
+        working-directory: scripts
+        run: |
+          node TransferAndWait.js --chain-key 4 \
+            --source-rpc-url http://127.0.0.1:8142 \
+            --cc3-rpc-url ws://localhost:9944
 
       - name: Start Redis
         working-directory: proof-gen-api-server
@@ -262,14 +266,14 @@ jobs:
           docker compose up -d
           sleep 60
 
-      - name: Start proof-gen-api-server
+      - name: Start proof-gen-api-server (multi-chain via YAML config)
         run: |
           chmod a+x ./target/release/proof-gen-api-server
 
           ./target/release/proof-gen-api-server \
             --cc3-key "//Alice" \
             --cc3-rpc-url ws://localhost:9944 \
-            --eth-rpc-url http://localhost:8141 \
+            --config proof-gen-api-server/config.ci.yaml \
             >/var/tmp/exercise-scripts/proof-gen-api-server.log &
 
           sleep 30
@@ -277,8 +281,6 @@ jobs:
       - name: Exercise TransferWaitAndSubmit.js
         working-directory: scripts
         run: |
-          npm install
-
           # Using Anvil Account #0 on source chain & Alith on execution chain
           node TransferWaitAndSubmit.js \
             --source-rpc-url http://127.0.0.1:8141 \
@@ -345,13 +347,15 @@ jobs:
             --cc3-rpc-url http://localhost:9944 \
             --verbose
 
-      - name: Exercise TransferAndWait.js
+      - name: Exercise TransferWaitAndSubmit.js against Anvil 2 (chain 4)
         working-directory: scripts
         run: |
-          # Using Anvil Account #0 on source chain
-          node TransferAndWait.js --chain-key 2 \
-            --source-rpc-url http://127.0.0.1:8141 \
-            --cc3-rpc-url ws://localhost:9944
+          node TransferWaitAndSubmit.js \
+            --chain-key 4 \
+            --source-rpc-url http://127.0.0.1:8142 \
+            --cc3-rpc-url ws://localhost:9944 \
+            --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
+            --api-url http://localhost:3100
 
       - name: Upload logs
         if: always()
@@ -370,14 +374,16 @@ jobs:
       - build-everything
     runs-on: ubuntu-24.04
     steps:
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
       # start this early so it has time to produce more blocks to be used by stress-test
       - name: Start Ethereum simulation with Anvil
         run: |
-          export FOUNDRY_DIR="$HOME/.foundry"
-          # first install it
-          curl -L https://foundry.paradigm.xyz | bash
-          ~/.foundry/bin/foundryup
-
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
@@ -388,6 +394,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            attestor/scripts/package-lock.json
+            scripts/yarn.lock
 
       - name: Simulate a native token transfer on Anvil 1
         working-directory: attestor/scripts

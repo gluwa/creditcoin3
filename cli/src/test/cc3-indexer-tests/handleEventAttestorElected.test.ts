@@ -83,6 +83,7 @@ describe('handleEventAttestorElected()', () => {
                         orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10,
                         filter: {
                             chainKey: { equalTo: "${chain_Anvil1_Key}"},
+                            status: { equalTo: 0 },
                         }
                     ) { nodes { id, attestorId, lastUpdateBlockNumber, status }}
                 }`,
@@ -94,7 +95,7 @@ describe('handleEventAttestorElected()', () => {
                 expect(activeAttestorsForAnvil1).toContain(node.attestorId);
                 // attestor was last updated when it was elected
                 expect(BigInt(node.lastUpdateBlockNumber)).toEqual(epochStart);
-                expect(node.status).toEqual(3); // Active
+                expect(node.status).toEqual(0); // Active
             }
         });
     });

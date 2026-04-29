@@ -12,4 +12,6 @@ paths = [
     '''(.*?)gitleaks\.toml$''',
     '''(?i)(.*?)(png|jpeg|jpg|gif|doc|docx|pdf|bin|xls|xlsx|pyc|zip)$''',
     '''cli/src/test''',
+    # Chain specs: "key" fields (e.g. sudo) are SS58 addresses, not API secrets
+    '''chainspecs/.*\.json$''',
 ]

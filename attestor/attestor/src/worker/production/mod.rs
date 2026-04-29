@@ -36,26 +36,26 @@
 //!     box Thread 5..n
 //!         participant Rayon Thread Pool
 //!     end
-//!  
+//!
 //!     loop Production
 //!         Production Worker ->> Eth Chain Listener: Polls
-//!  
+//!
 //!         activate Eth Chain Listener
 //!         Eth Chain Listener -->> Eth: Polls
 //!         deactivate Eth Chain Listener
-//!  
+//!
 //!         activate Eth
 //!         Eth -->> Eth Chain Listener: New block
 //!         deactivate Eth
-//!  
+//!
 //!         activate Eth Chain Listener
 //!         Eth Chain Listener ->> Production Worker: Notify
 //!         deactivate Eth Chain Listener
-//!  
+//!
 //!         activate Production Worker
 //!         Production Worker ->> CC3 Chain Listener: Generate Attestation
 //!         deactivate Production Worker
-//!  
+//!
 //!         activate CC3 Chain Listener
 //!         CC3 Chain Listener ->> Rayon Thread Pool: Compute Continuity Proof
 //!         activate Rayon Thread Pool
@@ -63,7 +63,7 @@
 //!         deactivate Rayon Thread Pool
 //!         CC3 Chain Listener ->> Production Worker: Attestation
 //!         deactivate CC3 Chain Listener
-//!  
+//!
 //!         activate Production Worker
 //!         Production Worker ->> Attestation Pool: Store attestation
 //!         Production Worker ->> P2P Worker: Send attestation
@@ -79,16 +79,16 @@
 //!
 //! [`Worker`]: crate::worker::Worker
 //! [attestation stream]: crate::stream::attestation
-//! [attestation pool]: crate::worker::validation::pool
+//! [attestation pool]: attestation_pool
 //! [`Attestation`]: crate::common::types::Attestation
 //! [p2p worker]: crate::worker::p2p
 //! [validation worker]: crate::worker::validation
-//! [`Quorum`]: crate::worker::validation::pool::Quorum
+//! [`Quorum`]: attestation_pool::Quorum
 
 mod error;
 
-use crate::prelude::*;
 pub use error::*;
+use user::prelude::*;
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
@@ -97,38 +97,42 @@ pub use error::*;
 /// attestor, such as its account id.
 #[derive(builder::Builder)]
 pub struct Config {
-    stream_attestation: crate::stream::attestation::StreamAttestation,
-    stream_cc3: crate::stream::cc3::StreamCC3,
+    stream_attestation: stream::attestation::StreamAttestation,
+    stream_cc3: stream::cc3::StreamCC3,
+    cc3: cc_client::Client,
+    bls: std::sync::Arc<crate::bls::BlsStore>,
 
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
-    sender_validation: crate::worker::validation::pool::AttestationPoolSender,
+    sender_validation: attestation_pool::AttestationPoolSender,
 
-    interval_attestation: std::num::NonZero<common::types::Height>,
-    attestation_latest_cc3: common::types::AttestationInfo,
+    interval_attestation: std::num::NonZero<attestor_primitives::Height>,
+    attestation_latest_cc3: stream::util::AttestationInfo,
 
-    start_height: common::types::Height,
+    start_height: attestor_primitives::Height,
     account_id: cc_client::AccountId32,
-    metrics: common::types::Metrics,
+    metrics: metrics::Metrics,
 }
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
 
 pub(crate) struct WorkerAttestationProduction {
     // CHAIN LISTENERS
-    stream_attestation: crate::stream::attestation::StreamAttestation,
-    stream_cc3: crate::stream::cc3::StreamCC3,
+    stream_attestation: stream::attestation::StreamAttestation,
+    stream_cc3: stream::cc3::StreamCC3,
+    cc3: cc_client::Client,
+    bls: std::sync::Arc<crate::bls::BlsStore>,
 
     // MESSAGE CHANNELS
     sender_p2p: tokio::sync::broadcast::Sender<common::types::Attestation>,
-    sender_validation: crate::worker::validation::pool::AttestationPoolSender,
+    sender_validation: attestation_pool::AttestationPoolSender,
 
     // ATTESTATION DATA
-    attestation_local: common::types::Height,
-    attestation_latest_cc3: common::types::AttestationInfo,
-    attestation_interval: std::num::NonZero<common::types::Height>,
+    attestation_local: attestor_primitives::Height,
+    attestation_latest_cc3: stream::util::AttestationInfo,
+    attestation_interval: std::num::NonZero<attestor_primitives::Height>,
 
     // METRICS
-    metrics: common::types::Metrics,
+    metrics: metrics::Metrics,
 
     // ATTESTOR DATA
     account_id: cc_client::AccountId32,
@@ -136,10 +140,12 @@ pub(crate) struct WorkerAttestationProduction {
 }
 
 impl WorkerAttestationProduction {
-    pub(crate) fn new(config: Config) -> anyhow::Result<Self> {
-        Ok(Self {
+    pub(crate) fn new(config: Config) -> Self {
+        Self {
             stream_attestation: config.stream_attestation,
             stream_cc3: config.stream_cc3,
+            cc3: config.cc3,
+            bls: config.bls,
 
             sender_p2p: config.sender_p2p,
             sender_validation: config.sender_validation,
@@ -152,7 +158,7 @@ impl WorkerAttestationProduction {
 
             account_id: config.account_id,
             can_attest: true,
-        })
+        }
     }
 }
 
@@ -178,8 +184,8 @@ impl super::Worker for WorkerAttestationProduction {
                 Some(events) = self.stream_cc3.next() => {
                     self.handle_event_cc3(events).await?;
                 }
-                Some(event) = self.stream_attestation.next(), if self.can_attest => {
-                    self.handle_event_attestation(event).await?;
+                Some(attestation) = self.stream_attestation.next(), if self.can_attest => {
+                    self.handle_event_attestation(attestation).await?;
                 }
             }
         }
@@ -193,30 +199,24 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_attestation(
         &mut self,
-        event: Result<
-            crate::stream::attestation::Permit,
-            Interrupt<crate::stream::attestation::Error>,
-        >,
+        attestation: stream::attestation::Attestation,
     ) -> Result<(), Interrupt<Error>> {
-        let permit = event.map_interrupt(Error::Attestation)?;
         let now = std::time::Instant::now();
-
-        let attestation = self
-            .stream_attestation
-            .generate_attestation(permit)
-            .await
-            .map_interrupt(Error::Attestation)?;
 
         let height = attestation.header_number();
         let digest = attestation.digest();
-        let digest_prev = attestation.prev_digest();
-        let attestor_id = attestation.attestor.clone();
+        // No previous digest means we will log `0x000...000` as the previous digest
+        let digest_prev = attestation
+            .prev_digest()
+            .unwrap_or_else(sp_core::H256::zero);
+        let attestor_id = attestation.attestor.account_id();
 
         tracing::info!(
             ?digest,
             ?digest_prev,
             height,
             %attestor_id,
+            elapsed_ms = now.elapsed().as_millis(),
             "📡 Generated attestation"
         );
 
@@ -229,7 +229,7 @@ impl WorkerAttestationProduction {
 
         self.metrics.update_attestation_lag_eth(
             attestation.header_number(),
-            self.stream_attestation.block_highest(),
+            self.stream_attestation.latest_tip(),
             self.attestation_interval,
         );
         self.metrics.update_attestation_lag_cc3(
@@ -266,7 +266,7 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_cc3(
         &mut self,
-        mut events: crate::stream::cc3::StreamEvents,
+        mut events: stream::cc3::StreamEvents,
     ) -> Result<(), Interrupt<Error>> {
         use futures::TryStreamExt as _;
 
@@ -276,13 +276,9 @@ impl WorkerAttestationProduction {
                 cc_client::attestation::CcEvent::BlockAttested(attestation) => {
                     let digest = attestation.digest;
                     let height = attestation.header_number;
-                    let attestation_latest_cc3 = common::types::AttestationInfo { digest, height };
+                    let attestation_latest_cc3 = stream::util::AttestationInfo { digest, height };
 
-                    tracing::info!(
-                        height,
-                        %digest,
-                        "💾 New execution chain attestation"
-                    );
+                    tracing::info!(height, ?digest, "💾 New execution chain attestation");
 
                     if attestation_latest_cc3.height > self.attestation_latest_cc3.height {
                         self.attestation_latest_cc3 = attestation_latest_cc3;
@@ -323,7 +319,10 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 2] NEW TARGET SAMPLE SIZE
-                cc_client::attestation::CcEvent::TargetSampleSizeChanged(target_sample_size) => {
+                cc_client::attestation::CcEvent::TargetSampleSizeChanged(
+                    _chain_key,
+                    target_sample_size,
+                ) => {
                     tracing::info!(target_sample_size, "📏 New target sample size");
 
                     self.sender_validation
@@ -331,10 +330,14 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 3] NEW ATTESTATION INTERVAL
-                cc_client::attestation::CcEvent::AttestationIntervalChanged(interval) => {
+                cc_client::attestation::CcEvent::AttestationIntervalChanged(
+                    _chain_key,
+                    interval,
+                ) => {
                     tracing::info!(interval, "🔢 New source chain attestation interval");
 
-                    let Some(interval) = std::num::NonZero::<common::types::Height>::new(interval)
+                    let Some(interval) =
+                        std::num::NonZero::<attestor_primitives::Height>::new(interval)
                     else {
                         return Ok(());
                     };
@@ -345,7 +348,8 @@ impl WorkerAttestationProduction {
                     //
                     // Catchup to the new target height and update the attestation interval.
                     self.stream_attestation
-                        .note_attestation_interval_change(interval);
+                        .note_attestation_interval_change(interval)
+                        .await;
 
                     // 2. Attestation pool
                     //
@@ -362,7 +366,7 @@ impl WorkerAttestationProduction {
                     // 4. Metrics
                     self.metrics.update_attestation_lag_eth(
                         attestation_latest_cc3,
-                        self.stream_attestation.block_highest(),
+                        self.stream_attestation.latest_tip(),
                         interval,
                     );
                     self.metrics.update_attestation_lag_cc3(
@@ -372,12 +376,15 @@ impl WorkerAttestationProduction {
                     );
                 }
 
-                cc_client::attestation::CcEvent::CheckpointIntervalChanged(interval) => {
+                cc_client::attestation::CcEvent::CheckpointIntervalChanged(
+                    _chain_key,
+                    interval,
+                ) => {
                     tracing::info!(interval, "🔢 New source chain checkpoint interval");
                 }
 
                 // CASE 4] NEW ATTESTATION CHECKPOINT
-                cc_client::attestation::CcEvent::CheckpointReached(checkpoint) => {
+                cc_client::attestation::CcEvent::CheckpointReached(_chain_key, checkpoint) => {
                     tracing::info!(
                         height = checkpoint.block_number,
                         digest = ?checkpoint.digest,
@@ -391,7 +398,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 6] ATTESTOR ELECTION
-                cc_client::attestation::CcEvent::AttestorsElected(attestors) => {
+                cc_client::attestation::CcEvent::AttestorsElected(_chain_key, attestors) => {
                     tracing::info!("⏰ New attestors elected");
 
                     // 1. Attestor status
@@ -400,39 +407,47 @@ impl WorkerAttestationProduction {
                     if attestors.contains(&self.account_id) {
                         self.can_attest = true;
                         tracing::info!(
-                            account_id = %self.account_id,
+                            attestor_id = %self.account_id,
                             "☀️ Attestor is eligible for production"
                         );
                     } else {
                         self.can_attest = false;
                         tracing::info!(
-                            account_id = %self.account_id,
+                            attestor_id = %self.account_id,
                             "🛏️ Waiting for attestor to be elected"
                         );
                     }
 
-                    // 2. Attestor validation
+                    // 2. Update bls keys
+                    //
+                    // Update the set of BLS keys for use by the p2p worker
+                    self.bls
+                        .note_attestors_elected(&mut self.cc3, &attestors)
+                        .await
+                        .map_interrupt(Error::Bls)?;
+
+                    // 3. Attestor validation
                     //
                     // Update the set of legal attestors in the attestation pool.
                     self.sender_validation.note_attestors_elected(attestors);
                 }
 
                 // CASE 7] ATTESTOR ACTIVATION
-                cc_client::attestation::CcEvent::AttestorActivated(attestor) => {
+                cc_client::attestation::CcEvent::AttestorActivated(_chain_key, attestor) => {
                     if attestor == self.account_id {
                         tracing::info!(
-                            account_id = %self.account_id,
+                            attestor_id = %self.account_id,
                             "🔋 Attestor has been activated"
                         );
                     }
                 }
 
                 // CASE 8] ATTESTOR DEACTIVATION
-                cc_client::attestation::CcEvent::AttestorChilled(attestor) => {
+                cc_client::attestation::CcEvent::AttestorChilled(_chain_key, attestor) => {
                     if attestor == self.account_id {
                         self.can_attest = false;
                         tracing::info!(
-                            account_id = %self.account_id,
+                            attestor_id = %self.account_id,
                             "🪫 Attestor has been deactivated"
                         );
                     }
@@ -443,7 +458,7 @@ impl WorkerAttestationProduction {
                     if attestor == self.account_id {
                         self.can_attest = false;
                         tracing::info!(
-                            account_id = %self.account_id,
+                            attestor_id = %self.account_id,
                             "💥 Attestor has been kicked"
                         );
                     }
@@ -451,6 +466,7 @@ impl WorkerAttestationProduction {
 
                 // CASE 10] ATTESTATION GENESIS BLOCK NUMBER SET
                 cc_client::attestation::CcEvent::AttestationChainGenesisBlockNumberSet(
+                    _chain_key,
                     genesis_block,
                 ) => {
                     tracing::info!(
@@ -460,14 +476,14 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 11] ATTESTATION CHAIN REVERSION
-                cc_client::attestation::CcEvent::RevertedAttestationChainTo(height, digest) => {
-                    let attestation_latest_cc3 = common::types::AttestationInfo { digest, height };
+                cc_client::attestation::CcEvent::RevertedAttestationChainTo(
+                    _chain_key,
+                    height,
+                    digest,
+                ) => {
+                    let attestation_latest_cc3 = stream::util::AttestationInfo { digest, height };
 
-                    tracing::info!(
-                        height,
-                        %digest,
-                        "💾 Attestation chain reversion detected!"
-                    );
+                    tracing::info!(height, ?digest, "💾 Attestation chain reversion detected!");
 
                     self.attestation_latest_cc3 = attestation_latest_cc3;
                     self.attestation_local = height;
@@ -484,8 +500,7 @@ impl WorkerAttestationProduction {
                     // revert height.
                     self.stream_attestation
                         .note_attestation_chain_reversion(attestation_latest_cc3)
-                        .await
-                        .map_interrupt(Error::Attestation)?;
+                        .await;
                 }
             }
         }

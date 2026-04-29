@@ -4,7 +4,7 @@ name: shell-check
 # Controls when the action will run.
 "on":
   pull_request:
-    branches: [main, testnet, poc_external_attestation_network]
+    branches: [main, usc-testnet, usc-dev]
     paths:
       - '**.sh'
       - '.github/workflows/shell-check.yml'

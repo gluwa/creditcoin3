@@ -41,8 +41,7 @@ jobs:
       - name: Sanity check tag name suffix
         run: |
           echo "${{ env.TAG_NAME }}" | grep -E "mainnet|testnet|devnet"
-          # TODO: reenable when we start releasing from the dev branch
-          # .github/check-tag-suffix-vs-origin-branch.sh
+          .github/check-tag-suffix-vs-origin-branch.sh
 
       - name: Check tag name vs. Cargo.toml version
         run: |
@@ -84,7 +83,7 @@ jobs:
         id: set-build-options
         shell: bash
         run: |
-          echo "build_options=${{ contains( needs.sanity-check.outputs.TAG_NAME, 'devnet') && '--features devnet --features fast-runtime' || '' }}" >> "$GITHUB_OUTPUT"
+          echo "build_options=${{ contains( needs.sanity-check.outputs.TAG_NAME, 'devnet') && '--features devnet' || '' }}" >> "$GITHUB_OUTPUT"
 
       - name: View the build options
         shell: bash
@@ -142,12 +141,11 @@ jobs:
           # runners for other jobs (repurpose existing labels)
           - build: docker
           - build: native
-          - build: wasm
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-4"
+      LINODE_VM_SIZE: "g6-standard-6"
       proxy_type: ${{ matrix.build }}
     secrets: inherit
 
@@ -159,6 +157,7 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release ${{ needs.setup.outputs.build_options}}"
+      git-lfs-checkout: true
       version-string: "${{ needs.sanity-check.outputs.TAG_NAME }}-x86_64-unknown-linux-gnu"
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-native']"
     secrets: inherit
@@ -167,12 +166,11 @@ jobs:
     needs:
       - sanity-check
       - setup
-      - deploy-github-runner
     uses: ./.github/workflows/build-wasm.yml
     with:
       build-options: "${{ needs.setup.outputs.build_options }}"
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-wasm']"
+      runs-on: "['ubuntu-24.04']"
 
   docker-build:
     needs:
@@ -192,12 +190,20 @@ jobs:
     runs-on: ubuntu-24.04
     needs:
       - sanity-check
+      - setup
       - generate-changelog
       - build-native-runtime
       - build-wasm-runtime
       - docker-build
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
 
       - name: Download binaries
         uses: actions/download-artifact@v8
@@ -210,6 +216,17 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: changelog
+
+      - name: Install changelog-warnings dependencies
+        working-directory: ./scripts/changelog-warnings
+        run: npm install
+
+      - name: Append operator warnings to changelog
+        continue-on-error: true
+        run: |
+          npx tsx scripts/changelog-warnings/src/index.ts \
+            --previous-tag "${{ needs.setup.outputs.previous_release }}" \
+            --changelog changelog.md
 
       - name: Compress native binaries
         shell: bash
@@ -234,7 +251,7 @@ jobs:
           ./abi-creator.sh
 
       - name: Make the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             artifact/archiver-${{ needs.sanity-check.outputs.TAG_NAME }}*
@@ -271,13 +288,4 @@ jobs:
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy_type: "native"
-    secrets: inherit
-
-  rm-gh-runner-wasm:
-    needs:
-      - build-wasm-runtime
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy_type: "wasm"
     secrets: inherit

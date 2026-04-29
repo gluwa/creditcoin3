@@ -7,14 +7,46 @@ name: Propose Mainnet PR
     - cron: "0 7 2 * *"
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+    inputs:
+      LAST_REF:
+        required: true
+        type: string
+        default: 'usc-testnet'
+        description: "Last ref to be included in PR. WARNING: edit this field, not the one above!"
+      TARGET_BRANCH:
+        required: true
+        type: string
+        default: 'main'
+        description: Target branch for PR
 
 permissions: read-all
 
+# Security: don't use inputs directly, pass them through ENV, see:
+# https://docs.github.com/en/actions/reference/security/secure-use#use-an-intermediate-environment-variable
+env:
+  LAST_REF: ${{ inputs.LAST_REF }}
+  TARGET_BRANCH: ${{ inputs.TARGET_BRANCH }}
+
 jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      last_ref: ${{ env.LAST_REF || 'usc-testnet' }}
+      target_branch: ${{ env.TARGET_BRANCH || 'main' }}
+
+    steps:
+      - name: Print input values
+        run: |
+          echo "Workflow source from $GITHUB_REF_NAME"
+          echo "Trigger event: ${{ github.event_name }}"
+          echo "Last ref for PR: ${{ env.LAST_REF }}"
+          echo "Target branch for PR: ${{ env.TARGET_BRANCH }}"
+
   open-new-pr:
+    needs: setup
     permissions: write-all
     uses: ./.github/workflows/rebase-branch-and-propose-pr.yml
     with:
-      source-branch: testnet
-      target-branch: main
+      last-ref: ${{ needs.setup.outputs.last_ref }}
+      target-branch: ${{ needs.setup.outputs.target_branch }}
     secrets: inherit
