@@ -372,12 +372,14 @@ impl Attestor {
 
         tracing::info!("⏳ [2/4] Starting attestation validation worker");
 
+        let can_attest = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let config = worker::validation::ConfigBuilder::new()
             .with_stream_cc3(stream_cc3_validation)
             .with_cc3(client_cc3.clone())
             .with_signer(signer)
             .with_validation_receiver(receiver_validation)
             .with_validation_sender(sender_validation.clone())
+            .with_can_attest(std::sync::Arc::clone(&can_attest))
             .with_api_calls(cc_client::Client::runtime_api())
             .with_start_height(start_height)
             .with_genesis(genesis)
@@ -449,6 +451,7 @@ impl Attestor {
             .with_sender_validation(sender_validation)
             .with_interval_attestation(interval_attestation)
             .with_attestation_latest_cc3(attestation_latest_cc3)
+            .with_can_attest(std::sync::Arc::clone(&can_attest))
             .with_start_height(start_height)
             .with_account_id(account_id)
             .with_metrics(metrics)

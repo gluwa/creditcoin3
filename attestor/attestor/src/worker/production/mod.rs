@@ -107,6 +107,7 @@ pub struct Config {
 
     interval_attestation: std::num::NonZero<attestor_primitives::Height>,
     attestation_latest_cc3: stream::util::AttestationInfo,
+    can_attest: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     start_height: attestor_primitives::Height,
     account_id: cc_client::AccountId32,
@@ -136,7 +137,7 @@ pub(crate) struct WorkerAttestationProduction {
 
     // ATTESTOR DATA
     account_id: cc_client::AccountId32,
-    can_attest: bool,
+    can_attest: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl WorkerAttestationProduction {
@@ -157,7 +158,7 @@ impl WorkerAttestationProduction {
             metrics: config.metrics,
 
             account_id: config.account_id,
-            can_attest: true,
+            can_attest: config.can_attest,
         }
     }
 }
@@ -175,6 +176,8 @@ impl super::Worker for WorkerAttestationProduction {
         use futures::StreamExt as _;
 
         loop {
+            let can_attest = self.can_attest.load(std::sync::atomic::Ordering::Acquire);
+
             tokio::select! {
                 biased;
 
@@ -184,7 +187,7 @@ impl super::Worker for WorkerAttestationProduction {
                 Some(events) = self.stream_cc3.next() => {
                     self.handle_event_cc3(events).await?;
                 }
-                Some(attestation) = self.stream_attestation.next(), if self.can_attest => {
+                Some(attestation) = self.stream_attestation.next(), if can_attest => {
                     self.handle_event_attestation(attestation).await?;
                 }
             }
@@ -405,13 +408,15 @@ impl WorkerAttestationProduction {
                     //
                     // Update local attestation eligibility.
                     if attestors.contains(&self.account_id) {
-                        self.can_attest = true;
+                        self.can_attest
+                            .store(true, std::sync::atomic::Ordering::Release);
                         tracing::info!(
                             attestor_id = %self.account_id,
                             "☀️ Attestor is eligible for production"
                         );
                     } else {
-                        self.can_attest = false;
+                        self.can_attest
+                            .store(false, std::sync::atomic::Ordering::Release);
                         tracing::info!(
                             attestor_id = %self.account_id,
                             "🛏️ Waiting for attestor to be elected"
@@ -445,7 +450,8 @@ impl WorkerAttestationProduction {
                 // CASE 8] ATTESTOR DEACTIVATION
                 cc_client::attestation::CcEvent::AttestorChilled(_chain_key, attestor) => {
                     if attestor == self.account_id {
-                        self.can_attest = false;
+                        self.can_attest
+                            .store(false, std::sync::atomic::Ordering::Release);
                         tracing::info!(
                             attestor_id = %self.account_id,
                             "🪫 Attestor has been deactivated"
@@ -456,7 +462,8 @@ impl WorkerAttestationProduction {
                 // CASE 9] ATTESTOR FORCE-KICK
                 cc_client::attestation::CcEvent::AttestorKicked(attestor) => {
                     if attestor == self.account_id {
-                        self.can_attest = false;
+                        self.can_attest
+                            .store(false, std::sync::atomic::Ordering::Release);
                         tracing::info!(
                             attestor_id = %self.account_id,
                             "💥 Attestor has been kicked"

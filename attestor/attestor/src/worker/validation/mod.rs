@@ -106,6 +106,7 @@ pub struct Config {
 
     validation_sender: attestation_pool::AttestationPoolSender,
     validation_receiver: attestation_pool::AttestationPoolReceiver,
+    can_attest: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
     start_height: attestor_primitives::Height,
@@ -126,6 +127,7 @@ pub(crate) struct WorkerAttestationValidation {
     watch_submission: future::OptionFuture<(AttestationSubmission, attestor_primitives::Height)>,
     validation_sender: attestation_pool::AttestationPoolSender,
     validation_receiver: attestation_pool::AttestationPoolReceiver,
+    can_attest: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     // CHAIN DATA
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
@@ -146,6 +148,7 @@ impl WorkerAttestationValidation {
             watch_submission: future::OptionFuture::default(),
             validation_receiver: config.validation_receiver,
             validation_sender: config.validation_sender,
+            can_attest: config.can_attest,
 
             api_calls: config.api_calls,
             start_height: config.start_height,
@@ -167,6 +170,8 @@ impl super::Worker for WorkerAttestationValidation {
         use futures::StreamExt as _;
 
         loop {
+            let can_attest = self.can_attest.load(std::sync::atomic::Ordering::Acquire);
+
             tokio::select! {
                 biased;
 
@@ -176,7 +181,7 @@ impl super::Worker for WorkerAttestationValidation {
                 event = &mut self.watch_submission => {
                     self.handle_event_submission(event).await?;
                 }
-                event = self.validation_receiver.next() => {
+                event = self.validation_receiver.next(), if can_attest => {
                     self.handle_event_quorum(event).await?;
                 },
             }
@@ -984,6 +989,12 @@ impl WorkerAttestationValidation {
         // If the attestation has not finalized in time, then we submit it anyway. This
         // happens on average either if the attestor is first in line for submission or if
         // another attestor went down.
+
+        // Make sure the attestor hasn't been chilled in the time it took to await backoff
+        let can_attest = self.can_attest.load(std::sync::atomic::Ordering::Acquire);
+        if !can_attest {
+            return Ok(());
+        }
 
         let call = cc_client::cc3::tx()
             .attestation()
