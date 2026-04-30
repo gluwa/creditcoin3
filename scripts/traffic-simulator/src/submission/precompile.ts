@@ -17,6 +17,7 @@ import {
   SINGLE_VERIFY_SIG,
   TRANSIENT_RETRY_BASE_DELAY_MS,
 } from "../constants.ts";
+import { checkBalanceForGas, computeGasLimit } from "./gas.ts";
 import {
   decodeRevertMessage,
   getErrorMessage,
@@ -115,14 +116,28 @@ interface PrecompileParams {
   privateKey: string;
   chainKey: number;
   data: string;
-  gasLimit: bigint;
+  /** Hard ceiling on the dynamically-computed gas limit. */
+  gasCeiling: bigint;
+  /**
+   * Number of continuity-proof roots in this submission. `1` for single
+   * proofs; `continuityProof.roots.length` for batches. Used to add
+   * per-block padding on top of `eth_estimateGas`.
+   */
+  continuityBlocks: number;
   label: string;
 }
 
 async function executePrecompileCall(
   params: PrecompileParams,
 ): Promise<{ txHash: string; gasUsed: bigint }> {
-  const { cc3HttpUrl, privateKey, data, gasLimit, label } = params;
+  const {
+    cc3HttpUrl,
+    privateKey,
+    data,
+    gasCeiling,
+    continuityBlocks,
+    label,
+  } = params;
 
   // Calldata size in bytes (the hex string is `0x` + 2 hex chars per byte).
   const calldataBytes = Math.max(0, (data.length - 2) >> 1);
@@ -222,12 +237,51 @@ async function executePrecompileCall(
     const { entry, feeOverrides } = await simulateWithRetry(initialEntry);
     const { signer, provider } = entry;
 
+    // Compute a tight-but-safe gasLimit. `gasCeiling` is used as both the
+    // hard cap and the fallback if `estimateGas` itself errors. Done
+    // *after* fee data so its diagnostic log line sits next to fees.
+    const from = await signer.getAddress();
+    const gasResult = await computeGasLimit({
+      provider,
+      from,
+      data,
+      continuityBlocks,
+      ceiling: gasCeiling,
+      fallback: gasCeiling,
+      label,
+    });
+    console.info(`${label} gas`, {
+      estimated: gasResult.estimated?.toString() ?? "<fallback>",
+      padded: gasResult.paddedEstimate?.toString() ?? "<fallback>",
+      gasLimit: gasResult.gasLimit.toString(),
+      cappedAtCeiling: gasResult.cappedAtCeiling,
+      usedFallback: gasResult.usedFallback,
+    });
+
+    // Pre-flight balance check. Doesn't throw — some nodes will reject
+    // and that's a cleaner error than ours — but logs prominently so it's
+    // not invisible when it bites.
+    const balanceIssue = await checkBalanceForGas(
+      provider,
+      from,
+      gasResult.gasLimit,
+      feeOverrides,
+    ).catch(() => null);
+    if (balanceIssue !== null) {
+      console.warn(`⚠️  ${label}: ${balanceIssue}`);
+    }
+
     // Send transaction phase (no transient retry - nonce is used)
     // If this fails, we rely on nonce error handling, not blind retry
     const tx = await sendTransaction(
       signer,
       provider,
-      { to: PRECOMPILE_ADDRESS, data, gasLimit, ...feeOverrides },
+      {
+        to: PRECOMPILE_ADDRESS,
+        data,
+        gasLimit: gasResult.gasLimit,
+        ...feeOverrides,
+      },
       label,
     );
     console.debug(`${label} sent`, { txHash: tx.hash, nonce: tx.nonce });
@@ -305,7 +359,9 @@ export async function submitSingleToPrecompile(
     privateKey,
     chainKey,
     data,
-    gasLimit: SINGLE_PROOF_GAS_LIMIT,
+    gasCeiling: SINGLE_PROOF_GAS_LIMIT,
+    // Single submissions verify against one continuity-proof position.
+    continuityBlocks: 1,
     label: "Single submit",
   });
 
@@ -340,7 +396,10 @@ export async function submitBatchToPrecompile(
     privateKey,
     chainKey,
     data,
-    gasLimit: BATCH_PROOF_GAS_LIMIT,
+    gasCeiling: BATCH_PROOF_GAS_LIMIT,
+    // Batch verification cost scales with the number of continuity roots,
+    // not the batch size in tx count.
+    continuityBlocks: continuityProof.roots.length,
     label: "Batch submit",
   });
 

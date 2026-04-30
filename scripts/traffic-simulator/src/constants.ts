@@ -47,8 +47,37 @@ export const MAX_TRANSIENT_RETRIES = 3;
 export const TRANSIENT_RETRY_BASE_DELAY_MS = 2_000;
 
 // Gas limits
+//
+// These are now treated as **ceilings** rather than unconditional values.
+// Submission code calls `eth_estimateGas` and pads the result; the
+// constants below cap that estimate so a misbehaving node can't hand us
+// an absurd value, and act as a fallback if estimation itself fails.
 export const SINGLE_PROOF_GAS_LIMIT = 5_000_000n;
 export const BATCH_PROOF_GAS_LIMIT = 10_000_000n;
+
+// Floor on the dynamically-computed gasLimit. Anything below this is
+// almost certainly a bad estimate (e.g. Frontier returning 21000 for a
+// precompile call) and we want to reject it rather than ship a tx that
+// will out-of-gas mid-call.
+export const MIN_DYNAMIC_GAS_LIMIT = 200_000n;
+
+// Buffer (`GAS_BUFFER_PERCENT`) applied on top of `eth_estimateGas`.
+// Default 20%. Bigger proofs and Frontier RPC sometimes underestimate by
+// more than EVM does, so we pad before capping.
+const _gasBuffer = Number(Deno.env.get("GAS_BUFFER_PERCENT"));
+export const GAS_BUFFER_PERCENT = Number.isFinite(_gasBuffer) && _gasBuffer >= 0
+  ? BigInt(Math.floor(_gasBuffer))
+  : 20n;
+
+// Per-continuity-block extra gas (`GAS_PER_CONTINUITY_BLOCK`). Continuity
+// verification cost scales with the number of roots in the continuity
+// proof, and `estimateGas` doesn't always capture that growth precisely
+// for large batches. Default 50k per block.
+const _gasPerBlock = Number(Deno.env.get("GAS_PER_CONTINUITY_BLOCK"));
+export const GAS_PER_CONTINUITY_BLOCK =
+  Number.isFinite(_gasPerBlock) && _gasPerBlock >= 0
+    ? BigInt(Math.floor(_gasPerBlock))
+    : 50_000n;
 
 // Fee settings
 export const MIN_PRIORITY_FEE_GWEI = 1n;
