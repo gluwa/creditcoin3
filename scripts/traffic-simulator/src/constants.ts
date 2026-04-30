@@ -21,10 +21,15 @@ export const PROOF_API_BASE_DELAY_MS = 2_000;
 // RPC settings (override via RPC_TIMEOUT_MS env var for slow/remote chains)
 const _rpcTimeout = Number(Deno.env.get("RPC_TIMEOUT_MS"));
 export const RPC_TIMEOUT_MS = _rpcTimeout > 0 ? _rpcTimeout : 30_000;
+// Receipt timeout — how long to wait for `tx.wait()` to return a receipt
+// before giving up. Set generously: when the chain is congested or a tx is
+// stuck behind a low-fee predecessor, 120s is routinely not enough and we
+// see spurious "confirmation timed out" errors for txs that ultimately do
+// land on-chain. Override via `RECEIPT_TIMEOUT_MS` env var.
 const _receiptTimeout = Number(Deno.env.get("RECEIPT_TIMEOUT_MS"));
 export const RECEIPT_TIMEOUT_MS = _receiptTimeout > 0
   ? _receiptTimeout
-  : 120_000;
+  : 300_000;
 
 // Simulation timeout — `eth_call` against `verifyAndEmit` with non-trivial
 // calldata can take significantly longer than a normal RPC round-trip because

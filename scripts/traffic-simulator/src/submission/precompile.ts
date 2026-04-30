@@ -78,9 +78,17 @@ async function waitForReceipt(
   tx: ethers.TransactionResponse,
   label: string,
 ): Promise<ethers.TransactionReceipt> {
+  // Capture identifying info up front so the timeout/error path always has
+  // it regardless of where the throw originates.
+  const txInfo = { txHash: tx.hash, nonce: tx.nonce, from: tx.from };
+
   try {
     const receipt = await withTimeout(tx.wait(), RECEIPT_TIMEOUT_MS, label);
-    if (!receipt) throw new Error(`${label} returned empty receipt`);
+    if (!receipt) {
+      throw new Error(
+        `${label} returned empty receipt (txHash=${txInfo.txHash} nonce=${txInfo.nonce} from=${txInfo.from})`,
+      );
+    }
     return receipt;
   } catch (error) {
     // Handle replaced transactions
@@ -90,19 +98,41 @@ async function waitForReceipt(
         label,
         original: tx.hash,
         replacement: err.receipt.hash,
+        nonce: txInfo.nonce,
       });
       return err.receipt;
     }
 
-    // Try direct lookup as fallback
+    // Try direct lookup as fallback — tx may have actually landed even
+    // though `wait()` timed out (common on congested chains).
     const receipt = await withTimeout(
       provider.getTransactionReceipt(tx.hash),
       RPC_TIMEOUT_MS,
       `${label} receipt fallback`,
     ).catch(() => null);
-    if (receipt) return receipt;
+    if (receipt) {
+      console.debug(`${label} found via fallback after wait() failed`, {
+        ...txInfo,
+        blockNumber: receipt.blockNumber,
+      });
+      return receipt;
+    }
 
-    throw error;
+    // Re-throw with tx hash + nonce baked into the message so operators can
+    // chase the tx on-chain (block explorer, mempool, `eth_getTransactionByHash`).
+    const baseMsg = error instanceof Error ? error.message : String(error);
+    const enriched = new Error(
+      `${baseMsg} (txHash=${txInfo.txHash} nonce=${txInfo.nonce} from=${txInfo.from})`,
+    );
+    if (error instanceof Error && error.stack) enriched.stack = error.stack;
+    // Preserve original error properties (code, etc.) for upstream handlers.
+    Object.assign(enriched, error as object, {
+      message: enriched.message,
+      txHash: txInfo.txHash,
+      nonce: txInfo.nonce,
+      from: txInfo.from,
+    });
+    throw enriched;
   }
 }
 
