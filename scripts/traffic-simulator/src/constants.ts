@@ -35,7 +35,7 @@ export const RECEIPT_TIMEOUT_MS = _receiptTimeout > 0
 // inside the single-threaded RPC handler. Give it more headroom than the
 // generic RPC timeout, but still bound it.
 const _simTimeout = Number(Deno.env.get("SIMULATION_TIMEOUT_MS"));
-export const SIMULATION_TIMEOUT_MS = _simTimeout > 0 ? _simTimeout : 90_000;
+export const SIMULATION_TIMEOUT_MS = _simTimeout > 0 ? _simTimeout : 150_000;
 
 // Skip pre-flight `eth_call` simulation when the calldata exceeds this size,
 // in bytes. Large `verifyAndEmit` payloads (batches, big tx witnesses) can
