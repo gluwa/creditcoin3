@@ -51,7 +51,39 @@ export const SINGLE_PROOF_GAS_LIMIT = 5_000_000n;
 export const BATCH_PROOF_GAS_LIMIT = 10_000_000n;
 
 // Fee settings
-export const MIN_PRIORITY_FEE_GWEI = 1n;
+//
+// Tip floor (`MIN_PRIORITY_FEE_GWEI`): the minimum priority fee we'll attach
+// to a tx. Override via env for chains where 1 gwei is not enough to outbid
+// the mempool floor under contention.
+const _minPriority = Number(Deno.env.get("MIN_PRIORITY_FEE_GWEI"));
+export const MIN_PRIORITY_FEE_GWEI =
+  Number.isFinite(_minPriority) && _minPriority > 0
+    ? BigInt(Math.floor(_minPriority))
+    : 1n;
+
+// Tip ceiling (`MAX_PRIORITY_FEE_GWEI`): hard cap on the tip after the
+// headroom multiplier. Keeps a misconfigured headroom from producing
+// absurdly high tips. `0` disables the cap.
+const _maxPriority = Number(Deno.env.get("MAX_PRIORITY_FEE_GWEI"));
+export const MAX_PRIORITY_FEE_GWEI =
+  Number.isFinite(_maxPriority) && _maxPriority > 0
+    ? BigInt(Math.floor(_maxPriority))
+    : 0n;
+
+// Fee headroom (`FEE_HEADROOM_PERCENT`): extra percent applied on top of
+// the node's suggested `maxFeePerGas` / `maxPriorityFeePerGas` (and on the
+// legacy `gasPrice` path) before we broadcast. Default 100% → 2×.
+//
+// Why: `eth_feeHistory`-derived suggestions track the *current* base fee;
+// if the next block's base fee jumps, a tx whose `maxFeePerGas` was equal
+// to the current base fee + small tip will sit in the mempool until base
+// fee falls back. Adding headroom is the standard fix used by production
+// submitters and matches what wallets do under the hood.
+const _feeHeadroom = Number(Deno.env.get("FEE_HEADROOM_PERCENT"));
+export const FEE_HEADROOM_PERCENT =
+  Number.isFinite(_feeHeadroom) && _feeHeadroom >= 0
+    ? BigInt(Math.floor(_feeHeadroom))
+    : 100n;
 
 // Precompile address
 export const PRECOMPILE_ADDRESS = "0x0000000000000000000000000000000000000FD2";

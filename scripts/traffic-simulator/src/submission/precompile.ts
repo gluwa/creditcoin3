@@ -39,6 +39,30 @@ import PRECOMPILE_ABI from "../abi/block_prover.json" with { type: "json" };
 // Transaction Submission (private)
 // ============================================================================
 
+/**
+ * Format fee overrides as gwei strings for human-readable logging.
+ * Wei values are unwieldy in logs; gwei is what operators actually reason
+ * about when diagnosing fee-related issues.
+ */
+function formatFees(
+  overrides: ethers.TransactionRequest,
+): Record<string, string> {
+  const toGwei = (v: bigint | null | undefined): string | undefined =>
+    v === null || v === undefined
+      ? undefined
+      : `${ethers.formatUnits(v as bigint, "gwei")} gwei`;
+  const out: Record<string, string> = {};
+  const maxFee = toGwei(overrides.maxFeePerGas as bigint | null | undefined);
+  const tip = toGwei(
+    overrides.maxPriorityFeePerGas as bigint | null | undefined,
+  );
+  const gasPrice = toGwei(overrides.gasPrice as bigint | null | undefined);
+  if (maxFee !== undefined) out.maxFeePerGas = maxFee;
+  if (tip !== undefined) out.maxPriorityFeePerGas = tip;
+  if (gasPrice !== undefined) out.gasPrice = gasPrice;
+  return out;
+}
+
 async function sendTransaction(
   signer: ethers.NonceManager,
   provider: JsonRpcProvider,
@@ -169,7 +193,10 @@ async function executePrecompileCall(
 
         // Get fee data
         const feeOverrides = await getFeeOverrides(provider);
-        console.debug(`${label} fees`, { ...feeOverrides });
+        // Logged at info level so the fees we actually broadcast with show
+        // up at production log levels — critical for diagnosing stuck-tx
+        // / receipt-timeout errors after the fact.
+        console.info(`${label} fees`, formatFees(feeOverrides));
 
         return { entry, feeOverrides };
       } catch (error) {
@@ -230,7 +257,14 @@ async function executePrecompileCall(
       { to: PRECOMPILE_ADDRESS, data, gasLimit, ...feeOverrides },
       label,
     );
-    console.debug(`${label} sent`, { txHash: tx.hash, nonce: tx.nonce });
+    // Logged at info level (not debug) so receipt-timeout reports can be
+    // cross-referenced against the txHash/nonce/fees we actually broadcast.
+    console.info(`${label} sent`, {
+      txHash: tx.hash,
+      nonce: tx.nonce,
+      from: tx.from,
+      ...formatFees(feeOverrides),
+    });
 
     return { tx, provider };
   };
