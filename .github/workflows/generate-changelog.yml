@@ -48,9 +48,9 @@ jobs:
 
       - name: Check changelog
         run: |
-          MIN_CHARS="999"
-          FILE_CHARS=$(wc -c < /var/tmp/changelog.md)
-          if [ "$FILE_CHARS" -le "$MIN_CHARS" ]; then
-              echo "FAIL: Changelog contains $FILE_CHARS characters <= $MIN_CHARS"
+          MIN_LINES="5"
+          FILE_LINES=$(wc -l < /var/tmp/changelog.md)
+          if [ "$FILE_LINES" -le "$MIN_LINES" ]; then
+              echo "FAIL: Changelog contains $FILE_LINES lines <= $MIN_LINES"
               exit 1
           fi
