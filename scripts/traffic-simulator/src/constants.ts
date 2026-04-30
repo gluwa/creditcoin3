@@ -18,9 +18,13 @@ export const PROOF_API_TIMEOUT_MS = 30_000;
 export const PROOF_API_MAX_RETRIES = 5;
 export const PROOF_API_BASE_DELAY_MS = 2_000;
 
-// RPC settings (override via RPC_TIMEOUT_MS env var for slow/remote chains)
+// RPC settings — default raised to 120s because slow/remote chains and
+// congested public RPCs routinely exceed 30s for things like
+// `eth_getTransactionCount`/`eth_getTransactionReceipt`, producing
+// spurious "timed out after 30000ms" errors during broadcast and the
+// receipt-fallback path. Override via `RPC_TIMEOUT_MS` env var.
 const _rpcTimeout = Number(Deno.env.get("RPC_TIMEOUT_MS"));
-export const RPC_TIMEOUT_MS = _rpcTimeout > 0 ? _rpcTimeout : 30_000;
+export const RPC_TIMEOUT_MS = _rpcTimeout > 0 ? _rpcTimeout : 120_000;
 // Receipt timeout — how long to wait for `tx.wait()` to return a receipt
 // before giving up. Set generously: when the chain is congested or a tx is
 // stuck behind a low-fee predecessor, 120s is routinely not enough and we
