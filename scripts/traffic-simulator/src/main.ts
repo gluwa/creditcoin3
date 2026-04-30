@@ -70,6 +70,11 @@ const metrics = {
 
 let lastError: string | null = null;
 const uniqueErrors: Map<string, number> = new Map();
+// Bound the unique-error map so a long-running process with high error
+// diversity (e.g. RPC dropout storms producing many distinct messages even
+// after `normalizeError`) cannot grow it without limit. Oldest entry is
+// evicted when the cap is reached.
+const MAX_UNIQUE_ERRORS = 500;
 
 /**
  * Normalize an error message by stripping variable parts (URLs, block/tx numbers)
@@ -104,6 +109,13 @@ function recordError(error: string): void {
   lastError = error;
   const key = normalizeError(error);
   if (!key) return;
+  // If the key already exists, just bump the count. If we're at capacity and
+  // adding a new key, evict the oldest insertion (Map preserves insertion
+  // order, so .keys().next() gives the oldest).
+  if (!uniqueErrors.has(key) && uniqueErrors.size >= MAX_UNIQUE_ERRORS) {
+    const oldestKey = uniqueErrors.keys().next().value;
+    if (oldestKey !== undefined) uniqueErrors.delete(oldestKey);
+  }
   uniqueErrors.set(key, (uniqueErrors.get(key) ?? 0) + 1);
 }
 
