@@ -103,8 +103,7 @@ async function waitForReceipt(
       return err.receipt;
     }
 
-    // Try direct lookup as fallback — tx may have actually landed even
-    // though `wait()` timed out (common on congested chains).
+    // Try direct lookup as fallback
     const receipt = await withTimeout(
       provider.getTransactionReceipt(tx.hash),
       RPC_TIMEOUT_MS,
