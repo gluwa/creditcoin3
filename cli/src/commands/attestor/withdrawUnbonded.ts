@@ -5,7 +5,7 @@ import {
     deriveEvmKeyFromSecret,
     extractEvmError,
 } from '../../lib/attestor/precompile';
-import { getStringFromEnvVar } from '../../lib/account/keyring';
+import { getSecretFromEnvOrPrompt } from '../../lib/account/keyring';
 
 export function makeAttestorWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded');
@@ -17,7 +17,7 @@ export function makeAttestorWithdrawUnbondedCommand() {
 }
 
 async function withdrawUnbondedAction(options: OptionValues) {
-    const secret = getStringFromEnvVar(process.env.CC_SECRET);
+    const secret = await getSecretFromEnvOrPrompt('CC_SECRET', 'caller', options);
     const { stashAddress } = deriveEvmKeyFromSecret(secret);
     const stashBytes32 = substrateAddressToBytes32(stashAddress);
 
