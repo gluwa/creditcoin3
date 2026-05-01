@@ -72,7 +72,7 @@ const BUFFER_SIZE: usize = 100;
 #[derive(Debug)]
 pub struct Subscription {
     receiver: mpsc::Receiver<CcEvent>,
-    handle: JoinHandle<Result<(), Error>>,
+    handle: Option<JoinHandle<Result<(), Error>>>,
 }
 
 impl Subscription {
@@ -80,14 +80,52 @@ impl Subscription {
     pub fn cancel(&self) -> Result<()> {
         // Cancel the subscription task
         debug!("Canceling subscription");
-        self.handle.abort();
+        if let Some(handle) = self.handle.as_ref() {
+            handle.abort();
+        }
         Ok(())
     }
 
-    /// Get the next creditcoin event from the subscription
+    /// Get the next creditcoin event from the subscription.
+    ///
+    /// Returns `None` when the subscription has terminated (either because the
+    /// upstream finalized-block stream ended, the connection was lost, or the
+    /// task was cancelled). In that case, call [`Subscription::take_terminal_error`]
+    /// to obtain the underlying cause of the termination.
     pub async fn next(&mut self) -> Option<CcEvent> {
-        // Receive the next proof from the channel
+        // Receive the next event from the channel
         self.receiver.recv().await
+    }
+
+    /// Wait for the spawned subscription task to finish and return any error
+    /// it reported. Should be called after [`Subscription::next`] has returned
+    /// `None` so callers can log the real cause of the disconnect instead of
+    /// just "ended unexpectedly".
+    ///
+    /// Returns:
+    /// - `Ok(None)` when the subscription terminated cleanly (e.g. the backend
+    ///   closed the stream gracefully).
+    /// - `Ok(Some(err))` when the subscription terminated because of an
+    ///   underlying error (connection lost, decode failure, etc.).
+    /// - `Err(join_err)` when the spawned task panicked or was aborted.
+    ///
+    /// This consumes the join handle, so subsequent calls return `Ok(None)`.
+    pub async fn take_terminal_error(&mut self) -> Result<Option<Error>, tokio::task::JoinError> {
+        let Some(handle) = self.handle.take() else {
+            return Ok(None);
+        };
+        match handle.await {
+            Ok(Ok(())) => Ok(None),
+            Ok(Err(err)) => Ok(Some(err)),
+            Err(join_err) => {
+                if join_err.is_cancelled() {
+                    // Subscription was explicitly cancelled, not a real error.
+                    Ok(None)
+                } else {
+                    Err(join_err)
+                }
+            }
+        }
     }
 }
 
@@ -133,25 +171,53 @@ impl Client {
         let chain_filter: Arc<[ChainKey]> = chain_keys.into();
 
         let handle = tokio::spawn(async move {
-            let mut blocks_sub = api.blocks().subscribe_finalized().await?;
+            let mut blocks_sub = match api.blocks().subscribe_finalized().await {
+                Ok(sub) => sub,
+                Err(e) => {
+                    error!("Failed to start finalized-block subscription: {e:?}");
+                    return Err(Error::SubscriptionConnectionLost(e));
+                }
+            };
             info!("Subscription started, streaming finalized blocks...");
 
             loop {
                 match blocks_sub.next().await {
                     Some(Ok(block)) => {
-                        let events = block.events().await?;
+                        let events = match block.events().await {
+                            Ok(events) => events,
+                            Err(e) => {
+                                error!(
+                                    "Failed to fetch events for finalized block #{}: {e:?}",
+                                    block.number()
+                                );
+                                return Err(Error::SubscriptionConnectionLost(e));
+                            }
+                        };
                         for event in Self::extract_events(&chain_filter, &events) {
-                            // FIXME: remove this `unwrap`
-                            if sender.send(event.unwrap()).await.is_err() {
-                                break;
+                            match event {
+                                Ok(cc_event) => {
+                                    if sender.send(cc_event).await.is_err() {
+                                        // Receiver was dropped; bail cleanly.
+                                        info!("Subscription receiver dropped, stopping task.");
+                                        return Ok(());
+                                    }
+                                }
+                                Err(decode_err) => {
+                                    // Don't tear down the subscription on a single
+                                    // bad event — log loudly and skip it. If a wire
+                                    // mismatch is hitting *every* event we'll see
+                                    // it in the logs and the cache will go stale,
+                                    // but the stream itself stays alive.
+                                    error!(
+                                        "Failed to decode CC3 event in block #{}: {decode_err:?}",
+                                        block.number()
+                                    );
+                                }
                             }
                         }
                     }
                     Some(Err(e)) => {
-                        error!(
-                            "Subscription error while fetching next block: {:?}. Panicking!",
-                            e
-                        );
+                        error!("Subscription error while fetching next block: {e:?}");
                         return Err(Error::SubscriptionConnectionLost(e));
                     }
                     None => {
@@ -164,7 +230,10 @@ impl Client {
             Ok(())
         });
 
-        Ok(Subscription { receiver, handle })
+        Ok(Subscription {
+            receiver,
+            handle: Some(handle),
+        })
     }
 
     #[tracing::instrument(skip(events))]
