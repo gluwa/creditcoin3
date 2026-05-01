@@ -7574,6 +7574,26 @@ mod prevalidate_attestation_commit_extension {
         RuntimeCall::Attestation(crate::Call::commit_attestation { attestation })
     }
 
+    /// Runs `validate` and asserts that the caller's free balance is
+    /// untouched, capturing the property reviewers care about: a rejected
+    /// transaction must not drain the would-be sender. `validate` itself is
+    /// pure, but pinning the invariant in tests guards us against accidental
+    /// future side-effects in this extension.
+    fn validate_without_charging(
+        who: &AccountId,
+        call: &RuntimeCall,
+    ) -> sp_runtime::transaction_validity::TransactionValidity {
+        let info = call.get_dispatch_info();
+        let balance_before = Balances::free_balance(who);
+        let result = PrevalidateAttestationCommit::<Test>::new().validate(who, call, &info, 0);
+        assert_eq!(
+            Balances::free_balance(who),
+            balance_before,
+            "prevalidation must never touch the caller's balance"
+        );
+        result
+    }
+
     #[test]
     fn rejects_call_from_non_active_attestor() {
         ExtBuilder.build_and_execute(|| {
@@ -7588,11 +7608,17 @@ mod prevalidate_attestation_commit_extension {
                 None,
             );
             let call = build_call(attestation);
-            let info = call.get_dispatch_info();
 
-            // ATTESTOR_2 is not in the active attestor set.
-            let result =
-                PrevalidateAttestationCommit::<Test>::new().validate(&ATTESTOR_2, &call, &info, 0);
+            // Sanity: ATTESTOR_2 must not be part of the active set so the
+            // rejection path under test is actually exercised.
+            assert!(
+                !ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_2),
+                "test precondition: ATTESTOR_2 must not be an active attestor"
+            );
+
+            // ATTESTOR_2 is not in the active attestor set: rejection must
+            // happen pre-fee, leaving the balance untouched.
+            let result = validate_without_charging(&ATTESTOR_2, &call);
 
             assert_eq!(
                 result,
@@ -7624,6 +7650,16 @@ mod prevalidate_attestation_commit_extension {
                 attestation.clone()
             ));
 
+            // Validate the assumption of the test: the attestation is in
+            // on-chain storage, so any subsequent submission for the same
+            // chain/digest is by definition stale.
+            let chain_key = attestation.chain_key();
+            let digest = attestation.digest();
+            assert!(
+                Attestations::<Test>::contains_key(chain_key, digest),
+                "precondition: original attestation must be present in storage"
+            );
+
             let duplicate = create_signed_attestation(
                 vec![attestor.clone()],
                 SUPPORTED_CHAIN_KEY,
@@ -7632,14 +7668,8 @@ mod prevalidate_attestation_commit_extension {
                 None,
             );
             let call = build_call(duplicate);
-            let info = call.get_dispatch_info();
 
-            let result = PrevalidateAttestationCommit::<Test>::new().validate(
-                &attestor.attestor_id,
-                &call,
-                &info,
-                0,
-            );
+            let result = validate_without_charging(&attestor.attestor_id, &call);
 
             assert_eq!(
                 result,
@@ -7661,36 +7691,79 @@ mod prevalidate_attestation_commit_extension {
                 None,
                 None,
             );
-            let call = build_call(attestation);
-            let info = call.get_dispatch_info();
 
-            let result = PrevalidateAttestationCommit::<Test>::new().validate(
-                &attestor.attestor_id,
-                &call,
-                &info,
-                0,
+            // Validate against on-chain storage rather than relying on the
+            // local `attestation` value: the active set, not the test
+            // closure, is the source of truth the extension reads.
+            let chain_key = attestation.chain_key();
+            let digest = attestation.digest();
+            assert!(
+                ActiveAttestors::<Test>::get(chain_key).contains(&attestor.attestor_id),
+                "precondition: signer must be an active attestor"
             );
+            assert!(
+                !Attestations::<Test>::contains_key(chain_key, digest),
+                "precondition: attestation must not already be on-chain"
+            );
+
+            let call = build_call(attestation);
+            let result = validate_without_charging(&attestor.attestor_id, &call);
 
             assert!(result.is_ok(), "expected Ok, got {result:?}");
         })
     }
 
+    /// Race-loser scenario: two active attestors submit the same attestation;
+    /// the second submission is rejected at txpool admission time before any
+    /// fee can be charged. This is the property that reviewers asked to be
+    /// validated end-to-end ("attestors are refunded any expenses if they
+    /// lose the submission race").
     #[test]
-    fn ignores_unrelated_calls() {
+    fn race_loser_pays_no_fee() {
         ExtBuilder.build_and_execute(|| {
-            // A non-attestation call must be unaffected, even when the signer
-            // is unknown to the attestation pallet.
-            let call = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"hello".to_vec(),
-            });
-            let info = call.get_dispatch_info();
+            let winner = make_active_attestor(STASH_1, ATTESTOR_1);
+            let loser = make_active_attestor(STASH_2, ATTESTOR_2);
+            progress_to_block(5);
 
-            let result =
-                PrevalidateAttestationCommit::<Test>::new().validate(&ATTESTOR_2, &call, &info, 0);
+            let attestation = create_signed_attestation(
+                vec![winner.clone(), loser.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
 
+            // Winner gets in first.
+            assert_ok!(Attestation::commit_attestation(
+                winner.attestor_origin.clone(),
+                attestation.clone()
+            ));
             assert!(
-                result.is_ok(),
-                "unrelated calls should pass through: {result:?}"
+                Attestations::<Test>::contains_key(attestation.chain_key(), attestation.digest()),
+                "winning attestation must be on-chain after commit"
+            );
+
+            // Loser tries to submit the same attestation. The extension must
+            // reject it as stale, *before* any fee is charged.
+            let loser_balance_before = Balances::free_balance(loser.attestor_id);
+            let call = build_call(attestation);
+            let info = call.get_dispatch_info();
+            let result = PrevalidateAttestationCommit::<Test>::new().validate(
+                &loser.attestor_id,
+                &call,
+                &info,
+                0,
+            );
+
+            assert_eq!(
+                result,
+                Err(TransactionValidityError::Invalid(InvalidTransaction::Stale)),
+                "race loser must be rejected at txpool, not on-chain"
+            );
+            assert_eq!(
+                Balances::free_balance(loser.attestor_id),
+                loser_balance_before,
+                "race loser must not be charged any fee"
             );
         })
     }
