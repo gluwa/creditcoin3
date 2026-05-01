@@ -7543,3 +7543,155 @@ mod migrate_attestors_count_v1_to_v2 {
         })
     }
 }
+
+mod prevalidate_attestation_commit_extension {
+    use super::*;
+    use crate::extensions::{PrevalidateAttestationCommit, VALIDITY_ERROR_NOT_ACTIVE_ATTESTOR};
+    use sp_runtime::traits::SignedExtension;
+    use sp_runtime::transaction_validity::{InvalidTransaction, TransactionValidityError};
+
+    fn make_active_attestor(stash: AccountId, attestor_id: AccountId) -> Attestor {
+        let attestor = Attestor::new(stash, attestor_id);
+
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(stash),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 1));
+        assert!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&attestor.attestor_id));
+
+        attestor
+    }
+
+    fn build_call(attestation: SignedAttestation<H256, AccountId>) -> RuntimeCall {
+        RuntimeCall::Attestation(crate::Call::commit_attestation { attestation })
+    }
+
+    #[test]
+    fn rejects_call_from_non_active_attestor() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = make_active_attestor(STASH_1, ATTESTOR_1);
+            progress_to_block(5);
+
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+            let call = build_call(attestation);
+            let info = call.get_dispatch_info();
+
+            // ATTESTOR_2 is not in the active attestor set.
+            let result =
+                PrevalidateAttestationCommit::<Test>::new().validate(&ATTESTOR_2, &call, &info, 0);
+
+            assert_eq!(
+                result,
+                Err(TransactionValidityError::Invalid(
+                    InvalidTransaction::Custom(VALIDITY_ERROR_NOT_ACTIVE_ATTESTOR)
+                ))
+            );
+        })
+    }
+
+    #[test]
+    fn rejects_duplicate_attestation() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = make_active_attestor(STASH_1, ATTESTOR_1);
+            progress_to_block(5);
+
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+
+            // First commit makes the attestation a checkpoint, so reusing the
+            // same header_number triggers the post-checkpoint duplicate path.
+            assert_ok!(Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                attestation.clone()
+            ));
+
+            let duplicate = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+            let call = build_call(duplicate);
+            let info = call.get_dispatch_info();
+
+            let result = PrevalidateAttestationCommit::<Test>::new().validate(
+                &attestor.attestor_id,
+                &call,
+                &info,
+                0,
+            );
+
+            assert_eq!(
+                result,
+                Err(TransactionValidityError::Invalid(InvalidTransaction::Stale))
+            );
+        })
+    }
+
+    #[test]
+    fn passes_for_valid_active_attestor_and_unique_attestation() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = make_active_attestor(STASH_1, ATTESTOR_1);
+            progress_to_block(5);
+
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+            let call = build_call(attestation);
+            let info = call.get_dispatch_info();
+
+            let result = PrevalidateAttestationCommit::<Test>::new().validate(
+                &attestor.attestor_id,
+                &call,
+                &info,
+                0,
+            );
+
+            assert!(result.is_ok(), "expected Ok, got {result:?}");
+        })
+    }
+
+    #[test]
+    fn ignores_unrelated_calls() {
+        ExtBuilder.build_and_execute(|| {
+            // A non-attestation call must be unaffected, even when the signer
+            // is unknown to the attestation pallet.
+            let call = RuntimeCall::System(frame_system::Call::remark {
+                remark: b"hello".to_vec(),
+            });
+            let info = call.get_dispatch_info();
+
+            let result =
+                PrevalidateAttestationCommit::<Test>::new().validate(&ATTESTOR_2, &call, &info, 0);
+
+            assert!(
+                result.is_ok(),
+                "unrelated calls should pass through: {result:?}"
+            );
+        })
+    }
+}
