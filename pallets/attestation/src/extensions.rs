@@ -70,8 +70,6 @@ where
     <T as frame_system::Config>::RuntimeCall: IsSubType<Call<T>>,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        // `core::write!` works in both `std` and `no_std` builds, so we don't
-        // need to split the impl on the `std` feature flag.
         core::write!(f, "PrevalidateAttestationCommit")
     }
 }
