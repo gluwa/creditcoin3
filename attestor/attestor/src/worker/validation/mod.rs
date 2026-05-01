@@ -988,6 +988,25 @@ impl WorkerAttestationValidation {
                 .await
             {
                 Ok(submit) => break submit,
+                // Inline detection of txpool prevalidation rejections raised
+                // by the runtime's `PrevalidateAttestationCommit` SignedExtension
+                // (chilled attestor or stale/duplicate digest). Substrate maps
+                // those to JSON-RPC error code 1010 with an `"Invalid
+                // Transaction"` message, surfaced through subxt as
+                // `RpcError::ClientError`. Such rejections are permanent for
+                // this height — the wallet was *not* charged (that's the whole
+                // point of the extension) and reconnecting would just spin
+                // until backoff, masking the real outcome. Skip softly.
+                Err(subxt::Error::Rpc(subxt::error::RpcError::ClientError(ref client_err)))
+                    if client_err.to_string().contains("Invalid Transaction") =>
+                {
+                    tracing::info!(
+                        height,
+                        reason = %client_err,
+                        "🚫 Attestation prevalidation rejected at txpool, skipping submission"
+                    );
+                    return Ok(());
+                }
                 Err(err) => {
                     tracing::error!(height, ?err, "⛔ Failed to submit attestation");
                     self.reconnect(Error::Subxt(err)).await?;
