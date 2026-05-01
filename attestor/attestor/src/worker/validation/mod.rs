@@ -979,6 +979,13 @@ impl WorkerAttestationValidation {
             .attestation()
             .commit_attestation(attestation);
 
+        // Substrate maps any txpool admission failure (including rejections
+        // raised by the runtime's `PrevalidateAttestationCommit` SignedExtension
+        // when the attestor is chilled or the digest is stale) to JSON-RPC
+        // error code 1010 (`POOL_INVALID_TX = sc_rpc_api::AUTHOR + 10`).
+        const POOL_INVALID_TX: i32 = 1010;
+        use subxt::ext::jsonrpsee::core::client::Error as JsonrpseeClientError;
+
         let submit = loop {
             match self
                 .cc3
@@ -988,26 +995,21 @@ impl WorkerAttestationValidation {
                 .await
             {
                 Ok(submit) => break submit,
-                // Inline detection of txpool prevalidation rejections raised
-                // by the runtime's `PrevalidateAttestationCommit` SignedExtension
-                // (chilled attestor or stale/duplicate digest). Substrate maps
-                // those to JSON-RPC error code 1010 with an `"Invalid
-                // Transaction"` message, surfaced through subxt as
-                // `RpcError::ClientError`. Such rejections are permanent for
-                // this height — the wallet was *not* charged (that's the whole
-                // point of the extension) and reconnecting would just spin
-                // until backoff, masking the real outcome. Skip softly.
-                Err(subxt::Error::Rpc(subxt::error::RpcError::ClientError(ref client_err)))
-                    if client_err.to_string().contains("Invalid Transaction") =>
-                {
-                    tracing::info!(
-                        height,
-                        reason = %client_err,
-                        "🚫 Attestation prevalidation rejected at txpool, skipping submission"
-                    );
-                    return Ok(());
-                }
                 Err(err) => {
+                    if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(boxed)) = &err {
+                        if let Some(JsonrpseeClientError::Call(obj)) =
+                            boxed.downcast_ref::<JsonrpseeClientError>()
+                        {
+                            if obj.code() == POOL_INVALID_TX {
+                                tracing::info!(
+                                    height,
+                                    reason = %obj,
+                                    "🚫 Attestation prevalidation rejected at txpool, skipping submission"
+                                );
+                                return Ok(());
+                            }
+                        }
+                    }
                     tracing::error!(height, ?err, "⛔ Failed to submit attestation");
                     self.reconnect(Error::Subxt(err)).await?;
                 }
