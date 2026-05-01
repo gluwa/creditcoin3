@@ -298,7 +298,7 @@ impl EthRpcProvider for eth::Client {
     async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<Option<(u64, u64)>> {
         self.get_tx_position_by_hash(tx_hash)
             .await
-            .context("RPC call to resolve tx position by hash failed (does not indicate the tx was not found)")
+            .context("Rpc error resolving tx position")
     }
 
     async fn get_last_block(&self) -> Result<u64> {

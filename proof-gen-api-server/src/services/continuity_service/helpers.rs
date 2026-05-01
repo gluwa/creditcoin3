@@ -186,7 +186,7 @@ impl ContinuityService {
                 tx_hash: format!("0x{}", hex::encode(tx_hash.as_bytes())),
             }),
             Err(e) => Err(ServiceError::RpcUnavailable {
-                message: format!("failed to resolve tx by hash via RPC: {e}"),
+                message: format!("failed to resolve tx by hash via RPC: {e:#}"),
             }),
         }
     }
