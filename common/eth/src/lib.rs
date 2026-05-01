@@ -292,11 +292,44 @@ pub enum ConnectionTransport {
     Ws(WsConnect),
 }
 
+/// One per-block-range RPC URL override.
+///
+/// Block-keyed RPC requests (block fetch, receipts) whose `block_number`
+/// falls within the inclusive range `[from_block, to_block]` are routed to
+/// `url` instead of the [`Client`]'s default URL. Either bound may be `None`
+/// to mean "open-ended on that side".
+///
+/// All override URLs must point to a node that reports the same `chain_id`
+/// as the default URL — this is verified when the [`Client`] is constructed.
+///
+/// Constraints (enforced at construction time):
+/// * Each override must specify at least one of `from_block` or `to_block`
+///   (otherwise it would silently shadow the default URL).
+/// * If both bounds are set, `from_block <= to_block`.
+/// * Overrides must not overlap each other.
+#[derive(Debug, Clone)]
+pub struct RpcRangeOverride {
+    pub from_block: Option<u64>,
+    pub to_block: Option<u64>,
+    pub url: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RangeProvider {
+    pub(crate) from: u64,
+    pub(crate) to: u64,
+    pub(crate) url: Url,
+    pub(crate) provider: AlloyProvider,
+}
+
 #[derive(Debug, Clone)]
 pub struct Client {
     url: Url,
     private_key: Option<String>,
     rpc_provider: AlloyProvider,
+    /// Block-range RPC overrides, sorted by `from`. Empty = no overrides
+    /// (legacy single-URL behavior). See [`RpcRangeOverride`].
+    range_providers: Vec<RangeProvider>,
     // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
     // and not rely on ethereum chain ids?
     chain_id: u64,
@@ -344,6 +377,37 @@ impl Client {
             url,
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
+            range_providers: Vec::new(),
+            chain_id,
+            #[cfg(feature = "block_cache")]
+            cache: None,
+        })
+    }
+
+    /// Build a [`Client`] with per-block-range RPC URL overrides.
+    ///
+    /// `url` is the default URL used for tip-related calls (subscriptions,
+    /// `eth_blockNumber`, `eth_getTransactionByHash`) and for any block whose
+    /// number is not covered by an entry in `overrides`.
+    ///
+    /// All override URLs are connected to at startup; each must report the
+    /// same `chain_id` as `url` and the override ranges must satisfy the
+    /// validity rules documented on [`RpcRangeOverride`].
+    ///
+    /// When `overrides` is empty this is equivalent to [`Client::new`].
+    pub async fn new_with_overrides(
+        url: &str,
+        overrides: &[RpcRangeOverride],
+        private_key: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
+        let range_providers = Self::init_range_providers(chain_id, overrides).await?;
+
+        anyhow::Ok(Self {
+            url,
+            private_key: private_key.map(|s| s.to_owned()),
+            rpc_provider,
+            range_providers,
             chain_id,
             #[cfg(feature = "block_cache")]
             cache: None,
@@ -353,11 +417,91 @@ impl Client {
     pub async fn reconnect(&mut self) -> Result<(), Error> {
         let (url, rpc_provider, chain_id) = Self::init_rpc(self.url.as_ref()).await?;
 
+        // Reconnect each range provider against its own URL too, otherwise a
+        // recovered default would silently start serving range-bucket blocks
+        // until each override picked up the network fault on its own.
+        let mut new_ranges = Vec::with_capacity(self.range_providers.len());
+        for rp in &self.range_providers {
+            let (rp_url, rp_provider, rp_chain_id) = Self::init_rpc(rp.url.as_ref()).await?;
+            if rp_chain_id != chain_id {
+                return Err(Error::ClientError(anyhow::anyhow!(
+                    "RPC override URL chain_id ({rp_chain_id}) does not match default URL chain_id ({chain_id}) on reconnect"
+                )));
+            }
+            new_ranges.push(RangeProvider {
+                from: rp.from,
+                to: rp.to,
+                url: rp_url,
+                provider: rp_provider,
+            });
+        }
+
         self.url = url;
         self.rpc_provider = rpc_provider;
+        self.range_providers = new_ranges;
         self.chain_id = chain_id;
 
         Ok(())
+    }
+
+    /// Validate the override list (no network I/O), connect to each override
+    /// URL in declaration order, and verify the chain id matches the default.
+    pub(crate) async fn init_range_providers(
+        default_chain_id: u64,
+        overrides: &[RpcRangeOverride],
+    ) -> anyhow::Result<Vec<RangeProvider>> {
+        // Fail fast on invalid bounds before opening any sockets.
+        let normalized = validate_range_overrides(overrides)?;
+
+        let mut providers: Vec<RangeProvider> = Vec::with_capacity(normalized.len());
+        for (from, to, raw_url) in normalized {
+            let (url, provider, chain_id) =
+                Self::init_rpc(raw_url.as_ref()).await.with_context(|| {
+                    format!("Failed to connect to RPC override URL for block range [{from}, {to}]")
+                })?;
+
+            if chain_id != default_chain_id {
+                anyhow::bail!(
+                    "RPC override for block range [{from}, {to}] reports chain_id {chain_id}, \
+                     which does not match the default URL's chain_id {default_chain_id}; \
+                     all override URLs must point to the same chain"
+                );
+            }
+
+            providers.push(RangeProvider {
+                from,
+                to,
+                url,
+                provider,
+            });
+        }
+
+        Ok(providers)
+    }
+
+    /// Pick the RPC provider for a block-keyed call.
+    ///
+    /// Returns the matching range override's provider when one covers
+    /// `block_number`, otherwise the default `rpc_provider`.
+    fn provider_for_block(&self, block_number: u64) -> &AlloyProvider {
+        let bounds: Vec<(u64, u64)> = self
+            .range_providers
+            .iter()
+            .map(|rp| (rp.from, rp.to))
+            .collect();
+        match find_range_index(block_number, &bounds) {
+            Some(i) => &self.range_providers[i].provider,
+            None => &self.rpc_provider,
+        }
+    }
+
+    /// Returns the configured RPC overrides as `(from, to, url)` tuples
+    /// (sorted by `from`). Useful for startup logging.
+    pub fn range_overrides(&self) -> Vec<(u64, u64, &Url)> {
+        self.range_providers
+            .iter()
+            .map(|rp| (rp.from, rp.to, &rp.url))
+            .collect()
     }
 
     pub fn chain_id(&self) -> u64 {
@@ -494,7 +638,7 @@ impl Client {
     }
 
     async fn get_receipts(&self, number: u64) -> Result<Vec<TransactionReceipt>, Error> {
-        self.rpc_provider
+        self.provider_for_block(number)
             .get_block_receipts(BlockId::Number(BlockNumberOrTag::Number(number)))
             .await
             .map_err(|e| {
@@ -505,7 +649,7 @@ impl Client {
     }
 
     pub async fn get_eth_block(&self, number: u64) -> Result<Block, Error> {
-        self.rpc_provider
+        self.provider_for_block(number)
             .get_block(
                 BlockId::Number(BlockNumberOrTag::Number(number)),
                 true.into(),
@@ -580,10 +724,203 @@ impl Client {
     }
 }
 
+/// Validate a slice of [`RpcRangeOverride`]s, returning normalized
+/// `(from, to, url)` tuples sorted by `from`.
+///
+/// This performs *no* network I/O so it can be exercised cheaply in unit
+/// tests and called as a pre-flight check in [`Client::init_range_providers`].
+///
+/// # Errors
+///
+/// * Either bound is `None` on both sides (would shadow the default URL).
+/// * `from_block > to_block`.
+/// * Any two overrides cover an overlapping block range.
+fn validate_range_overrides(
+    overrides: &[RpcRangeOverride],
+) -> anyhow::Result<Vec<(u64, u64, String)>> {
+    if overrides.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut bounds: Vec<(u64, u64, String)> = Vec::with_capacity(overrides.len());
+    for ov in overrides {
+        if ov.from_block.is_none() && ov.to_block.is_none() {
+            anyhow::bail!(
+                "RPC range override must set at least one of `from_block` or `to_block` \
+                 (an unbounded override would silently shadow the default URL)"
+            );
+        }
+        let from = ov.from_block.unwrap_or(0);
+        let to = ov.to_block.unwrap_or(u64::MAX);
+        if from > to {
+            anyhow::bail!(
+                "RPC range override has from_block ({from}) > to_block ({to}); \
+                 swap the bounds in your config"
+            );
+        }
+        bounds.push((from, to, ov.url.clone()));
+    }
+
+    bounds.sort_by_key(|(from, _, _)| *from);
+    for w in bounds.windows(2) {
+        let (a_from, a_to, _) = &w[0];
+        let (b_from, b_to, _) = &w[1];
+        if a_to >= b_from {
+            anyhow::bail!(
+                "Overlapping RPC overrides: range [{a_from}, {a_to}] overlaps [{b_from}, {b_to}]"
+            );
+        }
+    }
+
+    Ok(bounds)
+}
+
+/// Find the index of the inclusive `(from, to)` range that covers
+/// `block_number`.
+///
+/// Assumes `ranges` is sorted by `from` (as established by
+/// [`validate_range_overrides`]) and that ranges are non-overlapping, so the
+/// search short-circuits at the first range whose `from > block_number`.
+fn find_range_index(block_number: u64, ranges: &[(u64, u64)]) -> Option<usize> {
+    for (i, (from, to)) in ranges.iter().enumerate() {
+        if block_number < *from {
+            return None;
+        }
+        if block_number <= *to {
+            return Some(i);
+        }
+    }
+    None
+}
+
 /// Build a simple Ethereum-compatible Merkle tree from a block
 ///
 /// Uses `KeccakMerkleTree` which matches the POC implementation exactly.
 pub fn simple_merkle_tree(block: &OrderedBlock) -> merkle::KeccakMerkleTree {
     let tx_bytes: Vec<Vec<u8>> = block.items().iter().map(|item| item.to_bytes()).collect();
     merkle::KeccakMerkleTree::new(&tx_bytes)
+}
+
+#[cfg(test)]
+mod range_override_tests {
+    use super::{find_range_index, validate_range_overrides, RpcRangeOverride};
+
+    fn ov(from: Option<u64>, to: Option<u64>, url: &str) -> RpcRangeOverride {
+        RpcRangeOverride {
+            from_block: from,
+            to_block: to,
+            url: url.to_string(),
+        }
+    }
+
+    #[test]
+    fn empty_overrides_validates_to_empty() {
+        let normalized = validate_range_overrides(&[]).expect("empty list is valid");
+        assert!(normalized.is_empty());
+    }
+
+    #[test]
+    fn unbounded_override_is_rejected() {
+        let err = validate_range_overrides(&[ov(None, None, "http://x")]).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("at least one of `from_block` or `to_block`"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn inverted_bounds_are_rejected() {
+        let err = validate_range_overrides(&[ov(Some(100), Some(50), "http://x")]).unwrap_err();
+        assert!(
+            err.to_string().contains("from_block"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn overlapping_overrides_are_rejected() {
+        let err = validate_range_overrides(&[
+            ov(Some(0), Some(1_000), "http://low"),
+            ov(Some(500), Some(2_000), "http://mid"),
+        ])
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("Overlapping"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn touching_ranges_are_overlapping() {
+        // Ranges are inclusive on both ends, so [0, 100] and [100, 200] both
+        // cover block 100 — that ambiguity is rejected.
+        let err = validate_range_overrides(&[
+            ov(Some(0), Some(100), "http://low"),
+            ov(Some(100), Some(200), "http://hi"),
+        ])
+        .unwrap_err();
+        assert!(err.to_string().contains("Overlapping"));
+    }
+
+    #[test]
+    fn adjacent_ranges_are_allowed() {
+        let normalized = validate_range_overrides(&[
+            ov(Some(0), Some(99), "http://low"),
+            ov(Some(100), Some(200), "http://hi"),
+        ])
+        .expect("adjacent ranges must be allowed");
+        assert_eq!(
+            normalized,
+            vec![
+                (0, 99, "http://low".to_string()),
+                (100, 200, "http://hi".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn validation_normalizes_open_bounds_and_sorts() {
+        let normalized = validate_range_overrides(&[
+            ov(Some(4_000_001), None, "http://recent"),
+            ov(None, Some(4_000_000), "http://archive"),
+        ])
+        .expect("non-overlapping open bounds are valid");
+
+        assert_eq!(
+            normalized,
+            vec![
+                (0, 4_000_000, "http://archive".to_string()),
+                (4_000_001, u64::MAX, "http://recent".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn find_range_index_picks_matching_range() {
+        // Mirrors the user-facing two-bucket example: archive vs recent.
+        let ranges = &[(0, 4_000_000), (4_000_001, u64::MAX)];
+
+        assert_eq!(find_range_index(0, ranges), Some(0));
+        assert_eq!(find_range_index(4_000_000, ranges), Some(0));
+        assert_eq!(find_range_index(4_000_001, ranges), Some(1));
+        assert_eq!(find_range_index(u64::MAX, ranges), Some(1));
+    }
+
+    #[test]
+    fn find_range_index_returns_none_for_gap() {
+        // Block 75 falls between [0, 50] and [100, 200] — no override matches,
+        // so the caller falls back to the default URL.
+        let ranges = &[(0, 50), (100, 200)];
+
+        assert_eq!(find_range_index(75, ranges), None);
+        assert_eq!(find_range_index(50, ranges), Some(0));
+        assert_eq!(find_range_index(100, ranges), Some(1));
+        assert_eq!(find_range_index(201, ranges), None);
+    }
+
+    #[test]
+    fn find_range_index_with_no_ranges_returns_none() {
+        assert_eq!(find_range_index(42, &[]), None);
+    }
 }
