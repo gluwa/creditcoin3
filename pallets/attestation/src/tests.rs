@@ -7574,11 +7574,6 @@ mod prevalidate_attestation_commit_extension {
         RuntimeCall::Attestation(crate::Call::commit_attestation { attestation })
     }
 
-    /// Runs `validate` and asserts that the caller's free balance is
-    /// untouched, capturing the property reviewers care about: a rejected
-    /// transaction must not drain the would-be sender. `validate` itself is
-    /// pure, but pinning the invariant in tests guards us against accidental
-    /// future side-effects in this extension.
     fn validate_without_charging(
         who: &AccountId,
         call: &RuntimeCall,
