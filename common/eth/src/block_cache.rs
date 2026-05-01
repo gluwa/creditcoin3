@@ -216,7 +216,22 @@ impl Client {
         private_key: Option<&str>,
         config: BlockCacheConfig,
     ) -> Result<Self, Error> {
+        Self::new_with_cache_and_overrides(url, &[], private_key, config).await
+    }
+
+    /// Like [`Client::new_with_cache`] but also installs per-block-range RPC
+    /// URL overrides. See [`crate::RpcRangeOverride`] for the override
+    /// semantics and validation rules.
+    pub async fn new_with_cache_and_overrides(
+        url: &str,
+        overrides: &[crate::RpcRangeOverride],
+        private_key: Option<&str>,
+        config: BlockCacheConfig,
+    ) -> Result<Self, Error> {
         let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
+        let range_providers = Self::init_range_providers(chain_id, overrides)
+            .await
+            .map_err(Error::ClientError)?;
 
         let connection_timeout = Duration::from_secs(REDIS_CONNECTION_TIMEOUT_SECS);
         let response_timeout = Duration::from_secs(REDIS_RESPONSE_TIMEOUT_SECS);
@@ -269,6 +284,7 @@ impl Client {
             url,
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
+            range_providers,
             chain_id,
             cache: Some(cache),
         })
