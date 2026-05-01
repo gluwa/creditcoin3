@@ -2847,6 +2847,7 @@ dependencies = [
  "moonbeam-rpc-debug",
  "moonbeam-rpc-primitives-debug",
  "moonbeam-rpc-trace",
+ "pallet-attestation",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "pallet-transaction-payment-rpc-runtime-api",

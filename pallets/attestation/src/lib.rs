@@ -21,9 +21,12 @@ mod benchmarking;
 mod asset;
 mod clear_or_revert;
 mod continuity;
+pub mod extensions;
 mod impls;
 mod ledger;
 pub mod migrations;
+
+pub use extensions::PrevalidateAttestationCommit;
 
 #[frame_support::pallet]
 pub mod pallet {
