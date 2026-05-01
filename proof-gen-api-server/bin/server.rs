@@ -174,6 +174,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             chains: vec![ChainConfig {
                 chain_key,
                 eth_rpc_url: args.eth_rpc_url,
+                // Per-block-range overrides are only configurable via the
+                // multi-chain YAML; the legacy single-chain CLI path stays
+                // single-URL.
+                eth_rpc_overrides: Vec::new(),
                 archiver_url: args.archiver_url,
                 block_confirmation_depth: args.block_confirmation_depth,
             }],
