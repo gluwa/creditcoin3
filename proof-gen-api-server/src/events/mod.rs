@@ -55,6 +55,14 @@ pub async fn start_cc3_event_subscription(
 
     let chain_keys_vec: Vec<u64> = chain_keys.iter().copied().collect();
 
+    // Take a locally-owned `CcClient` we can swap a fresh subxt RPC + OnlineClient
+    // into via `reconnect()`. `CcClient::clone` is shallow (subxt's `RpcClient`
+    // and `OnlineClient` are arc-internally cheap), so this doesn't open a new
+    // connection — it gives us a handle on the same underlying connection that
+    // we can later replace without disturbing other `Arc<CcClient>` holders.
+    let mut local_client: CcClient = (*cc3_client).clone();
+    drop(cc3_client);
+
     let mut backoff = INITIAL_BACKOFF;
     let mut consecutive_failures: u32 = 0;
 
@@ -67,7 +75,7 @@ pub async fn start_cc3_event_subscription(
 
         let connected_at = Instant::now();
 
-        match cc3_client.subscribe_events_chains(&chain_keys_vec) {
+        match local_client.subscribe_events_chains(&chain_keys_vec) {
             Ok(mut subscription) => {
                 info!(
                     "Successfully subscribed to CC3 events for chain keys: {:?}",
@@ -153,6 +161,27 @@ pub async fn start_cc3_event_subscription(
         );
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(MAX_BACKOFF);
+
+        // Rebuild the underlying subxt RPC + OnlineClient before the next
+        // subscribe attempt. After a clean WebSocket close (e.g. the CC3 node
+        // restarted) the subxt client transitions to a `RestartNeeded` state
+        // and every future call returns `RestartNeeded(Transport(Connection(
+        // Closed)))` — calling `subscribe_finalized` again on the same client
+        // would never recover. Refreshing it here is what actually breaks the
+        // tight reconnect loop seen on node restart.
+        //
+        // If `reconnect` fails (the node is still down), we keep going: the
+        // next `subscribe_events_chains` call will fail with the same error,
+        // surface that via the existing logging path, and we'll back off and
+        // retry until the node comes back.
+        info!("Refreshing CC3 RPC connection before next subscribe attempt");
+        match local_client.reconnect().await {
+            Ok(_) => info!("CC3 RPC connection refreshed"),
+            Err(err) => warn!(
+                ?err,
+                "Failed to refresh CC3 RPC connection; will retry on next loop iteration"
+            ),
+        }
     }
 }
 
