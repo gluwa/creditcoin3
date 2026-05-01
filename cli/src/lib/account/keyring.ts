@@ -77,6 +77,55 @@ export function getStringFromEnvVar(envVar: string | undefined): string {
     return envVar;
 }
 
+/**
+ * Read a raw secret (BIP39 mnemonic) from the given env var, or prompt the user
+ * for one when stdin is a TTY and `--input` was not disabled. Mirrors
+ * {@link initKeyringFromEnvOrPrompt} but returns the secret string itself,
+ * which is what EVM/precompile-based commands need (they derive the EVM key
+ * via `HDNodeWallet.fromPhrase`, not a Substrate `KeyringPair`).
+ *
+ * Used by attestor commands that go through the attestor-stash precompile
+ * (`register`, `unregister`, `chill`, `withdraw-unbonded`) so they keep the
+ * same env-or-prompt UX as every other write-path CLI command.
+ */
+export async function getSecretFromEnvOrPrompt(
+    envVar: string,
+    accountRole: string,
+    options: OptionValues,
+): Promise<string> {
+    const interactive = setInteractivity(options);
+    const inputName = 'seed phrase';
+
+    if (typeof process.env[envVar] === 'string') {
+        const input = getStringFromEnvVar(process.env[envVar]);
+        if (!mnemonicValidate(input)) {
+            throw new Error(`Error: Seed phrase provided in environment variable ${envVar} is invalid.`);
+        }
+        return input;
+    }
+
+    if (!interactive) {
+        throw new Error(
+            `Error: Must specify a ${inputName} for the ${accountRole} account in the environment variable ${envVar} or use an interactive shell.`,
+        );
+    }
+
+    const promptResult = await prompts([
+        {
+            type: 'password',
+            name: 'seed',
+            message: `Specify a ${inputName} for the ${accountRole} account`,
+            validate: (input) => mnemonicValidate(input as string),
+        },
+    ]);
+
+    // If SIGTERM is issued while prompting, prompts() resolves with no value.
+    if (typeof promptResult.seed !== 'string' || promptResult.seed.length === 0) {
+        throw new Error(`Error: Could not retrieve ${inputName}`);
+    }
+    return promptResult.seed;
+}
+
 export type ProxyKeyring = {
     type: 'proxy';
     pair: KeyringPair;
