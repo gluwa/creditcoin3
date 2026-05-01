@@ -2,7 +2,7 @@ use anyhow::Result;
 use cc_client::{attestation::CcEvent, Client as CcClient};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -10,6 +10,11 @@ use crate::ContinuityService;
 
 const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(60);
+/// If the subscription stayed connected for at least this long before disconnecting,
+/// treat the failure as transient and reset the reconnect backoff. Anything shorter
+/// is treated as a hard failure (e.g. wire-protocol mismatch) and we keep the
+/// exponential backoff so we don't hammer the RPC endpoint.
+const HEALTHY_CONNECTION_THRESHOLD: Duration = Duration::from_secs(30);
 
 /// Simple in-memory cache for last attestation per chain
 #[derive(Clone, Debug)]
@@ -51,12 +56,16 @@ pub async fn start_cc3_event_subscription(
     let chain_keys_vec: Vec<u64> = chain_keys.iter().copied().collect();
 
     let mut backoff = INITIAL_BACKOFF;
+    let mut consecutive_failures: u32 = 0;
 
     loop {
         info!(
             ?chain_keys,
+            attempt = consecutive_failures + 1,
             "Starting CC3 event subscription (single task, multi-chain filter)"
         );
+
+        let connected_at = Instant::now();
 
         match cc3_client.subscribe_events_chains(&chain_keys_vec) {
             Ok(mut subscription) => {
@@ -64,16 +73,10 @@ pub async fn start_cc3_event_subscription(
                     "Successfully subscribed to CC3 events for chain keys: {:?}",
                     chain_keys
                 );
-                let mut received_event = false;
 
                 loop {
                     match subscription.next().await {
                         Some(cc_event) => {
-                            if !received_event {
-                                received_event = true;
-                                backoff = INITIAL_BACKOFF;
-                            }
-
                             if let Err(e) = process_cc_event(
                                 &cc_event,
                                 &checkpoint_intervals,
@@ -86,19 +89,68 @@ pub async fn start_cc3_event_subscription(
                             }
                         }
                         None => {
-                            warn!(
-                                "CC3 event subscription ended unexpectedly, reconnecting in {backoff:?}"
-                            );
+                            // Stream ended. Pull the real cause out of the
+                            // spawned task instead of just logging "ended
+                            // unexpectedly" with no context.
+                            let connection_duration = connected_at.elapsed();
+                            match subscription.take_terminal_error().await {
+                                Ok(Some(err)) => {
+                                    error!(
+                                        connection_duration_secs =
+                                            connection_duration.as_secs_f64(),
+                                        "CC3 event subscription terminated with error: {err:?}"
+                                    );
+                                }
+                                Ok(None) => {
+                                    warn!(
+                                        connection_duration_secs = connection_duration.as_secs_f64(),
+                                        "CC3 event subscription closed cleanly by backend (no error reported)"
+                                    );
+                                }
+                                Err(join_err) => {
+                                    error!(
+                                        connection_duration_secs =
+                                            connection_duration.as_secs_f64(),
+                                        "CC3 event subscription task panicked: {join_err:?}"
+                                    );
+                                }
+                            }
                             break;
                         }
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to subscribe to CC3 events: {e}, retrying in {backoff:?}");
+                error!(
+                    attempt = consecutive_failures + 1,
+                    "Failed to subscribe to CC3 events: {e:?}"
+                );
             }
         }
 
+        // Decide how to back off based on how long the connection survived.
+        // If we stayed up for a healthy window before dropping, the failure
+        // looks transient — reset to a fast retry. Otherwise keep growing the
+        // backoff exponentially so a hard misconfiguration (e.g. wire-protocol
+        // mismatch with the RPC) doesn't spin in a tight loop.
+        let connection_duration = connected_at.elapsed();
+        if connection_duration >= HEALTHY_CONNECTION_THRESHOLD {
+            if backoff != INITIAL_BACKOFF {
+                info!(
+                    connection_duration_secs = connection_duration.as_secs_f64(),
+                    "Resetting CC3 reconnect backoff after a healthy connection"
+                );
+            }
+            backoff = INITIAL_BACKOFF;
+            consecutive_failures = 0;
+        } else {
+            consecutive_failures = consecutive_failures.saturating_add(1);
+        }
+
+        warn!(
+            backoff_secs = backoff.as_secs_f64(),
+            consecutive_failures, "Reconnecting CC3 event subscription"
+        );
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(MAX_BACKOFF);
     }
