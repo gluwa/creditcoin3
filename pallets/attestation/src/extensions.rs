@@ -69,14 +69,10 @@ impl<T: Config + Send + Sync> Debug for PrevalidateAttestationCommit<T>
 where
     <T as frame_system::Config>::RuntimeCall: IsSubType<Call<T>>,
 {
-    #[cfg(feature = "std")]
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "PrevalidateAttestationCommit")
-    }
-
-    #[cfg(not(feature = "std"))]
-    fn fmt(&self, _: &mut core::fmt::Formatter) -> core::fmt::Result {
-        Ok(())
+        // `core::write!` works in both `std` and `no_std` builds, so we don't
+        // need to split the impl on the `std` feature flag.
+        core::write!(f, "PrevalidateAttestationCommit")
     }
 }
 
