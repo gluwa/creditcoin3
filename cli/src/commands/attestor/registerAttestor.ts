@@ -5,7 +5,7 @@ import {
     substrateAddressToBytes32,
     extractEvmError,
 } from '../../lib/attestor/precompile';
-import { getStringFromEnvVar } from '../../lib/account/keyring';
+import { getSecretFromEnvOrPrompt } from '../../lib/account/keyring';
 
 export function makeRegisterAttestorCommand() {
     const cmd = new Command('register');
@@ -21,7 +21,7 @@ async function registerAttestorAction(options: OptionValues) {
     const attestorSs58 = options.attestor as string;
     const attestorId32 = substrateAddressToBytes32(attestorSs58);
 
-    const secret = getStringFromEnvVar(process.env.CC_SECRET);
+    const secret = await getSecretFromEnvOrPrompt('CC_SECRET', 'caller', options);
     const { contract } = getAttestorContractWithSigner(secret, options);
 
     try {
