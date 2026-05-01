@@ -8,7 +8,7 @@ import {
     ATTESTOR_STATUS_ACTIVE,
     ATTESTOR_STATUS_LEAVING,
 } from '../../lib/attestor/precompile';
-import { getStringFromEnvVar } from '../../lib/account/keyring';
+import { getSecretFromEnvOrPrompt } from '../../lib/account/keyring';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { ethers } from 'ethers';
 
@@ -55,7 +55,7 @@ async function chillAction(options: OptionValues) {
     const attestorSs58 = options.attestor as string;
     const attestorId32 = substrateAddressToBytes32(attestorSs58);
 
-    const secret = getStringFromEnvVar(process.env.CC_SECRET);
+    const secret = await getSecretFromEnvOrPrompt('CC_SECRET', 'caller', options);
     const { contract, stashAddress } = getAttestorContractWithSigner(secret, options);
 
     // Pre-call validation via view function
