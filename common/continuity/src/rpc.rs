@@ -24,6 +24,8 @@ const ETH_RPC_MAX_ATTEMPTS: usize = 3;
 /// Backoff used when reconnecting the shared client (mirrors the attestor's CC3 reconnect).
 const RECONNECT_BACKOFF_BASE_MS: u64 = 100;
 const RECONNECT_BACKOFF_MAX_MS: u64 = 5_000;
+/// Total reconnect attempts (initial call + retries). `tokio_retry` treats the strategy length
+/// as the number of *retries*, so we pass `RECONNECT_MAX_ATTEMPTS - 1` to `.take(..)`.
 const RECONNECT_MAX_ATTEMPTS: usize = 5;
 
 /// ETH RPC provider that owns one long-lived [`eth::Client`] and reconnects it on transport
@@ -84,10 +86,13 @@ impl ReconnectingEthRpcProvider {
 
     /// Reconnect the shared client with exponential backoff + jitter.
     async fn reconnect(&self, op: &'static str) -> Result<()> {
+        // `tokio_retry` runs the action once, then drains the strategy iterator on each retry.
+        // Subtract one so `RECONNECT_MAX_ATTEMPTS` reflects total attempts (matches
+        // `ETH_RPC_MAX_ATTEMPTS`).
         let strategy = ExponentialBackoff::from_millis(RECONNECT_BACKOFF_BASE_MS)
             .max_delay(Duration::from_millis(RECONNECT_BACKOFF_MAX_MS))
             .map(jitter)
-            .take(RECONNECT_MAX_ATTEMPTS);
+            .take(RECONNECT_MAX_ATTEMPTS.saturating_sub(1));
 
         tokio_retry::Retry::spawn(strategy, || async {
             warn!(op, "reconnecting ETH RPC client");
