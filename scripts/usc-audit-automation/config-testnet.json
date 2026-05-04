@@ -1,7 +1,7 @@
 {
-  "uscWsUrl": "wss://rpc.usc-testnet2.creditcoin.network",
-  "uscNetworkName": "Creditcoin USC Testnet V2",
-  "graphqlUrl": "https://attestations-graphql.usc-testnet2.creditcoin.network",
+  "uscWsUrl": "wss://rpc.cc3-testnet.creditcoin.network",
+  "uscNetworkName": "Creditcoin3 Testnet",
+  "graphqlUrl": "https://attestations-graphql.cc3-testnet.creditcoin.network",
   "ethRpc": [
     {
       "chainId": 11155111,
@@ -11,18 +11,10 @@
   ],
   "balanceChecks": [
     {
-      "name": "USC Testnet 2",
-      "baseUrl": "https://blockscout.usc-testnet2.creditcoin.network/",
-      "rpcUrl": "https://rpc.usc-testnet2.creditcoin.network",
+      "name": "Creditcoin3 Testnet",
+      "baseUrl": "https://creditcoin-testnet.blockscout.com/",
+      "rpcUrl": "https://rpc.cc3-testnet.creditcoin.network",
       "accounts": [
-        {
-          "address": "0x44919C4B087B30d1afd7e58359604dE6fe986d8a",
-          "name": "Testnet v2 faucet"
-        },
-        {
-          "address": "0x3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0",
-          "name": "Testnet v2 query submitter"
-        },
         {
           "address": "0x2C317383b8A99537c61042B63C4fB042Df51033a",
           "name": "NEW_LENDER_ accnt in 1Password. Used for testing"
