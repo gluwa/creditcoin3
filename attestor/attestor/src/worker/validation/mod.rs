@@ -979,23 +979,14 @@ impl WorkerAttestationValidation {
             .attestation()
             .commit_attestation(attestation);
 
-        // Substrate maps any txpool admission failure (including rejections
-        // raised by the runtime's `PrevalidateAttestationCommit` SignedExtension
-        // when the attestor is chilled or the digest is stale) to JSON-RPC
-        // error code 1010 (`POOL_INVALID_TX = sc_rpc_api::AUTHOR + 10`). The
-        // specific cause is encoded in the `data` field of the JSON-RPC error
-        // object — e.g. `"Custom error: 1"` for `InvalidTransaction::Custom(
-        // VALIDITY_ERROR_NOT_ACTIVE_ATTESTOR)` or `"Transaction is outdated"`
-        // for `InvalidTransaction::Stale`. We match on the JSON-RPC code as
-        // the structural gate (this is the substrate-canonical signal that
-        // *no fee was charged*) and propagate the embedded data to the log so
-        // operators can see exactly which rejection rule fired.
+        // Substrate maps any txpool admission failure (including rejections raised by the
+        // runtime's `PrevalidateAttestationCommit` SignedExtension when the attestor is chilled or
+        // the digest is stale) to JSON-RPC error code 1010. The specific cause is encoded in the
+        // `data` field of the JSON-RPC error object — e.g. `"Transaction is outdated"` for
+        // `InvalidTransaction::Stale`. We match on the JSON-RPC code as the structural gate (this
+        // is the substrate-canonical signal that *no fee was charged*) and propagate the embedded
+        // data to the log so operators can see exactly which rejection rule fired.
         const POOL_INVALID_TX: i32 = 1010;
-        // Mirrors `pallet_attestation::VALIDITY_ERROR_NOT_ACTIVE_ATTESTOR`. We
-        // can't pull the constant directly because the runtime metadata only
-        // exposes types and storage, not pallet-private validity codes.
-        const VALIDITY_ERROR_NOT_ACTIVE_ATTESTOR: u8 = 1;
-        use subxt::ext::jsonrpsee::core::client::Error as JsonrpseeClientError;
 
         let submit = loop {
             match self
@@ -1007,32 +998,22 @@ impl WorkerAttestationValidation {
             {
                 Ok(submit) => break submit,
                 Err(err) => {
+                    // Another attestor won the submission race -the runtime reject new calls and
+                    // does not included them into the mempool to avoid competing attestors paying
+                    // an inclusion fee.
                     if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(boxed)) = &err {
-                        if let Some(JsonrpseeClientError::Call(obj)) =
-                            boxed.downcast_ref::<JsonrpseeClientError>()
+                        if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(obj)) =
+                            boxed.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
                         {
                             if obj.code() == POOL_INVALID_TX {
-                                // Substrate stuffs the specific reject reason
-                                // into the JSON-RPC error's `data` field as a
-                                // JSON-encoded string, e.g. `"Custom error: 1"`
-                                // for `InvalidTransaction::Custom(1)` or
-                                // `"Transaction is outdated"` for
-                                // `InvalidTransaction::Stale`. We strip the
-                                // surrounding JSON quotes by hand to avoid
-                                // pulling in `serde_json` just for this.
                                 let detail = obj
                                     .data()
                                     .map(|raw| raw.get().trim_matches('"').to_owned())
                                     .unwrap_or_else(|| obj.message().to_owned());
-                                let custom_code = detail
-                                    .strip_prefix("Custom error: ")
-                                    .and_then(|n| n.parse::<u8>().ok());
                                 tracing::info!(
                                     height,
                                     code = obj.code(),
                                     detail = %detail,
-                                    is_not_active_attestor = custom_code
-                                        == Some(VALIDITY_ERROR_NOT_ACTIVE_ATTESTOR),
                                     "🚫 Attestation prevalidation rejected at txpool, skipping submission"
                                 );
                                 return Ok(());
