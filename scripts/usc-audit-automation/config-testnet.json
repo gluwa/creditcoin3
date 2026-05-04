@@ -1,7 +1,7 @@
 {
   "uscWsUrl": "wss://rpc.cc3-testnet.creditcoin.network",
   "uscNetworkName": "Creditcoin3 Testnet",
-  "graphqlUrl": "https://attestations-graphql.cc3-testnet.creditcoin.network",
+  "graphqlUrl": "https://graphql-usc.cc3-testnet.creditcoin.network",
   "ethRpc": [
     {
       "chainId": 11155111,
