@@ -42,7 +42,7 @@ variables.
 {
   "uscWsUrl": "wss://rpc.cc3-devnet.creditcoin.network",
   "uscNetworkName": "Creditcoin3 Devnet",
-  "graphqlUrl": "https://attestations-graphql.cc3-devnet.creditcoin.network",
+  "graphqlUrl": "https://graphql-usc.cc3-devnet.creditcoin.network",
   "ethRpc": [
     {
       "chainId": 11155111,

@@ -163,7 +163,7 @@ CONFIG FILE FORMAT (JSON):
   {
     "uscWsUrl": "wss://rpc.cc3-devnet.creditcoin.network",
     "uscNetworkName": "Creditcoin3 Devnet",
-    "graphqlUrl": "https://attestations-graphql.cc3-devnet.creditcoin.network",
+    "graphqlUrl": "https://graphql-usc.cc3-devnet.creditcoin.network",
     "ethRpc": [
       { "chainId": 11155111, "chainKey": 2, "url": "wss://ethereum-sepolia.publicnode.com" },
       { "chainId": 97, "chainKey": 3, "url": "wss://bsc-testnet.publicnode.com" }
