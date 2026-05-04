@@ -166,8 +166,10 @@ impl Client {
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
-        // Wrap filter keys in Arc for shared immutable access in the spawned task.
-        let api = self.api().clone();
+        // Snapshot the current OnlineClient once and pass the (now-owned) value
+        // into the spawned task. `Client::api()` already returns an owned
+        // arc-internal clone; calling `.clone()` again would be redundant.
+        let api = self.api();
         let chain_filter: Arc<[ChainKey]> = chain_keys.into();
 
         let handle = tokio::spawn(async move {
