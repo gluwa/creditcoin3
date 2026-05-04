@@ -4,7 +4,7 @@ import { validateAddress } from '@polkadot/util-crypto/address';
 import { BN } from '..';
 import { parseZeroOrPositiveIntegerOrExit, parseU64OrExit } from '../lib/parsing';
 
-// Most used options are URL, NO INPUT, JSON, eCDSA, aDDRESS, AMOUNT, TO, EMV-ADDRESS
+// Most used options are URL, NO INPUT, JSON, ADDRESS, AMOUNT, TO, EMV-ADDRESS
 // Create consts for each one using the Option class and export them to be used by other commands
 
 // Connection
@@ -115,8 +115,6 @@ export const jsonOption = new Option('--json', 'Output as JSON');
 export const noInputOption = new Option('--no-input', 'Disable interactive prompts');
 
 // Crypto
-export const ecdsaOption = new Option('--ecdsa', 'Use ECDSA signature instead of mnemonic');
-
 export const ProxyTypes = ['All', 'Staking', 'NonTransfer'];
 export const proxyTypeOption = new Option(
     '--type [type]',
