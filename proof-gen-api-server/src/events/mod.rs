@@ -55,13 +55,13 @@ pub async fn start_cc3_event_subscription(
 
     let chain_keys_vec: Vec<u64> = chain_keys.iter().copied().collect();
 
-    // Take a locally-owned `CcClient` we can swap a fresh subxt RPC + OnlineClient
-    // into via `reconnect()`. `CcClient::clone` is shallow (subxt's `RpcClient`
-    // and `OnlineClient` are arc-internally cheap), so this doesn't open a new
-    // connection — it gives us a handle on the same underlying connection that
-    // we can later replace without disturbing other `Arc<CcClient>` holders.
-    let mut local_client: CcClient = (*cc3_client).clone();
-    drop(cc3_client);
+    // We hold the *same* `Arc<CcClient>` shared with every `ContinuityBuilder`
+    // for the entire loop. `CcClient` keeps its live subxt RPC + OnlineClient
+    // behind an `ArcSwap<ClientInner>`, so calling `reconnect()` here
+    // atomically swaps the underlying connection for every Arc holder at
+    // once. The previous design value-cloned the client, reconnected the
+    // clone, and dropped the original — which left every other Arc holder
+    // (every `ContinuityBuilder`) pinned to the dead subxt connection.
 
     let mut backoff = INITIAL_BACKOFF;
     let mut consecutive_failures: u32 = 0;
@@ -75,7 +75,7 @@ pub async fn start_cc3_event_subscription(
 
         let connected_at = Instant::now();
 
-        match local_client.subscribe_events_chains(&chain_keys_vec) {
+        match cc3_client.subscribe_events_chains(&chain_keys_vec) {
             Ok(mut subscription) => {
                 info!(
                     "Successfully subscribed to CC3 events for chain keys: {:?}",
@@ -170,13 +170,18 @@ pub async fn start_cc3_event_subscription(
         // would never recover. Refreshing it here is what actually breaks the
         // tight reconnect loop seen on node restart.
         //
+        // Because the `Arc<CcClient>` is shared with every continuity builder
+        // and the `CcClient` stores its inner connection behind `ArcSwap`,
+        // this single `reconnect()` call refreshes the live subxt handle for
+        // every consumer in the process at once.
+        //
         // If `reconnect` fails (the node is still down), we keep going: the
         // next `subscribe_events_chains` call will fail with the same error,
         // surface that via the existing logging path, and we'll back off and
         // retry until the node comes back.
         info!("Refreshing CC3 RPC connection before next subscribe attempt");
-        match local_client.reconnect().await {
-            Ok(_) => info!("CC3 RPC connection refreshed"),
+        match cc3_client.reconnect().await {
+            Ok(()) => info!("CC3 RPC connection refreshed"),
             Err(err) => warn!(
                 ?err,
                 "Failed to refresh CC3 RPC connection; will retry on next loop iteration"
