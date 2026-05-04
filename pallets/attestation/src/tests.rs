@@ -7546,7 +7546,7 @@ mod migrate_attestors_count_v1_to_v2 {
 
 mod prevalidate_attestation_commit_extension {
     use super::*;
-    use crate::extensions::{PrevalidateAttestationCommit, VALIDITY_ERROR_NOT_ACTIVE_ATTESTOR};
+    use crate::extensions::PrevalidateAttestationCommit;
     use sp_runtime::traits::SignedExtension;
     use sp_runtime::transaction_validity::{InvalidTransaction, TransactionValidityError};
 
@@ -7587,41 +7587,6 @@ mod prevalidate_attestation_commit_extension {
             "prevalidation must never touch the caller's balance"
         );
         result
-    }
-
-    #[test]
-    fn rejects_call_from_non_active_attestor() {
-        ExtBuilder.build_and_execute(|| {
-            let attestor = make_active_attestor(STASH_1, ATTESTOR_1);
-            progress_to_block(5);
-
-            let attestation = create_signed_attestation(
-                vec![attestor.clone()],
-                SUPPORTED_CHAIN_KEY,
-                0,
-                None,
-                None,
-            );
-            let call = build_call(attestation);
-
-            // Sanity: ATTESTOR_2 must not be part of the active set so the
-            // rejection path under test is actually exercised.
-            assert!(
-                !ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_2),
-                "test precondition: ATTESTOR_2 must not be an active attestor"
-            );
-
-            // ATTESTOR_2 is not in the active attestor set: rejection must
-            // happen pre-fee, leaving the balance untouched.
-            let result = validate_without_charging(&ATTESTOR_2, &call);
-
-            assert_eq!(
-                result,
-                Err(TransactionValidityError::Invalid(
-                    InvalidTransaction::Custom(VALIDITY_ERROR_NOT_ACTIVE_ATTESTOR)
-                ))
-            );
-        })
     }
 
     #[test]
@@ -7759,6 +7724,50 @@ mod prevalidate_attestation_commit_extension {
                 Balances::free_balance(loser.attestor_id),
                 loser_balance_before,
                 "race loser must not be charged any fee"
+            );
+        })
+    }
+
+    #[test]
+    fn account_pays_fees_if_not_an_attestor() {
+        ExtBuilder.build_and_execute(|| {
+            let account = Attestor::new(STASH_1, ATTESTOR_1);
+            progress_to_block(5);
+
+            let attestation = create_signed_attestation(
+                vec![account.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+            let chain_key = attestation.chain_key();
+            let digest = attestation.digest();
+
+            assert!(
+                !ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_2),
+                "test precondition: ATTESTOR_2 must not be an active attestor"
+            );
+
+            let account_balance_before = Balances::free_balance(account.attestor_id);
+
+            assert!(Attestation::commit_attestation(
+                account.attestor_origin.clone(),
+                attestation.clone()
+            )
+            .is_err());
+            progress_to_block(10);
+
+            let account_balance_now = Balances::free_balance(account.attestor_id);
+
+            assert!(
+                !Attestations::<Test>::contains_key(chain_key, digest),
+                "precondition: attestation must not already be on-chain"
+            );
+
+            assert!(
+                account_balance_now < account_balance_before,
+                "{account_balance_now} < {account_balance_before}"
             );
         })
     }

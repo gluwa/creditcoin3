@@ -31,11 +31,6 @@ use sp_std::collections::btree_set::BTreeSet;
 
 use crate::pallet::{ActiveAttestors, Call, Config, Pallet};
 
-/// Custom validity error code reported when a non-active attestor tries to
-/// submit `commit_attestation`. We use `InvalidTransaction::Custom` so node
-/// operators can still distinguish this from generic bad signers.
-pub const VALIDITY_ERROR_NOT_ACTIVE_ATTESTOR: u8 = 1;
-
 /// `SignedExtension` that pre-validates `commit_attestation` calls in the
 /// transaction pool, rejecting:
 ///
@@ -109,19 +104,10 @@ where
         if let Some(Call::commit_attestation { attestation }) = call.is_sub_type() {
             let chain_key = attestation.chain_key();
 
-            // Cheap storage read: the active attestor set per chain.
             let active_attestors = ActiveAttestors::<T>::get(chain_key)
                 .into_iter()
                 .collect::<BTreeSet<_>>();
-            if !active_attestors.contains(who) {
-                return Err(TransactionValidityError::Invalid(
-                    InvalidTransaction::Custom(VALIDITY_ERROR_NOT_ACTIVE_ATTESTOR),
-                ));
-            }
-
-            // Cheap storage read: duplicate detection (digest already stored
-            // or superseded by an existing checkpoint).
-            if Pallet::<T>::check_duplicate(attestation) {
+            if active_attestors.contains(who) && Pallet::<T>::check_duplicate(attestation) {
                 return Err(TransactionValidityError::Invalid(InvalidTransaction::Stale));
             }
         }
