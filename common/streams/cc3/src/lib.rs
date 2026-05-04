@@ -60,15 +60,24 @@ impl StreamCC3 {
                         let reconnect = || {
                             tracing::warn!("🛜 Reconnecting to CC3...");
 
-                            let mut cc3 = config.cc3.clone();
+                            // `cc3.reconnect()` now takes `&self` and uses
+                            // interior mutability (`ArcSwap<ClientInner>`),
+                            // so we can refresh in place without shuffling
+                            // a value-cloned `Client` around. The local
+                            // `cc3` clone here is still useful: it gives
+                            // this stream its own connection so a different
+                            // task's reconnect doesn't tear down the
+                            // backfill stream we're about to build.
+                            let cc3 = config.cc3.clone();
                             async move {
                                 // Regenerate connection endpoints
-                                let mut finalized = cc3.reconnect()
+                                cc3.reconnect()
                                     .await
                                     .map_err(|err| {
                                         tracing::error!(?err, "Failed to reconnect to CC3");
                                         Error::Client(err)
-                                    })?
+                                    })?;
+                                let mut finalized = cc3
                                     .api()
                                     .blocks()
                                     .subscribe_finalized()
@@ -95,8 +104,11 @@ impl StreamCC3 {
                                 // Backfilling
                                 let stream = futures::stream::iter(latest + 1..next.number() as u64)
                                     .then(move |n| {
-                                        let legacy = cc3.legacy().clone();
-                                        let api = cc3.api().clone();
+                                        // Each iteration snapshots the live
+                                        // connection so an in-flight
+                                        // reconnect picks up automatically.
+                                        let legacy = cc3.legacy();
+                                        let api = cc3.api();
                                         let number = subxt::backend::legacy::rpc_methods::NumberOrHex::Number(n);
 
                                         async move {

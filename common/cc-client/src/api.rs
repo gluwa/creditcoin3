@@ -5,6 +5,12 @@ use user::prelude::*;
 /// Will attempt to restore connection on any failed runtime call. Reconnection attempts are
 /// unbounded and can only be aborted via manual user cancellation (Ctrl-C).
 ///
+/// Holds a borrow of the underlying [`crate::Client`] (taken as `&mut` for
+/// historical reasons — every consumer here calls through a mutable handle).
+/// The underlying [`crate::Client::reconnect`] now uses interior mutability,
+/// so the borrow is `&Client` for reconnect purposes; we keep the `&mut`
+/// receiver to avoid churn at every call site.
+///
 /// [`RuntimeApi`]: subxt::runtime_api::RuntimeApi
 pub struct ReconnectingRuntimeApi<'a> {
     client: &'a mut crate::Client,
@@ -18,11 +24,7 @@ impl<'a> ReconnectingRuntimeApi<'a> {
     pub async fn new(client: &'a mut crate::Client) -> Result<Self, Interrupt<crate::Error>> {
         let runtime_api = match client.api().runtime_api().at_latest().await {
             Ok(runtime_api) => runtime_api,
-            Err(err) => {
-                let (client_new, runtime_api) = reconnect(client, err).await?;
-                *client = client_new;
-                runtime_api
-            }
+            Err(err) => reconnect(client, err).await?,
         };
 
         Ok(Self {
@@ -39,9 +41,7 @@ impl<'a> ReconnectingRuntimeApi<'a> {
             match self.runtime_api.call(call()).await {
                 Ok(res) => break Ok(res),
                 Err(err) => {
-                    let (client, runtime_api) = reconnect(self.client, err).await?;
-                    *self.client = client;
-                    self.runtime_api = runtime_api;
+                    self.runtime_api = reconnect(self.client, err).await?;
                 }
             }
         }
@@ -52,13 +52,10 @@ async fn reconnect(
     client: &crate::Client,
     err: subxt::Error,
 ) -> Result<
-    (
-        crate::Client,
-        subxt::runtime_api::RuntimeApi<
-            subxt::SubstrateConfig,
-            subxt::OnlineClient<subxt::SubstrateConfig>,
-        >,
-    ),
+    subxt::runtime_api::RuntimeApi<
+        subxt::SubstrateConfig,
+        subxt::OnlineClient<subxt::SubstrateConfig>,
+    >,
     Interrupt<crate::Error>,
 > {
     tracing::warn!(?err, "CC3 connection lost");
@@ -69,19 +66,27 @@ async fn reconnect(
     let reconnect = || {
         tracing::warn!("Reconnecting to CC3...");
 
-        let mut cc3 = client.clone();
         async move {
-            cc3.reconnect().await.map_err(|err| {
+            // `Client::reconnect` now takes `&self` and atomically swaps the
+            // underlying subxt connection for every `Arc<Client>` (and shared
+            // borrow) holder. We can therefore refresh in place rather than
+            // shuffling a value-cloned `Client` around.
+            client.reconnect().await.map_err(|err| {
                 tracing::error!(?err, "Failed to reconnect to CC3");
                 err
             })?;
 
-            let runtime_api = cc3.api().runtime_api().at_latest().await.map_err(|err| {
-                tracing::error!(?err, "Failed to reconnect to CC3");
-                crate::Error::SubxtError(err)
-            })?;
+            let runtime_api = client
+                .api()
+                .runtime_api()
+                .at_latest()
+                .await
+                .map_err(|err| {
+                    tracing::error!(?err, "Failed to reconnect to CC3");
+                    crate::Error::SubxtError(err)
+                })?;
 
-            Ok::<_, crate::Error>((cc3, runtime_api))
+            Ok::<_, crate::Error>(runtime_api)
         }
     };
     tokio::select! {

@@ -2240,6 +2240,7 @@ name = "cc-client"
 version = "3.116.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "attestor-primitives",
  "serde",
  "sp-core",
