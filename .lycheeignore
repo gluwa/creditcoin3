@@ -25,6 +25,6 @@ https://sepolia.infura.io/v3/(.*)
 https://registry.npmjs.org/-/npm/v1/(.*)
 https://github.com/request/request/issues/(.*)
 https://blockscout(.*)creditcoin.network/
-https://attestations-graphql(.*)creditcoin.network/
+https://graphql-usc(.*)creditcoin.network/
 https://nixos.wiki/wiki/flakes#Enable_flakes_temporarily
 https://opencollective.com/(.*)
