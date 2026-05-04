@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use arc_swap::ArcSwap;
 use serde::Serialize;
 use sp_core::U256;
 pub use subxt::utils::{AccountId32, H256};
@@ -76,17 +79,49 @@ pub enum Error {
     TransactionTimeout,
 }
 
-#[derive(Clone)]
+/// Inner mutable state of [`Client`]: the live subxt RPC handle and its
+/// derived `OnlineClient` / `LegacyRpcMethods`. Stored behind
+/// [`ArcSwap`] inside [`Client`] so that a successful [`Client::reconnect`]
+/// atomically replaces the live connection for *every* `Arc<Client>`
+/// holder at once.
+struct ClientInner {
+    rpc: RpcClient,
+    api: OnlineClient<SubstrateConfig>,
+    legacy: LegacyRpcMethods<SubstrateConfig>,
+}
+
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
 /// - `keypair`: Creditcoin3 keypair
+///
+/// The live subxt RPC connection lives behind an [`ArcSwap`] so that a single
+/// `Arc<Client>` shared across many tasks can be reconnected in place: once
+/// any holder calls [`Client::reconnect`], every other holder picks up the
+/// fresh subxt `RpcClient` / `OnlineClient` on its next call. The previous
+/// design swapped fields on a value-cloned `Client`, which left other
+/// `Arc<Client>` holders pinned to a stale (and often `RestartNeeded`)
+/// connection until the process was restarted.
 pub struct Client {
     signer: signer::CC3Signer,
-    rpc: RpcClient,
-    api: OnlineClient<SubstrateConfig>,
-    legacy: LegacyRpcMethods<SubstrateConfig>,
     url: String,
+    inner: ArcSwap<ClientInner>,
+}
+
+impl Clone for Client {
+    /// Clone the client by snapshotting the *current* live connection into a
+    /// fresh `ArcSwap`. Note that the resulting `Client` has its own
+    /// `ArcSwap`: subsequent `reconnect()` calls on either side will not be
+    /// observed by the other. For shared-reconnect semantics, share an
+    /// `Arc<Client>` (every holder of the same `Arc<Client>` *does* see
+    /// reconnects atomically).
+    fn clone(&self) -> Self {
+        Self {
+            signer: self.signer.clone(),
+            url: self.url.clone(),
+            inner: ArcSwap::new(self.inner.load_full()),
+        }
+    }
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -102,29 +137,36 @@ impl Client {
     /// - `key`: secret phrase for a creditcoin key
     pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
         let signer = signer::CC3Signer::new(key)?;
-        let rpc = RpcClient::from_insecure_url(url.clone().into()).await?;
-        let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
-        let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
+        let url: String = url.into();
+        let inner = Self::build_inner(&url).await?;
 
         Ok(Self {
             signer,
-            rpc,
-            api,
-            legacy,
-            url: url.into(),
+            url,
+            inner: ArcSwap::new(Arc::new(inner)),
         })
     }
 
-    pub async fn reconnect(&mut self) -> Result<&mut Self, Error> {
-        let rpc = RpcClient::from_insecure_url(self.url.clone()).await?;
+    /// Open a fresh subxt connection (RPC + OnlineClient + LegacyRpcMethods)
+    /// against `url`. Used by both [`Client::new`] and [`Client::reconnect`].
+    async fn build_inner(url: &str) -> Result<ClientInner, Error> {
+        let rpc = RpcClient::from_insecure_url(url.to_owned()).await?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
+        Ok(ClientInner { rpc, api, legacy })
+    }
 
-        self.rpc = rpc;
-        self.api = api;
-        self.legacy = legacy;
-
-        Ok(self)
+    /// Atomically replace the live subxt connection with a freshly-opened one.
+    ///
+    /// Takes `&self` (not `&mut self`) on purpose: a single `Arc<Client>`
+    /// shared across many tasks (e.g. proof-gen-api-server's events task and
+    /// every continuity builder) can call this without coordination, and all
+    /// callers immediately observe the new connection on their next
+    /// `api()`/`legacy()`/`rpc()` access.
+    pub async fn reconnect(&self) -> Result<(), Error> {
+        let inner = Self::build_inner(&self.url).await?;
+        self.inner.store(Arc::new(inner));
+        Ok(())
     }
 
     /// Create a new read-only instance of cc3 client that doesn't require a keypair.
@@ -137,14 +179,28 @@ impl Client {
         Self::new(url, DUMMY_KEY).await
     }
 
+    /// Snapshot of the live subxt `OnlineClient`.
+    ///
+    /// The returned value is a cheap arc-internal clone of the current
+    /// connection at call time. After a `reconnect()`, subsequent `api()`
+    /// calls return the fresh client; previously-snapshotted clients keep
+    /// using the old connection until they're dropped.
     #[must_use]
-    pub fn api(&self) -> &OnlineClient<SubstrateConfig> {
-        &self.api
+    pub fn api(&self) -> OnlineClient<SubstrateConfig> {
+        self.inner.load().api.clone()
     }
 
+    /// Snapshot of the live subxt `LegacyRpcMethods`. See [`Client::api`] for
+    /// snapshot semantics.
     #[must_use]
-    pub fn legacy(&self) -> &LegacyRpcMethods<SubstrateConfig> {
-        &self.legacy
+    pub fn legacy(&self) -> LegacyRpcMethods<SubstrateConfig> {
+        self.inner.load().legacy.clone()
+    }
+
+    /// Snapshot of the live subxt `RpcClient`. Used internally for raw RPC
+    /// requests such as attestation submission.
+    fn rpc(&self) -> RpcClient {
+        self.inner.load().rpc.clone()
     }
 
     #[must_use]
@@ -787,7 +843,7 @@ impl Client {
             .map_err(|_| Error::FailedToSubmit)?;
 
         match self
-            .rpc
+            .rpc()
             .request::<()>("attestor_submitAttestation", params)
             .await
         {
@@ -1148,5 +1204,104 @@ impl From<CcChainEncodingVersion> for usc_abi_encoding::common::EncodingVersion 
         match version {
             CcChainEncodingVersion::V1 => usc_abi_encoding::common::EncodingVersion::V1,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests that lock in the *shared-Arc reconnect* contract added in
+    //! CSUB-2039: a single `Arc<Client>` shared across many tasks must see a
+    //! `reconnect()` call atomically refresh the underlying subxt connection
+    //! for every holder, not just the caller.
+    //!
+    //! We can't stand up a real subxt `RpcClient` in a unit test (it needs a
+    //! live WS endpoint), so these tests exercise the `ArcSwap<ClientInner>`
+    //! plumbing directly. The production `Client::reconnect` is a thin
+    //! wrapper that builds a fresh `ClientInner` and calls
+    //! `self.inner.store(...)` — if the store/load contract holds for one
+    //! Arc holder, it holds for all of them.
+
+    use super::*;
+
+    // We can't construct a real `ClientInner` in a unit test (subxt's
+    // `RpcClient`/`OnlineClient`/`LegacyRpcMethods` need a live endpoint),
+    // so the tests below exercise the underlying `ArcSwap` swap semantics
+    // directly. `Client::reconnect` is a thin wrapper around exactly this
+    // pattern: build a fresh inner, then `self.inner.store(Arc::new(inner))`.
+    // If the contract holds at the `ArcSwap` layer it holds for `Client`.
+
+    /// Locks in the contract that `ArcSwap::store` is observed atomically by
+    /// every holder of the same `ArcSwap`. This is the exact mechanism
+    /// `Client::reconnect` uses to refresh the live subxt connection for
+    /// every `Arc<Client>` holder, so we test the contract here even though
+    /// we can't easily build a real `ClientInner` in a unit test.
+    #[test]
+    fn arcswap_shared_reconnect_contract() {
+        // Stand in for `ClientInner`: any `Arc`-able payload works.
+        struct StubInner(#[allow(dead_code)] u64);
+
+        let swap = Arc::new(ArcSwap::new(Arc::new(StubInner(0))));
+        let observer_a = Arc::clone(&swap);
+        let observer_b = Arc::clone(&swap);
+
+        // Both observers see the same initial inner.
+        let initial_a = observer_a.load_full();
+        let initial_b = observer_b.load_full();
+        assert!(
+            Arc::ptr_eq(&initial_a, &initial_b),
+            "two Arc<ArcSwap> holders must observe the same initial inner"
+        );
+
+        // Simulate `reconnect()`: build a fresh inner and store it via one
+        // observer. With the new `&self` reconnect signature, this is the
+        // exact code path proof-gen-api-server's events task takes.
+        let new_inner = Arc::new(StubInner(1));
+        observer_a.store(Arc::clone(&new_inner));
+
+        // Both observers must now see the freshly-stored inner.
+        let after_a = observer_a.load_full();
+        let after_b = observer_b.load_full();
+        assert!(
+            Arc::ptr_eq(&after_a, &new_inner),
+            "the observer that called store() must see the new inner"
+        );
+        assert!(
+            Arc::ptr_eq(&after_b, &new_inner),
+            "the *other* observer must also see the new inner \
+             (this is the bug CSUB-2039 fixes)"
+        );
+
+        // Old inner is no longer the live one.
+        assert!(
+            !Arc::ptr_eq(&after_b, &initial_b),
+            "after store(), the live inner must differ from the original"
+        );
+    }
+
+    /// Sanity check that `Client::clone` produces a `Client` with its *own*
+    /// `ArcSwap` (i.e. a value-cloned Client *cannot* be reconnected on
+    /// behalf of another Client — you have to share via `Arc<Client>` for
+    /// the shared-reconnect semantics). This documents the deliberate
+    /// distinction between value-clone (independent connections) and
+    /// `Arc::clone` (shared connection).
+    ///
+    /// We can't build a real `Client` in unit tests, so we restate the
+    /// contract on `ArcSwap` directly: cloning the *outer* Arc shares the
+    /// swap, while replacing the inner `ArcSwap` with a fresh one (as
+    /// `Client::clone` does) does not.
+    #[test]
+    fn arcswap_clone_is_shared_only_when_outer_arc_is_shared() {
+        let swap_a = ArcSwap::new(Arc::new(0u64));
+        // `Client::clone` snapshots the current inner into a *new* `ArcSwap`.
+        let swap_b = ArcSwap::new(swap_a.load_full());
+
+        swap_a.store(Arc::new(42u64));
+
+        assert_eq!(**swap_a.load(), 42, "caller of store() sees the update");
+        assert_eq!(
+            **swap_b.load(),
+            0,
+            "a value-cloned Client has its own ArcSwap and is unaffected"
+        );
     }
 }
