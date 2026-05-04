@@ -1023,7 +1023,11 @@ impl WorkerAttestationValidation {
         let reconnect = || {
             tracing::warn!("Reconnecting to CC3...");
 
-            let mut cc3 = self.cc3.clone();
+            // `Client::reconnect` now uses interior mutability
+            // (`ArcSwap<ClientInner>`), so we don't need a `&mut` handle here.
+            // The local clone preserves existing semantics: reconnect on the
+            // clone, then move it back into `self.cc3` on success.
+            let cc3 = self.cc3.clone();
             async move {
                 cc3.reconnect().await.map_err(|err| {
                     tracing::error!(?err, "Failed to reconnect to CC3");
