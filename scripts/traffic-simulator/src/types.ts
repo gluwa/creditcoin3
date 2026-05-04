@@ -85,7 +85,7 @@ export interface HealthStatus {
 /**
  * Proof response from the proof generation API (camelCase format)
  *
- * Example response from: https://proof-gen-api.usc-testnet2.creditcoin.network/api/v1/proof-by-tx/...
+ * Example response from: https://prover.cc3-testnet.creditcoin.network/api/v1/proof-by-tx/...
  */
 export interface ProofResponse {
   cached: boolean;
