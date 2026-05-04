@@ -147,7 +147,7 @@ impl Client {
         })
     }
 
-    /// Open a fresh subxt connection (RPC + OnlineClient + LegacyRpcMethods)
+    /// Open a fresh subxt connection (RPC + `OnlineClient` + `LegacyRpcMethods`)
     /// against `url`. Used by both [`Client::new`] and [`Client::reconnect`].
     async fn build_inner(url: &str) -> Result<ClientInner, Error> {
         let rpc = RpcClient::from_insecure_url(url.to_owned()).await?;
