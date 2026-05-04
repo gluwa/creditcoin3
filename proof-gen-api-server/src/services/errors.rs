@@ -143,6 +143,11 @@ pub enum ServiceError {
         span: u64,
         max_span: u64,
     },
+    #[error("No new attestation events received in {elapsed_secs}s (>= configured liveness timeout of {timeout_secs}s); the CC3 attestation event listener appears stalled and the proof gen server should be restarted to re-establish the subscription")]
+    AttestationLivenessInterrupted {
+        elapsed_secs: u64,
+        timeout_secs: u64,
+    },
 }
 
 impl ServiceError {
@@ -152,6 +157,7 @@ impl ServiceError {
             ServiceError::RpcUnavailable { .. }
                 | ServiceError::BlockNotReady { .. }
                 | ServiceError::BlockNotOnSourceChain { .. }
+                | ServiceError::AttestationLivenessInterrupted { .. }
         )
     }
     pub fn code(&self) -> &'static str {
@@ -176,6 +182,7 @@ impl ServiceError {
             ServiceError::TooManyTxHashes => "TooManyTxHashes",
             ServiceError::EmptyTxHashes => "EmptyTxHashes",
             ServiceError::BatchSpanTooLarge { .. } => "BatchSpanTooLarge",
+            ServiceError::AttestationLivenessInterrupted { .. } => "AttestationLivenessInterrupted",
         }
     }
 
@@ -193,7 +200,9 @@ impl ServiceError {
             | Self::EmptyTxHashes
             | Self::TooManyTxHashes
             | Self::BatchSpanTooLarge { .. } => StatusCode::BAD_REQUEST,
-            Self::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::RpcUnavailable { .. } | Self::AttestationLivenessInterrupted { .. } => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::TxHashNotFound { .. } | Self::BlockNotOnSourceChain { .. } => {
                 StatusCode::NOT_FOUND
@@ -329,6 +338,9 @@ impl GetErrorType for ServiceError {
             ServiceError::EmptyTxHashes => ErrorType::EmptyTxHashes,
             ServiceError::TooManyTxHashes => ErrorType::TooManyTxHashes,
             ServiceError::BatchSpanTooLarge { .. } => ErrorType::BatchSpanTooLarge,
+            ServiceError::AttestationLivenessInterrupted { .. } => {
+                ErrorType::AttestationLivenessInterrupted
+            }
         }
     }
 }

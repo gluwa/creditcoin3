@@ -459,6 +459,26 @@ mod tests {
         eth_provider: Arc<dyn EthRpcProvider>,
         max_batch_span: u64,
     ) -> ContinuityService {
+        make_service_full(
+            eth_provider,
+            max_batch_span,
+            std::time::Duration::from_secs(5 * 60),
+        )
+        .await
+    }
+
+    async fn make_service_with_liveness_timeout(
+        eth_provider: Arc<dyn EthRpcProvider>,
+        attestation_liveness_timeout: std::time::Duration,
+    ) -> ContinuityService {
+        make_service_full(eth_provider, 1_000, attestation_liveness_timeout).await
+    }
+
+    async fn make_service_full(
+        eth_provider: Arc<dyn EthRpcProvider>,
+        max_batch_span: u64,
+        attestation_liveness_timeout: std::time::Duration,
+    ) -> ContinuityService {
         let chain_key = 2;
         let (cc_provider, _) = make_mock_providers(chain_key);
         let builder = Arc::new(ContinuityBuilder::new_with_providers(
@@ -466,9 +486,15 @@ mod tests {
             cc_provider,
             eth_provider,
         ));
-        ContinuityService::new(vec![builder], NoopMetrics::new(), 10, max_batch_span)
-            .await
-            .expect("service init should succeed with mocks")
+        ContinuityService::new(
+            vec![builder],
+            NoopMetrics::new(),
+            10,
+            max_batch_span,
+            attestation_liveness_timeout,
+        )
+        .await
+        .expect("service init should succeed with mocks")
     }
 
     #[tokio::test]
@@ -905,6 +931,94 @@ mod tests {
                 "single-block batch should never fail span check, got {err:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn check_attestation_event_timer_passes_when_within_timeout() {
+        // Generous timeout, no attestation inserted: should still pass because
+        // the timer is seeded at service start.
+        let svc = make_service_with_liveness_timeout(
+            Arc::new(FoundEthProvider),
+            std::time::Duration::from_secs(60),
+        )
+        .await;
+
+        svc.check_attestation_event_timer()
+            .await
+            .expect("liveness check should pass within timeout");
+    }
+
+    #[tokio::test]
+    async fn check_attestation_event_timer_trips_after_timeout() {
+        // 0-duration timeout means "any elapsed time trips the check". This
+        // also exercises the boundary condition (>= timeout).
+        let svc = make_service_with_liveness_timeout(
+            Arc::new(FoundEthProvider),
+            std::time::Duration::from_secs(0),
+        )
+        .await;
+
+        // Yield once so a tiny bit of time passes since service construction.
+        tokio::task::yield_now().await;
+
+        let err = svc
+            .check_attestation_event_timer()
+            .await
+            .expect_err("liveness check should trip with a 0s timeout");
+        assert!(
+            matches!(err, ServiceError::AttestationLivenessInterrupted { .. }),
+            "unexpected error variant: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn insert_attestation_resets_liveness_timer() {
+        // Build the service with a generous timeout so we control the elapsed
+        // window with `time_since_last_attestation_event`.
+        let svc = make_service_with_liveness_timeout(
+            Arc::new(FoundEthProvider),
+            std::time::Duration::from_secs(3600),
+        )
+        .await;
+
+        // Spin a bit so the timer has a non-zero elapsed value.
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let before = svc.time_since_last_attestation_event().await;
+        assert!(before >= std::time::Duration::from_millis(10));
+
+        svc.insert_attestation(2, 100, H256::zero()).await;
+
+        let after = svc.time_since_last_attestation_event().await;
+        assert!(
+            after < before,
+            "insert_attestation should reset the liveness timer (before={before:?}, after={after:?})"
+        );
+    }
+
+    #[tokio::test]
+    async fn insert_attestation_resets_timer_for_unserved_chain_key() {
+        // The fix from CSUB-2039 specifies the timer should be reset on every
+        // call to `insert_attestation`. Chain filtering happens *after* the
+        // reset because a fresh event for any chain still proves the CC3
+        // listener is alive.
+        let svc = make_service_with_liveness_timeout(
+            Arc::new(FoundEthProvider),
+            std::time::Duration::from_secs(3600),
+        )
+        .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let before = svc.time_since_last_attestation_event().await;
+        assert!(before >= std::time::Duration::from_millis(10));
+
+        // chain_key 999 is not configured on this service.
+        svc.insert_attestation(999, 1, H256::zero()).await;
+
+        let after = svc.time_since_last_attestation_event().await;
+        assert!(
+            after < before,
+            "timer should reset even for events on chains we don't serve (before={before:?}, after={after:?})"
+        );
     }
 
     // ---------------------------------------------------------------------

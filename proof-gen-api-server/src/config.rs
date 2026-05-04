@@ -16,6 +16,14 @@ pub const DEFAULT_MAX_BATCH_SIZE: NonZeroUsize = match NonZeroUsize::new(10) {
 /// from forcing proof generation over an extremely large block range.
 pub const DEFAULT_MAX_BATCH_SPAN: u64 = 1_000;
 
+/// Default `attestation_liveness_timeout_minutes` (5 minutes) - if no new
+/// attestation event is observed from CC3 for at least this long, the
+/// `check_attestation_event_timer` health check will return
+/// [`crate::services::errors::ServiceError::AttestationLivenessInterrupted`].
+/// Operators are expected to wire this into a liveness probe so the proof gen
+/// server is restarted and re-subscribes to attestation events.
+pub const DEFAULT_ATTESTATION_LIVENESS_TIMEOUT_MINUTES: u64 = 5;
+
 /// One source chain (EVM) served by this process, keyed on Creditcoin3.
 #[derive(Debug, Clone)]
 pub struct ChainConfig {
@@ -47,6 +55,12 @@ pub struct Config {
     pub redis_cluster_mode: bool,
     pub max_batch_size: NonZeroUsize,
     pub max_batch_span: u64,
+    /// Maximum time (in minutes) the proof gen server tolerates between
+    /// attestation events from CC3 before
+    /// [`crate::services::continuity_service::ContinuityService::check_attestation_event_timer`]
+    /// reports the listener as stalled. See
+    /// [`DEFAULT_ATTESTATION_LIVENESS_TIMEOUT_MINUTES`].
+    pub attestation_liveness_timeout_minutes: u64,
 }
 
 impl Config {
@@ -68,6 +82,7 @@ impl Config {
             redis_cluster_mode: false,
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
             max_batch_span: DEFAULT_MAX_BATCH_SPAN,
+            attestation_liveness_timeout_minutes: DEFAULT_ATTESTATION_LIVENESS_TIMEOUT_MINUTES,
         }
     }
 
@@ -108,6 +123,10 @@ pub struct ConfigFile {
     pub max_batch_size: NonZeroUsize,
     #[serde(default = "default_max_batch_span")]
     pub max_batch_span: u64,
+    /// Optional override for the attestation liveness timeout in minutes.
+    /// Defaults to [`DEFAULT_ATTESTATION_LIVENESS_TIMEOUT_MINUTES`].
+    #[serde(default = "default_attestation_liveness_timeout_minutes")]
+    pub attestation_liveness_timeout_minutes: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +157,10 @@ fn default_max_batch_size() -> NonZeroUsize {
 
 fn default_max_batch_span() -> u64 {
     DEFAULT_MAX_BATCH_SPAN
+}
+
+fn default_attestation_liveness_timeout_minutes() -> u64 {
+    DEFAULT_ATTESTATION_LIVENESS_TIMEOUT_MINUTES
 }
 
 impl ConfigFile {
@@ -171,6 +194,7 @@ impl ConfigFile {
             redis_cluster_mode: self.redis_cluster_mode,
             max_batch_size: self.max_batch_size,
             max_batch_span: self.max_batch_span,
+            attestation_liveness_timeout_minutes: self.attestation_liveness_timeout_minutes,
         })
     }
 }

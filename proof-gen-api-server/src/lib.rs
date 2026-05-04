@@ -296,6 +296,11 @@ impl Server {
             metrics.clone(),
             self.config.max_batch_size.get(),
             self.config.max_batch_span,
+            std::time::Duration::from_secs(
+                self.config
+                    .attestation_liveness_timeout_minutes
+                    .saturating_mul(60),
+            ),
         )
         .await?;
 
