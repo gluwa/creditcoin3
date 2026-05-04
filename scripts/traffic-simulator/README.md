@@ -29,7 +29,7 @@ deno task start -- \
   --source-rpc wss://sepolia.infura.io/ws/v3/YOUR_KEY \
   --cc3-ws wss://rpc.usc-testnet2.creditcoin.network \
   --private-key 0x... \
-  --api-url https://proof-gen-api.usc-testnet2.creditcoin.network
+  --api-url https://prover.cc3-testnet.creditcoin.network
 ```
 
 ## Configuration
@@ -99,7 +99,7 @@ docker run -d \
   -e SOURCE_RPC_URL=wss://sepolia.infura.io/ws/v3/YOUR_KEY \
   -e CC3_WS_URL=wss://rpc.usc-testnet2.creditcoin.network\
   -e CC3_PRIVATE_KEY=0x... \
-  -e PROOF_API_URL=https://proof-gen-api.usc-testnet2.creditcoin.network \
+  -e PROOF_API_URL=https://prover.cc3-testnet.creditcoin.network \
   -p 8080:8080 \
   gluwa/proof-traffic-simulator:latest
 ```
