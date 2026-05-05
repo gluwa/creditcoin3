@@ -257,6 +257,14 @@ async fn process_cc_event(
                 .insert_checkpoint(*event_chain_key, block_number, digest)
                 .await;
 
+            // Mirror the on-chain pallet's `remove_attestations` behavior: the
+            // attestations consumed by this checkpoint no longer exist on
+            // chain, so anchoring a proof on them is guaranteed to fail
+            // verification.
+            service
+                .prune_attestations_at_or_below(*event_chain_key, block_number)
+                .await;
+
             Ok(())
         }
         CcEvent::CheckpointIntervalChanged(event_chain_key, new_interval) => {
