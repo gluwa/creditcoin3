@@ -3823,6 +3823,9 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'Disabled' | 'Enabled';
     }
 
-    /** @name Creditcoin3RuntimeRuntime (440) */
+    /** @name PalletAttestationExtensionsPrevalidateAttestationCommit (439) */
+    type PalletAttestationExtensionsPrevalidateAttestationCommit = Null;
+
+    /** @name Creditcoin3RuntimeRuntime (441) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module
