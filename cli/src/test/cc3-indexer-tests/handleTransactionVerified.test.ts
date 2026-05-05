@@ -74,17 +74,30 @@ describe('handleTransactionVerified()', () => {
             const verifyAndEmitSingle = blockProverContract.getFunction(
                 'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))',
             );
-            await verifyAndEmitSingle(
+
+            const latestBlock = await provider.getBlock('latest');
+            const baseFeePerGas = latestBlock?.baseFeePerGas ?? 1_000_000_000n;
+            const feeData = await provider.getFeeData();
+            const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? 1_000_000_000n;
+            const maxFeePerGas = baseFeePerGas * 10n + maxPriorityFeePerGas;
+
+            const result = await verifyAndEmitSingle(
                 proofData.chainKey,
                 proofData.headerNumber,
                 proofData.txBytes,
                 proofData.merkleProof,
                 proofData.continuityProof,
                 {
-                    gasPrice: (await provider.getFeeData()).gasPrice,
                     gasLimit: 10000000,
+                    maxFeePerGas,
+                    maxPriorityFeePerGas,
                 },
             );
+
+            // wait for this to be included on-chain
+            const receipt = await result.wait();
+            expect(receipt).toBeDefined();
+            expect(receipt?.hash).toBeDefined();
 
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 45_000);
