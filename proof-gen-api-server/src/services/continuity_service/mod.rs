@@ -248,32 +248,10 @@ impl ContinuityService {
                     );
                     Vec::new()
                 });
-            let mut attestation_map: BTreeMap<u64, H256> = attestations
+            let attestation_map: BTreeMap<u64, H256> = attestations
                 .into_iter()
                 .map(|att| (att.attestation.header_number, att.attestation.digest()))
                 .collect();
-
-            // Drop any seeded attestations at-or-below the latest known
-            // checkpoint. The on-chain pallet removes attestations once a
-            // checkpoint absorbs them, so re-seeding them at startup would
-            // re-introduce the staleness `prune_attestations_at_or_below`
-            // exists to prevent. Nothing on chain references those heights as
-            // attestations any more — only the checkpoint does.
-            if let Some(&latest_cp) = checkpoint_map.keys().next_back() {
-                let split_key = latest_cp.saturating_add(1);
-                let pruned_before = attestation_map.len();
-                attestation_map = attestation_map.split_off(&split_key);
-                let pruned = pruned_before.saturating_sub(attestation_map.len());
-                if pruned > 0 {
-                    tracing::debug!(
-                        chain_key,
-                        latest_checkpoint = latest_cp,
-                        pruned,
-                        "Dropped seeded attestations consumed by latest checkpoint"
-                    );
-                }
-            }
-
             tracing::debug!(
                 chain_key,
                 count = attestation_map.len(),
@@ -473,13 +451,17 @@ impl ContinuityService {
 
     /// Drop attestation cache entries at or below `height`.
     ///
-    /// Called after a `CheckpointReached` event: the on-chain attestation pallet
-    /// removes the constituent attestations once a checkpoint absorbs them
-    /// (`pallets/attestation/src/impls.rs` `remove_attestations`), so any
-    /// attestation we still hold at-or-below the new checkpoint height is no
-    /// longer authoritative. Serving a proof anchored on one of those stale
-    /// digests produces "Continuity proof does not match attestation or
-    /// checkpoint" at verification time.
+    /// Called after a `CheckpointReached` event. Once a checkpoint absorbs a
+    /// run of attestations, the on-chain pallet appends them to a per-chain
+    /// removal queue (`pallets/attestation/src/impls.rs` `remove_attestations`)
+    /// and evicts the oldest entries once the queue exceeds
+    /// `AttestationRetentionDuration`. Any of those consumed attestations that
+    /// we still hold in cache will eventually point at a digest the on-chain
+    /// verifier no longer recognizes, producing "Continuity proof does not
+    /// match attestation or checkpoint" at verification time. Pruning at the
+    /// checkpoint boundary keeps the cache aligned with the post-checkpoint
+    /// invariant: attestations strictly above the latest checkpoint are the
+    /// only ones the verifier will accept as proof anchors.
     pub async fn prune_attestations_at_or_below(&self, chain_key: u64, height: u64) {
         if let Some(chain) = self.chains.get(&chain_key) {
             let split_key = height.saturating_add(1);
