@@ -41,42 +41,12 @@ impl ContinuityService {
                 message: "header_numbers is empty".into(),
             })?;
 
-        // Read the latest known checkpoint up-front so we can reject stale
-        // attestation bounds below.
-        let latest_known_checkpoint = chain
-            .checkpoint_cache
-            .read()
-            .await
-            .keys()
-            .next_back()
-            .copied();
-
         // Step 1: Resolve boundaries from local caches.
         // Try attestation bounds first (more granular), then fall back to checkpoint bounds.
-        // Defense in depth: if the attestation lower is at-or-below a checkpoint
-        // we already know about, the on-chain pallet has removed that attestation
-        // (`pallets/attestation/src/impls.rs` `remove_attestations`), so anchoring
-        // a proof on it would fail verification with "Continuity proof does not
-        // match attestation or checkpoint". The CheckpointReached handler is
-        // supposed to prune those entries; this is a belt-and-suspenders guard.
-        let attestation_bounds = self
+        let (lower, lower_digest, upper, upper_digest) = if let Some(bounds) = self
             .get_attestation_boundaries(chain, min_query, max_query)
             .await
-            .filter(|bounds| match latest_known_checkpoint {
-                Some(cp) if bounds.0 <= cp => {
-                    tracing::warn!(
-                        min_query,
-                        max_query,
-                        attestation_lower = bounds.0,
-                        latest_known_checkpoint = cp,
-                        "discarding stale attestation bounds (lower already absorbed by a known checkpoint); falling back to checkpoint cache"
-                    );
-                    false
-                }
-                _ => true,
-            });
-
-        let (lower, lower_digest, upper, upper_digest) = if let Some(bounds) = attestation_bounds {
+        {
             tracing::debug!(
                 min_query,
                 max_query,
@@ -410,27 +380,6 @@ mod tests {
     }
 
     async fn make_service_with_batch_span(
-        eth_provider: Arc<dyn EthRpcProvider>,
-        max_batch_span: u64,
-    ) -> ContinuityService {
-        let svc = make_service_unseeded(eth_provider, max_batch_span).await;
-        // The mock returns checkpoints up to 1000, which under the new
-        // startup-priming behavior would drop every mock attestation. Most
-        // existing cache-mechanics tests below expect attestations at
-        // 10, 20, ..., 1000 to be present, so we re-seed them here. Tests
-        // exercising the priming behavior itself use `make_service_unseeded`.
-        let chain = svc.chain_state(2).expect("chain 2");
-        let mut att = chain.attestation_cache.write().await;
-        for h in (10..=1000).step_by(10) {
-            // These tests do not build full proofs, so any non-zero digest is
-            // sufficient — boundary lookup only inspects the keys.
-            att.insert(h as u64, H256::from_low_u64_be(h as u64));
-        }
-        drop(att);
-        svc
-    }
-
-    async fn make_service_unseeded(
         eth_provider: Arc<dyn EthRpcProvider>,
         max_batch_span: u64,
     ) -> ContinuityService {
@@ -866,100 +815,5 @@ mod tests {
         let chain = svc.chain_state(2).unwrap();
         let att = chain.attestation_cache.read().await;
         assert!(att.contains_key(&500), "chain 2 cache must be untouched");
-    }
-
-    #[tokio::test]
-    async fn startup_priming_drops_attestations_at_or_below_latest_checkpoint() {
-        // Mock returns checkpoints 0, 100, ..., 1000 (latest = 1000) and
-        // attestations 10, 20, ..., 1000. After startup priming, every
-        // attestation should be dropped — they are all <= 1000.
-        let svc = make_service_unseeded(Arc::new(FoundEthProvider), 1_000).await;
-        let chain = svc.chain_state(2).unwrap();
-
-        let att = chain.attestation_cache.read().await;
-        assert!(
-            att.is_empty(),
-            "startup must drop attestations consumed by the latest checkpoint, got {} entries",
-            att.len()
-        );
-
-        // Checkpoint cache must still be fully seeded.
-        let cp = chain.checkpoint_cache.read().await;
-        assert_eq!(cp.len(), 11, "checkpoint cache should be intact");
-        assert_eq!(*cp.keys().next_back().unwrap(), 1000);
-    }
-
-    #[tokio::test]
-    async fn build_continuity_skips_stale_attestation_bounds_below_known_checkpoint() {
-        // Reproduces the production failure mode:
-        // - latest checkpoint cache entry is at 1000 (from mock)
-        // - we manually re-insert an attestation at 500 (simulating a stale
-        //   cache entry that the prune step missed)
-        // - build_continuity for query block 600 would, without the
-        //   defense-in-depth filter, prefer the stale attestation lower=500
-        // - with the filter, it must fall through to checkpoint bounds.
-        let svc = make_service_unseeded(Arc::new(FoundEthProvider), 1_000).await;
-        let chain = svc.chain_state(2).unwrap();
-
-        // Confirm preconditions: priming dropped attestations, latest cp = 1000.
-        assert!(chain.attestation_cache.read().await.is_empty());
-        assert_eq!(
-            chain.checkpoint_cache.read().await.keys().next_back(),
-            Some(&1000)
-        );
-
-        // Reintroduce a stale attestation pair that *would* bracket query 600
-        // if the filter were not in place.
-        svc.insert_attestation(2, 590, H256::from_low_u64_be(590))
-            .await;
-        svc.insert_attestation(2, 610, H256::from_low_u64_be(610))
-            .await;
-
-        // FoundEthProvider returns no blocks, so build_proof_from_roots will
-        // fail with "no block at upper checkpoint boundary" — but the failure
-        // message embeds the build range, which lets us assert which bounds
-        // were chosen.
-        let err = svc
-            .build_continuity(chain, &[600])
-            .await
-            .expect_err("FoundEthProvider returns no blocks");
-
-        let msg = format!("{err:?}");
-        // Checkpoint bounds for query 600 are (lower=500, upper=600), so
-        // build_from = 501. If the filter had not fired we'd see build_from=591.
-        assert!(
-            msg.contains("range 501"),
-            "expected checkpoint-derived build range starting at 501, got: {msg}"
-        );
-        assert!(
-            !msg.contains("range 591"),
-            "stale attestation lower (590) must not be used: {msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn build_continuity_uses_attestation_bounds_above_latest_checkpoint() {
-        // Symmetric check: when the attestation lower is *above* the latest
-        // known checkpoint, the filter must NOT discard it.
-        let svc = make_service_unseeded(Arc::new(FoundEthProvider), 1_000).await;
-        let chain = svc.chain_state(2).unwrap();
-
-        // Insert attestations strictly above latest checkpoint (1000).
-        svc.insert_attestation(2, 1010, H256::from_low_u64_be(1010))
-            .await;
-        svc.insert_attestation(2, 1030, H256::from_low_u64_be(1030))
-            .await;
-
-        let err = svc
-            .build_continuity(chain, &[1020])
-            .await
-            .expect_err("FoundEthProvider returns no blocks");
-
-        let msg = format!("{err:?}");
-        // Attestation bounds (1010, 1030) → build_from = 1011.
-        assert!(
-            msg.contains("range 1011"),
-            "expected attestation-derived build range starting at 1011, got: {msg}"
-        );
     }
 }
