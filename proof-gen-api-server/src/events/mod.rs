@@ -257,10 +257,11 @@ async fn process_cc_event(
                 .insert_checkpoint(*event_chain_key, block_number, digest)
                 .await;
 
-            // Mirror the on-chain pallet's `remove_attestations` behavior: the
-            // attestations consumed by this checkpoint no longer exist on
-            // chain, so anchoring a proof on them is guaranteed to fail
-            // verification.
+            // Mirror the on-chain pallet's `remove_attestations` behavior:
+            // attestations consumed by this checkpoint are queued for
+            // eviction (and dropped once the per-chain retention window is
+            // exceeded). Keeping them in cache risks anchoring future proofs
+            // on digests the on-chain verifier has already discarded.
             service
                 .prune_attestations_at_or_below(*event_chain_key, block_number)
                 .await;
