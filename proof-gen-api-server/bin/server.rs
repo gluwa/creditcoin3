@@ -4,9 +4,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
-use proof_gen_api_server::config::{
-    ChainConfig, Config, DEFAULT_ATTESTATION_LIVENESS_TIMEOUT_MINUTES,
-};
+use proof_gen_api_server::config::{ChainConfig, Config};
 use proof_gen_api_server::Server;
 
 #[derive(Parser, Debug)]
@@ -100,9 +98,9 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
-        default_value_t = DEFAULT_ATTESTATION_LIVENESS_TIMEOUT_MINUTES,
+        default_value = "5",
         env = "ATTESTATION_LIVENESS_TIMEOUT_MINUTES",
-        help = "Maximum time in minutes the proof gen server tolerates between attestation events from CC3 before the /api/v1/health endpoint reports the listener as stalled (HTTP 503). Wire into a k8s liveness probe so the server is restarted and re-subscribes to attestation events. Defaults to 5 minutes."
+        help = "Maximum time in minutes the proof gen server tolerates between attestation events from CC3 before the /api/v1/health endpoint reports the listener as stalled (HTTP 503)."
     )]
     attestation_liveness_timeout_minutes: u64,
 

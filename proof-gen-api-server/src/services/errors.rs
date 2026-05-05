@@ -143,7 +143,7 @@ pub enum ServiceError {
         span: u64,
         max_span: u64,
     },
-    #[error("No new attestation events received in {elapsed_secs}s (>= configured liveness timeout of {timeout_secs}s); the CC3 attestation event listener appears stalled and the proof gen server should be restarted to re-establish the subscription")]
+    #[error("No new attestation events received in {elapsed_secs}s (>= configured liveness timeout of {timeout_secs}s)")]
     AttestationLivenessInterrupted {
         elapsed_secs: u64,
         timeout_secs: u64,

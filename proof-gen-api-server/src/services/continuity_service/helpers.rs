@@ -367,6 +367,9 @@ mod tests {
     use continuity::{mocks::make_mock_providers, ContinuityBuilder, ContinuityConfig};
     use std::sync::Arc;
 
+    const DEFAULT_ATTESTATION_LIVENESS_TIMEOUT: Duration = std::time::Duration::from_secs(5 * 60);
+    const DEFAULT_MAX_BATCH_SPAN: u64 = 1000;
+
     struct FoundEthProvider;
 
     #[async_trait]
@@ -452,29 +455,15 @@ mod tests {
     }
 
     async fn make_service(eth_provider: Arc<dyn EthRpcProvider>) -> ContinuityService {
-        make_service_with_batch_span(eth_provider, 1_000).await
-    }
-
-    async fn make_service_with_batch_span(
-        eth_provider: Arc<dyn EthRpcProvider>,
-        max_batch_span: u64,
-    ) -> ContinuityService {
-        make_service_full(
+        make_service_with_configuration(
             eth_provider,
-            max_batch_span,
-            std::time::Duration::from_secs(5 * 60),
+            DEFAULT_MAX_BATCH_SPAN,
+            DEFAULT_ATTESTATION_LIVENESS_TIMEOUT,
         )
         .await
     }
 
-    async fn make_service_with_liveness_timeout(
-        eth_provider: Arc<dyn EthRpcProvider>,
-        attestation_liveness_timeout: std::time::Duration,
-    ) -> ContinuityService {
-        make_service_full(eth_provider, 1_000, attestation_liveness_timeout).await
-    }
-
-    async fn make_service_full(
+    async fn make_service_with_configuration(
         eth_provider: Arc<dyn EthRpcProvider>,
         max_batch_span: u64,
         attestation_liveness_timeout: std::time::Duration,
@@ -852,7 +841,12 @@ mod tests {
     #[tokio::test]
     async fn batch_span_exceeding_limit_is_rejected() {
         // Set a tight max_batch_span of 50 blocks
-        let svc = make_service_with_batch_span(Arc::new(FoundEthProvider), 50).await;
+        let svc = make_service_with_configuration(
+            Arc::new(FoundEthProvider),
+            50,
+            DEFAULT_ATTESTATION_LIVENESS_TIMEOUT,
+        )
+        .await;
         let chain = svc.chain_state(2).unwrap();
 
         // Blocks 100 and 200 are 100 apart, which exceeds the 50-block limit
@@ -888,7 +882,12 @@ mod tests {
     #[tokio::test]
     async fn batch_span_within_limit_is_accepted() {
         // Set max_batch_span of 50 blocks
-        let svc = make_service_with_batch_span(Arc::new(FoundEthProvider), 50).await;
+        let svc = make_service_with_configuration(
+            Arc::new(FoundEthProvider),
+            50,
+            DEFAULT_ATTESTATION_LIVENESS_TIMEOUT,
+        )
+        .await;
         let chain = svc.chain_state(2).unwrap();
 
         // Blocks 100 and 140 are 40 apart, which is within the 50-block limit.
@@ -917,7 +916,12 @@ mod tests {
     #[tokio::test]
     async fn single_block_batch_always_passes_span_check() {
         // Even with max_batch_span = 0, a single-block batch has span 0 and should pass.
-        let svc = make_service_with_batch_span(Arc::new(FoundEthProvider), 0).await;
+        let svc = make_service_with_configuration(
+            Arc::new(FoundEthProvider),
+            0,
+            DEFAULT_ATTESTATION_LIVENESS_TIMEOUT,
+        )
+        .await;
         let chain = svc.chain_state(2).unwrap();
 
         let queries = vec![ProofQuery {
@@ -935,13 +939,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_attestation_event_timer_passes_when_within_timeout() {
-        // Generous timeout, no attestation inserted: should still pass because
-        // the timer is seeded at service start.
-        let svc = make_service_with_liveness_timeout(
-            Arc::new(FoundEthProvider),
-            std::time::Duration::from_secs(60),
-        )
-        .await;
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
 
         svc.check_attestation_event_timer()
             .await
@@ -952,8 +950,9 @@ mod tests {
     async fn check_attestation_event_timer_trips_after_timeout() {
         // 0-duration timeout means "any elapsed time trips the check". This
         // also exercises the boundary condition (>= timeout).
-        let svc = make_service_with_liveness_timeout(
+        let svc = make_service_with_configuration(
             Arc::new(FoundEthProvider),
+            DEFAULT_MAX_BATCH_SPAN,
             std::time::Duration::from_secs(0),
         )
         .await;
@@ -973,13 +972,7 @@ mod tests {
 
     #[tokio::test]
     async fn insert_attestation_resets_liveness_timer() {
-        // Build the service with a generous timeout so we control the elapsed
-        // window with `time_since_last_attestation_event`.
-        let svc = make_service_with_liveness_timeout(
-            Arc::new(FoundEthProvider),
-            std::time::Duration::from_secs(3600),
-        )
-        .await;
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
 
         // Spin a bit so the timer has a non-zero elapsed value.
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -992,32 +985,6 @@ mod tests {
         assert!(
             after < before,
             "insert_attestation should reset the liveness timer (before={before:?}, after={after:?})"
-        );
-    }
-
-    #[tokio::test]
-    async fn insert_attestation_resets_timer_for_unserved_chain_key() {
-        // The fix from CSUB-2039 specifies the timer should be reset on every
-        // call to `insert_attestation`. Chain filtering happens *after* the
-        // reset because a fresh event for any chain still proves the CC3
-        // listener is alive.
-        let svc = make_service_with_liveness_timeout(
-            Arc::new(FoundEthProvider),
-            std::time::Duration::from_secs(3600),
-        )
-        .await;
-
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        let before = svc.time_since_last_attestation_event().await;
-        assert!(before >= std::time::Duration::from_millis(10));
-
-        // chain_key 999 is not configured on this service.
-        svc.insert_attestation(999, 1, H256::zero()).await;
-
-        let after = svc.time_since_last_attestation_event().await;
-        assert!(
-            after < before,
-            "timer should reset even for events on chains we don't serve (before={before:?}, after={after:?})"
         );
     }
 

@@ -289,9 +289,7 @@ impl ContinuityService {
             metrics,
             max_batch_size,
             max_batch_span,
-            // Seed with `now` so the timer effectively starts ticking from
-            // service startup; if attestations never arrive we'll still trip
-            // the liveness check after `attestation_liveness_timeout`.
+            // Seed with `now` so we time out if attestations never arrive
             last_attestation_event_at: tokio::sync::RwLock::new(now),
             attestation_liveness_timeout,
         })
@@ -423,15 +421,9 @@ impl ContinuityService {
     /// Insert an attestation into the in-memory cache (called from event handler).
     ///
     /// Resets the attestation liveness timer (see
-    /// [`Self::check_attestation_event_timer`]) on every call, even when the
-    /// event is for a chain we don't serve, because a fresh event from CC3
-    /// still proves the listener is alive. The fix from CSUB-2039 relies on
-    /// this reset happening here so a stalled listener can be detected by the
-    /// liveness probe and the orchestrator can restart the server.
+    /// [`Self::check_attestation_event_timer`]) on every call.
     pub async fn insert_attestation(&self, chain_key: u64, block_number: u64, digest: H256) {
-        // Reset liveness timer first — we want the timer to track "last
-        // attestation event observed from CC3", regardless of whether the
-        // event is for a chain this server happens to serve.
+        // Reset liveness timer first
         *self.last_attestation_event_at.write().await = Instant::now();
 
         if let Some(chain) = self.chains.get(&chain_key) {
@@ -448,14 +440,6 @@ impl ContinuityService {
             );
         }
     }
-
-    /// Returns the configured attestation liveness timeout. Exposed for the
-    /// `/api/v1/health` response so operators can see what threshold is in
-    /// effect.
-    pub fn attestation_liveness_timeout(&self) -> Duration {
-        self.attestation_liveness_timeout
-    }
-
     /// Returns how long it has been since the last observed attestation event
     /// from CC3 (or service startup if none have been observed yet).
     pub async fn time_since_last_attestation_event(&self) -> Duration {
@@ -470,11 +454,9 @@ impl ContinuityService {
     /// `BlockAttested` event was received from CC3. The intent is that callers
     /// (the `/api/v1/health` endpoint, a k8s liveness probe, etc.) surface
     /// this as a failure so the orchestrator restarts the server and
-    /// re-establishes the subscription. See CSUB-2039: "We should have had an
-    /// attestation, because it's been five minutes, let's re-connect just in
-    /// case."
+    /// re-establishes the subscription.
     pub async fn check_attestation_event_timer(&self) -> ServiceResult<()> {
-        let elapsed = self.time_since_last_attestation_event().await;
+        let elapsed = self.last_attestation_event_at.read().await.elapsed();
         if elapsed >= self.attestation_liveness_timeout {
             return Err(ServiceError::AttestationLivenessInterrupted {
                 elapsed_secs: elapsed.as_secs(),
