@@ -484,11 +484,14 @@ impl ContinuityService {
         if let Some(chain) = self.chains.get(&chain_key) {
             let split_key = height.saturating_add(1);
             let mut att = chain.attestation_cache.write().await;
-            // split_off returns entries >= split_key; keep those, drop the rest.
+            // split_off mutates `att` in place to hold entries < split_key
+            // and returns entries >= split_key. We want to keep the latter,
+            // so reassign unconditionally — guarding this on `removed > 0`
+            // would silently wipe the cache whenever nothing needed pruning.
             let kept = att.split_off(&split_key);
             let removed = att.len();
+            *att = kept;
             if removed > 0 {
-                *att = kept;
                 tracing::debug!(
                     chain_key,
                     height,

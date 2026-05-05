@@ -823,6 +823,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn prune_attestations_at_or_below_preserves_cache_when_nothing_to_prune() {
+        // Regression: BTreeMap::split_off mutates in place to hold the lower
+        // half. A guard that only reassigns when `removed > 0` would silently
+        // wipe the entire cache here (every entry is above the split key).
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        let before: Vec<u64> = chain
+            .attestation_cache
+            .read()
+            .await
+            .keys()
+            .copied()
+            .collect();
+        assert!(!before.is_empty(), "precondition: cache is seeded");
+
+        // Prune at a height strictly below every entry (mock attestations
+        // start at 10, so height=5 means nothing should be removed).
+        svc.prune_attestations_at_or_below(2, 5).await;
+
+        let after: Vec<u64> = chain
+            .attestation_cache
+            .read()
+            .await
+            .keys()
+            .copied()
+            .collect();
+        assert_eq!(
+            before, after,
+            "cache must be untouched when no entry is at-or-below the prune height"
+        );
+    }
+
+    #[tokio::test]
     async fn prune_attestations_at_or_below_is_noop_for_unknown_chain() {
         let svc = make_service(Arc::new(FoundEthProvider)).await;
 
