@@ -3237,7 +3237,11 @@ export default {
         _enum: ['Disabled', 'Enabled'],
     },
     /**
-     * Lookup440: creditcoin3_runtime::Runtime
+     * Lookup439: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
+     **/
+    PalletAttestationExtensionsPrevalidateAttestationCommit: 'Null',
+    /**
+     * Lookup441: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };
