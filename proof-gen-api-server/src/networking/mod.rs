@@ -1,5 +1,6 @@
 use axum::{
     http::Method,
+    response::Redirect,
     routing::{get, post},
     Extension, Router,
 };
@@ -39,6 +40,7 @@ pub fn build_app(
         .allow_headers(Any);
 
     let router = Router::new()
+        .route("/", get(|| async { Redirect::permanent("/api/swagger") }))
         .route("/api/v1/health", get(health::health_check))
         .route(
             "/api/v1/proof/{chain_key}/{header_number}/{tx_index}",
