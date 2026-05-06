@@ -8,7 +8,8 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use attestor_primitives::block::Block;
 use sp_core::H256;
-use tracing::{debug, info};
+use std::time::Instant;
+use tracing::{debug, info, warn};
 
 use crate::rpc::{EthRpcProvider, SharedEthProvider};
 
@@ -45,17 +46,63 @@ impl ArchiverClient {
     /// Fetch merkle roots for an inclusive block range [from, to].
     pub async fn get_roots(&self, from: u64, to: u64) -> Result<Vec<(u64, H256)>> {
         let url = format!("{}/roots?from={}&to={}", self.base_url, from, to);
-        let entries: Vec<RootEntry> = self
+        let span = (to.saturating_sub(from)).saturating_add(1);
+        debug!(
+            archiver_url = %self.base_url,
+            from,
+            to,
+            span,
+            "📡 ➡️  archiver GET /roots"
+        );
+
+        let started = Instant::now();
+        let response = self
             .http
             .get(&url)
             .send()
             .await
-            .context("archiver request failed")?
+            .with_context(|| {
+                let elapsed_ms = started.elapsed().as_millis();
+                warn!(
+                    archiver_url = %self.base_url,
+                    from,
+                    to,
+                    span,
+                    duration_ms = elapsed_ms,
+                    "📡 ❌ archiver GET /roots transport error"
+                );
+                "archiver request failed"
+            })?
             .error_for_status()
-            .context("archiver returned error status")?
+            .with_context(|| {
+                let elapsed_ms = started.elapsed().as_millis();
+                warn!(
+                    archiver_url = %self.base_url,
+                    from,
+                    to,
+                    span,
+                    duration_ms = elapsed_ms,
+                    "📡 ❌ archiver GET /roots non-success status"
+                );
+                "archiver returned error status"
+            })?;
+
+        let status = response.status();
+        let entries: Vec<RootEntry> = response
             .json()
             .await
             .context("failed to parse archiver response")?;
+        let elapsed_ms = started.elapsed().as_millis();
+        info!(
+            archiver_url = %self.base_url,
+            from,
+            to,
+            span,
+            count = entries.len(),
+            status = %status,
+            duration_ms = elapsed_ms,
+            "📡 ✅ archiver GET /roots completed"
+        );
 
         entries
             .into_iter()
@@ -70,17 +117,32 @@ impl ArchiverClient {
     /// Get the latest archived block number.
     pub async fn get_latest_block(&self) -> Result<Option<u64>> {
         let url = format!("{}/roots/latest", self.base_url);
-        let resp: LatestResponse = self
+        debug!(
+            archiver_url = %self.base_url,
+            "📡 ➡️  archiver GET /roots/latest"
+        );
+        let started = Instant::now();
+        let response = self
             .http
             .get(&url)
             .send()
             .await
             .context("archiver request failed")?
             .error_for_status()
-            .context("archiver returned error status")?
+            .context("archiver returned error status")?;
+        let status = response.status();
+        let resp: LatestResponse = response
             .json()
             .await
             .context("failed to parse archiver response")?;
+        let elapsed_ms = started.elapsed().as_millis();
+        info!(
+            archiver_url = %self.base_url,
+            latest_block = ?resp.latest_block,
+            status = %status,
+            duration_ms = elapsed_ms,
+            "📡 ✅ archiver GET /roots/latest completed"
+        );
         Ok(resp.latest_block)
     }
 }
@@ -109,7 +171,7 @@ impl EthRpcProvider for ArchiverEthProvider {
         start: u64,
         end: u64,
     ) -> Result<Vec<Block>> {
-        debug!(start, end, "fetching roots from archiver");
+        debug!(start, end, "🔧 📡 fetching roots from archiver");
 
         let roots = self.archiver.get_roots(start, end).await.with_context(|| {
             format!("failed to get roots from archiver for range {start}..{end}")
@@ -140,7 +202,7 @@ impl EthRpcProvider for ArchiverEthProvider {
             count = blocks.len(),
             start = blocks.first().map(|b| b.n()),
             end = blocks.last().map(|b| b.n()),
-            "built continuity blocks from archiver roots"
+            "🔧 🧱 built continuity blocks from archiver roots"
         );
 
         Ok(blocks)
