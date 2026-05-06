@@ -526,6 +526,61 @@ impl ContinuityService {
         }
     }
 
+    /// Look up boundaries that combine one half from each cache, used as a
+    /// fallback when neither the attestation cache nor the checkpoint cache
+    /// brackets the query on its own.
+    ///
+    /// Both caches store `(block_number, on_chain_digest)` pairs that anchor
+    /// the same digest sequence: a checkpoint at block `H` and an attestation
+    /// at block `H` reference the exact same on-chain root. The proof builder
+    /// only needs one anchor strictly below `min_query` and one anchor at or
+    /// above `max_query`; it does not care which cache they come from.
+    ///
+    /// This function exists to handle the steady state introduced by
+    /// [`Self::prune_attestations_at_or_below`]: when a checkpoint at block
+    /// `H` lands, all attestations `<= H` are dropped from the attestation
+    /// cache. A query for the very first post-checkpoint attestation block
+    /// then leaves the attestation cache with only the upper half (no entry
+    /// strictly below) and the checkpoint cache with only the lower half (no
+    /// entry at or above, since the next checkpoint has not landed yet).
+    /// Each cache alone fails to bracket the query, even though the two
+    /// halves together describe a perfectly valid anchor pair.
+    ///
+    /// Tries `(checkpoint_lower, attestation_upper)` first because the
+    /// attestation upper is tighter; falls back to
+    /// `(attestation_lower, checkpoint_upper)` for the symmetric case.
+    /// Returns `(lower_block, lower_digest, upper_block, upper_digest)` or
+    /// `None` if the two caches still cannot jointly bracket the query.
+    pub async fn get_mixed_boundaries(
+        &self,
+        chain: &Arc<ChainState>,
+        min_query: u64,
+        max_query: u64,
+    ) -> Option<(u64, H256, u64, H256)> {
+        let att = chain.attestation_cache.read().await;
+        let cp = chain.checkpoint_cache.read().await;
+
+        // Lower halves: greatest entry strictly before min_query.
+        let att_lower = att.range(..min_query).next_back().map(|(&k, &v)| (k, v));
+        let cp_lower = cp.range(..min_query).next_back().map(|(&k, &v)| (k, v));
+
+        // Upper halves: smallest entry at or above max_query.
+        let att_upper = att.range(max_query..).next().map(|(&k, &v)| (k, v));
+        let cp_upper = cp.range(max_query..).next().map(|(&k, &v)| (k, v));
+
+        // Prefer the attestation upper (tighter) paired with the checkpoint lower.
+        if let (Some((lo_block, lo_digest)), Some((up_block, up_digest))) = (cp_lower, att_upper) {
+            return Some((lo_block, lo_digest, up_block, up_digest));
+        }
+
+        // Symmetric fallback: attestation lower with checkpoint upper.
+        if let (Some((lo_block, lo_digest)), Some((up_block, up_digest))) = (att_lower, cp_upper) {
+            return Some((lo_block, lo_digest, up_block, up_digest));
+        }
+
+        None
+    }
+
     /// Look up checkpoint boundaries around a query range from the local cache.
     /// Returns `(lower_block, lower_digest, upper_block, upper_digest)` or `None` if not found.
     ///

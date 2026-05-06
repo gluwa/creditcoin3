@@ -26,7 +26,10 @@ impl ContinuityService {
     /// Build a continuity proof.
     ///
     /// Flow:
-    /// 1. Resolve checkpoint boundaries from local cache (attestation first, then checkpoint)
+    /// 1. Resolve checkpoint boundaries from local cache. Try attestation
+    ///    bounds first (tightest), then checkpoint bounds, then a mixed
+    ///    cross-cache bracket as a final fallback for the steady-state gap
+    ///    that follows a checkpoint prune (see [`ContinuityService::get_mixed_boundaries`]).
     /// 2. Build proof from eth provider roots (archiver or chain)
     pub(crate) async fn build_continuity(
         &self,
@@ -42,30 +45,20 @@ impl ContinuityService {
             })?;
 
         // Step 1: Resolve boundaries from local caches.
-        // Try attestation bounds first (more granular), then fall back to checkpoint bounds.
+        // Try attestation bounds first (more granular), fall back to checkpoint
+        // bounds, and finally to a mixed (one half from each cache) bracket
+        // before bailing.
         let (lower, lower_digest, upper, upper_digest) = if let Some(bounds) = self
             .get_attestation_boundaries(chain, min_query, max_query)
             .await
         {
-            tracing::debug!(
-                min_query,
-                max_query,
-                lower = bounds.0,
-                upper = bounds.2,
-                "resolved boundaries from attestation cache"
-            );
             bounds
         } else if let Some(bounds) = self
             .get_checkpoint_boundaries(chain, min_query, max_query)
             .await
         {
-            tracing::debug!(
-                min_query,
-                max_query,
-                lower = bounds.0,
-                upper = bounds.2,
-                "resolved boundaries from checkpoint cache"
-            );
+            bounds
+        } else if let Some(bounds) = self.get_mixed_boundaries(chain, min_query, max_query).await {
             bounds
         } else {
             return Err(self
@@ -815,5 +808,254 @@ mod tests {
         let chain = svc.chain_state(2).unwrap();
         let att = chain.attestation_cache.read().await;
         assert!(att.contains_key(&500), "chain 2 cache must be untouched");
+    }
+
+    // ---------------------------------------------------------------------
+    // Regression tests for the split-bracket bug:
+    //
+    // After a checkpoint at block H lands, `prune_attestations_at_or_below`
+    // drops every attestation `<= H`. A query for the very first attestation
+    // strictly above H then leaves the attestation cache with only the upper
+    // half (the queried block itself, no entry below) and the checkpoint cache
+    // with only the lower half (the checkpoint at H, no entry at or above
+    // until the next checkpoint lands). Each cache alone fails to bracket the
+    // query; mixing one half from each succeeds and is sound because both
+    // caches store on-chain digests for the same digest sequence.
+    // ---------------------------------------------------------------------
+
+    /// Reset both caches to a known minimal state that mirrors the
+    /// production split-bracket scenario:
+    ///   attestation_cache = { upper_block: <digest> }
+    ///   checkpoint_cache  = { lower_block: <digest> }
+    /// where `lower_block < upper_block` and neither cache has the other half.
+    async fn install_split_bracket(
+        chain: &Arc<ChainState>,
+        lower_checkpoint: u64,
+        lower_digest: H256,
+        upper_attestation: u64,
+        upper_digest: H256,
+    ) {
+        let mut att = chain.attestation_cache.write().await;
+        att.clear();
+        att.insert(upper_attestation, upper_digest);
+        drop(att);
+
+        let mut cp = chain.checkpoint_cache.write().await;
+        cp.clear();
+        cp.insert(lower_checkpoint, lower_digest);
+    }
+
+    #[tokio::test]
+    async fn split_bracket_each_cache_alone_fails() {
+        // Sanity check: confirm that the production split-bracket shape
+        // genuinely defeats both single-cache lookups. If this ever starts
+        // passing on its own, the mixed-bracket fallback would be unreachable
+        // and the regression test below would no longer cover what it claims.
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        let lower = 10_797_800_u64;
+        let upper = 10_797_810_u64;
+        let lower_digest = H256::from_low_u64_be(0xA1);
+        let upper_digest = H256::from_low_u64_be(0xB2);
+        install_split_bracket(chain, lower, lower_digest, upper, upper_digest).await;
+
+        let att_only = svc.get_attestation_boundaries(chain, upper, upper).await;
+        assert!(
+            att_only.is_none(),
+            "attestation cache alone must not bracket the query (no lower half)"
+        );
+
+        let cp_only = svc.get_checkpoint_boundaries(chain, upper, upper).await;
+        assert!(
+            cp_only.is_none(),
+            "checkpoint cache alone must not bracket the query (no upper half)"
+        );
+    }
+
+    #[tokio::test]
+    async fn split_bracket_mixed_lookup_combines_cp_lower_with_att_upper() {
+        // Reproduces the dump shape from the production failure: query block
+        // 10_797_810 sits exactly at the smallest attestation cache key and
+        // exactly at the smallest cache key strictly above the latest
+        // checkpoint. Each cache holds only one half; the mixed lookup must
+        // combine `cp_lower` with `att_upper` and return both on-chain
+        // digests untouched so the proof builder can anchor the digest chain.
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        let lower = 10_797_800_u64;
+        let upper = 10_797_810_u64;
+        let lower_digest = H256::from_low_u64_be(0xA1);
+        let upper_digest = H256::from_low_u64_be(0xB2);
+        install_split_bracket(chain, lower, lower_digest, upper, upper_digest).await;
+
+        let bounds = svc.get_mixed_boundaries(chain, upper, upper).await;
+        assert!(
+            bounds.is_some(),
+            "mixed lookup should bracket the query when each cache holds one half"
+        );
+        let (lo_block, lo_digest, up_block, up_digest) = bounds.unwrap();
+        assert_eq!(lo_block, lower, "lower must come from the checkpoint cache");
+        assert_eq!(
+            lo_digest, lower_digest,
+            "lower digest must be the on-chain checkpoint digest, untouched"
+        );
+        assert_eq!(
+            up_block, upper,
+            "upper must come from the attestation cache"
+        );
+        assert_eq!(
+            up_digest, upper_digest,
+            "upper digest must be the on-chain attestation digest, untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn split_bracket_mixed_lookup_falls_back_to_att_lower_with_cp_upper() {
+        // Symmetric case: the only half in the attestation cache is the
+        // lower, and the only half in the checkpoint cache is the upper.
+        // Mixed lookup must still bracket the query.
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        let lower = 10_797_805_u64;
+        let upper = 10_797_900_u64;
+        let lower_digest = H256::from_low_u64_be(0xC3);
+        let upper_digest = H256::from_low_u64_be(0xD4);
+
+        // attestation cache holds the lower; checkpoint cache holds the upper.
+        let mut att = chain.attestation_cache.write().await;
+        att.clear();
+        att.insert(lower, lower_digest);
+        drop(att);
+
+        let mut cp = chain.checkpoint_cache.write().await;
+        cp.clear();
+        cp.insert(upper, upper_digest);
+        drop(cp);
+
+        let query = 10_797_810_u64;
+        let bounds = svc.get_mixed_boundaries(chain, query, query).await;
+        assert!(bounds.is_some(), "mixed lookup should bracket the query");
+        let (lo_block, lo_digest, up_block, up_digest) = bounds.unwrap();
+        assert_eq!(lo_block, lower);
+        assert_eq!(lo_digest, lower_digest);
+        assert_eq!(up_block, upper);
+        assert_eq!(up_digest, upper_digest);
+    }
+
+    #[tokio::test]
+    async fn split_bracket_mixed_lookup_prefers_attestation_upper_when_both_have_upper() {
+        // When both caches happen to expose an upper, the attestation upper
+        // is tighter and should win. Lower comes from the checkpoint cache
+        // because that path is tried first.
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        let cp_lower = 10_797_800_u64;
+        let att_upper = 10_797_810_u64;
+        let cp_upper = 10_797_900_u64;
+        let cp_lower_digest = H256::from_low_u64_be(0xE5);
+        let att_upper_digest = H256::from_low_u64_be(0xF6);
+        let cp_upper_digest = H256::from_low_u64_be(0x07);
+
+        let mut att = chain.attestation_cache.write().await;
+        att.clear();
+        att.insert(att_upper, att_upper_digest);
+        drop(att);
+
+        let mut cp = chain.checkpoint_cache.write().await;
+        cp.clear();
+        cp.insert(cp_lower, cp_lower_digest);
+        cp.insert(cp_upper, cp_upper_digest);
+        drop(cp);
+
+        let bounds = svc.get_mixed_boundaries(chain, att_upper, att_upper).await;
+        let (lo_block, _, up_block, up_digest) =
+            bounds.expect("mixed lookup should resolve when both halves are present");
+        assert_eq!(lo_block, cp_lower);
+        assert_eq!(up_block, att_upper, "tighter attestation upper must win");
+        assert_eq!(up_digest, att_upper_digest);
+    }
+
+    #[tokio::test]
+    async fn split_bracket_mixed_lookup_returns_none_when_neither_half_pair_exists() {
+        // No lower in either cache → mixed lookup must still return None.
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        let upper = 10_797_810_u64;
+        let upper_digest = H256::from_low_u64_be(0xB2);
+        let mut att = chain.attestation_cache.write().await;
+        att.clear();
+        att.insert(upper, upper_digest);
+        drop(att);
+
+        let mut cp = chain.checkpoint_cache.write().await;
+        cp.clear();
+        drop(cp);
+
+        let bounds = svc.get_mixed_boundaries(chain, upper, upper).await;
+        assert!(
+            bounds.is_none(),
+            "mixed lookup must not invent a lower anchor when neither cache has one"
+        );
+    }
+
+    #[tokio::test]
+    async fn split_bracket_mixed_lookup_does_not_mutate_caches() {
+        // The fallback is read-only: it must not insert, remove, or otherwise
+        // touch the cache contents. A future refactor that, for example,
+        // "backfills" the missing half across caches would silently shift the
+        // pruning invariant and is explicitly out of scope here.
+        let svc = make_service(Arc::new(FoundEthProvider)).await;
+        let chain = svc.chain_state(2).unwrap();
+
+        let lower = 10_797_800_u64;
+        let upper = 10_797_810_u64;
+        install_split_bracket(
+            chain,
+            lower,
+            H256::from_low_u64_be(1),
+            upper,
+            H256::from_low_u64_be(2),
+        )
+        .await;
+
+        let att_before: Vec<(u64, H256)> = chain
+            .attestation_cache
+            .read()
+            .await
+            .iter()
+            .map(|(&k, &v)| (k, v))
+            .collect();
+        let cp_before: Vec<(u64, H256)> = chain
+            .checkpoint_cache
+            .read()
+            .await
+            .iter()
+            .map(|(&k, &v)| (k, v))
+            .collect();
+
+        let _ = svc.get_mixed_boundaries(chain, upper, upper).await;
+
+        let att_after: Vec<(u64, H256)> = chain
+            .attestation_cache
+            .read()
+            .await
+            .iter()
+            .map(|(&k, &v)| (k, v))
+            .collect();
+        let cp_after: Vec<(u64, H256)> = chain
+            .checkpoint_cache
+            .read()
+            .await
+            .iter()
+            .map(|(&k, &v)| (k, v))
+            .collect();
+
+        assert_eq!(att_before, att_after, "attestation cache must be untouched");
+        assert_eq!(cp_before, cp_after, "checkpoint cache must be untouched");
     }
 }
