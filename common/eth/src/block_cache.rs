@@ -216,20 +216,20 @@ impl Client {
         private_key: Option<&str>,
         config: BlockCacheConfig,
     ) -> Result<Self, Error> {
-        Self::new_with_cache_and_overrides(url, &[], private_key, config).await
+        Self::new_with_cache_and_fallbacks(url, &[], private_key, config).await
     }
 
-    /// Like [`Client::new_with_cache`] but also installs per-block-range RPC
-    /// URL overrides. See [`crate::RpcRangeOverride`] for the override
-    /// semantics and validation rules.
-    pub async fn new_with_cache_and_overrides(
+    /// Like [`Client::new_with_cache`] but also installs ordered fallback
+    /// RPC URLs. Each fallback is tried in declared order whenever the
+    /// primary returns `Ok(None)` or a transport error.
+    pub async fn new_with_cache_and_fallbacks(
         url: &str,
-        overrides: &[crate::RpcRangeOverride],
+        fallback_urls: &[String],
         private_key: Option<&str>,
         config: BlockCacheConfig,
     ) -> Result<Self, Error> {
         let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
-        let range_providers = Self::init_range_providers(chain_id, overrides)
+        let fallback_providers = Self::init_fallback_providers(chain_id, fallback_urls)
             .await
             .map_err(Error::ClientError)?;
 
@@ -284,7 +284,7 @@ impl Client {
             url,
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
-            range_providers,
+            fallback_providers,
             chain_id,
             cache: Some(cache),
         })
