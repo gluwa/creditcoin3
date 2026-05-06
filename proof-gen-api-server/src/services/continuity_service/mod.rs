@@ -188,7 +188,7 @@ impl ContinuityService {
         if builders.is_empty() {
             anyhow::bail!("ContinuityService requires at least one ContinuityBuilder");
         }
-        if Duration::is_zero(&attestation_liveness_timeout) { 
+        if Duration::is_zero(&attestation_liveness_timeout) {
             anyhow::bail!("ContinuityService requires attestation liveness timeout > 0");
         }
 
