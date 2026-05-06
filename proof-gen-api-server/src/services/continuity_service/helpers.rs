@@ -52,13 +52,34 @@ impl ContinuityService {
             .get_attestation_boundaries(chain, min_query, max_query)
             .await
         {
+            tracing::debug!(
+                min_query,
+                max_query,
+                lower = bounds.0,
+                upper = bounds.2,
+                "resolved boundaries from attestation cache"
+            );
             bounds
         } else if let Some(bounds) = self
             .get_checkpoint_boundaries(chain, min_query, max_query)
             .await
         {
+            tracing::debug!(
+                min_query,
+                max_query,
+                lower = bounds.0,
+                upper = bounds.2,
+                "resolved boundaries from checkpoint cache"
+            );
             bounds
         } else if let Some(bounds) = self.get_mixed_boundaries(chain, min_query, max_query).await {
+            tracing::debug!(
+                min_query,
+                max_query,
+                lower = bounds.0,
+                upper = bounds.2,
+                "resolved boundaries from mixed cache bracket (one half per cache)"
+            );
             bounds
         } else {
             return Err(self
