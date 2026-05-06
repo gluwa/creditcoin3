@@ -77,17 +77,16 @@ impl Server {
                 of = config.chains.len(),
                 chain_key = chain.chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
-                eth_rpc_override_count = chain.eth_rpc_overrides.len(),
+                eth_rpc_fallback_count = chain.eth_rpc_fallback_urls.len(),
                 archiver_url = ?chain.archiver_url.as_ref().map(|u| redact_url_query(u)),
                 "🚀 [startup] configuring source chain"
             );
-            for ov in &chain.eth_rpc_overrides {
+            for (fb_idx, url) in chain.eth_rpc_fallback_urls.iter().enumerate() {
                 debug!(
                     chain_key = chain.chain_key,
-                    from_block = ?ov.from_block,
-                    to_block = ?ov.to_block,
-                    url = %redact_url_query(&ov.url),
-                    "[startup] eth_rpc override registered"
+                    fallback_index = fb_idx,
+                    url = %redact_url_query(url),
+                    "[startup] eth_rpc fallback registered"
                 );
             }
             let builder = Self::build_continuity_for_chain(
@@ -135,8 +134,7 @@ impl Server {
             .ok_or_else(|| anyhow!("Failed to get supported chain for chain_key {chain_key}"))?;
         let supported_chain_id = supported_chain.chain_id;
 
-        let eth_overrides: Vec<eth::RpcRangeOverride> =
-            chain.eth_rpc_overrides.iter().map(Into::into).collect();
+        let eth_fallback_urls: &[String] = &chain.eth_rpc_fallback_urls;
 
         let eth_client = if let Some(ref redis_url) = global.redis_url {
             debug!(
@@ -144,7 +142,7 @@ impl Server {
                 redis_url = %redact_url_query(redis_url),
                 cluster_mode = global.redis_cluster_mode,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
-                eth_rpc_override_count = eth_overrides.len(),
+                eth_rpc_fallback_count = eth_fallback_urls.len(),
                 "🚀 [startup] connecting source chain ETH client with Redis block cache"
             );
             let block_cache_metrics = prom_metrics.block_cache_metrics();
@@ -153,18 +151,18 @@ impl Server {
                 redis_cluster_mode: global.redis_cluster_mode,
                 metrics: block_cache_metrics,
             };
-            EthClient::new_with_cache_and_overrides(
+            EthClient::new_with_cache_and_fallbacks(
                 &chain.eth_rpc_url,
-                &eth_overrides,
+                eth_fallback_urls,
                 None,
                 cache_config,
             )
             .await
             .with_context(|| {
                 format!(
-                    "Ethereum/source RPC + Redis cache failed for chain_key={chain_key} (eth_rpc_url={}, override_count={}, redis={})",
+                    "Ethereum/source RPC + Redis cache failed for chain_key={chain_key} (eth_rpc_url={}, fallback_count={}, redis={})",
                     redact_url_query(&chain.eth_rpc_url),
-                    eth_overrides.len(),
+                    eth_fallback_urls.len(),
                     redact_url_query(redis_url)
                 )
             })?
@@ -172,16 +170,16 @@ impl Server {
             debug!(
                 chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
-                eth_rpc_override_count = eth_overrides.len(),
+                eth_rpc_fallback_count = eth_fallback_urls.len(),
                 "🚀 [startup] connecting source chain ETH client (no Redis)"
             );
-            EthClient::new_with_overrides(&chain.eth_rpc_url, &eth_overrides, None)
+            EthClient::new_with_fallbacks(&chain.eth_rpc_url, eth_fallback_urls, None)
                 .await
                 .with_context(|| {
                     format!(
-                        "Ethereum/source RPC connection failed for chain_key={chain_key} (eth_rpc_url={}, override_count={})",
+                        "Ethereum/source RPC connection failed for chain_key={chain_key} (eth_rpc_url={}, fallback_count={})",
                         redact_url_query(&chain.eth_rpc_url),
-                        eth_overrides.len()
+                        eth_fallback_urls.len()
                     )
                 })?
         };

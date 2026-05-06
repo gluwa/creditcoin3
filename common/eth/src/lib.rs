@@ -292,32 +292,15 @@ pub enum ConnectionTransport {
     Ws(WsConnect),
 }
 
-/// One per-block-range RPC URL override.
+/// One ordered fallback RPC provider attached to a [`Client`].
 ///
-/// Block-keyed RPC requests (block fetch, receipts) whose `block_number`
-/// falls within the inclusive range `[from_block, to_block]` are routed to
-/// `url` instead of the [`Client`]'s default URL. Either bound may be `None`
-/// to mean "open-ended on that side".
-///
-/// All override URLs must point to a node that reports the same `chain_id`
-/// as the default URL — this is verified when the [`Client`] is constructed.
-///
-/// Constraints (enforced at construction time):
-/// * Each override must specify at least one of `from_block` or `to_block`
-///   (otherwise it would silently shadow the default URL).
-/// * If both bounds are set, `from_block <= to_block`.
-/// * Overrides must not overlap each other.
+/// The [`Client`] always tries its primary URL first; on `Ok(None)` or
+/// transport errors it walks `fallback_providers` in declared order and
+/// uses the first non-empty answer. All fallback URLs must point to a
+/// node that reports the same `chain_id` as the primary URL — this is
+/// verified when the [`Client`] is constructed.
 #[derive(Debug, Clone)]
-pub struct RpcRangeOverride {
-    pub from_block: Option<u64>,
-    pub to_block: Option<u64>,
-    pub url: String,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct RangeProvider {
-    pub(crate) from: u64,
-    pub(crate) to: u64,
+pub(crate) struct FallbackProvider {
     pub(crate) url: Url,
     pub(crate) provider: AlloyProvider,
 }
@@ -327,9 +310,10 @@ pub struct Client {
     url: Url,
     private_key: Option<String>,
     rpc_provider: AlloyProvider,
-    /// Block-range RPC overrides, sorted by `from`. Empty = no overrides
-    /// (legacy single-URL behavior). See [`RpcRangeOverride`].
-    range_providers: Vec<RangeProvider>,
+    /// Ordered fallback RPC providers. Empty = no fallbacks (single-URL
+    /// behavior). Each provider is tried in declared order whenever the
+    /// primary returns `Ok(None)` or errors. See [`FallbackProvider`].
+    fallback_providers: Vec<FallbackProvider>,
     // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
     // and not rely on ethereum chain ids?
     chain_id: u64,
@@ -377,37 +361,38 @@ impl Client {
             url,
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
-            range_providers: Vec::new(),
+            fallback_providers: Vec::new(),
             chain_id,
             #[cfg(feature = "block_cache")]
             cache: None,
         })
     }
 
-    /// Build a [`Client`] with per-block-range RPC URL overrides.
+    /// Build a [`Client`] with ordered fallback RPC URLs.
     ///
-    /// `url` is the default URL used for tip-related calls (subscriptions,
-    /// `eth_blockNumber`, `eth_getTransactionByHash`) and for any block whose
-    /// number is not covered by an entry in `overrides`.
+    /// `url` is the primary URL: tried first for every operation, and the
+    /// only URL used for tip-related calls (subscriptions, `eth_blockNumber`,
+    /// `eth_chainId`).
     ///
-    /// All override URLs are connected to at startup; each must report the
-    /// same `chain_id` as `url` and the override ranges must satisfy the
-    /// validity rules documented on [`RpcRangeOverride`].
+    /// `fallback_urls` are tried in declaration order whenever the primary
+    /// returns `Ok(None)` or a transport error for a block fetch / tx-hash
+    /// lookup. Each fallback URL is connected to at startup and must report
+    /// the same `chain_id` as `url`.
     ///
-    /// When `overrides` is empty this is equivalent to [`Client::new`].
-    pub async fn new_with_overrides(
+    /// When `fallback_urls` is empty this is equivalent to [`Client::new`].
+    pub async fn new_with_fallbacks(
         url: &str,
-        overrides: &[RpcRangeOverride],
+        fallback_urls: &[String],
         private_key: Option<&str>,
     ) -> anyhow::Result<Self> {
         let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
-        let range_providers = Self::init_range_providers(chain_id, overrides).await?;
+        let fallback_providers = Self::init_fallback_providers(chain_id, fallback_urls).await?;
 
         anyhow::Ok(Self {
             url,
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
-            range_providers,
+            fallback_providers,
             chain_id,
             #[cfg(feature = "block_cache")]
             cache: None,
@@ -417,91 +402,82 @@ impl Client {
     pub async fn reconnect(&mut self) -> Result<(), Error> {
         let (url, rpc_provider, chain_id) = Self::init_rpc(self.url.as_ref()).await?;
 
-        // Reconnect each range provider against its own URL too, otherwise a
-        // recovered default would silently start serving range-bucket blocks
-        // until each override picked up the network fault on its own.
-        let mut new_ranges = Vec::with_capacity(self.range_providers.len());
-        for rp in &self.range_providers {
-            let (rp_url, rp_provider, rp_chain_id) = Self::init_rpc(rp.url.as_ref()).await?;
-            if rp_chain_id != chain_id {
+        // Reconnect each fallback against its own URL too, otherwise a
+        // recovered primary would silently keep using a stale fallback
+        // socket until that fallback hit a fault on its own.
+        let mut new_fallbacks = Vec::with_capacity(self.fallback_providers.len());
+        for fp in &self.fallback_providers {
+            let (fp_url, fp_provider, fp_chain_id) = Self::init_rpc(fp.url.as_ref()).await?;
+            if fp_chain_id != chain_id {
                 return Err(Error::ClientError(anyhow::anyhow!(
-                    "RPC override URL chain_id ({rp_chain_id}) does not match default URL chain_id ({chain_id}) on reconnect"
+                    "Fallback RPC URL chain_id ({fp_chain_id}) does not match primary URL chain_id ({chain_id}) on reconnect"
                 )));
             }
-            new_ranges.push(RangeProvider {
-                from: rp.from,
-                to: rp.to,
-                url: rp_url,
-                provider: rp_provider,
+            new_fallbacks.push(FallbackProvider {
+                url: fp_url,
+                provider: fp_provider,
             });
         }
 
         self.url = url;
         self.rpc_provider = rpc_provider;
-        self.range_providers = new_ranges;
+        self.fallback_providers = new_fallbacks;
         self.chain_id = chain_id;
 
         Ok(())
     }
 
-    /// Validate the override list (no network I/O), connect to each override
-    /// URL in declaration order, and verify the chain id matches the default.
-    pub(crate) async fn init_range_providers(
-        default_chain_id: u64,
-        overrides: &[RpcRangeOverride],
-    ) -> anyhow::Result<Vec<RangeProvider>> {
-        // Fail fast on invalid bounds before opening any sockets.
-        let normalized = validate_range_overrides(overrides)?;
-
-        let mut providers: Vec<RangeProvider> = Vec::with_capacity(normalized.len());
-        for (from, to, raw_url) in normalized {
+    /// Connect to each fallback URL in declaration order and verify each
+    /// reports the same `chain_id` as the primary.
+    pub(crate) async fn init_fallback_providers(
+        primary_chain_id: u64,
+        fallback_urls: &[String],
+    ) -> anyhow::Result<Vec<FallbackProvider>> {
+        let mut providers: Vec<FallbackProvider> = Vec::with_capacity(fallback_urls.len());
+        for (idx, raw_url) in fallback_urls.iter().enumerate() {
             let (url, provider, chain_id) =
                 Self::init_rpc(raw_url.as_ref()).await.with_context(|| {
-                    format!("Failed to connect to RPC override URL for block range [{from}, {to}]")
+                    format!(
+                        "Failed to connect to fallback RPC URL #{idx} ({})",
+                        redact_url_query(raw_url),
+                    )
                 })?;
 
-            if chain_id != default_chain_id {
+            if chain_id != primary_chain_id {
                 anyhow::bail!(
-                    "RPC override for block range [{from}, {to}] reports chain_id {chain_id}, \
-                     which does not match the default URL's chain_id {default_chain_id}; \
-                     all override URLs must point to the same chain"
+                    "Fallback RPC URL #{idx} ({}) reports chain_id {chain_id}, \
+                     which does not match the primary URL's chain_id {primary_chain_id}; \
+                     all fallback URLs must point to the same chain",
+                    redact_url_query(raw_url),
                 );
             }
 
-            providers.push(RangeProvider {
-                from,
-                to,
-                url,
-                provider,
-            });
+            providers.push(FallbackProvider { url, provider });
         }
 
         Ok(providers)
     }
 
-    /// Pick the RPC provider for a block-keyed call.
-    ///
-    /// Returns the matching range override's provider when one covers
-    /// `block_number`, otherwise the default `rpc_provider`.
-    fn provider_for_block(&self, block_number: u64) -> &AlloyProvider {
-        let bounds: Vec<(u64, u64)> = self
-            .range_providers
-            .iter()
-            .map(|rp| (rp.from, rp.to))
-            .collect();
-        match find_range_index(block_number, &bounds) {
-            Some(i) => &self.range_providers[i].provider,
-            None => &self.rpc_provider,
+    /// Build the ordered `[(label, provider)]` list used by the sequential
+    /// fallback walk. The primary is first; each fallback gets a label like
+    /// `fallback[0]@<redacted-url>` for log output.
+    fn providers_with_labels(&self) -> Vec<(String, &AlloyProvider)> {
+        let mut out: Vec<(String, &AlloyProvider)> =
+            Vec::with_capacity(1 + self.fallback_providers.len());
+        out.push(("primary".to_string(), &self.rpc_provider));
+        for (i, fp) in self.fallback_providers.iter().enumerate() {
+            out.push((
+                format!("fallback[{i}]@{}", redact_url_query(fp.url.as_str())),
+                &fp.provider,
+            ));
         }
+        out
     }
 
-    /// Returns the configured RPC overrides as `(from, to, url)` tuples
-    /// (sorted by `from`). Useful for startup logging.
-    pub fn range_overrides(&self) -> Vec<(u64, u64, &Url)> {
-        self.range_providers
-            .iter()
-            .map(|rp| (rp.from, rp.to, &rp.url))
-            .collect()
+    /// Returns the configured fallback URLs in declaration order. Useful
+    /// for startup logging.
+    pub fn fallback_urls(&self) -> Vec<&Url> {
+        self.fallback_providers.iter().map(|fp| &fp.url).collect()
     }
 
     pub fn chain_id(&self) -> u64 {
@@ -638,28 +614,133 @@ impl Client {
     }
 
     async fn get_receipts(&self, number: u64) -> Result<Vec<TransactionReceipt>, Error> {
-        self.provider_for_block(number)
-            .get_block_receipts(BlockId::Number(BlockNumberOrTag::Number(number)))
-            .await
-            .map_err(|e| {
-                error!("Failed to get receipts: {:?}", e);
-                Error::FailedToGetReceipts(number)
-            })?
-            .ok_or(Error::FailedToGetBlock(number))
+        let providers = self.providers_with_labels();
+        let mut got_definitive_none = false;
+        let mut errors: Vec<(String, Error)> = Vec::new();
+
+        for (label, provider) in providers {
+            match provider
+                .get_block_receipts(BlockId::Number(BlockNumberOrTag::Number(number)))
+                .await
+            {
+                Ok(Some(receipts)) => {
+                    if label != "primary" {
+                        info!(
+                            provider = %label,
+                            block_number = number,
+                            "receipts fetched via fallback provider"
+                        );
+                    }
+                    return Ok(receipts);
+                }
+                Ok(None) => got_definitive_none = true,
+                Err(e) => errors.push((label, Error::from(e))),
+            }
+        }
+
+        // Mirror the legacy behavior: an `Ok(None)` from a single provider
+        // mapped to `FailedToGetBlock(number)`. When at least one provider
+        // says the receipts are not available we honor that and surface the
+        // block-not-found error; transport errors from any other provider
+        // are demoted to warnings.
+        match merge_provider_lookup(got_definitive_none, errors) {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                for (label, err) in errors_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        block_number = number,
+                        error = %err,
+                        "receipts fetch: provider errored but another said `not found`; treating as not found"
+                    );
+                }
+                Err(Error::FailedToGetBlock(number))
+            }
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                for (label, err) in additional_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        block_number = number,
+                        error = %err,
+                        "receipts fetch: additional provider error"
+                    );
+                }
+                let (first_label, first_err) = first;
+                error!(
+                    provider = %first_label,
+                    block_number = number,
+                    error = %first_err,
+                    "Failed to get receipts: all providers errored",
+                );
+                Err(Error::FailedToGetReceipts(number))
+            }
+        }
     }
 
     pub async fn get_eth_block(&self, number: u64) -> Result<Block, Error> {
-        self.provider_for_block(number)
-            .get_block(
-                BlockId::Number(BlockNumberOrTag::Number(number)),
-                true.into(),
-            )
-            .await
-            .map_err(|e| {
-                error!("Failed to get block: {:?}", e);
-                Error::FailedToGetBlock(number)
-            })?
-            .ok_or(Error::FailedToGetBlock(number))
+        let providers = self.providers_with_labels();
+        let mut got_definitive_none = false;
+        let mut errors: Vec<(String, Error)> = Vec::new();
+
+        for (label, provider) in providers {
+            match provider
+                .get_block(
+                    BlockId::Number(BlockNumberOrTag::Number(number)),
+                    true.into(),
+                )
+                .await
+            {
+                Ok(Some(block)) => {
+                    if label != "primary" {
+                        info!(
+                            provider = %label,
+                            block_number = number,
+                            "block fetched via fallback provider"
+                        );
+                    }
+                    return Ok(block);
+                }
+                Ok(None) => got_definitive_none = true,
+                Err(e) => errors.push((label, Error::from(e))),
+            }
+        }
+
+        match merge_provider_lookup(got_definitive_none, errors) {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                for (label, err) in errors_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        block_number = number,
+                        error = %err,
+                        "block fetch: provider errored but another said `not found`; treating as not found"
+                    );
+                }
+                Err(Error::FailedToGetBlock(number))
+            }
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                for (label, err) in additional_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        block_number = number,
+                        error = %err,
+                        "block fetch: additional provider error"
+                    );
+                }
+                let (first_label, first_err) = first;
+                error!(
+                    provider = %first_label,
+                    block_number = number,
+                    error = %first_err,
+                    "Failed to get block: all providers errored",
+                );
+                Err(Error::FailedToGetBlock(number))
+            }
+        }
     }
 
     pub async fn get_last_block(&self) -> Result<u64, Error> {
@@ -692,6 +773,26 @@ impl Client {
     ///
     /// Returns `Ok(None)` if the transaction is not found on chain (not mined or doesn't exist).
     /// Returns `Err` only for actual RPC/transport failures.
+    ///
+    /// # Routing
+    ///
+    /// A transaction hash carries no block-number information until it is
+    /// resolved, so the lookup walks the configured providers in
+    /// `[primary, fallback_0, fallback_1, ...]` order: the first provider
+    /// to return `Ok(Some(_))` wins, and the rest are not queried. This
+    /// minimizes calls to the (typically expensive / quota-limited) archive
+    /// fallbacks: a recent tx that the primary can answer never reaches an
+    /// archive endpoint at all.
+    ///
+    /// Result-merging policy:
+    /// * The first provider to return `Ok(Some(_))` wins.
+    /// * If every provider returns `Ok(None)`, the result is `Ok(None)`
+    ///   (the tx truly does not exist on this chain).
+    /// * If some providers return `Ok(None)` and others error, the errors
+    ///   are logged as warnings and `Ok(None)` is returned — at least one
+    ///   provider that did respond said the tx is not present.
+    /// * If every provider errors, the first error is returned and the
+    ///   rest are logged at warn level.
     pub async fn get_tx_position_by_hash(
         &self,
         tx_hash: H256,
@@ -699,24 +800,98 @@ impl Client {
         let tx_hash_alloy = TxHash::from_str(&tx_hash.encode_hex())
             .map_err(|e| Error::ClientError(anyhow::anyhow!("Invalid tx hash: {e}")))?;
 
-        let tx_opt = self
-            .rpc_provider
+        let providers = self.providers_with_labels();
+        let mut got_definitive_none = false;
+        let mut errors: Vec<(String, Error)> = Vec::new();
+
+        for (label, provider) in providers {
+            match Self::resolve_tx_on_provider(provider, tx_hash_alloy, &tx_hash).await {
+                Ok(Some(pos)) => {
+                    // Only log when a fallback served the request; the
+                    // primary case is the boring path and would otherwise
+                    // dominate logs for projects without fallbacks.
+                    //
+                    // INFO level here (vs DEBUG for per-block logs)
+                    // because tx-hash resolution is at most once per
+                    // `/proof-by-tx` request, so log volume is bounded
+                    // and the signal is high — operators want to confirm
+                    // at a glance which provider answered.
+                    if label != "primary" {
+                        info!(
+                            provider = %label,
+                            tx_hash = %tx_hash,
+                            block_number = pos.0,
+                            tx_index = pos.1,
+                            "tx-hash resolved by fallback provider"
+                        );
+                    }
+                    return Ok(Some(pos));
+                }
+                Ok(None) => got_definitive_none = true,
+                Err(e) => errors.push((label, e)),
+            }
+        }
+
+        match merge_provider_lookup(got_definitive_none, errors) {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                for (label, err) in errors_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        tx_hash = %tx_hash,
+                        error = %err,
+                        "tx-hash lookup: provider errored but another said `not found`; treating as not found"
+                    );
+                }
+                Ok(None)
+            }
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                for (label, err) in additional_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        tx_hash = %tx_hash,
+                        error = %err,
+                        "tx-hash lookup: additional provider error"
+                    );
+                }
+                let (first_label, first_err) = first;
+                tracing::error!(
+                    provider = %first_label,
+                    tx_hash = %tx_hash,
+                    error = %first_err,
+                    "tx-hash lookup: all providers errored"
+                );
+                Err(first_err)
+            }
+        }
+    }
+
+    /// One provider's slice of [`Self::get_tx_position_by_hash`]: looks the tx
+    /// up by hash and converts it to `(block_number, tx_index)`. Pure
+    /// extraction so the sequential walk stays readable.
+    async fn resolve_tx_on_provider(
+        provider: &AlloyProvider,
+        tx_hash_alloy: TxHash,
+        tx_hash_for_err: &H256,
+    ) -> Result<Option<(u64, u64)>, Error> {
+        let Some(tx) = provider
             .get_transaction_by_hash(tx_hash_alloy)
             .await
-            .map_err(Error::from)?;
-
-        let Some(tx) = tx_opt else {
+            .map_err(Error::from)?
+        else {
             return Ok(None);
         };
 
         let block_number = tx.block_number.ok_or_else(|| {
             Error::ClientError(anyhow::anyhow!(
-                "Transaction not in a block (pending): {tx_hash}"
+                "Transaction not in a block (pending): {tx_hash_for_err}"
             ))
         })?;
         let tx_index = tx.transaction_index.ok_or_else(|| {
             Error::ClientError(anyhow::anyhow!(
-                "Missing transactionIndex for tx: {tx_hash}"
+                "Missing transactionIndex for tx: {tx_hash_for_err}"
             ))
         })?;
 
@@ -724,73 +899,73 @@ impl Client {
     }
 }
 
-/// Validate a slice of [`RpcRangeOverride`]s, returning normalized
-/// `(from, to, url)` tuples sorted by `from`.
+/// Decision returned by [`merge_provider_lookup`] once the sequential
+/// fallback walk finishes without any provider returning `Ok(Some(_))`.
 ///
-/// This performs *no* network I/O so it can be exercised cheaply in unit
-/// tests and called as a pre-flight check in [`Client::init_range_providers`].
-///
-/// # Errors
-///
-/// * Either bound is `None` on both sides (would shadow the default URL).
-/// * `from_block > to_block`.
-/// * Any two overrides cover an overlapping block range.
-fn validate_range_overrides(
-    overrides: &[RpcRangeOverride],
-) -> anyhow::Result<Vec<(u64, u64, String)>> {
-    if overrides.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut bounds: Vec<(u64, u64, String)> = Vec::with_capacity(overrides.len());
-    for ov in overrides {
-        if ov.from_block.is_none() && ov.to_block.is_none() {
-            anyhow::bail!(
-                "RPC range override must set at least one of `from_block` or `to_block` \
-                 (an unbounded override would silently shadow the default URL)"
-            );
-        }
-        let from = ov.from_block.unwrap_or(0);
-        let to = ov.to_block.unwrap_or(u64::MAX);
-        if from > to {
-            anyhow::bail!(
-                "RPC range override has from_block ({from}) > to_block ({to}); \
-                 swap the bounds in your config"
-            );
-        }
-        bounds.push((from, to, ov.url.clone()));
-    }
-
-    bounds.sort_by_key(|(from, _, _)| *from);
-    for w in bounds.windows(2) {
-        let (a_from, a_to, _) = &w[0];
-        let (b_from, b_to, _) = &w[1];
-        if a_to >= b_from {
-            anyhow::bail!(
-                "Overlapping RPC overrides: range [{a_from}, {a_to}] overlaps [{b_from}, {b_to}]"
-            );
-        }
-    }
-
-    Ok(bounds)
+/// The outer call site short-circuits on the first `Ok(Some(_))`, so this
+/// only models the negative paths.
+enum LookupOutcome {
+    /// At least one provider answered "not found" (`Ok(None)`). Any errors
+    /// from peers are demoted to warnings — the providers that did respond
+    /// agreed the value is not there.
+    NotFound {
+        errors_to_warn: Vec<(String, Error)>,
+    },
+    /// Every provider errored. Caller gets `first` as the representative
+    /// failure; remaining errors should be logged at warn level.
+    AllErrored {
+        first: (String, Error),
+        additional_to_warn: Vec<(String, Error)>,
+    },
 }
 
-/// Find the index of the inclusive `(from, to)` range that covers
-/// `block_number`.
+/// Pure decision step shared by every sequential-fallback lookup
+/// ([`Client::get_tx_position_by_hash`], [`Client::get_eth_block`],
+/// [`Client::get_receipts`]).
 ///
-/// Assumes `ranges` is sorted by `from` (as established by
-/// [`validate_range_overrides`]) and that ranges are non-overlapping, so the
-/// search short-circuits at the first range whose `from > block_number`.
-fn find_range_index(block_number: u64, ranges: &[(u64, u64)]) -> Option<usize> {
-    for (i, (from, to)) in ranges.iter().enumerate() {
-        if block_number < *from {
-            return None;
-        }
-        if block_number <= *to {
-            return Some(i);
-        }
+/// `got_definitive_none` is `true` iff at least one provider returned
+/// `Ok(None)`. `errors` carries every provider that failed to respond.
+///
+/// The caller is expected to have already returned early on the first
+/// `Ok(Some(_))`, so this function only sees the negative arms.
+///
+/// # Panics
+///
+/// Panics if both `!got_definitive_none` and `errors.is_empty()`. That state
+/// means "no provider returned anything", which is only possible if the
+/// caller iterated an empty provider list — and the [`Client`] is constructed
+/// such that there is always at least the primary.
+fn merge_provider_lookup(
+    got_definitive_none: bool,
+    mut errors: Vec<(String, Error)>,
+) -> LookupOutcome {
+    if got_definitive_none {
+        return LookupOutcome::NotFound {
+            errors_to_warn: errors,
+        };
     }
-    None
+
+    assert!(
+        !errors.is_empty(),
+        "merge_provider_lookup invoked without any provider results"
+    );
+
+    let first = errors.remove(0);
+    LookupOutcome::AllErrored {
+        first,
+        additional_to_warn: errors,
+    }
+}
+
+/// Redact the query-string of a URL for logs.
+///
+/// Many RPC providers carry their API key in the `?key=...` query parameter,
+/// so logging the full URL would leak the secret. Path-embedded keys are
+/// **not** redacted by this helper — handle those at the call site.
+fn redact_url_query(url: &str) -> String {
+    url.split_once('?')
+        .map(|(base, _)| format!("{base}?…"))
+        .unwrap_or_else(|| url.to_string())
 }
 
 /// Build a simple Ethereum-compatible Merkle tree from a block
@@ -802,125 +977,82 @@ pub fn simple_merkle_tree(block: &OrderedBlock) -> merkle::KeccakMerkleTree {
 }
 
 #[cfg(test)]
-mod range_override_tests {
-    use super::{find_range_index, validate_range_overrides, RpcRangeOverride};
+mod provider_lookup_tests {
+    use super::{merge_provider_lookup, redact_url_query, Error, LookupOutcome};
 
-    fn ov(from: Option<u64>, to: Option<u64>, url: &str) -> RpcRangeOverride {
-        RpcRangeOverride {
-            from_block: from,
-            to_block: to,
-            url: url.to_string(),
+    fn err(msg: &str) -> Error {
+        Error::ClientError(anyhow::anyhow!(msg.to_string()))
+    }
+
+    #[test]
+    fn at_least_one_none_yields_not_found_and_keeps_errors_for_warnings() {
+        let errors = vec![
+            ("primary".to_string(), err("connection reset")),
+            ("fallback[0]@http://x".to_string(), err("rate limited")),
+        ];
+        let outcome = merge_provider_lookup(true, errors);
+        match outcome {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                assert_eq!(errors_to_warn.len(), 2);
+                assert_eq!(errors_to_warn[0].0, "primary");
+                assert_eq!(errors_to_warn[1].0, "fallback[0]@http://x");
+            }
+            LookupOutcome::AllErrored { .. } => panic!("expected NotFound"),
         }
     }
 
     #[test]
-    fn empty_overrides_validates_to_empty() {
-        let normalized = validate_range_overrides(&[]).expect("empty list is valid");
-        assert!(normalized.is_empty());
+    fn definitive_none_with_no_errors_is_simple_not_found() {
+        let outcome = merge_provider_lookup(true, Vec::new());
+        match outcome {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                assert!(errors_to_warn.is_empty());
+            }
+            LookupOutcome::AllErrored { .. } => panic!("expected NotFound"),
+        }
     }
 
     #[test]
-    fn unbounded_override_is_rejected() {
-        let err = validate_range_overrides(&[ov(None, None, "http://x")]).unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("at least one of `from_block` or `to_block`"),
-            "unexpected error: {msg}"
-        );
+    fn no_none_and_some_errors_promotes_first_error() {
+        let errors = vec![
+            ("primary".to_string(), err("first failure")),
+            ("fallback[0]@http://a".to_string(), err("second failure")),
+            ("fallback[1]@http://b".to_string(), err("third failure")),
+        ];
+        let outcome = merge_provider_lookup(false, errors);
+        match outcome {
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                assert_eq!(first.0, "primary");
+                assert_eq!(first.1.to_string(), "Client error first failure");
+                assert_eq!(additional_to_warn.len(), 2);
+                assert_eq!(additional_to_warn[0].0, "fallback[0]@http://a");
+                assert_eq!(additional_to_warn[1].0, "fallback[1]@http://b");
+            }
+            LookupOutcome::NotFound { .. } => panic!("expected AllErrored"),
+        }
     }
 
     #[test]
-    fn inverted_bounds_are_rejected() {
-        let err = validate_range_overrides(&[ov(Some(100), Some(50), "http://x")]).unwrap_err();
-        assert!(
-            err.to_string().contains("from_block"),
-            "unexpected error: {err}"
-        );
+    #[should_panic(expected = "merge_provider_lookup invoked without any provider results")]
+    fn empty_input_panics() {
+        // The caller iterates `[primary, fallbacks..]` so the input is never
+        // empty in practice; assert the defensive check fires loudly if the
+        // invariant is ever broken.
+        let _ = merge_provider_lookup(false, Vec::new());
     }
 
     #[test]
-    fn overlapping_overrides_are_rejected() {
-        let err = validate_range_overrides(&[
-            ov(Some(0), Some(1_000), "http://low"),
-            ov(Some(500), Some(2_000), "http://mid"),
-        ])
-        .unwrap_err();
-        assert!(
-            err.to_string().contains("Overlapping"),
-            "unexpected error: {err}"
-        );
+    fn redact_url_query_strips_after_question_mark() {
+        let redacted = redact_url_query("https://rpc.example.io/v2/foo?key=secret123");
+        assert_eq!(redacted, "https://rpc.example.io/v2/foo?…");
     }
 
     #[test]
-    fn touching_ranges_are_overlapping() {
-        // Ranges are inclusive on both ends, so [0, 100] and [100, 200] both
-        // cover block 100 — that ambiguity is rejected.
-        let err = validate_range_overrides(&[
-            ov(Some(0), Some(100), "http://low"),
-            ov(Some(100), Some(200), "http://hi"),
-        ])
-        .unwrap_err();
-        assert!(err.to_string().contains("Overlapping"));
-    }
-
-    #[test]
-    fn adjacent_ranges_are_allowed() {
-        let normalized = validate_range_overrides(&[
-            ov(Some(0), Some(99), "http://low"),
-            ov(Some(100), Some(200), "http://hi"),
-        ])
-        .expect("adjacent ranges must be allowed");
-        assert_eq!(
-            normalized,
-            vec![
-                (0, 99, "http://low".to_string()),
-                (100, 200, "http://hi".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn validation_normalizes_open_bounds_and_sorts() {
-        let normalized = validate_range_overrides(&[
-            ov(Some(4_000_001), None, "http://recent"),
-            ov(None, Some(4_000_000), "http://archive"),
-        ])
-        .expect("non-overlapping open bounds are valid");
-
-        assert_eq!(
-            normalized,
-            vec![
-                (0, 4_000_000, "http://archive".to_string()),
-                (4_000_001, u64::MAX, "http://recent".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn find_range_index_picks_matching_range() {
-        // Mirrors the user-facing two-bucket example: archive vs recent.
-        let ranges = &[(0, 4_000_000), (4_000_001, u64::MAX)];
-
-        assert_eq!(find_range_index(0, ranges), Some(0));
-        assert_eq!(find_range_index(4_000_000, ranges), Some(0));
-        assert_eq!(find_range_index(4_000_001, ranges), Some(1));
-        assert_eq!(find_range_index(u64::MAX, ranges), Some(1));
-    }
-
-    #[test]
-    fn find_range_index_returns_none_for_gap() {
-        // Block 75 falls between [0, 50] and [100, 200] — no override matches,
-        // so the caller falls back to the default URL.
-        let ranges = &[(0, 50), (100, 200)];
-
-        assert_eq!(find_range_index(75, ranges), None);
-        assert_eq!(find_range_index(50, ranges), Some(0));
-        assert_eq!(find_range_index(100, ranges), Some(1));
-        assert_eq!(find_range_index(201, ranges), None);
-    }
-
-    #[test]
-    fn find_range_index_with_no_ranges_returns_none() {
-        assert_eq!(find_range_index(42, &[]), None);
+    fn redact_url_query_passes_through_when_no_query() {
+        let redacted = redact_url_query("wss://node.example.io/abcdef");
+        assert_eq!(redacted, "wss://node.example.io/abcdef");
     }
 }
