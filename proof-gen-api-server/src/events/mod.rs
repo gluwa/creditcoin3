@@ -70,7 +70,7 @@ pub async fn start_cc3_event_subscription(
         info!(
             ?chain_keys,
             attempt = consecutive_failures + 1,
-            "Starting CC3 event subscription (single task, multi-chain filter)"
+            "🔗 Starting CC3 event subscription (single task, multi-chain filter)"
         );
 
         let connected_at = Instant::now();
@@ -78,7 +78,7 @@ pub async fn start_cc3_event_subscription(
         match cc3_client.subscribe_events_chains(&chain_keys_vec) {
             Ok(mut subscription) => {
                 info!(
-                    "Successfully subscribed to CC3 events for chain keys: {:?}",
+                    "🔗 Successfully subscribed to CC3 events for chain keys: {:?}",
                     chain_keys
                 );
 
@@ -93,7 +93,7 @@ pub async fn start_cc3_event_subscription(
                             )
                             .await
                             {
-                                error!("Failed to process CC3 event: {e}");
+                                error!("❌ 🔗 Failed to process CC3 event: {e}");
                             }
                         }
                         None => {
@@ -106,20 +106,20 @@ pub async fn start_cc3_event_subscription(
                                     error!(
                                         connection_duration_secs =
                                             connection_duration.as_secs_f64(),
-                                        "CC3 event subscription terminated with error: {err:?}"
+                                        "❌ 🔗 CC3 event subscription terminated with error: {err:?}"
                                     );
                                 }
                                 Ok(None) => {
                                     warn!(
                                         connection_duration_secs = connection_duration.as_secs_f64(),
-                                        "CC3 event subscription closed cleanly by backend (no error reported)"
+                                        "⚠️ 🔗 CC3 event subscription closed cleanly by backend (no error reported)"
                                     );
                                 }
                                 Err(join_err) => {
                                     error!(
                                         connection_duration_secs =
                                             connection_duration.as_secs_f64(),
-                                        "CC3 event subscription task panicked: {join_err:?}"
+                                        "💥 🔗 CC3 event subscription task panicked: {join_err:?}"
                                     );
                                 }
                             }
@@ -131,7 +131,7 @@ pub async fn start_cc3_event_subscription(
             Err(e) => {
                 error!(
                     attempt = consecutive_failures + 1,
-                    "Failed to subscribe to CC3 events: {e:?}"
+                    "❌ 🔗 Failed to subscribe to CC3 events: {e:?}"
                 );
             }
         }
@@ -146,7 +146,7 @@ pub async fn start_cc3_event_subscription(
             if backoff != INITIAL_BACKOFF {
                 info!(
                     connection_duration_secs = connection_duration.as_secs_f64(),
-                    "Resetting CC3 reconnect backoff after a healthy connection"
+                    "🔄 🔗 Resetting CC3 reconnect backoff after a healthy connection"
                 );
             }
             backoff = INITIAL_BACKOFF;
@@ -157,7 +157,7 @@ pub async fn start_cc3_event_subscription(
 
         warn!(
             backoff_secs = backoff.as_secs_f64(),
-            consecutive_failures, "Reconnecting CC3 event subscription"
+            consecutive_failures, "🔄 🔗 Reconnecting CC3 event subscription"
         );
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(MAX_BACKOFF);
@@ -179,12 +179,12 @@ pub async fn start_cc3_event_subscription(
         // next `subscribe_events_chains` call will fail with the same error,
         // surface that via the existing logging path, and we'll back off and
         // retry until the node comes back.
-        info!("Refreshing CC3 RPC connection before next subscribe attempt");
+        info!("🔄 🔗 Refreshing CC3 RPC connection before next subscribe attempt");
         match cc3_client.reconnect().await {
-            Ok(()) => info!("CC3 RPC connection refreshed"),
+            Ok(()) => info!("✅ 🔗 CC3 RPC connection refreshed"),
             Err(err) => warn!(
                 ?err,
-                "Failed to refresh CC3 RPC connection; will retry on next loop iteration"
+                "⚠️ 🔗 Failed to refresh CC3 RPC connection; will retry on next loop iteration"
             ),
         }
     }
@@ -206,7 +206,7 @@ async fn process_cc_event(
             let header_number = metadata.header_number;
             let digest = metadata.digest;
             info!(
-                "Processing BlockAttested event: chain_key={chain_key}, header_number={header_number}, digest={digest:?}"
+                "🔗 📜 Processing BlockAttested event: chain_key={chain_key}, header_number={header_number}, digest={digest:?}"
             );
 
             if let Ok(mut cache) = LAST_ATTESTATIONS.lock() {
@@ -229,7 +229,7 @@ async fn process_cc_event(
                 .insert_attestation(chain_key, header_number, digest)
                 .await;
 
-            info!("Cached attestation in-memory: chain_key={chain_key}, header_number={header_number}");
+            info!("🔗 📦 Cached attestation in-memory: chain_key={chain_key}, header_number={header_number}");
 
             Ok(())
         }
@@ -241,7 +241,7 @@ async fn process_cc_event(
             let block_number = checkpoint.block_number;
             let digest = checkpoint.digest;
             info!(
-                "Processing CheckpointReached event: chain_key={event_chain_key}, block_number={block_number}, digest={digest:?}"
+                "🔗 🚩 Processing CheckpointReached event: chain_key={event_chain_key}, block_number={block_number}, digest={digest:?}"
             );
 
             let mut checkpoint_blocks = last_checkpoint_blocks.write().await;
@@ -249,7 +249,7 @@ async fn process_cc_event(
             if block_number > current_last {
                 checkpoint_blocks.insert(*event_chain_key, block_number);
                 info!(
-                    "✅ Updated last checkpoint block for chain {event_chain_key} to {}",
+                    "🔗 ✅ Updated last checkpoint block for chain {event_chain_key} to {}",
                     block_number
                 );
 
@@ -279,7 +279,7 @@ async fn process_cc_event(
             }
             let interval_u64 = *new_interval;
             info!(
-                "⚙️  Checkpoint interval changed for chain {event_chain_key}: {} attestations",
+                "🔗 ⚙️  Checkpoint interval changed for chain {event_chain_key}: {} attestations",
                 interval_u64
             );
 
@@ -287,7 +287,7 @@ async fn process_cc_event(
             intervals.insert(*event_chain_key, interval_u64);
 
             info!(
-                "✅ Updated checkpoint interval for chain {event_chain_key} to {}",
+                "🔗 ✅ Updated checkpoint interval for chain {event_chain_key} to {}",
                 interval_u64
             );
 
@@ -299,7 +299,7 @@ async fn process_cc_event(
             }
             let new_genesis = *new_genesis;
             info!(
-                "⚙️  Chain genesis block changed for chain {event_chain_key}: {}",
+                "🔗 ⚙️  Chain genesis block changed for chain {event_chain_key}: {}",
                 new_genesis
             );
 
@@ -308,7 +308,7 @@ async fn process_cc_event(
                 .await;
 
             info!(
-                "✅ Updated chain genesis block for chain {event_chain_key} to {}",
+                "🔗 ✅ Updated chain genesis block for chain {event_chain_key} to {}",
                 new_genesis
             );
 
@@ -322,7 +322,7 @@ async fn process_cc_event(
 
             let revert_height = *checkpoint_height;
             warn!(
-                "⚠️  Attestation chain reversion detected for chain {chain_key}: \
+                "🔗 ⚠️  Attestation chain reversion detected for chain {chain_key}: \
                  reverting caches to height {revert_height}"
             );
 
@@ -337,7 +337,7 @@ async fn process_cc_event(
             last_checkpoint_blocks.write().await.remove(&chain_key);
 
             info!(
-                "✅ Attestation chain reversion handled for chain {chain_key} \
+                "🔗 ✅ Attestation chain reversion handled for chain {chain_key} \
                  (reverted to height {revert_height})"
             );
 
