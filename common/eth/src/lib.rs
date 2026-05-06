@@ -957,15 +957,82 @@ fn merge_provider_lookup(
     }
 }
 
-/// Redact the query-string of a URL for logs.
+/// Redact the query-string **and** any secret-looking path segments of a URL
+/// for logs.
 ///
-/// Many RPC providers carry their API key in the `?key=...` query parameter,
-/// so logging the full URL would leak the secret. Path-embedded keys are
-/// **not** redacted by this helper — handle those at the call site.
-fn redact_url_query(url: &str) -> String {
-    url.split_once('?')
-        .map(|(base, _)| format!("{base}?…"))
-        .unwrap_or_else(|| url.to_string())
+/// Many RPC providers carry their API key in the URL — either in the
+/// `?key=...` query parameter (Google Cloud, Infura legacy) or as a trailing
+/// path segment (Chainstack, Alchemy, QuickNode, …). This helper handles
+/// both:
+///
+/// * Anything after the first `?` is replaced with `?…`.
+/// * Any path segment that looks like an opaque secret token — i.e. at
+///   least 16 characters of `[A-Za-z0-9_-]` containing at least one digit
+///   *and* one letter — is replaced with `…` (the segment length is not
+///   leaked).
+///
+/// Human-readable path tokens (`v1`, `projects`, `cc3-testnet-rpckey-2`,
+/// `ethereum-sepolia`, etc.) stay intact because they either contain a
+/// hyphen-separated word or are too short / not mixed-case to trip the
+/// secret heuristic.
+pub fn redact_url_query(url: &str) -> String {
+    // Split off the query string first so we never accidentally redact
+    // inside it (and to keep behavior identical to the previous helper for
+    // `?key=...`-style URLs).
+    let (base, query_marker) = match url.split_once('?') {
+        Some((b, _)) => (b, "?…"),
+        None => (url, ""),
+    };
+
+    // Redact the path. We split on '/' so we can scan each segment
+    // independently; this keeps `scheme://host` untouched (the leading
+    // `scheme:` and the empty pre-`//` segments don't match the secret
+    // heuristic).
+    let redacted_path = base
+        .split('/')
+        .map(|seg| {
+            if looks_like_secret_segment(seg) {
+                "…"
+            } else {
+                seg
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+
+    format!("{redacted_path}{query_marker}")
+}
+
+/// Heuristic: does this path segment look like an opaque secret token
+/// (API key, project hash, …) that we should not log?
+///
+/// Conservative — designed to avoid false positives on routine path
+/// components like `v1`, `rpc`, `ethereum-sepolia`, `cc3-testnet-rpckey-2`.
+fn looks_like_secret_segment(seg: &str) -> bool {
+    if seg.len() < 16 {
+        return false;
+    }
+
+    // Hyphenated multi-word identifiers (e.g. `cc3-testnet-rpckey-2`,
+    // `ethereum-sepolia`) are never secrets in practice — providers don't
+    // shape API keys that way. This single rule covers all the
+    // human-readable path tokens we've seen in proof-gen configs.
+    if seg.contains('-') {
+        return false;
+    }
+
+    let mut has_digit = false;
+    let mut has_letter = false;
+    for ch in seg.chars() {
+        match ch {
+            '0'..='9' => has_digit = true,
+            'A'..='Z' | 'a'..='z' => has_letter = true,
+            '_' => {}
+            _ => return false, // any other char ⇒ not a secret-shaped token
+        }
+    }
+
+    has_digit && has_letter
 }
 
 /// Build a simple Ethereum-compatible Merkle tree from a block
@@ -1051,8 +1118,61 @@ mod provider_lookup_tests {
     }
 
     #[test]
-    fn redact_url_query_passes_through_when_no_query() {
+    fn redact_url_query_passes_through_short_path_when_no_query() {
+        // No query, short path token — nothing to redact.
         let redacted = redact_url_query("wss://node.example.io/abcdef");
         assert_eq!(redacted, "wss://node.example.io/abcdef");
+    }
+
+    #[test]
+    fn redact_url_query_redacts_chainstack_style_path_key() {
+        // Chainstack embeds the API key as a 32-char hex path segment.
+        let redacted = redact_url_query(
+            "https://ethereum-sepolia.core.chainstack.com/efdb96b1ade73fac0eb3f90559b9acee",
+        );
+        assert_eq!(redacted, "https://ethereum-sepolia.core.chainstack.com/…");
+    }
+
+    #[test]
+    fn redact_url_query_redacts_alchemy_style_trailing_token() {
+        let redacted =
+            redact_url_query("https://eth-mainnet.g.alchemy.com/v2/AbCdEf012345MoreSecret67890");
+        // `v2` is short and stays; trailing token is redacted.
+        assert_eq!(redacted, "https://eth-mainnet.g.alchemy.com/v2/…");
+    }
+
+    #[test]
+    fn redact_url_query_keeps_human_readable_path_segments() {
+        // Real-world googleapis URL — the path tokens are identifiers we
+        // *want* to keep for log readability; the actual key sits in `?key=`.
+        let redacted = redact_url_query(
+            "https://blockchain.googleapis.com/v1/projects/cc3-testnet-rpckey-2/locations/us-central1/endpoints/ethereum-sepolia/rpc?key=AIzaSyVxWM",
+        );
+        assert_eq!(
+            redacted,
+            "https://blockchain.googleapis.com/v1/projects/cc3-testnet-rpckey-2/locations/us-central1/endpoints/ethereum-sepolia/rpc?…"
+        );
+    }
+
+    #[test]
+    fn redact_url_query_keeps_pure_letter_paths() {
+        // No digits in the segment ⇒ not a key-shaped token; keep as-is.
+        let redacted = redact_url_query("https://rpc.example.io/abcdefghijklmnopqrst");
+        assert_eq!(redacted, "https://rpc.example.io/abcdefghijklmnopqrst");
+    }
+
+    #[test]
+    fn redact_url_query_keeps_pure_digit_paths() {
+        // No letters ⇒ likely a port/id/ts, not an API key.
+        let redacted = redact_url_query("https://rpc.example.io/1234567890123456");
+        assert_eq!(redacted, "https://rpc.example.io/1234567890123456");
+    }
+
+    #[test]
+    fn redact_url_query_redacts_inner_secret_segment() {
+        // Trailing `/rpc` is a fixed suffix; the secret is the segment in the
+        // middle. Verify each segment is evaluated independently.
+        let redacted = redact_url_query("https://eth.example.io/v1/aB3xQ9MnP2rT7vW4kY8jL6/rpc");
+        assert_eq!(redacted, "https://eth.example.io/v1/…/rpc");
     }
 }
