@@ -953,12 +953,12 @@ mod tests {
         let svc = make_service_with_configuration(
             Arc::new(FoundEthProvider),
             DEFAULT_MAX_BATCH_SPAN,
-            std::time::Duration::from_secs(0),
+            std::time::Duration::from_secs(1),
         )
         .await;
 
-        // Yield once so a tiny bit of time passes since service construction.
-        tokio::task::yield_now().await;
+        // Spin a bit so the timer has gone over its timeout.
+        tokio::time::sleep(std::time::Duration::from_millis(1010)).await;
 
         let err = svc
             .check_attestation_event_timer()
