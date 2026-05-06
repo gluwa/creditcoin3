@@ -1928,7 +1928,7 @@ mod constants {
         header_hash: attestor_primitives::Digest::zero(),
     };
 
-    pub const TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
+    pub const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 }
 
 #[cfg(test)]
