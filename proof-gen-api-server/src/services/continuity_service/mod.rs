@@ -484,7 +484,7 @@ impl ContinuityService {
                     height,
                     removed,
                     remaining = att.len(),
-                    "🔧 🧦 pruned consumed attestations after checkpoint"
+                    "🔧 🧹 pruned consumed attestations after checkpoint"
                 );
             }
         }
