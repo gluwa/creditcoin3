@@ -474,12 +474,6 @@ impl Client {
         out
     }
 
-    /// Returns the configured fallback URLs in declaration order. Useful
-    /// for startup logging.
-    pub fn fallback_urls(&self) -> Vec<&Url> {
-        self.fallback_providers.iter().map(|fp| &fp.url).collect()
-    }
-
     pub fn chain_id(&self) -> u64 {
         self.chain_id
     }
