@@ -47,12 +47,12 @@ impl Server {
     pub async fn new(config: Config) -> Result<Self> {
         let chain_keys: Vec<u64> = config.chains.iter().map(|c| c.chain_key).collect();
         let prom_metrics = Arc::new(ProofGenMetrics::new(&chain_keys));
-        info!("📈 Prometheus metrics available at /metrics");
+        info!("🚀 📈 Prometheus metrics available at /metrics");
 
         debug!(
             cc3_rpc_url = %config.cc3_rpc_url,
             chain_count = config.chains.len(),
-            "[startup] connecting Creditcoin3 read-only client (cc3_rpc_url)"
+            "🚀 [startup] connecting Creditcoin3 read-only client (cc3_rpc_url)"
         );
         let cc3_client = Arc::<CcClient>::new(
             CcClient::new_read_only(&config.cc3_rpc_url)
@@ -65,7 +65,7 @@ impl Server {
                     )
                 })?,
         );
-        debug!("[startup] Creditcoin3 client connected");
+        debug!("🚀 ✅ [startup] Creditcoin3 client connected");
 
         let mut builders: Vec<Arc<ContinuityBuilder>> = Vec::with_capacity(config.chains.len());
         let checkpoint_intervals = Arc::new(RwLock::new(HashMap::new()));
@@ -78,7 +78,7 @@ impl Server {
                 chain_key = chain.chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
                 archiver_url = ?chain.archiver_url.as_ref().map(|u| redact_url_query(u)),
-                "[startup] configuring source chain"
+                "🚀 [startup] configuring source chain"
             );
             let builder = Self::build_continuity_for_chain(
                 &config,
@@ -131,7 +131,7 @@ impl Server {
                 redis_url = %redact_url_query(redis_url),
                 cluster_mode = global.redis_cluster_mode,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
-                "[startup] connecting source chain ETH client with Redis block cache"
+                "🚀 [startup] connecting source chain ETH client with Redis block cache"
             );
             let block_cache_metrics = prom_metrics.block_cache_metrics();
             let cache_config = eth::block_cache::BlockCacheConfig {
@@ -152,7 +152,7 @@ impl Server {
             debug!(
                 chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
-                "[startup] connecting source chain ETH client (no Redis)"
+                "🚀 [startup] connecting source chain ETH client (no Redis)"
             );
             EthClient::new(&chain.eth_rpc_url, None)
                 .await
@@ -242,7 +242,7 @@ impl Server {
                 debug!(
                     chain_key,
                     archiver_url = %redact_url_query(archiver_url),
-                    "[startup] wrapping ETH client with archiver HTTP provider"
+                    "🚀 [startup] wrapping ETH client with archiver HTTP provider"
                 );
                 Arc::new(continuity::archiver::ArchiverEthProvider::new(
                     archiver_url.clone(),
@@ -254,7 +254,7 @@ impl Server {
 
         debug!(
             chain_key,
-            "[startup] building ContinuityBuilder (continuity + CC3 + source chain providers)"
+            "🚀 [startup] building ContinuityBuilder (continuity + CC3 + source chain providers)"
         );
         let builder = Arc::new(ContinuityBuilder::new_with_providers(
             continuity_config,
@@ -298,7 +298,7 @@ impl Server {
         let server = run_http_server(app, bind_addr, http_shutdown_rx);
         tokio::pin!(server);
 
-        info!("Server listening on {bind_addr}");
+        info!("🚀 🌐 Server listening on {bind_addr}");
 
         let cc3_client_clone = self.cc3_client.clone();
         let checkpoint_intervals_clone = self.checkpoint_intervals.clone();
@@ -313,7 +313,7 @@ impl Server {
             )
             .await
             {
-                error!("CC3 event subscription failed: {e}");
+                error!("❌ 🔗 CC3 event subscription failed: {e}");
             }
         });
 
@@ -372,5 +372,5 @@ pub async fn shutdown_signal() {
         _ = terminate => {}
     }
 
-    info!("Shutdown signal received");
+    info!("🛑 Shutdown signal received");
 }
