@@ -176,11 +176,11 @@ impl Client {
             let mut blocks_sub = match api.blocks().subscribe_finalized().await {
                 Ok(sub) => sub,
                 Err(e) => {
-                    error!("Failed to start finalized-block subscription: {e:?}");
+                    error!("❌ 🔗 Failed to start finalized-block subscription: {e:?}");
                     return Err(Error::SubscriptionConnectionLost(e));
                 }
             };
-            info!("Subscription started, streaming finalized blocks...");
+            info!("🔗 📡 Subscription started, streaming finalized blocks...");
 
             loop {
                 match blocks_sub.next().await {
