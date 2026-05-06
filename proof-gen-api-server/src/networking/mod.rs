@@ -111,7 +111,7 @@ pub fn build_app(
                     )
                 })
                 .on_request(|_request: &axum::http::Request<_>, _span: &tracing::Span| {
-                    tracing::event!(Level::INFO, "Incoming request");
+                    tracing::event!(Level::INFO, "🌐 ⬇️  Incoming request");
                 })
                 .on_response(
                     |_response: &axum::http::Response<_>,
@@ -121,7 +121,7 @@ pub fn build_app(
                             Level::INFO,
                             latency_ms = latency.as_millis(),
                             status = %_response.status(),
-                            "Request completed"
+                            "🌐 ✅ Request completed"
                         );
                     },
                 ),

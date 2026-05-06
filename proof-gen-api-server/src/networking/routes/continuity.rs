@@ -49,7 +49,7 @@ pub async fn get_proof_with_tx(
                 header_number = r.header_number,
                 tx_index = r.tx_index,
                 cached = r.cached,
-                "Request served"
+                "🌐 ✅ Request served"
             )
         })
         .map(ContinuityResponse::from)
@@ -85,7 +85,7 @@ pub async fn get_proof_by_tx_hash(
     service
         .get_proof_by_tx_hash(&chain.state, tx_hash.clone())
         .await
-        .inspect(|r| tracing::info!(chain_key = chain.key, %tx_hash, header_number = r.header_number, cached = r.cached, "Request served"))
+        .inspect(|r| tracing::info!(chain_key = chain.key, %tx_hash, header_number = r.header_number, cached = r.cached, "🌐 ✅ Request served"))
         .map(ContinuityResponse::from)
         .map(Json)
         .map_err(|e| {
@@ -166,7 +166,7 @@ pub async fn get_proof_batch(
                 from_header = r.from_header,
                 to_header = r.to_header,
                 cached = r.cached,
-                "Batch request served"
+                "🌐 ✅ 📦 Batch request served"
             )
         })
         .map(ContinuityResponse::from)
@@ -227,7 +227,7 @@ pub async fn get_proof_batch_by_tx_hash(
                 from_header = r.from_header,
                 to_header = r.to_header,
                 cached = r.cached,
-                "Batch request served"
+                "🌐 ✅ 📦 Batch request served"
             )
         })
         .map(ContinuityResponse::from)
