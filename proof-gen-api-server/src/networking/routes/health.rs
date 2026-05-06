@@ -10,8 +10,6 @@ use utoipa::ToSchema;
 use crate::services::continuity_service::ContinuityService;
 
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
-// 15 minute grace window on restart
-const GRACE_WINDOW_DURATION: Duration = Duration::from_secs(15 * 60);
 
 /// Health check response schema for OpenAPI
 #[derive(Serialize, ToSchema)]
@@ -71,10 +69,7 @@ pub async fn health_check(
         "degraded".to_string()
     };
 
-    // If we are in our re-start grace window, then don't use a failure
-    // status code. This would trigger another restart through k8s.
-    let in_grace_window: bool = Duration::from_secs(service.uptime_seconds()) < GRACE_WINDOW_DURATION;
-    let http_status = if healthy || in_grace_window {
+    let http_status = if healthy {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE
