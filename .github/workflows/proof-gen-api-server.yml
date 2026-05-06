@@ -149,8 +149,8 @@ jobs:
         run: |
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
-          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
-          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8142 &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 --dump-state /var/tmp/anvil1.json --state-interval 1 &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8142 --dump-state /var/tmp/anvil2.json --state-interval 1 &
 
       - name: Check that creditcoin-node and anvil are running
         run: |
@@ -315,6 +315,49 @@ jobs:
         run: |
           docker compose up -d
           sleep 30
+
+      - name: Exercise TransferWaitAndSubmit.js
+        working-directory: scripts
+        run: |
+          # Using Anvil Account #0 on source chain & Alith on execution chain
+          node TransferWaitAndSubmit.js \
+            --source-rpc-url http://127.0.0.1:8141 \
+            --cc3-rpc-url ws://localhost:9944 \
+            --cc3-private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 \
+            --api-url http://localhost:3100
+
+      - name: Simulate Anvil & Creditcoin RPC going down
+        run: |
+          # ungraceful shutdown, leaves RPC connections in prover open
+          killall -9 anvil
+          killall -9 creditcoin3-node
+
+          # wait as if these are offline for a longer period
+          sleep 75
+
+      - name: Restart creditcoin3-node - Alice
+        run: |
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data >/var/tmp/exercise-scripts/creditcoin3-node-alice-after-restart.log 2>&1 &
+
+      - name: Restart Ethereum simulation with Anvil
+        run: |
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 --load-state /var/tmp/anvil1.json &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8142 --load-state /var/tmp/anvil2.json &
+
+      - name: Check that creditcoin-node and anvil are running again
+        run: |
+          # wait for more source blocks and attestations
+          sleep 75
+
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8142'
 
       - name: Exercise TransferWaitAndSubmit.js
         working-directory: scripts
