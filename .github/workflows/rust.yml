@@ -40,7 +40,7 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32-unknown-unknown
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: gluwa/rust-cache@testing/CSUB-2030-debug-cache-keys
         with:
           shared-key: build-creditcoin-node
 
@@ -79,7 +79,7 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           components: rustfmt
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: gluwa/rust-cache@testing/CSUB-2030-debug-cache-keys
         with:
           shared-key: build-creditcoin-node
 
@@ -118,7 +118,7 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32-unknown-unknown
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: gluwa/rust-cache@testing/CSUB-2030-debug-cache-keys
         with:
           shared-key: build-creditcoin-node
 
@@ -161,7 +161,7 @@ jobs:
           targets: wasm32-unknown-unknown
           components: clippy, rust-src
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: gluwa/rust-cache@testing/CSUB-2030-debug-cache-keys
         with:
           shared-key: build-creditcoin-node
 
@@ -192,7 +192,7 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: gluwa/rust-cache@testing/CSUB-2030-debug-cache-keys
         with:
           shared-key: build-creditcoin-node
 
@@ -227,7 +227,7 @@ jobs:
           components: llvm-tools-preview, rust-src
           targets: wasm32-unknown-unknown
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: gluwa/rust-cache@testing/CSUB-2030-debug-cache-keys
         with:
           shared-key: build-creditcoin-node
 

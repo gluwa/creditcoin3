@@ -113,7 +113,7 @@ jobs:
 
       # use cache from previous build jobs
       # WARNING: always before actions/download-artifact
-      - uses: Swatinem/rust-cache@v2
+      - uses: gluwa/rust-cache@testing/CSUB-2030-debug-cache-keys
         with:
           shared-key: build-creditcoin-node
 
