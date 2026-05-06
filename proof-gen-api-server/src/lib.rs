@@ -25,12 +25,10 @@ pub use networking::build_app;
 pub use services::continuity_service::ContinuityService;
 pub use services::errors::ErrorResponse;
 
-/// Hide `?query` in logs so keys in URLs are not fully printed.
-fn redact_url_query(url: &str) -> String {
-    url.split_once('?')
-        .map(|(base, _)| format!("{base}?…"))
-        .unwrap_or_else(|| url.to_string())
-}
+/// Re-export of [`eth::redact_url_query`] so existing call sites in this
+/// crate keep working unchanged. The eth-side helper redacts both `?query`
+/// strings *and* secret-looking path segments (Chainstack/Alchemy style).
+use eth::redact_url_query;
 
 pub struct Server {
     config: Config,
