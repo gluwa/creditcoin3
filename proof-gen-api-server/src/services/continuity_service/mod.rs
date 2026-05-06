@@ -188,6 +188,9 @@ impl ContinuityService {
         if builders.is_empty() {
             anyhow::bail!("ContinuityService requires at least one ContinuityBuilder");
         }
+        if Duration::is_zero(&attestation_liveness_timeout) { 
+            anyhow::bail!("ContinuityService requires attestation liveness timeout > 0");
+        }
 
         let mut chains = HashMap::new();
         for builder in builders {
