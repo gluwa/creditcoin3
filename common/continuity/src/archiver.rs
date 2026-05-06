@@ -169,6 +169,20 @@ impl EthRpcProvider for ArchiverEthProvider {
     async fn get_chain_id(&self) -> Result<u64> {
         self.eth_fallback.get_chain_id().await
     }
+
+    async fn is_healthy(&self) -> Result<bool> {
+        // Check both the archiver and the fallback RPC for health.
+        let archiver_healthy = self
+            .archiver
+            .get_latest_block()
+            .await
+            .map(|_| true)
+            .unwrap_or(false);
+
+        let eth_healthy = self.eth_fallback.is_healthy().await.unwrap_or(false);
+
+        Ok(archiver_healthy && eth_healthy)
+    }
 }
 
 fn parse_h256(s: &str) -> Result<H256> {
