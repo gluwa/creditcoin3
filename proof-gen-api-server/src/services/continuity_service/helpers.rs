@@ -344,6 +344,10 @@ mod tests {
         async fn get_chain_id(&self) -> Result<u64> {
             Ok(31337)
         }
+
+        async fn is_healthy(&self) -> Result<bool> {
+            Ok(true)
+        }
     }
 
     struct ErrorEthProvider;
@@ -376,6 +380,10 @@ mod tests {
         }
         async fn get_chain_id(&self) -> Result<u64> {
             Ok(31337)
+        }
+
+        async fn is_healthy(&self) -> Result<bool> {
+            Err(anyhow::anyhow!("connection refused"))
         }
     }
 
