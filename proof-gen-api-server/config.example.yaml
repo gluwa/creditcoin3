@@ -32,7 +32,7 @@ chains:
     #   * All fallback URLs must report the same chain_id as `eth_rpc_url`
     #     (verified at connect time).
     # eth_rpc_fallback_urls:
-    #   - "https://archive.example.io/v2/<KEY_FOR_OLD_BLOCKS>"
+    #   - "https://archive.example.com/v2/<KEY_FOR_OLD_BLOCKS>"
   # Second local chain (e.g. second Anvil on another port) — uncomment for multi-chain dev/CI:
   - chain_key: 3
     eth_rpc_url: "http://localhost:8546"
