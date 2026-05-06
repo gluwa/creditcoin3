@@ -18,27 +18,21 @@ chains:
     # block_confirmation_depth: 0  # Blocks to lag behind chain tip for reorg protection.
     #                               # Default: 0 (no lag). Set to 12 for Ethereum mainnet.
     #
-    # Per-block-range RPC URL overrides (optional).
-    # When a block-keyed RPC call's block_number falls within an override's
-    # [from_block, to_block] range (both bounds inclusive; either may be
-    # omitted to mean open-ended), that override's URL is used instead of
-    # `eth_rpc_url`. Useful when different block ranges live on different
-    # providers (and therefore require different API keys), e.g. a cheap
-    # "recent" endpoint plus a more expensive "archive" endpoint.
+    # Ordered fallback RPC URLs (optional).
+    # The eth client always tries `eth_rpc_url` (primary) first for every
+    # operation, then walks `eth_rpc_fallback_urls` in declaration order
+    # whenever the primary returns "not found" or a transport error for
+    # a block fetch / tx-hash lookup. Useful when the primary is a cheap
+    # "recent-only" endpoint and you keep a more expensive "archive"
+    # endpoint as backup for old data.
     #
     # Validation rules (enforced at startup):
-    #   * Every entry must set at least one of `from_block` / `to_block`
-    #     (use `eth_rpc_url` directly for the default URL).
-    #   * `from_block <= to_block` when both are set.
-    #   * Ranges must not overlap each other (touching ranges that share a
-    #     boundary block also count as overlapping).
-    #   * All override URLs must report the same chain_id as `eth_rpc_url`.
-    # Blocks not covered by any override fall back to `eth_rpc_url`.
-    # eth_rpc_overrides:
-    #   - to_block: 4000000
-    #     url: "https://archive.example.io/v2/<KEY_FOR_OLD_BLOCKS>"
-    #   - from_block: 4000001
-    #     url: "https://recent.example.io/v2/<KEY_FOR_RECENT_BLOCKS>"
+    #   * Each URL must be non-empty (whitespace is trimmed).
+    #   * Each URL must be unique within the chain's fallback list.
+    #   * All fallback URLs must report the same chain_id as `eth_rpc_url`
+    #     (verified at connect time).
+    # eth_rpc_fallback_urls:
+    #   - "https://archive.example.io/v2/<KEY_FOR_OLD_BLOCKS>"
   # Second local chain (e.g. second Anvil on another port) — uncomment for multi-chain dev/CI:
   - chain_key: 3
     eth_rpc_url: "http://localhost:8546"
