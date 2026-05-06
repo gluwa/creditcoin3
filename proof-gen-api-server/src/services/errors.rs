@@ -185,7 +185,7 @@ impl ServiceError {
                 retriable = response.retriable,
                 block_number = ?response.block_number,
                 last_attested_block = ?response.last_attested_block,
-                "proof API returning server error"
+                "🌐 ❌ proof API returning server error"
             );
         } else {
             tracing::warn!(
@@ -195,7 +195,7 @@ impl ServiceError {
                 retriable = response.retriable,
                 block_number = ?response.block_number,
                 last_attested_block = ?response.last_attested_block,
-                "proof API returning client error"
+                "🌐 ⚠️  proof API returning client error"
             );
         }
 

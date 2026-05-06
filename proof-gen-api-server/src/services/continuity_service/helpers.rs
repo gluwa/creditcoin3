@@ -57,7 +57,7 @@ impl ContinuityService {
                 max_query,
                 lower = bounds.0,
                 upper = bounds.2,
-                "resolved boundaries from attestation cache"
+                "🔧 🔍 resolved boundaries from attestation cache"
             );
             bounds
         } else if let Some(bounds) = self
@@ -69,7 +69,7 @@ impl ContinuityService {
                 max_query,
                 lower = bounds.0,
                 upper = bounds.2,
-                "resolved boundaries from checkpoint cache"
+                "🔧 🔍 resolved boundaries from checkpoint cache"
             );
             bounds
         } else if let Some(bounds) = self.get_mixed_boundaries(chain, min_query, max_query).await {
@@ -78,7 +78,7 @@ impl ContinuityService {
                 max_query,
                 lower = bounds.0,
                 upper = bounds.2,
-                "resolved boundaries from mixed cache bracket (one half per cache)"
+                "🔧 🔍 resolved boundaries from mixed cache bracket (one half per cache)"
             );
             bounds
         } else {
@@ -116,7 +116,7 @@ impl ContinuityService {
             upper_checkpoint,
             ?upper_checkpoint_digest,
             min_query,
-            "building proof from eth provider roots"
+            "🔧 🛠️  building proof from eth provider roots"
         );
 
         // Start the digest chain from the lower checkpoint's known on-chain digest.
@@ -147,7 +147,7 @@ impl ContinuityService {
                     upper_checkpoint,
                     expected = ?upper_checkpoint_digest,
                     computed = ?d,
-                    "continuity upper-boundary digest mismatch"
+                    "🔧 ❌ continuity upper-boundary digest mismatch"
                 );
                 return Err(ServiceError::Internal {
                     message: format!(
@@ -161,7 +161,7 @@ impl ContinuityService {
                     upper_checkpoint,
                     build_from,
                     n_blocks = blocks.len(),
-                    "eth provider returned no block at upper checkpoint boundary"
+                    "🔧 ❌ eth provider returned no block at upper checkpoint boundary"
                 );
                 return Err(ServiceError::Internal {
                     message: format!(

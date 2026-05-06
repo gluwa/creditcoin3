@@ -188,7 +188,7 @@ impl ContinuityService {
             // Fetch genesis block at startup - fail fast if RPC is unavailable
             tracing::debug!(
                 chain_key,
-                "[startup] ContinuityService: fetching attestation genesis block from CC3"
+                "🚀 🔗 [startup] ContinuityService: fetching attestation genesis block from CC3"
             );
             let attestation_genesis_block = builder
                 .get_attestation_genesis_block()
@@ -202,13 +202,13 @@ impl ContinuityService {
             tracing::debug!(
                 chain_key,
                 attestation_genesis_block,
-                "ContinuityService chain initialized with attestation genesis block"
+                "🚀 ✅ ContinuityService chain initialized with attestation genesis block"
             );
 
             // Populate checkpoint cache from CC3 on startup.
             tracing::debug!(
                 chain_key,
-                "⏳ Populating checkpoint cache from CC3 (this may take a while)..."
+                "🚀 ⏳ 📝 Populating checkpoint cache from CC3 (this may take a while)..."
             );
             let checkpoints = builder
                 .cc_provider
@@ -217,7 +217,7 @@ impl ContinuityService {
                 .unwrap_or_else(|e| {
                     tracing::warn!(
                         chain_key,
-                        "Failed to fetch checkpoints on startup: {e}, starting with empty cache"
+                        "⚠️ 🔗 Failed to fetch checkpoints on startup: {e}, starting with empty cache"
                     );
                     Vec::new()
                 });
@@ -229,13 +229,13 @@ impl ContinuityService {
                 chain_key,
                 count = checkpoint_map.len(),
                 latest = ?checkpoint_map.keys().next_back(),
-                "Checkpoint cache populated from CC3"
+                "🚀 ✅ 📝 Checkpoint cache populated from CC3"
             );
 
             // Populate attestation cache from CC3 on startup.
             tracing::debug!(
                 chain_key,
-                "⏳ Populating attestation cache from CC3 (this may take a while)..."
+                "🚀 ⏳ 📜 Populating attestation cache from CC3 (this may take a while)..."
             );
             let attestations = builder
                 .cc_provider
@@ -244,7 +244,7 @@ impl ContinuityService {
                 .unwrap_or_else(|e| {
                     tracing::warn!(
                         chain_key,
-                        "Failed to fetch attestations on startup: {e}, starting with empty cache"
+                        "⚠️ 🔗 Failed to fetch attestations on startup: {e}, starting with empty cache"
                     );
                     Vec::new()
                 });
@@ -256,7 +256,7 @@ impl ContinuityService {
                 chain_key,
                 count = attestation_map.len(),
                 latest = ?attestation_map.keys().next_back(),
-                "Attestation cache populated from CC3"
+                "🚀 ✅ 📜 Attestation cache populated from CC3"
             );
 
             chains.insert(
@@ -323,7 +323,7 @@ impl ContinuityService {
                 requested_block = header_number,
                 genesis_block,
                 chain_key,
-                "Requested block is before or at attestation genesis"
+                "⚠️  Requested block is before or at attestation genesis"
             );
             return Err(ServiceError::BlockBeforeOrAtGenesis {
                 requested_block: header_number,
@@ -351,7 +351,7 @@ impl ContinuityService {
                 confirmed_block,
                 chain_key,
                 block_confirmation_depth = chain.builder.config.block_confirmation_depth,
-                "Requested block is not yet confirmed on source chain (within reorg window)"
+                "⚠️  ⛓️ Requested block is not yet confirmed on source chain (within reorg window)"
             );
             return Err(ServiceError::BlockNotOnSourceChain {
                 requested_block: header_number,
@@ -407,7 +407,12 @@ impl ContinuityService {
                 .write()
                 .await
                 .insert(block_number, digest);
-            tracing::debug!(chain_key, block_number, ?digest, "attestation cached");
+            tracing::debug!(
+                chain_key,
+                block_number,
+                ?digest,
+                "🔧 📦 📜 attestation cached"
+            );
         }
     }
 
@@ -427,7 +432,7 @@ impl ContinuityService {
                     revert_height,
                     removed,
                     remaining = att.len(),
-                    "Reverted attestation cache"
+                    "🔧 ↩️  Reverted attestation cache"
                 );
             }
 
@@ -439,7 +444,7 @@ impl ContinuityService {
                     revert_height,
                     removed,
                     remaining = cp.len(),
-                    "Reverted checkpoint cache"
+                    "🔧 ↩️  Reverted checkpoint cache"
                 );
             }
 
@@ -479,7 +484,7 @@ impl ContinuityService {
                     height,
                     removed,
                     remaining = att.len(),
-                    "pruned consumed attestations after checkpoint"
+                    "🔧 🧦 pruned consumed attestations after checkpoint"
                 );
             }
         }
@@ -493,7 +498,12 @@ impl ContinuityService {
                 .write()
                 .await
                 .insert(block_number, digest);
-            tracing::debug!(chain_key, block_number, ?digest, "checkpoint cached");
+            tracing::debug!(
+                chain_key,
+                block_number,
+                ?digest,
+                "🔧 📦 🚩 checkpoint cached"
+            );
         }
     }
 
@@ -688,7 +698,7 @@ impl ContinuityService {
                 max_query,
                 last_coverage,
                 %ops,
-                "boundary miss: returning BlockNotReady to client"
+                "🔧 ⚠️  boundary miss: returning BlockNotReady to client"
             );
             return ServiceError::BlockNotReady {
                 block_number: max_query,
@@ -715,7 +725,7 @@ impl ContinuityService {
             tracing::info!(
                 chain_key,
                 attestation_genesis_block = new_genesis_block,
-                "Updated attestation genesis block"
+                "🔗 ✅ Updated attestation genesis block"
             );
         }
     }
@@ -744,7 +754,7 @@ impl ContinuityService {
                 tracing::info!(
                     proof_block_count = proof.roots.len(),
                     lower_endpoint_digest = ?proof.lower_endpoint_digest,
-                    "Generated continuity proof for API response"
+                    "🔧 ✨ Generated continuity proof for API response"
                 );
             })
     }
