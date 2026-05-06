@@ -295,6 +295,11 @@ impl EthRpcProvider for MockEthRpcProvider {
         // Mock returns test chain ID
         Ok(31337)
     }
+
+    async fn is_healthy(&self) -> Result<bool> {
+        // Mock provider is always healthy
+        Ok(true)
+    }
 }
 
 /// Create a pair of mock RPC providers for testing.
