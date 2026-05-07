@@ -161,11 +161,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         c
     } else {
-        // Legacy single-chain mode: chain key from CHAIN_KEY env (default 2).
+        // Legacy single-chain mode: chain key from CHAIN_KEY env (default 1).
         let chain_key = env::var("CHAIN_KEY")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(2);
+            .unwrap_or(1);
         Config {
             bind_host: args.bind_host,
             bind_port: args.bind_port,
