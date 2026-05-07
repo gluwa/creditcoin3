@@ -17,7 +17,7 @@ use tracing::Level;
 
 use crate::prom::{handle_metrics_response, Metrics, ProofGenMetrics};
 use crate::services::continuity_service::ContinuityService;
-use routes::{continuity, health};
+use routes::{attested_height, continuity, health};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -42,6 +42,10 @@ pub fn build_app(
     let router = Router::new()
         .route("/", get(|| async { Redirect::permanent("/api/swagger") }))
         .route("/api/v1/health", get(health::health_check))
+        .route(
+            "/api/v1/attested-height/{chain_key}",
+            get(attested_height::attested_height),
+        )
         .route(
             "/api/v1/proof/{chain_key}/{header_number}/{tx_index}",
             get(continuity::get_proof_with_tx),
