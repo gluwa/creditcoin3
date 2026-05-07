@@ -1184,6 +1184,12 @@ declare module '@polkadot/types/lookup' {
             readonly checkpointHeight: u64;
             readonly checkpointDigest: H256;
         } & Struct;
+        readonly isForwardCheckpointPatchApplied: boolean;
+        readonly asForwardCheckpointPatchApplied: {
+            readonly chainKey: u64;
+            readonly wipedSuffix: bool;
+            readonly tipBlockNumber: u64;
+        } & Struct;
         readonly type:
             | 'AttestorRegistered'
             | 'AttestorUnregistered'
@@ -1214,7 +1220,8 @@ declare module '@polkadot/types/lookup' {
             | 'AuthorizedAttestorRemoved'
             | 'ForcedElection'
             | 'ForcedUpdatesApplied'
-            | 'RevertedAttestationChainTo';
+            | 'RevertedAttestationChainTo'
+            | 'ForwardCheckpointPatchApplied';
     }
 
     /** @name AttestorPrimitivesAttestationCheckpoint (94) */
@@ -3072,6 +3079,12 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly checkpointHeight: u64;
         } & Struct;
+        readonly isForwardPatchCheckpoints: boolean;
+        readonly asForwardPatchCheckpoints: {
+            readonly chainKey: u64;
+            readonly wipeSuffix: bool;
+            readonly checkpoints: Vec<AttestorPrimitivesAttestationCheckpoint>;
+        } & Struct;
         readonly type:
             | 'SetChainAttestationInterval'
             | 'SetTargetSampleSize'
@@ -3096,7 +3109,8 @@ declare module '@polkadot/types/lookup' {
             | 'ForceElection'
             | 'SetMaxCatchup'
             | 'ForceApplyUpdates'
-            | 'RevertTo';
+            | 'RevertTo'
+            | 'ForwardPatchCheckpoints';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (323) */
@@ -3703,6 +3717,10 @@ declare module '@polkadot/types/lookup' {
         readonly isTriedToRevertDuringOngoingReversion: boolean;
         readonly isAttestorAlreadyIdle: boolean;
         readonly isAttestorChillAlreadyScheduled: boolean;
+        readonly isCheckpointMaintenanceInProgress: boolean;
+        readonly isEmptyCheckpointPatch: boolean;
+        readonly isCheckpointSuffixWipeTooLarge: boolean;
+        readonly isTooManyAttestationsForForwardPatchClear: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -3759,7 +3777,11 @@ declare module '@polkadot/types/lookup' {
             | 'LastCheckpointNotSet'
             | 'TriedToRevertDuringOngoingReversion'
             | 'AttestorAlreadyIdle'
-            | 'AttestorChillAlreadyScheduled';
+            | 'AttestorChillAlreadyScheduled'
+            | 'CheckpointMaintenanceInProgress'
+            | 'EmptyCheckpointPatch'
+            | 'CheckpointSuffixWipeTooLarge'
+            | 'TooManyAttestationsForForwardPatchClear';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (420) */
