@@ -15,11 +15,14 @@ async function main(creditcoinWsUrl: string, chainKey: number, proverBaseUrl: st
         `**** INFO: ${creditcoinWsUrl}, chainKey=${chainKey}, last attestation is for block ${lastAttestation.height}`,
     );
 
-    const startFrom = lastAttestation.height;
-    const goBack = 4000; // how many blocks to go back in time
-    const stepThrough = 5; // how many blocks to step through
+    const lastSourceBlock = parseInt(process.env.LAST_SOURCE_BLOCK || lastAttestation.height.toString(), 10);
+    const goBack = parseInt(process.env.GO_BACK_BLOCKS || '4000', 10); // how many blocks to go back in time
+    const startFrom = lastSourceBlock - goBack;
+    const stepThrough = parseInt(process.env.STEP_THROUGH_BLOCKS || '5', 10); // how many blocks to step through
 
-    for (let blockNumber = startFrom - goBack; blockNumber < lastAttestation.height; blockNumber += stepThrough) {
+    console.log(`**** INFO: will check ${goBack} blocks: ${startFrom}..${lastSourceBlock}, step ${stepThrough}`);
+
+    for (let blockNumber = startFrom; blockNumber < lastSourceBlock; blockNumber += stepThrough) {
         console.log(`... get proof for source chain block ${blockNumber}`);
         await getProofForBlock(proverBaseUrl, chainKey, blockNumber);
     }

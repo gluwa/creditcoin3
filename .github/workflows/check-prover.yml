@@ -29,7 +29,7 @@ jobs:
             proverUrl: "https://prover.cc3-testnet.creditcoin.network"
             chainKey: 1
 
-    name: check ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
+    name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -54,6 +54,11 @@ jobs:
 
       - name: Execute prover-check.ts
         working-directory: ./cli
+        env:
+          # LAST_SOURCE_BLOCK: '1000000'
+          # > 12hrs worth of blocks on the source chain
+          GO_BACK_BLOCKS: '4000'
+          STEP_THROUGH_BLOCKS: '5'
         run: |
           yarn install
           yarn build
