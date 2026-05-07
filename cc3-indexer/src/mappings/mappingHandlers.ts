@@ -364,7 +364,11 @@ export async function handleEventCheckpointReached(event: SubstrateEvent): Promi
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
 
-    // Replace any prior indexer rows for this checkpoint height (on-chain overwrites are unique per height).
+    // Drop prior indexer rows at this checkpoint height only (digest overwrite / re-import).
+    // We intentionally do not call `remove_checkpoints_above_height(chainKey, checkpoint.blockNumber - 1)` here:
+    // that would delete every checkpoint >= this height, which is wrong for `forward_patch_checkpoints`
+    // when `wipe_suffix` is false — the runtime keeps checkpoints strictly above the patch batch.
+    // Suffix removal when `wipe_suffix` is true is handled in `handleEventForwardCheckpointPatchApplied`.
     await remove_checkpoints_at_checkpoint_height(chainKeyNumber, checkpoint.blockNumber);
 
     /* eslint-disable @typescript-eslint/naming-convention */
@@ -1345,8 +1349,10 @@ export async function handleEventForwardCheckpointPatchApplied(event: SubstrateE
     const wipedSuffixBool = codecToBool(wipedSuffix);
     const tipBlock = BigInt(tipBlockNumber.toString());
 
-    // Mirrors `purge_attestations_for_forward_patch`: chain clears all attestations for this chain key.
-    await remove_all_attestations_for_chain(chainKeyNumber);
+    // Purge mirrors `purge_attestations_for_forward_patch`: on-chain clears the whole attestation prefix map.
+    // Using `remove_attestations_above_height(..., 0)` removes every indexed row with headerNumber > 0.
+    // (A threshold of `checkpoint.blockNumber - 1` per `CheckpointReached` would leave stale rows below the patch.)
+    await remove_attestations_above_height(chainKeyNumber, BigInt(0));
 
     // When suffix was wiped, chain removed checkpoints strictly above the batch tip.
     if (wipedSuffixBool) {
@@ -1504,46 +1510,6 @@ async function remove_checkpoints_at_checkpoint_height(chainKey: bigint, checkpo
 
     for (const batch of chunk(checkpointIdsToDelete, DELETE_BATCH_SIZE)) {
         await Promise.all(batch.map((checkpointId) => Checkpoints.remove(checkpointId)));
-    }
-}
-
-async function remove_all_attestations_for_chain(chainKey: bigint): Promise<void> {
-    const PAGE_SIZE = 100;
-    const DELETE_BATCH_SIZE = 100;
-    let offset = 0;
-    const attestationIdsToDelete: string[] = [];
-
-    while (true) {
-        const page = await Attestations.getByFields([['chainKey', '=', chainKey]], {
-            limit: PAGE_SIZE,
-            offset,
-            orderBy: 'id',
-            orderDirection: 'ASC',
-        });
-
-        if (page.length === 0) {
-            break;
-        }
-
-        for (const attestation of page) {
-            attestationIdsToDelete.push(attestation.id);
-        }
-
-        offset += page.length;
-    }
-
-    for (const batch of chunk(attestationIdsToDelete, DELETE_BATCH_SIZE)) {
-        await Promise.all(
-            batch.map(async (attestationId) => {
-                const mappings = await MapAttestationAttestor.getByFields([['attestationId', '=', attestationId]], {
-                    limit: PAGE_SIZE,
-                });
-
-                await Promise.all(mappings.map((mapping) => MapAttestationAttestor.remove(mapping.id)));
-
-                await Attestations.remove(attestationId);
-            }),
-        );
     }
 }
 
