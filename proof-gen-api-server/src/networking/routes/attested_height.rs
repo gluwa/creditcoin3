@@ -17,9 +17,6 @@ pub struct AttestedHeightResponse {
 /// proof request timing. (Independently having each service
 /// listen for new finalized attestations was resulting in
 /// timing deltas and failed proving jobs.)
-///
-/// For simplicity, if there are no attestations in storage
-/// we return an attested height of 0.
 #[utoipa::path(
     get,
     path = "/api/v1/attested-height/{chain_key}",
