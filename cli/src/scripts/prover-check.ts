@@ -2,6 +2,8 @@ import { chainInfo } from '@gluwa/usc-sdk';
 import { WebSocketProvider } from 'ethers';
 import axios from 'axios';
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function getProofForBlock(apiUrl: string, chainKey: number, blockNumber: number) {
     const url = `${apiUrl}/api/v1/proof/${chainKey}/${blockNumber}/0`;
     // NOTE: throws an exception in case of errors
@@ -25,6 +27,9 @@ async function main(creditcoinWsUrl: string, chainKey: number, proverBaseUrl: st
     for (let blockNumber = startFrom; blockNumber < lastSourceBlock; blockNumber += stepThrough) {
         console.log(`... get proof for source chain block ${blockNumber}`);
         await getProofForBlock(proverBaseUrl, chainKey, blockNumber);
+
+        // Prover talks to Infura so rate limit ourselves
+        await sleep(1_000);
     }
     console.log('**** INFO: done');
     process.exit(0);
