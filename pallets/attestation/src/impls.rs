@@ -33,6 +33,10 @@ use super::pallet::*;
 // One tenth of a CTC in micro units
 pub const ONE_TENTH_CTC: u64 = 100_000_000_000_000_000;
 
+/// Upper bound on how many checkpoints may sit strictly above a [`forward_patch_checkpoints`] batch tip
+/// when [`crate::pallet::Pallet::do_forward_patch_checkpoints`] `wipe_suffix` is enabled (single dispatch).
+pub const MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL: usize = 4096;
+
 /// PALLET CALL IMPLS ///
 impl<T: Config> Pallet<T> {
     pub(crate) fn remove_active_attestor_from_set(chain_key: ChainKey, attestor_id: &T::AccountId) {
@@ -1247,6 +1251,82 @@ impl<T: Config> Pallet<T> {
                 LastCheckpoint::<T>::insert(chain_key, checkpoint);
             }
         }
+
+        Ok(())
+    }
+
+    #[transactional]
+    pub(crate) fn do_forward_patch_checkpoints(
+        chain_key: ChainKey,
+        wipe_suffix: bool,
+        checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
+    ) -> DispatchResult {
+        ensure!(
+            T::SupportedChains::is_chain_supported(chain_key),
+            Error::<T>::ChainNotSupported
+        );
+        ensure!(
+            CheckpointPruningStates::<T>::get(chain_key).is_none()
+                && CheckpointClearingCursors::<T>::get(chain_key).is_none()
+                && BucketClearingCursors::<T>::get(chain_key).is_none(),
+            Error::<T>::CheckpointMaintenanceInProgress
+        );
+        ensure!(!checkpoints.is_empty(), Error::<T>::EmptyCheckpointPatch);
+
+        let mut merged = BTreeMap::new();
+        for checkpoint in checkpoints.into_inner() {
+            merged.insert(checkpoint.block_number, checkpoint.digest);
+        }
+        let (&batch_max, tip_digest) = merged
+            .last_key_value()
+            .ok_or(Error::<T>::EmptyCheckpointPatch)?;
+
+        if wipe_suffix {
+            let heights_above: Vec<u64> = Checkpoints::<T>::iter_prefix(chain_key)
+                .filter_map(|(h, _)| (h > batch_max).then_some(h))
+                .collect();
+            ensure!(
+                heights_above.len() <= MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL,
+                Error::<T>::CheckpointSuffixWipeTooLarge
+            );
+            for h in heights_above {
+                Checkpoints::<T>::remove(chain_key, h);
+                CheckpointBuckets::<T>::remove((chain_key, Self::compute_block_index_for(h), h));
+            }
+        }
+
+        for (block_number, digest) in merged.iter() {
+            let checkpoint = AttestationCheckpoint {
+                block_number: *block_number,
+                digest: *digest,
+            };
+            Checkpoints::<T>::insert(chain_key, *block_number, *digest);
+            CheckpointBuckets::<T>::insert(
+                (
+                    chain_key,
+                    Self::compute_block_index_for(*block_number),
+                    *block_number,
+                ),
+                (),
+            );
+            Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint));
+        }
+
+        let batch_tip = AttestationCheckpoint {
+            block_number: batch_max,
+            digest: *tip_digest,
+        };
+        let new_last = match LastCheckpoint::<T>::get(chain_key) {
+            Some(lc) if !wipe_suffix && lc.block_number > batch_tip.block_number => lc,
+            _ => batch_tip,
+        };
+        LastCheckpoint::<T>::insert(chain_key, new_last.clone());
+
+        Self::deposit_event(Event::<T>::ForwardCheckpointPatchApplied {
+            chain_key,
+            wiped_suffix: wipe_suffix,
+            tip_block_number: new_last.block_number,
+        });
 
         Ok(())
     }
