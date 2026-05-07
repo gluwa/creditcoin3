@@ -6700,6 +6700,51 @@ fn forward_patch_checkpoints_blocked_during_pruning() {
 }
 
 #[test]
+fn forward_patch_clears_attestations_queues_and_last_digest() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let att =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 500, None, None);
+        let digest = att.digest();
+        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, digest, att);
+        LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, (500u64, digest));
+        let mut q = sp_std::collections::vec_deque::VecDeque::new();
+        q.push_back(digest);
+        CheckpointingQueues::<Test>::insert(SUPPORTED_CHAIN_KEY, q);
+
+        insert_checkpoint_and_bucket_entry::<Test>(
+            SUPPORTED_CHAIN_KEY,
+            100u64,
+            H256::from([1u8; 32]),
+        );
+        LastCheckpoint::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: H256::from([1u8; 32]),
+            },
+        );
+
+        let patch = vec![AttestationCheckpoint {
+            block_number: 100,
+            digest: H256::from([9u8; 32]),
+        }];
+        assert_ok!(Attestation::forward_patch_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            false,
+            patch.try_into().unwrap(),
+        ));
+
+        assert!(Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY)
+            .next()
+            .is_none());
+        assert!(LastDigest::<Test>::get(SUPPORTED_CHAIN_KEY).is_none());
+        assert!(CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY).is_empty());
+    });
+}
+
+#[test]
 fn import_checkpoints_should_succeed_when_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
         let checkpoints: Vec<AttestationCheckpoint> = vec![
