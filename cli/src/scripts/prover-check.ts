@@ -22,7 +22,8 @@ async function main(creditcoinWsUrl: string, chainKey: number, proverBaseUrl: st
     const startFrom = lastSourceBlock - goBack;
     const stepThrough = parseInt(process.env.STEP_THROUGH_BLOCKS || '5', 10); // how many blocks to step through
 
-    console.log(`**** INFO: will check ${goBack} blocks: ${startFrom}..${lastSourceBlock}, step ${stepThrough}`);
+    const howMany = Math.ceil(goBack / stepThrough);
+    console.log(`**** INFO: will check ${howMany} blocks: ${startFrom}..${lastSourceBlock}, step ${stepThrough}`);
 
     for (let blockNumber = startFrom; blockNumber < lastSourceBlock; blockNumber += stepThrough) {
         console.log(`... get proof for source chain block ${blockNumber}`);
