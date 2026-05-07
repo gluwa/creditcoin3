@@ -37,6 +37,11 @@ pub const ONE_TENTH_CTC: u64 = 100_000_000_000_000_000;
 /// when [`crate::pallet::Pallet::do_forward_patch_checkpoints`] `wipe_suffix` is enabled (single dispatch).
 pub const MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL: usize = 4096;
 
+/// Batch size for scanning removals from [`Attestations`] during [`forward_patch_checkpoints`].
+const FORWARD_PATCH_ATTESTATIONS_CLEAR_BATCH: u32 = 128;
+/// Upper bound on iterations; total attestations cleared per dispatch ≤ batch × loops (currently 65_536).
+const MAX_FORWARD_PATCH_ATTESTATIONS_CLEAR_LOOPS: u32 = 512;
+
 /// PALLET CALL IMPLS ///
 impl<T: Config> Pallet<T> {
     pub(crate) fn remove_active_attestor_from_set(chain_key: ChainKey, attestor_id: &T::AccountId) {
@@ -1255,6 +1260,32 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Clear attestations and checkpointing/removal queues plus [`LastDigest`] for `chain_key`.
+    ///
+    /// Used by [`forward_patch_checkpoints`] so repaired checkpoints are not contradicted by stale
+    /// attestation rows (bounded by `FORWARD_PATCH_ATTESTATIONS_CLEAR_BATCH` ×
+    /// `MAX_FORWARD_PATCH_ATTESTATIONS_CLEAR_LOOPS` entries per dispatch).
+    pub(crate) fn purge_attestations_for_forward_patch(chain_key: ChainKey) -> DispatchResult {
+        CheckpointingQueues::<T>::remove(chain_key);
+        AttestationRemovalQueues::<T>::remove(chain_key);
+        LastDigest::<T>::remove(chain_key);
+
+        let mut maybe_cursor: Option<Vec<u8>> = None;
+        for _ in 0..MAX_FORWARD_PATCH_ATTESTATIONS_CLEAR_LOOPS {
+            let kill = Attestations::<T>::clear_prefix(
+                chain_key,
+                FORWARD_PATCH_ATTESTATIONS_CLEAR_BATCH,
+                maybe_cursor.as_deref(),
+            );
+            maybe_cursor = kill.maybe_cursor;
+            if maybe_cursor.is_none() {
+                return Ok(());
+            }
+        }
+
+        Err(Error::<T>::TooManyAttestationsForForwardPatchClear.into())
+    }
+
     #[transactional]
     pub(crate) fn do_forward_patch_checkpoints(
         chain_key: ChainKey,
@@ -1272,6 +1303,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::CheckpointMaintenanceInProgress
         );
         ensure!(!checkpoints.is_empty(), Error::<T>::EmptyCheckpointPatch);
+
+        Self::purge_attestations_for_forward_patch(chain_key)?;
 
         let mut merged = BTreeMap::new();
         for checkpoint in checkpoints.into_inner() {

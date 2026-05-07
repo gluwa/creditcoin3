@@ -9,6 +9,9 @@
  *      All batches use `wipeSuffix: false` except the last batch, which uses `wipeSuffix: true`
  *      so nothing remains above your imported tip.
  *
+ * Each successful extrinsic clears attestations, checkpointing/removal queues, and last digest for that
+ * chain key on-chain before applying checkpoint writes (see pallet `purge_attestations_for_forward_patch`).
+ *
  * Env (same spirit as ImportCheckpoints.js):
  *   MNEMONIC                 – signer (sudo or operator)
  *   DESTINATION_CHAIN        – WS RPC URL

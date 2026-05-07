@@ -700,9 +700,9 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn forward_patch_checkpoints() -> Weight {
-		Weight::from_parts(2_000_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 249153))
-			.saturating_add(T::DbWeight::get().reads(110))
-			.saturating_add(T::DbWeight::get().writes(206))
+		Weight::from_parts(4_000_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 280000))
+			.saturating_add(T::DbWeight::get().reads(630))
+			.saturating_add(T::DbWeight::get().writes(720))
 	}
 }
