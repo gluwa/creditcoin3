@@ -13,6 +13,7 @@ use continuity_dev::construct_fragment;
 use frame_support::{
     assert_err, assert_noop, assert_ok,
     dispatch::{GetDispatchInfo, Pays},
+    BoundedVec,
 };
 use sp_core::{Get, H256};
 use sp_io::TestExternalities;
@@ -6493,6 +6494,208 @@ fn import_checkpoints_works() {
                 checkpoint.block_number
             )));
         }
+    });
+}
+
+#[test]
+fn forward_patch_checkpoints_overwrites_and_keeps_higher_last_when_no_wipe() {
+    ExtBuilder.build_and_execute(|| {
+        let low_digest = H256::from([1u8; 32]);
+        let high_digest = H256::from([3u8; 32]);
+        let patched_low = H256::from([9u8; 32]);
+
+        Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, 100u64, low_digest);
+        CheckpointBuckets::<Test>::insert(
+            (
+                SUPPORTED_CHAIN_KEY,
+                Pallet::<Test>::compute_block_index_for(100),
+                100,
+            ),
+            (),
+        );
+        Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, 300u64, high_digest);
+        CheckpointBuckets::<Test>::insert(
+            (
+                SUPPORTED_CHAIN_KEY,
+                Pallet::<Test>::compute_block_index_for(300),
+                300,
+            ),
+            (),
+        );
+        LastCheckpoint::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: 300,
+                digest: high_digest,
+            },
+        );
+
+        let patch = vec![AttestationCheckpoint {
+            block_number: 100,
+            digest: patched_low,
+        }];
+        assert_ok!(Attestation::forward_patch_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            false,
+            patch.try_into().unwrap(),
+        ));
+
+        assert_eq!(
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 100u64).unwrap(),
+            patched_low
+        );
+        let last = LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY).unwrap();
+        assert_eq!(last.block_number, 300);
+        assert_eq!(last.digest, high_digest);
+    });
+}
+
+#[test]
+fn forward_patch_checkpoints_wipe_suffix_updates_tip() {
+    ExtBuilder.build_and_execute(|| {
+        let d100 = H256::from([1u8; 32]);
+        let d200_old = H256::from([2u8; 32]);
+        let d250 = H256::from([5u8; 32]);
+        let d300 = H256::from([3u8; 32]);
+
+        for (h, d) in [(100u64, d100), (200u64, d200_old), (300u64, d300)] {
+            Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, h, d);
+            CheckpointBuckets::<Test>::insert(
+                (
+                    SUPPORTED_CHAIN_KEY,
+                    Pallet::<Test>::compute_block_index_for(h),
+                    h,
+                ),
+                (),
+            );
+        }
+        LastCheckpoint::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: 300,
+                digest: d300,
+            },
+        );
+
+        let patch = vec![
+            AttestationCheckpoint {
+                block_number: 100,
+                digest: d100,
+            },
+            AttestationCheckpoint {
+                block_number: 200,
+                digest: d250,
+            },
+        ];
+        assert_ok!(Attestation::forward_patch_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            true,
+            patch.try_into().unwrap(),
+        ));
+
+        assert!(Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 300u64).is_none());
+        assert_eq!(
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 200u64).unwrap(),
+            d250
+        );
+        let last = LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY).unwrap();
+        assert_eq!(last.block_number, 200);
+        assert_eq!(last.digest, d250);
+    });
+}
+
+#[test]
+fn forward_patch_checkpoints_suffix_wipe_many_checkpoints_at_once() {
+    ExtBuilder.build_and_execute(|| {
+        let batch_max = 100u64;
+        let tip_digest = H256::from([7u8; 32]);
+
+        Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, batch_max, H256::from([1u8; 32]));
+        CheckpointBuckets::<Test>::insert(
+            (
+                SUPPORTED_CHAIN_KEY,
+                Pallet::<Test>::compute_block_index_for(batch_max),
+                batch_max,
+            ),
+            (),
+        );
+
+        for h in 101..=201u64 {
+            Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, h, H256::from([2u8; 32]));
+            CheckpointBuckets::<Test>::insert(
+                (
+                    SUPPORTED_CHAIN_KEY,
+                    Pallet::<Test>::compute_block_index_for(h),
+                    h,
+                ),
+                (),
+            );
+        }
+
+        let patch = vec![AttestationCheckpoint {
+            block_number: batch_max,
+            digest: tip_digest,
+        }];
+        assert_ok!(Attestation::forward_patch_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            true,
+            patch.try_into().unwrap(),
+        ));
+
+        assert!(Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).all(|(h, _)| h <= batch_max));
+        assert_eq!(
+            LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY)
+                .unwrap()
+                .block_number,
+            batch_max
+        );
+    });
+}
+
+#[test]
+fn forward_patch_checkpoints_empty_patch_errors() {
+    ExtBuilder.build_and_execute(|| {
+        let empty: BoundedVec<AttestationCheckpoint, MaxCheckpointsImportedPerCall> =
+            Vec::new().try_into().unwrap();
+        assert_noop!(
+            Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false,
+                empty,
+            ),
+            Error::<Test>::EmptyCheckpointPatch,
+        );
+    });
+}
+
+#[test]
+fn forward_patch_checkpoints_blocked_during_pruning() {
+    ExtBuilder.build_and_execute(|| {
+        CheckpointPruningStates::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            CheckpointPruningState {
+                stop_height: 500,
+                next_pivot: 1000,
+            },
+        );
+
+        let patch = vec![AttestationCheckpoint {
+            block_number: 50,
+            digest: H256::from([4u8; 32]),
+        }];
+        assert_noop!(
+            Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false,
+                patch.try_into().unwrap(),
+            ),
+            Error::<Test>::CheckpointMaintenanceInProgress,
+        );
     });
 }
 

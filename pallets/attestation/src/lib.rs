@@ -182,6 +182,7 @@ pub mod pallet {
         fn attest() -> Weight;
         fn withdraw_unbonded() -> Weight;
         fn import_checkpoints() -> Weight;
+        fn forward_patch_checkpoints() -> Weight;
         fn set_attestation_chain_genesis_block_number() -> Weight;
         fn set_election_policy() -> Weight;
         fn authorize_attestor() -> Weight;
@@ -659,6 +660,12 @@ pub mod pallet {
             checkpoint_height: u64,
             checkpoint_digest: Digest,
         },
+        /// Operator forward-patched checkpoints (overwrite / optional suffix wipe).
+        ForwardCheckpointPatchApplied {
+            chain_key: ChainKey,
+            wiped_suffix: bool,
+            tip_block_number: u64,
+        },
     }
 
     #[pallet::error]
@@ -779,6 +786,12 @@ pub mod pallet {
         AttestorAlreadyIdle,
         /// A voluntary chill is already scheduled for this attestor.
         AttestorChillAlreadyScheduled,
+        /// Checkpoint pruning, checkpoint clearing, or bucket clearing is already in progress for this chain.
+        CheckpointMaintenanceInProgress,
+        /// Operator forward patch contained no checkpoints.
+        EmptyCheckpointPatch,
+        /// More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
+        CheckpointSuffixWipeTooLarge,
     }
 
     #[pallet::hooks]
@@ -1085,6 +1098,28 @@ pub mod pallet {
             T::OperatorsOrigin::ensure_origin(origin)?;
 
             Self::do_import_checkpoints(chain_key, checkpoints)?;
+
+            Ok(())
+        }
+
+        /// Overwrite or insert checkpoints and optionally drop every checkpoint above the batch tip.
+        ///
+        /// Does **not** update [`LastDigest`] or attestations — operators must ensure off-chain / operational
+        /// consistency with the live attestation pipeline.
+        ///
+        /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
+        /// dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
+        #[pallet::call_index(29)]
+        #[pallet::weight(<T as Config>::WeightInfo::forward_patch_checkpoints())]
+        pub fn forward_patch_checkpoints(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            wipe_suffix: bool,
+            checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
 
             Ok(())
         }
