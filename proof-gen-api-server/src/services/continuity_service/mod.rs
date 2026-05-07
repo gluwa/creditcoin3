@@ -403,6 +403,22 @@ impl ContinuityService {
         Ok(())
     }
 
+    /// Returns the latest attested height in the in-memory cache for a chain.
+    pub async fn attested_height(&self, chain_key: u64) -> ServiceResult<Option<u64>> {
+        let chain = self.chain_state(chain_key)?;
+
+        let cache = chain.attestation_cache.read().await;
+
+        let mut last_height = cache.keys().next_back().copied();
+        // If no attestations, then we check for the height of the latest checkpoint, if any
+        if last_height.is_none() {
+            let checkpoint_cache = chain.checkpoint_cache.read().await;
+            last_height = checkpoint_cache.keys().next_back().copied();
+        }
+
+        Ok(last_height)
+    }
+
     /// Insert an attestation into the in-memory cache (called from event handler).
     pub async fn insert_attestation(&self, chain_key: u64, block_number: u64, digest: H256) {
         if let Some(chain) = self.chains.get(&chain_key) {
