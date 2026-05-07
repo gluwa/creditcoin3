@@ -138,6 +138,34 @@ declare module '@polkadot/api-base/types/submittable' {
                 (epoch: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
                 [u64]
             >;
+            /**
+             * Overwrite or insert checkpoints and optionally drop every checkpoint above the batch tip.
+             *
+             * Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
+             * **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
+             * ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
+             *
+             * Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
+             * attestations after recovery.
+             *
+             * When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
+             * dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
+             **/
+            forwardPatchCheckpoints: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    wipeSuffix: bool | boolean | Uint8Array,
+                    checkpoints:
+                        | Vec<AttestorPrimitivesAttestationCheckpoint>
+                        | (
+                              | AttestorPrimitivesAttestationCheckpoint
+                              | { blockNumber?: any; digest?: any }
+                              | string
+                              | Uint8Array
+                          )[],
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, bool, Vec<AttestorPrimitivesAttestationCheckpoint>]
+            >;
             importCheckpoints: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
