@@ -939,6 +939,11 @@ export default {
                 checkpointHeight: 'u64',
                 checkpointDigest: 'H256',
             },
+            ForwardCheckpointPatchApplied: {
+                chainKey: 'u64',
+                wipedSuffix: 'bool',
+                tipBlockNumber: 'u64',
+            },
         },
     },
     /**
@@ -2632,6 +2637,11 @@ export default {
                 chainKey: 'u64',
                 checkpointHeight: 'u64',
             },
+            forward_patch_checkpoints: {
+                chainKey: 'u64',
+                wipeSuffix: 'bool',
+                checkpoints: 'Vec<AttestorPrimitivesAttestationCheckpoint>',
+            },
         },
     },
     /**
@@ -3169,6 +3179,10 @@ export default {
             'TriedToRevertDuringOngoingReversion',
             'AttestorAlreadyIdle',
             'AttestorChillAlreadyScheduled',
+            'CheckpointMaintenanceInProgress',
+            'EmptyCheckpointPatch',
+            'CheckpointSuffixWipeTooLarge',
+            'TooManyAttestationsForForwardPatchClear',
         ],
     },
     /**
