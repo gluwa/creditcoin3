@@ -534,6 +534,25 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn forward_patch_checkpoints() {
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let mock_checkpoints: Vec<AttestationCheckpoint> = (0..100u8)
+            .map(|i| AttestationCheckpoint {
+                block_number: i as u64,
+                digest: H256::from([i; 32]),
+            })
+            .collect();
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            false,
+            mock_checkpoints.try_into().unwrap(),
+        )
+    }
+
+    #[benchmark]
     fn set_attestation_chain_genesis_block_number() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
