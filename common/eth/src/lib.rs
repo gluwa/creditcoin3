@@ -344,7 +344,10 @@ impl Client {
             }
         };
 
-        info!("🚀 🌐 Connecting to Ethereum node at {}", url);
+        info!(
+            "🚀 🌐 Connecting to Ethereum node at {}",
+            redact_url_query(url.as_str())
+        );
 
         let chain_id = rpc_provider
             .get_chain_id()
