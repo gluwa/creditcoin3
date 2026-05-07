@@ -652,6 +652,19 @@ impl Client {
                             "receipts fetched via fallback provider"
                         );
                     }
+                    // Don't silently drop errors from earlier providers:
+                    // if the primary (or an earlier fallback) errored and a
+                    // later fallback served the request, surface those errors
+                    // at WARN so operators can still root-cause flaky peers.
+                    for (err_label, err) in errors.drain(..) {
+                        tracing::warn!(
+                            provider = %err_label,
+                            served_by = %label,
+                            block_number = number,
+                            error = %err,
+                            "receipts fetch: provider errored but another succeeded"
+                        );
+                    }
                     return Ok(receipts);
                 }
                 Ok(None) => got_definitive_none = true,
@@ -719,6 +732,19 @@ impl Client {
                             provider = %label,
                             block_number = number,
                             "block fetched via fallback provider"
+                        );
+                    }
+                    // Don't silently drop errors from earlier providers:
+                    // if the primary (or an earlier fallback) errored and a
+                    // later fallback served the request, surface those errors
+                    // at WARN so operators can still root-cause flaky peers.
+                    for (err_label, err) in errors.drain(..) {
+                        tracing::warn!(
+                            provider = %err_label,
+                            served_by = %label,
+                            block_number = number,
+                            error = %err,
+                            "block fetch: provider errored but another succeeded"
                         );
                     }
                     return Ok(block);
@@ -806,7 +832,10 @@ impl Client {
     /// archive endpoint at all.
     ///
     /// Result-merging policy:
-    /// * The first provider to return `Ok(Some(_))` wins.
+    /// * The first provider to return `Ok(Some(_))` wins. Any errors from
+    ///   earlier providers in the walk are logged at warn level before
+    ///   returning so a flaky primary masked by a healthy fallback still
+    ///   shows up in operator logs.
     /// * If every provider returns `Ok(None)`, the result is `Ok(None)`
     ///   (the tx truly does not exist on this chain).
     /// * If some providers return `Ok(None)` and others error, the errors
@@ -844,6 +873,19 @@ impl Client {
                             block_number = pos.0,
                             tx_index = pos.1,
                             "tx-hash resolved by fallback provider"
+                        );
+                    }
+                    // Don't silently drop errors from earlier providers:
+                    // if the primary (or an earlier fallback) errored and a
+                    // later fallback resolved the tx, surface those errors
+                    // at WARN so operators can still root-cause flaky peers.
+                    for (err_label, err) in errors.drain(..) {
+                        tracing::warn!(
+                            provider = %err_label,
+                            served_by = %label,
+                            tx_hash = %tx_hash,
+                            error = %err,
+                            "tx-hash lookup: provider errored but another succeeded"
                         );
                     }
                     return Ok(Some(pos));
