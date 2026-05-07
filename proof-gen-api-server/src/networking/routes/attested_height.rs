@@ -1,8 +1,8 @@
+use crate::networking::extract::Chain;
 use axum::{Extension, Json};
 use serde::Serialize;
 use std::sync::Arc;
 use utoipa::ToSchema;
-use crate::networking::extract::Chain;
 
 use crate::services::continuity_service::ContinuityService;
 
@@ -13,11 +13,11 @@ pub struct AttestedHeightResponse {
 }
 
 /// Queries the last attested height in the proof gen server
-/// Used by USC SDK `waitUntilHeightAttested` to coordinate 
+/// Used by USC SDK `waitUntilHeightAttested` to coordinate
 /// proof request timing. (Independently having each service
-/// listen for new finalized attestations was resulting in 
+/// listen for new finalized attestations was resulting in
 /// timing deltas and failed proving jobs.)
-/// 
+///
 /// For simplicity, if there are no attestations in storage
 /// we return an attested height of 0.
 #[utoipa::path(
@@ -45,10 +45,7 @@ pub async fn attested_height(
             Some(height)
         }
         Ok(None) => {
-            tracing::warn!(
-                chain_key = chain_key,
-                "⚠️ No attestations found in cache"
-            );
+            tracing::warn!(chain_key = chain_key, "⚠️ No attestations found in cache");
             None
         }
         Err(e) => {
@@ -62,6 +59,6 @@ pub async fn attested_height(
     };
 
     Json(AttestedHeightResponse {
-        attested_height: height
+        attested_height: height,
     })
 }
