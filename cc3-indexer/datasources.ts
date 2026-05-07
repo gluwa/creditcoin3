@@ -72,6 +72,14 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
             },
             {
                 kind: SubstrateHandlerKind.Event,
+                handler: 'handleEventForwardCheckpointPatchApplied',
+                filter: {
+                    module: 'attestation',
+                    method: 'ForwardCheckpointPatchApplied',
+                },
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
                 handler: 'handleEventTargetSampleSizeChanged',
                 filter: {
                     module: 'attestation',
