@@ -4,7 +4,7 @@
 # Creditcoin3 WebSocket URL: set CC3_RPC_URL in .env (or pass --cc3-rpc-url), not in this file.
 #
 # Without --config / PROOF_GEN_CONFIG_FILE: legacy single-chain mode (CLI/env only).
-# Supported chain key defaults to CHAIN_KEY (default 2); ETH RPC from --eth-rpc-url / ETH_RPC_URL.
+# Supported chain key defaults to CHAIN_KEY (default 1); ETH RPC from --eth-rpc-url / ETH_RPC_URL.
 # Multi-chain allowlists and per-chain eth_rpc_url require this YAML (or equivalent env wiring).
 ---
 bind_host: "0.0.0.0"
@@ -15,8 +15,9 @@ chains:
   - chain_key: 2
     eth_rpc_url: "http://localhost:8545"
     # archiver_url: "http://localhost:8080"  # optional per chain
-    # block_confirmation_depth: 0  # Blocks to lag behind chain tip for reorg protection.
-    #                               # Default: 0 (no lag). Set to 12 for Ethereum mainnet.
+    block_confirmation_depth: 32  # Blocks to lag behind chain tip for reorg protection.
+    #                              # Suggested: 32 for Ethereum-style L1 chains; tune per source chain.
+    #                              # Default when omitted: 0 (no lag), only safe for local/dev networks.
     #
     # Ordered fallback RPC URLs (optional).
     # The eth client always tries `eth_rpc_url` (primary) first for every
