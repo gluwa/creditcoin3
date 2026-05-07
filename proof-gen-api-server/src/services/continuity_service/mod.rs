@@ -407,10 +407,11 @@ impl ContinuityService {
     pub async fn attested_height(&self, chain_key: u64) -> ServiceResult<Option<u64>> {
         let chain = self.chain_state(chain_key)?;
 
-        let cache = chain.attestation_cache.read().await;
+        let mut last_height = {
+            let cache = chain.attestation_cache.read().await;
+            cache.keys().next_back().copied()
+        };
 
-        let mut last_height = cache.keys().next_back().copied();
-        // If no attestations, then we check for the height of the latest checkpoint, if any
         if last_height.is_none() {
             let checkpoint_cache = chain.checkpoint_cache.read().await;
             last_height = checkpoint_cache.keys().next_back().copied();
