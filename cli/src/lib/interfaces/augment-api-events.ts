@@ -106,6 +106,14 @@ declare module '@polkadot/api-base/types/events' {
              **/
             ForcedUpdatesApplied: AugmentedEvent<ApiType, []>;
             /**
+             * Operator forward-patched checkpoints (overwrite / optional suffix wipe).
+             **/
+            ForwardCheckpointPatchApplied: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, wipedSuffix: bool, tipBlockNumber: u64],
+                { chainKey: u64; wipedSuffix: bool; tipBlockNumber: u64 }
+            >;
+            /**
              * Emitted when an invulnerable is properly registered with the attestation system
              **/
             InvulnerableRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;

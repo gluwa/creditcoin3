@@ -52,8 +52,20 @@ declare module '@polkadot/api-base/types/errors' {
             ChainNotSupported: AugmentedError<ApiType>;
             CheckpointCreationError: AugmentedError<ApiType>;
             CheckpointingQueueDrained: AugmentedError<ApiType>;
+            /**
+             * Checkpoint pruning, checkpoint clearing, or bucket clearing is already in progress for this chain.
+             **/
+            CheckpointMaintenanceInProgress: AugmentedError<ApiType>;
+            /**
+             * More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
+             **/
+            CheckpointSuffixWipeTooLarge: AugmentedError<ApiType>;
             CheckpointTargetNotFound: AugmentedError<ApiType>;
             CheckpointWidthIsZero: AugmentedError<ApiType>;
+            /**
+             * Operator forward patch contained no checkpoints.
+             **/
+            EmptyCheckpointPatch: AugmentedError<ApiType>;
             EmptyContinuityProof: AugmentedError<ApiType>;
             InsufficientBalance: AugmentedError<ApiType>;
             /**
@@ -104,6 +116,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             RetiredAttestorPendingFull: AugmentedError<ApiType>;
             TooManyAttestations: AugmentedError<ApiType>;
+            /**
+             * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
+             **/
+            TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
             TriedToRevertDuringOngoingReversion: AugmentedError<ApiType>;
             /**
              * Generic error
