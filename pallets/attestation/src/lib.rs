@@ -182,7 +182,6 @@ pub mod pallet {
         fn attest() -> Weight;
         fn withdraw_unbonded() -> Weight;
         fn import_checkpoints() -> Weight;
-        fn forward_patch_checkpoints() -> Weight;
         fn set_attestation_chain_genesis_block_number() -> Weight;
         fn set_election_policy() -> Weight;
         fn authorize_attestor() -> Weight;
@@ -192,6 +191,7 @@ pub mod pallet {
         fn set_max_catchup() -> Weight;
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
+        fn forward_patch_checkpoints() -> Weight;
     }
 
     #[pallet::storage]
@@ -1104,32 +1104,6 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Overwrite or insert checkpoints and optionally drop every checkpoint above the batch tip.
-        ///
-        /// Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
-        /// **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
-        /// ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
-        ///
-        /// Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
-        /// attestations after recovery.
-        ///
-        /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
-        /// dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
-        #[pallet::call_index(29)]
-        #[pallet::weight(<T as Config>::WeightInfo::forward_patch_checkpoints())]
-        pub fn forward_patch_checkpoints(
-            origin: OriginFor<T>,
-            chain_key: ChainKey,
-            wipe_suffix: bool,
-            checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
-        ) -> DispatchResult {
-            T::OperatorsOrigin::ensure_origin(origin)?;
-
-            Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
-
-            Ok(())
-        }
-
         #[pallet::call_index(19)]
         #[pallet::weight(<T as Config>::WeightInfo::set_attestation_chain_genesis_block_number())]
         pub fn set_attestation_chain_genesis_block_number(
@@ -1348,6 +1322,32 @@ pub mod pallet {
                 checkpoint_height,
                 checkpoint_digest,
             });
+
+            Ok(())
+        }
+
+        /// Overwrite or insert checkpoints and optionally drop every checkpoint above the batch tip.
+        ///
+        /// Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
+        /// **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
+        /// ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
+        ///
+        /// Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
+        /// attestations after recovery.
+        ///
+        /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
+        /// dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
+        #[pallet::call_index(29)]
+        #[pallet::weight(<T as Config>::WeightInfo::forward_patch_checkpoints())]
+        pub fn forward_patch_checkpoints(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            wipe_suffix: bool,
+            checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
 
             Ok(())
         }
