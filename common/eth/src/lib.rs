@@ -405,18 +405,42 @@ impl Client {
         // Reconnect each fallback against its own URL too, otherwise a
         // recovered primary would silently keep using a stale fallback
         // socket until that fallback hit a fault on its own.
+        //
+        // Fallback reconnects are best-effort: a healthy primary should not be
+        // taken down because a backup endpoint is misbehaving. If a fallback
+        // fails to reconnect (transport error or chain_id mismatch), keep the
+        // existing provider in place, log a loud error, and let the next
+        // primary-failure path retry it on its own.
         let mut new_fallbacks = Vec::with_capacity(self.fallback_providers.len());
-        for fp in &self.fallback_providers {
-            let (fp_url, fp_provider, fp_chain_id) = Self::init_rpc(fp.url.as_ref()).await?;
-            if fp_chain_id != chain_id {
-                return Err(Error::ClientError(anyhow::anyhow!(
-                    "Fallback RPC URL chain_id ({fp_chain_id}) does not match primary URL chain_id ({chain_id}) on reconnect"
-                )));
+        for (idx, fp) in self.fallback_providers.iter().enumerate() {
+            match Self::init_rpc(fp.url.as_ref()).await {
+                Ok((fp_url, fp_provider, fp_chain_id)) => {
+                    if fp_chain_id != chain_id {
+                        tracing::error!(
+                            fallback_index = idx,
+                            fallback_url = %redact_url_query(fp.url.as_str()),
+                            fallback_chain_id = fp_chain_id,
+                            primary_chain_id = chain_id,
+                            "⛔ Fallback RPC chain_id mismatch on reconnect; keeping previous fallback provider"
+                        );
+                        new_fallbacks.push(fp.clone());
+                    } else {
+                        new_fallbacks.push(FallbackProvider {
+                            url: fp_url,
+                            provider: fp_provider,
+                        });
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        fallback_index = idx,
+                        fallback_url = %redact_url_query(fp.url.as_str()),
+                        error = %err,
+                        "⛔ Failed to reconnect fallback RPC; keeping previous fallback provider"
+                    );
+                    new_fallbacks.push(fp.clone());
+                }
             }
-            new_fallbacks.push(FallbackProvider {
-                url: fp_url,
-                provider: fp_provider,
-            });
         }
 
         self.url = url;
