@@ -167,6 +167,7 @@ pub async fn chain_key_validator_middleware(
     // Extract chain_key from path
     // Paths are: /api/v1/proof/{chain_key}/{header_number}/{tx_index}
     //            /api/v1/proof-by-tx/{chain_key}/{tx_hash}
+    //.           /api/v1/attested-height/{chain_key}
     // Note: extract_chain_key_from_path returns None for health endpoints, so validation
     // automatically skips them without needing an explicit check.
     if let Some(request_chain_key) = extract_chain_key_from_path(&uri) {
@@ -198,10 +199,13 @@ pub(crate) fn extract_chain_key_from_path(uri: &Uri) -> Option<u64> {
     let path = uri.path();
     let (endpoint_type, chain_key, _parts_count) = parse_api_path(path);
 
-    // Only extract chain_key for proof endpoints
     if matches!(
         endpoint_type,
-        Some("proof") | Some("proof-by-tx") | Some("proof-batch") | Some("proof-batch-by-tx")
+        Some("proof")
+            | Some("proof-by-tx")
+            | Some("proof-batch")
+            | Some("proof-batch-by-tx")
+            | Some("attested-height")
     ) {
         chain_key
     } else {
@@ -246,6 +250,10 @@ mod tests {
         assert_eq!(
             extract_chain_key_from_path(&"/invalid/path".parse().unwrap()),
             None
+        );
+        assert_eq!(
+            extract_chain_key_from_path(&"/api/v1/attested-height/123".parse().unwrap()),
+            Some(123)
         );
     }
 
