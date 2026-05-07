@@ -34,6 +34,11 @@ jobs:
             proverUrl: "https://prover.cc3-testnet.creditcoin.network"
             chainKey: 1
 
+          # USC Testnet v2, Sepolia from 10,050,300
+          - creditcoinUrl: "wss://rpc.usc-testnet2.creditcoin.network/ws"
+            proverUrl: "https://proof-gen-api.usc-testnet2.creditcoin.network"
+            chainKey: 1
+
     name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
     runs-on: ubuntu-24.04
     steps:
