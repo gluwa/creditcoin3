@@ -39,6 +39,47 @@ async function delay(ms) {
     return new Promise((res) => setTimeout(res, ms));
 }
 
+/** Human-readable dispatch error (outer extrinsic or sudo inner call). */
+function formatDispatchError(api, dispatchError) {
+    if (!dispatchError) {
+        return String(dispatchError);
+    }
+    if (dispatchError.isModule) {
+        const meta = api.registry.findMetaError(dispatchError.asModule);
+        return `${meta.section}.${meta.name}: ${meta.docs.join(' ')}`;
+    }
+    return dispatchError.toString();
+}
+
+/**
+ * When using sudo.sudo(inner), the outer extrinsic succeeds even if `inner` fails.
+ * Inner outcome is only in sudo.Sudid (sudoResult).
+ *
+ * `signAndSend` supplies `events` for this extrinsic; require Sudid + Ok before treating as success.
+ */
+function assertSudoInnerSuccess(api, events, label) {
+    if (!events?.length) {
+        throw new Error(`${label}: finalized but no events returned; cannot verify sudo inner call`);
+    }
+    const record = events.find(({ event: ev }) => {
+        if (api.events?.sudo?.Sudid?.is) {
+            return api.events.sudo.Sudid.is(ev);
+        }
+        return ev.section === 'sudo' && ev.method === 'Sudid';
+    });
+    if (!record) {
+        throw new Error(`${label}: sudo.Sudid not found; inner call outcome unknown`);
+    }
+    const { event } = record;
+    const sudoResult = event.data.sudoResult ?? event.data[0];
+    if (!sudoResult || typeof sudoResult.isErr !== 'boolean') {
+        throw new Error(`${label}: unexpected sudo.Sudid payload`);
+    }
+    if (sudoResult.isErr) {
+        throw new Error(`${label}: sudo inner call failed: ${formatDispatchError(api, sudoResult.asErr)}`);
+    }
+}
+
 function parseArgs(argv) {
     let anchorHeight = null;
     const files = [];
@@ -96,20 +137,22 @@ async function sendBatch(api, signer, chainKey, wipeSuffix, checkpointStructs, u
             await new Promise((resolve, reject) => {
                 let unsub = () => {};
                 tx.signAndSend(signer, (result) => {
-                    const { status, dispatchError } = result;
+                    const { status, dispatchError, events } = result;
                     if (dispatchError) {
-                        if (dispatchError.isModule) {
-                            const meta = api.registry.findMetaError(dispatchError.asModule);
-                            const desc = `${meta.section}.${meta.name}: ${meta.docs.join(' ')}`;
-                            unsub();
-                            reject(new Error(desc));
-                        } else {
-                            unsub();
-                            reject(new Error(dispatchError.toString()));
-                        }
+                        unsub();
+                        reject(new Error(formatDispatchError(api, dispatchError)));
                         return;
                     }
                     if (status?.isFinalized) {
+                        try {
+                            if (useSudo) {
+                                assertSudoInnerSuccess(api, events, label);
+                            }
+                        } catch (err) {
+                            unsub();
+                            reject(err instanceof Error ? err : new Error(String(err)));
+                            return;
+                        }
                         console.log(`✅ ${label} finalized in ${status.asFinalized}`);
                         unsub();
                         resolve();

@@ -1,0 +1,3 @@
+# Handlers that may be absent from the SubQuery runtime monitor during cc3-indexer CI.
+# Remove an entry once integration tests exercise it (see check-cc3-indexer-handlers.sh).
+handleEventForwardCheckpointPatchApplied
