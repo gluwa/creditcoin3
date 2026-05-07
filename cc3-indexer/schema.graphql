@@ -228,7 +228,8 @@ type Checkpoints @entity {
 
     chainKey: BigInt! @index
 
-    blockNumber: BigInt!
+    # Indexed for store.getByFields on chainKey + blockNumber (forward-patch / overwrite cleanup).
+    blockNumber: BigInt! @index
 
     digest: String!
 
