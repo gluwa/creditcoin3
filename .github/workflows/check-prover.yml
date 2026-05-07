@@ -1,0 +1,70 @@
+---
+name: Check Prover
+
+"on":
+  schedule:
+    - cron: "0 */12 * * *"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  check-for:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # CC3 Devnet, Sepolia Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            chainKey: 1
+
+          # CC3 Devnet, Ethereum Mainnet Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            chainKey: 2
+
+          # CC3 Testnet, Sepolia Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
+            chainKey: 1
+
+    name: check ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Execute prover-check.ts
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }}
+
+      - name: Report result to Slack
+        if: always()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          inputs: ${{ toJson(matrix) }}
+          channel: "#noti-creditcoin-snapshots"
+          message: "Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} complete! cc <@U028EMRHS3S>"
