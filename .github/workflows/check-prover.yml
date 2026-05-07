@@ -68,7 +68,7 @@ jobs:
           # LAST_SOURCE_BLOCK: '1000000'
           # > 12hrs worth of blocks on the source chain
           GO_BACK_BLOCKS: '4000'
-          STEP_THROUGH_BLOCKS: '5'
+          STEP_THROUGH_BLOCKS: '7'
         run: |
           yarn install
           yarn build
