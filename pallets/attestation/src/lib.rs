@@ -792,6 +792,8 @@ pub mod pallet {
         EmptyCheckpointPatch,
         /// More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
         CheckpointSuffixWipeTooLarge,
+        /// More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
+        TooManyAttestationsForForwardPatchClear,
     }
 
     #[pallet::hooks]
@@ -1104,8 +1106,12 @@ pub mod pallet {
 
         /// Overwrite or insert checkpoints and optionally drop every checkpoint above the batch tip.
         ///
-        /// Does **not** update [`LastDigest`] or attestations — operators must ensure off-chain / operational
-        /// consistency with the live attestation pipeline.
+        /// Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
+        /// **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
+        /// ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
+        ///
+        /// Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
+        /// attestations after recovery.
         ///
         /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
         /// dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
