@@ -165,7 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let chain_key = env::var("CHAIN_KEY")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(1);
+            .unwrap_or(2);
         Config {
             bind_host: args.bind_host,
             bind_port: args.bind_port,
