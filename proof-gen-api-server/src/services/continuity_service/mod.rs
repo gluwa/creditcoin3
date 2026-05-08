@@ -356,6 +356,7 @@ impl ContinuityService {
             return Err(ServiceError::BlockNotOnSourceChain {
                 requested_block: header_number,
                 current_block: tip_block,
+                confirmation_depth: chain.builder.config.block_confirmation_depth,
             });
         }
         let current_block = confirmed_block;
