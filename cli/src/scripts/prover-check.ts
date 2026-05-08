@@ -1,4 +1,4 @@
-import { chainInfo } from '@gluwa/usc-sdk';
+import { blockProver, chainInfo, proofGenerator } from '@gluwa/usc-sdk';
 import { WebSocketProvider } from 'ethers';
 import axios from 'axios';
 
@@ -11,7 +11,9 @@ async function getProofForBlock(apiUrl: string, chainKey: number, blockNumber: n
 }
 
 async function main(creditcoinWsUrl: string, chainKey: number, proverBaseUrl: string): Promise<void> {
-    const chainInfoPrecompile = new chainInfo.PrecompileChainInfoProvider(new WebSocketProvider(creditcoinWsUrl));
+    const creditcoinWs = new WebSocketProvider(creditcoinWsUrl);
+    const prover = new blockProver.PrecompileBlockProver(creditcoinWs);
+    const chainInfoPrecompile = new chainInfo.PrecompileChainInfoProvider(creditcoinWs);
     const lastAttestation = await chainInfoPrecompile.getLatestAttestedHeightAndHash(chainKey);
     console.log(
         `**** INFO: ${creditcoinWsUrl}, chainKey=${chainKey}, last attestation is for block ${lastAttestation.height}`,
@@ -27,10 +29,27 @@ async function main(creditcoinWsUrl: string, chainKey: number, proverBaseUrl: st
 
     for (let blockNumber = startFrom; blockNumber < lastSourceBlock; blockNumber += stepThrough) {
         console.log(`... get proof for source chain block ${blockNumber}`);
-        await getProofForBlock(proverBaseUrl, chainKey, blockNumber);
+        await sleep(500); // rate-limit
+        const response = await getProofForBlock(proverBaseUrl, chainKey, blockNumber);
+        const proofData = response.data as proofGenerator.ContinuityResponse;
+        if (proofData.txBytes === undefined) {
+            console.log('    ... skipping verification. No transactions in block');
+            continue;
+        }
 
-        // Prover talks to Infura so rate limit ourselves
-        await sleep(1_000);
+        await sleep(500); // rate-limit
+        console.log(`    ..... trying to verify proof for ${blockNumber} -> ${proofData.txHash}`);
+        const verificationResult = await prover.verifySingle(
+            proofData.chainKey,
+            proofData.headerNumber,
+            proofData.txBytes,
+            proofData.merkleProof,
+            proofData.continuityProof,
+        );
+        console.log('    ... proof verification:', verificationResult ? 'SUCCESS' : 'FAILED');
+        if (!verificationResult) {
+            throw new Error('...... proof verification failed');
+        }
     }
     console.log('**** INFO: done');
     process.exit(0);
