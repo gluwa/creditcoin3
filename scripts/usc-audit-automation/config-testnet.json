@@ -18,6 +18,34 @@
         {
           "address": "0x2C317383b8A99537c61042B63C4fB042Df51033a",
           "name": "NEW_LENDER_ accnt in 1Password. Used for testing"
+        },
+        {
+          "address": "5HbPgFzxtmmMvonZHL7ykepUqN8cnMFgWci2SRJ6LHMt8dcb",
+          "name": "Attestor Stash"
+        },
+        {
+          "address": "5FUTUWzWo1pKoDVdfJfjr8k1WMhiB7rpJGSh1ih4Nw4NuZSR",
+          "name": "Attestor"
+        },
+        {
+          "address": "5Fh5wev5834t19B6kcjnPaBrneB2ZtC8ugy4BzqaGEhWDYEf",
+          "name": "Attestor"
+        },
+        {
+          "address": "5CaKRDsrFUrq2pkJuPEmpXZanxWLiciQYYjDBQFoRJS86EqJ",
+          "name": "Attestor"
+        },
+        {
+          "address": "5HQjPmL9huvQA4dT8ZTJEZinFiSTFMe4dJ9PKZwZZFyqdD2N",
+          "name": "Attestor"
+        },
+        {
+          "address": "5Da32GbeZCSXMrZZy7BNf4mN6NEg6xDsVgW7BNNcBK3ktKB8",
+          "name": "Attestor"
+        },
+        {
+          "address": "5FETTaHnq7YztrWKz7wqrMTngyRgmYH3987esUeM52phGiLx",
+          "name": "Attestor"
         }
       ]
     }
