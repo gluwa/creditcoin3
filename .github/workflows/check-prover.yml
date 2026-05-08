@@ -17,26 +17,31 @@ jobs:
           # CC3 Devnet, Sepolia Full Archive
           - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
             chainKey: 1
 
           # CC3 Devnet, Ethereum Mainnet Full Archive
           - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
             chainKey: 2
 
           # CC3 Devnet, Sepolia Full Archive w/recreated checkpoints
           - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
             chainKey: 3
 
           # CC3 Testnet, Sepolia Full Archive
           - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-testnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
             chainKey: 1
 
           # USC Testnet v2, Sepolia from 10,050,300
           - creditcoinUrl: "wss://rpc.usc-testnet2.creditcoin.network/ws"
             proverUrl: "https://proof-gen-api.usc-testnet2.creditcoin.network"
+            indexerUrl: "https://attestations-graphql.usc-testnet2.creditcoin.network"
             chainKey: 1
 
     name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
@@ -62,7 +67,20 @@ jobs:
           solc --version
           ./abi-creator.sh
 
-      - name: Execute prover-check.ts
+      - name: Install & build
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+
+      - name: Execute prover-check.ts on checkpoint boundaries
+        working-directory: ./cli
+        env:
+          GO_BACK_BLOCKS: '3600'
+        run: |
+          node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} ${{ matrix.indexerUrl }}
+
+      - name: Execute prover-check.ts on random blocks
         working-directory: ./cli
         env:
           # LAST_SOURCE_BLOCK: '1000000'
@@ -70,8 +88,6 @@ jobs:
           GO_BACK_BLOCKS: '4000'
           STEP_THROUGH_BLOCKS: '7'
         run: |
-          yarn install
-          yarn build
           node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }}
 
       - name: Report result to Slack
