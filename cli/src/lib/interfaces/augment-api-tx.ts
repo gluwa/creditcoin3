@@ -1116,11 +1116,11 @@ declare module '@polkadot/api-base/types/submittable' {
                     checkpoints:
                         | Vec<AttestorPrimitivesAttestationCheckpoint>
                         | (
-                            | AttestorPrimitivesAttestationCheckpoint
-                            | { blockNumber?: any; digest?: any }
-                            | string
-                            | Uint8Array
-                        )[],
+                              | AttestorPrimitivesAttestationCheckpoint
+                              | { blockNumber?: any; digest?: any }
+                              | string
+                              | Uint8Array
+                          )[],
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, bool, Vec<AttestorPrimitivesAttestationCheckpoint>]
             >;
@@ -1130,11 +1130,11 @@ declare module '@polkadot/api-base/types/submittable' {
                     checkpoints:
                         | Vec<AttestorPrimitivesAttestationCheckpoint>
                         | (
-                            | AttestorPrimitivesAttestationCheckpoint
-                            | { blockNumber?: any; digest?: any }
-                            | string
-                            | Uint8Array
-                        )[],
+                              | AttestorPrimitivesAttestationCheckpoint
+                              | { blockNumber?: any; digest?: any }
+                              | string
+                              | Uint8Array
+                          )[],
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, Vec<AttestorPrimitivesAttestationCheckpoint>]
             >;
@@ -2215,16 +2215,16 @@ declare module '@polkadot/api-base/types/submittable' {
                     info:
                         | PalletIdentityLegacyIdentityInfo
                         | {
-                            additional?: any;
-                            display?: any;
-                            legal?: any;
-                            web?: any;
-                            riot?: any;
-                            email?: any;
-                            pgpFingerprint?: any;
-                            image?: any;
-                            twitter?: any;
-                        }
+                              additional?: any;
+                              display?: any;
+                              legal?: any;
+                              web?: any;
+                              riot?: any;
+                              email?: any;
+                              pgpFingerprint?: any;
+                              image?: any;
+                              twitter?: any;
+                          }
                         | string
                         | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
@@ -2253,19 +2253,19 @@ declare module '@polkadot/api-base/types/submittable' {
                     subs:
                         | Vec<ITuple<[AccountId32, Data]>>
                         | [
-                            AccountId32 | string | Uint8Array,
-                            (
-                                | Data
-                                | { None: any }
-                                | { Raw: any }
-                                | { BlakeTwo256: any }
-                                | { Sha256: any }
-                                | { Keccak256: any }
-                                | { ShaThree256: any }
-                                | string
-                                | Uint8Array
-                            ),
-                        ][],
+                              AccountId32 | string | Uint8Array,
+                              (
+                                  | Data
+                                  | { None: any }
+                                  | { Raw: any }
+                                  | { BlakeTwo256: any }
+                                  | { Sha256: any }
+                                  | { Keccak256: any }
+                                  | { ShaThree256: any }
+                                  | string
+                                  | Uint8Array
+                              ),
+                          ][],
                 ) => SubmittableExtrinsic<ApiType>,
                 [Vec<ITuple<[AccountId32, Data]>>]
             >;
@@ -3697,15 +3697,15 @@ declare module '@polkadot/api-base/types/submittable' {
                     who:
                         | Vec<MultiAddress>
                         | (
-                            | MultiAddress
-                            | { Id: any }
-                            | { Index: any }
-                            | { Raw: any }
-                            | { Address32: any }
-                            | { Address20: any }
-                            | string
-                            | Uint8Array
-                        )[],
+                              | MultiAddress
+                              | { Id: any }
+                              | { Index: any }
+                              | { Raw: any }
+                              | { Address32: any }
+                              | { Address20: any }
+                              | string
+                              | Uint8Array
+                          )[],
                 ) => SubmittableExtrinsic<ApiType>,
                 [Vec<MultiAddress>]
             >;
@@ -3726,15 +3726,15 @@ declare module '@polkadot/api-base/types/submittable' {
                     targets:
                         | Vec<MultiAddress>
                         | (
-                            | MultiAddress
-                            | { Id: any }
-                            | { Index: any }
-                            | { Raw: any }
-                            | { Address32: any }
-                            | { Address20: any }
-                            | string
-                            | Uint8Array
-                        )[],
+                              | MultiAddress
+                              | { Id: any }
+                              | { Index: any }
+                              | { Raw: any }
+                              | { Address32: any }
+                              | { Address20: any }
+                              | string
+                              | Uint8Array
+                          )[],
                 ) => SubmittableExtrinsic<ApiType>,
                 [Vec<MultiAddress>]
             >;
