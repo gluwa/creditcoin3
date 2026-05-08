@@ -6,6 +6,33 @@ use thiserror::Error;
 
 use crate::prom::{ErrorType, GetErrorType};
 
+/// Render the user-facing message for [`ServiceError::BlockNotOnSourceChain`].
+///
+/// Two cases share this error variant:
+/// 1. `requested_block > current_block` — the block has not been mined yet.
+/// 2. `requested_block <= current_block` and within `confirmation_depth` of the
+///    tip — the block exists but is inside the reorg-protection window.
+fn format_block_not_on_source_chain(
+    requested_block: u64,
+    current_block: u64,
+    confirmation_depth: u64,
+) -> String {
+    if requested_block > current_block {
+        format!(
+            "Block {requested_block} does not exist on the source chain yet. \
+             Current source chain height: {current_block}"
+        )
+    } else {
+        let confirmed_block = current_block.saturating_sub(confirmation_depth);
+        format!(
+            "Block {requested_block} is within the source chain's reorg-protection window \
+             ({confirmation_depth} block(s)) and is not yet confirmed. \
+             Current source chain height: {current_block}; latest confirmed block: {confirmed_block}. \
+             Retry once the chain advances past block {requested_block}."
+        )
+    }
+}
+
 /// HTTP error response structure returned by the API.
 /// This struct is used for both serialization (API responses) and deserialization (tests).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
@@ -87,10 +114,15 @@ pub enum ServiceError {
         requested_block: u64,
         genesis_block: u64,
     },
-    #[error("Block {requested_block} does not exist on the source chain yet. Current source chain height: {current_block}")]
+    /// Returned when a requested block cannot be served because it is either
+    /// past the source chain tip *or* within the per-chain `block_confirmation_depth`
+    /// reorg-protection window. `confirmation_depth = 0` means there is no reorg
+    /// window, so this strictly indicates the block is past the tip.
+    #[error("{}", format_block_not_on_source_chain(*requested_block, *current_block, *confirmation_depth))]
     BlockNotOnSourceChain {
         requested_block: u64,
         current_block: u64,
+        confirmation_depth: u64,
     },
     #[error("Batch request should contain at least one proof query")]
     EmptyProofQueries,
@@ -251,6 +283,10 @@ impl From<ContinuityError> for ServiceError {
             } => ServiceError::BlockNotOnSourceChain {
                 requested_block: upper_block,
                 current_block,
+                // Upper-bound checks always trigger because `upper_block > current_block`,
+                // i.e. the predicted attestation upper bound has not been mined yet.
+                // Reorg-window confirmation depth is irrelevant here.
+                confirmation_depth: 0,
             },
         }
     }
