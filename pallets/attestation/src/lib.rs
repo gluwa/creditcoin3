@@ -1,8 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod commit_observer;
+mod extensions;
 
 pub use commit_observer::{CommittedAttestationObserver, NoopCommittedAttestationObserver};
+pub use extensions::PrevalidateAttestationCommit;
 pub use migrations::{MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsCountV1ToV2};
 pub use pallet::*;
 
@@ -198,6 +200,7 @@ pub mod pallet {
         fn set_max_catchup() -> Weight;
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
+        fn forward_patch_checkpoints() -> Weight;
     }
 
     #[pallet::storage]
@@ -691,6 +694,12 @@ pub mod pallet {
             checkpoint_height: u64,
             checkpoint_digest: Digest,
         },
+        /// A forward checkpoint patch was applied for chain recovery.
+        ForwardCheckpointPatchApplied {
+            chain_key: ChainKey,
+            wiped_suffix: bool,
+            tip_block_number: u64,
+        },
     }
 
     #[pallet::error]
@@ -818,6 +827,14 @@ pub mod pallet {
         LastCheckpointNotSet,
         // Tried to trigger reversion for a chain that is still processing a current reversion.
         TriedToRevertDuringOngoingReversion,
+        // Too many attestations were found while clearing before forward patch.
+        TooManyAttestationsForForwardPatchClear,
+        // Forward patch cannot run while checkpoint maintenance state/cursors exist.
+        CheckpointMaintenanceInProgress,
+        // Forward patch was called with an empty checkpoint patch.
+        EmptyCheckpointPatch,
+        // Requested suffix wipe above patch tip exceeds safety bound.
+        CheckpointSuffixWipeTooLarge,
         /// Attestor is already idle and cannot chill again.
         AttestorAlreadyIdle,
         /// A voluntary chill is already scheduled for this attestor.
@@ -1353,6 +1370,29 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// Overwrite or insert checkpoints and optionally drop every checkpoint above the batch tip.
+        ///
+        /// Clears [`Attestations`], [`CheckpointingQueues`], [`AttestationRemovalQueues`], and
+        /// [`LastDigest`] for this `chain_key` first so stale attestations cannot contradict the patched ladder.
+        ///
+        /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
+        /// dispatch (bounded by internal forward-patch safety limits).
+        #[pallet::call_index(29)]
+        #[pallet::weight(<T as Config>::WeightInfo::forward_patch_checkpoints())]
+        pub fn forward_patch_checkpoints(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            wipe_suffix: bool,
+            checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
+
+            Ok(())
+        }
+
     }
 
     impl<T: Config> CheckpointProvider for Pallet<T> {
