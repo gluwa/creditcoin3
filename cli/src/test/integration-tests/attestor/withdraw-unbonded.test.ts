@@ -5,6 +5,15 @@ import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chain
 import { parseAmount } from '../../../commands/options';
 import { signSendAndWatchCcKeyring } from '../../../lib/tx';
 import { CallerKeyring } from '../../../lib/account/keyring';
+import { evmAddressToSubstrateAddress } from '../../../lib/evm/address';
+
+// pallet_attestation now denominates bonds in `attest-coin` (`pallet_assets` asset id 1)
+// instead of native CTC. Its issuer/admin is the attest-coin precompile account
+// (`HashedAddressMapping` of EVM `0x0...fd5`). For tests we use `sudo.sudoAs` to mint
+// directly as the precompile so the stash has enough attest-coin to register.
+const ATTEST_COIN_ASSET_ID = 1;
+const ATTEST_COIN_PRECOMPILE_EVM = '0x0000000000000000000000000000000000000fd5';
+const ATTEST_COIN_PRECOMPILE_ACCOUNT = evmAddressToSubstrateAddress(ATTEST_COIN_PRECOMPILE_EVM);
 
 // NOTE: The attestor-stash precompile uses the EVM `msg.sender` as the origin
 // of the dispatched pallet call. Proxy-signed attestor operations are not
@@ -37,6 +46,17 @@ describe('withdraw-unbonded', () => {
         // Create and fund the test account (sr25519 + EVM stash)
         caller = await randomFundedAccount(api, sudoSigner);
         await fundFromSudo(api, caller.evmStashAddress, parseAmount('1000'));
+        // Mint attest-coin to the EVM-mapped stash address so `register_attestor` (which now
+        // checks `BondFungibles::balance(BondAssetId=1)`, not native CTC) sees enough bond.
+        await signSendAndWatchCcKeyring(
+            api.tx.sudo.sudoAs(
+                ATTEST_COIN_PRECOMPILE_ACCOUNT,
+                api.tx.assets.mint(ATTEST_COIN_ASSET_ID, caller.evmStashAddress, minBondForTest),
+            ),
+            api,
+            sudoKeyring,
+        );
+        await forElapsedBlocks(api, { minBlocks: 1 });
         CLI = CLIBuilder({ CC_SECRET: caller.secret });
 
         attestor = await randomFundedAccount(api, sudoSigner);
