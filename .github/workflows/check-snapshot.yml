@@ -49,11 +49,11 @@ jobs:
         run: |
           # shellcheck disable=SC2129
           echo "target_chain=testnet" >> "$GITHUB_ENV"
-          echo "boot_node=/dns4/cc3-usc-testnet-bootnode-creditcoin-bootnode.westus3.cloudapp.azure.com/tcp/30333/p2p/12D3KooWBmAwcd4PJNJvfV89HwE48nwkRmAgo8Vy3uQEyNNHBox2" >> "$GITHUB_ENV"
-          echo "https_rpc_url=https://rpc.usc-testnet2.creditcoin.network" >> "$GITHUB_ENV"
+          echo "boot_node=/dns4/cc3-test-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWAxmsWr6iEjFyLqQBzfLvbCRTAhYBeszyr8UWgQx6Zu7K" >> "$GITHUB_ENV"
+          echo "https_rpc_url=https://rpc.cc3-testnet.creditcoin.network" >> "$GITHUB_ENV"
           RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
-          echo "snapshot_container=usc-testnet" >> "$GITHUB_ENV"
+          echo "snapshot_container=cc3-testnet" >> "$GITHUB_ENV"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_ENV"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -64,11 +64,11 @@ jobs:
         run: |
           # shellcheck disable=SC2129
           echo "target_chain=mainnet" >> "$GITHUB_ENV"
-          echo "boot_node=/dns4/change-me" >> "$GITHUB_ENV"
-          echo "https_rpc_url=https://rpc.usc-mainnet.creditcoin.network" >> "$GITHUB_ENV"
+          echo "boot_node=/dns4/cc3-main-creditcoin-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWLGyvbdQ3wTGjRAEueFsDnstZnV8fN3iyPTmHeyswSPGy" >> "$GITHUB_ENV"
+          echo "https_rpc_url=https://rpc.cc3-mainnet.creditcoin.network" >> "$GITHUB_ENV"
           RELEASE_TAG=$(.github/extract-release-tag.sh "mainnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
-          echo "snapshot_container=usc-mainnet" >> "$GITHUB_ENV"
+          echo "snapshot_container=cc3-mainnet" >> "$GITHUB_ENV"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_ENV"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
