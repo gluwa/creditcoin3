@@ -2,7 +2,33 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::*;
+use anyhow::Error as AnyhowError;
 use attestor_primitives::block::ContinuityProof;
+use eth;
+
+fn map_eth_rpc_anyhow_to_service_error(
+    err: AnyhowError,
+    fallback_block_number: u64,
+) -> ServiceError {
+    if err.chain().any(|cause| {
+        cause
+            .downcast_ref::<eth::Error>()
+            .is_some_and(eth::Error::inconsistent_block_payload_for_fallback)
+    }) {
+        let block_number = err
+            .chain()
+            .find_map(|cause| {
+                cause
+                    .downcast_ref::<eth::Error>()
+                    .and_then(eth::Error::inconsistent_block_number_hint)
+            })
+            .unwrap_or(fallback_block_number);
+        return ServiceError::UnsupportedBlockFormat { block_number };
+    }
+    ServiceError::RpcUnavailable {
+        message: err.to_string(),
+    }
+}
 
 impl ContinuityService {
     /// Internal helper that always builds a fresh continuity proof directly
@@ -128,8 +154,25 @@ impl ContinuityService {
             .eth_provider
             .build_continuity_blocks(lower_checkpoint_digest, build_from, upper_checkpoint)
             .await
-            .map_err(|err| ServiceError::Internal {
-                message: format!("failed to build continuity blocks: {err}"),
+            .map_err(|err| {
+                if err.chain().any(|cause| {
+                    cause
+                        .downcast_ref::<eth::Error>()
+                        .is_some_and(eth::Error::inconsistent_block_payload_for_fallback)
+                }) {
+                    let block_number = err
+                        .chain()
+                        .find_map(|cause| {
+                            cause
+                                .downcast_ref::<eth::Error>()
+                                .and_then(eth::Error::inconsistent_block_number_hint)
+                        })
+                        .unwrap_or(min_query);
+                    return ServiceError::UnsupportedBlockFormat { block_number };
+                }
+                ServiceError::Internal {
+                    message: format!("failed to build continuity blocks: {err}"),
+                }
             })?;
 
         // Verify the built chain reconciles with the on-chain upper boundary digest.
@@ -199,9 +242,7 @@ impl ContinuityService {
             Ok(None) => Err(ServiceError::TxHashNotFound {
                 tx_hash: format!("0x{}", hex::encode(tx_hash.as_bytes())),
             }),
-            Err(e) => Err(ServiceError::RpcUnavailable {
-                message: format!("failed to resolve tx by hash via RPC: {e:#}"),
-            }),
+            Err(e) => Err(map_eth_rpc_anyhow_to_service_error(e, 0)),
         }
     }
 
@@ -220,9 +261,7 @@ impl ContinuityService {
             .builder
             .get_block_tx_bytes(header_number)
             .await
-            .map_err(|e| ServiceError::RpcUnavailable {
-                message: e.to_string(),
-            })?;
+            .map_err(|e| map_eth_rpc_anyhow_to_service_error(e, header_number))?;
         if tx_bytes.is_empty() {
             if tx_index != 0 {
                 return Err(ServiceError::TxIndexOutOfBounds {
@@ -261,9 +300,7 @@ impl ContinuityService {
                 .builder
                 .get_tx_hash_by_index(header_number, tx_index)
                 .await
-                .map_err(|e| ServiceError::RpcUnavailable {
-                    message: format!("Failed to get tx hash: {e}"),
-                })?
+                .map_err(|e| map_eth_rpc_anyhow_to_service_error(e, header_number))?
         };
 
         // Record merkle proof generation duration
