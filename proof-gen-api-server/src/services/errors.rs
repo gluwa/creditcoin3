@@ -80,6 +80,8 @@ impl ErrorResponse {
 
 #[derive(Debug, Error)]
 pub enum ServiceError {
+    #[error("block {block_number}: source chain RPC returned data inconsistent with the block header (mixed endpoints, unsupported trie layout, or bad archive payload); cannot build proof")]
+    UnsupportedBlockFormat { block_number: u64 },
     #[error("unknown or unsupported chain_key {chain_key} for this server")]
     UnknownChain { chain_key: u64 },
     #[error("attestations missing for chain {chain_key}")]
@@ -154,6 +156,7 @@ impl ServiceError {
     }
     pub fn code(&self) -> &'static str {
         match self {
+            ServiceError::UnsupportedBlockFormat { .. } => "UnsupportedBlockFormat",
             ServiceError::UnknownChain { .. } => "UnknownChain",
             ServiceError::AttestationsMissing { .. } => "AttestationsMissing",
             ServiceError::QueryOutOfRange { .. } => "QueryOutOfRange",
@@ -199,7 +202,10 @@ impl ServiceError {
             // cannot be processed in the current state, so 422 Unprocessable Entity
             // is more accurate than 404 Not Found and lets clients distinguish
             // "keep waiting / retry" from "this will never exist".
-            Self::BlockNotReady { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+            // Same semantics as BlockNotReady: request may be valid but payload cannot be processed.
+            Self::UnsupportedBlockFormat { .. } | Self::BlockNotReady { .. } => {
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
             Self::MerkleError { .. } | Self::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -303,6 +309,7 @@ impl From<serde_json::Error> for ServiceError {
 impl GetErrorType for ServiceError {
     fn error_type(&self) -> ErrorType {
         match self {
+            ServiceError::UnsupportedBlockFormat { .. } => ErrorType::UnsupportedBlockFormat,
             ServiceError::UnknownChain { .. } => ErrorType::UnknownChain,
             ServiceError::AttestationsMissing { .. } => ErrorType::AttestationsMissing,
             ServiceError::QueryOutOfRange { .. } => ErrorType::QueryOutOfRange,
