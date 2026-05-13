@@ -100,14 +100,19 @@ impl Error {
     /// True when the payload returned for a block (from a single RPC peer) cannot be reconciled
     /// with the block header or expected shape. Callers should try another endpoint instead of
     /// treating this as a transient transport failure.
+    ///
+    /// Deliberately does **not** include [`Error::FailedToGetBlock`] /
+    /// [`Error::FailedToGetReceipts`]: those are produced when a provider answers `Ok(None)`
+    /// ("I don't have that block yet"), which is a not-found / behind-the-head signal rather
+    /// than a structural inconsistency. Surfacing those as inconsistent would (a) suppress the
+    /// reconnect-retry path in [`crate::ReconnectingEthRpcProvider`] and (b) map them to a
+    /// non-retriable 422 in the API, both of which are wrong for a peer that's just lagging.
     pub fn inconsistent_block_payload_for_fallback(&self) -> bool {
         matches!(
             self,
             Error::BlockHeaderRootsMismatch(_)
                 | Error::TransactionsReceiptsMismatch(_)
                 | Error::NotFullTransactionsFetched(_)
-                | Error::FailedToGetBlock(_)
-                | Error::FailedToGetReceipts(_)
         )
     }
 
@@ -116,9 +121,7 @@ impl Error {
         match self {
             Error::BlockHeaderRootsMismatch(n)
             | Error::TransactionsReceiptsMismatch(n)
-            | Error::NotFullTransactionsFetched(n)
-            | Error::FailedToGetBlock(n)
-            | Error::FailedToGetReceipts(n) => Some(*n),
+            | Error::NotFullTransactionsFetched(n) => Some(*n),
             _ => None,
         }
     }
@@ -593,17 +596,23 @@ impl Client {
             BlockId::Number(BlockNumberOrTag::Number(number))
         );
 
+        // One "attempt" = one full sweep through `[primary, fallbacks...]`. With N providers
+        // this is up to MAX_ATTEMPTS * N RPC round-trips for a single block fetch. This is a
+        // deliberate change from the previous per-call retry counter: with provider pairing,
+        // a transient mismatch (e.g. reorg between `eth_getBlockByNumber` and
+        // `eth_getBlockReceipts` on the same peer) is only resolvable by re-fetching, so we
+        // back off and retry the whole sweep instead of bailing on the first pass.
         const MAX_ATTEMPTS: usize = 5;
         const DELAY_BASE: u64 = 10;
         const DELAY_MAX: u64 = 60;
 
-        let mut attempt = 0u32;
+        let mut attempt: usize = 0;
         let mut delay = DELAY_BASE;
 
         loop {
             attempt += 1;
-            let mut last_transport_err: Option<Error> = None;
-            let mut last_payload_inconsistent: Option<Error> = None;
+            let mut last_transport_err: Option<(String, Error)> = None;
+            let mut last_payload_inconsistent: Option<(String, Error)> = None;
 
             for (label, provider) in self.providers_with_labels() {
                 match Self::fetch_block_and_receipts_from_provider(provider, number).await {
@@ -615,7 +624,34 @@ impl Client {
                             number,
                             encoding,
                         ) {
-                            Ok(ob) => return Ok(ob),
+                            Ok(ob) => {
+                                // Don't silently drop earlier-provider failures: if the primary
+                                // (or an earlier fallback) errored and a later peer served the
+                                // request, surface that at warn so operators can root-cause
+                                // flaky peers.
+                                if label != "primary" {
+                                    if let Some((err_label, err)) = last_transport_err.take() {
+                                        tracing::warn!(
+                                            provider = %err_label,
+                                            served_by = %label,
+                                            block_number = number,
+                                            error = %err,
+                                            "block+receipts fetch: provider errored but another succeeded"
+                                        );
+                                    }
+                                    if let Some((err_label, err)) = last_payload_inconsistent.take()
+                                    {
+                                        tracing::warn!(
+                                            provider = %err_label,
+                                            served_by = %label,
+                                            block_number = number,
+                                            error = %err,
+                                            "block+receipts fetch: provider returned inconsistent payload but another succeeded"
+                                        );
+                                    }
+                                }
+                                return Ok(ob);
+                            }
                             Err(e) if e.inconsistent_block_payload_for_fallback() => {
                                 tracing::warn!(
                                     provider = %label,
@@ -623,9 +659,11 @@ impl Client {
                                     error = %e,
                                     "block body or receipts inconsistent with header from this RPC peer; trying next endpoint"
                                 );
-                                last_payload_inconsistent = Some(e);
+                                last_payload_inconsistent = Some((label, e));
                             }
                             Err(e) => {
+                                // Structural error unrelated to per-peer inconsistency
+                                // (e.g. chain-id mismatch) — fail fast, no retry.
                                 tracing::error!(error = %e, "⛔ Failed to verify block data");
                                 return Err(Interrupt::Cont(e));
                             }
@@ -638,23 +676,26 @@ impl Client {
                             error = %e,
                             "failed to retrieve block/receipts pair from provider"
                         );
-                        last_transport_err = Some(e);
+                        last_transport_err = Some((label, e));
                     }
                 }
             }
 
-            if let Some(e) = last_payload_inconsistent {
+            // Prefer surfacing the payload-inconsistency cause if we have one: it carries the
+            // most informative classification (and the block-number hint) for the caller.
+            // Otherwise, fall back to the last transport error, or a generic "not found".
+            let err = last_payload_inconsistent
+                .map(|(_, e)| e)
+                .or_else(|| last_transport_err.map(|(_, e)| e))
+                .unwrap_or(Error::FailedToGetBlock(number));
+
+            if attempt >= MAX_ATTEMPTS {
                 tracing::error!(
-                    error = %e,
-                    "⛔ all RPC endpoints returned a payload inconsistent with the block header (or exhausted fallbacks)"
+                    attempt,
+                    MAX_ATTEMPTS,
+                    error = %err,
+                    "⛔ all RPC endpoints failed to return a consistent block+receipts pair after retries"
                 );
-                return Err(Interrupt::Cont(e));
-            }
-
-            let err = last_transport_err.unwrap_or(Error::FailedToGetBlock(number));
-
-            if attempt >= MAX_ATTEMPTS as u32 {
-                tracing::error!(error = %err, "⛔ Failed to retrieve eth block");
                 return Err(Interrupt::Cont(err));
             }
 
@@ -1231,5 +1272,85 @@ mod provider_lookup_tests {
         // middle. Verify each segment is evaluated independently.
         let redacted = redact_url_query("https://eth.example.io/v1/aB3xQ9MnP2rT7vW4kY8jL6/rpc");
         assert_eq!(redacted, "https://eth.example.io/v1/…/rpc");
+    }
+}
+
+#[cfg(test)]
+mod error_classifier_tests {
+    use super::Error;
+
+    #[test]
+    fn inconsistent_payload_matches_only_genuine_mismatch_variants() {
+        // Structural mismatches between the fetched body/receipts and the header:
+        // these are the only variants that should cause a fallback skip and map to
+        // `UnsupportedBlockFormat` 422 at the API edge.
+        assert!(Error::BlockHeaderRootsMismatch(42).inconsistent_block_payload_for_fallback());
+        assert!(Error::TransactionsReceiptsMismatch(42).inconsistent_block_payload_for_fallback());
+        assert!(Error::NotFullTransactionsFetched(42).inconsistent_block_payload_for_fallback());
+    }
+
+    #[test]
+    fn not_found_and_transport_errors_are_not_inconsistent() {
+        // `FailedToGetBlock` / `FailedToGetReceipts` are produced when a provider
+        // answers `Ok(None)` ("I don't have this block yet"). Treating those as
+        // structurally inconsistent would (a) disable the reconnect-retry path in
+        // `ReconnectingEthRpcProvider` and (b) make the API surface a non-retriable
+        // 422 for a peer that's just lagging. They must NOT be in this set.
+        assert!(!Error::FailedToGetBlock(42).inconsistent_block_payload_for_fallback());
+        assert!(!Error::FailedToGetReceipts(42).inconsistent_block_payload_for_fallback());
+        assert!(
+            !Error::ClientError(anyhow::anyhow!("boom")).inconsistent_block_payload_for_fallback()
+        );
+        assert!(!Error::UnsupportedUrl("weird://".into()).inconsistent_block_payload_for_fallback());
+    }
+
+    #[test]
+    fn block_number_hint_only_present_for_inconsistent_variants() {
+        assert_eq!(
+            Error::BlockHeaderRootsMismatch(7).inconsistent_block_number_hint(),
+            Some(7)
+        );
+        assert_eq!(
+            Error::TransactionsReceiptsMismatch(7).inconsistent_block_number_hint(),
+            Some(7)
+        );
+        assert_eq!(
+            Error::NotFullTransactionsFetched(7).inconsistent_block_number_hint(),
+            Some(7)
+        );
+        // Symmetry with `inconsistent_block_payload_for_fallback`: "not found"
+        // variants are not classified as inconsistent, and therefore must not
+        // surface a block-number hint via this accessor.
+        assert_eq!(
+            Error::FailedToGetBlock(7).inconsistent_block_number_hint(),
+            None
+        );
+        assert_eq!(
+            Error::FailedToGetReceipts(7).inconsistent_block_number_hint(),
+            None
+        );
+        assert_eq!(
+            Error::ClientError(anyhow::anyhow!("boom")).inconsistent_block_number_hint(),
+            None
+        );
+    }
+
+    #[test]
+    fn block_header_roots_mismatch_accessor_is_strict() {
+        assert_eq!(
+            Error::BlockHeaderRootsMismatch(99).block_header_roots_mismatch_block(),
+            Some(99)
+        );
+        // Only the literal `BlockHeaderRootsMismatch` variant should be exposed by
+        // this narrower accessor — callers asking for the broader "inconsistent"
+        // set must use `inconsistent_block_number_hint`.
+        assert_eq!(
+            Error::TransactionsReceiptsMismatch(99).block_header_roots_mismatch_block(),
+            None
+        );
+        assert_eq!(
+            Error::FailedToGetBlock(99).block_header_roots_mismatch_block(),
+            None
+        );
     }
 }
