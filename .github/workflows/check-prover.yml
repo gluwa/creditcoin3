@@ -26,6 +26,12 @@ jobs:
             indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
             chainKey: 4
 
+          # CC3 Devnet, BSC Testnet
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
+            chainKey: 5
+
           # CC3 Testnet, Sepolia Full Archive
           - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-testnet.creditcoin.network"
