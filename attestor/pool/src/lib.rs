@@ -179,168 +179,8 @@ pub struct Config {
 
 // ------------------------------------ [ Attestation Pool ] ----------------------------------- //
 
-/// Multiple-sender end of the attestation pool. A sender can be cloned to be shared across multiple
-/// threads.
-pub struct AttestationPoolSender {
-    common: std::sync::Arc<AttestationPoolCommon>,
-}
-
-/// Single-receiver end of the attestation pool. The attestation pool receiver is exclusive and can
-/// only be read by the [validation worker].
-///
-/// [validation worker]: crate::worker::validation
-pub struct AttestationPoolReceiver {
-    common: std::sync::Arc<AttestationPoolCommon>,
-}
-
-/// Creates a new attestation pool and returns its [`sender`] and [`receiver`] ends.
-///
-/// [`sender`]: AttestationPoolSender
-/// [`receiver`]: AttestationPoolReceiver
-pub fn attestation_pool(config: Config) -> (AttestationPoolSender, AttestationPoolReceiver) {
-    const QUORUM_HIGH: usize = 255;
-
-    if config.quorum.get() > QUORUM_HIGH {
-        tracing::warn!(quorum = config.quorum, "⚠️ Abnormally high qorum count");
-    }
-
-    tracing::info!("📮 Starting attestor pool");
-    tracing::info!(height = %config.start_height, "📮  with");
-    tracing::info!(interval = %config.attestation_interval, "📮  with");
-    tracing::info!(quorum = %config.quorum, "📮  with");
-
-    let attestors = ValidateAttestor::new(config.attestors);
-    let quorum = ValidateQuorum::new(
-        config.quorum,
-        config.attestation_interval,
-        config.start_height,
-        config.max_catchup,
-    );
-
-    let last_finalized_height = config.start_attestation.as_ref().map(|info| info.height);
-
-    let pool = AttestationPool::new(
-        quorum,
-        attestors,
-        config.metrics,
-        config.start_attestation.map(|info| info.digest),
-        last_finalized_height,
-    );
-
-    let common_send = std::sync::Arc::new(AttestationPoolCommon::new(pool));
-    let common_recv = std::sync::Arc::clone(&common_send);
-
-    let send = AttestationPoolSender {
-        common: common_send,
-    };
-
-    let recv = AttestationPoolReceiver {
-        common: common_recv,
-    };
-
-    (send, recv)
-}
-
-/// Shared data between the [`AttestationPoolSender`] and the [`AttestationPoolReceiver`].
-struct AttestationPoolCommon {
-    /// There are a few very important considerations to be had in our choice of a lock type:
-    ///
-    /// ## `sync` vs `async`
-    ///
-    /// All of the operations taking place inside of the attestation pool are strictly
-    /// compute-bound: no io operations, all state is stored inside of main memory. Also keep in
-    /// mind that we are running each worker in its own single-threaded [`tokio`] runtime, which
-    /// means we are blocking the tokio runner anyway regardless of if we use a `sync` or `async`
-    /// lock. We are using tokio for asynchronicity, not concurrency, and so this defeats a lot of
-    /// the purposes of using [`tokio::sync::Mutex`].
-    ///
-    /// ## Performance
-    ///
-    /// Besides there not being any `async` advantage to [`tokio::sync::Mutex`] in our use case, it
-    /// must also be noted that tokio's own locking primitives are very slow, due to what seems
-    /// mostly like overhead in the Rust `async` state machine. Some benchmarking has been done
-    /// (see [mutex-bench]) which shows [`std::sync::Mutex`] and [`parking_lot::Mutex`] performing
-    /// respectively around 33x and 70x faster than [`tokio::sync::Mutex`]. Since we don't have to
-    /// worry about blocking the tokio runtime worker, this seems like an obvious choice.
-    ///
-    /// ## Fairness
-    ///
-    /// Fairness measures a lock's ability to yield access equitably across multiple waiters, so
-    /// that one thread cannot continuously starve others by always acquiring the lock faster than
-    /// any other.
-    ///
-    /// Based on the same previous benchmarks, tokio's [`tokio::sync::Mutex`] behaves the best,
-    /// however its poor performance make this an undesirable choice. [`std::sync::Mutex`] and
-    /// [`parking_lot::Mutex`] compare similarly, with [`std::sync::Mutex`] having better eventual
-    /// finality by a slight margin. [`parking_lot::FairMutex`] does not seem to yield much better
-    /// fairness than its unfair alternative despite introducing some performance overhead. This
-    /// should be unsurprising, as per the docs
-    ///
-    /// > _"[`parking_lot::Mutex`] uses eventual fairness to ensure that the lock will be fair on
-    /// > average without sacrificing throughput. This is done by forcing a fair unlock on average
-    /// > every 0.5ms, which will force the lock to go to the next thread waiting for the mutex."_
-    ///
-    /// Fairness is very important in our use case, as each worker thread will often be racing for
-    /// access to the inner attestation pool, either to read, write or remove the latest
-    /// attestation quorum. In particular, the `p2p` worker thread tends to pretty aggressively
-    /// throttle the lock on the inner attestation pool if it is flooded by a sudden influx of
-    /// gossipsub messages. If we are not mindful about lock fairness, this can lead to a situation
-    /// where the `p2p` thread always wins the lock acquire race, starving the `validation` and
-    /// `production` threads for progress.
-    ///
-    /// ## Poisoning
-    ///
-    /// Finally, we need to consider failures in the attestor code. As we eventually aim to
-    /// implement a thread healing policy to handle thread failures on-the-fly, we need to be
-    /// particularly mindful about poisoning shared resources on a panic. [`parking_lot::Mutex`] is
-    /// very interesting in this case as it _cannot be poisoned_. This is in contrast to
-    /// [`std::sync::Mutex`] which can be poisoned if a thread panics while holding it.
-    ///
-    /// ## [`parking_lot`]
-    ///
-    /// Overall, I've settled for using [`parking_lot::Mutex`] for three main reasons (by order of
-    /// importance):
-    ///
-    /// - Decent fairness, avoiding thread starvation on continuous lock misses.
-    /// - Excellent performance.
-    /// - Poison-resistance, making it easier to handle cross-thread failure cases in the future.
-    ///
-    /// This might change in the future if the above assumptions no longer hold, but be sure to
-    /// benchmark any change before doing so!
-    ///
-    /// [mutex-bench]: https://github.com/gluwa/mutex-bench
-    pool: parking_lot::Mutex<AttestationPool>,
-    count_sender: std::sync::atomic::AtomicUsize,
-}
-
-impl AttestationPoolCommon {
-    pub fn new(pool: AttestationPool) -> Self {
-        Self {
-            pool: parking_lot::Mutex::new(pool),
-            count_sender: std::sync::atomic::AtomicUsize::new(1),
-        }
-    }
-}
-
-impl Default for AttestationPoolCommon {
-    fn default() -> Self {
-        Self {
-            pool: parking_lot::Mutex::new(AttestationPool::Closed),
-            count_sender: std::sync::atomic::AtomicUsize::new(1),
-        }
-    }
-}
-
-/// Attestation pool status. The pool can no longer receiver or retrieve attestations once it has
-/// been closed.
-#[allow(clippy::large_enum_variant)]
-enum AttestationPool {
-    Open(AttestationPoolInner),
-    Closed,
-}
-
 /// Concrete implementation of the attestation pool, holding all of the implementation logic.
-struct AttestationPoolInner {
+struct AttestationPool {
     forks: AttestationPoolForks,
     valid: AttestationPoolValid,
     digest_local: Option<cc_client::H256>,
@@ -354,38 +194,37 @@ struct AttestationPoolInner {
 }
 
 impl AttestationPool {
-    fn new(
-        validate_quorum: ValidateQuorum,
-        validate_attestor: ValidateAttestor,
-        metrics: Box<dyn MetricsAttestationPool>,
-        prev_digest: Option<attestor_primitives::Digest>,
-        last_finalized_height: Option<attestor_primitives::Height>,
-    ) -> Self {
-        Self::Open(AttestationPoolInner {
-            forks: AttestationPoolForks::new(prev_digest, last_finalized_height, validate_quorum),
+    fn new(config: Config) -> Self {
+        let validate_quorum = ValidateQuorum::new(
+            config.quorum,
+            config.attestation_interval,
+            config.start_height,
+            config.max_catchup,
+        );
+
+        let validate_attestor = ValidateAttestor::new(config.attestors);
+
+        Self {
+            forks: AttestationPoolForks::new(
+                config.start_attestation.map(|info| info.digest),
+                config.start_attestation.map(|info| info.height),
+                validate_quorum,
+            ),
             valid: AttestationPoolValid::new(),
             digest_local: None,
 
             validate_attestor,
 
             attestation_delay: AttestationPoolDelays::new(),
-            metrics,
+            metrics: config.metrics,
 
             wakers: std::collections::VecDeque::new(),
-        })
-    }
-
-    #[cfg(test)]
-    fn expect_open(&mut self) -> &mut AttestationPoolInner {
-        match self {
-            AttestationPool::Open(inner) => inner,
-            AttestationPool::Closed => todo!(),
         }
     }
 }
 
-impl AttestationPoolInner {
-    fn push(&mut self, attestation: common::types::Attestation) -> Result<(), Error> {
+impl AttestationPool {
+    pub fn send(&mut self, attestation: common::types::Attestation) -> Result<(), Error> {
         let height = attestation.header_number();
 
         tracing::debug!("Validating sender");
@@ -403,6 +242,51 @@ impl AttestationPoolInner {
         }
 
         Ok(())
+    }
+
+    pub fn mark_valid(&mut self, Permit(info): Permit) {
+        self.forks.split_off(info.height);
+        self.forks.forks_best = self.forks.find_best();
+        self.digest_local = Some(cc_client::H256::from(info.digest.digest.0));
+    }
+
+    pub fn mark_invalid(&mut self, Permit(info): Permit) {
+        self.forks.pop(info.into());
+    }
+
+    pub fn mark_for_later(
+        &mut self,
+        permit: Permit,
+        signed: common::types::AttestationSigned,
+        votes: Vec<common::types::Attestation>,
+    ) {
+        self.valid.push(signed, votes);
+        self.mark_valid(permit);
+    }
+
+    /// Retrieves the next pending validated attestation marked with [`mark_for_later`] to submit
+    /// it to the runtime.
+    ///
+    /// Returns:
+    ///
+    /// [`None`] if no pending validated attestation is available, can happen if there was not
+    /// enough time to validate attestations between submissions.
+    ///
+    /// [`mark_for_later`]: Self::mark_for_later
+    #[allow(clippy::type_complexity)]
+    pub fn take_next_validated(
+        &mut self,
+    ) -> Option<(
+        attestor_primitives::Height,
+        attestor_primitives::Digest,
+        cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
+            cc_client::H256,
+            cc_client::AccountId32,
+        >,
+        Vec<common::types::Attestation>,
+    )> {
+        tracing::debug!("Checking for next validated attestation");
+        self.valid.pop()
     }
 
     fn peek(&mut self) -> Option<(Quorum, Permit)> {
@@ -441,27 +325,145 @@ impl AttestationPoolInner {
             (quorum, permit)
         })
     }
+}
 
-    fn mark_valid(&mut self, Permit(info): Permit) {
-        self.forks.split_off(info.height);
-        self.forks.forks_best = self.forks.find_best();
-        self.digest_local = Some(cc_client::H256::from(info.digest.digest.0));
-    }
+impl futures::Stream for AttestationPool {
+    type Item = (Quorum, Permit, Option<cc_client::H256>);
 
-    fn mark_invalid(&mut self, Permit(info): Permit) {
-        self.forks.pop(info.into());
-    }
-
-    fn mark_for_later(
-        &mut self,
-        permit: Permit,
-        signed: common::types::AttestationSigned,
-        votes: Vec<common::types::Attestation>,
-    ) {
-        self.valid.push(signed, votes);
-        self.mark_valid(permit);
+    /// This future is cancellation-safe, as it does not perform any mutations on the inner pool.
+    #[tracing::instrument(skip_all)]
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        match self.peek() {
+            Some((quorum, permit)) => {
+                tracing::debug!(height = quorum.header_number(), "Found a quorum");
+                std::task::Poll::Ready(Some((quorum, permit, self.digest_local)))
+            }
+            None => {
+                tracing::debug!("No quorum found, waiting for new attestations...");
+                self.wakers.push_front(cx.waker().clone());
+                std::task::Poll::Pending
+            }
+        }
     }
 }
+
+// ----------------------------------------- [ Events ] ---------------------------------------- //
+
+impl AttestationPool {
+    #[tracing::instrument(skip_all, fields(target_sample_size), level = "debug")]
+    pub fn note_target_sample_size_change(&mut self, target_sample_size: u32) {
+        let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
+        let quorum_new = std::num::NonZeroUsize::new(threshold);
+
+        let Some(quorum_new) = quorum_new else {
+            return;
+        };
+
+        self.forks.note_target_sample_size_change(quorum_new);
+
+        if let Some(waker) = self.wakers.pop_back() {
+            tracing::debug!("Target sample size updated, waking receiver...");
+            waker.wake();
+        };
+    }
+
+    /// A new attestation has reached finality on the execution chain.
+    ///
+    /// Remove all attestations _up to and including_ that attestation height from the inner
+    /// attestation pool.
+    #[tracing::instrument(
+        skip_all,
+        fields(digest = ?info.digest, height = info.height),
+        level = "debug"
+    )]
+    pub fn note_attestation_finalization(
+        &mut self,
+        info: stream::util::AttestationInfo,
+    ) -> Result<(), Error> {
+        // Remove past quorums
+        self.valid.note_attestation_finalization(info);
+
+        // Update metrics
+        self.attestation_delay
+            .note_attestation_finalization(info, &self.metrics);
+
+        // Updating the inner pool
+        self.forks.note_attestation_finalization(info)?;
+
+        Ok(())
+    }
+
+    /// A new attestation interval has been set on-chain.
+    //
+    // Clear the attestation pool and update the target height and locally tracked attestation
+    // interval.
+    #[tracing::instrument(
+        skip_all,
+        fields(interval = interval_new),
+        level = "debug"
+    )]
+    pub fn note_attestation_interval_change(
+        &mut self,
+        interval_new: std::num::NonZero<attestor_primitives::Height>,
+    ) {
+        self.digest_local = None;
+
+        // Updating the inner pool
+        self.forks.note_attestation_interval_change(interval_new);
+
+        // Updating quorums
+        self.valid.note_attestation_interval_change();
+
+        // Update metrics
+        self.attestation_delay.note_attestation_interval_change();
+    }
+
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            attestors = attestors
+                .iter()
+                .map(ToString::to_string)
+                .reduce(|mut a, b| {
+                    a.reserve(b.len() + 1);
+                    a.push_str(", ");
+                    a.push_str(&b);
+                    a
+                })
+                .unwrap_or_default()
+        )
+        level = "debug"
+    )]
+    pub fn note_attestors_elected(&mut self, attestors: Vec<cc_client::AccountId32>) {
+        tracing::warn!("🗂️ Updating the attestor set");
+        self.validate_attestor = ValidateAttestor::new(attestors);
+    }
+
+    /// An attestation chain reversion has been detected.
+    /// We need to clear the structures `forks`, `valid`, and `attestation_delay`
+    #[tracing::instrument(
+        skip_all,
+        fields(digest = ?info.digest, height = info.height),
+        level = "debug"
+    )]
+    pub fn note_attestation_chain_reversion(&mut self, info: stream::util::AttestationInfo) {
+        // Clear digest local, as it no longer tracks a valid new attestation
+        self.digest_local = None;
+        // Updating the inner pool
+        self.forks.note_attestation_chain_reversion(info);
+
+        // Remove past quorums
+        self.valid.note_attestation_chain_reversion();
+
+        // Update metrics
+        self.attestation_delay.note_attestation_chain_reversion();
+    }
+}
+
+// ------------------------------------ [ Attestation Forks ] ----------------------------------- //
 
 /// Orders attestations by height.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -1291,326 +1293,6 @@ impl AttestationPoolDelays {
     }
 }
 
-// ----------------------------------- [ Attestation Sender ] ---------------------------------- //
-
-impl AttestationPoolSender {
-    /// Sends an attestation to the attestation pool. Returns [`None`] if the pool has been
-    /// [`closed`].
-    ///
-    /// [`closed`]: Self::close
-    #[tracing::instrument(
-        skip_all,
-        fields(
-            digest = ?attestation.digest(),
-            height = attestation.header_number()
-        )
-    )]
-    pub fn send(&self, attestation: common::types::Attestation) -> Option<Result<(), Error>> {
-        if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
-            Some(inner.push(attestation))
-        } else {
-            None
-        }
-    }
-
-    /// Closes the attestation pool. Successive calls to [`send`] will return [`None`], while
-    /// polling via the [`receiver`] end will terminate its [`Stream`].
-    ///
-    /// [`send`]: Self::send
-    /// [`receiver`]: AttestationPoolReceiver
-    /// [`Stream`]: futures::Stream
-    #[allow(unused)]
-    pub fn close(self) {
-        *self.common.pool.lock() = AttestationPool::Closed;
-    }
-
-    pub fn note_target_sample_size_change(&self, target_sample_size: u32) {
-        let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
-        let quorum_new = std::num::NonZeroUsize::new(threshold);
-
-        let Some(quorum_new) = quorum_new else {
-            return;
-        };
-
-        let AttestationPool::Open(inner) = &mut *self.common.pool.lock() else {
-            return;
-        };
-
-        inner.forks.note_target_sample_size_change(quorum_new);
-
-        if let Some(waker) = inner.wakers.pop_back() {
-            tracing::debug!("Target sample size updated, waking receiver...");
-            waker.wake();
-        };
-    }
-}
-
-// ----------------------------------------- [ Events ] ---------------------------------------- //
-
-impl AttestationPoolSender {
-    /// A new attestation has reached finality on the execution chain.
-    ///
-    /// Remove all attestations _up to and including_ that attestation height from the inner
-    /// attestation pool.
-    #[tracing::instrument(
-        skip_all,
-        fields(digest = ?info.digest, height = info.height),
-        level = "debug"
-    )]
-    pub fn note_attestation_finalization(
-        &mut self,
-        info: stream::util::AttestationInfo,
-    ) -> Result<(), Error> {
-        if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
-            // Remove past quorums
-            inner.valid.note_attestation_finalization(info);
-
-            // Update metrics
-            inner
-                .attestation_delay
-                .note_attestation_finalization(info, &inner.metrics);
-
-            // Updating the inner pool
-            inner.forks.note_attestation_finalization(info)?;
-        }
-
-        Ok(())
-    }
-
-    /// A new attestation interval has been set on-chain.
-    //
-    // Clear the attestation pool and update the target height and locally tracked attestation
-    // interval.
-    #[tracing::instrument(
-        skip_all,
-        fields(interval = interval_new),
-        level = "debug"
-    )]
-    pub fn note_attestation_interval_change(
-        &mut self,
-        interval_new: std::num::NonZero<attestor_primitives::Height>,
-    ) {
-        if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
-            inner.digest_local = None;
-            // Updating the inner pool
-            inner.forks.note_attestation_interval_change(interval_new);
-
-            // Updating quorums
-            inner.valid.note_attestation_interval_change();
-
-            // Update metrics
-            inner.attestation_delay.note_attestation_interval_change();
-        }
-    }
-
-    #[tracing::instrument(
-        skip_all,
-        fields(
-            attestors = attestors
-                .iter()
-                .map(ToString::to_string)
-                .reduce(|mut a, b| {
-                    a.reserve(b.len() + 1);
-                    a.push_str(", ");
-                    a.push_str(&b);
-                    a
-                })
-                .unwrap_or_default()
-        )
-        level = "debug"
-    )]
-    pub fn note_attestors_elected(&mut self, attestors: Vec<cc_client::AccountId32>) {
-        if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
-            tracing::warn!("🗂️ Updating the attestor set");
-            inner.validate_attestor = ValidateAttestor::new(attestors);
-        }
-    }
-
-    /// An attestation chain reversion has been detected.
-    /// We need to clear the structures `forks`, `valid`, and `attestation_delay`
-    #[tracing::instrument(
-        skip_all,
-        fields(digest = ?info.digest, height = info.height),
-        level = "debug"
-    )]
-    pub fn note_attestation_chain_reversion(&mut self, info: stream::util::AttestationInfo) {
-        if let AttestationPool::Open(inner) = &mut *self.common.pool.lock() {
-            // Clear digest local, as it no longer tracks a valid new attestation
-            inner.digest_local = None;
-            // Updating the inner pool
-            inner.forks.note_attestation_chain_reversion(info);
-
-            // Remove past quorums
-            inner.valid.note_attestation_chain_reversion();
-
-            // Update metrics
-            inner.attestation_delay.note_attestation_chain_reversion();
-        }
-    }
-}
-
-impl Clone for AttestationPoolSender {
-    fn clone(&self) -> Self {
-        self.common
-            .count_sender
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        Self {
-            common: std::sync::Arc::clone(&self.common),
-        }
-    }
-}
-
-impl Drop for AttestationPoolSender {
-    fn drop(&mut self) {
-        let count_sender = self
-            .common
-            .count_sender
-            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel)
-            .checked_sub(1);
-        if let Some(0) = count_sender {
-            *self.common.pool.lock() = AttestationPool::Closed;
-        }
-    }
-}
-
-// ---------------------------------- [ Attestation Receiver ] --------------------------------- //
-
-impl AttestationPoolReceiver {
-    /// Closes the attestation pool. Successive calls to [`send`] will return [`None`], while the
-    /// [`receiver`] will terminate its [`Stream`].
-    ///
-    /// [`send`]: AttestationPoolSender::send
-    /// [`receiver`]: AttestationPoolReceiver
-    /// [`Stream`]: futures::Stream
-    #[allow(unused)]
-    pub fn close(self) {
-        *self.common.pool.lock() = AttestationPool::Closed;
-    }
-
-    /// Marks an attestation as valid, causing it and all other attestations at the same height to
-    /// be removed from the attestation pool, as well as the pool's target height to be updated.
-    #[tracing::instrument(skip_all, fields(%permit))]
-    pub fn mark_valid(&self, permit: Permit) {
-        match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => {
-                tracing::debug!("Removing valid attestation");
-                inner.mark_valid(permit);
-            }
-            AttestationPool::Closed => {
-                tracing::warn!(
-                    "Tried to remove valid attestation from pool after it has been closed"
-                );
-            }
-        }
-    }
-
-    /// Marks an attestation as **invalid**, causing it to be removed from the attestation pool. The
-    /// pool's target height _is not_ updated.
-    #[tracing::instrument(skip_all, fields(%permit))]
-    pub fn mark_invalid(&self, permit: Permit) {
-        match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => {
-                tracing::debug!("Removing invalid attestation");
-                inner.mark_invalid(permit);
-            }
-            AttestationPool::Closed => {
-                tracing::warn!(
-                    "Tried to remove invalid attestation from pool after it has been closed"
-                );
-            }
-        }
-    }
-
-    /// Marks an attestation as valid and updates the pool's target height. Contrarily to
-    /// [`mark_valid`], this method does _not_ remove the attestation from the pool and instead
-    /// moves it to an unbounded pending queue for future submission by the [validation worker].
-    /// Pending validated attestations can be retrieved with [`take_next_validated`].
-    ///
-    /// [`mark_valid`]: Self::mark_valid
-    /// [validation worker]: crate::worker::validation
-    /// [`take_next_validated`]: Self::take_next_validated
-    #[tracing::instrument(skip_all, fields(%permit))]
-    pub fn mark_for_later(
-        &self,
-        permit: Permit,
-        signed: common::types::AttestationSigned,
-        votes: Vec<common::types::Attestation>,
-    ) {
-        match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => {
-                tracing::debug!("Marking attestation for later removal");
-                inner.mark_for_later(permit, signed, votes);
-            }
-            AttestationPool::Closed => {
-                tracing::warn!(
-                    "Tried to remove valid attestation from pool after it has been closed"
-                );
-            }
-        }
-    }
-
-    /// Retrieves the next pending validated attestation marked with [`mark_for_later`] to submit
-    /// it to the runtime.
-    ///
-    /// Returns:
-    ///
-    /// [`None`] if no pending validated attestation is available, can happen if there was not
-    /// enough time to validate attestations between submissions.
-    ///
-    /// [`mark_for_later`]: Self::mark_for_later
-    #[allow(clippy::type_complexity)]
-    pub fn take_next_validated(
-        &self,
-    ) -> Option<(
-        attestor_primitives::Height,
-        attestor_primitives::Digest,
-        cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
-            cc_client::H256,
-            cc_client::AccountId32,
-        >,
-        Vec<common::types::Attestation>,
-    )> {
-        match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => {
-                tracing::debug!("Checking for next validated attestation");
-                inner.valid.pop()
-            }
-            AttestationPool::Closed => {
-                tracing::warn!(
-                    "Tried to take attestation batch from pool after it has been closed"
-                );
-                None
-            }
-        }
-    }
-}
-
-impl futures::Stream for AttestationPoolReceiver {
-    type Item = (Quorum, Permit, Option<cc_client::H256>);
-
-    /// This future is cancellation-safe, as it does not perform any mutations on the inner pool.
-    #[tracing::instrument(skip_all)]
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        match &mut *self.common.pool.lock() {
-            AttestationPool::Open(inner) => match inner.peek() {
-                Some((quorum, permit)) => {
-                    tracing::debug!(height = quorum.header_number(), "Found a quorum");
-                    std::task::Poll::Ready(Some((quorum, permit, inner.digest_local)))
-                }
-                None => {
-                    tracing::debug!("No quorum found, waiting for new attestations...");
-                    inner.wakers.push_front(cx.waker().clone());
-                    std::task::Poll::Pending
-                }
-            },
-            AttestationPool::Closed => std::task::Poll::Ready(None),
-        }
-    }
-}
-
 // --------------------------------- [ Attestation Internals ] --------------------------------- //
 
 #[derive(Clone, Debug)]
@@ -2012,12 +1694,17 @@ mod fixtures {
     }
 
     #[rstest::fixture]
-    pub fn validate_quorum(#[default(2)] vote_count: usize) -> ValidateQuorum {
+    pub fn validate_quorum(
+        #[default(2)] vote_count: usize,
+        #[default(1)] attestation_interval: attestor_primitives::Height,
+        #[default(1)] start_height: attestor_primitives::Height,
+        #[default(common::constants::MAX_CATCHUP.get())] max_catchup: attestor_primitives::Height,
+    ) -> ValidateQuorum {
         ValidateQuorum {
             target_quorum: vote_count.try_into().unwrap(),
-            start_height: 1,
-            attestation_interval: std::num::NonZero::<attestor_primitives::Height>::MIN,
-            max_catchup: common::constants::MAX_CATCHUP,
+            attestation_interval: attestation_interval.try_into().unwrap(),
+            start_height,
+            max_catchup: max_catchup.try_into().unwrap(),
         }
     }
 
@@ -2120,28 +1807,25 @@ mod test {
     ) {
         use futures::stream::StreamExt as _;
 
-        let (sx, mut rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_2.attestation.clone()).is_ok());
 
-        let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
+        let (quorum_actual, permit, _digest_local) = pool.next().await.unwrap();
 
         pretty_assertions::assert_eq!(quorum_actual, quorum_expected);
 
-        rx.mark_valid(permit);
+        pool.mark_valid(permit);
 
-        let mut pool = rx.common.pool.lock();
-        let inner = pool.expect_open();
-
-        assert!(!inner.forks.forks_by_height.contains(&KeyHeight {
+        assert!(!pool.forks.forks_by_height.contains(&KeyHeight {
             height: 1,
             size: 2,
             digest: DIGEST_0
         }));
         pretty_assertions::assert_eq!(
-            inner.digest_local,
+            pool.digest_local,
             Some(cc_client::H256(attestation_1.attestation.digest().0))
         );
     }
@@ -2164,25 +1848,22 @@ mod test {
     ) {
         use futures::stream::StreamExt as _;
 
-        let (sx, mut rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
 
-        let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
+        let (quorum_actual, permit, _digest_local) = pool.next().await.unwrap();
 
         pretty_assertions::assert_eq!(quorum_actual, quorum_expected);
-        rx.mark_invalid(permit);
+        pool.mark_invalid(permit);
 
-        let mut pool = rx.common.pool.lock();
-        let inner = pool.expect_open();
-
-        assert!(inner.forks.votes_invalid.contains(&KeyDigest {
+        assert!(pool.forks.votes_invalid.contains(&KeyDigest {
             height: attestation_0.attestation.header_number(),
             digest: attestation_0.compound_digest()
         }));
 
-        assert!(inner.forks.votes_invalid.contains(&KeyDigest {
+        assert!(pool.forks.votes_invalid.contains(&KeyDigest {
             height: attestation_1.attestation.header_number(),
             digest: attestation_1.compound_digest()
         }));
@@ -2203,24 +1884,21 @@ mod test {
     ) {
         use futures::stream::StreamExt as _;
 
-        let (sx, mut rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
 
         // A vote which is note yet in `quorums_by_height` reaches quorum
-        sx.note_target_sample_size_change(1);
+        pool.note_target_sample_size_change(1);
 
-        let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
+        let (quorum_actual, permit, _digest_local) = pool.next().await.unwrap();
 
         // `mark_invalid` removes quorum under new validation rules. `quorums_by_height` must have
         // been updated by now or this will panic!
         pretty_assertions::assert_eq!(quorum_actual, quorum_expected);
-        rx.mark_invalid(permit);
+        pool.mark_invalid(permit);
 
-        let mut pool = rx.common.pool.lock();
-        let inner = pool.expect_open();
-
-        assert!(inner.forks.votes_invalid.contains(&KeyDigest {
+        assert!(pool.forks.votes_invalid.contains(&KeyDigest {
             height: attestation_0.attestation.header_number(),
             digest: attestation_0.compound_digest()
         }));
@@ -2245,17 +1923,17 @@ mod test {
     ) {
         use futures::stream::StreamExt as _;
 
-        let (sx, mut rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert_matches::assert_matches!(rx.take_next_validated(), None);
+        assert_matches::assert_matches!(pool.take_next_validated(), None);
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
 
-        let (quorum_actual, permit, _digest_local) = rx.next().await.unwrap();
+        let (quorum_actual, permit, _digest_local) = pool.next().await.unwrap();
 
         pretty_assertions::assert_eq!(quorum_actual, quorum_expected);
-        rx.mark_for_later(
+        pool.mark_for_later(
             permit,
             attestation_signed.clone(),
             vec![
@@ -2271,7 +1949,7 @@ mod test {
             cc_client::AccountId32,
         > = attestation_signed.clone().into();
 
-        assert_matches::assert_matches!(rx.take_next_validated(), Some((height, digest, attestation, votes)) => {
+        assert_matches::assert_matches!(pool.take_next_validated(), Some((height, digest, attestation, votes)) => {
             pretty_assertions::assert_eq!(height, attestation_0.attestation.header_number());
             pretty_assertions::assert_eq!(digest, attestation_0.attestation.digest());
             // Other types in this don't implement PartialEq and Eq...
@@ -2285,7 +1963,7 @@ mod test {
         });
 
         pretty_assertions::assert_eq!(
-            sx.common.pool.lock().expect_open().digest_local,
+            pool.digest_local,
             Some(cc_client::H256(attestation_signed.digest().0))
         );
     }
@@ -2300,43 +1978,31 @@ mod test {
         attestation_pending: AttestationVote,
         config: Config,
     ) {
-        let (mut sx, rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert!(sx
-            .send(attestation_pending.attestation.clone())
-            .unwrap()
-            .is_ok());
+        assert!(pool.send(attestation_pending.attestation.clone()).is_ok());
 
-        {
-            let mut pool = rx.common.pool.lock();
-            let inner = pool.expect_open();
+        pretty_assertions::assert_eq!(pool.forks.pending_by_digest.len(), 1);
+        pretty_assertions::assert_eq!(pool.forks.pending_by_prev_digest_tail.len(), 1);
+        pretty_assertions::assert_eq!(pool.forks.pending_by_height.len(), 1);
 
-            pretty_assertions::assert_eq!(inner.forks.pending_by_digest.len(), 1);
-            pretty_assertions::assert_eq!(inner.forks.pending_by_prev_digest_tail.len(), 1);
-            pretty_assertions::assert_eq!(inner.forks.pending_by_height.len(), 1);
-            assert!(inner
-                .forks
-                .pending_by_prev_digest_tail
-                .contains(&KeyTailPending {
-                    prev_digest_tail: PrevDigestTail(DIGEST_1.digest),
-                    height: 2,
-                    digest: attestation_pending.compound_digest(),
-                }));
-        }
+        assert!(pool
+            .forks
+            .pending_by_prev_digest_tail
+            .contains(&KeyTailPending {
+                prev_digest_tail: PrevDigestTail(DIGEST_1.digest),
+                height: 2,
+                digest: attestation_pending.compound_digest(),
+            }));
 
-        sx.note_attestation_finalization(stream::util::AttestationInfo {
+        pool.note_attestation_finalization(stream::util::AttestationInfo {
             digest: DIGEST_1.digest,
             height: 1,
         })
         .unwrap();
 
-        {
-            let mut pool = rx.common.pool.lock();
-            let inner = pool.expect_open();
-            let vote = AttestationVote::new(attestation_pending.attestation.clone());
-
-            pretty_assertions::assert_eq!(inner.forks.forks_best.clone().unwrap(), vote);
-        }
+        let vote = AttestationVote::new(attestation_pending.attestation.clone());
+        pretty_assertions::assert_eq!(pool.forks.forks_best.clone().unwrap(), vote);
     }
 
     #[tokio::test]
@@ -2352,21 +2018,17 @@ mod test {
         attestation_1: AttestationVote,
         config: Config,
     ) {
-        let (sx, rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
 
-        let mut pool = rx.common.pool.lock();
-        let inner = pool.expect_open();
-
-        pretty_assertions::assert_eq!(inner.forks.votes.len(), 2);
-        pretty_assertions::assert_eq!(inner.forks.forks_by_digest.len(), 2);
-        pretty_assertions::assert_eq!(inner.forks.forks_by_size.len(), 2);
+        pretty_assertions::assert_eq!(pool.forks.votes.len(), 2);
+        pretty_assertions::assert_eq!(pool.forks.forks_by_digest.len(), 2);
+        pretty_assertions::assert_eq!(pool.forks.forks_by_size.len(), 2);
 
         pretty_assertions::assert_eq!(
-            inner
-                .forks
+            pool.forks
                 .forks_by_digest
                 .get(&attestation_0.compound_digest())
                 .unwrap(),
@@ -2374,21 +2036,20 @@ mod test {
         );
 
         pretty_assertions::assert_eq!(
-            inner
-                .forks
+            pool.forks
                 .forks_by_digest
                 .get(&attestation_1.compound_digest())
                 .unwrap(),
             &attestation_1
         );
 
-        assert!(inner.forks.forks_by_size.contains(&KeySize {
+        assert!(pool.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 2,
             digest: attestation_0.compound_digest()
         }));
 
-        assert!(inner.forks.forks_by_size.contains(&KeySize {
+        assert!(pool.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 2,
             digest: attestation_1.compound_digest()
@@ -2408,7 +2069,7 @@ mod test {
         mut attestation_1: AttestationVote,
         config: Config,
     ) {
-        let (sx, rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
         attestation_1.attestation.continuity_proof =
             attestor_primitives::block::ContinuityProof::new(
@@ -2424,19 +2085,15 @@ mod test {
             "Attestation continuity proofs must not match for this test"
         );
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
 
-        let mut pool = rx.common.pool.lock();
-        let inner = pool.expect_open();
-
-        pretty_assertions::assert_eq!(inner.forks.votes.len(), 2);
-        pretty_assertions::assert_eq!(inner.forks.forks_by_digest.len(), 2);
-        pretty_assertions::assert_eq!(inner.forks.forks_by_size.len(), 2);
+        pretty_assertions::assert_eq!(pool.forks.votes.len(), 2);
+        pretty_assertions::assert_eq!(pool.forks.forks_by_digest.len(), 2);
+        pretty_assertions::assert_eq!(pool.forks.forks_by_size.len(), 2);
 
         pretty_assertions::assert_eq!(
-            inner
-                .forks
+            pool.forks
                 .forks_by_digest
                 .get(&attestation_0.compound_digest())
                 .unwrap(),
@@ -2444,21 +2101,20 @@ mod test {
         );
 
         pretty_assertions::assert_eq!(
-            inner
-                .forks
+            pool.forks
                 .forks_by_digest
                 .get(&attestation_1.compound_digest())
                 .unwrap(),
             &attestation_1
         );
 
-        assert!(inner.forks.forks_by_size.contains(&KeySize {
+        assert!(pool.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 3,
             digest: attestation_0.compound_digest()
         }));
 
-        assert!(inner.forks.forks_by_size.contains(&KeySize {
+        assert!(pool.forks.forks_by_size.contains(&KeySize {
             size: 1,
             height: 3,
             digest: attestation_1.compound_digest()
@@ -2472,11 +2128,11 @@ mod test {
         #[with([ATTESTOR_INVALID])] attestation: AttestationVote,
         config: Config,
     ) {
-        let (sx, _rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
         assert_matches::assert_matches!(
-            sx.send(attestation.attestation.clone()),
-            Some(Err(Error::Unauthorized(ATTESTOR_INVALID, 2)))
+            pool.send(attestation.attestation.clone()),
+            Err(Error::Unauthorized(ATTESTOR_INVALID, 2))
         );
     }
 
@@ -2495,28 +2151,17 @@ mod test {
     ) {
         use futures::stream::StreamExt as _;
 
-        let (sx, mut rx) = attestation_pool(config);
-        let mut fut = tokio_test::task::spawn(rx.next());
+        let mut pool = AttestationPool::new(config);
 
-        tokio_test::assert_pending!(fut.poll());
-        assert!(sx.send(attestation.attestation.clone()).unwrap().is_ok());
-        tokio_test::assert_ready_eq!(fut.poll(), Some((quorum, permit, None)));
+        tokio_test::assert_pending!(tokio_test::task::spawn(pool.next()).poll());
+
+        assert!(pool.send(attestation.attestation.clone()).is_ok());
+
+        tokio_test::assert_ready_eq!(
+            tokio_test::task::spawn(pool.next()).poll(),
+            Some((quorum, permit, None))
+        );
     }
-
-    #[tokio::test]
-    #[rstest::rstest]
-    #[timeout(TIMEOUT)]
-    async fn attestation_pool_async_close(_logs: (), config: Config) {
-        use futures::stream::StreamExt as _;
-
-        let (sx, mut rx) = attestation_pool(config);
-        let mut fut = tokio_test::task::spawn(rx.next());
-
-        tokio_test::assert_pending!(fut.poll());
-        sx.close();
-        tokio_test::assert_ready_eq!(fut.poll(), None);
-    }
-
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
@@ -2538,12 +2183,12 @@ mod test {
     ) {
         use futures::stream::StreamExt as _;
 
-        let (sx, mut rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
 
-        let actual = rx.next().await;
+        let actual = pool.next().await;
         let expected = Some((quorum, permit, None));
 
         pretty_assertions::assert_eq!(actual, expected);
@@ -2580,21 +2225,21 @@ mod test {
     ) {
         use futures::stream::StreamExt as _;
 
-        let (sx, mut rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
         // Source chain height 1 (default)
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_2.attestation.clone()).is_ok());
 
         // Source chain height 101
-        assert!(sx.send(attestation_3.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_4.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_3.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_4.attestation.clone()).is_ok());
 
         // NOTE: even though quorum 1 has LESS votes, it still passes the quorum threshold of 2.
         // The attestation pool always favors the HIGHEST quorum so as to improve catchup speed.
 
-        let actual = rx.next().await;
+        let actual = pool.next().await;
         let expected = Some((quorum, permit, None));
 
         pretty_assertions::assert_eq!(actual, expected);
@@ -2603,65 +2248,20 @@ mod test {
     #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
-    async fn attestation_pool_close_sender(
+    async fn attestation_pool_rejects_inadmissible_height(
         _logs: (),
-        #[with([ATTESTOR_VALID_1])] attestation: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0], 501, DIGEST_0)]
+        attestation_far_future: AttestationVote,
         config: Config,
     ) {
-        let (sx, rx) = attestation_pool(config);
-        rx.close();
-        assert_matches::assert_matches!(sx.send(attestation.attestation.clone()), None);
-    }
+        // Default config: start_height=1, interval=1, max_catchup=500,
+        // last_finalized_height=Some(0). Height 501 exceeds window of 0 + 500*1 = 500
+        let mut pool = AttestationPool::new(config);
 
-    #[tokio::test]
-    #[rstest::rstest]
-    #[timeout(TIMEOUT)]
-    async fn attestation_pool_close_receiver(
-        _logs: (),
-        #[with([ATTESTOR_VALID_1])] attestation: AttestationVote,
-        config: Config,
-    ) {
-        use futures::stream::StreamExt as _;
-
-        let (sx, mut rx) = attestation_pool(config);
-        assert!(sx.send(attestation.attestation.clone()).unwrap().is_ok());
-
-        sx.close();
-        assert!(rx.next().await.is_none());
-    }
-
-    #[rstest::rstest]
-    fn quorum_parameters_validate(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
-        attestation_0: AttestationVote,
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0])]
-        attestation_1: AttestationVote,
-        validate_quorum: ValidateQuorum,
-    ) {
-        assert!(validate_quorum.validate(&attestation_0));
-        assert!(!validate_quorum.validate(&attestation_1));
-    }
-
-    #[rstest::rstest]
-    fn validator_parameters_validate(
-        _logs: (),
-        #[from(attestation)]
-        #[with([ATTESTOR_VALID_0])]
-        attestation_0: AttestationVote,
-        #[from(attestation)]
-        #[with([ATTESTOR_INVALID])]
-        attestation_2: AttestationVote,
-        validate_attestor: ValidateAttestor,
-    ) {
-        assert!(validate_attestor
-            .validate(&attestation_0.attestation)
-            .is_ok());
         assert_matches::assert_matches!(
-            validate_attestor.validate(&attestation_2.attestation),
-            Err(Error::Unauthorized(ATTESTOR_INVALID, 2))
+            pool.send(attestation_far_future.attestation.clone()),
+            Err(Error::InvalidHeight(ATTESTOR_VALID_0, 501, 0))
         );
     }
 
@@ -2681,59 +2281,49 @@ mod test {
         attestation_2: AttestationVote,
         config: Config,
     ) {
-        let (mut sx, _rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_2.attestation.clone()).is_ok());
 
-        {
-            let mut inner = sx.common.pool.lock();
-            let forks = &inner.expect_open().forks;
+        assert!(pool.forks.forks_by_height.contains(&KeyHeight {
+            height: attestation_0.attestation.header_number(),
+            size: 1,
+            digest: attestation_0.compound_digest()
+        }));
+        assert!(pool.forks.forks_by_height.contains(&KeyHeight {
+            height: attestation_1.attestation.header_number(),
+            size: 1,
+            digest: attestation_1.compound_digest()
+        }));
+        assert!(pool.forks.forks_by_height.contains(&KeyHeight {
+            height: attestation_2.attestation.header_number(),
+            size: 1,
+            digest: attestation_2.compound_digest()
+        }));
 
-            assert!(forks.forks_by_height.contains(&KeyHeight {
-                height: attestation_0.attestation.header_number(),
-                size: 1,
-                digest: attestation_0.compound_digest()
-            }));
-            assert!(forks.forks_by_height.contains(&KeyHeight {
-                height: attestation_1.attestation.header_number(),
-                size: 1,
-                digest: attestation_1.compound_digest()
-            }));
-            assert!(forks.forks_by_height.contains(&KeyHeight {
-                height: attestation_2.attestation.header_number(),
-                size: 1,
-                digest: attestation_2.compound_digest()
-            }));
-        }
-
-        sx.note_attestation_finalization(stream::util::AttestationInfo {
+        pool.note_attestation_finalization(stream::util::AttestationInfo {
             height: 2,
             ..Default::default()
         })
         .unwrap();
 
-        {
-            let mut inner = sx.common.pool.lock();
-            let forks = &inner.expect_open().forks;
-
-            assert!(!forks.forks_by_height.contains(&KeyHeight {
-                height: attestation_0.attestation.header_number(),
-                size: 1,
-                digest: attestation_0.compound_digest()
-            }));
-            assert!(!forks.forks_by_height.contains(&KeyHeight {
-                height: attestation_1.attestation.header_number(),
-                size: 1,
-                digest: attestation_1.compound_digest()
-            }));
-            assert!(forks.forks_by_height.contains(&KeyHeight {
-                height: attestation_2.attestation.header_number(),
-                size: 1,
-                digest: attestation_2.compound_digest()
-            }));
-        }
+        assert!(!pool.forks.forks_by_height.contains(&KeyHeight {
+            height: attestation_0.attestation.header_number(),
+            size: 1,
+            digest: attestation_0.compound_digest()
+        }));
+        assert!(!pool.forks.forks_by_height.contains(&KeyHeight {
+            height: attestation_1.attestation.header_number(),
+            size: 1,
+            digest: attestation_1.compound_digest()
+        }));
+        assert!(pool.forks.forks_by_height.contains(&KeyHeight {
+            height: attestation_2.attestation.header_number(),
+            size: 1,
+            digest: attestation_2.compound_digest()
+        }));
     }
 
     #[tokio::test]
@@ -2752,41 +2342,31 @@ mod test {
         attestation_2: AttestationVote,
         config: Config,
     ) {
-        let (mut sx, _rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_2.attestation.clone()).is_ok());
 
-        {
-            let mut inner = sx.common.pool.lock();
-            let forks = &inner.expect_open().forks;
+        assert!(pool.forks.forks_by_height.contains(&KeyHeight {
+            height: attestation_0.attestation.header_number(),
+            size: 1,
+            digest: attestation_0.compound_digest()
+        }));
+        assert!(pool.forks.forks_by_height.contains(&KeyHeight {
+            height: attestation_1.attestation.header_number(),
+            size: 1,
+            digest: attestation_1.compound_digest()
+        }));
+        assert!(pool.forks.forks_by_height.contains(&KeyHeight {
+            height: attestation_2.attestation.header_number(),
+            size: 1,
+            digest: attestation_2.compound_digest()
+        }));
 
-            assert!(forks.forks_by_height.contains(&KeyHeight {
-                height: attestation_0.attestation.header_number(),
-                size: 1,
-                digest: attestation_0.compound_digest()
-            }));
-            assert!(forks.forks_by_height.contains(&KeyHeight {
-                height: attestation_1.attestation.header_number(),
-                size: 1,
-                digest: attestation_1.compound_digest()
-            }));
-            assert!(forks.forks_by_height.contains(&KeyHeight {
-                height: attestation_2.attestation.header_number(),
-                size: 1,
-                digest: attestation_2.compound_digest()
-            }));
-        }
+        pool.note_attestation_interval_change(std::num::NonZero::new(1).unwrap());
 
-        sx.note_attestation_interval_change(std::num::NonZero::new(1).unwrap());
-
-        {
-            let mut inner = sx.common.pool.lock();
-            let forks = &inner.expect_open().forks;
-
-            assert!(forks.forks_by_digest.is_empty());
-        }
+        assert!(pool.forks.forks_by_digest.is_empty());
     }
 
     #[tokio::test]
@@ -2808,49 +2388,39 @@ mod test {
         _quorum_validate: ValidateQuorum,
         #[with(_quorum_validate.clone())] config: Config,
     ) {
-        let (sx, _rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_2.attestation.clone()).is_ok());
 
-        {
-            let mut inner = sx.common.pool.lock();
-            let forks = &inner.expect_open().forks;
+        assert!(pool.forks.quorums_by_height.contains(&KeyHeight {
+            height: 1,
+            size: 2,
+            digest: attestation_0.compound_digest()
+        }));
+        assert!(!pool.forks.quorums_by_height.contains(&KeyHeight {
+            height: 2,
+            size: 1,
+            digest: attestation_2.compound_digest()
+        }));
 
-            assert!(forks.quorums_by_height.contains(&KeyHeight {
-                height: 1,
-                size: 2,
-                digest: attestation_0.compound_digest()
-            }));
-            assert!(!forks.quorums_by_height.contains(&KeyHeight {
-                height: 2,
-                size: 1,
-                digest: attestation_2.compound_digest()
-            }));
+        pretty_assertions::assert_eq!(pool.forks.forks_best, Some(attestation_0.clone()));
 
-            pretty_assertions::assert_eq!(forks.forks_best, Some(attestation_0.clone()));
-        }
+        pool.note_target_sample_size_change(1);
 
-        sx.note_target_sample_size_change(1);
+        assert!(pool.forks.quorums_by_height.contains(&KeyHeight {
+            height: 1,
+            size: 2,
+            digest: attestation_0.compound_digest()
+        }));
+        assert!(pool.forks.quorums_by_height.contains(&KeyHeight {
+            height: 2,
+            size: 1,
+            digest: attestation_2.compound_digest()
+        }));
 
-        {
-            let mut inner = sx.common.pool.lock();
-            let forks = &inner.expect_open().forks;
-
-            assert!(forks.quorums_by_height.contains(&KeyHeight {
-                height: 1,
-                size: 2,
-                digest: attestation_0.compound_digest()
-            }));
-            assert!(forks.quorums_by_height.contains(&KeyHeight {
-                height: 2,
-                size: 1,
-                digest: attestation_2.compound_digest()
-            }));
-
-            pretty_assertions::assert_eq!(forks.forks_best, Some(attestation_2.clone()));
-        }
+        pretty_assertions::assert_eq!(pool.forks.forks_best, Some(attestation_2.clone()));
     }
 
     #[tokio::test]
@@ -2872,49 +2442,39 @@ mod test {
         _quorum_validate: ValidateQuorum,
         #[with(_quorum_validate.clone())] config: Config,
     ) {
-        let (sx, _rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
-        assert!(sx.send(attestation_0.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_1.attestation.clone()).unwrap().is_ok());
-        assert!(sx.send(attestation_2.attestation.clone()).unwrap().is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_2.attestation.clone()).is_ok());
 
-        {
-            let mut inner = sx.common.pool.lock();
-            let forks = &inner.expect_open().forks;
+        assert!(pool.forks.quorums_by_height.contains(&KeyHeight {
+            height: 1,
+            size: 2,
+            digest: attestation_0.compound_digest()
+        }));
+        assert!(pool.forks.quorums_by_height.contains(&KeyHeight {
+            height: 2,
+            size: 1,
+            digest: attestation_2.compound_digest()
+        }));
 
-            assert!(forks.quorums_by_height.contains(&KeyHeight {
-                height: 1,
-                size: 2,
-                digest: attestation_0.compound_digest()
-            }));
-            assert!(forks.quorums_by_height.contains(&KeyHeight {
-                height: 2,
-                size: 1,
-                digest: attestation_2.compound_digest()
-            }));
+        pretty_assertions::assert_eq!(pool.forks.forks_best, Some(attestation_2.clone()));
 
-            pretty_assertions::assert_eq!(forks.forks_best, Some(attestation_2.clone()));
-        }
+        pool.note_target_sample_size_change(2);
 
-        sx.note_target_sample_size_change(2);
+        assert!(pool.forks.quorums_by_height.contains(&KeyHeight {
+            height: 1,
+            size: 2,
+            digest: attestation_0.compound_digest()
+        }));
+        assert!(!pool.forks.quorums_by_height.contains(&KeyHeight {
+            height: 2,
+            size: 1,
+            digest: attestation_2.compound_digest()
+        }));
 
-        {
-            let mut inner = sx.common.pool.lock();
-            let forks = &inner.expect_open().forks;
-
-            assert!(forks.quorums_by_height.contains(&KeyHeight {
-                height: 1,
-                size: 2,
-                digest: attestation_0.compound_digest()
-            }));
-            assert!(!forks.quorums_by_height.contains(&KeyHeight {
-                height: 2,
-                size: 1,
-                digest: attestation_2.compound_digest()
-            }));
-
-            pretty_assertions::assert_eq!(forks.forks_best, Some(attestation_0));
-        }
+        pretty_assertions::assert_eq!(pool.forks.forks_best, Some(attestation_0));
     }
 
     #[tokio::test]
@@ -2957,7 +2517,7 @@ mod test {
     ) {
         use futures::stream::StreamExt as _;
 
-        let (mut sx, mut rx) = attestation_pool(config);
+        let mut pool = AttestationPool::new(config);
 
         // ------------------------------------------------------------------------
         // 1) Create a quorum and mark it for later.
@@ -2965,18 +2525,10 @@ mod test {
         //      - valid.quorums_valid
         //      - digest_local
         // ------------------------------------------------------------------------
-        assert!(sx
-            .send(attestation_0.attestation.clone())
-            .unwrap()
-            .as_ref()
-            .is_ok());
-        assert!(sx
-            .send(attestation_1.attestation.clone())
-            .unwrap()
-            .as_ref()
-            .is_ok());
+        assert!(pool.send(attestation_0.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_1.attestation.clone()).is_ok());
 
-        let (_quorum_high, permit_0, _digest_local) = rx.next().await.unwrap();
+        let (_quorum_high, permit_0, _digest_local) = pool.next().await.unwrap();
 
         let attestation_signed_0 = common::types::AttestationSigned {
             attestation: attestation_0.attestation.attestation_data.clone(),
@@ -2988,7 +2540,7 @@ mod test {
             continuity_proof: attestation_0.attestation.continuity_proof.clone(),
         };
 
-        rx.mark_for_later(
+        pool.mark_for_later(
             permit_0,
             attestation_signed_0,
             vec![
@@ -3001,34 +2553,18 @@ mod test {
         // 2) Create another quorum and mark it invalid.
         //    This populates votes_invalid.
         // ------------------------------------------------------------------------
-        assert!(sx
-            .send(attestation_2.attestation.clone())
-            .unwrap()
-            .as_ref()
-            .is_ok());
-        assert!(sx
-            .send(attestation_3.attestation.clone())
-            .unwrap()
-            .as_ref()
-            .is_ok());
+        assert!(pool.send(attestation_2.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_3.attestation.clone()).is_ok());
 
-        let (_quorum_low, permit_1, _digest_local) = rx.next().await.unwrap();
-        rx.mark_invalid(permit_1);
+        let (_quorum_low, permit_1, _digest_local) = pool.next().await.unwrap();
+        pool.mark_invalid(permit_1);
 
         // ------------------------------------------------------------------------
         // 3) Create another quorum and leave it in forks.
         // This populates forks_by_digest / forks_by_height / forks_by_size / quorums_by_height / votes
         // ------------------------------------------------------------------------
-        assert!(sx
-            .send(attestation_4.attestation.clone())
-            .unwrap()
-            .as_ref()
-            .is_ok());
-        assert!(sx
-            .send(attestation_5.attestation.clone())
-            .unwrap()
-            .as_ref()
-            .is_ok());
+        assert!(pool.send(attestation_4.attestation.clone()).is_ok());
+        assert!(pool.send(attestation_5.attestation.clone()).is_ok());
 
         // ------------------------------------------------------------------------
         // 4) Add a pending attestation.
@@ -3036,34 +2572,26 @@ mod test {
         //      - pending_by_digest / pending_by_prev_digest_tail / pending_by_height
         //      - attestation_delay.time
         // ------------------------------------------------------------------------
-        assert!(sx
-            .send(attestation_pending.attestation.clone())
-            .unwrap()
-            .is_ok());
+        assert!(pool.send(attestation_pending.attestation.clone()).is_ok());
 
         // Sanity-check that we actually populated the structures before reversion.
-        {
-            let mut pool = rx.common.pool.lock();
-            let inner = pool.expect_open();
+        assert!(pool.digest_local.is_some());
 
-            assert!(inner.digest_local.is_some());
+        assert!(!pool.forks.forks_by_digest.is_empty());
+        assert!(!pool.forks.forks_by_height.is_empty());
+        assert!(!pool.forks.forks_by_size.is_empty());
+        assert!(pool.forks.forks_best.is_some());
 
-            assert!(!inner.forks.forks_by_digest.is_empty());
-            assert!(!inner.forks.forks_by_height.is_empty());
-            assert!(!inner.forks.forks_by_size.is_empty());
-            assert!(inner.forks.forks_best.is_some());
+        assert!(!pool.forks.pending_by_digest.is_empty());
+        assert!(!pool.forks.pending_by_prev_digest_tail.is_empty());
+        assert!(!pool.forks.pending_by_height.is_empty());
 
-            assert!(!inner.forks.pending_by_digest.is_empty());
-            assert!(!inner.forks.pending_by_prev_digest_tail.is_empty());
-            assert!(!inner.forks.pending_by_height.is_empty());
+        assert!(!pool.forks.votes.is_empty());
+        assert!(!pool.forks.votes_invalid.is_empty());
+        assert!(!pool.forks.quorums_by_height.is_empty());
 
-            assert!(!inner.forks.votes.is_empty());
-            assert!(!inner.forks.votes_invalid.is_empty());
-            assert!(!inner.forks.quorums_by_height.is_empty());
-
-            assert!(!inner.valid.quorums_valid.is_empty());
-            assert!(!inner.attestation_delay.time.is_empty());
-        }
+        assert!(!pool.valid.quorums_valid.is_empty());
+        assert!(!pool.attestation_delay.time.is_empty());
 
         // ------------------------------------------------------------------------
         // 5) Revert the chain and verify everything is cleared/reset.
@@ -3073,106 +2601,107 @@ mod test {
             digest: DIGEST_1.digest,
         };
 
-        sx.note_attestation_chain_reversion(reversion_info);
-
-        let mut pool = rx.common.pool.lock();
-        let inner = pool.expect_open();
+        pool.note_attestation_chain_reversion(reversion_info);
 
         // Digest local reset
-        pretty_assertions::assert_eq!(inner.digest_local, None);
+        pretty_assertions::assert_eq!(pool.digest_local, None);
 
         // Forks reset
-        assert!(inner.forks.forks_by_digest.is_empty());
-        assert!(inner.forks.forks_by_height.is_empty());
-        assert!(inner.forks.forks_by_size.is_empty());
-        pretty_assertions::assert_eq!(inner.forks.forks_best, None);
+        assert!(pool.forks.forks_by_digest.is_empty());
+        assert!(pool.forks.forks_by_height.is_empty());
+        assert!(pool.forks.forks_by_size.is_empty());
+        pretty_assertions::assert_eq!(pool.forks.forks_best, None);
 
-        assert!(inner.forks.pending_by_digest.is_empty());
-        assert!(inner.forks.pending_by_prev_digest_tail.is_empty());
-        assert!(inner.forks.pending_by_height.is_empty());
+        assert!(pool.forks.pending_by_digest.is_empty());
+        assert!(pool.forks.pending_by_prev_digest_tail.is_empty());
+        assert!(pool.forks.pending_by_height.is_empty());
 
-        assert!(inner.forks.votes.is_empty());
-        assert!(inner.forks.votes_invalid.is_empty());
-        assert!(inner.forks.quorums_by_height.is_empty());
+        assert!(pool.forks.votes.is_empty());
+        assert!(pool.forks.votes_invalid.is_empty());
+        assert!(pool.forks.quorums_by_height.is_empty());
 
         // Reversion should set the new finalized digest
-        pretty_assertions::assert_eq!(inner.forks.last_finalized_digest, Some(DIGEST_1.digest));
+        pretty_assertions::assert_eq!(pool.forks.last_finalized_digest, Some(DIGEST_1.digest));
 
         // Valid queue reset
-        assert!(inner.valid.quorums_valid.is_empty());
+        assert!(pool.valid.quorums_valid.is_empty());
 
         // Delay tracking reset
-        assert!(inner.attestation_delay.time.is_empty());
+        assert!(pool.attestation_delay.time.is_empty());
     }
 
-    // -------------------------------- [ Height Validation Tests ] ------------------------------- //
-
-    #[test]
-    fn validate_height_rejects_beyond_catchup_window() {
-        let vq = ValidateQuorum::new(
-            std::num::NonZeroUsize::new(2).unwrap(),
-            std::num::NonZero::new(10u64).unwrap(),
-            0,
-            std::num::NonZero::new(5u64).unwrap(), // max_catchup = 5 → window = 5*10 = 50
-        );
-        // With no finalization, upper bound = start_height + 50 = 50
-        assert!(vq.validate_height(50, None));
-        assert!(!vq.validate_height(60, None));
-
-        // With finalization at height 20, upper bound = 20 + 50 = 70
-        assert!(vq.validate_height(70, Some(20)));
-        assert!(!vq.validate_height(80, Some(20)));
-    }
-
-    #[test]
-    fn validate_height_rejects_at_or_below_finalized() {
-        let vq = ValidateQuorum::new(
-            std::num::NonZeroUsize::new(2).unwrap(),
-            std::num::NonZero::new(10u64).unwrap(),
-            0,
-            std::num::NonZero::new(500u64).unwrap(),
-        );
-        // Height at finalized is rejected
-        assert!(!vq.validate_height(20, Some(20)));
-        // Height below finalized is rejected
-        assert!(!vq.validate_height(10, Some(20)));
-        // First valid height above finalized
-        assert!(vq.validate_height(30, Some(20)));
-    }
-
-    #[test]
-    fn validate_height_accepts_start_height_when_no_finalization() {
-        let vq = ValidateQuorum::new(
-            std::num::NonZeroUsize::new(2).unwrap(),
-            std::num::NonZero::new(10u64).unwrap(),
-            100, // start_height = 100
-            std::num::NonZero::new(500u64).unwrap(),
-        );
-        // Before any finalization, start_height is valid
-        assert!(vq.validate_height(100, None));
-        // Below start_height is rejected
-        assert!(!vq.validate_height(90, None));
-        // Above start_height and aligned is valid
-        assert!(vq.validate_height(110, None));
-    }
-
-    #[tokio::test]
     #[rstest::rstest]
     #[timeout(TIMEOUT)]
-    async fn attestation_pool_rejects_inadmissible_height(
+    fn validate_height_rejects_beyond_catchup_window(
+        #[with(2, 10, 0, 5)] validate_quorum: ValidateQuorum,
+    ) {
+        // With no finalization, upper bound = start_height + 50 = 50
+        assert!(validate_quorum.validate_height(50, None));
+        assert!(!validate_quorum.validate_height(60, None));
+
+        // With finalization at height 20, upper bound = 20 + 50 = 70
+        assert!(validate_quorum.validate_height(70, Some(20)));
+        assert!(!validate_quorum.validate_height(80, Some(20)));
+    }
+
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    fn validate_height_rejects_at_or_below_finalized(
+        #[with(2, 10, 0, 500)] validate_quorum: ValidateQuorum,
+    ) {
+        // Height at finalized is rejected
+        assert!(!validate_quorum.validate_height(20, Some(20)));
+        // Height below finalized is rejected
+        assert!(!validate_quorum.validate_height(10, Some(20)));
+        // First valid height above finalized
+        assert!(validate_quorum.validate_height(30, Some(20)));
+    }
+
+    #[rstest::rstest]
+    #[timeout(TIMEOUT)]
+    fn validate_height_accepts_start_height_when_no_finalization(
+        #[with(2, 10, 100, 500)] validate_quorum: ValidateQuorum,
+    ) {
+        // Before any finalization, start_height is valid
+        assert!(validate_quorum.validate_height(100, None));
+        // Below start_height is rejected
+        assert!(!validate_quorum.validate_height(90, None));
+        // Above start_height and aligned is valid
+        assert!(validate_quorum.validate_height(110, None));
+    }
+
+    #[rstest::rstest]
+    fn quorum_parameters_validate(
         _logs: (),
         #[from(attestation)]
-        #[with([ATTESTOR_VALID_0], 501, DIGEST_0)]
-        attestation_far_future: AttestationVote,
-        config: Config,
+        #[with([ATTESTOR_VALID_0, ATTESTOR_VALID_1])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_1: AttestationVote,
+        validate_quorum: ValidateQuorum,
     ) {
-        // Default config: start_height=1, interval=1, max_catchup=500,
-        // last_finalized_height=Some(0). Height 501 exceeds window of 0 + 500*1 = 500
-        let (sx, _rx) = attestation_pool(config);
+        assert!(validate_quorum.validate(&attestation_0));
+        assert!(!validate_quorum.validate(&attestation_1));
+    }
 
+    #[rstest::rstest]
+    fn validator_parameters_validate(
+        _logs: (),
+        #[from(attestation)]
+        #[with([ATTESTOR_VALID_0])]
+        attestation_0: AttestationVote,
+        #[from(attestation)]
+        #[with([ATTESTOR_INVALID])]
+        attestation_2: AttestationVote,
+        validate_attestor: ValidateAttestor,
+    ) {
+        assert!(validate_attestor
+            .validate(&attestation_0.attestation)
+            .is_ok());
         assert_matches::assert_matches!(
-            sx.send(attestation_far_future.attestation.clone()),
-            Some(Err(Error::InvalidHeight(ATTESTOR_VALID_0, 501, 0)))
+            validate_attestor.validate(&attestation_2.attestation),
+            Err(Error::Unauthorized(ATTESTOR_INVALID, 2))
         );
     }
 }
